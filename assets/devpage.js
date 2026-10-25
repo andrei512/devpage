@@ -76,7 +76,10 @@ function disconnect() {
   stream = null;
 }
 
+const print = document.currentScript.hasAttribute("data-print");
+
 document.addEventListener("visibilitychange", () => {
+  if (print) return;
   if (document.hidden) {
     disconnect();
   } else {
@@ -87,4 +90,6 @@ document.addEventListener("visibilitychange", () => {
 window.addEventListener("pagehide", disconnect);
 
 drawDiagrams(document);
-if (!document.hidden) connect();
+// Print mode has no live connection; Chrome waits for this before printing.
+document.documentElement.dataset.ready = "true";
+if (!print && !document.hidden) connect();

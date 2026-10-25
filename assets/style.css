@@ -169,3 +169,19 @@ pre code { color: var(--text); }
 .diagram a { cursor: pointer; text-decoration: none; }
 .diagram a:hover rect, .diagram a:hover polygon, .diagram a:hover circle,
 .diagram a:hover ellipse, .diagram a:hover path { stroke: var(--accent); stroke-width: 2.5px; }
+
+/* A doc: one long page, its outline beside it. */
+
+.outline li.h2 { padding-left: 14px; font-size: 14px; }
+.doc .chapter + .chapter { margin-top: 48px; }
+
+/* Print mode, and the browser's own print: the page alone, in the light theme. */
+
+@media print {
+  :root { color-scheme: light; }
+  #nav { display: none; }
+  body { display: block; }
+}
+.print #nav { display: none; }
+
+.doc-title { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }

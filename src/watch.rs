@@ -20,12 +20,11 @@ pub fn start(
         if event.kind.is_access() {
             return;
         }
-        let watched = event.paths.iter().any(|path| {
+        let inside = event.paths.iter().any(|path| {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            path.strip_prefix(&document.base)
-                .is_ok_and(|relative| document.watches(relative))
+            path.starts_with(&document.base)
         });
-        if watched {
+        if inside {
             let _ = changes.send(());
         }
     })?;

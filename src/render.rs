@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
-use crate::document::Document;
+use crate::document::{Document, Paper, Pdf};
 use crate::highlight::Highlighter;
 use crate::nav;
 
@@ -72,13 +72,110 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
         page = escape(&title(source, file)),
         document = escape(&document.title),
         nav = navigation(document, &current),
-        root_class = if current == format!("/{}", document.root) {
+        root_class = if current == document.entry() {
             " current"
         } else {
             ""
         },
         content = markdown(source),
     )
+}
+
+/// A doc: every chapter on one page, in order, with an outline of the
+/// chapters' headings beside them. In print mode the outline and the live
+/// connection are left out and the page size is the doc's paper.
+pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) -> String {
+    let mut content = String::new();
+    let mut outline = String::new();
+    for chapter in chapters {
+        let source = std::fs::read_to_string(chapter).unwrap_or_default();
+        let html = markdown(&source);
+        for (level, id, text) in headings(&html) {
+            outline.push_str(&format!(
+                "<li class=\"h{level}\"><a href=\"#{id}\">{text}</a></li>"
+            ));
+        }
+        content.push_str(&format!("<section class=\"chapter\">{html}</section>"));
+    }
+    let paper = match pdf.paper {
+        Paper::A4 => "A4",
+        Paper::Letter => "letter",
+    };
+    let outline = if print {
+        String::new()
+    } else {
+        format!(
+            "<nav id=\"nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}</a><ul>{outline}</ul></nav>",
+            escape(&document.title)
+        )
+    };
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="/__devpage/style.css">
+<style>@page {{ size: {paper}; margin: 22mm 18mm; }}</style>
+</head>
+<body class="doc{print_class}">
+{outline}
+<main id="page"><article>{heading}{content}</article></main>
+<script src="/__devpage/pele.js"></script>
+<script src="/__devpage/devpage.js"{live}></script>
+</body>
+</html>"#,
+        title = escape(&document.title),
+        // A lone Markdown file's title is its own first heading; don't repeat it.
+        heading = if document.file_name.ends_with(".md") {
+            String::new()
+        } else {
+            format!("<p class=\"doc-title\">{}</p>", escape(&document.title))
+        },
+        print_class = if print { " print" } else { "" },
+        live = if print { " data-print" } else { "" },
+    )
+}
+
+/// The `h1` and `h2` headings of rendered HTML: level, id and text.
+fn headings(html: &str) -> Vec<(u8, String, String)> {
+    let mut found = Vec::new();
+    let mut rest = html;
+    while let Some(start) = rest.find("<h") {
+        rest = &rest[start + 2..];
+        let level = rest.as_bytes().first().copied().unwrap_or(0);
+        if level != b'1' && level != b'2' {
+            continue;
+        }
+        let close = format!("</h{}>", level as char);
+        let Some(end) = rest.find(&close) else { break };
+        let inner = &rest[..end];
+        let id = inner
+            .split("id=\"")
+            .nth(1)
+            .and_then(|tail| tail.split('"').next())
+            .unwrap_or_default()
+            .to_string();
+        let text = strip_tags(inner.split_once('>').map_or(inner, |(_, body)| body));
+        found.push((level - b'0', id, text));
+        rest = &rest[end..];
+    }
+    found
+}
+
+fn strip_tags(html: &str) -> String {
+    let mut text = String::new();
+    let mut in_tag = false;
+    for c in html.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            c if !in_tag => text.push(c),
+            _ => {}
+        }
+    }
+    text.trim().to_string()
 }
 
 /// The sidebar: the document's title, then the tree the pages' Topics sections form.
@@ -167,6 +264,34 @@ mod tests {
         let html = markdown("## Two words\n\n| a | b |\n| - | - |\n| 1 | 2 |\n");
         assert!(html.contains("id=\"two-words\""));
         assert!(html.contains("<table>"));
+    }
+
+    #[test]
+    fn a_doc_renders_its_chapters_in_order_with_an_outline() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-doc-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("a.md"), "# Context\n\n## Why\n\ntext").unwrap();
+        std::fs::write(dir.join("b.md"), "# Rollout\n").unwrap();
+        std::fs::write(
+            dir.join("d.yml"),
+            "kind: doc\ntitle: Plan\nchapters: [a.md, b.md]\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir.join("d.yml")).unwrap();
+        let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
+            panic!()
+        };
+        let html = doc(&document, chapters, pdf, false);
+        let (context, rollout) = (
+            html.find(">Context<").unwrap(),
+            html.find(">Rollout<").unwrap(),
+        );
+        assert!(context < rollout);
+        assert!(html.contains("href=\"#why\">Why</a>"), "{html}");
+        assert!(html.contains("size: A4"));
+        let print = doc(&document, chapters, pdf, true);
+        assert!(!print.contains("class=\"outline\""));
+        assert!(print.contains("data-print"));
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use axum::Router;
-use axum::extract::{Path, Request, State};
+use axum::extract::{Path, RawQuery, Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -16,7 +16,7 @@ use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::document::Document;
+use crate::document::{Document, Kind};
 use crate::render;
 
 #[derive(Clone)]
@@ -49,11 +49,21 @@ async fn log(request: Request, next: Next) -> Response {
 }
 
 async fn home(State(state): State<AppState>) -> Redirect {
-    Redirect::temporary(&format!("/{}", state.document.root))
+    Redirect::temporary(&state.document.entry())
 }
 
 /// A Markdown file becomes a page; anything else in the folder is served as is.
-async fn file(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+async fn file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    if path == state.document.file_name
+        && let Kind::Doc { chapters, pdf } = &state.document.kind
+    {
+        return Html(render::doc(&state.document, chapters, pdf, print)).into_response();
+    }
     let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,

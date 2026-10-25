@@ -1,9 +1,10 @@
-//! devpage: renders a document — Markdown files described by a YAML file — as a
-//! live website. Usage: `devpage [document.yml | folder]`.
+//! devpage: serves the documents of a repository — sites, docs and slides
+//! written in Markdown — live in the browser, and prints them to PDF.
 
 mod document;
 mod highlight;
 mod nav;
+mod pdf;
 mod render;
 mod server;
 mod watch;
@@ -13,6 +14,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
@@ -21,12 +23,37 @@ use crate::document::Document;
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
 
+#[derive(Parser)]
+#[command(version, about = "Live documents from Markdown in a repository")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+    /// A document file, a folder holding devpage.yml, or a Markdown file.
+    path: Option<PathBuf>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Print a doc or a deck to PDF.
+    Pdf {
+        path: PathBuf,
+        /// Where to write the PDF; `<title>.pdf` by default.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let path = std::env::args()
-        .nth(1)
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("."));
+    let cli = Cli::parse();
+    if let Some(Command::Pdf { path, output }) = cli.command {
+        let document = Arc::new(Document::load(&path)?);
+        let output = output.unwrap_or_else(|| PathBuf::from(format!("{}.pdf", document.title)));
+        pdf::print(document, &output).await?;
+        println!("{}", output.display());
+        return Ok(());
+    }
+    let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path)?);
 
     let (changes, _) = broadcast::channel(16);
