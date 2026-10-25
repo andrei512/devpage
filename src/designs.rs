@@ -397,12 +397,16 @@ pub fn page(path: &str) -> String {
 <html lang="en"><head><meta charset="utf-8"><title>{name}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/__devpage/style.css">
+{theme}
 </head><body class="design-page">
 <canvas class="design" src="/{path}" role="img" aria-label="{name}"></canvas>
+<div id="devpage-corner">{toggle}</div>
 <script type="module" src="/__devpage/design.js"></script>
 </body></html>"#,
         name = crate::render::escape(name),
         path = crate::render::escape(path),
+        theme = crate::navbar::theme_script(true),
+        toggle = crate::navbar::theme_toggle(),
     )
 }
 

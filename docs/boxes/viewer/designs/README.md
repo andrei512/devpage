@@ -29,7 +29,7 @@ else as a [problem](#problems).
 
 ## A first design
 
-The example's button, `examples/checkout/button.design`, whole:
+The example's button, `docs/designs/checkout/button.design`, whole:
 
 ```jsx
 // A button: one line of text on a filled, rounded box.
@@ -41,7 +41,7 @@ The example's button, `examples/checkout/button.design`, whole:
 ```
 
 A screen using it, cut down from the example's
-`examples/checkout/checkout.design` to its bones:
+`docs/designs/checkout/checkout.design` to its bones:
 
 ```jsx
 import Button from "./button.design"
@@ -55,9 +55,9 @@ import Button from "./button.design"
 
 Here is the whole checkout screen, embedded in this page:
 
-![Checkout](../../../../examples/checkout/checkout.design)
+![Checkout](../../../designs/checkout/checkout.design)
 
-Open either file in devpage — `devpage examples/checkout/checkout.design`, or
+Open either file in devpage — `devpage docs/designs/checkout/checkout.design`, or
 link to it from any page — and it is drawn on a canvas. Click **Pay $42** and
 the prototype moves to `confirmation.design`.
 
@@ -116,7 +116,7 @@ prop.
 The node types and their attributes follow Figma's document model — frames
 with auto layout, the same fills, strokes and effects — written as attributes
 in JSX syntax rather than as Figma's JSON. They are the set the
-[example designs](../../../../examples/checkout/checkout.design) use; another
+[example designs](../../../designs/checkout/checkout.design) use; another
 arrives when a design needs it.
 
 ## Attributes
@@ -219,7 +219,8 @@ A design is a [document](../writing-a-document/README.md#four-kinds): its
 address shows it on a canvas, centred, at its own size — scaled down to fit
 the window when it is bigger, never enlarged — and a reader can zoom with the
 pinch gesture or **Ctrl**/**⌘** and the wheel, and pan by dragging or
-scrolling.
+scrolling. The canvas page has the light/dark switch in its corner, the same
+switch every page has, and remembers the choice with them.
 
 A design's **drawing** is its root's box plus anything painted outside it — a
 shadow, a child placed past an edge — as in Figma's export. Every surface shows
@@ -230,11 +231,13 @@ A page **embeds** one with the image syntax — `![Checkout](checkout.design)` �
 or, in raw HTML, with an image of it — `<img src="checkout.design">`, written
 however HTML allows. An embedded design is shown the same way: at its own
 size, never enlarged, scaled down only as far as it needs to fit the page's
-width and the window's height, centred on a quiet stage that sets it apart from
-the text. It is clickable like the design's own address, and a link in the
+width and the window's height — on a slide, the room the slide leaves it —
+centred on a quiet stage that sets it apart from the text. It is clickable like the design's own address, and a link in the
 stage's corner opens it on its own canvas page. Embedded designs follow the
-page's live updates. In a PDF there is no window, so an embedded design prints
-at its own size, scaled down only to fit the paper's width.
+page's live updates and its light/dark switch: a design's own colours never
+change, but the page behind any part it leaves transparent does. In a PDF there is no window, so an embedded design prints
+at its own size, scaled down only to fit the paper's width — or, on a slide,
+the room the slide leaves it, as on screen.
 
 While a design is open, saving any file it is made of redraws it in place —
 only the parts that changed are sent to the browser. A design deleted while
@@ -248,7 +251,7 @@ at 1×, from the same layout and the same scene as the canvas
 ([one renderer](../constraints/a-design-has-one-renderer.md)):
 
 ```sh
-curl -s http://localhost:3030/examples/checkout/checkout.design.png -o checkout.png
+curl -s http://localhost:3030/docs/designs/checkout/checkout.design.png -o checkout.png
 ```
 
 This is how an agent looks at its work: write the file, fetch the PNG, look,
@@ -269,9 +272,9 @@ it, reported by `devpage check` like a broken link
 ([Checking links](../checking-links/README.md)), and returned instead of a PNG:
 
 ```text
-examples/checkout/checkout.design:7:11: Button has no prop "lable"
-examples/checkout/button.design:2:21: padding: expected pixels or an array of 2 or 4, found "12px"
-examples/checkout/cart.design:1:1: import ./row.design — no such file
+docs/designs/checkout/checkout.design:7:11: Button has no prop "lable"
+docs/designs/checkout/button.design:2:21: padding: expected pixels or an array of 2 or 4, found "12px"
+docs/designs/checkout/cart.design:1:1: import ./row.design — no such file
 ```
 
 While a design has problems the canvas keeps showing the last valid drawing,

@@ -20,6 +20,16 @@ It is titled by its `# heading` and printed with the default PDF settings.
 A longer doc is split into **chapters**, one Markdown file each, listed in
 order in a document file:
 
+<FileTree>
+
+- design/sync/
+  - devpage.yml — the doc: its title and the chapters in order
+  - context.md — chapter 1
+  - design.md — chapter 2
+  - rollout.md — chapter 3
+
+</FileTree>
+
 ```yaml
 kind: doc
 title: Sync design
@@ -89,8 +99,13 @@ pdf:
   footer: "{page} / {pages}"            # default: "{page} / {pages}"
 ```
 
-`{page}` is the page's number and `{pages}` the count. Page numbers, header and
-footer exist only on paper — the doc in the browser is one continuous page.
+`{page}` is the page's number and `{pages}` the count.
+
+<Callout title="Only on paper">
+Page numbers, header and footer exist only on paper — the doc in the browser is
+one continuous page.
+</Callout>
+
 Every field of `pdf` is optional; the exact contract is in the
 [configuration reference](../configuration-reference/README.md#doc).
 

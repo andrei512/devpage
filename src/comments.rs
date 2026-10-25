@@ -369,9 +369,26 @@ mod browser {
     use crate::document::Document;
     use crate::server;
 
-    /// Serves `entry` from `root` and opens `path` in a headless Chrome with a
-    /// profile of its own.
+    /// Serves `entry` from `root`, opens `path` in a headless Chrome with a
+    /// profile of its own and turns comment mode on, as a reader starting a
+    /// comment does.
     async fn open(
+        name: &str,
+        root: &Path,
+        entry: &Path,
+        path: &str,
+    ) -> (Browser, chromiumoxide::Page, tokio::task::JoinHandle<()>) {
+        let opened = open_off(name, root, entry, path).await;
+        eval::<bool>(
+            &opened.1,
+            "(document.querySelector('.comment-mode').click(), true)",
+        )
+        .await;
+        opened
+    }
+
+    /// The same, with comment mode as a first visit finds it: off.
+    async fn open_off(
         name: &str,
         root: &Path,
         entry: &Path,
@@ -464,6 +481,78 @@ mod browser {
 
     #[tokio::test]
     #[ignore]
+    async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload() {
+        let root = folder("mode");
+        std::fs::write(root.join("a.md"), "# A\n\nA paragraph to comment on.\n").unwrap();
+        let (mut browser, page, events) =
+            open_off("mode", &root, &root.join("a.md"), "/a.md").await;
+        let hover = "(document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)";
+        let pressed = "document.querySelector('.comment-mode').getAttribute('aria-pressed')";
+
+        // Off: hovering offers nothing, and the switch is not pressed.
+        eval::<bool>(&page, hover).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!eval::<bool>(&page, "!!document.querySelector('.comment-button')").await);
+        assert_eq!(eval::<String>(&page, pressed).await, "false");
+
+        // On: the icon appears beside the paragraph, and a comment can be made.
+        eval::<bool>(
+            &page,
+            "(document.querySelector('.comment-mode').click(), true)",
+        )
+        .await;
+        assert_eq!(eval::<String>(&page, pressed).await, "true");
+        eval::<bool>(&page, "(document.querySelector('article h1').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)").await;
+        eval::<bool>(&page, hover).await;
+        assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+        eval::<bool>(
+            &page,
+            "(document.querySelector('.comment-button').click(), true)",
+        )
+        .await;
+        assert!(
+            until(
+                &page,
+                "!!document.querySelector('#devpage-comments .composer textarea')"
+            )
+            .await
+        );
+        eval::<bool>(
+            &page,
+            "(() => { const box = document.querySelector('#devpage-comments .composer textarea');
+               box.value = 'Is this the right paragraph?';
+               box.closest('form').requestSubmit(); return true; })()",
+        )
+        .await;
+        assert!(until(&page, "!!document.querySelector('mark.comment')").await);
+
+        // Remembered: after a reload the switch is still on, and turning it off
+        // removes the icon while the thread stays.
+        page.reload().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(eval::<String>(&page, pressed).await, "true");
+        eval::<bool>(
+            &page,
+            "(document.querySelector('.comment-mode').click(), true)",
+        )
+        .await;
+        eval::<bool>(&page, hover).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert!(!eval::<bool>(&page, "!!document.querySelector('.comment-button')").await);
+        assert!(
+            until(
+                &page,
+                "!!document.querySelector('#devpage-comments .thread')"
+            )
+            .await
+        );
+
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
     async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
         let root = folder("select");
         std::fs::write(
@@ -492,13 +581,13 @@ mod browser {
         assert!(
             until(
                 &page,
-                "!!document.querySelector('#comments .composer textarea')"
+                "!!document.querySelector('#devpage-comments .composer textarea')"
             )
             .await
         );
         eval::<bool>(
             &page,
-            "(() => { const box = document.querySelector('#comments .composer textarea');
+            "(() => { const box = document.querySelector('#devpage-comments .composer textarea');
                box.value = 'Every write, or only the outbox?';
                box.closest('form').requestSubmit(); return true; })()",
         )
@@ -512,8 +601,8 @@ mod browser {
         );
         let layout: String = eval(
             &page,
-            "innerWidth + ' ' + document.getElementById('comments').className
-             + ' ' + !!document.querySelector('#comments .composer')",
+            "innerWidth + ' ' + document.getElementById('devpage-comments').className
+             + ' ' + !!document.querySelector('#devpage-comments .composer')",
         )
         .await;
         assert_eq!(
@@ -538,11 +627,53 @@ mod browser {
         assert!(
             until(
                 &page,
-                "(document.getElementById('comments')?.textContent ?? '').includes('Detached comments')
+                "(document.getElementById('devpage-comments')?.textContent ?? '').includes('Detached comments')
                  && !document.querySelector('mark.comment')"
             )
             .await
         );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+        let root = folder("narrow");
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\nA paragraph long enough to reach the right edge of a narrow window, and then some more words.\n\n| a | b | c | d | e |\n| --- | --- | --- | --- | --- |\n| a_rather_long_cell_value | another_rather_long_cell | a_third_long_cell_value | yet_another_long_cell | the_last_long_cell_value |\n",
+        )
+        .unwrap();
+        let (mut browser, page, events) = open("narrow", &root, &root.join("a.md"), "/a.md").await;
+        for width in [390, 820] {
+            page.execute(SetDeviceMetricsOverrideParams::new(width, 800, 1.0, false))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            // Hover the heading, then the paragraph, so the paragraph counts
+            // as newly hovered at each width.
+            eval::<bool>(
+                &page,
+                "(document.querySelector('article h1').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })),
+                  document.querySelector('.comment-button')?.remove(),
+                  document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)",
+            )
+            .await;
+            assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+            let fits: String = eval(
+                &page,
+                "(() => { const b = document.querySelector('.comment-button').getBoundingClientRect();
+                   const w = document.documentElement.clientWidth;
+                   return [b.left >= 0, b.right <= w, document.documentElement.scrollWidth <= w].join(' '); })()",
+            )
+            .await;
+            assert_eq!(
+                fits, "true true true",
+                "at {width}px: icon left, icon right, no page scroll"
+            );
+        }
         browser.close().await.ok();
         events.abort();
     }
@@ -572,7 +703,7 @@ mod browser {
         .await;
         let quote: String = eval(
             &page,
-            "document.querySelector('#comments .composer blockquote').textContent",
+            "document.querySelector('#devpage-comments .composer blockquote').textContent",
         )
         .await;
         assert_eq!(
@@ -581,7 +712,7 @@ mod browser {
         );
         eval::<bool>(
             &page,
-            "(() => { const box = document.querySelector('#comments .composer textarea');
+            "(() => { const box = document.querySelector('#devpage-comments .composer textarea');
                box.value = 'Why a day?'; box.closest('form').requestSubmit(); return true; })()",
         )
         .await;
@@ -600,7 +731,7 @@ mod browser {
                 &page,
                 "[...document.querySelectorAll('mark.comment')].map(m => m.textContent).join('|')
                    .replace(/\\s+/g, ' ') .includes('retried until acknowledged')
-                 && !(document.getElementById('comments')?.textContent ?? '').includes('Detached')"
+                 && !(document.getElementById('devpage-comments')?.textContent ?? '').includes('Detached')"
             )
             .await
         );
@@ -630,7 +761,8 @@ mod browser {
         let (mut browser, page, events) =
             open("deck", &root, &root.join("devpage.yml"), "/devpage.yml").await;
 
-        let shown = "getComputedStyle(document.getElementById('comments')).display !== 'none'";
+        let shown =
+            "getComputedStyle(document.getElementById('devpage-comments')).display !== 'none'";
         assert!(until(&page, "!!document.querySelector('mark.comment')").await);
         assert!(!eval::<bool>(&page, shown).await, "hidden until asked for");
         eval::<bool>(
@@ -639,7 +771,11 @@ mod browser {
         )
         .await;
         assert!(until(&page, shown).await);
-        let text: String = eval(&page, "document.getElementById('comments').innerText").await;
+        let text: String = eval(
+            &page,
+            "document.getElementById('devpage-comments').innerText",
+        )
+        .await;
         assert!(text.contains("Sharper?"), "{text}");
         eval::<bool>(
             &page,

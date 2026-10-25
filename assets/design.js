@@ -33,6 +33,8 @@ if (!print && !failure) {
 // The largest bitmap the CPU paints, per side, however far a reader zooms in.
 const MAX_BITMAP = 8192;
 const hosts = new Set();
+// Every canvas a scan has started.
+const started = new WeakSet();
 
 // A design's address in the served folder, from a link relative to `base`.
 function address(link, base) {
@@ -91,6 +93,32 @@ function addressed(message) {
   return path;
 }
 
+// The height an embed's stage may take: the window's — or on a slide, a fixed
+// 1920 × 1080 stage scaled to the window, what the slide has left below the
+// stage, down to its bottom padding, in the slide's own pixels.
+function room(stage) {
+  const slide = stage.closest(".slide");
+  if (!slide) return innerHeight;
+  // Where the room starts: the top of a grid or flex box the stage sits in,
+  // which centres it there — measuring from the stage's own top would chase
+  // its own size — else the stage's top.
+  let from = stage;
+  for (let at = stage.parentElement; at && at !== slide; at = at.parentElement) {
+    if (/^(inline-)?(grid|flex)$/.test(getComputedStyle(at).display)) {
+      from = at;
+      break;
+    }
+  }
+  const box = slide.getBoundingClientRect();
+  const scale = box.height / slide.offsetHeight || 1;
+  const top = (from.getBoundingClientRect().top - box.top) / scale;
+  let padding = 0;
+  for (let at = stage.parentElement; at && !padding; at = at === slide ? null : at.parentElement) {
+    padding = parseFloat(getComputedStyle(at).paddingBottom) || 0;
+  }
+  return Math.max(0, slide.offsetHeight - top - padding);
+}
+
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The opaque color the page shows behind `element`, as 0xRRGGBB: its
@@ -122,11 +150,21 @@ class Host {
     this.overlay = null;
     this.frame = 0;
     if (mode === "embed") {
+      // A canvas made again from the page's HTML comes with copies of what
+      // the last one added beside it.
+      for (const stale of canvas.parentElement.querySelectorAll(":scope > a.design-open, :scope > .design-problems")) {
+        stale.remove();
+      }
+      canvas.removeAttribute("style");
       this.link = document.createElement("a");
       this.link.className = "design-open";
       this.link.textContent = "Open";
       this.link.title = "Open this design on its own page";
       canvas.parentElement.append(this.link);
+      // The stage's room can change after the design arrives — a widget
+      // mounting around it, a slide being shown: fit it again then.
+      this.resized = new ResizeObserver(() => this.paint());
+      this.resized.observe(canvas.parentElement);
     }
     this.attach();
     this.listen();
@@ -161,6 +199,10 @@ class Host {
     this.cpu = null;
     this.view.fitted = true;
     if (this.link) this.link.href = `/${path}`;
+    // A new scene starts empty, and the stream sends a design's whole scene
+    // only when it opens: open it again, even if another canvas already
+    // watches this design.
+    watch.key = null;
     rewatch();
   }
 
@@ -180,6 +222,7 @@ class Host {
 
   close() {
     this.overlay?.close();
+    this.resized?.disconnect();
     hosts.delete(this);
     rewatch();
   }
@@ -213,12 +256,17 @@ class Host {
     const box = this.canvas.getBoundingClientRect();
     if (this.mode === "embed") {
       // Its own size, scaled down to fit the stage's width and — on screen —
-      // the window's height; the stage centres it.
+      // the window's height, or on a slide the room left above the slide's
+      // bottom padding; the stage centres it.
       const stage = this.canvas.parentElement;
       const style = getComputedStyle(stage);
       const across = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      const down = innerHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
-      const zoom = Math.min(1, across / w, print ? Infinity : down / h);
+      const down = room(stage) - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      // Not laid out yet — hidden, or its widget still mounting.
+      if (across <= 0 || down <= 0) return false;
+      // Paper has no window, but a slide is the same stage in print.
+      const tall = print && !stage.closest(".slide") ? Infinity : down / h;
+      const zoom = Math.min(1, across / w, tall);
       this.canvas.style.width = `${w * zoom}px`;
       this.canvas.style.height = `${h * zoom}px`;
       Object.assign(this.view, { zoom, x: 0, y: 0 });
@@ -447,10 +495,23 @@ function fail(canvas, message) {
 // Starts every design canvas under `root` that isn't drawn yet, and stops
 // those no longer in the page.
 export function scan(root = document) {
-  for (const host of [...hosts]) if (!host.canvas.isConnected && host.mode !== "overlay") host.close();
+  // An embed whose canvas left the page may be coming back made again — a
+  // widget around it mounting afresh after a page refetch: what it showed,
+  // and the way back, go to the next canvas of the same design.
+  const carried = [];
+  for (const host of [...hosts]) {
+    if (host.canvas.isConnected || host.mode === "overlay") continue;
+    if (host.mode === "embed") {
+      carried.push({ src: host.canvas.getAttribute("src"), path: host.path, history: host.history });
+    }
+    host.close();
+  }
   const page = document.body.classList.contains("design-page");
   for (const canvas of root.querySelectorAll("canvas.design[src]")) {
-    if (canvas.dataset.started) continue;
+    // By element, not by its mark: a widget mounting its content copies the
+    // HTML, mark and all, into a canvas no one has started.
+    if (started.has(canvas)) continue;
+    started.add(canvas);
     canvas.dataset.started = "true";
     if (failure) {
       console.error("devpage: the design engine didn't load", failure);
@@ -459,7 +520,10 @@ export function scan(root = document) {
     }
     const base = canvas.closest("[data-source]")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
-    const host = new Host(canvas, path, { mode: page ? "page" : "embed" });
+    const at = page ? -1 : carried.findIndex((state) => state.src === canvas.getAttribute("src"));
+    const state = at >= 0 ? carried.splice(at, 1)[0] : null;
+    const host = new Host(canvas, state?.path ?? path, { mode: page ? "page" : "embed" });
+    if (state) host.history = state.history;
     if (page) {
       addEventListener("popstate", () => {
         host.closeOverlay();
@@ -472,6 +536,46 @@ export function scan(root = document) {
 addEventListener("resize", () => {
   for (const host of hosts) host.paint();
 });
+
+// A theme switch changes the page's background, which the GPU paints behind
+// a design: every canvas paints again. On a page the page script switches the
+// theme; the canvas page has no page script, so this one runs its switch —
+// the same choice, kept under the same name.
+new MutationObserver(() => {
+  for (const host of hosts) host.paint();
+}).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+if (document.body.classList.contains("design-page")) {
+  const system = matchMedia("(prefers-color-scheme: dark)");
+  const saved = () => {
+    try {
+      const theme = localStorage.getItem("devpage-theme");
+      return theme === "light" || theme === "dark" ? theme : null;
+    } catch {
+      return null;
+    }
+  };
+  const apply = (theme = saved()) => {
+    document.documentElement.dataset.theme = theme || (system.matches ? "dark" : "light");
+    const label = document.documentElement.dataset.theme === "dark" ? "Switch to light" : "Switch to dark";
+    for (const button of document.querySelectorAll(".theme-toggle")) {
+      button.title = label;
+      button.setAttribute("aria-label", label);
+    }
+  };
+  apply();
+  system.addEventListener("change", () => apply());
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".theme-toggle")) return;
+    const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    try {
+      localStorage.setItem("devpage-theme", theme);
+    } catch {
+      // Storage may be blocked; the switch still holds for this page.
+    }
+    apply(theme);
+  });
+}
 
 // The page's one watch stream, over every design its canvases show. A
 // browser keeps at most six connections to devpage open, so the page never

@@ -6,12 +6,15 @@ mod comments;
 mod designs;
 mod document;
 mod highlight;
+mod icons;
 mod index;
 mod nav;
+mod navbar;
 mod pdf;
 mod render;
 mod server;
 mod watch;
+mod widgets;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;

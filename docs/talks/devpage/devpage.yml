@@ -1,0 +1,23 @@
+# The devpage talk: what devpage does and why to use it, as a deck made with
+# devpage — every slide uses what it describes. Its design, slide by slide,
+# is docs/boxes/showcase/README.md.
+kind: slides
+title: devpage
+logo: ../../logo.svg
+widgets: ../../widgets
+slides:
+  - title.md
+  - problem.md
+  - kinds.md
+  - designs.md
+  - live.md
+  - markdown.md
+  - diagrams.md
+  - widgets.md
+  - own-widgets.md
+  - comments.md
+  - checked.md
+  - paper.md
+  - navigation.md
+  - deploy.md
+  - start.md

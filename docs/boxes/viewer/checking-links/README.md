@@ -18,7 +18,11 @@ Every link a reader could follow and every file a page loads:
   `chapters` and `slides` must name existing files.
 - **Topics entries** — each must point at an existing page.
 - **External links** — `http` and `https` addresses must answer with a status
-  below 400, following redirects, within 10 seconds. devpage asks for each one
+  below 400, following redirects. An answer of 400 or above is a broken link
+  at once. An address that doesn't answer within 10 seconds, or can't be
+  connected to, may only be a slow network, so it is asked again before it
+  counts — see [In the preview](#in-the-preview) and
+  [`devpage check`](#devpage-check) for how. devpage asks for each one
   as a browser asks for a page, accepting HTML, since some sites answer other
   requests with an error no reader sees. Each address is asked once per check,
   however many links point at it.
@@ -37,6 +41,10 @@ Every link a reader could follow and every file a page loads:
 
 `mailto:` and other schemes are not checked.
 
+Links in a [widget](../widgets/README.md)'s content are checked like any other,
+since devpage renders that Markdown. Links a widget's own code builds in the
+browser are not: devpage never runs widget code on the server.
+
 ## In the preview
 
 While devpage serves a document, each page lists its own problems in a bar at
@@ -46,19 +54,31 @@ diagram node. They update as
 you edit, like the rest of the page: fix the link, save, and the problem goes.
 devpage also prints each problem once on its terminal, as it first finds it:
 
+<Terminal title="devpage's terminal">
+
 ```text
+$ devpage docs
+devpage → http://localhost:3030
 docs/boxes/viewer/README.md:42: broken link ../serving/README.md — no such file
 docs/README.md:7: broken link design/devpage.yml — in docs/design/devpage.yml: chapter rollout.md does not exist
 docs/README.md:9: broken link talk/devpage.yml#9 — the deck has 3 slides
 docs/README.md:12: https://example.com/gone — 404 Not Found
 ```
 
+</Terminal>
+
 Files are named by their path from the top of the served folder. A document
 file that can't be loaded is reported on the page that links to it.
 
-External links are checked in the background, once per address for as long as
-devpage runs, so a slow site never holds a page up; a problem with one shows up
-on the page when its answer arrives.
+External links are checked in the background, so a slow site never holds a
+page up. An address that answers 400 or above shows as a problem as soon as
+its answer arrives. One that doesn't answer within 10 seconds, or can't be
+connected to, is asked again after 30 seconds, then 60, then every 120 — and
+shows as a problem only after three failures in a row, as
+`<address> — <why>, 3 times in a row`. Once it answers, the problem goes. An
+address that has answered is not asked again for as long as devpage runs.
+Each change reaches open pages through the
+[live-update stream](../live-updates/README.md), like a saved file.
 
 ## `devpage check`
 
@@ -70,7 +90,10 @@ devpage check design.md       # one Markdown file
 `devpage check` takes the same argument as `devpage`, checks that document and
 every page and document reachable from it by links within the served folder,
 prints every problem in the same `file:line: problem` form, and exits with `1`
-if there was any and `0` if there were none. It starts no server. Use it in a
+if there was any and `0` if there were none. An external address that doesn't
+answer within 10 seconds, or can't be connected to, is asked once more with 30
+seconds to answer before it is reported; one that answers 400 or above is
+reported at once. It starts no server. Use it in a
 test or a CI job to keep the docs from shipping a broken link. devpage's own
 tests check devpage's docs the same way, external links aside, so the test
 suite needs no network.

@@ -1,4 +1,4 @@
-# An example doc: a design split into chapters, read as one page.
+# A test fixture: a doc split into chapters, read as one page.
 kind: doc
 title: Offline sync
 chapters:

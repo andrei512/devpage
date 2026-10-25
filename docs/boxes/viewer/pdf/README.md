@@ -29,7 +29,10 @@ agent wants.
 ## The Chrome it drives
 
 devpage does not render PDF itself. It starts its own server in the
-background, which logs nothing, opens the document in print mode in a headless Chrome, waits until
+background, which logs nothing, opens the document in print mode in a headless Chrome — laid out
+as paper from the start, with the print media type, so every slide of a deck
+is shown and a design embedded on any of them is fitted where it will print —
+waits until
 every diagram is drawn and every embedded design is painted — for at most 20
 seconds, after which it prints whatever the page shows, so a design that never
 paints (one with problems, say) costs that wait but doesn't stop the PDF; `devpage check`
@@ -51,8 +54,9 @@ The Chrome tests drive the same copy.
 ## Why the PDF matches the screen
 
 Print mode is the same page, with the same Markdown, stylesheet, highlighting
-and diagrams; it only leaves out live updates, comments, navigation and the
-deck's controls, and sets the page size
+and diagrams; it only leaves out live updates, comments, navigation, the
+deck's controls and soft shadows (PDF viewers draw them as grey boxes), and
+sets the page size
 ([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)).
 A deck's slides are laid out at a fixed 1920 × 1080 and only scaled to the
 window, so the printed page is the slide as it shows.

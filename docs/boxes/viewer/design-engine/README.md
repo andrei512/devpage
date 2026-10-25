@@ -223,6 +223,11 @@ paints from that one display list on the GPU or the CPU alike, and paints only w
 the scene or the view does — a zoom, a pan, a resize — at most once per
 animation frame.
 
+On the GPU the module first fills the canvas with the page's own background,
+read from the page under it, so a design's transparent parts show the page;
+a theme switch changes that background, so every canvas paints again when the
+page's `data-theme` changes.
+
 Without WebGPU the module paints with `vello_cpu` once per zoom level, and a
 pan only moves that painting on the canvas. Print mode always paints on the
 CPU, into a 2D canvas, which Chrome prints reliably.
@@ -241,7 +246,10 @@ loads the design script only on a page that has a design. An embedded
 design navigates inside its own canvas, with a back stack of its own, so the
 page around it stays where it is; and when the page fetches itself again, each
 embedded canvas still in it is kept with its drawing, and the stream changes
-only if the set of designs did.
+only if the set of designs did. A canvas inside a widget is made again when
+React mounts the widget afresh; the design script hands the new canvas the
+old one's design and back stack, by its `src`, and reopens the stream so it
+gets its whole scene.
 
 ## Failure modes
 

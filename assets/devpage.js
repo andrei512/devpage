@@ -9,19 +9,135 @@
 
 const print = document.currentScript.hasAttribute("data-print");
 
-function drawDiagrams(root) {
-  for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
-    const diagram = document.createElement("div");
-    diagram.className = "diagram";
+// ---- Widgets --------------------------------------------------------------
+// The server leaves each widget as a placeholder carrying its name, its props'
+// source and its content rendered as Markdown; Mermaid fences stay as
+// <pre lang="mermaid"> and become Diagram widgets here. Each placeholder is
+// mounted with React, on load and after every live update.
+
+const widgetModules = {};
+
+// Widgets render other widgets by name; compiled widgets look them up here.
+globalThis.__devpageWidget = (name) => widgetModules[name]?.default ?? (() => { throw new Error(`<${name}> is not a widget`); });
+
+const widgetUrls = {};
+
+// Why a widget's module didn't load — a compile error in it or in a helper it
+// imports — so the widget's place shows the reason.
+const widgetLoadErrors = {};
+
+// Loads a widget's module, again when its address changed — an edited widget
+// or helper gives the folder a new version — puts its exported CSS in the page
+// once, and loads the widgets it renders by name, which it lists.
+async function loadWidget(name) {
+  const url = (window.devpageWidgets || {})[name];
+  if (!url) throw new Error(`<${name}> is not a widget`);
+  if (widgetUrls[name] !== url) {
     try {
-      diagram.innerHTML = pele.render(pre.textContent).svg;
+      widgetModules[name] = await import(url);
     } catch (error) {
-      const message = document.createElement("pre");
-      message.className = "diagram-error";
-      message.textContent = `Diagram error: ${error.message}\n\n${pre.textContent}`;
-      diagram.append(message);
+      // An edit that broke it shows the error, not the last version that worked.
+      delete widgetModules[name];
+      delete widgetUrls[name];
+      throw error;
     }
-    pre.replaceWith(diagram);
+    widgetUrls[name] = url;
+    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used)
+      .then(() => { delete widgetLoadErrors[used]; })
+      .catch((error) => { widgetLoadErrors[used] = error; })));
+    document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
+    const css = widgetModules[name].css;
+    if (css) {
+      const style = document.createElement("style");
+      style.dataset.widget = name;
+      style.textContent = css;
+      document.head.append(style);
+    }
+  }
+  return widgetModules[name];
+}
+
+async function mountWidgets(root) {
+  for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
+    const placeholder = document.createElement("div");
+    placeholder.dataset.widget = "Diagram";
+    placeholder.dataset.props = "{}";
+    placeholder.dataset.source = pre.textContent;
+    pre.replaceWith(placeholder);
+  }
+  const placeholders = [...root.querySelectorAll("[data-widget]")].filter((el) => !el.parentElement.closest("[data-widget]"));
+  if (!placeholders.length) return;
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  // Only the widgets this content names, nested ones included, and those they
+  // render by name.
+  const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
+  await Promise.all([...names].map((name) => loadWidget(name)
+    .then(() => { delete widgetLoadErrors[name]; })
+    .catch((error) => { widgetLoadErrors[name] = error; })));
+
+  class Boundary extends React.Component {
+    constructor(props) { super(props); this.state = { error: null }; }
+    static getDerivedStateFromError(error) { return { error }; }
+    render() {
+      if (!this.state.error) return this.props.children;
+      return React.createElement("pre", { className: "widget-error" }, `<${this.props.name}>: ${this.state.error.message}`);
+    }
+  }
+
+  const attributes = (el) => {
+    const props = {};
+    for (const { name, value } of el.attributes) {
+      if (name === "class") props.className = value;
+      else if (name === "for") props.htmlFor = value;
+      else if (name === "style") props.style = Object.fromEntries(value.split(";").filter(Boolean).map((d) => {
+        const [k, ...v] = d.split(":");
+        return [k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v.join(":").trim()];
+      }));
+      else props[name] = value;
+    }
+    return props;
+  };
+
+  // Turns rendered content into React elements, so a widget's children can
+  // hold other widgets and a Tabs can read its Tabs' titles.
+  const toReact = (node, key) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (node.dataset.widget) return widgetElement(node, key);
+    const props = { ...attributes(node), key };
+    if (!node.querySelector("[data-widget]")) {
+      if (["BR", "HR", "IMG", "INPUT"].includes(node.tagName)) return React.createElement(node.tagName.toLowerCase(), props);
+      return React.createElement(node.tagName.toLowerCase(), { ...props, dangerouslySetInnerHTML: { __html: node.innerHTML } });
+    }
+    return React.createElement(node.tagName.toLowerCase(), props, ...[...node.childNodes].map((child, i) => toReact(child, i)));
+  };
+
+  const widgetElement = (node, key) => {
+    const name = node.dataset.widget;
+    let props;
+    try {
+      props = new Function(`return (${node.dataset.props || "{}"});`)();
+    } catch (error) {
+      return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${error.message}`);
+    }
+    const children = [...node.childNodes].map((child, i) => toReact(child, i)).filter((c) => c !== null && c !== "\n");
+    const component = widgetModules[name]?.default;
+    if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${widgetLoadErrors[name]?.message ?? "could not be loaded"}`);
+    // Nested widgets are plain elements, so a parent reads their props — a
+    // Tabs reads each Tab's title; the outermost one catches what they throw.
+    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
+  };
+
+  await Promise.all(placeholders.map((el) => new Promise((resolve) => {
+    const element = React.createElement(Boundary, { name: el.dataset.widget }, widgetElement(el, 0));
+    const root = createRoot(el);
+    root.render(React.createElement(Mounted, { onMount: resolve }, element));
+  })));
+
+  function Mounted({ onMount, children }) {
+    React.useEffect(() => { onMount(); }, []);
+    return children;
   }
 }
 
@@ -60,11 +176,14 @@ function drawDesigns() {
 
 // A page fetched again keeps the canvases it already has: each embedded
 // design still in the page keeps its drawing and its stream. They never leave
-// this document — a canvas moved between documents may lose its context.
+// this document — a canvas moved between documents may lose its context. An
+// embed inside a widget is React's to make again; the design script carries
+// what it shows across that instead.
 function keepDesigns(swap) {
-  const kept = [...document.querySelectorAll("#page .design-embed")];
+  const outside = (embed) => !embed.closest("[data-widget]");
+  const kept = [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside);
   swap();
-  for (const embed of document.querySelectorAll("#page .design-embed")) {
+  for (const embed of [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside)) {
     // By selector: a problems bar can sit before the canvas.
     const src = embed.querySelector("canvas.design")?.getAttribute("src");
     const at = kept.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);
@@ -87,18 +206,24 @@ async function load(url) {
   // a document that changed kind — can't be swapped in part: load it whole.
   if (frameOf(next.body) !== frameOf(document.body)) {
     location.assign(url);
-    return true;
+    return "navigating";
   }
   keepDesigns(() => {
-    for (const id of ["page", "nav"]) {
+    for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
       const fresh = next.getElementById(id);
-      if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
+      if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
     }
   });
+  document.getElementById("devpage-navbar")?.classList.remove("open");
+  applyTheme();
+  applyCommentMode();
   document.title = next.title;
-  drawDiagrams(document.getElementById("page"));
+  // The fresh page names its widgets' current versions.
+  const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
+  if (list) new Function(list.textContent)();
+  await mountWidgets(document.getElementById("devpage-page"));
   drawDesigns();
-  markBroken(document.getElementById("page"));
+  markBroken(document.getElementById("devpage-page"));
   showSlide();
   loadComments();
   return true;
@@ -118,7 +243,10 @@ document.addEventListener("click", async (event) => {
     if (url.hash) location.hash = url.hash;
     return;
   }
-  if (await load(url)) {
+  const loaded = await load(url);
+  // A page of another kind loads whole; touching history now would cancel it.
+  if (loaded === "navigating") return;
+  if (loaded) {
     history.pushState(null, "", url);
     if (url.hash) document.querySelector(url.hash)?.scrollIntoView();
     else window.scrollTo(0, 0);
@@ -217,10 +345,10 @@ function highlight(model, [start, end], id) {
 }
 
 function panel() {
-  let aside = document.getElementById("comments");
+  let aside = document.getElementById("devpage-comments");
   if (!aside) {
     aside = document.createElement("aside");
-    aside.id = "comments";
+    aside.id = "devpage-comments";
     aside.className = "comment-ui";
     document.body.append(aside);
   }
@@ -274,10 +402,10 @@ async function loadComments() {
 
 // Where the threads aren't beside the text, a button opens and closes them.
 function toggleButton() {
-  let button = document.getElementById("comments-toggle");
+  let button = document.getElementById("devpage-comments-toggle");
   if (!button) {
     button = document.createElement("button");
-    button.id = "comments-toggle";
+    button.id = "devpage-comments-toggle";
     button.className = "comment-ui";
     button.addEventListener("click", () => document.body.classList.toggle("show-comments"));
     document.body.append(button);
@@ -288,7 +416,7 @@ function toggleButton() {
 // Beside the text on a wide page: each card level with its anchor, pushed down
 // so none overlap. Elsewhere — narrow screens, decks — the panel is a list.
 function layoutComments() {
-  const aside = document.getElementById("comments");
+  const aside = document.getElementById("devpage-comments");
   if (!aside) return;
   const beside = !document.body.classList.contains("slides") && matchMedia("(min-width: 1100px)").matches;
   aside.classList.toggle("beside", beside);
@@ -312,7 +440,7 @@ window.addEventListener("resize", layoutComments);
 
 function focusThread(id) {
   document.body.classList.add("show-comments");
-  const card = document.querySelector(`#comments .thread[data-thread="${CSS.escape(id)}"]`);
+  const card = document.querySelector(`#devpage-comments .thread[data-thread="${CSS.escape(id)}"]`);
   card?.scrollIntoView({ block: "nearest" });
   card?.querySelector("textarea")?.focus();
 }
@@ -395,7 +523,7 @@ async function send(action, body, card) {
 // or cancelled.
 function compose(section, anchor, near) {
   document.querySelectorAll(".comment-button").forEach((button) => button.remove());
-  document.querySelector("#comments .composer")?.remove();
+  document.querySelector("#devpage-comments .composer")?.remove();
   const aside = panel();
   const card = document.createElement("div");
   card.className = "thread composer";
@@ -417,11 +545,17 @@ function compose(section, anchor, near) {
   card.querySelector("textarea").focus();
 }
 
+// A speech bubble, drawn in the text color so it follows the theme.
+const commentIcon =
+  '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 3.5h12A1.5 1.5 0 0 1 17.5 5v8a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V5A1.5 1.5 0 0 1 4 3.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
 function commentButton(label, title, top, left, onClick) {
   document.querySelectorAll(".comment-button").forEach((button) => button.remove());
   const button = document.createElement("button");
-  button.className = "comment-button comment-ui";
-  button.textContent = label;
+  button.className = label ? "comment-button comment-ui" : "comment-button comment-icon comment-ui";
+  button.innerHTML = commentIcon;
+  if (label) button.append(label);
+  button.setAttribute("aria-label", title);
   button.title = title;
   button.style.cssText = `position:absolute;top:${top}px;left:${left}px`;
   button.addEventListener("mousedown", (event) => event.preventDefault());
@@ -430,18 +564,57 @@ function commentButton(label, title, top, left, onClick) {
   return button;
 }
 
+// Commenting is opt-in: the comment-mode switch beside the theme toggle turns
+// on the two ways to start a comment below, and the browser remembers it.
+// Threads already written show either way.
+function commentMode() {
+  try {
+    return localStorage.getItem("devpage-comment-mode") === "on";
+  } catch {
+    return document.documentElement.dataset.commentMode === "on";
+  }
+}
+
+function applyCommentMode(on = commentMode()) {
+  document.documentElement.dataset.commentMode = on ? "on" : "off";
+  for (const button of document.querySelectorAll(".comment-mode")) {
+    button.setAttribute("aria-pressed", String(on));
+  }
+  if (!on) {
+    document.querySelectorAll(".comment-button").forEach((button) => button.remove());
+    hovered = null;
+  }
+}
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.(".comment-mode")) return;
+  const on = !commentMode();
+  try {
+    localStorage.setItem("devpage-comment-mode", on ? "on" : "off");
+  } catch {
+    // Storage may be blocked; the switch still holds for this page.
+  }
+  applyCommentMode(on);
+});
+
 // Hovering a paragraph — or a list item, table, code block or diagram —
 // offers a comment on the whole of it.
 const blocks = "p, li, pre, table, .diagram, blockquote, h1, h2, h3, h4";
 let hovered = null;
+applyCommentMode();
 document.addEventListener("mouseover", (event) => {
-  if (print || !getSelection().isCollapsed) return;
+  if (print || !commentMode() || !getSelection().isCollapsed) return;
   const block = event.target.closest?.(blocks);
   const section = block?.closest("[data-source]");
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
   hovered = block;
   const rect = block.getBoundingClientRect();
-  commentButton("+", "Comment on this paragraph", scrollY + rect.top, scrollX + Math.max(rect.left - 34, 0), () => {
+  // The icon sits just right of the block, level with its first line — or,
+  // when the window has no room there, just inside the block's right edge.
+  const size = 28;
+  const room = document.documentElement.clientWidth - 8;
+  const left = rect.right + 10 + size <= room ? rect.right + 10 : Math.max(Math.min(rect.right, room) - size - 4, 0);
+  commentButton("", "Comment on this paragraph", scrollY + rect.top, scrollX + left, () => {
     const model = textModel(section);
     const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
     if (anchor.quote) compose(section, anchor, block);
@@ -450,7 +623,7 @@ document.addEventListener("mouseover", (event) => {
 
 // Selecting text inside one source offers a comment on it.
 document.addEventListener("mouseup", (event) => {
-  if (print || event.target.closest?.(".comment-ui")) return;
+  if (print || !commentMode() || event.target.closest?.(".comment-ui")) return;
   setTimeout(() => {
     const selection = getSelection();
     if (selection.isCollapsed) return;
@@ -551,12 +724,116 @@ function followOutline() {
   mark();
 }
 
-drawDiagrams(document);
 drawDesigns();
-markBroken(document);
-showSlide();
-followOutline();
-loadComments();
-// Print mode has no live connection; Chrome waits for this before printing.
-document.documentElement.dataset.ready = "true";
+mountWidgets(document).catch((error) => console.error(error)).finally(() => {
+  // A widget's content mounts with it: designs it embeds exist only now.
+  drawDesigns();
+  markBroken(document);
+  showSlide();
+  followOutline();
+  loadComments();
+  // Print mode has no live connection; Chrome waits for this — every widget
+  // mounted — before printing.
+  document.documentElement.dataset.ready = "true";
+});
 if (!print && !document.hidden) connect();
+
+// ---- Theme ----------------------------------------------------------------
+// One button switches between light and dark, and the browser remembers the
+// theme switched to. Until the reader switches, the page follows the system
+// setting, live. The page's head set the theme before it painted; this keeps
+// it current.
+
+const themeQuery = matchMedia("(prefers-color-scheme: dark)");
+
+function savedTheme() {
+  if (!document.querySelector(".theme-toggle")) return null;
+  try {
+    const saved = localStorage.getItem("devpage-theme");
+    return saved === "light" || saved === "dark" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyTheme(theme = savedTheme()) {
+  const root = document.documentElement;
+  root.dataset.theme = theme || (themeQuery.matches ? "dark" : "light");
+  const label = root.dataset.theme === "dark" ? "Switch to light" : "Switch to dark";
+  for (const button of document.querySelectorAll(".theme-toggle")) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+}
+
+applyTheme();
+themeQuery.addEventListener("change", () => applyTheme());
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.(".theme-toggle")) return;
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem("devpage-theme", theme);
+  } catch {
+    // Storage may be blocked; the switch still holds for this page.
+  }
+  applyTheme(theme);
+});
+
+// ---- Navbar ---------------------------------------------------------------
+// Dropdowns open on click or from the keyboard and close on Escape, on a click
+// elsewhere, or when a link in them is followed. On a narrow screen the links
+// fold into a menu the toggle opens.
+
+function closeMenus(except) {
+  for (const menu of document.querySelectorAll(".navbar-menu.open")) {
+    if (menu === except) continue;
+    menu.classList.remove("open");
+    menu.querySelector(":scope > button").setAttribute("aria-expanded", "false");
+  }
+}
+
+function openMenu(menu, focusFirst) {
+  closeMenus(menu);
+  menu.classList.add("open");
+  menu.querySelector(":scope > button").setAttribute("aria-expanded", "true");
+  if (focusFirst) menu.querySelector(".navbar-entry")?.focus();
+}
+
+document.addEventListener("click", (event) => {
+  const toggle = event.target.closest?.(".navbar-toggle");
+  if (toggle) {
+    const bar = document.getElementById("devpage-navbar");
+    const open = bar.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  const button = event.target.closest?.(".navbar-menu > button");
+  if (button) {
+    const menu = button.parentElement;
+    if (menu.classList.contains("open")) closeMenus();
+    else openMenu(menu, false);
+    return;
+  }
+  // Anywhere else, or a followed link, closes what is open.
+  if (!event.target.closest?.(".navbar-dropdown") || event.target.closest("a")) closeMenus();
+  if (event.target.closest?.("#devpage-navbar a")) document.getElementById("devpage-navbar")?.classList.remove("open");
+});
+
+document.addEventListener("keydown", (event) => {
+  const menu = event.target.closest?.(".navbar-menu");
+  if (!menu) return;
+  const entries = [...menu.querySelectorAll(".navbar-entry")];
+  const at = entries.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    closeMenus();
+    menu.querySelector(":scope > button").focus();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (!menu.classList.contains("open")) openMenu(menu, true);
+    else entries[(at + 1) % entries.length]?.focus();
+  } else if (event.key === "ArrowUp" && menu.classList.contains("open")) {
+    event.preventDefault();
+    entries[(at - 1 + entries.length) % entries.length]?.focus();
+  }
+});

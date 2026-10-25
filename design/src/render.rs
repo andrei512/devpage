@@ -1095,7 +1095,7 @@ mod tests {
         assert_eq!((png.width, png.height, png.data.data().len()), (3, 2, 24));
         let jpeg = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../examples/checkout/shirt.jpg"
+            "/../docs/designs/checkout/shirt.jpg"
         ))
         .unwrap();
         let jpeg = decode(&jpeg).unwrap();
@@ -1353,7 +1353,7 @@ mod examples {
         let update = std::env::var_os("DEVPAGE_UPDATE_REFERENCES").is_some();
         let mut renderer = Renderer::new();
         for name in ["button", "checkout", "confirmation", "details"] {
-            let path = format!("examples/checkout/{name}.design");
+            let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
             let png = crate::png(&mut renderer, &scene).unwrap();
             let reference = dir.join(format!("{name}.png"));
@@ -1397,7 +1397,7 @@ mod examples {
     /// screen.
     #[test]
     fn a_missing_divider_or_icon_is_outside_the_tolerance() {
-        let path = "examples/checkout/checkout.design";
+        let path = "docs/designs/checkout/checkout.design";
         let original = std::fs::read_to_string(repo().0.join(path)).unwrap();
         let mut renderer = Renderer::new();
         let mut paint = |files: &dyn Files| {

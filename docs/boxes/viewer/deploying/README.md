@@ -44,9 +44,10 @@ Put it behind the proxy your cluster already uses —
 external authentication — and have it pass the signed-in user's email in
 `X-Forwarded-Email`, or name its header with `--user-header`.
 
-**devpage must be reachable only through that proxy.** It believes the header,
-so anyone who can reach it directly can claim to be anyone: expose the proxy,
-and keep devpage's own port inside the cluster.
+<Callout kind="danger" title="devpage must be reachable only through that proxy">
+It believes the header, so anyone who can reach it directly can claim to be
+anyone: expose the proxy, and keep devpage's own port inside the cluster.
+</Callout>
 
 ## The image
 
@@ -61,7 +62,6 @@ RUN cargo install devpage --version 0.1.0 --locked
 FROM debian:bookworm-slim
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY docs /srv/docs
-COPY examples /srv/examples
 COPY LICENSE /srv/LICENSE
 WORKDIR /srv
 EXPOSE 3030
@@ -70,11 +70,22 @@ CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 
 Build it from the repository root: `docker build -f deploy/Dockerfile .`. The
 builder is Debian bookworm, the same as the runtime image, so the binary finds
-the C library it was linked against. The docs are baked in — with the examples
-and the licence they link to — so a docs change is a new image, shipped like
+the C library it was linked against. The docs are baked in — with the licence
+they link to — so a docs change is a new image, shipped like
 any other.
 devpage runs from `/srv`, so the [served folder](../writing-a-document/README.md#the-served-folder)
-is `/srv` and the comment store is `/srv/.devpage/comments`.
+is `/srv` and the comment store is `/srv/.devpage/comments`:
+
+<FileTree>
+
+- /srv/ — the served folder
+  - docs/ — devpage's docs, baked in
+  - LICENSE
+  - .devpage/ — a volume, so comments survive a new image
+    - comments/
+
+</FileTree>
+
 **Mount a volume at `/srv/.devpage`** so comments survive a new image, and
 run **one replica**: the store is files, written by one process.
 
@@ -84,9 +95,13 @@ run **one replica**: the store is files, written by one process.
 Caddy server that sets `X-Forwarded-Email: dev@example.com` on every request —
 with the comment store on a named volume:
 
-```sh
-docker compose -f deploy/compose.yaml up --build
+<Terminal>
+
+```text
+$ docker compose -f deploy/compose.yaml up --build
 ```
+
+</Terminal>
 
 Open `http://localhost:8090`. Comments you write are stamped
 `dev@example.com`; stop and start the containers and they are still there.

@@ -93,6 +93,63 @@ while it is shown.
 Because the tree is read from the files on every request, editing a Topics
 list changes the sidebar of every open page as soon as the file is saved.
 
+## The navbar
+
+A site can have a bar across the top, beside its sidebar or instead of it. Its
+title sits on the left — after its logo, when the document file names one with
+`logo` — and opens the root page; the `navbar` field of the document file lists
+what sits on the right, in order:
+
+```yaml
+kind: site
+title: devpage
+root: README.md
+navbar:
+  Docs (book-open): README.md
+  Getting started (rocket): getting-started.md
+  Examples (layout-grid):
+    Site — these docs (book-open): README.md
+    Doc — feature catalog (file-text): features/devpage.yml
+    Slides — the devpage talk (presentation): talks/devpage/devpage.yml
+    Design — the checkout prototype (frame): designs/checkout/checkout.design
+  (github): https://github.com/andrei512/devpage
+```
+
+- **`Label: target`** is a link. The target is a page, a document file — a doc,
+  a deck, another site — a design, or an address on the web; paths are relative to the
+  document file.
+- **`Label:` with a nested map** is a dropdown of the links under it, one level
+  deep.
+- **`(icon)`** after a label adds that [Lucide](https://lucide.dev/icons/)
+  icon, by name — `book-open`, `rocket`, `layout-grid`. Lucide carries no brand
+  marks, so `github` is GitHub's own mark, added by devpage. On its own,
+  `(github)` is a link shown as its icon only, with the target's site name as
+  its tooltip ([the vendored icons](../vendored-icons/README.md)).
+- The link to the page you are on, or to the section holding it, is
+  highlighted: of the navbar's links, the one nearest the page in the sidebar
+  tree, so a page under *Guide* lights *Guide*, and any other lights the link to
+  the root page. A dropdown holding the link is highlighted too. On a narrow
+  screen the links fold into a menu button.
+- A dropdown opens on a click, or with ↓ from the keyboard, and closes on
+  Escape, a click elsewhere, or a followed link. Links to pages of the site load
+  in place, like links in the text.
+
+A link to a missing page, an unknown icon name or a `logo` that names no file
+is a [problem](../checking-links/README.md), like any broken link — reported once
+for the document file, and `devpage check` follows the navbar's links like any
+others. The navbar's title replaces the sidebar's: with a navbar, the sidebar
+starts straight at the tree.
+
+**The logo.** `logo: logo.svg` in the document file — an image relative to it,
+usually a square SVG — shows at 22px before the title, in the navbar or, with
+no navbar, at the head of the sidebar, and is the browser tab's icon on every
+page of the site. A doc and a deck take a `logo` too: before a doc's title in
+its outline, and as the tab's icon of both.
+
+**Sidebar, navbar or both.** The sidebar shows unless the site sets
+`sidebar: false`; the navbar shows when `navbar` is set. A site with neither
+is just its pages, linked by their text.
+
 ## Structuring a site's reading order
 
 The Topics lists are the site's table of contents, so lay them out the way a

@@ -3,7 +3,7 @@
 `devpage pdf` makes a PDF by having Chrome print the page devpage serves, in
 **print mode**. Print mode differs from the screen only by what it leaves out
 — live updates, comments, a site's sidebar or a doc's outline, a deck's
-controls — and by its `@page` size. It renders the same Markdown with the same
+controls, soft shadows — and by its `@page` size. It renders the same Markdown with the same
 stylesheet, the same highlighted code and the same diagrams. There is no second
 renderer for paper.
 
