@@ -48,6 +48,22 @@ function watchRequest(path) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The opaque color the page shows behind `element`, as 0xRRGGBB: its
+// ancestors' backgrounds, translucent ones blended over those beneath.
+function background(element) {
+  const layers = [];
+  for (let at = element; at; at = at.parentElement) {
+    const [r, g, b, a = 1] = getComputedStyle(at).backgroundColor.match(/[\d.]+/g).map(Number);
+    if (a > 0) layers.push([r, g, b, a]);
+    if (a >= 1) break;
+  }
+  let [r, g, b] = [255, 255, 255];
+  for (const [lr, lg, lb, la] of layers.reverse()) {
+    [r, g, b] = [lr * la + r * (1 - la), lg * la + g * (1 - la), lb * la + b * (1 - la)];
+  }
+  return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
+}
+
 // One canvas and the design it shows.
 class Host {
   constructor(canvas, path, { mode, parent = null, zoom = 1 }) {
@@ -194,7 +210,8 @@ class Host {
     } else if (this.view.fitted) {
       const pad = 32;
       const zoom = Math.min(1, (box.width - 2 * pad) / w, (box.height - 2 * pad) / h);
-      Object.assign(this.view, { zoom, x: (box.width - w * zoom) / 2, y: (box.height - h * zoom) / 2 });
+      // Centered on whole pixels, so a design at 100% lands on the pixel grid.
+      Object.assign(this.view, { zoom, x: Math.round((box.width - w * zoom) / 2), y: Math.round((box.height - h * zoom) / 2) });
     }
     return true;
   }
@@ -218,8 +235,10 @@ class Host {
     if (this.canvas.height !== height) this.canvas.height = height;
     const { zoom, x, y } = this.view;
     this.canvas.dataset.view = `${zoom},${x},${y}`;
+    this.canvas.dataset.size = this.design.size().join(",");
     if (this.target) {
-      if (gpu.draw(this.target, this.design, width, height, zoom * ratio, x * ratio, y * ratio)) this.painted();
+      const behind = background(this.canvas.parentElement);
+      if (gpu.draw(this.target, this.design, width, height, zoom * ratio, x * ratio, y * ratio, behind)) this.painted();
       return;
     }
     this.drawCpu(ratio, width, height);

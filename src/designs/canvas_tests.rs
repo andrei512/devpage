@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use chromiumoxide::Page;
 use chromiumoxide::browser::Browser;
+use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotParams, Viewport,
 };
@@ -15,16 +16,11 @@ use chromiumoxide::layout::Point;
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
+use devpage_design::render::{EDGE, TOLERANCE};
+
 use crate::document::Document;
 use crate::pdf::Profile;
 use crate::server;
-
-/// The edge anti-aliasing the GPU's and the CPU's rasterizers may leave
-/// between the canvas and the PNG: at most this share of pixels may differ by
-/// more than this much in any channel. Measured on the GPU: about 0.01% beyond
-/// 4, none beyond 16; the CPU canvas is identical to the PNG.
-const CHANNEL_TOLERANCE: u32 = 16;
-const DIFFERING_SHARE: f64 = 0.001;
 
 /// A screen of two buttons — Pay navigates, Sheet opens an overlay — a next
 /// screen with a back button, and the overlay with a close button. Every box
@@ -130,24 +126,22 @@ async fn on_screen(page: &Page, selector: &str, x: f64, y: f64) -> Point {
     Point::new(left + vx + x * zoom, top + vy + y * zoom)
 }
 
-/// The design's own 400 × 300 pixels on the canvas page, as a PNG.
-async fn screenshot(page: &Page) -> Vec<u8> {
+/// The design's own `width` × `height` pixels on the canvas page, as a PNG.
+async fn screenshot(page: &Page, width: f64, height: f64) -> Vec<u8> {
     let at = on_screen(page, "canvas.design", 0.0, 0.0).await;
-    let bytes = page
-        .screenshot(
-            CaptureScreenshotParams::builder()
-                .clip(Viewport {
-                    x: at.x,
-                    y: at.y,
-                    width: 400.0,
-                    height: 300.0,
-                    scale: 1.0,
-                })
-                .build(),
-        )
-        .await
-        .unwrap();
-    bytes
+    page.screenshot(
+        CaptureScreenshotParams::builder()
+            .clip(Viewport {
+                x: at.x,
+                y: at.y,
+                width,
+                height,
+                scale: 1.0,
+            })
+            .build(),
+    )
+    .await
+    .unwrap()
 }
 
 /// The color on the screen at `at`, as `[r, g, b]`.
@@ -190,10 +184,14 @@ async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
         page,
         &format!(
             "(async () => {{
+              // Over the page's background, as the screen shows it.
+              const background = getComputedStyle(document.body).backgroundColor;
               const pixels = async (blob) => {{
                 const bitmap = await createImageBitmap(blob);
                 const c = new OffscreenCanvas(bitmap.width, bitmap.height);
                 const ctx = c.getContext('2d');
+                ctx.fillStyle = background;
+                ctx.fillRect(0, 0, bitmap.width, bitmap.height);
                 ctx.drawImage(bitmap, 0, 0);
                 return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
               }};
@@ -205,7 +203,7 @@ async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
                 let d = 0;
                 for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k] - b[i + k]));
                 max = Math.max(max, d);
-                if (d > {CHANNEL_TOLERANCE}) over++;
+                if (d > {EDGE}) over++;
               }}
               return [max, over / (a.length / 4)];
             }})()"
@@ -215,40 +213,60 @@ async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
     (max as u32, share)
 }
 
-async fn canvas_matches_the_png(webgpu: bool) {
-    let dir = folder(if webgpu { "gpu" } else { "cpu" });
-    let address = serve(&dir, "screen.design").await;
+/// Each example design on the canvas page matches the server's PNG of it
+/// within the engine's tolerance: the CPU canvas is that very painting, the
+/// GPU canvas another rasterizer of the same display list.
+async fn the_examples_match_their_pngs(webgpu: bool) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let address = serve(root, "examples/checkout/checkout.design").await;
     let (mut browser, events, _profile) = chrome().await;
-    let page = browser.new_page("about:blank").await.unwrap();
-    if !webgpu {
-        // A browser without WebGPU, from the page's first script on.
-        page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
-            "delete Navigator.prototype.gpu;",
-        ))
-        .await
-        .unwrap();
+    let mut failures = Vec::new();
+    for name in ["button", "checkout", "confirmation", "details"] {
+        let page = browser.new_page("about:blank").await.unwrap();
+        // Room for the tallest example at 100%, at one device pixel per pixel.
+        page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
+            .await
+            .unwrap();
+        if !webgpu {
+            // A browser without WebGPU, from the page's first script on.
+            page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+                "delete Navigator.prototype.gpu;",
+            ))
+            .await
+            .unwrap();
+        }
+        let path = format!("/examples/checkout/{name}.design");
+        page.goto(format!("{address}{path}")).await.unwrap();
+        until(
+            &page,
+            "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+        )
+        .await;
+        let backend: String = eval(
+            &page,
+            "document.querySelector('canvas.design').dataset.backend",
+        )
+        .await;
+        assert_eq!(backend, if webgpu { "gpu" } else { "cpu" });
+        let [zoom, width, height]: [f64; 3] = eval(
+            &page,
+            "(() => { const c = document.querySelector('canvas.design');              return [Number(c.dataset.view.split(',')[0]), ...c.dataset.size.split(',').map(Number)]; })()",
+        )
+        .await;
+        assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
+        // Let the GPU's frame reach the screen.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let shot = screenshot(&page, width, height).await;
+        let (max, share) = difference(&page, &shot, &format!("{path}.png")).await;
+        eprintln!("{backend} {name}: {share:.5} of pixels more than {EDGE} apart (largest {max})");
+        if share > TOLERANCE {
+            failures.push(format!(
+                "{backend} {name}: {share} of pixels more than {EDGE} apart (largest {max})"
+            ));
+        }
+        page.close().await.ok();
     }
-    page.goto(format!("{address}/screen.design")).await.unwrap();
-    until(
-        &page,
-        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
-    )
-    .await;
-    let backend: String = eval(
-        &page,
-        "document.querySelector('canvas.design').dataset.backend",
-    )
-    .await;
-    assert_eq!(backend, if webgpu { "gpu" } else { "cpu" });
-    // Let the GPU's frame reach the screen.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let shot = screenshot(&page).await;
-    let (max, share) = difference(&page, &shot, "/screen.design.png").await;
-    eprintln!("{backend}: largest channel difference {max}, {share:.4} of pixels beyond tolerance");
-    assert!(
-        share <= DIFFERING_SHARE,
-        "{backend}: {share} of pixels differ by more than {CHANNEL_TOLERANCE} (largest {max})"
-    );
+    assert!(failures.is_empty(), "{failures:#?}");
     browser.close().await.ok();
     events.abort();
 }
@@ -256,13 +274,13 @@ async fn canvas_matches_the_png(webgpu: bool) {
 #[tokio::test]
 #[ignore]
 async fn the_canvas_on_the_gpu_matches_the_png() {
-    canvas_matches_the_png(true).await;
+    the_examples_match_their_pngs(true).await;
 }
 
 #[tokio::test]
 #[ignore]
 async fn the_canvas_on_the_cpu_matches_the_png() {
-    canvas_matches_the_png(false).await;
+    the_examples_match_their_pngs(false).await;
 }
 
 #[tokio::test]

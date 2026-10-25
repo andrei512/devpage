@@ -78,8 +78,11 @@ impl Gpu {
     }
 
     /// Draws `design` into `target`, `width` × `height` device pixels, the
-    /// design scaled by `zoom` and its top-left at `(x, y)`. Returns false when
-    /// there is nothing to draw yet or the frame was lost.
+    /// design scaled by `zoom` and its top-left at `(x, y)`, over `background`
+    /// (`0xRRGGBB`) — the color the page shows behind the canvas, so the
+    /// canvas is opaque and the design's transparent parts look as they do on
+    /// the CPU. Returns false when there is nothing to draw yet or the frame
+    /// was lost.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -90,6 +93,7 @@ impl Gpu {
         zoom: f32,
         x: f32,
         y: f32,
+        background: u32,
     ) -> bool {
         let (width, height) = (width.max(1), height.max(1));
         let Some(laid_out) = design.laid_out() else {
@@ -135,7 +139,11 @@ impl Gpu {
         };
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let params = vello::RenderParams {
-            base_color: vello::peniko::Color::TRANSPARENT,
+            base_color: vello::peniko::Color::from_rgb8(
+                (background >> 16) as u8,
+                (background >> 8) as u8,
+                background as u8,
+            ),
             width,
             height,
             antialiasing_method: vello::AaConfig::Area,
