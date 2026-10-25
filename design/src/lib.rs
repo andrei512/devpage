@@ -35,6 +35,6 @@ impl fmt::Display for Problem {
 pub fn png(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
     renderer
         .paint(scene, 1.0)
-        .encode_png()
+        .into_png()
         .expect("encoding a PNG")
 }

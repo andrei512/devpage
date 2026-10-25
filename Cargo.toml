@@ -40,6 +40,7 @@ tower = "0.5"
 [build-dependencies]
 protox = "0.10.0"
 tonic-prost-build = { version = "0.14.6", default-features = false }
+wasm-bindgen-cli-support = "=0.2.129"
 
 [workspace]
 members = [".", "design", "design/wasm"]

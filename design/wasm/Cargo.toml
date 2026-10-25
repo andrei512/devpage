@@ -11,3 +11,7 @@ crate-type = ["cdylib"]
 [dependencies]
 devpage-design = { path = ".." }
 prost = "0.14.4"
+vello = "0.11.0"
+wasm-bindgen = "=0.2.129"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }

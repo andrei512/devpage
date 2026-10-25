@@ -43,9 +43,13 @@ fn main() {
         "building the design engine for WebAssembly failed — is the target installed? \
          rustup target add wasm32-unknown-unknown"
     );
-    std::fs::copy(
-        target_dir.join("wasm32-unknown-unknown/release/devpage_design_wasm.wasm"),
-        out.join("design.wasm"),
-    )
-    .expect("copying design.wasm");
+    // wasm-bindgen as a library: the module and its JavaScript glue, with no
+    // CLI to install.
+    wasm_bindgen_cli_support::Bindgen::new()
+        .input_path(target_dir.join("wasm32-unknown-unknown/release/devpage_design_wasm.wasm"))
+        .out_name("design")
+        .web(true)
+        .expect("the web target")
+        .generate(&out)
+        .expect("running wasm-bindgen on the design engine");
 }

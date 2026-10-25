@@ -10,6 +10,9 @@ use devpage_design::resolve::Node;
 use devpage_design::{Scene, wire};
 use prost::Message;
 
+#[cfg(target_arch = "wasm32")]
+mod gpu;
+
 thread_local! {
     static RENDERER: std::cell::RefCell<Option<Renderer>> = const { std::cell::RefCell::new(None) };
     static SCENE: std::cell::RefCell<Option<Scene>> = const { std::cell::RefCell::new(None) };
@@ -118,10 +121,11 @@ fn pixels(scene: &Scene, scale: f32) -> *mut u8 {
             .get_or_insert_with(Renderer::new)
             .paint(scene, scale)
     });
-    let mut out = Vec::with_capacity(8 + pixmap.data().len());
-    out.extend_from_slice(&pixmap.width().to_le_bytes());
-    out.extend_from_slice(&pixmap.height().to_le_bytes());
-    out.extend_from_slice(pixmap.data());
+    let data = pixmap.data_as_u8_slice();
+    let mut out = Vec::with_capacity(8 + data.len());
+    out.extend_from_slice(&(pixmap.width() as u32).to_le_bytes());
+    out.extend_from_slice(&(pixmap.height() as u32).to_le_bytes());
+    out.extend_from_slice(data);
     let ptr = out.as_mut_ptr();
     std::mem::forget(out);
     ptr

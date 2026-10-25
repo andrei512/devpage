@@ -1,16 +1,35 @@
 // Draws designs: the design engine, compiled to WebAssembly, holds the scene
-// the gRPC-Web watch stream sends and paints it onto a canvas.
-(() => {
-  const engine = WebAssembly.instantiateStreaming(fetch('/__devpage/design.wasm'), {})
-    .then(({ instance }) => instance.exports);
+// the gRPC-Web watch stream sends and draws it with vello on WebGPU — or with
+// vello_cpu where the browser has no WebGPU.
+import init, { Gpu } from '/__devpage/design-engine.js';
 
-  // One canvas: its own module instance, so each holds its own scene.
+const e = await init({ module_or_path: '/__devpage/design.wasm' });
+
   async function draw(canvas, path) {
-    const { instance } = await WebAssembly.instantiateStreaming(fetch('/__devpage/design.wasm'), {});
-    const e = instance.exports;
-    const ctx = canvas.getContext('2d');
+    let gpu = null;
+    try {
+      gpu = await Gpu.open(canvas);
+    } catch (error) {
+      // A failed WebGPU attempt may have claimed the canvas: draw on a fresh one.
+      console.info('devpage: no WebGPU, drawing on the CPU', error);
+      const fresh = canvas.cloneNode();
+      canvas.replaceWith(fresh);
+      canvas = fresh;
+    }
+    canvas.dataset.backend = gpu ? 'gpu' : 'cpu';
+    const ctx = gpu ? null : canvas.getContext('2d');
     let painted = false;
     const paint = () => {
+      if (gpu) {
+        const scale = window.devicePixelRatio || 1;
+        const [w, h] = gpu.size();
+        if (!w) return;
+        canvas.width = Math.ceil(w * scale); canvas.height = Math.ceil(h * scale);
+        canvas.style.width = `${w}px`;
+        gpu.draw(scale);
+        painted = true;
+        return;
+      }
       const scale = window.devicePixelRatio || 1;
       const out = e.paint_scene(scale);
       if (!out) return;
@@ -79,8 +98,6 @@
     void painted;
   }
 
-  void engine;
-  for (const canvas of document.querySelectorAll('canvas[data-design]')) {
-    draw(canvas, canvas.dataset.design);
-  }
-})();
+for (const canvas of document.querySelectorAll('canvas[data-design]')) {
+  draw(canvas, canvas.dataset.design);
+}

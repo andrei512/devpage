@@ -254,13 +254,17 @@ async fn asset(Path(name): Path<String>) -> Response {
         "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
         "design.js" => (include_str!("../assets/design.js"), "text/javascript"),
+        "design-engine.js" => (
+            include_str!(concat!(env!("OUT_DIR"), "/design.js")),
+            "text/javascript",
+        ),
         "design.wasm" => {
             return (
                 [
                     (header::CONTENT_TYPE, "application/wasm"),
                     (header::CACHE_CONTROL, "no-cache"),
                 ],
-                &include_bytes!(concat!(env!("OUT_DIR"), "/design.wasm"))[..],
+                &include_bytes!(concat!(env!("OUT_DIR"), "/design_bg.wasm"))[..],
             )
                 .into_response();
         }

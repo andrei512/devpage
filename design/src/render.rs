@@ -1,11 +1,15 @@
-//! Scene → pixels: lays the scene out with taffy, sets text with cosmic-text
-//! and paints with tiny-skia, on the CPU, the same way on every target.
+//! Scene → pixels. The engine lays a scene out once (taffy, parley) and
+//! turns it into a display list of vello drawing commands; a backend draws
+//! the list — `vello_cpu` here, for the PNG.
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, SwashCache, Weight};
-use taffy::prelude::*;
-use tiny_skia::{
-    FillRule, Paint, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform,
+use parley::{
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout as Text,
+    LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
+use taffy::prelude::*;
+use vello_cpu::kurbo::{Affine, BezPath, Ellipse as KEllipse, Rect as KRect, RoundedRect, Shape};
+use vello_cpu::peniko::{Color as PColor, FontData};
+use vello_cpu::{Glyph, Pixmap, RenderContext, Resources};
 
 use crate::resolve::{self, Align, Color, Kind, Layout, Node, Scene, Size as DSize};
 
@@ -16,10 +20,10 @@ const FONTS: [&[u8]; 4] = [
     include_bytes!("../fonts/Inter-Bold.ttf"),
 ];
 
-/// The fonts and glyph cache a renderer keeps between paints.
+/// The fonts and text layout state a renderer keeps between paints.
 pub struct Renderer {
-    fonts: FontSystem,
-    glyphs: SwashCache,
+    fonts: FontContext,
+    layouts: LayoutContext<()>,
 }
 
 impl Default for Renderer {
@@ -37,24 +41,60 @@ pub struct Frame {
     pub height: f32,
 }
 
+/// One drawing command, in scene pixels: what both vello backends replay.
+pub enum Draw {
+    Fill(BezPath, PColor),
+    Stroke(BezPath, f32, PColor),
+    Shadow(KRect, f32, f32, PColor),
+    Glyphs(FontData, f32, PColor, Vec<Glyph>),
+    PushClip(BezPath),
+    PushOpacity(f32),
+    Pop,
+}
+
 impl Renderer {
     pub fn new() -> Renderer {
-        let mut db = cosmic_text::fontdb::Database::new();
+        let mut fonts = FontContext {
+            collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
+                shared: false,
+                system_fonts: false,
+            }),
+            source_cache: parley::fontique::SourceCache::default(),
+        };
         for font in FONTS {
-            db.load_font_data(font.to_vec());
+            fonts
+                .collection
+                .register_fonts(parley::fontique::Blob::new(std::sync::Arc::new(font)), None);
         }
         Renderer {
-            fonts: FontSystem::new_with_locale_and_db("en-US".into(), db),
-            glyphs: SwashCache::new(),
+            fonts,
+            layouts: LayoutContext::new(),
         }
+    }
+
+    fn text_layout(&mut self, text: &resolve::TextStyle, width: Option<f32>) -> Text<()> {
+        let mut builder = self
+            .layouts
+            .ranged_builder(&mut self.fonts, &text.content, 1.0, true);
+        builder.push_default(StyleProperty::FontFamily(FontFamily::named("Inter")));
+        builder.push_default(StyleProperty::FontSize(text.size));
+        builder.push_default(StyleProperty::FontWeight(FontWeight::new(
+            text.weight as f32,
+        )));
+        builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(
+            text.line_height,
+        )));
+        let mut layout = builder.build(&text.content);
+        layout.break_all_lines(width);
+        layout.align(Alignment::Start, AlignmentOptions::default());
+        layout
     }
 
     /// Lays the scene out: every node's box, in tree order.
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
         let mut tree: TaffyTree<Option<TextKey>> = TaffyTree::new();
         let mut texts = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut texts, &mut self.fonts);
-        let fonts = &mut self.fonts;
+        let root = build(&mut tree, &scene.root, None, &mut texts);
         tree.compute_layout_with_measure(root, Size::MAX_CONTENT, |input, _id, ctx, style| {
             let known = input.known_dimensions;
             let fixed = |d: Dimension| (!d.is_auto()).then(|| d.value());
@@ -64,17 +104,15 @@ impl Renderer {
             };
             let size = match ctx {
                 Some(Some(key)) => {
+                    let (text, wraps): &(resolve::TextStyle, bool) = &texts[key.0];
                     let width = known.width.or(match input.available_space.width {
-                        AvailableSpace::Definite(w) if texts[key.0].1 => Some(w),
+                        AvailableSpace::Definite(w) if *wraps => Some(w),
                         _ => None,
                     });
-                    let buffer = &mut texts[key.0].0;
-                    buffer.set_size(width, None);
-                    buffer.shape_until_scroll(fonts, false);
-                    let (w, h) = measure(buffer);
+                    let layout = self.text_layout(text, width);
                     Size {
-                        width: known.width.unwrap_or(w),
-                        height: known.height.unwrap_or(h),
+                        width: known.width.unwrap_or(layout.width().ceil()),
+                        height: known.height.unwrap_or(layout.height()),
                     }
                 }
                 _ => Size {
@@ -90,182 +128,148 @@ impl Renderer {
         frames
     }
 
-    /// Paints the scene at `scale` device pixels per scene pixel.
-    pub fn paint(&mut self, scene: &Scene, scale: f32) -> Pixmap {
+    /// The scene as drawing commands: laid out once, shaped once.
+    pub fn display_list(&mut self, scene: &Scene) -> (Frame, Vec<Draw>) {
         let frames = self.layout(scene);
-        let root = frames[0];
-        let w = ((root.width * scale).ceil() as u32).max(1);
-        let h = ((root.height * scale).ceil() as u32).max(1);
-        let mut pixmap = Pixmap::new(w, h).expect("a non-empty canvas");
+        let mut list = Vec::new();
         let mut at = 0;
-        self.node(&mut pixmap, &scene.root, &frames, &mut at, scale, 1.0, None);
+        self.node(&scene.root, &frames, &mut at, &mut list);
+        (frames[0], list)
+    }
+
+    /// Paints the scene with `vello_cpu` at `scale` device pixels per scene pixel.
+    pub fn paint(&mut self, scene: &Scene, scale: f32) -> Pixmap {
+        let (root, list) = self.display_list(scene);
+        let w = ((root.width * scale).ceil() as u16).max(1);
+        let h = ((root.height * scale).ceil() as u16).max(1);
+        let mut ctx = RenderContext::new(w, h);
+        let mut resources = Resources::default();
+        ctx.set_transform(Affine::scale(scale as f64));
+        for draw in &list {
+            match draw {
+                Draw::Fill(path, c) => {
+                    ctx.set_paint(*c);
+                    ctx.fill_path(path);
+                }
+                Draw::Stroke(path, width, c) => {
+                    ctx.set_paint(*c);
+                    ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
+                    ctx.stroke_path(path);
+                }
+                Draw::Shadow(rect, radius, std_dev, c) => {
+                    ctx.set_paint(*c);
+                    ctx.fill_blurred_rounded_rect(rect, *radius, *std_dev, false);
+                }
+                Draw::Glyphs(font, size, c, glyphs) => {
+                    ctx.set_paint(*c);
+                    let _ = ctx
+                        .glyph_run(&mut resources, font)
+                        .font_size(*size)
+                        .hint(true)
+                        .fill_glyphs(glyphs.iter().copied());
+                }
+                Draw::PushClip(path) => ctx.push_clip_layer(path),
+                Draw::PushOpacity(o) => ctx.push_opacity_layer(*o),
+                Draw::Pop => ctx.pop_layer(),
+            }
+        }
+        ctx.flush();
+        let mut pixmap = Pixmap::new(w, h);
+        ctx.render(&mut pixmap, &mut resources);
         pixmap
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn node(
-        &mut self,
-        pixmap: &mut Pixmap,
-        node: &Node,
-        frames: &[Frame],
-        at: &mut usize,
-        scale: f32,
-        opacity: f32,
-        clip: Option<&tiny_skia::Mask>,
-    ) {
+    fn node(&mut self, node: &Node, frames: &[Frame], at: &mut usize, list: &mut Vec<Draw>) {
         let f = frames[*at];
         *at += 1;
-        let opacity = opacity * node.opacity;
-        let t = Transform::from_scale(scale, scale);
-        let shape = |inset: f32| -> Option<tiny_skia::Path> {
-            let r = SkRect::from_xywh(
-                f.x + inset,
-                f.y + inset,
-                f.width - 2.0 * inset,
-                f.height - 2.0 * inset,
-            )?;
+        let opacity = node.opacity < 1.0;
+        if opacity {
+            list.push(Draw::PushOpacity(node.opacity));
+        }
+        let rect = KRect::new(
+            f.x as f64,
+            f.y as f64,
+            (f.x + f.width) as f64,
+            (f.y + f.height) as f64,
+        );
+        let shape = |inset: f64| -> BezPath {
+            let r = rect.inset(-inset);
             if node.kind == Kind::Ellipse {
-                PathBuilder::from_oval(r)
+                KEllipse::from_rect(r).to_path(0.1)
             } else {
-                rounded(r, node.radius.map(|v| (v - inset).max(0.0)))
+                let [tl, tr, br, bl] = node.radius.map(|v| (v as f64 - inset).max(0.0));
+                RoundedRect::from_rect(r, (tl, tr, br, bl)).to_path(0.1)
             }
         };
-        if let Some(s) = &node.shadow
-            && let Some(path) = shape(-s.spread)
-        {
-            shadow(pixmap, &path, s, scale, opacity, clip);
+        if let Some(s) = &node.shadow {
+            let r = rect.inflate(s.spread as f64, s.spread as f64)
+                + vello_cpu::kurbo::Vec2::new(s.x as f64, s.y as f64);
+            list.push(Draw::Shadow(
+                r,
+                node.radius[0],
+                s.blur / 2.0,
+                color(s.color),
+            ));
         }
-        if let (Some(c), Some(path)) = (node.fill, shape(0.0)) {
-            pixmap.fill_path(&path, &paint(c, opacity), FillRule::Winding, t, clip);
+        if let Some(c) = node.fill {
+            list.push(Draw::Fill(shape(0.0), color(c)));
         }
-        if let (Some(c), Some(path)) = (node.stroke, shape(node.stroke_width / 2.0)) {
-            let stroke = Stroke {
-                width: node.stroke_width,
-                ..Stroke::default()
-            };
-            pixmap.stroke_path(&path, &paint(c, opacity), &stroke, t, clip);
+        if let Some(c) = node.stroke {
+            list.push(Draw::Stroke(
+                shape(node.stroke_width as f64 / 2.0),
+                node.stroke_width,
+                color(c),
+            ));
         }
         if let Some(text) = &node.text {
-            self.text(pixmap, text, f, scale, opacity, clip);
-        }
-        let mut own_clip = None;
-        if node.clip
-            && let Some(path) = shape(0.0)
-        {
-            let mut mask = match clip {
-                Some(m) => m.clone(),
-                None => {
-                    let mut m =
-                        tiny_skia::Mask::new(pixmap.width(), pixmap.height()).expect("mask");
-                    m.fill_path(
-                        &PathBuilder::from_rect(
-                            SkRect::from_xywh(
-                                0.0,
-                                0.0,
-                                pixmap.width() as f32,
-                                pixmap.height() as f32,
-                            )
-                            .expect("rect"),
-                        ),
-                        FillRule::Winding,
-                        false,
-                        Transform::identity(),
-                    );
-                    m
-                }
-            };
-            mask.intersect_path(&path, FillRule::Winding, true, t);
-            own_clip = Some(mask);
-        }
-        let clip = own_clip.as_ref().or(clip);
-        for child in &node.children {
-            self.node(pixmap, child, frames, at, scale, opacity, clip);
-        }
-    }
-
-    fn text(
-        &mut self,
-        pixmap: &mut Pixmap,
-        text: &resolve::TextStyle,
-        f: Frame,
-        scale: f32,
-        opacity: f32,
-        clip: Option<&tiny_skia::Mask>,
-    ) {
-        let mut buffer = text_buffer(&mut self.fonts, text, scale);
-        buffer.set_size(Some(f.width * scale + 1.0), None);
-        buffer.shape_until_scroll(&mut self.fonts, false);
-        let c = text.color;
-        let color = cosmic_text::Color::rgba(c.r, c.g, c.b, c.a);
-        let (ox, oy) = ((f.x * scale).round() as i32, (f.y * scale).round() as i32);
-        let mut glyphs = Pixmap::new(pixmap.width(), pixmap.height()).expect("layer");
-        let data = glyphs.data_mut();
-        let (pw, ph) = (pixmap.width() as i32, pixmap.height() as i32);
-        buffer.draw(
-            &mut self.fonts,
-            &mut self.glyphs,
-            color,
-            |x, y, w, h, color| {
-                for yy in 0..h as i32 {
-                    for xx in 0..w as i32 {
-                        let (px, py) = (ox + x + xx, oy + y + yy);
-                        if px < 0 || py < 0 || px >= pw || py >= ph {
-                            continue;
-                        }
-                        let a = color.a() as u32;
-                        let i = ((py * pw + px) * 4) as usize;
-                        // Premultiplied, source-over onto the layer.
-                        let src = [
-                            color.r() as u32 * a / 255,
-                            color.g() as u32 * a / 255,
-                            color.b() as u32 * a / 255,
-                            a,
-                        ];
-                        for k in 0..4 {
-                            let dst = data[i + k] as u32;
-                            data[i + k] = (src[k] + dst * (255 - a) / 255) as u8;
-                        }
+            let layout = self.text_layout(text, Some(f.width + 0.5));
+            for line in layout.lines() {
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(run) = item {
+                        let glyphs = run
+                            .positioned_glyphs()
+                            .map(|g| Glyph {
+                                id: g.id,
+                                x: f.x + g.x,
+                                y: f.y + g.y,
+                            })
+                            .collect();
+                        list.push(Draw::Glyphs(
+                            run.run().font().clone(),
+                            run.run().font_size(),
+                            color(text.color),
+                            glyphs,
+                        ));
                     }
                 }
-            },
-        );
-        let paint = PixmapPaint {
-            opacity,
-            ..PixmapPaint::default()
-        };
-        pixmap.draw_pixmap(0, 0, glyphs.as_ref(), &paint, Transform::identity(), clip);
+            }
+        }
+        if node.clip {
+            list.push(Draw::PushClip(shape(0.0)));
+        }
+        for child in &node.children {
+            self.node(child, frames, at, list);
+        }
+        if node.clip {
+            list.push(Draw::Pop);
+        }
+        if opacity {
+            list.push(Draw::Pop);
+        }
     }
 }
 
 struct TextKey(usize);
 
-fn text_buffer(fonts: &mut FontSystem, text: &resolve::TextStyle, scale: f32) -> Buffer {
-    let metrics = Metrics::new(text.size * scale, text.size * text.line_height * scale);
-    let mut buffer = Buffer::new(fonts, metrics);
-    let attrs = Attrs::new()
-        .family(Family::Name("Inter"))
-        .weight(Weight(text.weight));
-    buffer.set_text(&text.content, &attrs, Shaping::Advanced, None);
-    buffer.shape_until_scroll(fonts, false);
-    buffer
-}
-
-fn measure(buffer: &Buffer) -> (f32, f32) {
-    let mut w: f32 = 0.0;
-    let mut h: f32 = 0.0;
-    for run in buffer.layout_runs() {
-        w = w.max(run.line_w);
-        h = h.max(run.line_top + run.line_height);
-    }
-    (w.ceil(), h)
+fn color(c: Color) -> PColor {
+    PColor::from_rgba8(c.r, c.g, c.b, c.a)
 }
 
 fn build(
     tree: &mut TaffyTree<Option<TextKey>>,
     node: &Node,
     parent: Option<&Node>,
-    texts: &mut Vec<(Buffer, bool)>,
-    fonts: &mut FontSystem,
+    texts: &mut Vec<(resolve::TextStyle, bool)>,
 ) -> NodeId {
     let mut style = Style::default();
     let dir = parent.map(|p| p.layout);
@@ -328,7 +332,7 @@ fn build(
     };
     if let Some(text) = &node.text {
         let wraps = !matches!(node.width, DSize::Hug);
-        texts.push((text_buffer(fonts, text, 1.0), wraps));
+        texts.push((text.clone(), wraps));
         return tree
             .new_leaf_with_context(style, Some(TextKey(texts.len() - 1)))
             .expect("leaf");
@@ -336,7 +340,7 @@ fn build(
     let children: Vec<NodeId> = node
         .children
         .iter()
-        .map(|c| build(tree, c, Some(node), texts, fonts))
+        .map(|c| build(tree, c, Some(node), texts))
         .collect();
     tree.new_with_children(style, &children).expect("node")
 }
@@ -352,105 +356,6 @@ fn collect(tree: &TaffyTree<Option<TextKey>>, id: NodeId, ox: f32, oy: f32, out:
     });
     for child in tree.children(id).expect("children") {
         collect(tree, child, x, y, out);
-    }
-}
-
-fn paint(c: Color, opacity: f32) -> Paint<'static> {
-    let mut p = Paint::default();
-    p.set_color_rgba8(c.r, c.g, c.b, (c.a as f32 * opacity).round() as u8);
-    p.anti_alias = true;
-    p
-}
-
-fn rounded(r: SkRect, radius: [f32; 4]) -> Option<tiny_skia::Path> {
-    let max = r.width().min(r.height()) / 2.0;
-    let [tl, tr, br, bl] = radius.map(|v| v.min(max));
-    if tl + tr + br + bl == 0.0 {
-        return Some(PathBuilder::from_rect(r));
-    }
-    // A circular arc as a cubic: the control points sit k·radius along the tangents.
-    let k = 0.552_284_8;
-    let (x0, y0, x1, y1) = (r.left(), r.top(), r.right(), r.bottom());
-    let mut pb = PathBuilder::new();
-    pb.move_to(x0 + tl, y0);
-    pb.line_to(x1 - tr, y0);
-    pb.cubic_to(x1 - tr + tr * k, y0, x1, y0 + tr - tr * k, x1, y0 + tr);
-    pb.line_to(x1, y1 - br);
-    pb.cubic_to(x1, y1 - br + br * k, x1 - br + br * k, y1, x1 - br, y1);
-    pb.line_to(x0 + bl, y1);
-    pb.cubic_to(x0 + bl - bl * k, y1, x0, y1 - bl + bl * k, x0, y1 - bl);
-    pb.line_to(x0, y0 + tl);
-    pb.cubic_to(x0, y0 + tl - tl * k, x0 + tl - tl * k, y0, x0 + tl, y0);
-    pb.close();
-    pb.finish()
-}
-
-/// A blurred shadow: the shape drawn in the shadow's color on a layer, box
-/// blurred three times — close to a Gaussian — and drawn under the node.
-fn shadow(
-    pixmap: &mut Pixmap,
-    path: &tiny_skia::Path,
-    s: &resolve::Shadow,
-    scale: f32,
-    opacity: f32,
-    clip: Option<&tiny_skia::Mask>,
-) {
-    let mut layer = Pixmap::new(pixmap.width(), pixmap.height()).expect("layer");
-    let t = Transform::from_translate(s.x, s.y).post_scale(scale, scale);
-    layer.fill_path(path, &paint(s.color, opacity), FillRule::Winding, t, None);
-    let radius = (s.blur * scale / 2.0).round() as usize;
-    if radius > 0 {
-        for _ in 0..3 {
-            box_blur(&mut layer, radius / 2 + 1);
-        }
-    }
-    pixmap.draw_pixmap(
-        0,
-        0,
-        layer.as_ref(),
-        &PixmapPaint::default(),
-        Transform::identity(),
-        clip,
-    );
-}
-
-fn box_blur(p: &mut Pixmap, r: usize) {
-    let (w, h) = (p.width() as usize, p.height() as usize);
-    let data = p.data_mut();
-    let mut tmp = vec![0u8; data.len()];
-    for pass in 0..2 {
-        let (src, dst): (&[u8], &mut [u8]) = if pass == 0 {
-            (&*data, &mut tmp)
-        } else {
-            (&tmp, &mut *data)
-        };
-        let src = src.to_vec();
-        let (outer, inner) = if pass == 0 { (h, w) } else { (w, h) };
-        for o in 0..outer {
-            for c in 0..4 {
-                let at = |i: usize| {
-                    if pass == 0 {
-                        (o * w + i) * 4 + c
-                    } else {
-                        (i * w + o) * 4 + c
-                    }
-                };
-                let mut sum: u32 = 0;
-                for i in 0..r.min(inner) {
-                    sum += src[at(i)] as u32;
-                }
-                let n = (2 * r + 1) as u32;
-                for i in 0..inner {
-                    if i + r < inner {
-                        sum += src[at(i + r)] as u32;
-                    }
-                    dst[at(i)] = (sum / n) as u8;
-                    if i >= r {
-                        sum -= src[at(i - r)] as u32;
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -515,12 +420,9 @@ mod tests {
         );
         let pixmap = Renderer::new().paint(&s, 1.0);
         assert_eq!((pixmap.width(), pixmap.height()), (100, 40));
-        let px = pixmap.pixel(90, 30).unwrap();
-        assert_eq!(
-            (px.red(), px.green(), px.blue(), px.alpha()),
-            (255, 0, 0, 255)
-        );
+        let p = pixmap.sample(90, 30);
+        assert_eq!((p.r, p.g, p.b, p.a), (255, 0, 0, 255));
         // Some pixel of the text is lighter than the fill.
-        assert!((8..40).any(|x| (8..28).any(|y| pixmap.pixel(x, y).unwrap().green() > 128)));
+        assert!((8..40).any(|x| (8..28).any(|y| pixmap.sample(x, y).g > 128)));
     }
 }

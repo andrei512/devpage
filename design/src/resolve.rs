@@ -355,6 +355,8 @@ impl Resolver<'_> {
         Some(node)
     }
 
+    // Each arm sets a field and says whether the value fit: `Ok(field = v)`.
+    #[allow(clippy::unit_arg)]
     fn attribute(&mut self, path: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
         let kind = node.kind;
         let ok = match (attr.name.as_str(), kind) {

@@ -144,7 +144,7 @@ pub fn page(path: &str) -> String {
 <style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg, #e2e8f0)}}canvas{{box-shadow:0 8px 32px #0f172a26}}</style>
 </head><body>
 <canvas data-design="/{path}"></canvas>
-<script src="/__devpage/design.js"></script>
+<script type="module" src="/__devpage/design.js"></script>
 </body></html>"#,
         path = path.trim_start_matches('/'),
     )
