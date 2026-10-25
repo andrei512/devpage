@@ -161,7 +161,7 @@ async function load(url) {
   // a document that changed kind — can't be swapped in part: load it whole.
   if (next.body.className !== document.body.className) {
     location.assign(url);
-    return true;
+    return "navigating";
   }
   for (const id of ["page", "nav", "navbar"]) {
     const fresh = next.getElementById(id);
@@ -194,7 +194,10 @@ document.addEventListener("click", async (event) => {
     if (url.hash) location.hash = url.hash;
     return;
   }
-  if (await load(url)) {
+  const loaded = await load(url);
+  // A page of another kind loads whole; touching history now would cancel it.
+  if (loaded === "navigating") return;
+  if (loaded) {
     history.pushState(null, "", url);
     if (url.hash) document.querySelector(url.hash)?.scrollIntoView();
     else window.scrollTo(0, 0);
