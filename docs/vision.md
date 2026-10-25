@@ -11,32 +11,27 @@ description of the program.
 
 ## Built today
 
-- A local program, built from source, that serves one document — a
-  `devpage.yml` and the Markdown files in its folder — on `localhost`
-  ([Installing devpage](installing.md)).
-- GitHub-flavoured Markdown with raw HTML, rendered on every request, inside
-  one fixed page frame shared by every page.
-- Mermaid diagrams drawn as SVG in the browser, with clickable nodes, and
-  server-side syntax highlighting of fenced code.
-- A sidebar built from the pages' `## Topics` sections.
-- Live updates: a watched file's change refreshes every open page in place.
-- Light and dark themes from one set of color tokens, following the reader's
-  system setting.
+- Three kinds of document from Markdown in the repository: a **site** with a
+  sidebar built from Topics sections, a **doc** of chapters with an outline,
+  and a deck of **slides**.
+- GitHub-flavoured Markdown with raw HTML, server-side syntax highlighting, and
+  Mermaid diagrams drawn as SVG with clickable nodes.
+- Live updates: a file's change refreshes every open page in place.
+- Comments on text or paragraphs, kept as files outside git, so people and
+  agents iterate on a design through the docs themselves.
+- Checked links, in the preview and as `devpage check`.
+- PDF printing of a doc or a deck, identical to the screen.
+- Light and dark themes from one set of color tokens.
+- Installed with `cargo install devpage`; run locally, or deployed for a team
+  behind an auth proxy. MIT licensed.
 
 ## Not built yet
 
-- **No layouts.** There are no layouts per kind of document — no slide
-  decks, no PRD or design-doc layouts; every page uses the same frame.
 - **No extension API.** Markdown extensions, layouts and components can't be
   added from outside; the set devpage renders is fixed in its code.
-- **No link checking.** A broken link renders as a link; a Topics link to a
-  missing page is silently left out of the sidebar.
 - **No reference extractors.** No page is generated from code.
-- **No theme overrides in `devpage.yml`.** The file has only `title`, `root`
-  and `watch`; the themes are built into the binary.
+- **No theme overrides.** The themes are built into the binary.
 - **No static export.** Pages exist only while devpage is running.
-- **No licence yet.** The repository has no `LICENSE` file, so "open source"
-  below is an intention.
 
 ## Why
 
@@ -62,7 +57,7 @@ with.
 - **Realtime.** Pages update the moment a file changes, whoever changed it, so a
   design can be discussed while it is being written.
 - **Layouts per kind of document.** A system doc, a design doc, a PRD and a
-  slide deck share one source format; a document chooses its layout. A new kind
+  slide deck share one source format; a document chooses its kind. A new kind
   of document is a new layout, not a new tool.
 - **Designed to be read.** Typography, navigation and diagrams at the level of
   the best platform documentation, so understanding a system from its docs is

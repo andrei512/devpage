@@ -1,9 +1,10 @@
 # Live updates
 
-How a saved file reaches every open page: a file watcher filters changes
-through the document's `watch` patterns, a broadcast channel fans each change
-out to one server-sent event stream per open tab, and the page script fetches
-its page again and swaps the content and sidebar in place. It also covers why
+How a saved file reaches every open page: a file watcher over the repository
+skips what git ignores, a broadcast channel fans each change out to one
+server-sent event stream per open tab, and the page script fetches its page —
+or, for a change in the comment store, the page's comments — again and swaps
+it in place. It also covers why
 the script keeps one stream per tab and closes it in hidden tabs. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
 `src/watch.rs`, `src/server.rs` or `assets/devpage.js`.
@@ -18,7 +19,7 @@ sequenceDiagram
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
-  Watcher->>Watcher: matches a watch pattern?
+  Watcher->>Watcher: ignored by git?
   Watcher->>Channel: send(())
   Channel-->>Server: one message per open stream
   Server-->>Page: event stream: data change
@@ -29,27 +30,26 @@ sequenceDiagram
 
 ## The watcher
 
-`watch::start` in `src/watch.rs` starts the platform's recommended `notify`
-watcher on the document's folder, recursively, when devpage starts. For each
-file system event it:
+When devpage starts it watches the whole
+[repository](../writing-a-document/README.md#the-repository), recursively,
+with the platform's recommended `notify` watcher. For each file system event it:
 
 1. ignores the event if it is an access (a read, not a change);
-2. canonicalizes each path in the event — falling back to the path as reported
-   when that fails, as it does for a deleted file — and makes it relative to
-   the document's folder;
-3. asks `Document::watches` (`src/document.rs`) whether any of those relative
-   paths matches the `watch` glob set;
-4. if one does, sends `()` on the broadcast channel.
+2. makes each path relative to the repository, and drops paths inside `.git/`
+   and paths git ignores — read from the repository's `.gitignore` files — so
+   build output and dependencies never refresh a page;
+3. for a path in the comment store (`.devpage/comments/`), sends a `comments`
+   message naming the page the thread is about;
+4. for any other path, updates the index of document files if the path is a
+   YAML file, and sends a `change` message.
 
-The message carries no file name: every open page refreshes, whichever file
-changed. There is no debouncing, so one save can produce several events — and
-several refreshes — depending on how the editor writes the file and how the
-platform reports it. Creating a file and deleting a file both count as
-changes.
+A `change` message carries no file name: every open page refreshes, whichever
+file changed. There is no debouncing, so one save can produce several events —
+and several refreshes — depending on how the editor writes the file and how the
+platform reports it. Creating a file and deleting a file both count as changes.
+Document files are re-read as they change, so editing one needs no restart.
 
-The watcher lives for the whole run; `main` holds it so it isn't dropped.
-`devpage.yml` itself is read only at start, so changing it has no effect until
-devpage is restarted.
+The watcher lives for the whole run.
 
 ## The channel and the stream
 
@@ -59,7 +59,8 @@ failure.
 
 `GET /__devpage/events` (`events` in `src/server.rs`) subscribes to the channel
 and answers with a server-sent event stream. Every item from the subscription
-becomes one event whose data is `change` — including the error a subscriber
+becomes one event whose data is the message — `change`, or `comments` and
+the page's path — including the error a subscriber
 gets when it falls more than 16 messages behind, so a slow page still hears
 that something changed. The stream sends a keep-alive every 15 seconds.
 
@@ -75,8 +76,9 @@ diagrams. The rest of the page — the scripts, the event stream, the scroll
 position — stays as it was.
 
 **The live-update stream.** `connect()` opens an `EventSource` on
-`/__devpage/events`, and each message calls `load(location.href)`, so the page
-the tab shows is fetched again and swapped in. A tab holds at most one stream.
+`/__devpage/events`. Each `change` message calls `load(location.href)`, so the
+page the tab shows is fetched again and swapped in; a `comments` message for a
+file the tab shows fetches that file's threads again. A tab holds at most one stream.
 
 **Links and history.** One click listener on the document handles every
 link, in the text and in
@@ -115,7 +117,7 @@ back until it is shown.
 
 ## Failure modes
 
-- **A file outside `watch` changes.** Nothing refreshes; the next request or
+- **A file git ignores changes.** Nothing refreshes; the next request or
   link still shows the new content, since pages are read on every request.
 - **devpage stops.** Open pages stop updating. The browser's `EventSource`
   reconnects on its own once devpage is back, but the page is not fetched again
@@ -132,5 +134,4 @@ back until it is shown.
   devpage starts (see the
   [configuration reference](../configuration-reference/README.md#errors)).
 
-The `watch` field's syntax and default are in the
-[configuration reference](../configuration-reference/README.md).
+How comments reach a page is on [Comments](../comments/README.md#under-the-hood).

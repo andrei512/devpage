@@ -1,104 +1,132 @@
 # Configuration reference
 
 The exact contract of a devpage document file and of the `devpage` command
-line: every `devpage.yml` field with its type, default and validation, the
-errors devpage stops with, and how its argument is interpreted. It is the
-reference page under the [viewer](../README.md); the fields are defined by
-`Config` in `src/document.rs` and the command line in `src/main.rs`.
+line: every field of each kind with its type, default and validation, the
+commands and flags, and the errors devpage stops with. It is the reference page
+under the [viewer](../README.md).
 
 ## Command line
 
 ```sh
-devpage [document.yml | folder]
+devpage [path] [--host <address>] [--port <port>] [--user-header <name>]
+devpage check [path]
+devpage pdf <path> [-o <file>]
+devpage --help
+devpage --version
 ```
 
-| Argument | Meaning |
+| Command | Does |
 | --- | --- |
-| a folder | the document file is `devpage.yml` inside that folder |
-| anything else | the document file itself, whatever its name |
+| `devpage [path]` | Serves the document at `path` and everything in its repository, until stopped. |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). |
+| `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
+
+`path` is read the same way by every command:
+
+| `path` | Means |
+| --- | --- |
+| a folder | the document file `devpage.yml` inside it |
+| a `.md` file | that file, as a doc of one chapter with default settings |
+| any other file | a document file, whatever its name |
 | none | `.` — `devpage.yml` in the current folder |
 
-Only the first argument is read; there are no flags. From the repository,
-`cargo run -- <document.yml | folder>` runs the same program.
+### Flags
 
-On start devpage loads the document file once, starts watching its folder, and
-binds the first free port from 3030 up on `127.0.0.1`. It prints one line on
-standard output:
+| Flag | Command | Default | Meaning |
+| --- | --- | --- | --- |
+| `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
+| `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
+| `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
+| `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
+
+On start, `devpage` finds the [repository](../writing-a-document/README.md#the-repository),
+watches it, binds its address and prints one line on standard output — the entry
+document's title and its address:
 
 ```text
 <title> → http://localhost:<port>
 ```
 
-and then logs every request on standard error (see
-[Serving pages](../serving-pages/README.md#request-logging)). It runs until
-stopped. Changes to the document file need a restart; changes to pages don't.
+It then logs every request on standard error (see
+[Serving pages](../serving-pages/README.md#request-logging)) and each link
+problem once, as it is found. It runs until stopped. Changes to document files
+and pages take effect on the next request; nothing needs a restart.
 
-## The document file
+## Document files
 
-A YAML mapping with these fields. The **document's folder** is the folder
-holding the file; relative paths are resolved against it, and only files inside
-it are served.
+A document file is a YAML mapping whose `kind` field says what it describes.
+Paths in it are relative to the file's folder and must stay inside the
+repository. A field the kind doesn't have is an error, not ignored.
+
+### `site`
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `kind` | `site` | yes | |
+| `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
+| `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
+
+A site's pages are the Markdown files in its document file's folder and below
+it; a page there is shown in this site's frame. When sites are nested, a page
+belongs to the nearest one.
+
+### `doc`
 
 | Field | Type | Required | Default | Meaning |
 | --- | --- | --- | --- | --- |
-| `title` | string | yes | — | The document's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
-| `root` | string (path) | yes | — | The page `/` redirects to and the top of the sidebar tree. Must name an existing file. |
-| `watch` | list of strings (glob patterns) | no | `["**/*.md"]` | Files whose changes refresh open pages. |
+| `kind` | `doc` | yes | | |
+| `title` | string | yes | | The doc's name: above the first chapter, in the tab, and the PDF's title and default file name. |
+| `chapters` | list of paths | yes | | The chapter files, in reading order; at least one. |
+| `pdf.paper` | `A4` or `Letter` | no | `A4` | The paper size. |
+| `pdf.header` | string | no | none | Printed at the top of every page. |
+| `pdf.footer` | string | no | `"{page} / {pages}"` | Printed at the bottom of every page. |
 
-No other field is allowed.
+In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
-### `root`
+A `.md` file given instead of a document file is a doc whose one chapter is that
+file, titled by its first `# ` heading (or its file name), with every `pdf`
+default.
 
-A path relative to the document's folder, such as `README.md` or
-`guide/index.md`. devpage checks that it is an existing file when it starts.
-It is served at `/<root>` like any other file, so a root that isn't a Markdown
-file is sent as it is rather than rendered as a page.
+### `slides`
 
-### `watch`
-
-A list of glob patterns, matched against each changed file's path relative to
-the document's folder (for example `boxes/viewer/README.md`). A change to a
-file matching any pattern refreshes every open page. Patterns use `globset`
-syntax with its defaults:
-
-- `*` matches any run of characters, **including `/`** — `*.md` matches
-  `boxes/viewer/README.md` too;
-- `**` matches any number of folders;
-- `?`, `[abc]` character classes and `{a,b}` alternatives are supported.
-
-The default, `**/*.md`, watches every Markdown file. Add patterns for other
-files whose changes should refresh pages, for example `"**/*.svg"`. The value
-must be a YAML list, even for one pattern. `watch` does not limit what is
-served: every file in the folder is served whether or not it is watched.
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `kind` | `slides` | yes | |
+| `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
+| `slides` | list of paths | yes | The slide files, in order; at least one. |
 
 ## Errors
 
-devpage exits with an error, before serving anything, when it can't start. It
-prints `Error:` and what it was doing — for the document file, `reading <file>`
-or `in <file>` — then the cause under `Caused by:`:
+devpage stops before serving when the **entry** document can't be loaded. It
+prints `Error:` and what it was doing — `reading <file>` or `in <file>` — then
+the cause:
 
 | Problem | Message |
 | --- | --- |
-| The file or folder's `devpage.yml` can't be read | `reading <file>` — then the system error, e.g. `No such file or directory (os error 2)` |
-| A field that isn't `title`, `root` or `watch` | `in <file>` — ``unknown field `colour`, expected one of `title`, `root`, `watch` at line 3 column 1`` |
-| `title` or `root` missing | `in <file>` — `` missing field `title` `` |
-| A field of the wrong type, e.g. `watch: "*.md"` | `in <file>` — `watch: invalid type: string "*.md", expected a sequence at line 3 column 8` |
-| `root` isn't an existing file | `in <file>` — `root page <root> does not exist` |
-| A `watch` pattern isn't a valid glob | `in <file>` — `watch pattern <pattern>`, then the glob error, e.g. `error parsing glob 'a[b': unclosed character class; missing ']'` |
-| The folder can't be watched | the file-watcher's error |
-| Every port from 3030 to 65535 is taken | `no free port` |
+| The file, or a folder's `devpage.yml`, can't be read | `reading <file>` — then the system error, e.g. `No such file or directory (os error 2)` |
+| `kind` missing | `in <file>` — `` missing field `kind` `` |
+| `kind` not one of the three | `in <file>` — ``unknown variant `deck`, expected one of `site`, `doc`, `slides` `` |
+| A field the kind doesn't have | `in <file>` — ``unknown field `root`, expected one of `kind`, `title`, `chapters`, `pdf` `` |
+| A required field missing, or of the wrong type | `in <file>` — the YAML error, with its line and column |
+| `root`, a chapter or a slide isn't an existing file in the repository | `in <file>` — `<field> <path> does not exist` |
+| `--port` is taken | `binding <address>:<port>` — the system error |
+| Every port from 3030 up is taken | `no free port` |
 
-Unknown fields are rejected (`#[serde(deny_unknown_fields)]`), not ignored:
-a misspelled field stops devpage with the error above.
+The same problems in a document file reached by a link — not the entry — don't
+stop devpage: they are [problems](../checking-links/README.md), shown on the
+pages that link to it and reported by `devpage check`. `devpage pdf` also stops
+with `pdf prints a doc or slides, not a site` when given a site, and with the
+error from fetching Chromium when none is installed and the download fails.
 
-## Example
+## Examples
 
 devpage's own documentation, `docs/devpage.yml`:
 
 ```yaml
 # devpage's own documentation, served by devpage.
+kind: site
 title: devpage
 root: README.md
-watch:
-  - "**/*.md"
 ```
+
+The example doc and deck in `examples/` show the other two kinds.

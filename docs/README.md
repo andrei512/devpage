@@ -1,41 +1,49 @@
 # devpage
 
-devpage serves a folder of Markdown files from a repository as a live
-document in the browser: you point it at a small `devpage.yml`, open the address it
-prints, and every page you have open updates the moment its file is saved — by
-you or by an agent. These pages are devpage's own documentation, served by
-devpage.
+devpage renders the documents a software project lives by — a site of system
+docs, a design doc or PRD, a slide deck — from Markdown files in the
+repository, live: point it at a document, open the address it prints, and
+every page you have open updates the moment its file is saved — by you or by an
+agent. These pages are devpage's own documentation, served by devpage.
 
-## What devpage does today
+## What devpage does
 
-- **One page frame for every document.** Each Markdown file is rendered as
-  GitHub-flavoured Markdown, with raw HTML allowed, inside the same frame: a
-  sidebar and the page, in a light and a dark theme that follow the reader's
-  system setting.
-- **Diagrams and highlighted code.** A `mermaid` fence is drawn as a diagram
-  whose nodes can link to other pages; a fence that names a known language is
-  syntax-highlighted.
-- **Navigation from Topics.** The sidebar is the tree the pages form by
-  listing their children in a `## Topics` section — nothing to configure
-  separately.
-- **Live updates.** A watched file's change refreshes every open page in
-  place, without a reload.
-
-That is the whole of it. devpage is a local program you build from source; it
-renders one kind of page. Layouts per kind of document — design docs, PRDs,
-slide decks — and the rest of the [vision](vision.md) are ideas, not built.
+- **Three kinds of document.** A **site** of pages with a sidebar built from
+  their Topics sections; a **doc** read top to bottom, split into chapter files,
+  with an outline that follows you; a deck of **slides**, one file per slide, on
+  a 16:9 stage.
+- **Extended Markdown.** GitHub-flavoured Markdown with raw HTML allowed,
+  highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to
+  other pages — in a light and a dark theme that follow the reader's system.
+- **Live updates.** A file's change refreshes every open page in place,
+  without a reload.
+- **Comments.** Select text or hover a paragraph to start a thread. Threads
+  are files in a `.devpage/` folder git ignores, so an agent can read them and
+  resolve them by deleting the file.
+- **Checked links.** Broken links show on the page while you write, and
+  `devpage check` fails a test on them.
+- **PDF.** `devpage pdf` prints a doc or a deck exactly as the browser shows it.
+- **Local or deployed.** It runs on your machine, or for a team behind the
+  auth proxy you already have.
 
 ```mermaid
 flowchart LR
-  yml["devpage.yml<br/>title, root, watch"] --> devpage
+  yml["Document file<br/>kind: site, doc, slides"] --> devpage
   md["Markdown files"] --> devpage
   devpage -->|"page per request"| browser["Browser"]
   md -. "file changes" .-> devpage
   devpage -. "live update" .-> browser
-  click yml href "./boxes/viewer/configuration-reference/README.md" "Configuration reference"
-  click md href "./boxes/viewer/writing-a-document/README.md" "Writing a document"
+  browser <-->|"comments"| store[".devpage/"]
+  devpage -->|"devpage pdf"| pdf["PDF"]
+  click yml href "./boxes/viewer/writing-a-document/README.md" "Writing a document"
+  click md href "./boxes/viewer/writing-a-document/README.md#markdown-that-works" "Markdown that works"
   click devpage href "./boxes/viewer/README.md" "The viewer"
+  click store href "./boxes/viewer/comments/README.md" "Comments"
+  click pdf href "./boxes/viewer/pdf/README.md" "Printing to PDF"
 ```
+
+What devpage may become beyond this is on the [vision](vision.md): ideas, not
+commitments.
 
 ## How these docs are organized
 
@@ -52,11 +60,11 @@ for the development flow.
 ### Start here
 
 - [Vision](vision.md) — what devpage is for and where it is going. Ideas, not
-  commitments, with what is built today set apart.
-- [Installing devpage](installing.md) — the Rust toolchain, building,
-  putting `devpage` on your `PATH`, and running it.
+  commitments.
+- [Installing devpage](installing.md) — `cargo install devpage`, what PDF
+  printing needs, and running it.
 - [Getting started](getting-started.md) — the mental model, and a first
-  document run end to end.
+  site, doc and deck run end to end.
 
 ### The system
 

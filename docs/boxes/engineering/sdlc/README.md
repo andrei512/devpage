@@ -88,10 +88,13 @@ a note, not a round. (`/review`)
 
 ### Release
 
-The operator's call, from main. Release is not defined yet. devpage is at version `0.1.0` in
-`Cargo.toml`, the repository has no tags, and there is no published binary or
-crate — people [build it from source](../../../installing.md). What a release
-is, and how one is cut, is still to be designed.
+The operator's call, from main. A release publishes the version in
+`Cargo.toml` to [crates.io](https://crates.io/crates/devpage) with
+`cargo publish`, from main's tip with the gates green, and tags that commit
+`v<version>`. Publishing is permanent — a version can be yanked but never
+replaced — so it happens only when the operator says so. The
+[example image](../../viewer/deploying/README.md#the-image) installs the
+released version, so it follows each release.
 
 ### Retro
 

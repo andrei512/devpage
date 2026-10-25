@@ -1,64 +1,105 @@
 # Writing a document
 
-How to write a devpage document: the `devpage.yml` that describes it, where its
-pages live, how pages link to each other, which Markdown features render,
-how code blocks and images are shown, and how to give another repository's
-docs a `devpage.yml`. It is a task article under the
-[viewer](../README.md); read [Getting started](../../../getting-started.md)
-first for the mental model.
+How to write a devpage document: the three kinds and when to use each, the
+document file that describes one, the repository devpage serves from, how
+pages and documents link to each other, and which Markdown features render. It
+is a task article under the [viewer](../README.md); read
+[Getting started](../../../getting-started.md) first for the mental model.
+
+## Three kinds
+
+| Kind | Like | Made of | Read as |
+| --- | --- | --- | --- |
+| `site` | a documentation website | a root page and the pages its Topics sections reach | many pages, with a sidebar |
+| `doc` | a Word document | one or more chapter files, in order | one long page, with an outline that follows you |
+| `slides` | a PowerPoint deck | one Markdown file per slide, in order | one slide at a time, 16:9 |
+
+A system's documentation is a site. A design doc, a PRD or a proposal is a
+doc. A talk is slides. All three are Markdown files in the repository, render
+the same Markdown, take comments and are checked for broken links; a doc and a
+deck also [print to PDF](../pdf/README.md).
 
 ## The document file
 
-A document is one YAML file, usually named `devpage.yml`:
+A document is described by one YAML file. Its `kind` says which of the three it
+is, and the rest of its fields follow from that:
 
 ```yaml
-title: devpage          # the document's name, shown in the sidebar and the tab
-root: README.md         # the page "/" opens
-watch:                  # optional; defaults to every Markdown file
-  - "**/*.md"
+kind: site              # a site of pages
+title: devpage          # its name, shown in the sidebar and the tab
+root: README.md         # the page it opens on
 ```
 
-- `title` is the document's name. It heads the sidebar and follows the page's title
-  in the browser tab (`Planting · Garden`).
-- `root` is the page the address `/` redirects to, and the top of the sidebar
-  tree. It must be an existing file.
-- `watch` lists glob patterns for the files whose changes refresh open pages.
-  Leave it out to watch every Markdown file.
+```yaml
+kind: doc
+title: Sync design
+chapters: [context.md, design.md, rollout.md]
+```
 
-Paths are relative to the YAML file's folder. The file is read once, at start;
-after changing it, restart devpage. Exact types, defaults and errors are in the
-[configuration reference](../configuration-reference/README.md).
+```yaml
+kind: slides
+title: Launch
+slides: [intro.md, problem.md, demo.md]
+```
 
-## Where pages live
+The file can have any name. `devpage.yml` is the one devpage looks for when
+it is given a folder, so name it that unless a folder holds several
+documents. Paths in it are relative to its folder. A change to a document file
+takes effect on the next request; there is nothing to restart. Every field,
+its type and its errors are in the
+[configuration reference](../configuration-reference/README.md); a doc's
+chapters and PDF settings are on [Writing a doc](../writing-a-doc/README.md),
+a deck's slides on [Making slides](../making-slides/README.md).
 
-Pages are the Markdown (`.md`) files in the YAML file's folder and any folder
-below it. Nothing outside that folder is served — not through `..`, and not
-through a symbolic link that points outside.
+**A single Markdown file needs no document file.** `devpage design.md` serves
+it as a doc of one chapter, titled by its `# heading`, with the default PDF
+settings. Give it a document file when it grows chapters or needs a header or
+footer on paper.
 
-A page's address is its path inside the folder: `boxes/viewer/README.md` is
-served at `/boxes/viewer/README.md`. A folder has no address of its own;
-link to its `README.md` (or whatever file it holds) instead.
+## The repository
+
+devpage serves from the **repository** holding the document it was started
+with: the git working tree, found by walking up from the document's folder to
+the folder holding `.git`, or — outside git — the document's own folder.
+Everything in it can be served, and nothing outside it can: not through `..`,
+not through a symbolic link ([the rule](../constraints/the-repository-is-the-boundary.md)).
+
+A file's address is its path from the top of the repository:
+`docs/boxes/viewer/README.md` is served at `/docs/boxes/viewer/README.md`, and
+`/` leads to the document devpage was started with. A folder has no address of
+its own; link to a file in it instead.
 
 A page's title — shown in the browser tab — is its first line that starts with
 `# `; a page without one is titled with its file name. Start every page with
 `# Title` so the tab reads well.
 
-## Links between pages
+## Links between pages and documents
 
-Because addresses are file paths, a relative link between Markdown files works
-exactly as it does when the files are read in the repository:
+Because addresses are repository paths, a relative link between files works
+exactly as it does when the files are read in the repository — including one
+that climbs out of the docs folder to the repository's `README.md`:
 
 ```markdown
 See [live updates](../live-updates/README.md#the-page-script).
+Read the [sync design](../../design/sync/devpage.yml) or watch the
+[launch talk](../../talks/launch/devpage.yml#3).
 ```
 
-Every heading gets an id from its text (`## Two words` → `#two-words`), so
-links can point at a section. A link to another page of the document opens it
-in place, without a full reload; a link with only a `#fragment` scrolls within
-the page.
+- **A link to a Markdown file** opens it as a page of the document it belongs
+  to: a page inside a site's folder is shown in that site, with its sidebar; a
+  page that belongs to no site is shown as a one-chapter doc.
+- **A link to a document file** opens that document as its kind — a site at its
+  root page, a doc whole, a deck at its first slide, or at slide *n* with
+  `#n`.
+- **A link to a heading.** Every heading gets an id from its text
+  (`## Two words` → `#two-words`), so links can point at a section. Within a
+  doc, links between its chapters and to their headings scroll within the doc.
 
-Which links appear in the sidebar is decided only by the page's `## Topics`
-section — see [Organizing navigation](../organizing-navigation/README.md).
+A link within the same document opens in place, without a full reload. Which
+links appear in a site's sidebar is decided only by its pages' `## Topics`
+sections — see [Organizing navigation](../organizing-navigation/README.md).
+Every link is checked: a broken one is marked on the page and listed at its
+top while you write ([Checking links](../checking-links/README.md)).
 
 ## Markdown that works
 
@@ -111,60 +152,30 @@ with a relative path:
 ![The parts](parts.svg)
 ```
 
-Changes to such files refresh open pages only if a `watch` pattern matches
-them; the default watches Markdown alone.
+A change to any file in the repository refreshes the open pages, images
+included; files git ignores are not watched.
 
 ## Documenting another repository
 
 devpage serves any repository's Markdown, not only its own. Give the other
-repository a `devpage.yml` and point devpage at it.
-
-**Choose where the YAML file goes.** Its folder is the boundary of what is
-served: every page, every image and every page a Topics list names must sit in
-that folder or below it. A link that climbs out of it never reaches the file it means: the
-browser can't go above `/`, so `../assets/logo.png` becomes `/assets/logo.png`
-and gets `404 … is not part of this document`, and `../README.md` from the
-root page becomes `/README.md`, the document's own root page. A Topics link to
-it is left out of the sidebar. So:
-
-- If the docs are self-contained in `docs/`, put `docs/devpage.yml` there,
-  with `root: README.md` (or whichever page is the entrance).
-- If they link to the repository's top-level `README.md`, or to images
-  outside `docs/`, put `devpage.yml` at the repository root and give the root
-  page's path from there, for example `root: docs/README.md`.
-
-Remember that everything in that folder is served to whoever can reach the
-address — only the local machine, since devpage binds `127.0.0.1` — source
-files and `devpage.yml` included.
-
-**Narrow `watch` when the folder is large.** The watcher always watches the
-whole folder, recursively; `watch` only decides which changes refresh pages.
-At a repository root the default `**/*.md` also matches Markdown in build
-output or vendored folders, so name the folders you mean, and add the images
-your pages show:
-
-```yaml
-title: My project
-root: docs/README.md
-watch:
-  - "docs/**/*.md"
-  - "README.md"
-  - "docs/**/*.svg"
-```
-
-**Run it** with the YAML file or its folder, as a relative or an absolute
-path:
+repository a document file — usually `docs/devpage.yml` with `kind: site` — and
+point devpage at it:
 
 ```sh
 devpage ../my-project/docs              # the folder holding devpage.yml
 devpage ~/code/my-project/devpage.yml   # the file itself
 ```
 
-**Several documents at once.** Each devpage process serves one document and
-takes the first free port from 3030 up, so a second one started while the
-first runs prints `http://localhost:3031`, the next `3032`, and so on. Read the
-port from the line each one prints; a document gets a different port from one
-run to the next if another devpage started first.
+Pages can link anywhere in that repository, so the docs can stay in `docs/`
+and still link to the top-level `README.md` or to images beside the code.
+Remember that everything in the repository can be served to whoever can reach
+the address — only the local machine, unless devpage is
+[deployed](../deploying/README.md).
+
+**Several at once.** Each devpage process serves one repository and takes the
+first free port from 3030 up, so a second one started while the first runs
+prints `http://localhost:3031`, the next `3032`, and so on. Read the port from
+the line each one prints.
 
 How a request becomes a page is explained in
 [Serving pages](../serving-pages/README.md).

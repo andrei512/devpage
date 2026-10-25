@@ -1,8 +1,8 @@
 # Organizing navigation
 
-How a document's sidebar is built from the `## Topics` sections of its pages —
+How a site's sidebar is built from the `## Topics` sections of its pages —
 children, groups, order, labels, repeated pages and pages left out — and how to
-use that to give a document a reading order that goes from its landing page down to
+use that to give a site a reading order that goes from its landing page down to
 reference. It is a task article under the [viewer](../README.md); the
 [navigation tree](../navigation-tree/README.md) mechanism explains the
 implementation.
@@ -36,17 +36,20 @@ The rules:
 - **Order.** Children appear in the order of the list. That order is the
   reading order.
 - **End of the section.** Topics ends at the next `#` or `##` heading.
-- **What counts.** Only links to Markdown files that exist inside the document
-  count. Links to other sites, links that are only a `#fragment`, links to
-  non-Markdown files and links to missing files are left out of the sidebar
-  without an error.
+- **What counts.** A link to a Markdown file in the site's folder, or below it,
+  is a child. A link to a document file — a doc, a deck, another site — is an
+  entry that opens that document, with no children under it. Links to other
+  websites, links that are only a `#fragment` and links to other files are not
+  entries. A link to a missing file, or to a Markdown file outside the site's
+  folder, is left out of the sidebar and reported as a
+  [problem](../checking-links/README.md).
 
 Links anywhere else in a page — paragraphs, other sections, a "where next"
 list — never change the sidebar. Use them freely to link across the tree.
 
 ## How the tree grows
 
-The sidebar starts with the document title, which links to the root page. Under it
+The sidebar starts with the site's title, which links to the root page. Under it
 come the root page's Topics children; under each child, that page's own Topics
 children, and so on down.
 
@@ -90,9 +93,9 @@ while it is shown.
 Because the tree is read from the files on every request, editing a Topics
 list changes the sidebar of every open page as soon as the file is saved.
 
-## Structuring a document's reading order
+## Structuring a site's reading order
 
-The Topics lists are the document's table of contents, so lay them out the way a
+The Topics lists are the site's table of contents, so lay them out the way a
 reader learns. This repository's documentation skill
 (`.claude/skills/documentation/SKILL.md`) describes five layers, each answering
 a different question:

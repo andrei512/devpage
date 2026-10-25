@@ -140,9 +140,9 @@ diagram error text (red).
 
 ## Changing the look
 
-The themes can't be changed per document today. `devpage.yml` has only
-`title`, `root` and `watch` — any other field stops devpage with an error —
-and the stylesheet is compiled into the binary, so there is no theme setting,
+The themes can't be changed per document. A document file has no theme
+field — any field its kind doesn't have stops devpage with an error — and the
+stylesheet is compiled into the binary, so there is no theme setting,
 no custom stylesheet option and no way to add a third theme without changing
 `assets/style.css` and rebuilding devpage.
 

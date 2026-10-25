@@ -66,9 +66,8 @@ The operator does the final review and the merge into `main`, and after it
 ### Plan files in the served docs
 
 `docs/plan/` sits inside this documentation's folder, so while a design branch
-holds it, devpage serves those files like any page — `/plan/00-prototype.md`
-renders, and saving one refreshes open pages, since `watch` covers every
-Markdown file. No Topics section lists them, so they never appear in the
+holds it, devpage serves those files like any page — `/docs/plan/00-prototype.md`
+renders, and saving one refreshes open pages. No Topics section lists them, so they never appear in the
 sidebar; open them by address. They never reach `main`: `/build` deletes
 `docs/plan/` before the pull request opens.
 
