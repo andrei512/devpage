@@ -63,8 +63,8 @@ with `--ignored` after changing the page script, the stylesheet, print mode or
 | `nav` | 3 | | Links and `###` groups read from the Topics section only; the tree stopping at a cycle; a Topics entry outside the site or to a missing file is a problem. |
 | `pdf` | 2 | 4 | The default file name made safe; a site refused. In Chrome: the example doc on A4 with its header and footer; the example deck one 16:9 page per slide; a deck's keys; a doc's outline above the text on a narrow screen. |
 | `render` | 9 | | Raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
-| `server` | 7 | | Comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link. |
-| `watch` | 3 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page. |
+| `server` | 8 | | `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back; comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link. |
+| `watch` | 4 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page; the `watch` list following the entry file. |
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.
@@ -124,7 +124,7 @@ flowchart LR
 | Module | Does |
 | --- | --- |
 | `src/main.rs` | The command line (clap): serving, `check` and `pdf`; wires the parts together and picks the address. |
-| `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. |
+| `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site. |
 | `src/watch.rs` | Watches the served folder, keeps the index current, and sends `change` or `comments /<page>` on the change channel. |
 | `src/server.rs` | The routes, request logging, the event stream, the comment requests and identity, and the built-in assets. |
@@ -160,7 +160,8 @@ flowchart LR
 ```
 
 1. **Load the document** from the path argument, or `.`, inside the served
-   folder — the current folder or `--root`. The `Document` is shared (`Arc`).
+   folder — the current folder or `--root`. It becomes the `Entry`, shared by
+   the watcher and the server, which re-reads it whenever its file changes.
 2. **Build the index** of the served folder's document files and `.gitignore`
    files; the watcher and the server share it.
 3. **Create the broadcast channel** that carries `change` and

@@ -7,18 +7,19 @@ use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
-use crate::document::Document;
+use crate::document::Entry;
 use crate::index::Index;
 
 /// Starts watching. A change to a watched file sends `change`; a change to a
 /// comment thread sends `comments /<page>`, whatever the site's `watch` says.
 /// The returned watcher stops when dropped.
 pub fn start(
-    document: Arc<Document>,
+    entry: Arc<Entry>,
     index: Arc<Index>,
     changes: broadcast::Sender<String>,
 ) -> Result<RecommendedWatcher> {
-    let served = document.served.clone();
+    let served = entry.document().served.clone();
+    let root = served.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         if event.kind.is_access() {
@@ -27,7 +28,7 @@ pub fn start(
         let mut refresh = false;
         for path in &event.paths {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            let Ok(relative) = path.strip_prefix(&document.served) else {
+            let Ok(relative) = path.strip_prefix(&served) else {
                 continue;
             };
             // A thread changed: tell the pages showing its page to fetch comments.
@@ -40,7 +41,12 @@ pub fn start(
                 continue;
             }
             index.changed(&path);
-            if !index.ignored(&path, path.is_dir()) && document.watches(&path) {
+            // The entry's own file: re-read it, so `/` and `watch` follow it,
+            // and refresh open pages whatever `watch` says.
+            if path == entry.file() {
+                entry.reload();
+                refresh = true;
+            } else if !index.ignored(&path, path.is_dir()) && entry.document().watches(&path) {
                 refresh = true;
             }
         }
@@ -48,13 +54,14 @@ pub fn start(
             let _ = changes.send("change".into());
         }
     })?;
-    watcher.watch(&served, RecursiveMode::Recursive)?;
+    watcher.watch(&root, RecursiveMode::Recursive)?;
     Ok(watcher)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::Document;
     use std::path::{Path, PathBuf};
     use std::time::Duration;
 
@@ -73,7 +80,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let (changes, mut received) = broadcast::channel(64);
-        let _watcher = start(document, index, changes).unwrap();
+        let _watcher = start(Arc::new(Entry::new(document)), index, changes).unwrap();
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch();
@@ -126,5 +133,46 @@ mod tests {
             "{messages:?}"
         );
         assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn the_watch_list_follows_the_entry_file() {
+        let dir = served(
+            "relist",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+        );
+        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let entry = Arc::new(Entry::new(document));
+        let index = Arc::new(Index::build(&dir));
+        let (changes, mut received) = broadcast::channel(64);
+        let _watcher = start(entry.clone(), index, changes).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // Its own file changing refreshes pages, though `watch` names only Markdown.
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.svg\"]\n",
+        )
+        .unwrap();
+        let drain = |received: &mut broadcast::Receiver<String>| {
+            let mut messages = Vec::new();
+            while let Ok(message) = received.try_recv() {
+                messages.push(message);
+            }
+            messages
+        };
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+
+        // Now Markdown is outside `watch`, and an SVG is in it.
+        std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
+        std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
     }
 }

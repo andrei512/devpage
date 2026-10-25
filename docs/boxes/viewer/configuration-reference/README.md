@@ -116,8 +116,10 @@ the cause:
 | `--port` is taken | `binding <address>:<port>` — the system error |
 | Every port from 3030 up is taken | `no free port` |
 
-The same problems in a document file reached by a link — not the entry — don't
-stop devpage: they are [problems](../checking-links/README.md), shown on the
+Once devpage is serving, an edit that makes the entry's file invalid doesn't
+stop it either: `/` and the site's pages show the problem until the file is
+fixed, and the last valid version is kept meanwhile. The same problems in a
+document file reached by a link don't stop devpage: they are [problems](../checking-links/README.md), shown on the
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, and with the
 error from fetching Chromium when none is installed and the download fails.

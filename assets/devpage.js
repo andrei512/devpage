@@ -41,6 +41,12 @@ async function load(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) return false;
   const next = new DOMParser().parseFromString(await response.text(), "text/html");
+  // A different frame — a fixed document file replacing its problem page, or
+  // a document that changed kind — can't be swapped in part: load it whole.
+  if (next.body.className !== document.body.className) {
+    location.assign(url);
+    return true;
+  }
   for (const id of ["page", "nav"]) {
     const fresh = next.getElementById(id);
     if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
