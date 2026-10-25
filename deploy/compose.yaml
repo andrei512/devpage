@@ -1,0 +1,19 @@
+# Try the deployed devpage locally: docker compose -f deploy/compose.yaml up --build
+# then open http://localhost:8080. Only the proxy is published, as on a cluster.
+services:
+  devpage:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    volumes:
+      - comments:/srv/docs/.devpage
+  proxy:
+    image: caddy:2
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - devpage
+volumes:
+  comments:

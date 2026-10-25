@@ -5,34 +5,79 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Request, State};
-use axum::http::{StatusCode, header};
+use axum::extract::Query;
+use axum::extract::{Path, RawQuery, Request, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
+use serde::Deserialize;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::document::Document;
+use crate::comments::{Anchor, Store};
+use crate::document::{self, Document, Kind};
 use crate::render;
 
 #[derive(Clone)]
 struct AppState {
     document: Arc<Document>,
-    changes: broadcast::Sender<()>,
+    changes: broadcast::Sender<String>,
+    store: Arc<Store>,
+    identity: Arc<Identity>,
 }
 
-pub fn router(document: Arc<Document>, changes: broadcast::Sender<()>) -> Router {
+/// Who writes a comment: one local author, or — deployed — whoever the auth
+/// proxy names in a header. devpage authenticates no one itself.
+pub enum Identity {
+    Local(String),
+    Header(String),
+}
+
+impl Identity {
+    #[allow(clippy::result_large_err)]
+    fn author(&self, headers: &HeaderMap) -> Result<String, Response> {
+        match self {
+            Identity::Local(name) => Ok(name.clone()),
+            Identity::Header(name) => headers
+                .get(name.as_str())
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    (StatusCode::UNAUTHORIZED, format!("no {name} header")).into_response()
+                }),
+        }
+    }
+}
+
+pub fn router(
+    document: Arc<Document>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
+        .route(
+            "/__devpage/comments",
+            get(list_comments).post(create_comment),
+        )
+        .route("/__devpage/comments/reply", post(reply_comment))
+        .route("/__devpage/comments/resolve", post(resolve_comment))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
         .layer(middleware::from_fn(log))
-        .with_state(AppState { document, changes })
+        .with_state(AppState {
+            store: Arc::new(Store::new(&document.repo)),
+            identity: Arc::new(identity),
+            document,
+            changes,
+        })
 }
 
 /// Logs each request with its status and how long the response took to start.
@@ -49,24 +94,46 @@ async fn log(request: Request, next: Next) -> Response {
 }
 
 async fn home(State(state): State<AppState>) -> Redirect {
-    Redirect::temporary(&format!("/{}", state.document.root))
+    Redirect::temporary(&state.document.entry())
 }
 
 /// A Markdown file becomes a page; anything else in the folder is served as is.
-async fn file(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+async fn file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
     let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
-            format!("{path} is not part of this document"),
+            format!("{path} is not part of this repository"),
         )
             .into_response();
     };
+    let repo = &state.document.repo;
+    let yaml = file
+        .extension()
+        .is_some_and(|ext| ext == "yml" || ext == "yaml");
+    if yaml && let Ok(document) = Document::load_in(&file, Some(repo)) {
+        return show(&document, print);
+    }
     if file.extension().is_some_and(|ext| ext == "md") {
-        match tokio::fs::read_to_string(&file).await {
-            Ok(source) => Html(render::page(&state.document, &file, &source)).into_response(),
-            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
-        }
-    } else {
+        let Ok(source) = tokio::fs::read_to_string(&file).await else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "unreadable").into_response();
+        };
+        // A page of the nearest site; outside every site, a doc of one chapter.
+        return match document::site_for(&file, repo) {
+            Some(site) => Html(render::page(&site, &file, &source)).into_response(),
+            None => match Document::load_in(&file, Some(repo)) {
+                Ok(doc) => show(&doc, print),
+                Err(error) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
+                }
+            },
+        };
+    }
+    {
         match tokio::fs::read(&file).await {
             Ok(bytes) => {
                 let mime = mime_guess::from_path(&file).first_or_octet_stream();
@@ -77,12 +144,23 @@ async fn file(State(state): State<AppState>, Path(path): Path<String>) -> Respon
     }
 }
 
+/// A document as its kind: a site opens on its root page.
+fn show(document: &Document, print: bool) -> Response {
+    match &document.kind {
+        Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
+        Kind::Doc { chapters, pdf } => {
+            Html(render::doc(document, chapters, pdf, print)).into_response()
+        }
+        Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
+    }
+}
+
 /// Server-sent events: one "change" message per change to a watched file.
 async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let stream = BroadcastStream::new(state.changes.subscribe())
-        .map(|_| Ok(Event::default().data("change")));
+        .map(|message| Ok(Event::default().data(message.unwrap_or_else(|_| "change".into()))));
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
@@ -102,4 +180,102 @@ async fn asset(Path(name): Path<String>) -> Response {
         body,
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+struct PageQuery {
+    page: String,
+}
+
+#[derive(Deserialize)]
+struct NewThread {
+    page: String,
+    anchor: Anchor,
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct Reply {
+    page: String,
+    id: String,
+    #[serde(default)]
+    text: String,
+}
+
+fn failed(error: anyhow::Error) -> Response {
+    (StatusCode::BAD_REQUEST, format!("{error:#}")).into_response()
+}
+
+async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
+    match state.store.list(&query.page) {
+        Ok(threads) => Json(threads).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn create_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(new): Json<NewThread>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
+    match state
+        .store
+        .create(&new.page, new.anchor, &author, &new.text)
+    {
+        Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn reply_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
+    match state
+        .store
+        .reply(&reply.page, &reply.id, &author, &reply.text)
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn resolve_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    if let Err(refused) = state.identity.author(&headers) {
+        return refused;
+    }
+    match state.store.resolve(&reply.page, &reply.id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deployed_authors_come_from_the_proxy_header_or_are_refused() {
+        let deployed = Identity::Header("X-Forwarded-Email".into());
+        let mut headers = HeaderMap::new();
+        let refused = deployed.author(&headers).unwrap_err();
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        headers.insert("x-forwarded-email", "ana@example.com".parse().unwrap());
+        assert_eq!(deployed.author(&headers).unwrap(), "ana@example.com");
+        let local = Identity::Local("Andrei".into());
+        assert_eq!(local.author(&headers).unwrap(), "Andrei");
+    }
 }

@@ -169,3 +169,66 @@ pre code { color: var(--text); }
 .diagram a { cursor: pointer; text-decoration: none; }
 .diagram a:hover rect, .diagram a:hover polygon, .diagram a:hover circle,
 .diagram a:hover ellipse, .diagram a:hover path { stroke: var(--accent); stroke-width: 2.5px; }
+
+/* A doc: one long page, its outline beside it. */
+
+.outline li.h2 { padding-left: 14px; font-size: 14px; }
+.doc .chapter + .chapter { margin-top: 48px; }
+
+/* Print mode, and the browser's own print: the page alone, in the light theme. */
+
+@media print {
+  :root { color-scheme: light; }
+  #nav { display: none; }
+  body { display: block; }
+}
+.print #nav { display: none; }
+
+.doc-title { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
+
+/* Slides: each slide a 1920 × 1080 stage, scaled whole to the window. */
+
+body.slides { display: block; background: #000; overflow: hidden; }
+.deck .slide {
+  position: absolute; top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  transform-origin: 0 0;
+  background: var(--background);
+  display: none;
+  overflow: hidden;
+}
+.deck .slide.shown { display: block; }
+.slide-body { padding: 96px 128px; font-size: 40px; line-height: 1.4; }
+.slide-body h1 { font-size: 96px; }
+.slide-body h2 { font-size: 64px; }
+
+@media print {
+  body.slides { background: none; overflow: visible; }
+  .deck .slide {
+    display: block; position: relative; transform: none !important;
+  }
+  .deck .slide:not(:last-child) { break-after: page; }
+  body.slides, .deck { margin: 0; padding: 0; }
+}
+
+/* Comments: highlighted anchors, threads in a panel on the right. */
+
+mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; }
+#comments { width: 300px; flex-shrink: 0; padding: 56px 16px; font-size: 14px; }
+#comments:empty { display: none; }
+#comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
+#comments blockquote { margin: 0 0 6px; color: var(--muted); border-left: 3px solid var(--accent); padding-left: 8px; }
+#comments p { margin: 4px 0; }
+#comments input { width: 100%; margin: 6px 0; }
+body.slides #comments { position: fixed; right: 0; top: 0; bottom: 0; overflow: auto; background: var(--background); z-index: 2; display: none; }
+body.slides.show-comments #comments { display: block; }
+@media print { #comments, #comment-button { display: none; } mark.comment { background: none; } }
+
+/* Problems: broken links found while the page is previewed. */
+
+.problems { max-width: 780px; margin: 0 auto 24px; border: 1px solid #d70015; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #d70015; }
+.problems ul { margin: 4px 0 0; padding-left: 18px; }
+body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
+@media print { .problems { display: none; } }
+#paragraph-button, #comment-button { font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; z-index: 4; }
+@media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }

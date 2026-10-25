@@ -39,8 +39,11 @@ pub struct Topic {
 /// The children of the root page, recursively. A page reached a second time is
 /// listed again but not expanded, so cycles end.
 pub fn tree(document: &Document) -> Vec<Group> {
+    let crate::document::Kind::Site { root } = &document.kind else {
+        return Vec::new();
+    };
     let mut seen = HashSet::new();
-    let root = document.base.join(&document.root);
+    let root = document.base.join(root);
     seen.insert(root.clone());
     children(document, &root, &mut seen)
 }
@@ -172,7 +175,11 @@ mod tests {
     fn builds_the_tree_and_stops_at_cycles() {
         let dir = std::env::temp_dir().join(format!("devpage-nav-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("guide")).unwrap();
-        std::fs::write(dir.join("devpage.yml"), "title: T\nroot: README.md\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
         std::fs::write(
             dir.join("README.md"),
             "# Home\n\n## Topics\n\n- [Guide](guide/README.md)\n- [Missing](nope.md)\n",
