@@ -29,7 +29,7 @@ The first build downloads the crates `devpage` and `devpage-design` use and
 compiles the engine once, for your machine.
 
 The result is one file. A release build of `devpage` for 64-bit ARM macOS is
-about 34 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as a
+about 40 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as a
 compressing proxy in front of a deployed devpage would send it; devpage itself
 sends it uncompressed).
 

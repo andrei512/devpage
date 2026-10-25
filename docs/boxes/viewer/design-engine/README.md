@@ -218,7 +218,11 @@ off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
 one per canvas. The module lays out and paints on the GPU into a `<canvas>`
 sized to the screen's device pixels; one WebGPU device serves every canvas on
-the page. It lays out once per change of scene (`Renderer::drawing`) and
+the page. On a slide, the 1920 × 1080 stage is scaled to the window by a
+transform the canvas's CSS size doesn't see, so the bitmap follows the
+canvas's box on the screen and the module paints at the view's zoom times that
+transform — the whole drawing shows, crisp, at any window size — and a click
+is taken back through the same transform before it is hit-tested. It lays out once per change of scene (`Renderer::drawing`) and
 paints from that one display list on the GPU or the CPU alike, and paints only when
 the scene or the view does — a zoom, a pan, a resize — at most once per
 animation frame.
