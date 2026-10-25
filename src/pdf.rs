@@ -17,7 +17,7 @@ use crate::server;
 /// Prints `document` to `output`.
 pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let params = match &document.kind {
-        Kind::Doc { pdf, .. } => doc_params(&document.title, pdf),
+        Kind::Doc { pdf, .. } => doc_params(pdf),
         Kind::Slides { .. } => PrintToPdfParams {
             print_background: Some(true),
             prefer_css_page_size: Some(true),
@@ -143,7 +143,7 @@ async fn fetch_chromium() -> Result<std::path::PathBuf> {
 
 /// The print call for a doc: its paper, and its header and footer, whose
 /// `{page}` and `{pages}` become Chrome's page-number fields.
-fn doc_params(title: &str, pdf: &Pdf) -> PrintToPdfParams {
+fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
     let template = |text: &str| {
         let text = text
             .replace('&', "&amp;")
@@ -158,7 +158,6 @@ fn doc_params(title: &str, pdf: &Pdf) -> PrintToPdfParams {
         Paper::A4 => (8.27, 11.69),
         Paper::Letter => (8.5, 11.0),
     };
-    let _ = title;
     PrintToPdfParams {
         display_header_footer: Some(true),
         header_template: Some(template(pdf.header.as_deref().unwrap_or(""))),
@@ -227,7 +226,7 @@ mod tests {
         let Kind::Doc { pdf, .. } = &document.kind else {
             panic!()
         };
-        let params = doc_params(&document.title, pdf);
+        let params = doc_params(pdf);
         assert!(
             params
                 .header_template

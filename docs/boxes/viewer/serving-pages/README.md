@@ -92,9 +92,11 @@ file in an excluded folder is not indexed. The watcher keeps it current
 picks, among the indexed sites whose folder holds the page, the deepest — and
 of two in the same folder, the one whose file name sorts first.
 
-`server::router` builds its own index without a watcher, which is what
-`devpage pdf` and the tests use; `devpage` itself shares one index between the
-server and the watcher (`server::router_with_index`).
+`devpage` shares one index between the server and the watcher
+(`server::router_with_index`). `devpage pdf` serves through
+`server::printing`, which builds its own index, has no watcher and logs
+nothing; `server::router`, which also builds its own index, exists only for
+the tests.
 
 ## Rendering a Markdown file
 
@@ -184,7 +186,8 @@ or exactly the port `--port` names. It prints `<title> → http://localhost:<por
 
 ## Request logging
 
-A middleware logs every request to standard error, as
+The server `devpage` runs has a middleware that logs every request to
+standard error, as
 `<method> <path> → <status> in <ms> ms`, for example
 `GET /README.md → 200 in 0.7 ms`. The time is until the response starts, so
 an event stream logs once, when it opens.

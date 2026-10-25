@@ -126,10 +126,16 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
         if !seen.insert(page.clone()) {
             continue;
         }
-        let site = index
-            .site_for(&page)
-            .and_then(|site| Document::load(&site, &document.served).ok());
-        let owner = site.as_ref().unwrap_or(document);
+        let owner = match index.site_for(&page) {
+            Some(site) => Document::load(&site, &document.served).ok(),
+            // In no site, a page is shown as a doc of one chapter — unless it
+            // is one of the doc's or deck's own files the check started from.
+            None if matches!(document.kind, Kind::Site { .. }) => {
+                Document::load(&page, &document.served).ok()
+            }
+            None => None,
+        };
+        let owner = owner.as_ref().unwrap_or(document);
         let (found, reached) = page_links_with(owner, &page, external);
         problems.extend(found);
         for target in reached {
@@ -493,6 +499,32 @@ mod external {
         )
         .unwrap();
         Document::load(&dir, &dir).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_page_in_no_site_is_checked_as_a_doc() {
+        let top = std::env::temp_dir().join(format!("devpage-no-site-{}", std::process::id()));
+        let docs = top.join("docs");
+        std::fs::create_dir_all(&docs).unwrap();
+        std::fs::write(
+            docs.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        std::fs::write(docs.join("README.md"), "# Docs\n\n[repo](../README.md)\n").unwrap();
+        std::fs::write(
+            top.join("README.md"),
+            "# Repo\n\n## Topics\n\n- [Contributing](CONTRIBUTING.md) — how.\n",
+        )
+        .unwrap();
+        std::fs::write(top.join("CONTRIBUTING.md"), "# Contributing").unwrap();
+        let site = Document::load(&docs, &top).unwrap();
+        let found: Vec<String> = document(&site, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(found.is_empty(), "{found:#?}");
     }
 
     #[tokio::test]
