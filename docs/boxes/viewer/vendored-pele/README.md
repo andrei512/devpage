@@ -5,7 +5,7 @@ repository that draws Mermaid diagrams in the browser — where it came from,
 its version and licences, how devpage calls it, and how to upgrade it. It is a
 mechanism page under the [viewer](../README.md), for someone about to replace
 the bundle or change how diagrams are drawn; how to write a diagram is in
-[Diagrams and themes](../diagrams-and-themes/README.md).
+[Diagrams](../diagrams/README.md).
 
 ## What is in the repository
 
@@ -33,17 +33,17 @@ taken from.
 serves it at `/__devpage/pele.js` — see
 [built-in assets](../serving-pages/README.md#built-in-assets). Every page loads
 it before `devpage.js`. One function of it is used, by the `Diagram`
-[system widget](../widgets/README.md#system-widgets) (`assets/widgets/Diagram.tsx`)
+[system widget](../widgets/system-widgets/README.md) (`assets/widgets/Diagram.tsx`)
 that every `<pre lang="mermaid">` block is mounted as: `pele.render(source)`
 returns an object whose `svg` string the widget renders, and a thrown error
 becomes the
-[diagram error block](../diagrams-and-themes/README.md#when-a-diagram-fails). The bundle exports more — zoom
+[diagram error block](../diagrams/README.md#when-a-diagram-fails). The bundle exports more — zoom
 controls, mounting, registering diagram types — and devpage calls none of it.
 
 pele colors its SVG with `--pele-*` CSS variables; `assets/style.css` sets
 them from devpage's theme tokens on every `.diagram`, and fixes
 `--pele-radius` at `8px`. The mapping is in
-[How diagrams follow the theme](../diagrams-and-themes/README.md#how-diagrams-follow-the-theme).
+[How diagrams follow the theme](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams).
 
 ## Upgrading it
 
@@ -63,7 +63,7 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 3. Re-run the diagram check
    Run the Node command in
-   [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram)
+   [Diagrams](../diagrams/README.md#checking-a-diagram-before-committing)
    over every page that holds a diagram, and confirm each diagram renders and
    each one's `click` count equals its link count.
 
@@ -80,7 +80,7 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 5. Update the docs
    The pages that name the version — this page and
-   [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram).
+   [Diagrams](../diagrams/README.md#checking-a-diagram-before-committing).
 
 </Steps>
 

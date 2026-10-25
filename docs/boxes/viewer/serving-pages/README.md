@@ -26,9 +26,9 @@ flowchart LR
 | --- | --- |
 | `/` | `307 Temporary Redirect` to the entry document as its file says now — a site's root page, or a doc's or deck's document file (or the Markdown file devpage was given); while the entry's file is invalid, the page saying why |
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
-| `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
-| `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
-| `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
+| `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/the-comment-store/README.md#the-requests) |
+| `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
+| `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/{*path}` | the file at `path` in the served folder |
 

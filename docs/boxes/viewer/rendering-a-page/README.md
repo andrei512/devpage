@@ -57,7 +57,7 @@ the page.
   HTML (`ClassStyle::SpacedPrefixed { prefix: "hl-" }`): nested spans such
   as `<span class="hl-keyword hl-operator hl-arithmetic hl-rust">`, colored by the
   `--syntax-*` tokens in `assets/style.css` (see
-  [Diagrams and themes](../diagrams-and-themes/README.md#the-themes));
+  [Diagrams](../themes/README.md#the-tokens));
 - otherwise — no language, an unknown one, `mermaid`, or a highlighting
   error partway through — writes the code HTML-escaped and unhighlighted;
 - writes a bare `<pre>` and `<code>` with no language attributes, except
@@ -94,7 +94,7 @@ In detail:
 - first in `<head>`, the document's logo as `<link rel="icon">` when it has
   one, then a small script that sets `data-theme` on `<html>` — the
   reader's stored choice, or the system's — before anything paints
-  ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme));
+  ([choosing a theme](../themes/README.md#choosing-a-theme));
 - `<body>`'s class names the frame: `site`, plus `with-navbar` and
   `no-sidebar` as the document file says;
 - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
@@ -109,7 +109,7 @@ In detail:
 - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
   the document's widgets with the address of each
-  ([Widgets](../widgets/README.md#under-the-hood));
+  ([Widgets](../widgets/how-widgets-run/README.md));
 - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
   `/__devpage/`.
 

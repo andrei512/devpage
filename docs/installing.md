@@ -8,12 +8,16 @@ starting it. It is a task page under the [devpage landing page](README.md);
 ## What you need
 
 - **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
-  The locked `oxc 0.153.0`, which compiles widgets, declares
-  `rust-version = 1.97`, the highest of any dependency. Check what you have with `cargo --version`; install or update
-  Rust with [rustup](https://rustup.rs) (`rustup update`).
+  Check what you have with `cargo --version`; install or update Rust with
+  [rustup](https://rustup.rs) (`rustup update`).
 - **Chrome or Chromium**, only for `devpage pdf`. Without one installed,
   `devpage pdf` downloads a Chromium once and keeps it in devpage's cache
   folder ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
+
+<Callout kind="note" title="Why 1.97">
+The locked `oxc 0.153.0`, which compiles widgets, declares
+`rust-version = 1.97`, the highest of any dependency.
+</Callout>
 
 Nothing else is needed: the stylesheet, the page script and the diagram
 renderer are compiled into the binary, and diagrams are drawn by the reader's
@@ -50,14 +54,11 @@ Without installing, `cargo run -- <path>` runs it from the checkout.
 
 ## Run it
 
-```sh
-devpage <path>
-```
-
 Give it a document file, a folder holding a `devpage.yml`, or a single
 Markdown file; with no argument it uses `devpage.yml` in the current folder.
 devpage prints one line — the document's title and the address it serves on —
-then logs each request. For these docs, whose title is `devpage`:
+then logs each request. For these docs, whose title is `devpage`, run from the
+top of the devpage repository:
 
 <Terminal>
 

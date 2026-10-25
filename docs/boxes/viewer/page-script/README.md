@@ -35,7 +35,7 @@ as when a document changed kind) is loaded whole instead.
 On load and after every swap, each Mermaid fence becomes
 a `Diagram` placeholder, and every widget placeholder in the content is
 mounted with React — the widgets it names loaded first
-([Widgets](../widgets/README.md#under-the-hood)). The page marks itself ready
+([Widgets](../widgets/how-widgets-run/README.md)). The page marks itself ready
 once every widget has mounted.
 
 ## The live-update stream
@@ -49,7 +49,7 @@ file the tab shows fetches that file's threads again. A tab holds at most one st
 
 One click listener on the document handles every
 link, in the text and in
-[clickable diagrams](../diagrams-and-themes/README.md#clickable-diagrams), where
+[clickable diagrams](../diagrams/README.md#clickable-diagrams), where
 pele turns a Mermaid `click … href` line into an SVG `<a href>` inside the
 node. The listener reads the link's `href` *attribute* and resolves it against
 the page's address: an SVG link's `href` property is an object, not a URL
