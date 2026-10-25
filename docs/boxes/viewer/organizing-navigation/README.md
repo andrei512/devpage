@@ -118,13 +118,24 @@ navbar:
 - **`Label:` with a nested map** is a dropdown of the links under it, one level
   deep.
 - **`(icon)`** after a label adds that [Lucide](https://lucide.dev/icons/)
-  icon, by name. On its own, `(github)` is a link shown as its icon only, with
-  the target's site name as its tooltip.
+  icon, by name — `book-open`, `rocket`, `layout-grid`. Lucide carries no brand
+  marks, so `github` is GitHub's own mark, added by devpage. On its own,
+  `(github)` is a link shown as its icon only, with the target's site name as
+  its tooltip ([the vendored icons](../vendored-icons/README.md)).
 - The link to the page you are on, or to the section holding it, is
-  highlighted. On a narrow screen the links fold into a menu button.
+  highlighted: of the navbar's links, the one nearest the page in the sidebar
+  tree, so a page under *Guide* lights *Guide*, and any other lights the link to
+  the root page. A dropdown holding the link is highlighted too. On a narrow
+  screen the links fold into a menu button.
+- A dropdown opens on a click, or with ↓ from the keyboard, and closes on
+  Escape, a click elsewhere, or a followed link. Links to pages of the site load
+  in place, like links in the text.
 
 A link to a missing page or an unknown icon name is a
-[problem](../checking-links/README.md), like any broken link.
+[problem](../checking-links/README.md), like any broken link — reported once
+for the document file, and `devpage check` follows the navbar's links like any
+others. The navbar's title replaces the sidebar's: with a navbar, the sidebar
+starts straight at the tree.
 
 **Sidebar, navbar or both.** The sidebar shows unless the site sets
 `sidebar: false`; the navbar shows when `navbar` is set. A site with neither

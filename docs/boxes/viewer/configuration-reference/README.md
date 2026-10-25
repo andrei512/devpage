@@ -122,6 +122,10 @@ the cause:
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
+| A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
+| A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
+| A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
+| A `navbar` key has neither a label nor an `(icon)` | `in <file>` — `navbar has an entry with neither a label nor an icon` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
 | `--port` is taken | `binding <address>:<port>` — the system error |
 | Every port from 3030 up is taken | `no free port` |

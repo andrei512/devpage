@@ -17,6 +17,10 @@ enum Config {
         root: String,
         watch: Option<Vec<String>>,
         widgets: Option<String>,
+        navbar: Option<serde_yaml::Mapping>,
+        sidebar: Option<bool>,
+        #[serde(rename = "theme-selector")]
+        theme_selector: Option<bool>,
     },
     Doc {
         title: String,
@@ -24,12 +28,108 @@ enum Config {
         #[serde(default)]
         pdf: Pdf,
         widgets: Option<String>,
+        #[serde(rename = "theme-selector")]
+        theme_selector: Option<bool>,
     },
     Slides {
         title: String,
         slides: Vec<String>,
         widgets: Option<String>,
+        #[serde(rename = "theme-selector")]
+        theme_selector: Option<bool>,
     },
+}
+
+/// One link of a site's navbar, as written: a label, an icon or both, and its
+/// target — a path relative to the document file, or an address on the web.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NavLink {
+    pub label: Option<String>,
+    pub icon: Option<String>,
+    pub target: String,
+}
+
+/// An entry of a site's navbar: a link, or a dropdown of links.
+#[derive(Debug, Clone, PartialEq)]
+pub enum NavItem {
+    Link(NavLink),
+    Menu {
+        label: Option<String>,
+        icon: Option<String>,
+        items: Vec<NavLink>,
+    },
+}
+
+/// Splits a navbar key into its label and its `(icon)`: `Docs (book-open)`,
+/// `Docs`, or `(github)` alone.
+fn label_and_icon(key: &str) -> Result<(Option<String>, Option<String>)> {
+    let key = key.trim();
+    let (label, icon) = match key.strip_suffix(')').and_then(|rest| rest.rsplit_once('(')) {
+        Some((label, icon))
+            if !icon.is_empty()
+                && icon
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') =>
+        {
+            (label.trim(), Some(icon.to_string()))
+        }
+        _ => (key, None),
+    };
+    let label = (!label.is_empty()).then(|| label.to_string());
+    if label.is_none() && icon.is_none() {
+        bail!("navbar has an entry with neither a label nor an icon");
+    }
+    Ok((label, icon))
+}
+
+/// Reads a `navbar` map, in order: `label: target` is a link, `label:` with a
+/// nested map is a dropdown of links, one level deep.
+fn navbar(map: &serde_yaml::Mapping) -> Result<Vec<NavItem>> {
+    let key_text = |key: &serde_yaml::Value| -> Result<String> {
+        match key {
+            serde_yaml::Value::String(text) => Ok(text.clone()),
+            other => bail!("navbar: {other:?} is not a label"),
+        }
+    };
+    let mut items = Vec::new();
+    for (key, value) in map {
+        let key = key_text(key)?;
+        let (label, icon) = label_and_icon(&key)?;
+        match value {
+            serde_yaml::Value::String(target) => items.push(NavItem::Link(NavLink {
+                label,
+                icon,
+                target: target.clone(),
+            })),
+            serde_yaml::Value::Mapping(links) => {
+                let mut menu = Vec::new();
+                for (inner_key, value) in links {
+                    let inner = key_text(inner_key)?;
+                    let serde_yaml::Value::String(target) = value else {
+                        bail!(
+                            "navbar: {inner} under {key} must be a link — dropdowns are one level deep"
+                        );
+                    };
+                    let (label, icon) = label_and_icon(&inner)?;
+                    menu.push(NavLink {
+                        label,
+                        icon,
+                        target: target.clone(),
+                    });
+                }
+                if menu.is_empty() {
+                    bail!("navbar: {key} lists no links");
+                }
+                items.push(NavItem::Menu {
+                    label,
+                    icon,
+                    items: menu,
+                });
+            }
+            _ => bail!("navbar: {key} must be a link or a map of links"),
+        }
+    }
+    Ok(items)
 }
 
 /// A doc's settings on paper.
@@ -95,6 +195,12 @@ pub struct Document {
     watch: Option<GlobSet>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
+    /// A site's navbar, in order; empty when it has none.
+    pub navbar: Vec<NavItem>,
+    /// Whether a site shows its Topics sidebar.
+    pub sidebar: bool,
+    /// Whether the page shows the light/dark selector.
+    pub theme_selector: bool,
 }
 
 impl Document {
@@ -138,6 +244,9 @@ impl Document {
                 file_name,
                 watch: None,
                 widgets: None,
+                navbar: Vec::new(),
+                sidebar: true,
+                theme_selector: true,
             });
         }
         Self::parse(&text, base, file_name, served)
@@ -154,14 +263,25 @@ impl Document {
         };
         let mut watch = None;
         let widget_folder;
+        let mut nav_items = Vec::new();
+        let mut show_sidebar = true;
+        let show_selector;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
                 root,
                 watch: patterns,
                 widgets,
+                navbar: nav,
+                sidebar,
+                theme_selector,
             } => {
                 widget_folder = widgets;
+                show_selector = theme_selector.unwrap_or(true);
+                show_sidebar = sidebar.unwrap_or(true);
+                if let Some(nav) = nav {
+                    nav_items = navbar(&nav)?;
+                }
                 existing("root", &root)?;
                 if let Some(patterns) = patterns {
                     let mut set = GlobSetBuilder::new();
@@ -180,8 +300,10 @@ impl Document {
                 chapters,
                 pdf,
                 widgets,
+                theme_selector,
             } => {
                 widget_folder = widgets;
+                show_selector = theme_selector.unwrap_or(true);
                 if chapters.is_empty() {
                     bail!("chapters lists no files");
                 }
@@ -195,8 +317,10 @@ impl Document {
                 title,
                 slides,
                 widgets,
+                theme_selector,
             } => {
                 widget_folder = widgets;
+                show_selector = theme_selector.unwrap_or(true);
                 if slides.is_empty() {
                     bail!("slides lists no files");
                 }
@@ -222,6 +346,9 @@ impl Document {
             served,
             watch,
             widgets,
+            navbar: nav_items,
+            sidebar: show_sidebar,
+            theme_selector: show_selector,
         })
     }
 
@@ -380,6 +507,59 @@ mod tests {
             "kind: doc\ntitle: Docs\nroot: README.md\nchapters: [README.md]\n",
             "kind: doc\ntitle: Docs\nchapters: [missing.md]\n",
             "kind: doc\ntitle: Docs\nchapters: [../outside.md]\n",
+        ] {
+            assert!(parse(text, dir.clone()).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn reads_the_navbar_in_order_and_refuses_bad_shapes() {
+        let dir = folder("navbar");
+        let document = parse(
+            "kind: site\ntitle: T\nroot: README.md\nsidebar: false\ntheme-selector: false\nnavbar:\n  Docs (book-open): README.md\n  Plain: README.md\n  More (layout-grid):\n    Talk (presentation): talk.yml\n  (github): https://github.com/x/y\n",
+            dir.clone(),
+        )
+        .unwrap();
+        assert!(!document.sidebar && !document.theme_selector);
+        let link = |label: Option<&str>, icon: Option<&str>, target: &str| NavLink {
+            label: label.map(String::from),
+            icon: icon.map(String::from),
+            target: target.into(),
+        };
+        assert_eq!(
+            document.navbar,
+            [
+                NavItem::Link(link(Some("Docs"), Some("book-open"), "README.md")),
+                NavItem::Link(link(Some("Plain"), None, "README.md")),
+                NavItem::Menu {
+                    label: Some("More".into()),
+                    icon: Some("layout-grid".into()),
+                    items: vec![link(Some("Talk"), Some("presentation"), "talk.yml")],
+                },
+                NavItem::Link(link(None, Some("github"), "https://github.com/x/y")),
+            ]
+        );
+        // Defaults: a sidebar, a selector, no navbar; a doc and a deck may opt out too.
+        let plain = parse("kind: site\ntitle: T\nroot: README.md\n", dir.clone()).unwrap();
+        assert!(plain.sidebar && plain.theme_selector && plain.navbar.is_empty());
+        assert!(
+            !parse(
+                "kind: doc\ntitle: T\nchapters: [README.md]\ntheme-selector: false\n",
+                dir.clone()
+            )
+            .unwrap()
+            .theme_selector
+        );
+        for text in [
+            // two levels deep, an empty dropdown, a list instead of a map, no label or icon
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  A:\n    B:\n      C: README.md\n",
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  A: {}\n",
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  - A: README.md\n",
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  \"  \": README.md\n",
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  A: 3\n",
+            // a navbar and a sidebar belong to sites
+            "kind: doc\ntitle: T\nchapters: [README.md]\nnavbar:\n  A: README.md\n",
+            "kind: slides\ntitle: T\nslides: [README.md]\nsidebar: false\n",
         ] {
             assert!(parse(text, dir.clone()).is_err(), "{text}");
         }

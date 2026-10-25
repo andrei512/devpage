@@ -172,6 +172,9 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [The vendored React bundle](vendored-react/README.md) — the React that
   widgets run with: its version, how it is built, its licence and how to
   upgrade it.
+- [The vendored icons](vendored-icons/README.md) — the Lucide icons and
+  GitHub's mark devpage draws in navbars and the theme selector: versions,
+  licences and how to upgrade them.
 
 ### Reference
 

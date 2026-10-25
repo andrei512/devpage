@@ -511,6 +511,171 @@ mod tests {
         page.evaluate(script).await.unwrap().into_value().unwrap()
     }
 
+    const NAVBAR_SITE: &str = "kind: site\ntitle: Garden\nroot: README.md\nnavbar:\n  Home (house): README.md\n  Guide (book-open): guide.md\n  More (layout-grid):\n    Plan (file-text): plan.md\n    Web: https://example.com/garden\n  (github): https://github.com/someone/garden\n";
+
+    fn navbar_folder(name: &str) -> std::path::PathBuf {
+        widget_folder(
+            name,
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Plan](plan.md)\n",
+            &[
+                ("docs/devpage.yml", NAVBAR_SITE),
+                ("docs/guide.md", "# Guide\n\nRead on.\n"),
+                ("docs/plan.md", "# Plan\n\nThe plan.\n"),
+            ],
+        )
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
+        let dir = navbar_folder("navbar-menu");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.navbar-link.current span').textContent"
+            )
+            .await,
+            "Home"
+        );
+        // Click opens the dropdown; Escape closes it.
+        page.evaluate("document.querySelector('.navbar-menu > button').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "grid"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.navbar-menu > button').getAttribute('aria-expanded')"
+            )
+            .await,
+            "true"
+        );
+        page.evaluate("document.querySelector('.navbar-menu > button').dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))").await.unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "none"
+        );
+        // ArrowDown opens it and focuses the first entry.
+        page.evaluate("document.querySelector('.navbar-menu > button').dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))").await.unwrap();
+        assert_eq!(
+            text(&page, "document.activeElement.textContent").await,
+            "Plan"
+        );
+        // Following a dropdown link swaps the page in place and lights its menu.
+        page.evaluate("document.activeElement.click()")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(text(&page, "location.pathname").await, "/docs/plan.md");
+        assert_eq!(
+            text(&page, "document.querySelector('.navbar-menu').className").await,
+            "navbar-menu current"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "none"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_theme_selector_switches_every_token_and_remembers_the_choice() {
+        let dir = navbar_folder("navbar-theme");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        let background = "getComputedStyle(document.body).backgroundColor";
+        page.evaluate("document.querySelector('button[data-theme-choice=dark]').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(&page, "document.documentElement.dataset.theme").await,
+            "dark"
+        );
+        assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
+        assert_eq!(text(&page, "document.querySelector('button[data-theme-choice=dark]').getAttribute('aria-checked')").await, "true");
+        // A reload keeps the choice, before anything paints.
+        page.reload().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(
+            text(&page, "document.documentElement.dataset.theme").await,
+            "dark"
+        );
+        assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
+        // Light, then back to Auto, which forgets the choice.
+        page.evaluate("document.querySelector('button[data-theme-choice=light]').click()")
+            .await
+            .unwrap();
+        assert_eq!(text(&page, background).await, "rgb(255, 255, 255)");
+        page.evaluate("document.querySelector('button[data-theme-choice=auto]').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(&page, "String(localStorage.getItem('devpage-theme'))").await,
+            "null"
+        );
+        assert_eq!(
+            text(&page, "document.documentElement.dataset.themeChoice").await,
+            "auto"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+        let dir = navbar_folder("navbar-narrow");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.execute(SetDeviceMetricsOverrideParams::new(390, 800, 1.0, false))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-selector').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
+        assert_eq!(text(&page, fits).await, "true true true");
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-links')).display"
+            )
+            .await,
+            "none"
+        );
+        page.evaluate("document.querySelector('.navbar-toggle').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-links')).display"
+            )
+            .await,
+            "flex"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
