@@ -4,7 +4,7 @@ A change that adds or changes something a devpage user sees — a kind of
 document, a Markdown feature, a widget, a command, a field, a look — updates
 the [showcase deck](../boxes/showcase/README.md) in the same diff: it adds the
 slide that proves it, or remakes the slide it changes, and updates the deck's
-slide table. A change that removes a capability removes its slide.
+slide table — and adds or updates its entry in the feature catalog doc. A change that removes a capability removes its slide.
 
 **Why:** the deck is the first thing a newcomer sees, and devpage
 demonstrating itself. A deck that lags the product undersells it and, worse,

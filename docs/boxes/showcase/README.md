@@ -16,13 +16,15 @@ kinds, all real and all in this repository, reached from the navbar's
 | Kind | Example | Why it is real |
 | --- | --- | --- |
 | site | these docs, `docs/devpage.yml` | devpage's documentation |
-| doc | the release notes, `docs/releases/devpage.yml` | one chapter per release, printed to PDF for each release |
+| doc | the feature catalog, `docs/features/devpage.yml` | a quick tour of every feature, one short chapter per area, printable |
 | slides | this deck, `docs/talks/devpage/devpage.yml` | devpage's presentation |
 
 ## What it is for
 
 Someone who has never seen devpage watches the deck — or clicks through it —
-and leaves knowing what devpage does, why they would use it, and how to start.
+and leaves knowing what devpage does, why it beats the way they write docs
+today, and how to start. It is a pitch, not a manual: the feature catalog doc
+explains each feature, and the docs site teaches them.
 Every slide **shows** the capability it talks about, built with that
 capability: the slide about widgets is made of widgets, the slide about
 diagrams is a clickable diagram, the slide about PDF is in the PDF.
