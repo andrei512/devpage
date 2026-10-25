@@ -4,7 +4,8 @@ The canvas in the browser and the PNG a design's address answers come from the
 same code: the design engine lays the design out once and paints it into one
 display list, which a GPU backend (`vello`) replays on the canvas and a CPU
 backend (`vello_cpu`) replays as the PNG, with the same embedded typeface. A
-backend only translates commands; it decides nothing about the drawing. Nothing else draws a design — not
+backend only translates commands; it decides nothing about the drawing. Every surface shows the same area: the design's whole drawing, its root's box
+plus anything painted outside it. Nothing else draws a design — not
 the browser's own layout, SVG or HTML, and no painter of devpage's own for one
 of the two.
 

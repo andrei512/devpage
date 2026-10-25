@@ -202,6 +202,11 @@ the window when it is bigger, never enlarged — and a reader can zoom with the
 pinch gesture or **Ctrl**/**⌘** and the wheel, and pan by dragging or
 scrolling.
 
+A design's **drawing** is its root's box plus anything painted outside it — a
+shadow, a child placed past an edge — as in Figma's export. Every surface shows
+the whole drawing, so nothing visible on one is missing from another; a design
+whose paint stays inside its root draws at exactly its root's size.
+
 A page **embeds** one with the image syntax — `![Checkout](checkout.design)`.
 An embedded design is shown the same way: at its own size, never enlarged,
 scaled down only as far as it needs to fit the page's width and the window's
@@ -215,8 +220,8 @@ only the parts that changed are sent to the browser.
 
 ## Looking at a design as a PNG
 
-`GET <path>.design.png` answers with the design drawn as a PNG, at its own
-size, from the same layout and the same scene as the canvas
+`GET <path>.design.png` answers with the design's whole drawing as a PNG,
+at 1×, from the same layout and the same scene as the canvas
 ([one renderer](../constraints/a-design-has-one-renderer.md)):
 
 ```sh
