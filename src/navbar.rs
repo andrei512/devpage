@@ -253,7 +253,7 @@ pub fn render(document: &Document, current: &str) -> String {
         }
     }
     format!(
-        "<header id=\"navbar\"><div class=\"navbar-inner\"><a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
+        "<header id=\"devpage-navbar\"><div class=\"navbar-inner\"><a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
         root = if current == document.entry() {
             " current"
         } else {
@@ -262,7 +262,7 @@ pub fn render(document: &Document, current: &str) -> String {
         home = escape(&document.entry()),
         logo = logo(document),
         title = escape(&document.title),
-        selector = selector(document),
+        selector = controls(document),
         menu = icons::svg("menu").unwrap_or_default(),
     )
 }
@@ -305,12 +305,23 @@ pub fn selector(document: &Document) -> String {
     )
 }
 
-/// The selector for a page with no navbar to hold it: the top-right corner.
+/// The comment-mode switch: commenting is opt-in, so the hover icon and the
+/// selection's Comment button only appear while it is pressed. The page script
+/// remembers the choice; threads show either way. Its icon is the speech
+/// bubble the paragraph button uses.
+pub fn comment_mode() -> String {
+    "<button type=\"button\" class=\"comment-mode\" title=\"Comment mode\" aria-label=\"Comment mode\" aria-pressed=\"false\"><svg viewBox=\"0 0 20 20\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path d=\"M4 3.5h12A1.5 1.5 0 0 1 17.5 5v8a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V5A1.5 1.5 0 0 1 4 3.5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/></svg></button>".to_string()
+}
+
+/// The page's own controls, in the navbar's end or the corner: the
+/// comment-mode switch, then the theme selector when the document shows one.
+pub fn controls(document: &Document) -> String {
+    format!("{}{}", comment_mode(), selector(document))
+}
+
+/// The controls for a page with no navbar to hold them: the top-right corner.
 pub fn corner(document: &Document) -> String {
-    if !document.theme_selector {
-        return String::new();
-    }
-    format!("<div id=\"theme-corner\">{}</div>", selector(document))
+    format!("<div id=\"devpage-corner\">{}</div>", controls(document))
 }
 
 /// What every page of a document puts in its head: the logo as the browser
@@ -443,7 +454,11 @@ mod tests {
             &dir,
             "kind: site\ntitle: T\nroot: README.md\ntheme-selector: false\n",
         );
-        assert_eq!(corner(&off), "");
+        // Commenting is opt-in on every page, so its switch stays when the
+        // theme selector is turned off.
+        assert!(corner(&plain).contains("class=\"comment-mode\""));
+        assert!(corner(&off).contains("class=\"comment-mode\""));
+        assert!(!corner(&off).contains("theme-toggle"));
         assert!(
             !head(&off).contains("localStorage"),
             "the system decides when there is no selector"

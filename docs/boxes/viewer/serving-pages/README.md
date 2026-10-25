@@ -155,21 +155,28 @@ A file ending in `.md` is read as text and passed to `render::page`:
      ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme));
    - `<body>`'s class names the frame: `site`, plus `with-navbar` and
      `no-sidebar` as the document file says;
-   - `<header id="navbar">`, when the site has a navbar: its logo and title, its links
-     and dropdowns with their icons drawn as inline SVG, and the theme
-     selector ([the navbar](../organizing-navigation/README.md#the-navbar));
-   - `<nav id="nav">`, unless `sidebar: false`, holds the tree — after a link
+   - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
+     title, its links and dropdowns with their icons drawn as inline SVG, then
+     the comment-mode switch and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
+   - `<nav id="devpage-nav">`, unless `sidebar: false`, holds the tree — after a link
      to the site's root page with its logo and title when there is no navbar
      to hold it;
-   - with no navbar, the theme selector in `<div id="theme-corner">`, top
-     right, unless `theme-selector: false`;
-   - `<main id="page"><article>` holds the rendered Markdown;
+   - with no navbar, the comment-mode switch and the theme selector (unless
+     `theme-selector: false`) in `<div id="devpage-corner">`, top right;
+   - `<main id="devpage-page"><article>` holds the rendered Markdown;
    - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
      `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
      the document's widgets with the address of each
      ([Widgets](../widgets/README.md#under-the-hood));
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.
+
+   Every id the frame uses starts with `devpage-` — `devpage-page`,
+   `devpage-nav`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
+   `devpage-comments-toggle` — and a heading whose text would give it one of
+   them gets `-heading` added to its id. So a page can have a heading called
+   *Comments*, *Page* or *Navigation* and it stays an ordinary heading, never
+   styled or replaced as part of the frame.
 
    The ids `navbar`, `nav` and `page` are what
    [live updates](../live-updates/README.md) replace in place. A doc's and a

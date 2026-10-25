@@ -74,7 +74,7 @@ body {
 
 /* Navigation */
 
-#nav {
+#devpage-nav {
   position: sticky;
   top: 0;
   align-self: flex-start;
@@ -89,7 +89,7 @@ body {
   line-height: 1.4;
 }
 
-#nav .document-title {
+#devpage-nav .document-title {
   display: block;
   margin-bottom: 18px;
   font-size: 19px;
@@ -98,12 +98,12 @@ body {
   text-decoration: none;
 }
 
-#nav ul { list-style: none; margin: 0; padding: 0; }
-#nav ul ul { padding-left: 14px; border-left: 1px solid var(--border); margin: 2px 0 6px 6px; }
-#nav li { margin: 0; }
-#nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
-#nav a:hover { background: var(--border); }
-#nav a.current { background: var(--accent); color: #fff; }
+#devpage-nav ul { list-style: none; margin: 0; padding: 0; }
+#devpage-nav ul ul { padding-left: 14px; border-left: 1px solid var(--border); margin: 2px 0 6px 6px; }
+#devpage-nav li { margin: 0; }
+#devpage-nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
+#devpage-nav a:hover { background: var(--border); }
+#devpage-nav a.current { background: var(--accent); color: #fff; }
 
 /* Content */
 
@@ -165,14 +165,14 @@ th { font-weight: 600; }
 
 @media (max-width: 860px) {
   body { display: block; }
-  #nav { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  #devpage-nav { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
   main { padding: 32px 20px 80px; }
 }
 
 /* Sidebar groups: the ### headings of a Topics section. */
-#nav li.group { margin: 14px 0 4px; padding: 0 8px; }
-#nav li.group:first-child { margin-top: 0; }
-#nav li.group span { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+#devpage-nav li.group { margin: 14px 0 4px; padding: 0 8px; }
+#devpage-nav li.group:first-child { margin-top: 0; }
+#devpage-nav li.group span { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 
 /* Syntax highlighting: classes name syntax scopes (see src/highlight.rs); colors
    come from the --syntax-* tokens, Xcode's default palettes. */
@@ -201,10 +201,10 @@ pre code { color: var(--text); }
 
 @media print {
   :root { color-scheme: light; }
-  #nav { display: none; }
+  #devpage-nav { display: none; }
   body { display: block; }
 }
-.print #nav { display: none; }
+.print #devpage-nav { display: none; }
 
 .doc-title { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
 
@@ -252,34 +252,34 @@ body.slides { display: block; background: #000; overflow: hidden; }
    panel the reader opens. Never printed. */
 
 mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; border-radius: 2px; }
-#comments { flex-shrink: 0; font-size: 14px; line-height: 1.45; }
-#comments:empty { display: none; }
-#comments.beside { position: relative; width: 300px; margin: 56px 16px 0 0; }
-#comments.beside > * { position: absolute; left: 0; right: 0; }
-#comments:not(.beside) {
+#devpage-comments { flex-shrink: 0; font-size: 14px; line-height: 1.45; }
+#devpage-comments:empty { display: none; }
+#devpage-comments.beside { position: relative; width: 300px; margin: 56px 16px 0 0; }
+#devpage-comments.beside > * { position: absolute; left: 0; right: 0; }
+#devpage-comments:not(.beside) {
   position: fixed; right: 0; top: 0; bottom: 0; width: min(360px, 100vw);
   overflow: auto; padding: 16px; z-index: 5; display: none;
   background: var(--background); border-left: 1px solid var(--border);
 }
-body.show-comments #comments:not(.beside):not(:empty) { display: block; }
-#comments-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 6; display: none; }
-#comments-toggle.shown { display: block; }
-:fullscreen #comments-toggle { display: none; }
-#comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
-#comments .composer { border-color: var(--accent); }
-#comments blockquote { margin: 0 0 6px; padding: 0 0 0 8px; background: none; border-left: 3px solid var(--accent); color: var(--muted); max-height: 4.4em; overflow: hidden; }
-#comments p { margin: 4px 0; overflow-wrap: anywhere; }
-#comments time { color: var(--muted); font-size: 12px; }
-#comments h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+body.show-comments #devpage-comments:not(.beside):not(:empty) { display: block; }
+#devpage-comments-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 6; display: none; }
+#devpage-comments-toggle.shown { display: block; }
+:fullscreen #devpage-comments-toggle { display: none; }
+#devpage-comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
+#devpage-comments .composer { border-color: var(--accent); }
+#devpage-comments blockquote { margin: 0 0 6px; padding: 0 0 0 8px; background: none; border-left: 3px solid var(--accent); color: var(--muted); max-height: 4.4em; overflow: hidden; }
+#devpage-comments p { margin: 4px 0; overflow-wrap: anywhere; }
+#devpage-comments time { color: var(--muted); font-size: 12px; }
+#devpage-comments h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .comment-editor textarea { width: 100%; margin: 6px 0 2px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
 .comment-editor button { margin: 4px 6px 0 0; }
 .comment-error { color: #d70015; font-size: 13px; }
 .comment-error:empty { display: none; }
-.comment-button, #comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
+.comment-button, #devpage-comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
 .comment-button { display: inline-flex; align-items: center; gap: 6px; }
 .comment-button.comment-icon { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; color: var(--muted); background: var(--background); box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--text) 35%, transparent); transition: color 0.15s, border-color 0.15s; }
 .comment-button.comment-icon:hover { color: var(--accent); border-color: var(--accent); }
-@media print { #comments, #comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
+@media print { #devpage-comments, #devpage-comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
 
 /* Problems: broken links found while the page is previewed. */
 
@@ -345,7 +345,7 @@ div.widget-error { margin: 0 0 20px; }
    and icons, then the theme selector. Translucent, like the page under it. */
 
 body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
-#navbar {
+#devpage-navbar {
   position: sticky;
   top: 0;
   z-index: 20;
@@ -362,9 +362,9 @@ body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
 .navbar-title:hover { text-decoration: none; opacity: 0.8; }
 /* A document's logo, before its title: sized to the title's line and centred on it. */
 .navbar-title { display: inline-flex; align-items: center; gap: 9px; }
-#nav .document-title { display: flex; align-items: center; gap: 9px; }
+#devpage-nav .document-title { display: flex; align-items: center; gap: 9px; }
 .navbar-title .logo { width: 22px; height: 22px; flex: none; }
-#nav .document-title .logo { width: 20px; height: 20px; flex: none; }
+#devpage-nav .document-title .logo { width: 20px; height: 20px; flex: none; }
 .navbar-links { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .navbar-link, .navbar-entry {
   display: inline-flex; align-items: center; gap: 6px;
@@ -393,7 +393,7 @@ body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
 .navbar-toggle { display: none; background: none; border: 0; color: var(--text); padding: 6px; border-radius: 8px; cursor: pointer; }
 .navbar-toggle:hover { background: var(--surface); }
 
-body.with-navbar #nav { top: 52px; height: calc(100vh - 52px); }
+body.with-navbar #devpage-nav { top: 52px; height: calc(100vh - 52px); }
 
 @media (max-width: 760px) {
   .navbar-inner { padding: 0 8px 0 20px; }
@@ -405,7 +405,7 @@ body.with-navbar #nav { top: 52px; height: calc(100vh - 52px); }
     background: var(--background); border-bottom: 1px solid var(--border);
     box-shadow: 0 16px 30px -20px color-mix(in srgb, var(--text) 40%, transparent);
   }
-  #navbar.open .navbar-links { display: flex; }
+  #devpage-navbar.open .navbar-links { display: flex; }
   .navbar-link, .navbar-entry { font-size: 16px; padding: 10px 12px; }
   .navbar-link.icon-only::after { content: attr(title); }
   .navbar-menu > .navbar-link { width: 100%; }
@@ -418,15 +418,18 @@ body.with-navbar #nav { top: 52px; height: calc(100vh - 52px); }
    the navbar when a site has one, else in the top-right corner. Never printed;
    a deck hides it in fullscreen. */
 
-.theme-toggle {
+.theme-toggle, .comment-mode {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
   background: none; color: var(--muted); cursor: pointer; transition: color 0.15s, background 0.15s;
 }
-.theme-toggle:hover { color: var(--text); background: var(--surface); }
+.theme-toggle:hover, .comment-mode:hover { color: var(--text); background: var(--surface); }
+/* Comment mode, pressed: the accent, on a tint of it. */
+.comment-mode[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+#devpage-corner { display: flex; gap: 4px; }
 .theme-toggle span { display: inline-flex; }
 .theme-toggle .to-light, :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
 :root[data-theme="dark"] .theme-toggle .to-light { display: inline-flex; }
-#theme-corner { position: fixed; top: 14px; right: 16px; z-index: 15; }
-:root:fullscreen #theme-corner, .print #theme-corner { display: none; }
-@media print { #navbar, #theme-corner { display: none !important; } body.with-navbar #nav { top: 0; } }
+#devpage-corner { position: fixed; top: 14px; right: 16px; z-index: 15; }
+:root:fullscreen #devpage-corner, .print #devpage-corner { display: none; }
+@media print { #devpage-navbar, #devpage-corner { display: none !important; } body.with-navbar #devpage-nav { top: 0; } }

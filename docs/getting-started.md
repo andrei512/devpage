@@ -34,7 +34,8 @@ page fetches itself again and swaps in the new content without reloading.
 A `click` line in a flowchart makes a node a link, so a diagram can lead
 to the page that explains each of its parts — like the one below.
 
-**Comments are notes on the docs, not part of them.** Select text or hover a
+**Comments are notes on the docs, not part of them.** Turn on comment mode with
+the speech-bubble button by the theme toggle, then select text or hover a
 paragraph to comment. Each thread is a file in a `.devpage/` folder git
 ignores; resolving it deletes the file.
 
@@ -133,7 +134,8 @@ The page updates within moments, without a reload. Add a Topics item in
 marked broken and listed at the top of the page until you create the file —
 then the sidebar grows a *Watering* entry on every open page.
 
-**6. Comment.** Select a few words on *Planting* and comment on them. The
+**6. Comment.** Turn on comment mode with the speech-bubble button in the top-right
+corner, select a few words on *Planting* and comment on them. The
 comment is in the margin, and in `.devpage/comments/` as a small YAML file;
 press **Resolve** and the file is gone.
 
