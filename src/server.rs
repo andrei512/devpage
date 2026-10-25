@@ -20,7 +20,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::comments::{Anchor, Store};
-use crate::document::{Document, Kind};
+use crate::document::{self, Document, Kind};
 use crate::render;
 
 #[derive(Clone)]
@@ -104,16 +104,6 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
-    let itself = state.document.file(&path) == state.document.path().canonicalize().ok();
-    match &state.document.kind {
-        Kind::Doc { chapters, pdf } if itself => {
-            return Html(render::doc(&state.document, chapters, pdf, print)).into_response();
-        }
-        Kind::Slides { slides } if itself => {
-            return Html(render::slides(&state.document, slides, print)).into_response();
-        }
-        _ => {}
-    }
     let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
@@ -121,12 +111,29 @@ async fn file(
         )
             .into_response();
     };
+    let repo = &state.document.repo;
+    let yaml = file
+        .extension()
+        .is_some_and(|ext| ext == "yml" || ext == "yaml");
+    if yaml && let Ok(document) = Document::load_in(&file, Some(repo)) {
+        return show(&document, print);
+    }
     if file.extension().is_some_and(|ext| ext == "md") {
-        match tokio::fs::read_to_string(&file).await {
-            Ok(source) => Html(render::page(&state.document, &file, &source)).into_response(),
-            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
-        }
-    } else {
+        let Ok(source) = tokio::fs::read_to_string(&file).await else {
+            return (StatusCode::INTERNAL_SERVER_ERROR, "unreadable").into_response();
+        };
+        // A page of the nearest site; outside every site, a doc of one chapter.
+        return match document::site_for(&file, repo) {
+            Some(site) => Html(render::page(&site, &file, &source)).into_response(),
+            None => match Document::load_in(&file, Some(repo)) {
+                Ok(doc) => show(&doc, print),
+                Err(error) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
+                }
+            },
+        };
+    }
+    {
         match tokio::fs::read(&file).await {
             Ok(bytes) => {
                 let mime = mime_guess::from_path(&file).first_or_octet_stream();
@@ -134,6 +141,17 @@ async fn file(
             }
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         }
+    }
+}
+
+/// A document as its kind: a site opens on its root page.
+fn show(document: &Document, print: bool) -> Response {
+    match &document.kind {
+        Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
+        Kind::Doc { chapters, pdf } => {
+            Html(render::doc(document, chapters, pdf, print)).into_response()
+        }
+        Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
     }
 }
 

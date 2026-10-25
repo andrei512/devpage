@@ -82,6 +82,12 @@ pub struct Document {
 impl Document {
     /// Loads a document file, `devpage.yml` in a folder, or a Markdown file.
     pub fn load(path: &Path) -> Result<Self> {
+        Self::load_in(path, None)
+    }
+
+    /// Loads a document inside a repository already known — one reached by a
+    /// link from the entry document, which shares its repository.
+    pub fn load_in(path: &Path, repo: Option<&Path>) -> Result<Self> {
         let file = if path.is_dir() {
             path.join("devpage.yml")
         } else {
@@ -97,7 +103,7 @@ impl Document {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let repo = repository(&base);
+        let repo = repo.map_or_else(|| repository(&base), Path::to_path_buf);
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
                 repo,
@@ -192,6 +198,35 @@ impl Document {
     }
 }
 
+/// The nearest site whose document file's folder holds `page`: the document
+/// files in its folder, then in each folder above it, up to the repository.
+pub fn site_for(page: &Path, repo: &Path) -> Option<Document> {
+    for folder in page.ancestors().skip(1) {
+        let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|ext| ext == "yml" || ext == "yaml")
+            })
+            .collect();
+        files.sort();
+        for file in files {
+            if let Ok(document) = Document::load_in(&file, Some(repo))
+                && matches!(document.kind, Kind::Site { .. })
+            {
+                return Some(document);
+            }
+        }
+        if folder == repo {
+            break;
+        }
+    }
+    None
+}
+
 /// The git working tree holding `folder`, or `folder` itself outside git.
 fn repository(folder: &Path) -> PathBuf {
     folder
@@ -278,6 +313,31 @@ mod tests {
             "files beside the docs are served"
         );
         assert!(doc.file("/../x").is_none());
+    }
+
+    #[test]
+    fn a_page_belongs_to_the_nearest_site_above_it() {
+        let repo = folder("nearest");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(
+            repo.join("site.yml"),
+            "kind: site\ntitle: Outer\nroot: README.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join("guides/inner.yml"),
+            "kind: site\ntitle: Inner\nroot: start.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            repo.join("guides/talk.yml"),
+            "kind: slides\ntitle: T\nslides: [start.md]\n",
+        )
+        .unwrap();
+        let inner = site_for(&repo.join("guides/start.md"), &repo).unwrap();
+        assert_eq!(inner.title, "Inner");
+        let outer = site_for(&repo.join("README.md"), &repo).unwrap();
+        assert_eq!(outer.title, "Outer");
     }
 
     #[test]
