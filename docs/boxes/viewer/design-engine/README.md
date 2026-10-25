@@ -56,8 +56,8 @@ at the first place it went wrong.
 Resolving turns a design and the designs it imports into a **scene**: one tree
 of **nodes**, each a frame, text, rectangle, ellipse, vector or image with
 every attribute checked, typed and defaulted. An instance becomes the
-imported design's tree with its props substituted; it stays one node — its
-root — that knows which design it came from. Resolving reports every problem
+imported design's tree with its props substituted, rooted at one node — the
+design's root, with the instance's own attributes applied to it. Resolving reports every problem
 it finds, not just the first: unknown elements, attributes and props, values
 of the wrong type, missing or out-of-folder imports, images and interaction
 targets, and designs that use themselves.
