@@ -42,6 +42,42 @@ pub enum Kind {
     Text,
     Rect,
     Ellipse,
+    Vector,
+    Image,
+}
+
+/// How a box is filled: one color, or a CSS-style linear gradient.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Fill {
+    Solid(Color),
+    /// `angle` in degrees, CSS's: 0 points up, 90 right, 180 down. Each stop
+    /// is a color at an offset from 0 to 1 along the gradient line.
+    Linear {
+        angle: f32,
+        stops: Vec<(Color, f32)>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TextAlign {
+    Left,
+    Center,
+    Right,
+}
+
+/// A `Vector`'s path and the box of path coordinates it is drawn from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Vector {
+    pub d: String,
+    /// `[minX, minY, width, height]`.
+    pub view_box: [f32; 4],
+}
+
+/// An `Image`'s file: its address in the served folder and its bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Image {
+    pub src: String,
+    pub data: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +96,7 @@ pub struct TextStyle {
     pub weight: u16,
     pub color: Color,
     pub line_height: f32,
+    pub align: TextAlign,
 }
 
 /// One node of a scene.
@@ -73,7 +110,7 @@ pub struct Node {
     pub height: Size,
     pub opacity: f32,
     pub on_click: Option<String>,
-    pub fill: Option<Color>,
+    pub fill: Option<Fill>,
     pub stroke: Option<Color>,
     pub stroke_width: f32,
     pub radius: [f32; 4],
@@ -85,6 +122,8 @@ pub struct Node {
     pub align: Align,
     pub justify: Align,
     pub text: Option<TextStyle>,
+    pub vector: Option<Vector>,
+    pub image: Option<Image>,
     /// The design an instance came from, on the instance's root.
     pub design: Option<String>,
     pub children: Vec<Node>,
@@ -113,20 +152,27 @@ impl Node {
             align: Align::Start,
             justify: Align::Start,
             text: None,
+            vector: None,
+            image: None,
             design: None,
             children: Vec::new(),
         }
     }
 }
 
-/// Reads a design's file by its path from the top of the served folder.
+/// Reads a design's files by their path from the top of the served folder.
 pub trait Files {
-    fn read(&self, path: &str) -> Option<String>;
+    /// A file's bytes: a design's text, or an `Image`'s file.
+    fn bytes(&self, path: &str) -> Option<Vec<u8>>;
+    /// A design file's text.
+    fn read(&self, path: &str) -> Option<String> {
+        String::from_utf8(self.bytes(path)?).ok()
+    }
 }
 
 impl Files for HashMap<String, String> {
-    fn read(&self, path: &str) -> Option<String> {
-        self.get(path).cloned()
+    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+        self.get(path).map(|s| s.clone().into_bytes())
     }
 }
 
@@ -205,7 +251,16 @@ impl Resolver<'_> {
         };
         let mut imports = HashMap::new();
         for import in &file.imports {
-            imports.insert(import.name.clone(), join(path, &import.path));
+            match join(path, &import.path) {
+                Some(target) => {
+                    imports.insert(import.name.clone(), target);
+                }
+                None => self.problem(
+                    path,
+                    import.pos,
+                    format!("import {} — outside the served folder", import.path),
+                ),
+            }
         }
         if file.root.name != "Frame" {
             self.problem(
@@ -292,6 +347,8 @@ impl Resolver<'_> {
             "Text" => Kind::Text,
             "Rect" => Kind::Rect,
             "Ellipse" => Kind::Ellipse,
+            "Vector" => Kind::Vector,
+            "Image" => Kind::Image,
             other => {
                 self.problem(path, el.pos, format!("unknown element {other}"));
                 return None;
@@ -313,6 +370,21 @@ impl Resolver<'_> {
                 v => v.clone(),
             };
             self.attribute(path, &mut node, attr, value);
+        }
+        match kind {
+            Kind::Vector if !el.attrs.iter().any(|a| a.name == "d") => self.problem(
+                path,
+                el.pos,
+                format!("{} needs a path, d=\"M…\"", node.name),
+            ),
+            Kind::Image if node.image.is_none() && !el.attrs.iter().any(|a| a.name == "src") => {
+                self.problem(
+                    path,
+                    el.pos,
+                    format!("{} needs a file, src=\"…\"", node.name),
+                )
+            }
+            _ => {}
         }
         if kind == Kind::Text {
             let mut content = String::new();
@@ -338,7 +410,7 @@ impl Resolver<'_> {
             for child in &el.children {
                 match child {
                     Child::Element(e) => {
-                        if matches!(kind, Kind::Rect | Kind::Ellipse) {
+                        if kind != Kind::Frame {
                             self.problem(path, e.pos, format!("{} takes no children", el.name));
                         } else if let Some(n) = self.element(path, e, props, imports) {
                             node.children.push(n);
@@ -364,26 +436,18 @@ impl Resolver<'_> {
                 self.common(path, node, attr, value);
                 return;
             }
-            ("fill", Kind::Frame | Kind::Rect | Kind::Ellipse) => {
-                color(&value).map(|c| node.fill = Some(c))
-            }
-            ("stroke", Kind::Frame | Kind::Rect | Kind::Ellipse) => {
-                color(&value).map(|c| node.stroke = Some(c))
-            }
-            ("strokeWidth", Kind::Frame | Kind::Rect | Kind::Ellipse) => {
-                num(&value).map(|n| node.stroke_width = n)
-            }
-            ("radius", Kind::Frame | Kind::Rect) => match &value {
+            ("fill", k) if k != Kind::Text => fill(&value).map(|f| node.fill = Some(f)),
+            ("stroke", k) if k != Kind::Text => color(&value).map(|c| node.stroke = Some(c)),
+            ("strokeWidth", k) if k != Kind::Text => num(&value).map(|n| node.stroke_width = n),
+            ("radius", k) if k != Kind::Text => match &value {
                 Value::Num(n) => Ok(node.radius = [*n as f32; 4]),
                 Value::Array(a) if a.len() == 4 => {
                     nums(a).map(|v| node.radius = [v[0], v[1], v[2], v[3]])
                 }
                 _ => Err("expected pixels or an array of 4".into()),
             },
-            ("shadow", Kind::Frame | Kind::Rect | Kind::Ellipse) => {
-                shadow(&value).map(|s| node.shadow = Some(s))
-            }
-            ("clip", Kind::Frame) => match value {
+            ("shadow", k) if k != Kind::Text => shadow(&value).map(|s| node.shadow = Some(s)),
+            ("clip", k) if k != Kind::Text => match value {
                 Value::Bool(b) => Ok(node.clip = b),
                 _ => Err("expected true or false".into()),
             },
@@ -424,6 +488,57 @@ impl Resolver<'_> {
             ("lineHeight", Kind::Text) => {
                 num(&value).map(|n| node.text.get_or_insert_with(default_text).line_height = n)
             }
+            ("textAlign", Kind::Text) => match str_of(&value).as_deref() {
+                Some("left") => {
+                    Ok(node.text.get_or_insert_with(default_text).align = TextAlign::Left)
+                }
+                Some("center") => {
+                    Ok(node.text.get_or_insert_with(default_text).align = TextAlign::Center)
+                }
+                Some("right") => {
+                    Ok(node.text.get_or_insert_with(default_text).align = TextAlign::Right)
+                }
+                _ => Err("expected \"left\", \"center\" or \"right\"".into()),
+            },
+            ("d", Kind::Vector) => match str_of(&value) {
+                Some(d) => match vello_cpu::kurbo::BezPath::from_svg(&d) {
+                    Ok(_) => {
+                        let view_box = node.vector.as_ref().map(|v| v.view_box);
+                        let view_box = view_box.unwrap_or_else(|| bounds(&d));
+                        Ok(node.vector = Some(Vector { d, view_box }))
+                    }
+                    Err(e) => Err(format!("not SVG path data: {e}")),
+                },
+                None => Err("expected SVG path data".into()),
+            },
+            ("viewBox", Kind::Vector) => match str_of(&value).as_deref().map(view_box) {
+                Some(Some(b)) => {
+                    let v = node.vector.get_or_insert_with(|| Vector {
+                        d: String::new(),
+                        view_box: b,
+                    });
+                    Ok(v.view_box = b)
+                }
+                _ => Err("expected \"minX minY width height\"".into()),
+            },
+            ("src", Kind::Image) => match str_of(&value) {
+                Some(src) => match join(path, &src) {
+                    None => Err(format!("{src} — outside the served folder")),
+                    Some(at) => match self.files.bytes(&at) {
+                        None => Err(format!("{src} — no such file")),
+                        Some(data) if !is_image(&data) => {
+                            Err(format!("{src} is not a PNG or JPEG file"))
+                        }
+                        Some(data) => {
+                            if !self.read.iter().any(|p| p == &at) {
+                                self.read.push(at.clone());
+                            }
+                            Ok(node.image = Some(Image { src: at, data }))
+                        }
+                    },
+                },
+                None => Err("expected a path".into()),
+            },
             (name, _) => {
                 self.problem(
                     path,
@@ -474,7 +589,38 @@ fn default_text() -> TextStyle {
             a: 255,
         },
         line_height: 1.4,
+        align: TextAlign::Left,
     }
+}
+
+fn is_image(data: &[u8]) -> bool {
+    data.starts_with(b"\x89PNG\r\n\x1a\n") || data.starts_with(&[0xff, 0xd8, 0xff])
+}
+
+fn view_box(s: &str) -> Option<[f32; 4]> {
+    let v: Vec<f32> = s
+        .split([' ', ','])
+        .filter(|p| !p.is_empty())
+        .map(|p| p.parse().ok())
+        .collect::<Option<_>>()?;
+    match v[..] {
+        [x, y, w, h] if w > 0.0 && h > 0.0 => Some([x, y, w, h]),
+        _ => None,
+    }
+}
+
+/// A path's own bounds, the view box of a `Vector` that names none.
+fn bounds(d: &str) -> [f32; 4] {
+    use vello_cpu::kurbo::Shape;
+    let b = vello_cpu::kurbo::BezPath::from_svg(d)
+        .map(|p| p.bounding_box())
+        .unwrap_or_default();
+    [
+        b.x0 as f32,
+        b.y0 as f32,
+        (b.width() as f32).max(1.0),
+        (b.height() as f32).max(1.0),
+    ]
 }
 
 fn interaction_ok(s: &str) -> bool {
@@ -485,20 +631,21 @@ fn interaction_ok(s: &str) -> bool {
             .is_some_and(|p| !p.trim().is_empty())
 }
 
-/// A path relative to a design's file, from the top of the served folder.
-pub fn join(from: &str, relative: &str) -> String {
-    let mut parts: Vec<&str> = from.split('/').collect();
+/// A path relative to a design's file, from the top of the served folder, or
+/// `None` when it climbs out of the served folder.
+pub fn join(from: &str, relative: &str) -> Option<String> {
+    let mut parts: Vec<&str> = from.split('/').filter(|p| !p.is_empty()).collect();
     parts.pop();
     for part in relative.split('/') {
         match part {
             "." | "" => {}
             ".." => {
-                parts.pop();
+                parts.pop()?;
             }
             p => parts.push(p),
         }
     }
-    parts.join("/")
+    Some(parts.join("/"))
 }
 
 fn substitute(value: &Value, props: &Props) -> Value {
@@ -597,6 +744,40 @@ fn color(v: &Value) -> Result<Color, String> {
     }
 }
 
+fn fill(v: &Value) -> Result<Fill, String> {
+    let Value::Str(s) = v else {
+        return Err(format!("expected a color or a gradient, found {}", show(v)));
+    };
+    let Some(inner) = s
+        .strip_prefix("linear-gradient(")
+        .and_then(|r| r.strip_suffix(')'))
+    else {
+        return color(v).map(Fill::Solid);
+    };
+    let wrong =
+        || format!("expected \"linear-gradient(<angle>deg, <color> <stop>%, …)\", found \"{s}\"");
+    let mut parts = inner.split(',').map(str::trim);
+    let angle = parts
+        .next()
+        .and_then(|a| a.strip_suffix("deg"))
+        .and_then(|a| a.trim().parse::<f32>().ok())
+        .ok_or_else(wrong)?;
+    let mut stops = Vec::new();
+    for part in parts {
+        let (c, at) = part.split_once(' ').ok_or_else(wrong)?;
+        let at = at
+            .trim()
+            .strip_suffix('%')
+            .and_then(|p| p.parse::<f32>().ok())
+            .ok_or_else(wrong)?;
+        stops.push((color(&Value::Str(c.to_string()))?, at / 100.0));
+    }
+    if stops.len() < 2 {
+        return Err(wrong());
+    }
+    Ok(Fill::Linear { angle, stops })
+}
+
 fn shadow(v: &Value) -> Result<Shadow, String> {
     let Value::Object(fields) = v else {
         return Err("expected { x, y, blur, spread, color }".into());
@@ -655,12 +836,12 @@ mod tests {
         assert_eq!(button.x, 10.0);
         assert_eq!(
             button.fill,
-            Some(Color {
+            Some(Fill::Solid(Color {
                 r: 0x25,
                 g: 0x63,
                 b: 0xeb,
                 a: 255
-            })
+            }))
         );
         assert_eq!(button.children[0].text.as_ref().unwrap().content, "Pay");
         assert_eq!(scene.files, vec!["a/screen.design", "a/button.design"]);
@@ -704,6 +885,280 @@ mod tests {
         assert_eq!(
             problems[0].to_string(),
             "a.design:2:8: a.design uses itself"
+        );
+    }
+
+    /// Files as bytes, so a test can hold an image.
+    struct Mem(HashMap<String, Vec<u8>>);
+
+    impl Files for Mem {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+    }
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+    fn problems(source: &str) -> Vec<String> {
+        let fs = Mem([
+            ("d/a.design".to_string(), source.as_bytes().to_vec()),
+            ("d/photo.png".to_string(), PNG.to_vec()),
+            ("d/notes.txt".to_string(), b"hi".to_vec()),
+            (
+                "d/b.design".to_string(),
+                br#"<Frame props={{ label: "B" }}><Text>{label}</Text></Frame>"#.to_vec(),
+            ),
+        ]
+        .into());
+        match resolve(&fs, "d/a.design") {
+            Ok(_) => Vec::new(),
+            Err(p) => p.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn each_problem_names_its_place() {
+        let cases = [
+            (
+                "<Rect />",
+                "d/a.design:1:1: the root element must be a Frame, not Rect",
+            ),
+            (
+                "<Frame props=\"x\" />",
+                "d/a.design:1:8: props: expected an object of defaults",
+            ),
+            (
+                "<Frame fill=\"red\" />",
+                "d/a.design:1:8: fill: expected a color like #rrggbb",
+            ),
+            (
+                "<Frame fill=\"#12\" />",
+                "d/a.design:1:8: fill: #12 is not a color",
+            ),
+            (
+                "<Frame fill=\"linear-gradient(90deg, #fff 0%)\" />",
+                "d/a.design:1:8: fill: expected \"linear-gradient(<angle>deg, <color> <stop>%, …)\", found \"linear-gradient(90deg, #fff 0%)\"",
+            ),
+            (
+                "<Frame width=\"wide\" />",
+                "d/a.design:1:8: width: expected pixels, \"hug\" or \"fill\", found \"wide\"",
+            ),
+            (
+                "<Frame gap=\"4\" />",
+                "d/a.design:1:8: gap: expected a number, found \"4\"",
+            ),
+            (
+                "<Frame radius={[1, 2]} />",
+                "d/a.design:1:8: radius: expected pixels or an array of 4",
+            ),
+            (
+                "<Frame layout=\"grid\" />",
+                "d/a.design:1:8: layout: expected \"row\", \"column\" or \"none\"",
+            ),
+            (
+                "<Frame align=\"space-between\" />",
+                "d/a.design:1:8: align: expected \"start\", \"center\" or \"end\"",
+            ),
+            (
+                "<Frame clip=\"yes\" />",
+                "d/a.design:1:8: clip: expected true or false",
+            ),
+            (
+                "<Frame shadow={{ blurr: 4 }} />",
+                "d/a.design:1:8: shadow: a shadow has no blurr",
+            ),
+            (
+                "<Frame onClick=\"go ./b.design\" />",
+                "d/a.design:1:8: onClick: expected \"navigate <path>\", \"back\", \"overlay <path>\" or \"close\"",
+            ),
+            (
+                "<Frame size={4} />",
+                "d/a.design:1:8: Frame takes no attribute size",
+            ),
+            (
+                "<Frame><Text fill=\"#fff\">a</Text></Frame>",
+                "d/a.design:1:14: Text takes no attribute fill",
+            ),
+            (
+                "<Frame><Text weight={450}>a</Text></Frame>",
+                "d/a.design:1:14: weight: expected 400, 500, 600 or 700",
+            ),
+            (
+                "<Frame><Text textAlign=\"justify\">a</Text></Frame>",
+                "d/a.design:1:14: textAlign: expected \"left\", \"center\" or \"right\"",
+            ),
+            (
+                "<Frame><Text><Rect /></Text></Frame>",
+                "d/a.design:1:14: Text holds text only",
+            ),
+            (
+                "<Frame>hello</Frame>",
+                "d/a.design:1:8: text belongs in a Text, not a Frame",
+            ),
+            (
+                "<Frame><Rect><Rect /></Rect></Frame>",
+                "d/a.design:1:14: Rect takes no children",
+            ),
+            (
+                "<Frame><Text>{nope}</Text></Frame>",
+                "d/a.design:1:14: no text prop \"nope\"",
+            ),
+            (
+                "<Frame gap={nope} />",
+                "d/a.design:1:8: gap: no prop \"nope\"",
+            ),
+            (
+                "<Frame><Vector viewBox=\"0 0 24 24\" /></Frame>",
+                "d/a.design:1:8: Vector needs a path, d=\"M…\"",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0 Q\" /></Frame>",
+                "d/a.design:1:16: d: not SVG path data: Unexpected EOF",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L1 1\" viewBox=\"0 0 24\" /></Frame>",
+                "d/a.design:1:29: viewBox: expected \"minX minY width height\"",
+            ),
+            (
+                "<Frame><Image /></Frame>",
+                "d/a.design:1:8: Image needs a file, src=\"…\"",
+            ),
+            (
+                "<Frame><Image src=\"./gone.png\" /></Frame>",
+                "d/a.design:1:15: src: ./gone.png — no such file",
+            ),
+            (
+                "<Frame><Image src=\"../../x.png\" /></Frame>",
+                "d/a.design:1:15: src: ../../x.png — outside the served folder",
+            ),
+            (
+                "<Frame><Image src=\"./notes.txt\" /></Frame>",
+                "d/a.design:1:15: src: ./notes.txt is not a PNG or JPEG file",
+            ),
+            (
+                "import X from \"../../x.design\"\n<Frame />",
+                "d/a.design:1:1: import ../../x.design — outside the served folder",
+            ),
+            (
+                "import B from \"./b.design\"\n<Frame><B fill=\"#fff\" /></Frame>",
+                "d/a.design:2:11: B has no prop \"fill\"",
+            ),
+            (
+                "import B from \"./b.design\"\n<Frame><B>x</B></Frame>",
+                "d/a.design:2:8: B takes no children",
+            ),
+            (
+                "<Frame><Blob /></Frame>",
+                "d/a.design:1:8: unknown element Blob",
+            ),
+        ];
+        for (source, expected) in cases {
+            assert_eq!(problems(source), vec![expected.to_string()], "{source}");
+        }
+    }
+
+    #[test]
+    fn a_valid_design_has_no_problems() {
+        assert_eq!(
+            problems(
+                r##"import B from "./b.design"
+<Frame layout="row" fill="linear-gradient(90deg, #ffffff 0%, #000000ff 100%)">
+  <B label="Go" x={4} y={5} width={80} height="hug" name="Go" onClick="back" />
+  <Vector d="M0 0L24 24" viewBox="0 0 24 24" stroke="#000" />
+  <Image src="./photo.png" radius={[1, 2, 3, 4]} clip />
+</Frame>"##
+            ),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn attributes_take_their_defaults() {
+        let fs = files(&[("a.design", "<Frame><Text>a</Text><Rect /></Frame>")]);
+        let root = resolve(&fs, "a.design").unwrap().root;
+        assert_eq!((root.width, root.height), (Size::Hug, Size::Hug));
+        assert_eq!(
+            (root.layout, root.gap, root.padding),
+            (Layout::None, 0.0, [0.0; 4])
+        );
+        assert_eq!((root.align, root.justify), (Align::Start, Align::Start));
+        assert_eq!(
+            (root.opacity, root.fill.clone(), root.clip),
+            (1.0, None, false)
+        );
+        let text = root.children[0].text.clone().unwrap();
+        assert_eq!(
+            text,
+            TextStyle {
+                content: "a".into(),
+                ..default_text()
+            }
+        );
+        assert_eq!(
+            (text.size, text.weight, text.line_height, text.align),
+            (14.0, 400, 1.4, TextAlign::Left)
+        );
+        assert_eq!(root.children[1].stroke_width, 1.0);
+        assert_eq!(root.children[1].radius, [0.0; 4]);
+    }
+
+    #[test]
+    fn values_parse_into_their_types() {
+        let fs = Mem(
+            [
+                (
+                    "a.design".to_string(),
+                    br##"<Frame padding={[1, 2]} radius={[1, 2, 3, 4]} fill="linear-gradient(135deg, #f00 0%, #0000ff80 100%)">
+  <Frame padding={[1, 2, 3, 4]} fill="#abcd" />
+  <Vector d="M2 4L10 20" />
+  <Image src="./p.png" />
+</Frame>"##
+                        .to_vec(),
+                ),
+                ("p.png".to_string(), PNG.to_vec()),
+            ]
+            .into(),
+        );
+        let scene = resolve(&fs, "a.design").unwrap();
+        let root = &scene.root;
+        assert_eq!(root.padding, [1.0, 2.0, 1.0, 2.0]);
+        assert_eq!(root.radius, [1.0, 2.0, 3.0, 4.0]);
+        let c = |r, g, b, a| Color { r, g, b, a };
+        assert_eq!(
+            root.fill,
+            Some(Fill::Linear {
+                angle: 135.0,
+                stops: vec![(c(255, 0, 0, 255), 0.0), (c(0, 0, 255, 0x80), 1.0)]
+            })
+        );
+        assert_eq!(root.children[0].padding, [1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(
+            root.children[0].fill,
+            Some(Fill::Solid(c(0xaa, 0xbb, 0xcc, 0xdd)))
+        );
+        // A vector with no view box is drawn from its path's own bounds.
+        assert_eq!(
+            root.children[1].vector.as_ref().unwrap().view_box,
+            [2.0, 4.0, 8.0, 16.0]
+        );
+        assert_eq!(root.children[2].image.as_ref().unwrap().src, "p.png");
+        assert_eq!(scene.files, vec!["a.design", "p.png"]);
+    }
+
+    #[test]
+    fn paths_stay_in_the_served_folder() {
+        assert_eq!(
+            join("a/b.design", "./c.design").as_deref(),
+            Some("a/c.design")
+        );
+        assert_eq!(
+            join("a/b.design", "../c.design").as_deref(),
+            Some("c.design")
+        );
+        assert_eq!(join("a/b.design", "../../c.design"), None);
+        assert_eq!(
+            join("/a/b.design", "x/../y.png").as_deref(),
+            Some("a/y.png")
         );
     }
 }

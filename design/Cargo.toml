@@ -12,6 +12,8 @@ parley = "0.12.0"
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
 vello_cpu = "0.3.0"
 prost = "0.14.4"
+png = "0.18.1"
+zune-jpeg = "0.5.15"
 
 [build-dependencies]
 prost-build = "0.14.4"

@@ -37,7 +37,8 @@ message Problems {
 }
 
 // One node of a scene, every attribute resolved. Colors are 0xRRGGBBAA;
-// a size is pixels, or -1 for hug and -2 for fill.
+// a size is pixels, or -1 for hug and -2 for fill. A fill is `fill` (one
+// color) or `gradient`, never both.
 message Node {
   Kind kind = 1;
   string name = 2;
@@ -61,6 +62,33 @@ message Node {
   Text text = 20;
   string design = 21;
   repeated Node children = 22;
+  Gradient gradient = 23;
+  Vector vector = 24;
+  Image image = 25;
+}
+
+// A linear gradient: `angle` in degrees as in CSS, stops along its line.
+message Gradient {
+  float angle = 1;
+  repeated Stop stops = 2;
+}
+
+message Stop {
+  uint32 color = 1;
+  // From 0 to 1 along the gradient line.
+  float at = 2;
+}
+
+// A vector's SVG path data and its view box: min x, min y, width, height.
+message Vector {
+  string d = 1;
+  repeated float view_box = 2;
+}
+
+// An image's address in the served folder and the file's bytes, PNG or JPEG.
+message Image {
+  string src = 1;
+  bytes data = 2;
 }
 
 enum Kind {
@@ -68,6 +96,8 @@ enum Kind {
   TEXT = 1;
   RECT = 2;
   ELLIPSE = 3;
+  VECTOR = 4;
+  IMAGE = 5;
 }
 
 enum Layout {
@@ -97,4 +127,11 @@ message Text {
   uint32 weight = 3;
   uint32 color = 4;
   float line_height = 5;
+  TextAlign align = 6;
+}
+
+enum TextAlign {
+  TEXT_ALIGN_LEFT = 0;
+  TEXT_ALIGN_CENTER = 1;
+  TEXT_ALIGN_RIGHT = 2;
 }

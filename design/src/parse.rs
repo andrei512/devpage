@@ -200,16 +200,18 @@ impl Parser {
             Some(q @ ('"' | '\'')) => q,
             _ => return Err(self.problem("expected a string")),
         };
+        // An unterminated string is reported where it opened.
+        let open = self.problem("unterminated string");
         self.bump();
         let mut s = String::new();
         loop {
             match self.bump() {
-                None | Some('\n') => return Err(self.problem("unterminated string")),
+                None | Some('\n') => return Err(open),
                 Some(c) if c == quote => return Ok(s),
                 Some('\\') => match self.bump() {
                     Some('n') => s.push('\n'),
                     Some(c) => s.push(c),
-                    None => return Err(self.problem("unterminated string")),
+                    None => return Err(open),
                 },
                 Some(c) => s.push(c),
             }
@@ -486,5 +488,65 @@ import Button from "./button.design"
         let problem = parse("<Frame>\n  <Text>hi</Frame>").unwrap_err();
         assert_eq!(problem.pos, Pos { line: 2, col: 18 });
         assert_eq!(problem.message, "`</Frame>` closes `<Text>`");
+    }
+
+    #[test]
+    fn every_syntax_error_has_its_place() {
+        let cases = [
+            ("", "1:1: expected an import or the root element"),
+            (
+                "<Frame />\n<Frame />",
+                "2:1: expected nothing after the root element",
+            ),
+            ("import \"./a.design\"", "1:8: expected a name"),
+            ("import A \"./a.design\"", "1:10: expected `from`"),
+            ("import A from ./a.design", "1:15: expected a string"),
+            ("<Frame name=\"x\n/>", "1:13: unterminated string"),
+            (
+                "<Frame>\n  <Text>hi</Text>",
+                "2:18: `<Frame>` is never closed",
+            ),
+            (
+                "<Frame gap=4 />",
+                "1:12: expected a string or a value in braces",
+            ),
+            ("<Frame padding={[1 2]} />", "1:20: expected `,` or `]`"),
+            ("<Frame shadow={{ y 4 }} />", "1:20: expected `:`"),
+            (
+                "<Frame shadow={{ y: 4 x: 1 }} />",
+                "1:23: expected `,` or `}`",
+            ),
+            ("<Frame gap={1.2.3} />", "1:18: `1.2.3` is not a number"),
+            ("<Frame gap={4 />", "1:15: expected `}`"),
+            ("<Frame><Text>{ }</Text></Frame>", "1:16: expected a name"),
+            (
+                "<Frame><Text>hi</Frame>",
+                "1:23: `</Frame>` closes `<Text>`",
+            ),
+            ("<Frame / >", "1:9: expected `>`"),
+        ];
+        for (source, expected) in cases {
+            let problem = parse(source).unwrap_err();
+            assert_eq!(
+                format!(
+                    "{}:{}: {}",
+                    problem.pos.line, problem.pos.col, problem.message
+                ),
+                expected,
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn text_follows_jsx_whitespace() {
+        let file = parse("<Text>\n    Free shipping\n    on orders\n  </Text>").unwrap();
+        assert_eq!(
+            file.root.children,
+            vec![Child::Text(
+                vec![TextPart::Literal("Free shipping on orders".into())],
+                Pos { line: 2, col: 5 }
+            )]
+        );
     }
 }

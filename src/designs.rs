@@ -29,10 +29,10 @@ struct Resolved {
     missing: bool,
 }
 
-/// A file as last read: its text, or `None` when it doesn't exist or lies
+/// A file as last read: its bytes, or `None` when it doesn't exist or lies
 /// outside the served folder.
 struct Source {
-    text: Option<String>,
+    bytes: Option<Vec<u8>>,
     /// Its canonical path from the top of the served folder, which is what the
     /// watcher reports.
     canonical: Option<String>,
@@ -63,11 +63,13 @@ struct Reading<'a> {
 }
 
 impl Files for Reading<'_> {
-    fn read(&self, path: &str) -> Option<String> {
+    /// Any file's bytes — a design's text, or an image's — read once and
+    /// kept until the watcher reports it changed.
+    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
         self.asked.borrow_mut().push(path.to_string());
         let mut sources = lock(&self.store.sources);
         if let Some(source) = sources.get(path) {
-            return source.text.clone();
+            return source.bytes.clone();
         }
         let file = self
             .store
@@ -77,14 +79,12 @@ impl Files for Reading<'_> {
             .ok()
             .filter(|file| file.starts_with(&self.store.served) && file.is_file());
         let source = Source {
-            text: file
-                .as_ref()
-                .and_then(|file| std::fs::read_to_string(file).ok()),
+            bytes: file.as_ref().and_then(|file| std::fs::read(file).ok()),
             canonical: file.as_ref().map(|file| self.store.relative(file)),
         };
-        let text = source.text.clone();
+        let bytes = source.bytes.clone();
         sources.insert(path.to_string(), source);
-        text
+        bytes
     }
 }
 
@@ -107,7 +107,7 @@ impl Store {
         let result = devpage_design::resolve(&reading, path);
         let missing = lock(&self.sources)
             .get(path)
-            .is_none_or(|source| source.text.is_none());
+            .is_none_or(|source| source.bytes.is_none());
         Resolved {
             result,
             asked: reading.asked.into_inner(),
@@ -214,10 +214,10 @@ impl Designs {
 pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
     struct Disk<'a>(&'a Path);
     impl Files for Disk<'_> {
-        fn read(&self, path: &str) -> Option<String> {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             let file = self.0.join(path).canonicalize().ok()?;
             file.starts_with(self.0)
-                .then(|| std::fs::read_to_string(file).ok())
+                .then(|| std::fs::read(file).ok())
                 .flatten()
         }
     }

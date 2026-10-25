@@ -160,7 +160,11 @@ Text is set in Inter, which devpage carries inside it, so a design looks the
 same on every machine and in every PNG.
 
 `Vector` takes `d` (SVG path data) and `viewBox` (`"minX minY width
-height"`); `Image` takes `src`.
+height"`, the path's own bounds when left out). The path is scaled into the
+vector's box keeping its proportions, and its `fill` and `stroke` paint the
+path rather than the box. `Image` takes `src`, a PNG or JPEG file. Hugging, a
+vector takes its view box's size and an image its own size in pixels; given
+only one of `width` and `height`, either keeps its proportions.
 
 An attribute an element doesn't take, a value of the wrong type, or an unknown
 element is a problem — never ignored — so an agent learns about a typo from
