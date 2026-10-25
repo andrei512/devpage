@@ -3,6 +3,7 @@
 
 mod check;
 mod comments;
+mod designs;
 mod document;
 mod highlight;
 mod index;

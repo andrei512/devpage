@@ -20,6 +20,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::comments::{Anchor, Store};
+use crate::designs::Designs;
 use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
@@ -31,6 +32,7 @@ struct AppState {
     changes: broadcast::Sender<String>,
     store: Arc<Store>,
     identity: Arc<Identity>,
+    designs: Designs,
 }
 
 /// Who writes a comment: one local author, or — deployed — whoever the auth
@@ -96,6 +98,7 @@ fn quiet(
     changes: broadcast::Sender<String>,
     identity: Identity,
 ) -> Router {
+    let designs = Designs::new(entry.document().served.clone());
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
@@ -107,7 +110,19 @@ fn quiet(
         .route("/__devpage/comments/resolve", post(resolve_comment))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
+        .route_service(
+            "/devpage.design.v1.Designs/{*method}",
+            tower::ServiceBuilder::new()
+                .layer(tonic_web::GrpcWebLayer::new())
+                .service(crate::designs::service::designs_server::DesignsServer::new(
+                    crate::designs::Watch {
+                        designs: designs.clone(),
+                        changes: changes.clone(),
+                    },
+                )),
+        )
         .with_state(AppState {
+            designs,
             store: Arc::new(Store::new(&entry.document().served)),
             identity: Arc::new(identity),
             entry,
@@ -149,7 +164,16 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    if let Some(design) = path.strip_suffix(".png").filter(|p| p.ends_with(".design")) {
+        return match state.designs.png(design.to_string()).await {
+            Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
+            Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),
+        };
+    }
     let entry = state.entry.document();
+    if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
+        return Html(crate::designs::page(&path)).into_response();
+    }
     let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
@@ -229,6 +253,21 @@ async fn asset(Path(name): Path<String>) -> Response {
         "style.css" => (include_str!("../assets/style.css"), "text/css"),
         "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
+        "design.js" => (include_str!("../assets/design.js"), "text/javascript"),
+        "design-engine.js" => (
+            include_str!(concat!(env!("OUT_DIR"), "/design.js")),
+            "text/javascript",
+        ),
+        "design.wasm" => {
+            return (
+                [
+                    (header::CONTENT_TYPE, "application/wasm"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
+                &include_bytes!(concat!(env!("OUT_DIR"), "/design_bg.wasm"))[..],
+            )
+                .into_response();
+        }
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     (
