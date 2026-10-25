@@ -139,8 +139,9 @@ long page with an outline beside it; `devpage pdf garden/plan` writes
 **Check it.** `devpage check garden` checks every link in all three and exits
 `1` if one is broken — ready for a test.
 
-The repository's own `examples/` folder holds a finished doc and deck to read
-and copy.
+The repository's own `examples/` folder holds a finished
+[doc](../examples/sync-design/devpage.yml) and
+[deck](../examples/launch-talk/devpage.yml) to read and copy.
 
 ## Where next
 

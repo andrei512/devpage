@@ -9,7 +9,7 @@ repository = "https://github.com/andrei512/devpage"
 readme = "docs/README.md"
 keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["deploy/", ".claude/", ".agents/", "docs/plan/"]
+exclude = ["deploy/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 anyhow = "1.0.104"

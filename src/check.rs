@@ -1,5 +1,5 @@
 //! Link checking: every link, image and diagram target a page holds must
-//! reach a file in the repository — and a heading on it, when it names one —
+//! reach a file in the served folder — and a heading on it, when it names one —
 //! and every external address must answer.
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -15,7 +15,7 @@ use crate::render;
 /// One broken thing, where it was found.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Problem {
-    /// The file it is in, from the top of the repository.
+    /// The file it is in, from the top of the served folder.
     pub file: String,
     pub line: Option<usize>,
     pub message: String,
@@ -42,7 +42,7 @@ fn pages(document: &Document) -> Vec<PathBuf> {
 }
 
 /// Checks the document and every page and document reachable from it by
-/// links inside the repository.
+/// links inside the served folder.
 pub async fn document(document: &Document, check_external: bool) -> Vec<Problem> {
     let mut external = Vec::new();
     let mut problems = internal(document, &mut external);
@@ -341,7 +341,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn finds_missing_files_headings_and_climbs_out_of_the_repository() {
+    fn finds_missing_files_headings_and_climbs_out_of_the_served_folder() {
         let dir = std::env::temp_dir().join(format!("devpage-check-{}", std::process::id()));
         std::fs::create_dir_all(dir.join(".git")).unwrap();
         std::fs::write(

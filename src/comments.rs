@@ -47,21 +47,21 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(repo: &Path) -> Self {
+    pub fn new(served: &Path) -> Self {
         Self {
-            root: repo.join(".devpage"),
+            root: served.join(".devpage"),
         }
     }
 
-    /// The folder holding a page's threads. `page` is a repository-relative
-    /// path; anything climbing out of it is refused.
+    /// The folder holding a page's threads. `page` is a path from the top of
+    /// the served folder; anything climbing out of it is refused.
     fn folder(&self, page: &str) -> Result<PathBuf> {
         let page = Path::new(page.trim_start_matches('/'));
         if page
             .components()
             .any(|part| !matches!(part, std::path::Component::Normal(_)))
         {
-            bail!("{} is not a page in this repository", page.display());
+            bail!("{} is not a page in the served folder", page.display());
         }
         Ok(self.root.join("comments").join(page))
     }
@@ -181,10 +181,10 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
 /// The local author: `git config user.name` as git sees it from the served
 /// folder — its global setting counts, so no `.git` folder is needed — or the
 /// system's user name when git has none.
-pub fn local_author(repo: &Path) -> String {
+pub fn local_author(served: &Path) -> String {
     std::process::Command::new("git")
         .arg("-C")
-        .arg(repo)
+        .arg(served)
         .args(["config", "user.name"])
         .output()
         .ok()
