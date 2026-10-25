@@ -114,6 +114,9 @@ pre { background: var(--code); padding: 16px 20px; border-radius: 10px; overflow
 pre code { background: none; padding: 0; font-size: 14px; }
 
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
+/* A wide table scrolls inside its own box, never the page. */
+.table-scroll { overflow-x: auto; margin: 0 0 20px; }
+.table-scroll > table { margin: 0; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-weight: 600; }
 
@@ -302,3 +305,4 @@ li > input[type="checkbox"], li > p > input[type="checkbox"] { margin: 0 0.4em 0
 kbd { display: inline-block; min-width: 1.4em; padding: 0 0.35em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; font: inherit; font-size: 0.85em; text-align: center; }
 .keys kbd + kbd { margin-left: 0.2em; }
 .widget-error { color: #cf222e; white-space: pre-wrap; }
+div.widget-error { margin: 0 0 20px; }

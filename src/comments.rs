@@ -523,6 +523,48 @@ mod browser {
 
     #[tokio::test]
     #[ignore]
+    async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+        let root = folder("narrow");
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\nA paragraph long enough to reach the right edge of a narrow window, and then some more words.\n\n| a | b | c | d | e |\n| --- | --- | --- | --- | --- |\n| a_rather_long_cell_value | another_rather_long_cell | a_third_long_cell_value | yet_another_long_cell | the_last_long_cell_value |\n",
+        )
+        .unwrap();
+        let (mut browser, page, events) = open("narrow", &root, &root.join("a.md"), "/a.md").await;
+        for width in [390, 820] {
+            page.execute(SetDeviceMetricsOverrideParams::new(width, 800, 1.0, false))
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            // Hover the heading, then the paragraph, so the paragraph counts
+            // as newly hovered at each width.
+            eval::<bool>(
+                &page,
+                "(document.querySelector('article h1').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })),
+                  document.querySelector('.comment-button')?.remove(),
+                  document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)",
+            )
+            .await;
+            assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+            let fits: String = eval(
+                &page,
+                "(() => { const b = document.querySelector('.comment-button').getBoundingClientRect();
+                   const w = document.documentElement.clientWidth;
+                   return [b.left >= 0, b.right <= w, document.documentElement.scrollWidth <= w].join(' '); })()",
+            )
+            .await;
+            assert_eq!(
+                fits, "true true true",
+                "at {width}px: icon left, icon right, no page scroll"
+            );
+        }
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
     async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload() {
         let root = folder("paragraph");
         std::fs::write(

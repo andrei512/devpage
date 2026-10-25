@@ -221,7 +221,8 @@ bar nor `devpage check` can see it.
 ## Under the hood
 
 **On the server** (`src/widgets.rs`), rendering a page finds the tags of known
-widgets in its Markdown — skipping fenced and inline code — and turns each into
+widgets in its Markdown — skipping fenced, indented and inline code and HTML
+comments — and turns each into
 a placeholder: a `div` for a block widget, a `span` for an inline one, so an
 inline widget never breaks its paragraph. The placeholder carries the widget's
 name, its props as a JavaScript object literal (quoted values as strings, `{…}`
