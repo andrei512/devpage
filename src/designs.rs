@@ -234,10 +234,48 @@ fn lines(problems: &[Problem]) -> String {
         .join("\n")
 }
 
-/// The watch stream: the scene, then a patch after each change that altered
-/// it, or its problems; it ends when the design's file is deleted.
+/// The watch stream: one per page, over every design the page shows. For
+/// each, the scene, then a patch after each change that altered it, or its
+/// problems; a deleted design's `no such file` is the last update about it,
+/// and the stream ends when no design is left.
 pub struct Watch {
     pub designs: Designs,
+}
+
+/// What one design's watcher last sent.
+#[derive(Default)]
+struct Sent {
+    scene: Option<Node>,
+    problems: Option<Vec<Problem>>,
+}
+
+impl Sent {
+    /// The update `resolved` calls for after what was sent, if any.
+    fn next(&mut self, resolved: Resolved) -> Option<Body> {
+        match resolved.result {
+            Ok(scene) => {
+                // Problems on show: even an empty patch says the design is
+                // valid again.
+                let fixed = self.problems.take().is_some();
+                let body = match &self.scene {
+                    None => Some(Body::Scene(wire::encode(&scene.root))),
+                    Some(old) => {
+                        let replace = wire::diff(old, &scene.root);
+                        (fixed || !replace.is_empty()).then_some(Body::Patch(Patch { replace }))
+                    }
+                };
+                self.scene = Some(scene.root);
+                body
+            }
+            Err(problems) if self.problems.as_ref() != Some(&problems) => {
+                self.problems = Some(problems.clone());
+                Some(Body::Problems(Problems {
+                    problems: problems.iter().map(Problem::to_string).collect(),
+                }))
+            }
+            Err(_) => None,
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -248,55 +286,53 @@ impl service::designs_server::Designs for Watch {
         &self,
         request: Request<WatchRequest>,
     ) -> Result<Response<Self::WatchStream>, Status> {
-        let path = address(&request.into_inner().path).to_string();
+        // Each design once, keyed by its address, answered with the name the
+        // request gave it.
+        let mut watched: Vec<(String, String, Sent)> = Vec::new();
+        for named in request.into_inner().paths {
+            let path = address(&named).to_string();
+            if !watched.iter().any(|(p, _, _)| *p == path) {
+                watched.push((path, named, Sent::default()));
+            }
+        }
         let store = self.designs.0.clone();
         let mut updates = store.updates.subscribe();
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         tokio::spawn(async move {
-            let mut last: Option<Node> = None;
-            let mut shown: Option<Vec<Problem>> = None;
+            let mut due: Vec<String> = watched.iter().map(|(p, _, _)| p.clone()).collect();
             loop {
-                let resolved = store.get(&path);
-                let body = match resolved.result {
-                    Ok(scene) => {
-                        // Problems on show: even an empty patch says the
-                        // design is valid again.
-                        let fixed = shown.take().is_some();
-                        let body = match &last {
-                            None => Some(Body::Scene(wire::encode(&scene.root))),
-                            Some(old) => {
-                                let replace = wire::diff(old, &scene.root);
-                                (fixed || !replace.is_empty())
-                                    .then_some(Body::Patch(Patch { replace }))
-                            }
+                for path in due.drain(..) {
+                    let Some(index) = watched.iter().position(|(p, _, _)| *p == path) else {
+                        continue;
+                    };
+                    let resolved = store.get(&path);
+                    let gone = resolved.missing;
+                    let (_, named, sent) = &mut watched[index];
+                    if let Some(body) = sent.next(resolved) {
+                        let update = Update {
+                            body: Some(body),
+                            path: named.clone(),
+                            gone,
                         };
-                        last = Some(scene.root);
-                        body
+                        if tx.send(Ok(update)).await.is_err() {
+                            return;
+                        }
                     }
-                    Err(problems) if shown.as_ref() != Some(&problems) => {
-                        shown = Some(problems.clone());
-                        Some(Body::Problems(Problems {
-                            problems: problems.iter().map(Problem::to_string).collect(),
-                        }))
+                    if gone {
+                        watched.remove(index);
                     }
-                    Err(_) => None,
-                };
-                if let Some(body) = body
-                    && tx.send(Ok(Update { body: Some(body) })).await.is_err()
-                {
+                }
+                if watched.is_empty() {
                     return;
                 }
-                if resolved.missing {
-                    return;
-                }
-                // Wait for this design to change; falling behind means look again.
-                loop {
-                    match updates.recv().await {
-                        Ok(changed) if changed == path => break,
-                        Ok(_) => {}
-                        Err(broadcast::error::RecvError::Lagged(_)) => break,
-                        Err(broadcast::error::RecvError::Closed) => return,
+                // Wait for a watched design to change; falling behind means
+                // look at every one again.
+                match updates.recv().await {
+                    Ok(changed) => due.push(changed),
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        due = watched.iter().map(|(p, _, _)| p.clone()).collect();
                     }
+                    Err(broadcast::error::RecvError::Closed) => return,
                 }
             }
         });
@@ -500,9 +536,9 @@ mod tests {
     }
 
     impl Stream {
-        async fn open(address: &str, path: &str) -> Stream {
+        async fn open(address: &str, paths: &[&str]) -> Stream {
             let request = WatchRequest {
-                path: path.to_string(),
+                paths: paths.iter().map(|p| p.to_string()).collect(),
             }
             .encode_to_vec();
             let mut body = vec![0];
@@ -523,9 +559,16 @@ mod tests {
             }
         }
 
-        /// The next frame: `Ok(update)`, `Err(trailers)` at the end, or
+        /// The next frame's body: `Ok(body)`, `Err(trailers)` at the end, or
         /// `None` when nothing arrives within a second.
         async fn next(&mut self) -> Option<Result<Body, String>> {
+            self.update()
+                .await
+                .map(|update| update.map(|update| update.body.unwrap()))
+        }
+
+        /// The next frame, whole.
+        async fn update(&mut self) -> Option<Result<Update, String>> {
             loop {
                 if self.buffer.len() >= 5 {
                     let length = u32::from_be_bytes(self.buffer[1..5].try_into().unwrap()) as usize;
@@ -535,7 +578,7 @@ mod tests {
                         return Some(if flag & 0x80 != 0 {
                             Err(String::from_utf8_lossy(&payload).into_owned())
                         } else {
-                            Ok(Update::decode(&payload[..]).unwrap().body.unwrap())
+                            Ok(Update::decode(&payload[..]).unwrap())
                         });
                     }
                 }
@@ -560,7 +603,7 @@ mod tests {
     async fn the_watch_stream_sends_the_scene_then_only_what_changed() {
         let dir = served("watch");
         let (address, designs) = start(&dir, "app/screen.design").await;
-        let mut stream = Stream::open(&address, "/app/screen.design").await;
+        let mut stream = Stream::open(&address, &["/app/screen.design"]).await;
 
         let Some(Ok(Body::Scene(scene))) = stream.next().await else {
             panic!("the first update is the scene")
@@ -630,7 +673,8 @@ mod tests {
         };
         assert_eq!(patch.replace[0].id, "0.0");
 
-        // Deleted: the problem, then the end of the stream.
+        // Deleted: the problem, then the end of the stream, since no design
+        // is left.
         std::fs::remove_file(dir.join("app/screen.design")).unwrap();
         designs.changed(&dir.join("app/screen.design"));
         let Some(Ok(Body::Problems(problems))) = stream.next().await else {
@@ -644,6 +688,93 @@ mod tests {
             matches!(stream.next().await, Some(Err(_))),
             "the trailers end it"
         );
+    }
+
+    #[tokio::test]
+    async fn one_stream_watches_every_design_a_page_shows() {
+        let dir = served("many");
+        std::fs::write(
+            dir.join("app/other.design"),
+            SCREEN.replace("Cart", "Other"),
+        )
+        .unwrap();
+        let (address, designs) = start(&dir, "app/screen.design").await;
+        let mut stream = Stream::open(
+            &address,
+            &[
+                "/app/screen.design",
+                "app/other.design",
+                "app/screen.design",
+            ],
+        )
+        .await;
+
+        // Each design's scene, named as the request named it, once.
+        let mut first = Vec::new();
+        for _ in 0..2 {
+            let Some(Ok(update)) = stream.update().await else {
+                panic!("a scene for each design")
+            };
+            assert!(matches!(update.body, Some(Body::Scene(_))), "{update:?}");
+            first.push(update.path);
+        }
+        assert_eq!(first, ["/app/screen.design", "app/other.design"]);
+        assert!(stream.update().await.is_none(), "no third scene");
+
+        // An edit to one: a patch naming it.
+        save(
+            &designs,
+            &dir.join("app/other.design"),
+            &SCREEN.replace("Cart", "Elsewhere"),
+        );
+        let Some(Ok(update)) = stream.update().await else {
+            panic!("a patch")
+        };
+        assert_eq!(update.path, "app/other.design");
+        assert!(matches!(update.body, Some(Body::Patch(_))));
+
+        // An edit to the button both use: a patch for each.
+        save(
+            &designs,
+            &dir.join("app/button.design"),
+            &BUTTON.replace("#2563eb", "#16a34a"),
+        );
+        let mut patched = Vec::new();
+        for _ in 0..2 {
+            let Some(Ok(update)) = stream.update().await else {
+                panic!("a patch for each design")
+            };
+            assert!(matches!(update.body, Some(Body::Patch(_))));
+            patched.push(update.path);
+        }
+        patched.sort();
+        assert_eq!(patched, ["/app/screen.design", "app/other.design"]);
+
+        // One deleted: its last update says so, and the stream goes on.
+        std::fs::remove_file(dir.join("app/other.design")).unwrap();
+        designs.changed(&dir.join("app/other.design"));
+        let Some(Ok(update)) = stream.update().await else {
+            panic!("the deleted design's problem")
+        };
+        assert_eq!(update.path, "app/other.design");
+        assert!(update.gone);
+        let Some(Body::Problems(problems)) = update.body else {
+            panic!("its problem")
+        };
+        assert!(
+            problems.problems[0].contains("no such file"),
+            "{problems:?}"
+        );
+        save(
+            &designs,
+            &dir.join("app/screen.design"),
+            &SCREEN.replace("Cart", "Basket"),
+        );
+        let Some(Ok(update)) = stream.update().await else {
+            panic!("the stream goes on for the design left")
+        };
+        assert_eq!(update.path, "/app/screen.design");
+        assert!(!update.gone);
     }
 
     #[tokio::test]

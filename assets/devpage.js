@@ -36,11 +36,14 @@ function markBroken(root) {
   }
 }
 
-// Embedded designs are drawn by the design script, loaded only by pages that
-// have one: it starts every canvas not yet drawn and stops those gone.
+// Embedded designs are drawn by the design script, loaded only once a page
+// has one: it starts every canvas not yet drawn and stops those gone — on
+// every page after that, so leaving the last design closes its stream.
+let designScript = null;
 function drawDesigns() {
-  if (!document.querySelector("canvas.design")) return;
-  import("/__devpage/design.js")
+  if (!designScript && !document.querySelector("canvas.design")) return;
+  designScript ??= import("/__devpage/design.js");
+  designScript
     .then((designs) => designs.scan())
     .catch((error) => {
       // The design script itself didn't load: each canvas says so.
@@ -62,8 +65,9 @@ function keepDesigns(swap) {
   const kept = [...document.querySelectorAll("#page .design-embed")];
   swap();
   for (const embed of document.querySelectorAll("#page .design-embed")) {
-    const src = embed.firstElementChild?.getAttribute("src");
-    const at = kept.findIndex((old) => old.firstElementChild?.getAttribute("src") === src);
+    // By selector: a problems bar can sit before the canvas.
+    const src = embed.querySelector("canvas.design")?.getAttribute("src");
+    const at = kept.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);
     if (at >= 0) embed.replaceWith(kept.splice(at, 1)[0]);
   }
 }

@@ -96,8 +96,9 @@ file and streams the nodes that changed
 A design's file is also an ordinary watched file, so saving one refetches the
 open pages like any other change — that is how a page embedding the design
 gets its problems bar again. The refetch keeps the page's canvases: each
-embedded design still in the page keeps its drawing and its stream, so it is
-redrawn only by its stream, and only where its nodes changed. A site whose
+embedded design still in the page keeps its drawing, and the page's one design
+stream stays open while the set of designs it shows is the same, so a design
+is redrawn only by that stream, and only where its nodes changed. A site whose
 `watch` list leaves out `.design` files and the images designs use still has
 its canvases redrawn, but its problems bar waits for the next refetch.
 

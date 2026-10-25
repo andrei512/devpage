@@ -814,3 +814,186 @@ async fn a_small_design_is_not_enlarged_on_its_canvas_page() {
     browser.close().await.ok();
     events.abort();
 }
+
+/// Counts the page's watch calls, and how many are still open: each call's
+/// signal, until the page aborts it.
+const WATCH_COUNTER: &str = "window.watches = []; const f = window.fetch; \
+    window.fetch = (url, options = {}) => { \
+      if (String(url).includes('/Watch')) window.watches.push(options.signal); \
+      return f(url, options); };";
+
+const OPEN_WATCHES: &str = "window.watches.filter((s) => s && !s.aborted).length";
+
+/// A page embedding eight designs, each its own file.
+fn eight(dir: &Path, name: &str) {
+    let screen = std::fs::read_to_string(dir.join("screen.design")).unwrap();
+    let mut page = String::from("# Eight\n\n");
+    for n in 1..=8 {
+        std::fs::write(dir.join(format!("s{n}.design")), &screen).unwrap();
+        page.push_str(&format!("![Screen {n}](s{n}.design)\n\n"));
+    }
+    std::fs::write(dir.join(name), page).unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn eight_embedded_designs_paint_through_one_stream_and_the_page_still_loads() {
+    let dir = folder("eight");
+    eight(&dir, "page.md");
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
+        .await
+        .unwrap();
+    page.goto(format!("{address}/page.md")).await.unwrap();
+    until(
+        &page,
+        "[...document.querySelectorAll('canvas.design')].filter((c) => c.dataset.painted === 'true').length === 8",
+    )
+    .await;
+    assert_eq!(eval::<u32>(&page, OPEN_WATCHES).await, 1);
+
+    // The page can still fetch: an edit swapped in, every canvas kept.
+    page.evaluate("document.querySelectorAll('canvas.design').forEach((c) => c.marked = true)")
+        .await
+        .unwrap();
+    let mut edited = std::fs::read_to_string(dir.join("page.md")).unwrap();
+    edited.push_str("Edited.\n");
+    std::fs::write(dir.join("page.md"), edited).unwrap();
+    page.evaluate("load(location.href)").await.unwrap();
+    until(
+        &page,
+        "document.querySelector('article').textContent.includes('Edited.')",
+    )
+    .await;
+    assert_eq!(
+        eval::<u32>(
+            &page,
+            "[...document.querySelectorAll('canvas.design')].filter((c) => c.marked).length"
+        )
+        .await,
+        8
+    );
+    // The same designs: the stream wasn't reopened.
+    assert_eq!(eval::<u32>(&page, "window.watches.length").await, 1);
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_doc_with_eight_embeds_prints_as_fast_as_one_with_one() {
+    let dir = folder("print-eight");
+    eight(&dir, "eight.md");
+    std::fs::write(
+        dir.join("one.md"),
+        "# One\n\n![The screen](screen.design)\n",
+    )
+    .unwrap();
+    let time = |name: &'static str| {
+        let dir = dir.clone();
+        async move {
+            let document = Arc::new(Document::load(&dir.join(name), &dir).unwrap());
+            let started = std::time::Instant::now();
+            crate::pdf::print(document, &dir.join(format!("{name}.pdf")))
+                .await
+                .unwrap();
+            started.elapsed()
+        }
+    };
+    let one = time("one.md").await;
+    let eight = time("eight.md").await;
+    // Without one stream per page, the eighth design never painted and the
+    // print waited out its 20 seconds.
+    assert!(
+        eight < one + Duration::from_secs(5),
+        "eight embeds took {eight:?}, one took {one:?}"
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn leaving_the_last_design_in_place_closes_the_stream() {
+    let dir = folder("leave");
+    std::fs::write(
+        dir.join("page.md"),
+        "# Page\n\n![The screen](screen.design)\n\n[Plain](plain.md)\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("plain.md"), "# Plain\n\nNo design.\n").unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
+        .await
+        .unwrap();
+    page.goto(format!("{address}/page.md")).await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    assert_eq!(eval::<u32>(&page, OPEN_WATCHES).await, 1);
+    page.evaluate("document.body.marked = true").await.unwrap();
+    page.evaluate("[...document.querySelectorAll('article a')].find((a) => a.textContent === 'Plain').click()")
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('article').textContent.includes('No design.')",
+    )
+    .await;
+    // In place, not a full load, and no design stream left open.
+    assert!(eval::<bool>(&page, "document.body.marked === true").await);
+    until(&page, &format!("{OPEN_WATCHES} === 0")).await;
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_embed_with_problems_survives_a_page_refetch() {
+    let dir = folder("embed-problems");
+    std::fs::write(
+        dir.join("page.md"),
+        "# Page\n\n![The screen](screen.design)\n",
+    )
+    .unwrap();
+    let (address, designs) = serve_designs(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/page.md").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    page.evaluate("document.querySelector('canvas.design').marked = true")
+        .await
+        .unwrap();
+    let screen = std::fs::read_to_string(dir.join("screen.design")).unwrap();
+    std::fs::write(
+        dir.join("screen.design"),
+        screen.replace("<Button label", "<Button lable"),
+    )
+    .unwrap();
+    designs.changed(&dir.join("screen.design"));
+    until(
+        &page,
+        "!!document.querySelector('.design-embed .design-problems')",
+    )
+    .await;
+    page.evaluate("load(location.href)").await.unwrap();
+    // Swapped in, and the canvas — with the problems bar before it — kept.
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.marked === true \
+         && !!document.querySelector('.design-embed .design-problems')",
+    )
+    .await;
+    browser.close().await.ok();
+    events.abort();
+}
