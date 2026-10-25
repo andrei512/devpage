@@ -297,12 +297,23 @@ class Host {
     });
   }
 
+  // How much larger the canvas shows on the screen than its CSS size: a
+  // slide's stage is a 1920 × 1080 box scaled to the window with a transform,
+  // which CSS sizes don't see. 1 everywhere else.
+  scaled() {
+    return this.canvas.getBoundingClientRect().width / this.canvas.offsetWidth || 1;
+  }
+
   draw() {
     if (!this.design || !this.canvas.isConnected || !this.fit()) return;
-    const ratio = window.devicePixelRatio || 1;
+    // The bitmap matches the canvas's box on the screen, in device pixels.
+    // The view is in CSS pixels, which a transform — a scaled slide — shrinks
+    // on the screen: device pixels per view pixel are the screen's ratio
+    // times the transform's, so the design is painted whole and crisp.
     const box = this.canvas.getBoundingClientRect();
-    const width = Math.max(1, Math.round(box.width * ratio));
-    const height = Math.max(1, Math.round(box.height * ratio));
+    const width = Math.max(1, Math.round(box.width * (window.devicePixelRatio || 1)));
+    const height = Math.max(1, Math.round(box.height * (window.devicePixelRatio || 1)));
+    const ratio = (window.devicePixelRatio || 1) * this.scaled();
     if (this.canvas.width !== width) this.canvas.width = width;
     if (this.canvas.height !== height) this.canvas.height = height;
     const { zoom, x, y } = this.view;
@@ -348,11 +359,13 @@ class Host {
     this.canvas.dataset.painted = "true";
   }
 
-  // From a pointer event to the design's own pixels.
+  // From a pointer event to the design's own pixels, through any transform
+  // the canvas is shown under.
   point(event) {
     const box = this.canvas.getBoundingClientRect();
+    const scale = this.scaled();
     const { zoom, x, y } = this.view;
-    return [(event.clientX - box.left - x) / zoom, (event.clientY - box.top - y) / zoom];
+    return [((event.clientX - box.left) / scale - x) / zoom, ((event.clientY - box.top) / scale - y) / zoom];
   }
 
   listen() {

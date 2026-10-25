@@ -1184,19 +1184,20 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
         "!!document.querySelector('.box canvas.design[data-started]')",
     )
     .await;
+    // Changing slides refetches the deck, and React mounts the widget's
+    // content again: the canvas is measured in the same step that finds it
+    // painted, so a remount between two steps can't leave nothing to measure.
     page.evaluate("location.hash = '#2'").await.unwrap();
     until(
         &page,
-        "document.querySelector('.box canvas.design')?.dataset.painted === 'true'",
-    )
-    .await;
-    let [bottom, slide]: [f64; 2] = eval(
-        &page,
-        "(() => { const c = document.querySelector('.box canvas.design'); const s = c.closest('.slide'); \
+        "(() => { const c = document.querySelector('.box canvas.design'); \
+         if (c?.dataset.painted !== 'true') return false; const s = c.closest('.slide'); \
          const scale = s.getBoundingClientRect().height / s.offsetHeight; \
-         return [(c.getBoundingClientRect().bottom - s.getBoundingClientRect().top) / scale, s.offsetHeight]; })()",
+         window.measured = [(c.getBoundingClientRect().bottom - s.getBoundingClientRect().top) / scale, s.offsetHeight]; \
+         return true; })()",
     )
     .await;
+    let [bottom, slide]: [f64; 2] = eval(&page, "window.measured").await;
     assert!(
         bottom <= slide,
         "the design runs past the slide: {bottom} > {slide}"
@@ -1371,4 +1372,107 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
     );
     browser.close().await.ok();
     events.abort();
+}
+
+/// A design on a slide, in a window smaller than the 1920 × 1080 stage the
+/// deck scales down: the whole drawing is painted — each corner shows its own
+/// color — and a click lands where the reader sees it. Checked on the GPU and
+/// on the CPU, at two window sizes.
+async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
+    let dir = folder(if webgpu {
+        "scaled-slide-gpu"
+    } else {
+        "scaled-slide-cpu"
+    });
+    // Four corner squares of different colors on white; the bottom-right one
+    // navigates to a green screen.
+    std::fs::write(
+        dir.join("corners.design"),
+        r##"<Frame width={800} height={600} fill="#ffffff">
+  <Rect x={0} y={0} width={200} height={150} fill="#ff0000" />
+  <Rect x={600} y={0} width={200} height={150} fill="#00ff00" />
+  <Rect x={0} y={450} width={200} height={150} fill="#0000ff" />
+  <Rect x={600} y={450} width={200} height={150} fill="#ffff00" onClick="navigate ./next.design" />
+</Frame>"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("next.design"),
+        r##"<Frame width={800} height={600} fill="#00ff00" />"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("one.md"),
+        "# Corners\n\n![Corners](corners.design)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("deck.yml"),
+        "kind: slides\ntitle: Deck\nslides: [one.md]\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "deck.yml").await;
+    let (mut browser, events, _profile) = chrome().await;
+    for (width, height) in [(1280, 720), (1600, 900)] {
+        let page = browser.new_page("about:blank").await.unwrap();
+        page.execute(SetDeviceMetricsOverrideParams::new(
+            width, height, 1.0, false,
+        ))
+        .await
+        .unwrap();
+        if !webgpu {
+            page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+                "delete Navigator.prototype.gpu;",
+            ))
+            .await
+            .unwrap();
+        }
+        page.goto(format!("{address}/deck.yml#1")).await.unwrap();
+        until(
+            &page,
+            "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+        )
+        .await;
+        // Let the GPU's frame reach the screen.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        // The canvas's box on the screen, with the slide's scale applied.
+        let [left, top, w, h]: [f64; 4] = eval(
+            &page,
+            "(() => { const b = document.querySelector('canvas.design').getBoundingClientRect(); \
+             return [b.left, b.top, b.width, b.height]; })()",
+        )
+        .await;
+        let at = |fx: f64, fy: f64| Point::new(left + w * fx, top + h * fy);
+        for (point, color, corner) in [
+            (at(0.1, 0.1), [255, 0, 0], "top left"),
+            (at(0.9, 0.1), [0, 255, 0], "top right"),
+            (at(0.1, 0.9), [0, 0, 255], "bottom left"),
+            (at(0.9, 0.9), [255, 255, 0], "bottom right"),
+            (at(0.5, 0.5), [255, 255, 255], "middle"),
+        ] {
+            let seen = pixel(&page, point).await;
+            assert_eq!(
+                seen, color,
+                "{width}×{height}, webgpu {webgpu}: the {corner} shows {seen:?}"
+            );
+        }
+        // The bottom-right square, where the reader sees it, navigates.
+        page.click(at(0.9, 0.9)).await.unwrap();
+        until_pixel(&page, at(0.1, 0.1), [0, 255, 0]).await;
+        page.close().await.ok();
+    }
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_design_on_a_scaled_slide_is_painted_whole_on_the_gpu() {
+    a_design_on_a_scaled_slide_is_painted_whole(true).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_design_on_a_scaled_slide_is_painted_whole_on_the_cpu() {
+    a_design_on_a_scaled_slide_is_painted_whole(false).await;
 }
