@@ -44,10 +44,10 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
         .ok();
     });
 
-    let config = match BrowserConfig::builder().build() {
+    let config = match chrome().build() {
         Ok(config) => config,
         // No Chrome installed: download a Chromium once, into devpage's cache.
-        Err(_) => BrowserConfig::builder()
+        Err(_) => chrome()
             .chrome_executable(fetch_chromium().await?)
             .build()
             .map_err(anyhow::Error::msg)?,
@@ -74,6 +74,19 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     events.abort();
     server.abort();
     Ok(())
+}
+
+/// A headless Chrome with a profile of its own, so several prints can run at
+/// once without fighting over one profile's lock.
+fn chrome() -> chromiumoxide::browser::BrowserConfigBuilder {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static RUNS: AtomicUsize = AtomicUsize::new(0);
+    let profile = std::env::temp_dir().join(format!(
+        "devpage-chrome-{}-{}",
+        std::process::id(),
+        RUNS.fetch_add(1, Ordering::Relaxed)
+    ));
+    BrowserConfig::builder().user_data_dir(profile)
 }
 
 /// Downloads a Chromium into devpage's cache folder, or finds the one there.
@@ -162,9 +175,7 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
 
-        let (mut browser, mut handler) = Browser::launch(BrowserConfig::builder().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) = Browser::launch(chrome().build().unwrap()).await.unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}/one.md").as_str())
@@ -197,5 +208,48 @@ mod tests {
             found.1.contains("Detached comments") && found.1.contains("Every write?"),
             "{found:?}"
         );
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let document = Arc::new(Document::load(&root.join("examples/launch-talk")).unwrap());
+        let url = document.entry();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let (mut browser, mut handler) = Browser::launch(chrome().build().unwrap()).await.unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}{url}").as_str())
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let shown = |page: chromiumoxide::Page| async move {
+            let value: String = page
+                .evaluate("[...document.querySelectorAll('.slide.shown')].map(s => s.dataset.slide).join(',') + location.hash")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            value
+        };
+        assert_eq!(shown(page.clone()).await, "1");
+        page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight'}))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(shown(page.clone()).await, "2#2");
+        page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'End'}))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(shown(page.clone()).await, "3#3");
+        browser.close().await.ok();
+        events.abort();
     }
 }
