@@ -260,8 +260,23 @@ document.addEventListener("keydown", (event) => {
 window.addEventListener("hashchange", showSlide);
 window.addEventListener("resize", showSlide);
 
+// A doc's outline follows the reader: the section in view is marked current.
+function followOutline() {
+  const links = [...document.querySelectorAll(".outline ul a")];
+  if (!links.length) return;
+  const targets = links.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1)))).filter(Boolean);
+  const mark = () => {
+    let current = targets[0];
+    for (const target of targets) if (target.getBoundingClientRect().top < innerHeight / 3) current = target;
+    for (const link of links) link.classList.toggle("current", link.hash === `#${current?.id}`);
+  };
+  addEventListener("scroll", mark, { passive: true });
+  mark();
+}
+
 drawDiagrams(document);
 showSlide();
+followOutline();
 loadComments();
 // Print mode has no live connection; Chrome waits for this before printing.
 document.documentElement.dataset.ready = "true";
