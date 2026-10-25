@@ -173,7 +173,17 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
-    if let Some(design) = path.strip_suffix(".png").filter(|p| p.ends_with(".design")) {
+    // A design's PNG — unless a real file of that name is there, which is
+    // served as it is.
+    let real = state
+        .entry
+        .document()
+        .file(&path)
+        .is_some_and(|f| f.is_file());
+    if let Some(design) = path
+        .strip_suffix(".png")
+        .filter(|p| p.ends_with(".design") && !real)
+    {
         // A design that isn't a file in the served folder is like any other
         // path that isn't: 404, never its problems.
         if !state

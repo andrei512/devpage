@@ -83,6 +83,14 @@ pub enum Draw {
     Pop,
 }
 
+/// A scene laid out and ready to paint: every node's box in tree order, the
+/// design's drawing, and the commands that paint it.
+pub struct Drawing {
+    pub frames: Vec<Frame>,
+    pub area: Frame,
+    pub list: Vec<Draw>,
+}
+
 impl Renderer {
     pub fn new() -> Renderer {
         let mut fonts = FontContext {
@@ -245,6 +253,26 @@ impl Renderer {
     /// that area, so every backend shows exactly it.
     pub fn display_list(&mut self, scene: &Scene) -> (Frame, Vec<Draw>) {
         let frames = self.layout(scene);
+        self.list_for(scene, &frames)
+    }
+
+    /// The scene laid out once and turned into its display list, or why it
+    /// can't be drawn: a drawing bigger than `MAX_SIDE` a side. What the PNG,
+    /// the canvas and `devpage check` all start from.
+    pub fn drawing(&mut self, scene: &Scene) -> Result<Drawing, String> {
+        let frames = self.layout(scene);
+        let (area, list) = self.list_for(scene, &frames);
+        if area.width > MAX_SIDE || area.height > MAX_SIDE {
+            return Err(format!(
+                "the drawing is {}×{} pixels; a design draws at most {} a side",
+                area.width, area.height, MAX_SIDE
+            ));
+        }
+        Ok(Drawing { frames, area, list })
+    }
+
+    /// The display list for a scene already laid out as `frames`.
+    fn list_for(&mut self, scene: &Scene, frames: &[Frame]) -> (Frame, Vec<Draw>) {
         let root = frames[0];
         let mut area = KRect::new(
             root.x as f64,
@@ -254,7 +282,7 @@ impl Renderer {
         );
         let mut list = Vec::new();
         let mut at = 0;
-        self.node(&scene.root, &frames, &mut at, &mut list, None, &mut area);
+        self.node(&scene.root, frames, &mut at, &mut list, None, &mut area);
         // Out to whole pixels, ignoring the slivers floating point leaves on
         // a curve's bounds.
         const SLIVER: f64 = 0.01;
@@ -751,7 +779,9 @@ fn build(
         .map(|c| build(tree, c, Some(node), texts, hugs, renderer))
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
-    let (w, h) = (node.width == DSize::Hug, node.height == DSize::Hug);
+    // A root has no parent space to fill: on its own, `"fill"` hugs.
+    let hugs_by = |s: DSize| s == DSize::Hug || (parent.is_none() && s == DSize::Fill);
+    let (w, h) = (hugs_by(node.width), hugs_by(node.height));
     if node.layout == Layout::None && !node.children.is_empty() && (w || h) {
         hugs.push((id, w, h));
     }
@@ -1165,6 +1195,35 @@ mod tests {
         );
         // Painting for the canvas stops at the limit rather than allocating more.
         assert_eq!(r.paint(&s, 1.0).width(), 16384);
+    }
+
+    #[test]
+    fn a_root_that_fills_on_its_own_hugs() {
+        let mut r = Renderer::new();
+        for root in [
+            r##"<Frame width="fill" height="fill" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
+            r##"<Frame width="fill" layout="row" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
+        ] {
+            let d = r.drawing(&scene(root)).unwrap();
+            assert_eq!((d.area.width, d.area.height), (100.0, 50.0), "{root}");
+        }
+    }
+
+    #[test]
+    fn a_drawing_is_laid_out_once_and_refuses_to_be_too_big() {
+        let mut r = Renderer::new();
+        let s = scene(r#"<Frame layout="row" padding={4}><Rect width={10} height={10} /></Frame>"#);
+        let d = r.drawing(&s).unwrap();
+        assert_eq!(d.frames, r.layout(&s));
+        let (area, list) = r.display_list(&s);
+        assert_eq!((d.area, d.list.len()), (area, list.len()));
+        let big = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
+        assert!(
+            r.drawing(&big)
+                .err()
+                .unwrap()
+                .contains("at most 16384 a side")
+        );
     }
 
     #[test]

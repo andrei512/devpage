@@ -22,8 +22,9 @@ message Update {
   }
   // The design this update is about, as the request named it.
   string path = 4;
-  // Its file was deleted: this is the last update about it.
-  bool gone = 5;
+  // Was `gone`: a deleted design stays watched, so it comes back when written
+  // again.
+  reserved 5;
 }
 
 message Patch {

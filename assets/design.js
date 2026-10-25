@@ -62,8 +62,8 @@ function watchRequest(paths) {
   return body;
 }
 
-// The design an update is about (field 4) and whether it was deleted (field
-// 5), read from the update's top level; the engine decodes the rest.
+// The design an update is about (field 4), read from the update's top
+// level; the engine decodes the rest.
 function addressed(message) {
   let at = 0;
   const next = () => {
@@ -75,15 +75,12 @@ function addressed(message) {
     }
   };
   let path = "";
-  let gone = false;
   while (at < message.length) {
     const key = next();
     const field = Math.floor(key / 8);
     const type = key & 7;
-    if (type === 0) {
-      const value = next();
-      if (field === 5) gone = value !== 0;
-    } else if (type === 2) {
+    if (type === 0) next();
+    else if (type === 2) {
       const length = next();
       if (field === 4) path = new TextDecoder().decode(message.subarray(at, at + length));
       at += length;
@@ -91,7 +88,7 @@ function addressed(message) {
     else if (type === 5) at += 4;
     else break; // not an update this script knows
   }
-  return { path, gone };
+  return path;
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -161,15 +158,16 @@ class Host {
     this.design?.free();
     this.design = new Design();
     this.path = path;
-    this.gone = false;
     this.cpu = null;
     this.view.fitted = true;
     if (this.link) this.link.href = `/${path}`;
     rewatch();
   }
 
-  // Applies one update about this host's design.
-  receive(message, gone) {
+  // Applies one update about this host's design. A deleted design's update
+  // is its `no such file` problem; it stays watched, so writing it again
+  // brings it back.
+  receive(message) {
     const applied = this.design.apply(message);
     if (applied === Applied.Changed) {
       this.showProblems([]);
@@ -178,8 +176,6 @@ class Host {
     } else if (applied === Applied.Problems) {
       this.showProblems(this.design.problems());
     }
-    // Deleted: its last update. The page leaves it out of the next stream.
-    if (gone) this.gone = true;
   }
 
   close() {
@@ -482,10 +478,10 @@ addEventListener("resize", () => {
 // holds more than this and its event stream.
 const watch = { key: null, controller: null, pending: false };
 
-// The designs to watch: each shown design once, leaving out deleted ones.
+// The designs to watch: each shown design once.
 function watched() {
   const paths = new Set();
-  for (const host of hosts) if (!host.gone && host.canvas.isConnected) paths.add(host.path);
+  for (const host of hosts) if (host.canvas.isConnected) paths.add(host.path);
   return [...paths].sort();
 }
 
@@ -515,7 +511,7 @@ function connect() {
 
 // Reads the stream until the page closes it, reopening it — and getting each
 // whole scene again — whenever devpage drops it. A stream devpage ended
-// itself, with its trailers, is over: every design in it was deleted.
+// itself, with its trailers, is over: devpage refused it.
 async function stream(paths, controller) {
   while (!controller.signal.aborted) {
     try {
@@ -560,9 +556,9 @@ async function read(paths, signal) {
         continue;
       }
       if (signal.aborted) return false;
-      const { path, gone } = addressed(message);
+      const path = addressed(message);
       for (const host of hosts) {
-        if (host.path === path && !host.gone && host.canvas.isConnected) host.receive(message, gone);
+        if (host.path === path && host.canvas.isConnected) host.receive(message);
       }
     }
   }

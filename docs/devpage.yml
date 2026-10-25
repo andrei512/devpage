@@ -5,6 +5,3 @@ root: README.md
 watch:
   - "**/*.md"
   - "**/*.yml"
-  - "**/*.design"
-  - "**/*.png"
-  - "**/*.jpg"

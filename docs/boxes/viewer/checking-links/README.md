@@ -30,7 +30,10 @@ Every link a reader could follow and every file a page loads:
   ([Designs](../designs/README.md#problems)). They are read from the page's
   Markdown — an image or a link whose target ends in `.design`, never an
   example in code — and each of the design's problems is reported on the page
-  as `broken design <target> — <file>:<line>:<column>: <message>`.
+  as `broken design <target> — <file>:<line>:<column>: <message>`. A design
+  whose drawing is too big to paint is a problem too. A link to a design's
+  PNG address, `x.design.png`, is checked as the design `x.design` when no
+  real file of that name exists.
 
 `mailto:` and other schemes are not checked.
 

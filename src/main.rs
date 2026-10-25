@@ -33,7 +33,7 @@ const FIRST_PORT: u16 = 3030;
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// A document file, a folder holding devpage.yml, or a Markdown file.
+    /// A document file, a folder holding devpage.yml, a Markdown file, or a design (.design).
     path: Option<PathBuf>,
     /// The served folder: nothing outside it is served. The current folder by default.
     #[arg(long, global = true)]
