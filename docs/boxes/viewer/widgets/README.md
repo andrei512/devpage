@@ -43,6 +43,10 @@ doc's chapter or a slide.
   show their source or read the structure of their content.
 - **Self-closing.** A widget without content can close itself: `<Keys>⌘ P</Keys>`
   has content, `<KindCards />` has none.
+- **Block or inline.** A widget that has its lines to itself — nothing before
+  its open tag, nothing after its close tag — is a block. Anywhere else it is
+  part of the paragraph around it, at the start of a line included:
+  `<Keys>⌘ P</Keys> prints the **doc**.` stays one paragraph, bold and all.
 
 Tag names are matched exactly, and only names of known widgets are widgets: a
 capitalized tag that names no widget is a [problem](#when-a-widget-fails), and
@@ -57,9 +61,9 @@ devpage ships these, in every document:
 | `Callout` | `kind`: `note` (default), `tip`, `warning` or `danger`; `title` (optional) | Markdown | A highlighted box with a colored edge, an icon for its kind and an optional title. |
 | `Tabs` | — | `Tab` widgets | Tabs, the first one open; clicking a tab's title shows it. Printed, only the open tab shows. |
 | `Tab` | `title` | Markdown | One tab of a `Tabs`. Outside a `Tabs` it is a problem. |
-| `Example` | `title` (optional) | Markdown | The Markdown source, highlighted, beside — or, on a narrow page, above — what it renders to. |
-| `FileTree` | — | A Markdown list, nested for folders | A folder tree with file and folder icons. A list item's link makes its entry a link; text after the name is shown as a note beside it. |
-| `Terminal` | `title` (optional) | Text in a code block | A terminal window. Lines starting with `$ ` are commands, shown with a prompt; the rest is output. |
+| `Example` | `title` (optional) | Markdown | The Markdown source, highlighted, beside — or, on a narrow page, above — what it renders to. A long source line scrolls inside its box; on paper it wraps. |
+| `FileTree` | — | A Markdown list, nested for folders | A folder tree with file and folder icons. A list item's link makes its entry a link; text after the name and ` — ` is shown as a note beside it, with its inline Markdown — code, emphasis, links — kept. |
+| `Terminal` | `title` (optional) | Text in a code block | A terminal window. Lines starting with `$ ` are commands, shown with a prompt; the rest is output. A long line scrolls on screen and wraps on paper. |
 | `Keys` | — | Key names separated by spaces | Each key as a keycap, inline in the text: `<Keys>⌘ P</Keys>`. |
 | `Diagram` | — | Mermaid text | The diagram, drawn by pele. Every `mermaid` fence is rendered through it; the tag itself is rarely written. |
 
@@ -178,11 +182,13 @@ renders:
 
 **On the server** (`src/widgets.rs`), rendering a page finds the tags of known
 widgets in its Markdown — skipping fenced and inline code — and turns each into
-a placeholder: a `div` for a widget on its own line, a `span` for one inside a
-line of text. The placeholder carries the widget's name, its props as a
-JavaScript object literal (quoted values as strings, `{…}` as written, bare
-attributes as `true`) and its Markdown source; its content stays between the
-tags for comrak to render as Markdown. The page's `<head>` gets an import map
+a placeholder: a `div` for a block widget, a `span` for an inline one, so an
+inline widget never breaks its paragraph. The placeholder carries the widget's
+name, its props as a JavaScript object literal (quoted values as strings, `{…}`
+as written, bare attributes as `true`) and its Markdown source — and, for
+`Example`, that source highlighted as Markdown by the same highlighter fenced
+code uses, which reaches it as the `sourceHtml` prop. Its content stays between
+the tags for comrak to render as Markdown. The page's `<head>` gets an import map
 naming React, and the list of the document's widgets with the address of each.
 
 **Compiling.** A widget or helper is compiled from TSX by `oxc` when the

@@ -111,7 +111,7 @@ async function mountWidgets(root) {
     if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}> could not be loaded`);
     // Nested widgets are plain elements, so a parent reads their props — a
     // Tabs reads each Tab's title; the outermost one catches what they throw.
-    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", html: node.innerHTML, children: children.length ? children : undefined });
+    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
   };
 
   await Promise.all(placeholders.map((el) => new Promise((resolve) => {

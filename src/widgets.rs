@@ -32,6 +32,10 @@ pub const SYSTEM: &[(&str, &str)] = &[
     ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
 ];
 
+/// System widgets that show their own source: they also get it highlighted
+/// as Markdown, as the `sourceHtml` prop.
+const SHOWS_SOURCE: &[&str] = &["Example"];
+
 /// The widgets a document's pages can use: name → the address its module is
 /// served at.
 #[derive(Debug, Default)]
@@ -165,11 +169,6 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
             out.push('<');
             continue;
         }
-        let block = source[..start]
-            .rsplit('\n')
-            .next()
-            .is_some_and(|before| before.trim().is_empty());
-        let element = if block { "div" } else { "span" };
         let props = escape(&tag.props);
         let after_open = start + tag.len;
         let (inner, end) = if tag.self_closing {
@@ -180,8 +179,32 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
                 None => ("", after_open),
             }
         };
+        // A widget is a block when it has its lines to itself: nothing before
+        // its open tag and nothing after its close tag. Anywhere else it is
+        // inline, part of a paragraph.
+        let starts_line = source[..start]
+            .rsplit('\n')
+            .next()
+            .is_some_and(|before| before.trim().is_empty());
+        let ends_line = source[end..]
+            .split('\n')
+            .next()
+            .is_some_and(|after| after.trim().is_empty());
+        let block = starts_line && ends_line;
+        let element = if block { "div" } else { "span" };
+        let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
+            format!(
+                r#" data-source-html="{}""#,
+                escape(&crate::highlight::highlight(
+                    "markdown",
+                    inner.trim_matches('\n')
+                ))
+            )
+        } else {
+            String::new()
+        };
         let open = format!(
-            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}">"#,
+            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}"{source_html}>"#,
             name = tag.name,
             src = escape(inner.trim_matches('\n')),
         );
@@ -723,5 +746,33 @@ mod tests {
             "{:?}",
             widgets.modules
         );
+    }
+
+    #[test]
+    fn an_inline_widget_at_the_start_of_a_line_stays_in_its_paragraph() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Keys>⌘ P</Keys> to **print**, then <Keys>⏎</Keys>.\n",
+            &set(&["Keys"]),
+            &mut problems,
+        );
+        let html = crate::render::markdown(&out);
+        assert!(html.starts_with("<p><span data-widget=\"Keys\""), "{html}");
+        assert!(html.contains("<strong>print</strong>"), "{html}");
+        assert_eq!(html.matches("data-widget=\"Keys\"").count(), 2, "{html}");
+    }
+
+    #[test]
+    fn an_example_gets_its_source_highlighted() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Example>\nA **word**\n</Example>\n",
+            &set(&["Example"]),
+            &mut problems,
+        );
+        assert!(out.contains("data-source-html=\""), "{out}");
+        assert!(out.contains("hl-"), "{out}");
+        let callout = expand("<Callout>x</Callout>\n", &set(&["Callout"]), &mut problems);
+        assert!(!callout.contains("data-source-html"), "{callout}");
     }
 }
