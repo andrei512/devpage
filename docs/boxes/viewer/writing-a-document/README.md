@@ -122,6 +122,7 @@ Pages are GitHub-flavoured Markdown:
 | Raw HTML | any HTML, passed through unchanged |
 | Highlighted code | a fenced block with a language — see [Code blocks](#code-blocks) |
 | Diagrams | a fenced block with language `mermaid` — see [Diagrams and themes](../diagrams-and-themes/README.md) |
+| Widgets | a capitalized HTML tag, `<Callout kind="tip">…</Callout>` — see [Widgets](../widgets/README.md) |
 
 Raw HTML is not filtered: whatever a page contains, including `<script>`, goes
 into the page as written.

@@ -15,6 +15,9 @@ agent. These pages are devpage's own documentation, served by devpage.
 - **Extended Markdown.** GitHub-flavoured Markdown with raw HTML allowed,
   highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to
   other pages — in a light and a dark theme that follow the reader's system.
+- **Widgets.** React components used as HTML tags in Markdown: callouts, tabs,
+  file trees, source-beside-result examples, terminals and keycaps ship with
+  devpage, and a project adds its own as `.tsx` files.
 - **Live updates.** A file's change refreshes every open page in place,
   without a reload.
 - **Comments.** Select text or hover a paragraph to start a thread. Threads

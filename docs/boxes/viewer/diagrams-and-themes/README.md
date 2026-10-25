@@ -20,8 +20,8 @@ sequenceDiagram
 ````
 
 The server leaves a `mermaid` fence unhighlighted, as a code block marked
-`<pre lang="mermaid">` — the only code block that keeps its language. In the browser, the [page script](../live-updates/README.md#the-page-script)
-hands each one to **pele** — a Mermaid renderer built
+`<pre lang="mermaid">` — the only code block that keeps its language. In the browser, each one is rendered by the `Diagram`
+[system widget](../widgets/README.md#system-widgets), which hands it to **pele** — a Mermaid renderer built
 into the viewer (version 1.10.0, vendored at `assets/vendor/pele.js`; see
 [the vendored pele bundle](../vendored-pele/README.md)) — and
 replaces the block with the SVG it returns. Diagrams are drawn when a page

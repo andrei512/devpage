@@ -17,6 +17,8 @@ description of the program.
 - GitHub-flavoured Markdown with raw HTML, server-side syntax highlighting, and
   Mermaid diagrams drawn as SVG with clickable nodes.
 - Live updates: a file's change refreshes every open page in place.
+- Widgets: React components used as HTML tags in Markdown, shipped by devpage
+  or written by a project as `.tsx` files.
 - Comments on text or paragraphs, kept as files outside git, so people and
   agents iterate on a design through the docs themselves.
 - Checked links, in the preview and as `devpage check`.
@@ -27,8 +29,9 @@ description of the program.
 
 ## Not built yet
 
-- **No extension API.** Markdown extensions, layouts and components can't be
-  added from outside; the set devpage renders is fixed in its code.
+- **No extension API beyond widgets.** A project adds its own widgets, but
+  Markdown syntax and layouts can't be added from outside; they are fixed in
+  devpage's code.
 - **No reference extractors.** No page is generated from code.
 - **No theme overrides.** The themes are built into the binary.
 - **No static export.** Pages exist only while devpage is running.
