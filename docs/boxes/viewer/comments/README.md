@@ -67,9 +67,16 @@ writes nothing else anywhere ([devpage never writes a document](../constraints/d
 
 One thread is one file, under the path of the Markdown file it is about:
 
-```text
-.devpage/comments/docs/design/rollout.md/20261025T181502Z-7f3a.yml
-```
+<FileTree>
+
+- .devpage/
+  - .gitignore — holds `*`, so git never sees the folder
+  - comments/
+    - docs/design/rollout.md/ — the threads on that page
+      - 20261025T181502Z-7f3a.yml — one thread
+      - 20261025T190344Z-0b91.yml — another
+
+</FileTree>
 
 The file name is the thread's id: the UTC time it was started, to the second,
 and four hex digits from the clock's nanoseconds that tell apart threads

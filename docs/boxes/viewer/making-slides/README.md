@@ -7,6 +7,16 @@ document file in general is on [Writing a document](../writing-a-document/README
 
 ## A deck
 
+<FileTree>
+
+- talks/launch/
+  - devpage.yml — the deck: its title and the slides in order
+  - intro.md — slide 1
+  - problem.md — slide 2
+  - demo.md — slide 3
+
+</FileTree>
+
 ```yaml
 kind: slides
 title: Launch
@@ -34,13 +44,13 @@ to read from the back of a room.
 
 | Key | Does |
 | --- | --- |
-| → Space Page Down ↓ | next slide |
-| ← Page Up ↑ | previous slide |
-| Home / End | first / last slide |
-| F | fullscreen on and off |
-| C | the slide's comments on and off |
+| <Keys>→ Space PgDn ↓</Keys> | next slide |
+| <Keys>← PgUp ↑</Keys> | previous slide |
+| <Keys>Home</Keys> / <Keys>End</Keys> | first / last slide |
+| <Keys>F</Keys> | fullscreen on and off |
+| <Keys>C</Keys> | the slide's comments on and off |
 
-Keys pressed with ⌘, Ctrl or Alt are left to the browser, so copying and
+Keys pressed with <Keys>⌘</Keys>, <Keys>Ctrl</Keys> or <Keys>Alt</Keys> are left to the browser, so copying and
 finding work as usual; F and C work in either case.
 
 The slide's number is in the address — `/talks/launch/devpage.yml#3` is the
@@ -56,7 +66,7 @@ A deck has no header or footer settings: a slide is its whole page.
 ## Comments and problems
 
 Comments attach to the slide's file and show in a panel beside the stage when
-you press **C** ([Comments](../comments/README.md)); they never appear in
+you press <Keys>C</Keys> ([Comments](../comments/README.md)); they never appear in
 fullscreen unless toggled, and never in a PDF. A missing slide file, or a
 broken link on a slide, is listed above the stage while you write
 ([Checking links](../checking-links/README.md)).
