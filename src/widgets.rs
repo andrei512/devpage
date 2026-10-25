@@ -143,8 +143,22 @@ pub fn is_widget_file(path: &Path, folder: &Path) -> bool {
 }
 
 /// Replaces the tags of known widgets in Markdown with placeholder elements,
-/// leaving code alone. Unknown capitalized tags are reported.
+/// leaving code alone. An unknown capitalized tag, and a `Tab` outside a
+/// `Tabs`, are reported; an unknown tag is replaced by an error in its place
+/// rather than passed through as HTML.
 pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> String {
+    expand_in(source, widgets, problems, None, 0)
+}
+
+/// [`expand`] for content inside the widget `parent`, whose first line is line
+/// `lines_before + 1` of the page.
+fn expand_in(
+    source: &str,
+    widgets: &Widgets,
+    problems: &mut Vec<String>,
+    parent: Option<&str>,
+    lines_before: usize,
+) -> String {
     let code = code_ranges(source);
     let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
     let bytes = source.as_bytes();
@@ -163,13 +177,7 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
             out.push('<');
             continue;
         };
-        if !widgets.modules.contains_key(&tag.name) {
-            let line = source[..start].matches('\n').count() + 1;
-            problems.push(format!("{line}: <{}> is not a widget", tag.name));
-            out.push('<');
-            continue;
-        }
-        let props = escape(&tag.props);
+        let line = lines_before + source[..start].matches('\n').count() + 1;
         let after_open = start + tag.len;
         let (inner, end) = if tag.self_closing {
             ("", after_open)
@@ -192,6 +200,20 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
             .is_some_and(|after| after.trim().is_empty());
         let block = starts_line && ends_line;
         let element = if block { "div" } else { "span" };
+        if !widgets.modules.contains_key(&tag.name) {
+            let message = format!("<{}> is not a widget", tag.name);
+            problems.push(format!("{line}: {message}"));
+            out.push_str(&format!(
+                r#"<{element} class="widget-error">{}</{element}>"#,
+                escape(&message)
+            ));
+            at = end;
+            continue;
+        }
+        if tag.name == "Tab" && parent != Some("Tabs") {
+            problems.push(format!("{line}: <Tab> is outside a <Tabs>"));
+        }
+        let props = escape(&tag.props);
         let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
             format!(
                 r#" data-source-html="{}""#,
@@ -211,7 +233,8 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
         // Widgets inside the content are expanded too, then left for comrak to
         // render as Markdown: blank lines around a block widget's content
         // make it Markdown rather than raw HTML.
-        let inner = expand(inner, widgets, problems);
+        let inner_lines = lines_before + source[..after_open].matches('\n').count();
+        let inner = expand_in(inner, widgets, problems, Some(&tag.name), inner_lines);
         if block {
             out.push_str(&format!(
                 "{open}\n\n{}\n\n</{element}>",
@@ -616,6 +639,55 @@ mod tests {
         );
         assert!(!out.contains("data-widget"), "{out}");
         assert_eq!(problems, vec!["7: <Nope> is not a widget".to_string()]);
+    }
+
+    #[test]
+    fn an_unknown_tag_is_replaced_by_an_error_not_passed_through() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "Before.\n\n<Nope>hello</Nope>\n\nSay <Gone /> inline.\n",
+            &set(&["Callout"]),
+            &mut problems,
+        );
+        let html = crate::render::markdown(&out);
+        assert!(!html.contains("<nope>"), "{html}");
+        assert!(!html.contains("hello"), "{html}");
+        assert!(!html.contains("<gone"), "{html}");
+        assert!(
+            html.contains(r#"<div class="widget-error">&lt;Nope&gt; is not a widget</div>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"Say <span class="widget-error">&lt;Gone&gt; is not a widget</span> inline."#
+            ),
+            "{html}"
+        );
+        assert_eq!(
+            problems,
+            vec![
+                "3: <Nope> is not a widget".to_string(),
+                "5: <Gone> is not a widget".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tab_outside_a_tabs_is_a_problem_with_its_page_line() {
+        let mut problems = Vec::new();
+        let widgets = set(&["Tabs", "Tab", "Callout"]);
+        expand(
+            "# T\n\n<Tabs>\n<Tab title=\"a\">\nfine\n</Tab>\n</Tabs>\n\n<Callout>\n\n<Tab title=\"b\">\nlost\n</Tab>\n\n</Callout>\n\n<Tab title=\"c\">x</Tab>\n",
+            &widgets,
+            &mut problems,
+        );
+        assert_eq!(
+            problems,
+            vec![
+                "11: <Tab> is outside a <Tabs>".to_string(),
+                "17: <Tab> is outside a <Tabs>".to_string()
+            ]
+        );
     }
 
     #[test]

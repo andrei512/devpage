@@ -25,7 +25,7 @@ sequenceDiagram
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (no-store)
   Server-->>Page: fresh HTML
-  Page->>Page: replace #page and #nav, redraw diagrams
+  Page->>Page: replace #page and #nav, mount widgets
 ```
 
 ## The watcher
@@ -87,14 +87,23 @@ that something changed. The stream sends a keep-alive every 15 seconds.
 
 ## The page script
 
-`assets/devpage.js` runs on every page. It does three things.
+`assets/devpage.js` runs on every page. It does four things.
 
 **Swapping a page in place.** `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
 otherwise it parses the HTML, replaces the children of `#page` and `#nav` with
-the fresh ones, sets the document title and draws the new content's Mermaid
-diagrams. The rest of the page — the scripts, the event stream, the scroll
-position — stays as it was.
+the fresh ones, sets the document title, takes the fresh page's
+`window.devpageWidgets` — so widgets edited since are fetched at their new
+versions — and mounts the new content's widgets, its Mermaid diagrams included.
+The rest of the page — the scripts, the event stream, the scroll position —
+stays as it was. A fresh page in a different frame (its `<body>` class differs,
+as when a document changed kind) is loaded whole instead.
+
+**Mounting widgets.** On load and after every swap, each Mermaid fence becomes
+a `Diagram` placeholder, and every widget placeholder in the content is
+mounted with React — the widgets it names loaded first
+([Widgets](../widgets/README.md#under-the-hood)). The page marks itself ready
+once every widget has mounted.
 
 **The live-update stream.** `connect()` opens an `EventSource` on
 `/__devpage/events`. Each `change` message calls `load(location.href)`, so the

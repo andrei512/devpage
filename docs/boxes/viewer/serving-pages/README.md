@@ -148,6 +148,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
    - `<nav id="nav">` holds a link to the site's root page with the site's
      title, then the tree;
    - `<main id="page"><article>` holds the rendered Markdown;
+   - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
+     `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
+     the document's widgets with the address of each
+     ([Widgets](../widgets/README.md#under-the-hood));
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.
 

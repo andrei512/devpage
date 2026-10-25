@@ -244,7 +244,7 @@ async fn system_widget(Path(name): Path<String>) -> Response {
         .map(|(name, _)| name.to_string())
         .collect();
     match crate::widgets::system(stem) {
-        Some(source) => compiled(std::path::Path::new(&name), source, &known, None),
+        Some(source) => compiled(std::path::Path::new(&name), &name, source, &known, None),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -266,7 +266,16 @@ async fn project_widget(State(state): State<AppState>, Path(path): Path<String>)
     let folder = file.parent().unwrap_or(&file).to_path_buf();
     let version = crate::widgets::version(&folder);
     match std::fs::read_to_string(&file) {
-        Ok(source) => compiled(&file, &source, &known(&state, &folder), Some(version)),
+        Ok(source) => {
+            let known = known(&state, &folder);
+            // A helper this file imports that doesn't compile: the browser
+            // would only say the import failed, so say why, here.
+            if let Some(error) = broken_import(&document, &folder, &source, &known, version) {
+                return module_error(&error);
+            }
+            let label = document.url(&file)[1..].to_string();
+            compiled(&file, &label, &source, &known, Some(version))
+        }
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
@@ -292,29 +301,93 @@ fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// A compiled module, or — when it doesn't compile — a module that throws the
-/// compiler's message, so the page shows it in the widget's place.
-fn compiled(
-    path: &std::path::Path,
+/// The first helper reached through `source`'s relative imports, in `folder`,
+/// that doesn't compile: its name and the compiler's message.
+fn broken_import(
+    document: &crate::document::Document,
+    folder: &std::path::Path,
     source: &str,
     known: &[String],
-    version: Option<u128>,
-) -> Response {
-    let body = match crate::widgets::compile_cached(path, source, known, version) {
-        Ok(js) => js,
-        Err(error) => format!(
-            "throw new Error({});",
-            serde_json::to_string(&format!("{}: {error}", path.display())).unwrap_or_default()
-        ),
-    };
+    version: u128,
+) -> Option<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = relative_imports(source);
+    while let Some(import) = queue.pop() {
+        let base = folder.join(import.trim_start_matches("./"));
+        let Some(file) = ["", ".tsx", ".ts"]
+            .iter()
+            .map(|ext| std::path::PathBuf::from(format!("{}{ext}", base.display())))
+            .find(|path| path.is_file())
+        else {
+            continue;
+        };
+        if !seen.insert(file.clone()) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        match crate::widgets::compile_cached(&file, &text, known, Some(version)) {
+            Ok(_) => queue.extend(relative_imports(&text)),
+            Err(error) => {
+                return Some(format!(
+                    "{} does not compile: {error}",
+                    &document.url(&file)[1..]
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The `./…` specifiers a module imports or re-exports from.
+fn relative_imports(source: &str) -> Vec<String> {
+    ["from \"./", "from './", "import \"./", "import './"]
+        .iter()
+        .flat_map(|pattern| {
+            let quote = &pattern[pattern.len() - 3..pattern.len() - 2];
+            source
+                .split(pattern)
+                .skip(1)
+                .filter_map(move |rest| rest.split(quote).next().map(|name| format!("./{name}")))
+        })
+        .collect()
+}
+
+/// A module that throws `message`, so the page shows it in the widget's place.
+fn module_error(message: &str) -> Response {
     (
         [
             (header::CONTENT_TYPE, "text/javascript"),
             (header::CACHE_CONTROL, "no-cache"),
         ],
-        body,
+        format!(
+            "throw new Error({});",
+            serde_json::to_string(message).unwrap_or_default()
+        ),
     )
         .into_response()
+}
+
+/// A compiled module, or — when it doesn't compile — a module that throws the
+/// compiler's message, naming the file as `label`, so the page shows it in the
+/// place of the widget it belongs to.
+fn compiled(
+    path: &std::path::Path,
+    label: &str,
+    source: &str,
+    known: &[String],
+    version: Option<u128>,
+) -> Response {
+    match crate::widgets::compile_cached(path, source, known, version) {
+        Ok(js) => (
+            [
+                (header::CONTENT_TYPE, "text/javascript"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            js,
+        )
+            .into_response(),
+        Err(error) => module_error(&format!("{label} does not compile: {error}")),
+    }
 }
 
 /// The page's own files, built into the binary.

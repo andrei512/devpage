@@ -22,6 +22,10 @@ globalThis.__devpageWidget = (name) => widgetModules[name]?.default ?? (() => { 
 
 const widgetUrls = {};
 
+// Why a widget's module didn't load — a compile error in it or in a helper it
+// imports — so the widget's place shows the reason.
+const widgetLoadErrors = {};
+
 // Loads a widget's module, again when its address changed — an edited widget
 // or helper gives the folder a new version — puts its exported CSS in the page
 // once, and loads the widgets it renders by name, which it lists.
@@ -29,9 +33,18 @@ async function loadWidget(name) {
   const url = (window.devpageWidgets || {})[name];
   if (!url) throw new Error(`<${name}> is not a widget`);
   if (widgetUrls[name] !== url) {
-    widgetModules[name] = await import(url);
+    try {
+      widgetModules[name] = await import(url);
+    } catch (error) {
+      // An edit that broke it shows the error, not the last version that worked.
+      delete widgetModules[name];
+      delete widgetUrls[name];
+      throw error;
+    }
     widgetUrls[name] = url;
-    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used).catch(() => null)));
+    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used)
+      .then(() => { delete widgetLoadErrors[used]; })
+      .catch((error) => { widgetLoadErrors[used] = error; })));
     document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
     const css = widgetModules[name].css;
     if (css) {
@@ -59,7 +72,9 @@ async function mountWidgets(root) {
   // Only the widgets this content names, nested ones included, and those they
   // render by name.
   const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
-  await Promise.all([...names].map((name) => loadWidget(name).catch(() => null)));
+  await Promise.all([...names].map((name) => loadWidget(name)
+    .then(() => { delete widgetLoadErrors[name]; })
+    .catch((error) => { widgetLoadErrors[name] = error; })));
 
   class Boundary extends React.Component {
     constructor(props) { super(props); this.state = { error: null }; }
@@ -108,7 +123,7 @@ async function mountWidgets(root) {
     }
     const children = [...node.childNodes].map((child, i) => toReact(child, i)).filter((c) => c !== null && c !== "\n");
     const component = widgetModules[name]?.default;
-    if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}> could not be loaded`);
+    if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${widgetLoadErrors[name]?.message ?? "could not be loaded"}`);
     // Nested widgets are plain elements, so a parent reads their props — a
     // Tabs reads each Tab's title; the outermost one catches what they throw.
     return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });

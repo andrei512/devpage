@@ -116,6 +116,7 @@ the cause:
 | A required field missing, or of the wrong type | `in <file>` — the YAML error, with its line and column |
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
+| `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
 | `--port` is taken | `binding <address>:<port>` — the system error |
 | Every port from 3030 up is taken | `no free port` |
@@ -137,6 +138,7 @@ devpage's own documentation, `docs/devpage.yml`:
 kind: site
 title: devpage
 root: README.md
+widgets: widgets
 watch:
   - "**/*.md"
   - "**/*.yml"

@@ -703,6 +703,68 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
+    async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
+        let dir = widget_folder(
+            "failing",
+            "# W\n\n<Callout kind=\"tip\">\nThe system one.\n</Callout>\n\n<Counter />\n\n<Nope>hidden</Nope>\n",
+            &[
+                (
+                    "docs/widgets/Callout.tsx",
+                    "export default () => <b className=\"project-callout\">PROJECT</b>;",
+                ),
+                (
+                    "docs/widgets/Counter.tsx",
+                    "import { n } from \"./fmt\";\nexport default () => <span>{n}</span>;",
+                ),
+                ("docs/widgets/fmt.ts", "export const n = ;"),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        // A project Callout.tsx is a problem; the system Callout still renders.
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.callout')?.textContent.includes('The system one') ? 'system' : 'missing'"
+            )
+            .await,
+            "system"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "String(document.querySelectorAll('.project-callout').length)"
+            )
+            .await,
+            "0"
+        );
+        let errors = text(
+            &page,
+            "[...document.querySelectorAll('.widget-error')].map(e => e.textContent).join('\\n')",
+        )
+        .await;
+        // A helper that doesn't compile: its message, in the widget's place.
+        assert!(
+            errors.contains("<Counter>: docs/widgets/fmt.ts does not compile: line 1:"),
+            "{errors}"
+        );
+        // An unknown tag is an error in its place, its content not shown.
+        assert!(errors.contains("<Nope> is not a widget"), "{errors}");
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('article').textContent.includes('hidden') ? 'shown' : 'not shown'"
+            )
+            .await,
+            "not shown"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
     async fn a_comment_anchors_on_text_inside_a_widget() {
         let dir = widget_folder(
             "comment",

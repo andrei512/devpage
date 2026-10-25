@@ -6,7 +6,8 @@ own, how props and content reach a widget, how widgets are styled, and what
 happens when one fails. It is a task and reference article under the
 [viewer](../README.md).
 
-```markdown
+<Example title="Two widgets, as written and as they render">
+
 <Callout kind="warning" title="Reachable only through the proxy">
 devpage **believes** the identity header, so expose the proxy, not devpage.
 </Callout>
@@ -23,7 +24,8 @@ devpage **believes** the identity header, so expose the proxy, not devpage.
 
 </Tab>
 </Tabs>
-```
+
+</Example>
 
 ## Using a widget
 
@@ -34,7 +36,7 @@ doc's chapter or a slide.
 - **Props.** A quoted value is a string: `kind="warning"`. A value in braces is
   a JavaScript expression, evaluated in the browser: `values={[3, 5, 8]}`,
   `open={false}`, `start={new Date(2026, 0, 1)}`. An attribute with no value is
-  `true`: `<Tabs vertical>`.
+  `true`: `<Chart stacked />` gives a project's `Chart` widget `stacked={true}`.
 - **Content.** What sits between the tags is Markdown, rendered by devpage —
   with or without blank lines around it — and arrives as `children`. Links and
   images in it are checked like any other ([Checking links](../checking-links/README.md)).
@@ -49,8 +51,9 @@ doc's chapter or a slide.
   `<Keys>⌘ P</Keys> prints the **doc**.` stays one paragraph, bold and all.
 
 Tag names are matched exactly, and only names of known widgets are widgets: a
-capitalized tag that names no widget is a [problem](#when-a-widget-fails), and
-a lowercase tag is ordinary HTML.
+capitalized tag that names no widget is a [problem](#when-a-widget-fails),
+shown as an error in its place, never passed through as HTML; a lowercase tag
+is ordinary HTML.
 
 ## System widgets
 
@@ -67,18 +70,32 @@ devpage ships these, in every document:
 | `Keys` | — | Key names separated by spaces | Each key as a keycap, inline in the text: `<Keys>⌘ P</Keys>`. |
 | `Diagram` | — | Mermaid text | The diagram, drawn by pele. Every `mermaid` fence is rendered through it; the tag itself is rarely written. |
 
-A `FileTree`, written as a list so it reads well anywhere:
+A `FileTree` is written as a list, so it reads well anywhere, and a `Terminal`
+as a code block:
 
-```markdown
+<Example>
+
 <FileTree>
 
 - garden/
   - [devpage.yml](../configuration-reference/README.md#site) — the site
-  - README.md — the root page
+  - README.md — the root page, with `## Topics`
   - planting.md
 
 </FileTree>
+
+<Terminal>
+
 ```
+$ devpage garden
+Garden → http://localhost:3030
+```
+
+</Terminal>
+
+Press <Keys>⌘ P</Keys> to print.
+
+</Example>
 
 ## A project's own widgets
 
@@ -89,7 +106,7 @@ field, relative to that file:
 kind: site
 title: devpage
 root: README.md
-widgets: widgets          # every .tsx in docs/widgets/ is a widget
+widgets: widgets          # every capitalized .tsx in docs/widgets/ is a widget
 ```
 
 Every `.tsx` file in the folder whose name starts with a capital letter is a
@@ -98,23 +115,44 @@ names start with a lowercase letter — `format.ts`, `cards.tsx` — are helpers
 that widgets import; they name no tag. The field works the same for every kind; a
 doc's or deck's widgets are its own.
 
-A widget is a React component — its default export — written in TSX:
+A widget is a React component — its default export — written in TSX. devpage's
+own docs have one, `docs/widgets/KindCards.tsx`; trimmed to its shape:
 
 ```tsx
 // docs/widgets/KindCards.tsx
+const kinds = [
+  { name: "Site", kind: "site", href: "/docs/boxes/viewer/organizing-navigation/README.md" },
+  { name: "Doc", kind: "doc", href: "/docs/boxes/viewer/writing-a-doc/README.md" },
+  { name: "Slides", kind: "slides", href: "/docs/boxes/viewer/making-slides/README.md" },
+];
+
+export const css = `
+  .kind-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1.25rem; }
+  .kind-cards a.kind-card { border: 1px solid var(--border); border-radius: 18px; color: inherit; }
+  .kind-cards a.kind-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+`;
+
 export default function KindCards() {
-  const kinds = [
-    { name: "Site", href: "/docs/boxes/viewer/organizing-navigation/README.md" },
-    { name: "Doc", href: "/docs/boxes/viewer/writing-a-doc/README.md" },
-    { name: "Slides", href: "/docs/boxes/viewer/making-slides/README.md" },
-  ];
   return (
-    <div className="cards">
-      {kinds.map((k) => <a className="card" href={k.href}>{k.name}</a>)}
+    <div className="kind-cards">
+      {kinds.map((kind) => (
+        <a className="kind-card" href={kind.href}>
+          <div className="kind-sketch" aria-hidden="true"><Sketch kind={kind.kind} /></div>
+          <strong>{kind.name}</strong>
+          <code className="kind-field">kind: {kind.kind}</code>
+        </a>
+      ))}
     </div>
   );
 }
 ```
+
+`Sketch` is a second component in the same file, drawing each kind's little
+picture.
+
+Written as `<KindCards />`, it renders:
+
+<KindCards />
 
 - **It is just React.** Hooks, state, effects and events all work; devpage ships
   React and runs each widget with it.
@@ -138,25 +176,20 @@ printed on its own included.
 
 ## Styling
 
-A widget is styled the way any React component is, in any mix:
+A widget is styled the way any React component is, in either way or both:
 
-- **The theme's classes** — `className="cards"` — and its tokens.
 - **Inline styles** — `style={{ borderColor: "var(--accent)" }}`.
-- **Its own CSS**, optionally, exported from the same file as a string:
+- **Its own CSS**, optionally, exported from the same file as a string — as
+  `KindCards` does above, under its own classes (`.kind-cards`, `.kind-card`). devpage adds it
+  to the page once.
 
-  ```tsx
-  export const css = `
-    .kind-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-    .kind-cards a:hover { border-color: var(--accent); }
-  `;
-  ```
-
-  devpage adds it to the page once.
-
-Written with the theme's tokens — `var(--accent)`, `var(--fg)`, `var(--border)`
-— a widget follows the light and dark themes with nothing else to do; where it
-must differ beyond the tokens, `@media (prefers-color-scheme: dark)` works as
-anywhere ([Diagrams and themes](../diagrams-and-themes/README.md#the-themes)).
+The theme defines no classes for widgets to borrow; what a widget shares with
+the page is the theme's **tokens**. Written with them — `var(--text)`,
+`var(--muted)`, `var(--accent)`, `var(--border)`, `var(--surface)`,
+`var(--font)`, `var(--font-mono)` — a widget follows the light and dark themes
+with nothing else to do; where it must differ beyond the tokens,
+`@media (prefers-color-scheme: dark)` works as anywhere
+([Diagrams and themes](../diagrams-and-themes/README.md#the-themes)).
 
 ## On paper
 
@@ -168,15 +201,22 @@ paper shows what matters without interaction
 
 ## When a widget fails
 
-These are [problems](../checking-links/README.md) — in the page's problems
-bar, on the terminal, and failing `devpage check` — and the rest of the page
-renders:
+The rest of the page always renders. These are
+[problems](../checking-links/README.md) — in the page's problems bar, on the
+terminal, and failing `devpage check`:
 
-- a capitalized tag that names no widget;
-- a project widget with a system widget's name;
-- a widget file that doesn't compile, with the compiler's message and line;
-- a widget, or one of its prop expressions, that throws while rendering — shown
-  in the widget's place, with the error, in the browser.
+- a capitalized tag that names no widget — also shown as an error in its place;
+- a `Tab` outside a `Tabs`;
+- a project widget with a system widget's name — the system widget is the one
+  that renders;
+- a widget or a helper file that doesn't compile, with the compiler's message
+  and line — also shown in the place of each widget that is, or imports, it.
+  A widgets folder's problems are reported once per document, not per page.
+
+A widget, or one of its prop expressions, that **throws while rendering** is
+shown in the widget's place, with the error, in the browser. It is not a
+problem: devpage never runs widget code on the server, so neither the problems
+bar nor `devpage check` can see it.
 
 ## Under the hood
 
@@ -203,7 +243,10 @@ inside it, so an edited widget or helper is fetched afresh rather than taken
 from the browser's module cache. Compiled modules are remembered, keyed by the
 file, its source, the names it can use and the version, so a widget compiles
 once per change, not once per request. A file that doesn't compile is served as
-a module that throws the compiler's message.
+a module that throws the compiler's message, and so is a widget whose relative
+imports reach a helper that doesn't compile — with the helper's message — so
+the page shows why in the widget's place rather than only that its import
+failed.
 
 | Address | What it serves |
 | --- | --- |
@@ -217,7 +260,8 @@ content names, nested ones included, and those each lists in `__devpageUses`;
 adds a widget's exported `css` to the page once; and mounts each outermost
 placeholder with React. Nested widgets become React elements their parent can
 read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped
-in an error boundary that shows a failure in its place. Each widget gets its
+in an error boundary that shows a failure in its place; a widget whose module
+didn't load shows the reason it didn't. Each widget gets its
 props, `children`, `source` and `html`. Mounting happens on page load and again
 after every live update, which takes the fresh page's widget list, so new
 versions are fetched. The page marks itself ready only once every widget has
