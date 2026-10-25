@@ -231,7 +231,7 @@ mod tests {
             .collect()
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
@@ -268,7 +268,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
@@ -290,7 +290,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
@@ -347,7 +347,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {

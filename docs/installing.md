@@ -11,9 +11,10 @@ starting it. It is a task page under the [devpage landing page](README.md);
   The locked `comrak 0.57.0` and the `vello` crates declare
   `rust-version = 1.89`, the highest of any dependency. Check what you have with `cargo --version`; install or update
   Rust with [rustup](https://rustup.rs) (`rustup update`).
-- **Chrome or Chromium**, only for `devpage pdf`. Without one installed,
-  `devpage pdf` downloads a Chromium once and keeps it in devpage's cache
-  folder ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
+- **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
+  machine: the first time it prints, it downloads chrome-headless-shell once
+  into devpage's cache folder and uses that from then on
+  ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
 - **The `wasm32-unknown-unknown` target**, because building devpage also
   builds the [design engine](boxes/viewer/design-engine/README.md) for the
   browser: `rustup target add wasm32-unknown-unknown`. In a checkout,

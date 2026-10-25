@@ -354,7 +354,7 @@ mod tests {
     }
 }
 
-/// The page script's side of comments, in the installed Chrome. Run with
+/// The page script's side of comments, in chrome-headless-shell. Run with
 /// `cargo test -- --ignored`.
 #[cfg(test)]
 mod browser {

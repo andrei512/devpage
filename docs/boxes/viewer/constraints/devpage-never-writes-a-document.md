@@ -7,7 +7,8 @@ folder: the comment store and the `.gitignore` that keeps git away from it. A
 comment is never stored in the page it is about. The one other file devpage
 writes is the PDF `devpage pdf` was asked for, at the path it was given (or
 `<title>.pdf` in the current folder); the Chrome it drives keeps a temporary
-profile it deletes afterwards and, when it had to download Chromium, a cache
+profile it deletes afterwards and, the first time it prints, downloads
+chrome-headless-shell into a cache
 outside the served folder.
 
 **Why:** the documents are the repository's source of truth, written by people

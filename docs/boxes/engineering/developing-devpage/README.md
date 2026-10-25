@@ -53,7 +53,7 @@ What you edit decides what you have to do to see it:
 
 ```sh
 cargo test                  # 104 tests in the three crates; needs no network and no Chrome
-cargo test -- --ignored     # the 17 tests that drive the installed Chrome
+cargo test -- --ignored     # the 17 tests that drive chrome-headless-shell
 ```
 
 `cargo test` runs every crate in the workspace: 65 in `devpage`, 36 in the
@@ -63,10 +63,17 @@ test — the canvas's Chrome tests in `src/designs/canvas_tests.rs`, a child
 module of `designs`; there is no `tests/` folder. Route tests start the real router on a free port on
 `127.0.0.1` and talk to it with `reqwest`; external-link tests point the
 checker at a local web server, so the suite needs no network. The 17 tests
-marked `#[ignore]` drive the installed Chrome through chromiumoxide — run them
-with `--ignored` after changing the page script, the design script, the
-module, the stylesheet, print mode or `devpage pdf`. The canvas tests start
-Chrome with `--enable-unsafe-webgpu`, so the GPU path runs headless.
+marked `#[ignore]` drive chrome-headless-shell through chromiumoxide — the
+copy [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
+into devpage's cache folder, fetched by the first test that needs it — never
+a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
+They run in parallel. Run them with `--ignored` after changing the page
+script, the design script, the module, the stylesheet, print mode or
+`devpage pdf`. The canvas tests start it with `--enable-unsafe-webgpu` and
+`--enable-gpu`: the shell keeps its GPU process off without the second, and
+then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
+the machine's real adapter and the screenshot is the canvas as a reader sees
+it.
 
 **The watcher's tests need file-system events.** The six `watch` tests,
 `server`'s test of the entry following its file, and the Chrome test of a
@@ -111,8 +118,8 @@ directory, named with the test process's id, and don't all remove them.
 a design's problems shown on its canvas, a canvas reopening its stream after
 devpage restarts, closing streams in a hidden tab, and drag-to-pan and pinch
 on the canvas;
-Chromium's download when no Chrome is installed (it needs a machine without
-one); fullscreen on a deck (headless Chrome refuses it without a real user
+chrome-headless-shell's first download (it needs an empty cache folder);
+fullscreen on a deck (headless Chrome refuses it without a real user
 gesture); and the light and dark themes, which are checked by eye.
 
 ## The gates
@@ -183,7 +190,7 @@ flowchart LR
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
-| `src/pdf.rs` | `devpage pdf`: serves the document internally and has Chrome print it once every embedded design has painted, fetching a Chromium when none is installed. |
+| `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted, downloading the shell the first time. |
 | `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages). |
 | `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas — apply, lay out, paint on the CPU, hit-test; `gpu.rs`, the GPU backend on WebGPU. |
 

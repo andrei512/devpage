@@ -1,5 +1,5 @@
 //! The canvas in Chrome: painting on the GPU and the CPU against the server's
-//! PNG, interactions, embedding and printing. They drive the installed Chrome;
+//! PNG, interactions, embedding and printing. They drive chrome-headless-shell;
 //! run them with `cargo test -- --ignored`.
 
 use std::path::{Path, PathBuf};
@@ -100,10 +100,19 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     (format!("http://{address}"), designs)
 }
 
-/// A headless Chrome with WebGPU.
+/// A headless Chrome with WebGPU. chrome-headless-shell keeps its GPU
+/// process off unless `enable-gpu` is passed; with it, WebGPU gets the real
+/// adapter and screenshots include the WebGPU canvas as the reader sees it,
+/// composited — without it they hold black where the canvas is. chromiumoxide
+/// adds the `--` itself.
 async fn chrome() -> (Browser, tokio::task::JoinHandle<()>, Profile) {
     let profile = Profile::new();
-    let config = profile.chrome().await.unwrap().arg("enable-unsafe-webgpu");
+    let config = profile
+        .chrome()
+        .await
+        .unwrap()
+        .arg("enable-unsafe-webgpu")
+        .arg("enable-gpu");
     let (browser, mut handler) = Browser::launch(config.build().unwrap()).await.unwrap();
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
     (browser, events, profile)
