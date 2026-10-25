@@ -56,6 +56,12 @@ each subject owns are in its glossary — the [viewer's](boxes/viewer/README.md#
 for documents and pages, [engineering's](boxes/engineering/README.md#glossary)
 for the development flow.
 
+## Contributors
+
+- [Andrei Puni](https://github.com/andrei512) — author.
+- [Radu Marias](https://github.com/radumarias) — clickable Mermaid diagrams:
+  nodes that act as links, highlighted on hover.
+
 ## Topics
 
 ### Start here
