@@ -8,13 +8,20 @@
 // (`body.design-page`) it fills the window and can be zoomed and panned, and a
 // navigation changes the address; embedded in a page it is drawn at the page's
 // width and a navigation stays inside it.
-import init, { Applied, Design, Gpu } from "/__devpage/design-engine.js";
-
-await init({ module_or_path: "/__devpage/design-engine.wasm" });
+// The engine, or why it couldn't load: then every canvas says so instead of
+// drawing.
+let Applied, Design, Gpu, failure;
+try {
+  const engine = await import("/__devpage/design-engine.js");
+  await engine.default({ module_or_path: "/__devpage/design-engine.wasm" });
+  ({ Applied, Design, Gpu } = engine);
+} catch (error) {
+  failure = error;
+}
 
 const print = !!document.querySelector("script[data-print]");
 let gpu = null;
-if (!print) {
+if (!print && !failure) {
   try {
     gpu = await Gpu.open();
   } catch (error) {
@@ -112,14 +119,15 @@ class Host {
   }
 
   // Reads the watch stream until the host closes it, reopening it — and
-  // getting the whole scene again — whenever devpage drops it.
+  // getting the whole scene again — whenever devpage drops it. A stream
+  // devpage ended itself, with its trailers, is over: the design was deleted.
   async stream() {
     const controller = new AbortController();
     this.controller = controller;
     const design = this.design;
     while (!controller.signal.aborted && this.canvas.isConnected) {
       try {
-        await this.read(design, controller.signal);
+        if (await this.read(design, controller.signal)) return;
       } catch {
         // devpage stopped, or the stream was closed: try again below.
       }
@@ -128,6 +136,7 @@ class Host {
     }
   }
 
+  // Applies the stream's messages; true when it ended with devpage's trailers.
   async read(design, signal) {
     const response = await fetch("/devpage.design.v1.Designs/Watch", {
       method: "POST",
@@ -137,9 +146,10 @@ class Host {
     });
     const reader = response.body.getReader();
     let buffer = new Uint8Array(0);
+    let ended = false;
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) return;
+      if (done) return ended;
       const joined = new Uint8Array(buffer.length + value.length);
       joined.set(buffer);
       joined.set(value, buffer.length);
@@ -151,7 +161,11 @@ class Host {
         const flag = buffer[0];
         const message = buffer.slice(5, 5 + n);
         buffer = buffer.slice(5 + n);
-        if (flag & 0x80 || design !== this.design) continue; // trailers, or a design no longer shown
+        if (flag & 0x80) {
+          ended = true;
+          continue;
+        }
+        if (design !== this.design) continue; // a design no longer shown
         const applied = design.apply(message);
         if (applied === Applied.Changed) {
           this.showProblems([]);
@@ -415,6 +429,15 @@ class Host {
   }
 }
 
+// Puts `message` in place of a canvas's drawing.
+function fail(canvas, message) {
+  canvas.dataset.failed = "true";
+  const note = document.createElement("p");
+  note.className = "design-failed";
+  note.textContent = message;
+  canvas.before(note);
+}
+
 // Starts every design canvas under `root` that isn't drawn yet, and stops
 // those no longer in the page.
 export function scan(root = document) {
@@ -423,6 +446,11 @@ export function scan(root = document) {
   for (const canvas of root.querySelectorAll("canvas.design[src]")) {
     if (canvas.dataset.started) continue;
     canvas.dataset.started = "true";
+    if (failure) {
+      console.error("devpage: the design engine didn't load", failure);
+      fail(canvas, `This design can't be drawn: the design engine didn't load (${failure.message ?? failure}).`);
+      continue;
+    }
     const base = canvas.closest("[data-source]")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
     const host = new Host(canvas, path, { mode: page ? "page" : "embed" });

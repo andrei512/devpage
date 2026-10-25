@@ -91,9 +91,15 @@ changed path outside `.devpage/` to the server's store of resolved designs —
 whatever a site's `watch` list and `.gitignore` say, since any file may be part
 of a design — and the store resolves again only the designs made from that
 file and streams the nodes that changed
-([Design engine](../design-engine/README.md#the-watch-stream)). An embedding
-page's own refetch leaves its canvases alone, so a page edit never redraws a
-design and a design edit never refetches the page.
+([Design engine](../design-engine/README.md#the-watch-stream)).
+
+A design's file is also an ordinary watched file, so saving one refetches the
+open pages like any other change — that is how a page embedding the design
+gets its problems bar again. The refetch keeps the page's canvases: each
+embedded design still in the page keeps its drawing and its stream, so it is
+redrawn only by its stream, and only where its nodes changed. A site whose
+`watch` list leaves out `.design` files and the images designs use still has
+its canvases redrawn, but its problems bar waits for the next refetch.
 
 ## The page script
 

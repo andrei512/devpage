@@ -39,7 +39,20 @@ function markBroken(root) {
 // Embedded designs are drawn by the design script, loaded only by pages that
 // have one: it starts every canvas not yet drawn and stops those gone.
 function drawDesigns() {
-  if (document.querySelector("canvas.design")) import("/__devpage/design.js").then((designs) => designs.scan());
+  if (!document.querySelector("canvas.design")) return;
+  import("/__devpage/design.js")
+    .then((designs) => designs.scan())
+    .catch((error) => {
+      // The design script itself didn't load: each canvas says so.
+      console.error("devpage: the design script didn't load", error);
+      for (const canvas of document.querySelectorAll("canvas.design:not([data-failed])")) {
+        canvas.dataset.failed = "true";
+        const note = document.createElement("p");
+        note.className = "design-failed";
+        note.textContent = "This design can't be drawn: the design script didn't load.";
+        canvas.before(note);
+      }
+    });
 }
 
 // A page fetched again keeps the canvases it already has: each embedded
