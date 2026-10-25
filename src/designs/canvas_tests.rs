@@ -337,6 +337,49 @@ async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
 
 #[tokio::test]
 #[ignore]
+async fn an_interaction_inside_an_instance_from_another_folder_opens_its_own_target() {
+    let dir = folder("nested");
+    for (name, source) in [
+        (
+            "lib/tile.design",
+            r##"<Frame width={200} height={40} fill="#2563eb" onClick="navigate ./far.design" />"##,
+        ),
+        (
+            "lib/far.design",
+            r##"<Frame width={400} height={300} fill="#fef3c7" />"##,
+        ),
+        (
+            "app/home.design",
+            r##"import Tile from "../lib/tile.design"
+<Frame width={400} height={300} fill="#f8fafc" layout="column" padding={20}>
+  <Tile />
+</Frame>"##,
+        ),
+    ] {
+        let path = dir.join(name);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, source).unwrap();
+    }
+    let address = serve(&dir, "app/home.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/app/home.design").as_str())
+        .await
+        .unwrap();
+    let painted = "document.querySelector('body > canvas.design')?.dataset.painted === 'true'";
+    until(&page, painted).await;
+
+    // The tile's path is beside the tile's file, not beside the screen's.
+    let tile = on_screen(&page, "body > canvas.design", 120.0, 40.0).await;
+    page.click(tile).await.unwrap();
+    until(&page, "location.pathname === '/lib/far.design'").await;
+    until(&page, painted).await;
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
 async fn an_embedded_design_draws_and_survives_a_page_edit() {
     let dir = folder("embed");
     std::fs::write(

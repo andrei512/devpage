@@ -211,6 +211,7 @@ mod tests {
 </Frame>"##
                     .to_string(),
             ),
+            ("next.design".to_string(), "<Frame />".to_string()),
         ])
     }
 
@@ -231,7 +232,7 @@ mod tests {
         // Inside the button (padding 10), and outside it.
         assert_eq!(
             design.action_at(15.0, 15.0).as_deref(),
-            Some("navigate ./next.design")
+            Some("navigate next.design")
         );
         assert_eq!(design.action_at(190.0, 110.0), None);
         let mut pixels = design.paint(2.0).unwrap();

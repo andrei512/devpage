@@ -182,6 +182,11 @@ takes one:
 | `"overlay <path>"` | shows the design at `path` centered over this one, on a dimmed backdrop |
 | `"close"` | closes the overlay this element is in |
 
+A path is relative to the file the `onClick` is written in, like every path in
+a design, so an interaction inside an imported design works wherever that
+design is used. A path to a file that doesn't exist, or outside the served
+folder, is a problem.
+
 The element under the pointer that has an interaction takes the click, and a
 pointer over one turns into a hand. A navigation changes the address, so the
 browser's back button walks back through the prototype, and every step can be

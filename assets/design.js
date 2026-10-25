@@ -365,15 +365,16 @@ class Host {
     this.paint();
   }
 
-  // Runs an interaction. Its path is relative to the design shown.
+  // Runs an interaction. The engine has already made its path an address in
+  // the served folder, from the file the interaction was written in.
   act(action) {
     const [verb, ...rest] = action.trim().split(/\s+/);
-    const target = rest.length ? address(rest.join(" "), new URL(`/${this.path}`, location.origin)) : null;
+    const target = rest.length ? rest.join(" ") : null;
     if (this.mode === "overlay") {
       // `close` closes this overlay; anything else closes it and runs below it.
       const parent = this.parent;
       parent.closeOverlay();
-      if (verb !== "close") parent.act(target ? `${verb} /${target}` : verb);
+      if (verb !== "close") parent.act(target ? `${verb} ${target}` : verb);
       return;
     }
     if (verb === "navigate" && target) {
