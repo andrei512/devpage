@@ -274,7 +274,7 @@ async fn difference(
 /// GPU canvas another rasterizer of the same display list.
 async fn the_examples_match_their_pngs(webgpu: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let address = serve(root, "examples/checkout/checkout.design").await;
+    let address = serve(root, "docs/designs/checkout/checkout.design").await;
     let (mut browser, events, _profile) = chrome().await;
     let mut failures = Vec::new();
     for name in ["button", "checkout", "confirmation", "details"] {
@@ -291,7 +291,7 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
             .await
             .unwrap();
         }
-        let path = format!("/examples/checkout/{name}.design");
+        let path = format!("/docs/designs/checkout/{name}.design");
         page.goto(format!("{address}{path}")).await.unwrap();
         until(
             &page,
@@ -1037,4 +1037,185 @@ async fn an_embed_with_problems_survives_a_page_refetch() {
     .await;
     browser.close().await.ok();
     events.abort();
+}
+
+/// A design that paints nothing over its 120 × 80 box, so the screen shows
+/// whatever the canvas puts behind a design there.
+const GLASS: &str = r##"<Frame width={120} height={80} fill="#00000000" />"##;
+
+/// Waits until the screen pixel `inside` matches the pixel `outside`, for up
+/// to 20 seconds; returns the color.
+async fn until_same(page: &Page, inside: Point, outside: Point) -> [u8; 3] {
+    let (mut a, mut b) = ([0; 3], [1; 3]);
+    for _ in 0..200 {
+        a = pixel(page, inside).await;
+        b = pixel(page, outside).await;
+        if a == b {
+            return a;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("timed out: inside {a:?}, outside {b:?}");
+}
+
+#[tokio::test]
+#[ignore]
+async fn the_canvas_page_switches_theme_and_paints_behind_the_design_in_it() {
+    let dir = folder("theme-page");
+    std::fs::write(dir.join("glass.design"), GLASS).unwrap();
+    let address = serve(&dir, "glass.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/glass.design").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let inside = on_screen(&page, "canvas.design", 60.0, 40.0).await;
+    let outside = on_screen(&page, "canvas.design", 60.0, 140.0).await;
+    let before: String = eval(&page, "document.documentElement.dataset.theme").await;
+    let first = until_same(&page, inside, outside).await;
+
+    page.find_element(".theme-toggle")
+        .await
+        .unwrap()
+        .click()
+        .await
+        .unwrap();
+    let after: String = eval(&page, "document.documentElement.dataset.theme").await;
+    assert_ne!(before, after);
+    let second = until_same(&page, inside, outside).await;
+    assert_ne!(first, second, "the background didn't change with the theme");
+
+    // The choice is kept, under the same name the page script uses.
+    page.reload().await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    assert_eq!(
+        eval::<String>(&page, "document.documentElement.dataset.theme").await,
+        after
+    );
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
+    let dir = folder("theme-embed");
+    std::fs::write(dir.join("glass.design"), GLASS).unwrap();
+    std::fs::write(dir.join("page.md"), "# Page\n\n![Glass](glass.design)\n").unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/page.md").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    // Inside the design, and on the stage beside it, clear of the shadow the
+    // stage puts under a design.
+    let inside = on_screen(&page, "canvas.design", 60.0, 40.0).await;
+    let outside = on_screen(&page, "canvas.design", -120.0, 40.0).await;
+    let first = until_same(&page, inside, outside).await;
+    let before: String = eval(&page, "document.documentElement.dataset.theme").await;
+    page.find_element(".theme-toggle")
+        .await
+        .unwrap()
+        .click()
+        .await
+        .unwrap();
+    let after: String = eval(&page, "document.documentElement.dataset.theme").await;
+    assert_ne!(before, after);
+    let second = until_same(&page, inside, outside).await;
+    assert_ne!(first, second, "the stage didn't change with the theme");
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
+    let dir = folder("slide");
+    // A tall design on the second slide, inside a project widget — as the
+    // showcase deck's slides are: React mounts the widget's content, so the
+    // design's canvas is made again after the page script first looks.
+    std::fs::write(
+        dir.join("tall.design"),
+        r##"<Frame width={300} height={1400} fill="#2563eb" />"##,
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("widgets")).unwrap();
+    std::fs::write(
+        dir.join("widgets/Box.tsx"),
+        "export default function Box({ children }) { return <div className=\"box\">{children}</div>; }\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("one.md"), "# One\n").unwrap();
+    std::fs::write(
+        dir.join("two.md"),
+        "# Two\n\n<Box>\n\n![Tall](tall.design)\n\n</Box>\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("deck.yml"),
+        "kind: slides\ntitle: Deck\nwidgets: widgets\nslides: [one.md, two.md]\n",
+    )
+    .unwrap();
+    // A design on a slide that isn't shown waits; shown, it fits the room
+    // the slide leaves it, inside the slide's 1080 pixels.
+    let address = serve(&dir, "deck.yml").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/deck.yml#1").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "!!document.querySelector('.box canvas.design[data-started]')",
+    )
+    .await;
+    page.evaluate("location.hash = '#2'").await.unwrap();
+    until(
+        &page,
+        "document.querySelector('.box canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let [bottom, slide]: [f64; 2] = eval(
+        &page,
+        "(() => { const c = document.querySelector('.box canvas.design'); const s = c.closest('.slide'); \
+         const scale = s.getBoundingClientRect().height / s.offsetHeight; \
+         return [(c.getBoundingClientRect().bottom - s.getBoundingClientRect().top) / scale, s.offsetHeight]; })()",
+    )
+    .await;
+    assert!(
+        bottom <= slide,
+        "the design runs past the slide: {bottom} > {slide}"
+    );
+    browser.close().await.ok();
+    events.abort();
+    // On paper: printed promptly, the design painted in it.
+    let document = Arc::new(Document::load(&dir.join("deck.yml"), &dir).unwrap());
+    let pdf = dir.join("deck.pdf");
+    let started = std::time::Instant::now();
+    crate::pdf::print(document, &pdf).await.unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(15),
+        "printing waited out its cap: {:?}",
+        started.elapsed()
+    );
+    let bytes = std::fs::read(&pdf).unwrap();
+    assert!(
+        bytes.windows(13).any(|w| w == b"/Subtype /Ima"),
+        "no image in the printed deck"
+    );
 }

@@ -166,6 +166,6 @@ watch:
 [The feature catalog](../../../features/devpage.yml) shows the doc kind and
 [the devpage talk](../../../talks/devpage/devpage.yml) the slides kind; each
 `devpage.yml` is beside its chapters or slides.
-[The checkout prototype](../../../../examples/checkout/checkout.design) shows
+[The checkout prototype](../../../designs/checkout/checkout.design) shows
 the design kind, which has no document file
-(`devpage examples/checkout/checkout.design`).
+(`devpage docs/designs/checkout/checkout.design`).

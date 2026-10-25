@@ -723,6 +723,8 @@ function followOutline() {
 
 drawDesigns();
 mountWidgets(document).catch((error) => console.error(error)).finally(() => {
+  // A widget's content mounts with it: designs it embeds exist only now.
+  drawDesigns();
   markBroken(document);
   showSlide();
   followOutline();

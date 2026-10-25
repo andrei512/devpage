@@ -6,6 +6,7 @@ logo: ../logo.svg
 widgets: ../widgets
 chapters:
   - kinds.md
+  - designs.md
   - markdown.md
   - widgets.md
   - live.md

@@ -29,7 +29,10 @@ agent wants.
 ## The Chrome it drives
 
 devpage does not render PDF itself. It starts its own server in the
-background, which logs nothing, opens the document in print mode in a headless Chrome, waits until
+background, which logs nothing, opens the document in print mode in a headless Chrome — laid out
+as paper from the start, with the print media type, so every slide of a deck
+is shown and a design embedded on any of them is fitted where it will print —
+waits until
 every diagram is drawn and every embedded design is painted — for at most 20
 seconds, after which it prints whatever the page shows, so a design that never
 paints (one with problems, say) costs that wait but doesn't stop the PDF; `devpage check`

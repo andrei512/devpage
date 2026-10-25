@@ -1,4 +1,4 @@
-// The three kinds of document, side by side: a sketch of how each reads, what
+// The four kinds of document, side by side: a sketch of how each reads, what
 // it is made of, and a link to the page that teaches it.
 const kinds = [
   {
@@ -25,15 +25,30 @@ const kinds = [
     readAs: "One slide at a time, 16:9",
     href: "/docs/boxes/viewer/making-slides/README.md",
   },
+  {
+    name: "Design",
+    kind: "design",
+    like: "Like a Figma frame and its prototype",
+    madeOf: "One .design file, using other designs",
+    readAs: "A canvas you can click through",
+    href: "/docs/boxes/viewer/designs/README.md",
+    // A design has no document file: the .design file is the whole document.
+    field: "checkout.design",
+  },
 ];
 
 export const css = `
   .kind-cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
     gap: 1.25rem;
     margin: 1.75rem 0 2rem;
   }
+  /* On a slide, the four side by side. */
+  .slide .kind-cards { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .slide .kind-sketch { height: 7.5rem; }
+  .slide .kind-sketch > * { zoom: 0.8; }
+  .slide .kind-body { padding-bottom: 1rem; }
   .kind-cards a.kind-card {
     display: flex;
     flex-direction: column;
@@ -89,6 +104,10 @@ export const css = `
   .kind-sketch .deck .front .bar { width: 55%; }
   .kind-sketch .deck .front .bar.title { height: 8px; width: 45%; }
 
+  .kind-sketch .design { width: 4.6rem; height: 7.4rem; border-radius: 12px; padding: 0.6rem 0.5rem; display: grid; align-content: start; gap: 0.4rem; }
+  .kind-sketch .design .card { height: 1.6rem; border: 1px solid var(--border); border-radius: 5px; }
+  .kind-sketch .design .button { height: 0.85rem; margin-top: 0.9rem; border-radius: 4px; background: var(--accent); opacity: 0.85; }
+
   .kind-body { display: flex; flex-direction: column; gap: 0.35rem; padding: 1.1rem 1.25rem 1.25rem; flex: 1; }
   .kind-title { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
   .kind-title strong { font-size: 1.3rem; font-weight: 650; letter-spacing: -0.01em; }
@@ -128,6 +147,16 @@ function Sketch({ kind }: { kind: string }) {
       </div>
     );
   }
+  if (kind === "design") {
+    return (
+      <div className="frame design">
+        <div className="bar accent mid" />
+        <div className="card" />
+        <div className="bar short" />
+        <div className="button" />
+      </div>
+    );
+  }
   return (
     <div className="deck">
       <div className="frame back2" />
@@ -153,7 +182,7 @@ export default function KindCards() {
               <div><dt>Made of</dt><dd>{kind.madeOf}</dd></div>
               <div><dt>Read as</dt><dd>{kind.readAs}</dd></div>
             </dl>
-            <code className="kind-field">kind: {kind.kind}</code>
+            <code className="kind-field">{kind.field ?? `kind: ${kind.kind}`}</code>
           </div>
         </a>
       ))}

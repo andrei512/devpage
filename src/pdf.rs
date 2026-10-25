@@ -51,7 +51,13 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let (mut browser, mut handler) = Browser::launch(config).await.context("starting Chrome")?;
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
-    let page = browser.new_page(url.as_str()).await?;
+    // The page is laid out as paper from the start, not only when Chrome
+    // prints it: every slide of a deck is shown in print, so an embedded
+    // design on any slide is fitted and painted where it will print.
+    let page = browser.new_page("about:blank").await?;
+    page.emulate_media_type(chromiumoxide::page::MediaTypeParams::Print)
+        .await?;
+    page.goto(url.as_str()).await?;
     // devpage.js marks the page ready once its diagrams are drawn; each
     // embedded design marks its canvas once it is painted.
     for _ in 0..400 {

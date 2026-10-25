@@ -2,6 +2,7 @@
 name = "devpage"
 version = "0.2.0"
 edition = "2024"
+default-run = "devpage"
 rust-version = "1.97"
 description = "Live documents from a repository: sites, docs and slides from Markdown, and UI designs drawn from code — with comments, link checking and PDF"
 license = "MIT"

@@ -83,9 +83,11 @@ A **document file** is a `.yml` or `.yaml` file whose top-level `kind` is
   that can't be loaded — a missing chapter, an unknown field — gets
   `render::invalid`, a page saying it is not a valid document and why.
 - **A `.design` file** is shown on the canvas page: a frame holding a
-  `<canvas>` and the design script, which draws it as the
-  [design engine](../design-engine/README.md#in-the-browser) describes. It
-  belongs to no site and has no sidebar.
+  `<canvas>`, the light/dark switch in the corner with the head script that
+  sets the theme before the page paints, and the design script, which draws
+  it as the [design engine](../design-engine/README.md#in-the-browser)
+  describes and runs the switch. It belongs to no site and has no sidebar,
+  navbar or comments.
 - **A Markdown file** is a page of the nearest site whose document file's
   folder holds it, shown in that site's frame with its sidebar. While that
   site's file can't be loaded, the page shows `render::invalid` for it instead.

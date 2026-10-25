@@ -7,9 +7,9 @@ bar as the code: when devpage gains a capability a user sees, the deck shows
 it ([the rule](../../constraints/features-arrive-on-the-deck.md)). It belongs
 to the [system catalog](../README.md).
 
-## Three examples, one per kind
+## Four examples, one per kind
 
-The deck is one of three documents devpage keeps as live examples of its
+The deck is one of four documents devpage keeps as live examples of its
 kinds, all real and all in this repository, reached from the navbar's
 **Examples** menu:
 
@@ -18,6 +18,7 @@ kinds, all real and all in this repository, reached from the navbar's
 | site | these docs, `docs/devpage.yml` | devpage's documentation |
 | doc | the feature catalog, `docs/features/devpage.yml` | a quick tour of every feature, one short chapter per area, printable |
 | slides | this deck, `docs/talks/devpage/devpage.yml` | devpage's presentation |
+| design | the checkout prototype, `docs/designs/checkout/checkout.design` | the designs these docs, the catalog and this deck embed, using every element and interaction a design has |
 
 ## What it is for
 
@@ -38,18 +39,19 @@ proves; a capability with no row isn't on the deck yet.
 | --- | --- | --- | --- |
 | 1 | devpage | what it is, in one line | the logo, big type |
 | 2 | Documents are scattered | the problem | a picture of wikis, slide tools and chat |
-| 3 | One repository, three kinds | site, doc and slides | `KindCards` |
-| 4 | Live | a save updates every open page | a diagram of the live-update loop |
-| 5 | Extended Markdown | GFM, code, raw HTML | `Example`, source beside result |
-| 6 | Diagrams are navigation | clickable Mermaid | a clickable diagram |
-| 7 | Widgets | React components in Markdown | `Example` of a widget, `Tabs` |
-| 8 | Your own widgets | project widgets in TSX | `FileTree` of `docs/widgets/`, the component's source |
-| 9 | Comments, with agents | comment mode on, comment, tell the agent, resolved | a diagram of the loop, the thread file |
-| 10 | Checked links | the problems bar, `devpage check` | `Terminal` with real output |
-| 11 | Paper | `devpage pdf` matches the screen | `Terminal` with the real command, and the pages it prints, drawn |
-| 12 | Navigation | navbar, sidebar, light and dark | the site's frame drawn in light and dark: navbar, open menu, theme switch, sidebar |
-| 13 | Deployed | behind your auth proxy | a diagram of proxy → devpage → volume |
-| 14 | Start | `cargo install devpage` | `Terminal` |
+| 3 | One repository, four kinds | site, doc, slides and design | `KindCards` |
+| 4 | Designs | a UI an agent writes as code, clicked through as a prototype | a design's source beside the checkout prototype, embedded live |
+| 5 | Live | a save updates every open page | a diagram of the live-update loop |
+| 6 | Extended Markdown | GFM, code, raw HTML | `Example`, source beside result |
+| 7 | Diagrams are navigation | clickable Mermaid | a clickable diagram |
+| 8 | Widgets | React components in Markdown | `Example` of a widget, `Tabs` |
+| 9 | Your own widgets | project widgets in TSX | `FileTree` of `docs/widgets/`, the component's source |
+| 10 | Comments, with agents | comment mode on, comment, tell the agent, resolved | a diagram of the loop, the thread file |
+| 11 | Checked links | the problems bar, `devpage check` | `Terminal` with real output |
+| 12 | Paper | `devpage pdf` matches the screen | `Terminal` with the real command, and the pages it prints, drawn |
+| 13 | Navigation | navbar, sidebar, light and dark | the site's frame drawn in light and dark: navbar, open menu, theme switch, sidebar |
+| 14 | Deployed | behind your auth proxy | a diagram of proxy → devpage → volume |
+| 15 | Start | `cargo install devpage` | `Terminal` |
 
 ## Rules for every slide
 
