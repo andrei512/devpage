@@ -30,3 +30,17 @@ syntect = "5.3.0"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 two-face = "0.5.2"
+devpage-design = { path = "design" }
+prost = "0.14.4"
+tonic = { version = "0.14.6", default-features = false, features = ["router", "codegen"] }
+tonic-prost = "0.14.6"
+tonic-web = "0.14.6"
+tower = "0.5"
+
+[build-dependencies]
+protox = "0.10.0"
+tonic-prost-build = { version = "0.14.6", default-features = false }
+
+[workspace]
+members = [".", "design", "design/wasm"]
+default-members = [".", "design", "design/wasm"]

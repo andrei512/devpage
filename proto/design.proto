@@ -1,0 +1,100 @@
+// The watch stream between devpage and a canvas page: a design's scene,
+// then patches of the nodes that changed, or its problems.
+syntax = "proto3";
+
+package devpage.design.v1;
+
+service Designs {
+  rpc Watch(WatchRequest) returns (stream Update);
+}
+
+message WatchRequest {
+  // The design's address, from the top of the served folder.
+  string path = 1;
+}
+
+message Update {
+  oneof body {
+    Node scene = 1;
+    Patch patch = 2;
+    Problems problems = 3;
+  }
+}
+
+message Patch {
+  repeated Replace replace = 1;
+}
+
+// The node at `id` — its path of child positions, like "0.2.1" — replaced
+// with its whole subtree.
+message Replace {
+  string id = 1;
+  Node node = 2;
+}
+
+message Problems {
+  repeated string problems = 1;
+}
+
+// One node of a scene, every attribute resolved. Colors are 0xRRGGBBAA;
+// a size is pixels, or -1 for hug and -2 for fill.
+message Node {
+  Kind kind = 1;
+  string name = 2;
+  float x = 3;
+  float y = 4;
+  float width = 5;
+  float height = 6;
+  float opacity = 7;
+  string on_click = 8;
+  optional uint32 fill = 9;
+  optional uint32 stroke = 10;
+  float stroke_width = 11;
+  repeated float radius = 12;
+  Shadow shadow = 13;
+  bool clip = 14;
+  Layout layout = 15;
+  float gap = 16;
+  repeated float padding = 17;
+  Align align = 18;
+  Align justify = 19;
+  Text text = 20;
+  string design = 21;
+  repeated Node children = 22;
+}
+
+enum Kind {
+  FRAME = 0;
+  TEXT = 1;
+  RECT = 2;
+  ELLIPSE = 3;
+}
+
+enum Layout {
+  NONE = 0;
+  ROW = 1;
+  COLUMN = 2;
+}
+
+enum Align {
+  START = 0;
+  CENTER = 1;
+  END = 2;
+  SPACE_BETWEEN = 3;
+}
+
+message Shadow {
+  float x = 1;
+  float y = 2;
+  float blur = 3;
+  float spread = 4;
+  uint32 color = 5;
+}
+
+message Text {
+  string content = 1;
+  float size = 2;
+  uint32 weight = 3;
+  uint32 color = 4;
+  float line_height = 5;
+}
