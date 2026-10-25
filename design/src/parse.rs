@@ -66,6 +66,7 @@ pub fn parse(source: &str) -> Result<File, Problem> {
         at: 0,
         line: 1,
         col: 1,
+        depth: 0,
     };
     let mut imports = Vec::new();
     p.skip_space();
@@ -97,7 +98,17 @@ struct Parser {
     at: usize,
     line: u32,
     col: u32,
+    /// How many elements, arrays and objects enclose the current place.
+    depth: usize,
 }
+
+/// How deep elements, arrays and objects may nest in one file: far beyond any
+/// real design, and well inside the stack the parser recurses on.
+pub const MAX_DEPTH: usize = 256;
+
+/// The largest number a design may write, in either direction: far beyond any
+/// real design, and small enough that layout and painting stay finite.
+pub const MAX_NUMBER: f64 = 1_000_000.0;
 
 impl Parser {
     fn pos(&self) -> Pos {
@@ -195,6 +206,17 @@ impl Parser {
         Ok(s)
     }
 
+    /// Enters one more level of nesting, or says the file nests too deep.
+    fn deeper(&mut self) -> Result<(), Problem> {
+        self.depth += 1;
+        if self.depth > MAX_DEPTH {
+            return Err(self.problem(&format!("nested more than {MAX_DEPTH} deep")));
+        }
+        Ok(())
+    }
+
+    /// A quoted string, JSX's way: double or single quotes, and no escapes —
+    /// a backslash is itself.
     fn string(&mut self) -> Result<String, Problem> {
         let quote = match self.peek() {
             Some(q @ ('"' | '\'')) => q,
@@ -208,11 +230,6 @@ impl Parser {
             match self.bump() {
                 None | Some('\n') => return Err(open),
                 Some(c) if c == quote => return Ok(s),
-                Some('\\') => match self.bump() {
-                    Some('n') => s.push('\n'),
-                    Some(c) => s.push(c),
-                    None => return Err(open),
-                },
                 Some(c) => s.push(c),
             }
         }
@@ -220,6 +237,13 @@ impl Parser {
 
     fn element(&mut self) -> Result<Element, Problem> {
         let pos = self.pos();
+        self.deeper()?;
+        let element = self.element_inner(pos);
+        self.depth -= 1;
+        element
+    }
+
+    fn element_inner(&mut self, pos: Pos) -> Result<Element, Problem> {
         self.expect('<')?;
         let name = self.ident()?;
         let mut attrs = Vec::new();
@@ -333,6 +357,13 @@ impl Parser {
     }
 
     fn value(&mut self) -> Result<Value, Problem> {
+        self.deeper()?;
+        let value = self.value_inner();
+        self.depth -= 1;
+        value
+    }
+
+    fn value_inner(&mut self) -> Result<Value, Problem> {
         match self.peek() {
             Some('"' | '\'') => Ok(Value::Str(self.string()?)),
             Some('[') => {
@@ -389,9 +420,13 @@ impl Parser {
                         break;
                     }
                 }
-                s.parse()
-                    .map(Value::Num)
-                    .map_err(|_| self.problem(&format!("`{s}` is not a number")))
+                match s.parse::<f64>() {
+                    Ok(n) if n.abs() <= MAX_NUMBER => Ok(Value::Num(n)),
+                    Ok(_) => Err(self.problem(&format!(
+                        "`{s}` is too large: numbers go up to {MAX_NUMBER}"
+                    ))),
+                    Err(_) => Err(self.problem(&format!("`{s}` is not a number"))),
+                }
             }
             _ => {
                 let name = self.ident()?;
@@ -536,6 +571,48 @@ import Button from "./button.design"
                 "{source:?}"
             );
         }
+    }
+
+    #[test]
+    fn strings_bare_attributes_and_names_follow_jsx() {
+        let file = parse(r#"<Frame name='it\s "quoted"' aria-label="a\nb" clip data-x={false} />"#)
+            .unwrap();
+        let attrs = &file.root.attrs;
+        // No escapes: a backslash is itself, in either quote.
+        assert_eq!(attrs[0].value, Value::Str(r#"it\s "quoted""#.into()));
+        assert_eq!(attrs[1].name, "aria-label");
+        assert_eq!(attrs[1].value, Value::Str(r"a\nb".into()));
+        // A bare attribute is true.
+        assert_eq!(attrs[2].value, Value::Bool(true));
+        assert_eq!(attrs[3].name, "data-x");
+        assert_eq!(attrs[3].value, Value::Bool(false));
+    }
+
+    #[test]
+    fn nesting_and_numbers_have_limits() {
+        let deep = "<Frame>".repeat(MAX_DEPTH + 1) + &"</Frame>".repeat(MAX_DEPTH + 1);
+        let problem = parse(&deep).unwrap_err();
+        assert_eq!(
+            problem.message,
+            format!("nested more than {MAX_DEPTH} deep")
+        );
+        let deep = format!("<Frame gap={{{}}} />", "[".repeat(100_000));
+        let problem = parse(&deep).unwrap_err();
+        assert_eq!(
+            problem.message,
+            format!("nested more than {MAX_DEPTH} deep")
+        );
+        let problem = parse(&format!("<Frame width={{{}}} />", "9".repeat(400))).unwrap_err();
+        assert!(
+            problem
+                .message
+                .ends_with("is too large: numbers go up to 1000000"),
+            "{}",
+            problem.message
+        );
+        assert!(parse("<Frame width={1000000} />").is_ok());
+        let fine = "<Frame>".repeat(MAX_DEPTH) + &"</Frame>".repeat(MAX_DEPTH);
+        assert!(parse(&fine).is_ok());
     }
 
     #[test]

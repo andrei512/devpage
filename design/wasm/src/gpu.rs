@@ -2,7 +2,7 @@
 //! scene and drawn with WebGPU. One `Gpu` — one device — serves every canvas
 //! on the page; each canvas is a `Target`.
 
-use devpage_design::render::{Draw, Paint};
+use devpage_design::render::{Draw, Frame, Paint};
 use vello::kurbo::Affine;
 use vello::peniko::{Fill, ImageBrush};
 use vello::wgpu;
@@ -99,9 +99,12 @@ impl Gpu {
         let Some(laid_out) = design.laid_out() else {
             return false;
         };
-        let root = laid_out.frames[0];
-        let t = Affine::translate((x as f64, y as f64)) * Affine::scale(zoom as f64);
-        let scene = scene(&laid_out.list, t, root.width, root.height);
+        let area = laid_out.area;
+        // The page places the drawing's top-left at `(x, y)`.
+        let t = Affine::translate((x as f64, y as f64))
+            * Affine::scale(zoom as f64)
+            * Affine::translate((-area.x as f64, -area.y as f64));
+        let scene = scene(&laid_out.list, t, area);
         target.surface.configure(
             &self.device,
             &wgpu::SurfaceConfiguration {
@@ -175,7 +178,7 @@ impl Gpu {
 
 /// The display list replayed into a vello scene under `t`: each command
 /// translated into vello's call, nothing decided here.
-fn scene(list: &[Draw], t: Affine, width: f32, height: f32) -> vello::Scene {
+fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
     let mut v = vello::Scene::new();
     for draw in list {
         match draw {
@@ -214,7 +217,12 @@ fn scene(list: &[Draw], t: Affine, width: f32, height: f32) -> vello::Scene {
                 vello::peniko::Mix::Normal,
                 *o,
                 t,
-                &vello::kurbo::Rect::new(0.0, 0.0, width as f64, height as f64),
+                &vello::kurbo::Rect::new(
+                    area.x as f64,
+                    area.y as f64,
+                    (area.x + area.width) as f64,
+                    (area.y + area.height) as f64,
+                ),
             ),
             Draw::Pop => v.pop_layer(),
         }

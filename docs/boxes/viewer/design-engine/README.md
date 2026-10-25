@@ -57,10 +57,19 @@ takes the module from the vendored files.
 
 The parser turns a file into a syntax tree: imports, then one element with its
 attributes and children, each carrying its line and column. It reads the JSX
-subset [Designs](../designs/README.md) defines — string and braced values,
-array and object literals, `{prop}` references, text with references in it,
-`//` comments — and nothing else. A file that doesn't parse gives one problem
-at the first place it went wrong.
+subset [Designs](../designs/README.md#attributes) defines — strings in double
+or single quotes with no escapes, bare attributes as `true`, braced numbers,
+booleans and props, array and object literals, names with `-` in them, text
+with references in it, `//` comments — and nothing else. A file that doesn't
+parse gives one problem at the first place it went wrong; so does one nested
+more than 256 deep, or with a number past ±1,000,000, which keeps the parser's
+recursion and every later step finite.
+
+No input makes the engine panic: every value is checked before it is used, a
+colour's digits as characters rather than bytes, and the resolver stops a tree
+nested more than 256 deep through instances. The server also catches a panic
+around every call into the engine and reports it as a problem with the design,
+so even a bug in the engine can't take down the server or its file watcher.
 
 ## Resolving
 
@@ -90,6 +99,13 @@ map onto their flex properties, `"hug"` is content size, `"fill"` is
 `flex-grow: 1` along the direction and stretch across it, and a frame with
 `layout="none"` places its children absolutely at their `x` and `y`.
 
+Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
+it as Figma does: as far as its children's furthest right and bottom edges. It
+lays out, sets each hugging no-layout frame to its children's extent —
+innermost first — and lays out again until nothing changes, which takes one
+pass per level of such frames. `"fill"` needs auto layout to take space from,
+so on a child of a no-layout frame it is a problem, found while resolving.
+
 Text is measured, shaped and broken into lines with `parley`, over the Inter
 faces the engine embeds — regular, medium, semibold and bold — so the line breaks are
 the same natively and in WebAssembly. No system font is ever consulted.
@@ -109,6 +125,15 @@ each translating a command into its library's call and nothing more:
 - **In the server, on the CPU**: `vello_cpu`, into an RGBA buffer that is
   encoded as the PNG — a server, a CI runner or a container has no GPU to
   count on. A browser without WebGPU paints the canvas with `vello_cpu` too.
+
+The list covers the design's **drawing**: the root's box, widened by
+everything painted outside it — a shadow's blur, a stroke, a child placed
+past an edge, a line of text — and cut by any clipping frame, rounded out to
+whole pixels. The list opens with a clip to that area and closes it, so a
+backend can't show more than the drawing or less. A PNG is the drawing; the
+canvas page and an embed fit the drawing. A drawing more than 16,384 pixels a
+side is too big for a PNG: the route reports it, and the canvas paints only
+that far on the CPU.
 
 Both backends replay the
 [same display list](../constraints/a-design-has-one-renderer.md); they differ

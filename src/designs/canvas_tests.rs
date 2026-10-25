@@ -153,16 +153,17 @@ async fn on_screen(page: &Page, selector: &str, x: f64, y: f64) -> Point {
     Point::new(left + vx + x * zoom, top + vy + y * zoom)
 }
 
-/// The design's own `width` × `height` pixels on the canvas page, as a PNG.
-async fn screenshot(page: &Page, width: f64, height: f64) -> Vec<u8> {
-    let at = on_screen(page, "canvas.design", 0.0, 0.0).await;
+/// The design's drawing, `width` × `height` pixels, on the canvas page and
+/// `margin` pixels around it, as a PNG.
+async fn screenshot(page: &Page, width: f64, height: f64, margin: f64) -> Vec<u8> {
+    let at = on_screen(page, "canvas.design", -margin, -margin).await;
     page.screenshot(
         CaptureScreenshotParams::builder()
             .clip(Viewport {
                 x: at.x,
                 y: at.y,
-                width,
-                height,
+                width: width + 2.0 * margin,
+                height: height + 2.0 * margin,
                 scale: 1.0,
             })
             .build(),
@@ -219,9 +220,17 @@ async fn pixel(page: &Page, at: Point) -> [u8; 3] {
 }
 
 /// How the screenshot `shot` differs from the server's PNG at `png`, laid over
-/// the page's background as the screen shows it — compared by the engine's
-/// own rule, so the test and the constraint can't drift apart.
-async fn difference(page: &Page, address: &str, shot: &[u8], png: &str) -> Option<Difference> {
+/// the page's background as the screen shows it and with `margin` pixels of
+/// that background around it — compared by the engine's own rule, so the test
+/// and the constraint can't drift apart. The margin is where a surface that
+/// drew more than the drawing would show it.
+async fn difference(
+    page: &Page,
+    address: &str,
+    shot: &[u8],
+    png: &str,
+    margin: usize,
+) -> Option<Difference> {
     let background: [f64; 3] = eval(
         page,
         "getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number)",
@@ -233,19 +242,31 @@ async fn difference(page: &Page, address: &str, shot: &[u8], png: &str) -> Optio
         .bytes()
         .await
         .unwrap();
-    let (mut b, width, _) = render::pixels(&served).unwrap();
-    for px in b.chunks_mut(4) {
-        let alpha = px[3] as f64 / 255.0;
-        for k in 0..3 {
-            px[k] = (px[k] as f64 * alpha + background[k] * (1.0 - alpha)).round() as u8;
+    let (drawing, width, height) = render::pixels(&served).unwrap();
+    let (width, height) = (width as usize, height as usize);
+    let outer = width + 2 * margin;
+    let page_color = [
+        background[0] as u8,
+        background[1] as u8,
+        background[2] as u8,
+        255,
+    ];
+    let mut b = page_color.repeat(outer * (height + 2 * margin));
+    for y in 0..height {
+        for x in 0..width {
+            let px = &drawing[4 * (y * width + x)..][..4];
+            let alpha = px[3] as f64 / 255.0;
+            let to = &mut b[4 * ((y + margin) * outer + x + margin)..][..4];
+            for k in 0..3 {
+                to[k] = (px[k] as f64 * alpha + background[k] * (1.0 - alpha)).round() as u8;
+            }
         }
-        px[3] = 255;
     }
     let (mut a, _, _) = render::pixels(shot).unwrap();
     for px in a.chunks_mut(4) {
         px[3] = 255;
     }
-    render::compare(&a, &b, width as usize)
+    render::compare(&a, &b, outer)
 }
 
 /// Each example design on the canvas page matches the server's PNG of it
@@ -291,8 +312,9 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
         assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
         // Let the GPU's frame reach the screen.
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let shot = screenshot(&page, width, height).await;
-        let d = difference(&page, &address, &shot, &format!("{path}.png")).await;
+        const MARGIN: usize = 24;
+        let shot = screenshot(&page, width, height, MARGIN as f64).await;
+        let d = difference(&page, &address, &shot, &format!("{path}.png"), MARGIN).await;
         eprintln!("{backend} {name}: {d:?}");
         if !d.is_some_and(|d| d.within_tolerance()) {
             failures.push(format!("{backend} {name}: {d:?}"));

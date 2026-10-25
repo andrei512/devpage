@@ -100,7 +100,11 @@ impl Store {
             store: self,
             asked: RefCell::new(Vec::new()),
         };
-        let result = devpage_design::resolve(&reading, path);
+        let result = guarded(
+            path,
+            || devpage_design::resolve(&reading, path),
+            |p| vec![p],
+        );
         let missing = lock(&self.sources)
             .get(path)
             .is_none_or(|source| source.bytes.is_none());
@@ -198,7 +202,12 @@ impl Designs {
                 .resolve(&path)
                 .map_err(|problems| lines(&problems))?;
             let mut renderer = lock(&designs.0.renderer);
-            Ok(devpage_design::png(&mut renderer, &scene))
+            guarded(
+                &path,
+                || devpage_design::png(&mut renderer, &scene),
+                |p| p.message,
+            )
+            .map_err(|e| format!("{}: {e}", address(&path)))
         })
         .await
         .expect("painting")
@@ -217,9 +226,35 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
                 .flatten()
         }
     }
-    devpage_design::resolve(&Disk(served), address(path))
-        .err()
-        .unwrap_or_default()
+    let path = address(path);
+    guarded(
+        path,
+        || devpage_design::resolve(&Disk(served), path),
+        |p| vec![p],
+    )
+    .err()
+    .unwrap_or_default()
+}
+
+/// What `f` gives, or — should the engine ever panic on a design — a problem
+/// saying so, so that no design file can take the server or its watcher down.
+fn guarded<T, E>(
+    path: &str,
+    f: impl FnOnce() -> Result<T, E>,
+    failed: impl FnOnce(Problem) -> E,
+) -> Result<T, E> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)).unwrap_or_else(|panic| {
+        let message = panic
+            .downcast_ref::<&str>()
+            .map(|s| s.to_string())
+            .or_else(|| panic.downcast_ref::<String>().cloned())
+            .unwrap_or_default();
+        Err(failed(Problem {
+            file: path.to_string(),
+            pos: devpage_design::parse::Pos { line: 1, col: 1 },
+            message: format!("the design engine failed on this design: {message}"),
+        }))
+    })
 }
 
 fn lines(problems: &[Problem]) -> String {
@@ -438,6 +473,39 @@ mod tests {
         // A file nothing was made from is not even looked at.
         save(&designs, &dir.join("app/notes.txt"), "hi");
         assert!(updates.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn no_design_file_stops_the_store() {
+        let dir = served("hostile");
+        let designs = Designs::new(dir.clone());
+        let other = dir.join("app/other.design");
+        assert!(designs.png("app/other.design".into()).await.is_ok());
+        // A colour with a pasted zero-width space, saved over a design held
+        // in memory: what once panicked the watcher's thread.
+        save(&designs, &other, &OTHER.replace("#000000", "#000\u{200b}"));
+        let problems = designs.png("app/other.design".into()).await.unwrap_err();
+        assert!(
+            problems.contains("fill: #000\u{200b} is not a color"),
+            "{problems}"
+        );
+        // Deep nesting, a huge number, a truncated file: problems, all.
+        for text in [
+            "<Frame>".repeat(5000),
+            "<Frame width={99999999999} />".to_string(),
+            "<Frame fill=\"#ff".to_string(),
+        ] {
+            save(&designs, &other, &text);
+            assert!(
+                designs.png("app/other.design".into()).await.is_err(),
+                "{text:.40}"
+            );
+        }
+        // And the store still sees saves afterwards.
+        save(&designs, &other, &OTHER.replace("{50}", "{20}"));
+        let png = designs.png("app/other.design".into()).await.unwrap();
+        let (_, w, h) = devpage_design::render::pixels(&png).unwrap();
+        assert_eq!((w, h), (20, 20));
     }
 
     #[test]

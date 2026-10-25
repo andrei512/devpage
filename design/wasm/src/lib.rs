@@ -37,6 +37,9 @@ pub struct Design {
 /// A scene laid out and turned into its display list.
 struct LaidOut {
     frames: Vec<Frame>,
+    /// The design's drawing: its root's box plus anything painted outside it.
+    /// The page sees only the drawing, with its top-left at `(0, 0)`.
+    area: Frame,
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     list: Vec<Draw>,
 }
@@ -118,22 +121,23 @@ impl Design {
         self.problems.clone()
     }
 
-    /// The design's size in its own pixels, `[width, height]`, or empty
-    /// before the first scene.
+    /// The size of the design's drawing in its own pixels, `[width, height]`,
+    /// or empty before the first scene.
     pub fn size(&mut self) -> Vec<f32> {
         match self.laid_out() {
-            Some(l) => vec![l.frames[0].width, l.frames[0].height],
+            Some(l) => vec![l.area.width, l.area.height],
             None => Vec::new(),
         }
     }
 
-    /// The interaction of the topmost node at `(x, y)`, in the design's
+    /// The interaction of the topmost node at `(x, y)`, in the drawing's
     /// pixels, that has one.
     pub fn action_at(&mut self, x: f32, y: f32) -> Option<String> {
         let root = self.scene.as_ref()?.root.clone();
-        let frames = &self.laid_out()?.frames;
+        let laid_out = self.laid_out()?;
+        let (x, y) = (x + laid_out.area.x, y + laid_out.area.y);
         let mut found = None;
-        hit(&root, frames, &mut 0, x, y, &mut found);
+        hit(&root, &laid_out.frames, &mut 0, x, y, &mut found);
         found
     }
 
@@ -164,8 +168,8 @@ impl Design {
         if self.laid_out.is_none() {
             let scene = self.scene.as_ref()?;
             let frames = self.engine.layout(scene);
-            let (_, list) = self.engine.display_list(scene);
-            self.laid_out = Some(LaidOut { frames, list });
+            let (area, list) = self.engine.display_list(scene);
+            self.laid_out = Some(LaidOut { frames, area, list });
         }
         self.laid_out.as_ref()
     }
