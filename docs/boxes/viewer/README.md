@@ -108,7 +108,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
   — nothing outside it is served, read or written.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
-  — the only files it writes are in `.devpage/`.
+  — the server writes only in `.devpage/`; `devpage pdf` writes only its PDF.
 - [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
   — Chrome prints the same HTML; there is no second renderer.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
@@ -168,7 +168,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
   — what devpage may serve, read and link to.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
-  — comments and every other write stay in `.devpage/`.
+  — comments stay in `.devpage/`; a PDF goes only where it was asked for.
 - [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
   — one renderer for screen and paper.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
