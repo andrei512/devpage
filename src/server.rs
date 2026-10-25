@@ -105,6 +105,8 @@ fn quiet(
         )
         .route("/__devpage/comments/reply", post(reply_comment))
         .route("/__devpage/comments/resolve", post(resolve_comment))
+        .route("/__devpage/system-widgets/{name}", get(system_widget))
+        .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
         .with_state(AppState {
@@ -187,7 +189,17 @@ async fn file(
                 Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
             }
             None => match Document::load(&file, served) {
-                Ok(doc) => show(&doc, print),
+                Ok(mut doc) => {
+                    // A page keeps its site's widgets when printed on its own.
+                    if let Some(Ok(site)) = state
+                        .index
+                        .site_for(&file)
+                        .map(|site| Document::load(&site, served))
+                    {
+                        doc.widgets = site.widgets;
+                    }
+                    show(&doc, print)
+                }
                 Err(error) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
                 }
@@ -223,12 +235,71 @@ async fn events(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
+/// A system widget, compiled from the TSX built into the binary.
+async fn system_widget(State(state): State<AppState>, Path(name): Path<String>) -> Response {
+    let stem = name.trim_end_matches(".tsx");
+    match crate::widgets::system(stem) {
+        Some(source) => compiled(std::path::Path::new(&name), source, &known(&state)),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A project widget or a helper it imports, compiled from the served folder.
+/// An import without an extension finds the `.ts` or `.tsx` beside it.
+async fn project_widget(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+    let document = state.entry.document();
+    let found = ["", ".tsx", ".ts"]
+        .iter()
+        .find_map(|ext| document.file(&format!("{path}{ext}")));
+    let Some(file) = found else {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("{path} is not part of the served folder"),
+        )
+            .into_response();
+    };
+    match std::fs::read_to_string(&file) {
+        Ok(source) => compiled(&file, &source, &known(&state)),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+/// The names a widget can render by name: the system widgets and the entry
+/// document's own.
+fn known(state: &AppState) -> Vec<String> {
+    crate::widgets::Widgets::of(&state.entry.document())
+        .modules
+        .into_keys()
+        .collect()
+}
+
+/// A compiled module, or — when it doesn't compile — a module that throws the
+/// compiler's message, so the page shows it in the widget's place.
+fn compiled(path: &std::path::Path, source: &str, known: &[String]) -> Response {
+    let body = match crate::widgets::compile(path, source, known) {
+        Ok(js) => js,
+        Err(error) => format!(
+            "throw new Error({});",
+            serde_json::to_string(&format!("{}: {error}", path.display())).unwrap_or_default()
+        ),
+    };
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        body,
+    )
+        .into_response()
+}
+
 /// The page's own files, built into the binary.
 async fn asset(Path(name): Path<String>) -> Response {
     let (body, mime): (&'static str, &str) = match name.as_str() {
         "style.css" => (include_str!("../assets/style.css"), "text/css"),
         "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
+        "react.js" => (include_str!("../assets/vendor/react.js"), "text/javascript"),
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     (

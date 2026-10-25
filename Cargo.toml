@@ -17,6 +17,7 @@ axum = "0.8.9"
 chromiumoxide = { version = "0.9.1", features = ["fetcher", "rustls", "zip8"] }
 clap = { version = "4.6.7", features = ["derive"] }
 comrak = "0.57.0"
+oxc = { version = "=0.153.0", features = ["transformer", "codegen", "semantic"] }
 futures = "0.3.34"
 globset = "0.4.20"
 ignore = "0.4.33"

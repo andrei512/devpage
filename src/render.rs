@@ -33,6 +33,12 @@ pub fn markdown(source: &str) -> String {
     markdown_to_html_with_plugins(source, &options(), &plugins)
 }
 
+/// Renders a page of `document`'s Markdown, its widget tags expanded first.
+pub fn markdown_in(document: &Document, source: &str) -> String {
+    let widgets = crate::widgets::Widgets::of(document);
+    markdown(&crate::widgets::expand(source, &widgets, &mut Vec::new()))
+}
+
 /// A page's title: its first level-one heading, or its file name.
 pub fn title(source: &str, path: &Path) -> String {
     source
@@ -59,6 +65,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{page} · {document}</title>
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 </head>
 <body>
 <nav id="nav">
@@ -79,8 +86,9 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
         } else {
             ""
         },
-        content = markdown(source),
+        content = markdown_in(document, source),
         problems = problems(document, &[file.to_path_buf()]),
+        widgets = crate::widgets::Widgets::of(document).head(),
     )
 }
 
@@ -106,7 +114,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         .collect();
     for chapter in chapters {
         let source = std::fs::read_to_string(chapter).unwrap_or_default();
-        let mut html = markdown(&source);
+        let mut html = markdown_in(document, &source);
         if chapters.len() > 1 {
             html = scope_ids(&html, chapter, &names);
         }
@@ -149,6 +157,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 <style>@page {{ size: {paper}; margin: 22mm 18mm; }}</style>
 </head>
 <body class="doc{print_class}">
@@ -159,6 +168,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 </body>
 </html>"#,
         title = escape(&document.title),
+        widgets = crate::widgets::Widgets::of(document).head(),
         // A lone Markdown file's title is its own first heading; don't repeat it.
         heading = if document.file_name.ends_with(".md") {
             String::new()
@@ -334,7 +344,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
             document.url(slide),
-            rebase(&markdown(&source), slide, document)
+            rebase(&markdown_in(document, &source), slide, document)
         ));
     }
     format!(
@@ -345,6 +355,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
@@ -354,6 +365,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 </body>
 </html>"#,
         title = escape(&document.title),
+        widgets = crate::widgets::Widgets::of(document).head(),
         print_class = if print { " print" } else { "" },
         live = if print { " data-print" } else { "" },
         problems = if print {
