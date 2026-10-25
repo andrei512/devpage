@@ -33,6 +33,8 @@ The chapters are read as one page, in the order listed. Reordering them is
 moving a line; nobody edits one huge file. Each chapter starts with its own
 `# heading`, which becomes a chapter heading in the doc; `title` is the doc's
 name, shown above the first chapter, in the tab and in the PDF's metadata. A
+doc made from one Markdown file has no separate title: its `# heading` is the
+title. A
 chapter can be any Markdown file in the repository, so one shared chapter — a
 glossary, a context section — can appear in several docs.
 
@@ -54,8 +56,12 @@ The rollout is in [three steps](rollout.md#steps).
 ```
 
 In the doc, that link scrolls to the *Steps* heading of the rollout chapter.
-Heading ids stay unique across chapters, so two chapters can both have a
-`## Risks` section and links to each still land in the right one.
+In a doc, a heading's id is its chapter's file name, without `.md`, then `--`,
+then the heading's own id — `rollout--steps` — so two chapters can both have a
+`## Risks` section and links to each still land in the right one. Links between
+chapters, and `#heading` links within one, are rewritten to those ids when the
+doc renders. A link from outside the doc to a chapter file opens that file on
+its own, as a page; link to the doc's document file to open the doc.
 
 ## On paper
 

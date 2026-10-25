@@ -82,7 +82,7 @@ with the comment store on a named volume:
 docker compose -f deploy/compose.yaml up --build
 ```
 
-Open `http://localhost:8080`. Comments you write are stamped
+Open `http://localhost:8090`. Comments you write are stamped
 `dev@example.com`; stop and start the containers and they are still there.
 devpage's own port is not published, as on a cluster: only the proxy is
 reachable.

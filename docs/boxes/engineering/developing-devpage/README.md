@@ -130,10 +130,10 @@ flowchart LR
   channel --> watcher["3. Start the watcher<br/>watch::start"]
   watcher --> bind["4. Bind a port<br/>3030 and up, 127.0.0.1"]
   bind --> serve["5. Print the address, serve<br/>server::router"]
-  click load href "../../viewer/configuration-reference/README.md#the-document-file" "The document file"
+  click load href "../../viewer/configuration-reference/README.md#document-files" "The document file"
   click channel href "../../viewer/live-updates/README.md#the-channel-and-the-stream" "The channel and the stream"
   click watcher href "../../viewer/live-updates/README.md#the-watcher" "The watcher"
-  click bind href "../../viewer/serving-pages/README.md#choosing-a-port" "Choosing a port"
+  click bind href "../../viewer/serving-pages/README.md#the-address" "The address"
   click serve href "../../viewer/serving-pages/README.md#routes" "Routes"
 ```
 

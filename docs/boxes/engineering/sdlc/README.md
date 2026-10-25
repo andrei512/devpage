@@ -89,7 +89,7 @@ a note, not a round. (`/review`)
 ### Release
 
 The operator's call, from main. A release publishes the version in
-`Cargo.toml` to [crates.io](https://crates.io/crates/devpage) with
+`Cargo.toml` to [crates.io](https://crates.io) with
 `cargo publish`, from main's tip with the gates green, and tags that commit
 `v<version>`. Publishing is permanent — a version can be yanked but never
 replaced — so it happens only when the operator says so. The

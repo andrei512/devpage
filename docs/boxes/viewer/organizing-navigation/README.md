@@ -81,7 +81,7 @@ flowchart TD
   guide --> step["Step"]
   guide --> ref1["Reference<br/>first appearance: expanded"]
   ref1 --> fields["Fields"]
-  click title href "../configuration-reference/README.md#root" "The root page"
+  click title href "../configuration-reference/README.md#site" "The root page"
   click guide href "#a-topics-section" "A Topics section"
   click ref1 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are stopped"
   click ref2 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are stopped"
