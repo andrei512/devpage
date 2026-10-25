@@ -6,8 +6,9 @@
 //
 // A canvas is `<canvas class="design" src="…">`. On the canvas page
 // (`body.design-page`) it fills the window and can be zoomed and panned, and a
-// navigation changes the address; embedded in a page it is drawn at the page's
-// width and a navigation stays inside it.
+// navigation changes the address; embedded in a page it sits on a stage with a
+// link to its canvas page, and a navigation stays inside it. Either way a
+// design is drawn at its own size, scaled down only to fit, never enlarged.
 // The engine, or why it couldn't load: then every canvas says so instead of
 // drawing.
 let Applied, Design, Gpu, failure;
@@ -83,6 +84,13 @@ class Host {
     this.cpu = null; // the CPU's last painting: { scale, bitmap }
     this.overlay = null;
     this.frame = 0;
+    if (mode === "embed") {
+      this.link = document.createElement("a");
+      this.link.className = "design-open";
+      this.link.textContent = "Open";
+      this.link.title = "Open this design on its own page";
+      canvas.parentElement.append(this.link);
+    }
     this.attach();
     this.listen();
     hosts.add(this);
@@ -115,6 +123,7 @@ class Host {
     this.path = path;
     this.cpu = null;
     this.view.fitted = true;
+    if (this.link) this.link.href = `/${path}`;
     this.stream();
   }
 
@@ -212,8 +221,14 @@ class Host {
     if (!w) return false;
     const box = this.canvas.getBoundingClientRect();
     if (this.mode === "embed") {
-      // At the page's width, as tall as the design is at that width.
-      const zoom = box.width / w;
+      // Its own size, scaled down to fit the stage's width and — on screen —
+      // the window's height; the stage centres it.
+      const stage = this.canvas.parentElement;
+      const style = getComputedStyle(stage);
+      const across = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const down = innerHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      const zoom = Math.min(1, across / w, print ? Infinity : down / h);
+      this.canvas.style.width = `${w * zoom}px`;
       this.canvas.style.height = `${h * zoom}px`;
       Object.assign(this.view, { zoom, x: 0, y: 0 });
     } else if (this.mode === "overlay") {
