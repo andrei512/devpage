@@ -650,4 +650,38 @@ mod browser {
         browser.close().await.ok();
         events.abort();
     }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_live_update_with_the_comments_shown_swaps_the_page_in_place() {
+        let root = folder("shown");
+        std::fs::write(root.join("a.md"), "# A\n\nThe first draft.\n").unwrap();
+        let (mut browser, page, events) = open("shown", &root, &root.join("a.md"), "/a.md").await;
+
+        // Showing the comments marks the body; a fetched page never carries
+        // that mark, and it must not make the update a full reload.
+        eval::<bool>(
+            &page,
+            "(document.body.classList.add('show-comments'), window.notReloaded = true, true)",
+        )
+        .await;
+        std::fs::write(root.join("a.md"), "# A\n\nThe second draft.\n").unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('article p')?.textContent === 'The second draft.'"
+            )
+            .await
+        );
+        assert!(
+            eval::<bool>(&page, "window.notReloaded === true").await,
+            "the page was swapped in place, not reloaded"
+        );
+        assert!(
+            eval::<bool>(&page, "document.body.classList.contains('show-comments')").await,
+            "the comments stay shown"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
 }
