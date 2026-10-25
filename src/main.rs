@@ -1,6 +1,7 @@
 //! devpage: serves the documents of a repository — sites, docs and slides
 //! written in Markdown — live in the browser, and prints them to PDF.
 
+mod check;
 mod comments;
 mod document;
 mod highlight;
@@ -44,6 +45,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Check every link; exit 1 if one is broken.
+    Check { path: Option<PathBuf> },
     /// Print a doc or a deck to PDF.
     Pdf {
         path: PathBuf,
@@ -55,8 +58,16 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
-    if let Some(Command::Pdf { path, output }) = cli.command {
+    let mut cli = Cli::parse();
+    if let Some(Command::Check { path }) = &cli.command {
+        let document = Document::load(path.as_deref().unwrap_or(std::path::Path::new(".")))?;
+        let problems = check::document(&document);
+        for problem in &problems {
+            println!("{problem}");
+        }
+        std::process::exit(i32::from(!problems.is_empty()));
+    }
+    if let Some(Command::Pdf { path, output }) = cli.command.take() {
         let document = Arc::new(Document::load(&path)?);
         let output = output.unwrap_or_else(|| PathBuf::from(format!("{}.pdf", document.title)));
         pdf::print(document, &output).await?;
