@@ -72,6 +72,12 @@ function keepDesigns(swap) {
   }
 }
 
+// The frame a body was rendered in: its classes, less `show-comments`, which
+// this script adds while the comments are shown and no fetched page carries.
+function frameOf(body) {
+  return [...body.classList].filter((name) => name !== "show-comments").sort().join(" ");
+}
+
 // Fetches a page of this document and swaps its content and sidebar in.
 async function load(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -79,7 +85,7 @@ async function load(url) {
   const next = new DOMParser().parseFromString(await response.text(), "text/html");
   // A different frame — a fixed document file replacing its problem page, or
   // a document that changed kind — can't be swapped in part: load it whole.
-  if (next.body.className !== document.body.className) {
+  if (frameOf(next.body) !== frameOf(document.body)) {
     location.assign(url);
     return true;
   }

@@ -108,8 +108,11 @@ its canvases redrawn, but its problems bar waits for the next refetch.
 
 **Swapping a page in place.** `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML, replaces the children of `#page` and `#nav` with
-the fresh ones, sets the document title and draws the new content's Mermaid
+otherwise it parses the HTML and compares its frame — the classes the server
+put on its `<body>`, less `show-comments`, which the script itself adds while
+the comments are shown — with the open page's. A different frame is loaded
+whole; the same frame is swapped in: the script replaces the children of
+`#page` and `#nav` with the fresh ones, sets the document title and draws the new content's Mermaid
 diagrams. The rest of the page — the scripts, the event stream, the scroll
 position — stays as it was.
 
