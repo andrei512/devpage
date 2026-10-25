@@ -44,10 +44,14 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
         .ok();
     });
 
-    let config = BrowserConfig::builder()
-        .build()
-        .map_err(anyhow::Error::msg)
-        .context("finding Chrome")?;
+    let config = match BrowserConfig::builder().build() {
+        Ok(config) => config,
+        // No Chrome installed: download a Chromium once, into devpage's cache.
+        Err(_) => BrowserConfig::builder()
+            .chrome_executable(fetch_chromium().await?)
+            .build()
+            .map_err(anyhow::Error::msg)?,
+    };
     let (mut browser, mut handler) = Browser::launch(config).await.context("starting Chrome")?;
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
@@ -70,6 +74,27 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     events.abort();
     server.abort();
     Ok(())
+}
+
+/// Downloads a Chromium into devpage's cache folder, or finds the one there.
+async fn fetch_chromium() -> Result<std::path::PathBuf> {
+    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
+    let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
+    let cache = if cfg!(target_os = "macos") {
+        Path::new(&home).join("Library/Caches/devpage/chromium")
+    } else {
+        Path::new(&home).join(".cache/devpage/chromium")
+    };
+    std::fs::create_dir_all(&cache)?;
+    eprintln!("No Chrome found; using a Chromium in {}", cache.display());
+    let fetcher = BrowserFetcher::new(
+        BrowserFetcherOptions::builder()
+            .with_path(&cache)
+            .build()
+            .map_err(anyhow::Error::msg)?,
+    );
+    let info = fetcher.fetch().await.context("downloading Chromium")?;
+    Ok(info.executable_path)
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose

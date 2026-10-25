@@ -14,7 +14,7 @@ exclude = ["deploy/", ".claude/", ".agents/", "docs/plan/"]
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8.9"
-chromiumoxide = "0.9.1"
+chromiumoxide = { version = "0.9.1", features = ["fetcher", "rustls", "zip8"] }
 clap = { version = "4.6.7", features = ["derive"] }
 comrak = "0.57.0"
 futures = "0.3.34"
