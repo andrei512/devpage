@@ -102,11 +102,17 @@ the shared form is the engine's list and not a vello type.
 
 ## In the server
 
-The server keeps every design it has been asked for **resolved in memory**,
-with the files each one was made from. When the [watcher](../live-updates/README.md#the-watcher)
-reports a changed file, only the designs made from that file are parsed and
-resolved again; nothing else is re-read. Painting happens when a PNG is asked
-for, from the scene already in memory.
+The server keeps every design it has been asked for **resolved in memory** —
+its scene or its problems — with every file resolving it asked for, missing
+ones included, and the text of every file it read (`src/designs.rs`). When the
+[watcher](../live-updates/README.md#the-watcher) reports a changed file, the
+store forgets that file's text, and only the designs that asked for it are
+parsed and resolved again; their other files come from memory, and no other
+design is touched. A design whose scene or problems came out different is
+announced to its watch streams. Creating a file a design was missing counts as
+a change to it. Painting happens when a PNG is asked for, from the scene
+already in memory. `devpage check` and a page's problems bar read designs
+straight from disk instead, as they read pages.
 
 | Route | Answer |
 | --- | --- |
@@ -126,17 +132,21 @@ service Designs {
 }
 ```
 
-`Watch` names a design by its address and streams **updates** for as long as
-the page is open:
+`Watch` names a design by its address — with or without the leading `/` —
+and streams **updates** for as long as the page is open:
 
 - the first update is the whole scene;
 - after a save, the server resolves the design again, compares the new scene
   with the one it last sent, and sends a **patch**: the nodes whose subtree
   changed, each replaced by its id;
 - when the design has problems, an update carries them instead, and the
-  browser keeps the last scene it drew.
+  browser keeps the last scene it drew; once fixed, the next patch is against
+  that last scene;
+- when the design's own file is deleted, its `no such file` problem is the
+  last update and the stream ends.
 
-A save that changes nothing in a design's scene sends nothing.
+A save that changes nothing in a design's scene sends nothing, and the same
+problems are not sent twice.
 
 ## In the browser
 

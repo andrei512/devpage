@@ -86,9 +86,11 @@ that something changed. The stream sends a keep-alive every 15 seconds.
 ## Designs
 
 A design on its canvas, or embedded in a page, is kept current by its own
-gRPC-Web watch stream rather than by refetching: the watcher also hands each
-changed path to the server's store of resolved designs, which resolves again
-only the designs made from that file and streams the nodes that changed
+gRPC-Web watch stream rather than by refetching: the watcher also hands every
+changed path outside `.devpage/` to the server's store of resolved designs —
+whatever a site's `watch` list and `.gitignore` say, since any file may be part
+of a design — and the store resolves again only the designs made from that
+file and streams the nodes that changed
 ([Design engine](../design-engine/README.md#the-watch-stream)). An embedding
 page's own refetch leaves its canvases alone, so a page edit never redraws a
 design and a design edit never refetches the page.

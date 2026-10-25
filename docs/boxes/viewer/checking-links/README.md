@@ -27,7 +27,10 @@ Every link a reader could follow and every file a page loads:
   design those import, must parse and resolve: known elements, attributes and
   props, values of the right type, imports and images that exist in the
   served folder, and no design that uses itself
-  ([Designs](../designs/README.md#problems)).
+  ([Designs](../designs/README.md#problems)). They are read from the page's
+  Markdown — an image or a link whose target ends in `.design`, never an
+  example in code — and each of the design's problems is reported on the page
+  as `broken design <target> — <file>:<line>:<column>: <message>`.
 
 `mailto:` and other schemes are not checked.
 

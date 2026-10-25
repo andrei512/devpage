@@ -30,6 +30,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
             ..Default::default()
         },
         Kind::Site { .. } => bail!("pdf prints a doc or slides, not a site"),
+        Kind::Design => bail!("pdf prints a doc or slides, not a design"),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;

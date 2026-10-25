@@ -383,9 +383,21 @@ mod browser {
         let (changes, _) = broadcast::channel(16);
         let index = Arc::new(crate::index::Index::build(&document.served));
         let entry = Arc::new(crate::document::Entry::new(document));
-        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
-        let router =
-            server::router_with_index(entry, index, changes, server::Identity::Local("Ana".into()));
+        let designs = crate::designs::Designs::new(entry.document().served.clone());
+        let _watcher = crate::watch::start(
+            entry.clone(),
+            index.clone(),
+            designs.clone(),
+            changes.clone(),
+        )
+        .unwrap();
+        let router = server::router_with_index(
+            entry,
+            index,
+            designs,
+            changes,
+            server::Identity::Local("Ana".into()),
+        );
         tokio::spawn(async move {
             let _watcher = _watcher;
             axum::serve(listener, router).await.ok();

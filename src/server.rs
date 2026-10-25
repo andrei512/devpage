@@ -67,7 +67,14 @@ pub fn router(
     identity: Identity,
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
-    router_with_index(Arc::new(Entry::new(document)), index, changes, identity)
+    let designs = Designs::new(document.served.clone());
+    router_with_index(
+        Arc::new(Entry::new(document)),
+        index,
+        designs,
+        changes,
+        identity,
+    )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
@@ -75,18 +82,21 @@ pub fn router(
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
     identity: Identity,
 ) -> Router {
-    quiet(entry, index, changes, identity).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, identity).layer(middleware::from_fn(log))
 }
 
 /// The server for `devpage pdf`, which serves only Chrome and logs nothing.
 pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
     let index = Arc::new(Index::build(&document.served));
+    let designs = Designs::new(document.served.clone());
     quiet(
         Arc::new(Entry::new(document)),
         index,
+        designs,
         changes,
         Identity::Local(String::new()),
     )
@@ -95,10 +105,10 @@ pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> 
 fn quiet(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
     identity: Identity,
 ) -> Router {
-    let designs = Designs::new(entry.document().served.clone());
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
@@ -117,7 +127,6 @@ fn quiet(
                 .service(crate::designs::service::designs_server::DesignsServer::new(
                     crate::designs::Watch {
                         designs: designs.clone(),
-                        changes: changes.clone(),
                     },
                 )),
         )
@@ -235,6 +244,7 @@ fn show(document: &Document, print: bool) -> Response {
             Html(render::doc(document, chapters, pdf, print)).into_response()
         }
         Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
+        Kind::Design => Redirect::temporary(&document.entry()).into_response(),
     }
 }
 
@@ -737,8 +747,15 @@ mod tests {
         let index = Arc::new(Index::build(&dir));
         let entry = Arc::new(Entry::new(document));
         let (changes, _) = broadcast::channel(16);
-        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
-        let router = router_with_index(entry, index, changes, Identity::Local("T".into()));
+        let designs = Designs::new(dir.clone());
+        let _watcher = crate::watch::start(
+            entry.clone(),
+            index.clone(),
+            designs.clone(),
+            changes.clone(),
+        )
+        .unwrap();
+        let router = router_with_index(entry, index, designs, changes, Identity::Local("T".into()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
