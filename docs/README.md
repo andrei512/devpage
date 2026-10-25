@@ -38,7 +38,7 @@ flowchart LR
   browser <-->|"comments"| store[".devpage/"]
   devpage -->|"devpage pdf"| pdf["PDF"]
   click yml href "./boxes/viewer/writing-a-document/README.md" "Writing a document"
-  click md href "./boxes/viewer/writing-a-document/README.md#markdown-that-works" "Markdown that works"
+  click md href "./boxes/viewer/writing-a-document/markdown-that-works/README.md" "Markdown that works"
   click devpage href "./boxes/viewer/README.md" "The viewer"
   click store href "./boxes/viewer/comments/README.md" "Comments"
   click pdf href "./boxes/viewer/pdf/README.md" "Printing to PDF"

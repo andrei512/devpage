@@ -45,7 +45,7 @@ flowchart TD
   entry -->|"no"| seen{"Out of sight, or<br/>not in its site's watch?"}
   seen -->|"no"| refresh["Count a refresh"]
   seen -->|"yes"| quiet["No refresh"]
-  click comments href "../comments/README.md#under-the-hood" "Comments under the hood"
+  click comments href "../comments/the-comment-store/README.md#the-requests" "Comments under the hood"
   click seen href "#what-is-out-of-sight" "What is out of sight"
 ```
 
@@ -135,7 +135,7 @@ back until it is shown.
   devpage starts (see the
   [configuration reference](../configuration-reference/README.md#errors)).
 
-How comments reach a page is on [Comments](../comments/README.md#under-the-hood).
+How comments reach a page is on [Comments](../comments/the-comment-store/README.md#the-requests).
 
 ## Topics
 

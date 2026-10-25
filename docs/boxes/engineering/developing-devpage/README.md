@@ -85,7 +85,7 @@ How to write and organize pages is in the
 [viewer's task articles](../../viewer/README.md#topics); the reading hierarchy
 this repository follows is the documentation skill,
 `.claude/skills/documentation/SKILL.md`. Check every diagram you add with the
-Node command in [Diagrams and themes](../../viewer/diagrams-and-themes/README.md#writing-a-diagram).
+Node command in [Diagrams](../../viewer/diagrams/README.md#checking-a-diagram-before-committing).
 
 ## Topics
 

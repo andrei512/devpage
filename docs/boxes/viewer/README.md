@@ -43,7 +43,7 @@ flowchart LR
   click serving href "./serving-pages/README.md" "How pages are served"
   click nav href "./navigation-tree/README.md" "How the sidebar is built"
   click live href "./live-updates/README.md" "How open pages stay current"
-  click diagrams href "./diagrams-and-themes/README.md" "Diagrams and themes"
+  click diagrams href "./diagrams/README.md" "Diagrams"
   click widgets href "./widgets/README.md" "Widgets"
   click comments href "./comments/README.md" "Comments"
   click check href "./checking-links/README.md" "Checking links"
@@ -154,11 +154,12 @@ The words this box owns; the rest of the docs use them with these meanings.
   why the PDF matches the screen.
 - [Deploying devpage](deploying/README.md) — the example image, the auth
   proxy that names readers, and trying it with Docker Compose.
-- [Diagrams and themes](diagrams-and-themes/README.md) — writing Mermaid
-  diagrams, what errors look like, and the light and dark color tokens that
-  color the page, its code and its diagrams.
-- [Widgets](widgets/README.md) — the system widgets, writing a project's own
-  in TSX, props and content, styling, and what a failing widget looks like.
+- [Diagrams](diagrams/README.md) — Mermaid diagrams: writing them, making
+  their nodes links, checking them, and what errors look like.
+- [Themes](themes/README.md) — the light and dark tokens that color the page,
+  its code and its diagrams, the theme switch, and per-page CSS.
+- [Widgets](widgets/README.md) — React components as tags in Markdown: using
+  them, the system widgets, and writing a project's own.
 
 ### Mechanisms
 

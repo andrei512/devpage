@@ -10,10 +10,14 @@ document file in general is on [Writing a document](../writing-a-document/README
 
 The smallest doc is one Markdown file, with no document file at all:
 
-```sh
-devpage design.md
-devpage pdf design.md
+<Terminal>
+
 ```
+$ devpage design.md
+$ devpage pdf design.md
+```
+
+</Terminal>
 
 It is titled by its `# heading` and printed with the default PDF settings.
 
@@ -68,6 +72,13 @@ The rollout is in [three steps](rollout.md#steps).
 ```
 
 In the doc, that link scrolls to the *Steps* heading of the rollout chapter.
+
+| In the files | In a doc of several chapters |
+| --- | --- |
+| `## Steps` in `rollout.md` | `#rollout--steps` |
+| `## Risks` in `context.md` and in `rollout.md` | `#context--risks` and `#rollout--risks` |
+| the start of `rollout.md` | `#rollout` |
+
 In a doc of more than one chapter, a heading's id is its chapter's file name,
 without `.md`, then `--`, then the heading's own id — `rollout--steps` — so two
 chapters can both have a `## Risks` section and links to each still land in the
@@ -99,7 +110,13 @@ pdf:
   footer: "{page} / {pages}"            # default: "{page} / {pages}"
 ```
 
-`{page}` is the page's number and `{pages}` the count.
+`{page}` is the page's number and `{pages}` the count. On every page:
+
+<div style="max-width:22rem;margin:1rem auto;border:1px solid var(--border);border-radius:8px;padding:0.6rem 1rem;font-size:0.8rem;color:var(--muted);box-shadow:0 6px 18px -12px color-mix(in srgb, var(--text) 40%, transparent)">
+<div style="text-align:center">Sync design — draft</div>
+<div style="margin:0.8rem 0;height:6rem;background:repeating-linear-gradient(var(--surface) 0 0.5rem, transparent 0.5rem 1rem)"></div>
+<div style="text-align:center">3 / 12</div>
+</div>
 
 <Callout title="Only on paper">
 Page numbers, header and footer exist only on paper — the doc in the browser is

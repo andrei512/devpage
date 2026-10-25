@@ -32,7 +32,7 @@ serves it at `/__devpage/react.js` — see
 import map points `react`, `react/jsx-runtime` and `react-dom/client` at it,
 so compiled widgets — whose JSX becomes `react/jsx-runtime` calls — and the page
 script's mounting code share one copy of React
-([Widgets](../widgets/README.md#under-the-hood)).
+([Widgets](../widgets/how-widgets-run/README.md)).
 
 ## Upgrading it
 
