@@ -129,11 +129,22 @@ async function mountWidgets(root) {
     return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
   };
 
-  await Promise.all(placeholders.map((el) => new Promise((resolve) => {
+  const mount = (els) => Promise.all(els.map((el) => new Promise((resolve) => {
+    el.dataset.mounted = "";
     const element = React.createElement(Boundary, { name: el.dataset.widget }, widgetElement(el, 0));
     const root = createRoot(el);
     root.render(React.createElement(Mounted, { onMount: resolve }, element));
   })));
+  await mount(placeholders);
+  // A widget that renders its content as HTML — Steps and Cards draw their
+  // items from it — puts the placeholders of widgets inside that content back
+  // on the page unmounted. Mount those too, outermost first, until none is left.
+  for (let depth = 0; depth < 8; depth++) {
+    const left = [...root.querySelectorAll("[data-widget]:not([data-mounted])")]
+      .filter((el) => !el.parentElement.closest("[data-widget]:not([data-mounted])"));
+    if (!left.length) break;
+    await mount(left);
+  }
 
   function Mounted({ onMount, children }) {
     React.useEffect(() => { onMount(); }, []);
