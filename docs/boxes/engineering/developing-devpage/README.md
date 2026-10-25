@@ -13,14 +13,18 @@ Every command runs from the repository root.
 ## Build and run
 
 ```sh
-cargo build                       # debug build, target/debug/devpage
-cargo run -- docs/devpage.yml     # build if needed, then serve these docs
+cargo build                 # debug build, target/debug/devpage
+cargo run -- docs           # build if needed, then serve these docs
 ```
 
-`cargo run -- <document.yml | folder>` passes everything after `--` to devpage,
-so it serves any document the way an installed `devpage` would. It prints the
-address — `http://localhost:3030`, or the next free port up if another devpage
-already holds 3030.
+Run it from the repository root: the folder devpage starts from is the
+[served folder](../../viewer/writing-a-document/README.md#the-served-folder),
+so the whole repository is served and the docs' links to `../LICENSE` and to
+the examples in `examples/` work. `cargo run -- <args>` passes everything after `--` to
+devpage, so `cargo run -- check docs` and `cargo run -- pdf examples/sync-design`
+work the way an installed `devpage` would. It prints the address —
+`http://localhost:3030`, or the next free port up if another devpage already
+holds 3030.
 
 ## The edit–save–refresh loop
 
@@ -30,39 +34,45 @@ What you edit decides what you have to do to see it:
 | --- | --- |
 | A Markdown page under `docs/` | Save. Pages are read on every request and the open page [updates itself](../../viewer/live-updates/README.md). |
 | A page's Topics list | Save. The sidebar is rebuilt on every request, on every open page. |
-| `docs/devpage.yml` | Restart devpage. The file is read only at start. |
+| `docs/devpage.yml`, or any document file | Save. Document files are read on every request and the index of them is kept current by the watcher. |
 | Rust code in `src/` | Stop devpage (Ctrl-C) and `cargo run` again, then reload the browser tab. A page reconnects to its event stream by itself, but doesn't fetch itself again on reconnecting. |
-| `assets/style.css`, `assets/devpage.js`, `assets/vendor/pele.js` | Rebuild and restart — they are compiled into the binary with `include_str!` — then do a full reload of the tab. Live updates and in-place links swap only the page content and the sidebar, never the stylesheet or the scripts. |
+| `assets/style.css`, `assets/devpage.js`, `assets/vendor/pele.js` | Rebuild and restart — they are compiled into the binary with `include_str!` — then do a full reload of the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts. |
 
 ## Tests
 
 ```sh
-cargo test
+cargo test                  # 45 tests; needs no network and no Chrome
+cargo test -- --ignored     # the 7 tests that drive the installed Chrome
 ```
 
-The suite is twelve unit tests, written as `#[cfg(test)] mod tests` beside the
-code they test. There is no `tests/` folder and no integration test.
+Tests are written as `#[cfg(test)]` modules beside the code they test; there
+is no `tests/` folder. Route tests start the real router on a free port on
+`127.0.0.1` and talk to it with `reqwest`; external-link tests point the
+checker at a local web server, so the suite needs no network. The 7 tests
+marked `#[ignore]` drive the installed Chrome through chromiumoxide — run them
+with `--ignored` after changing the page script, the stylesheet, print mode or
+`devpage pdf`.
 
-| Module | Tests | What they pin |
-| --- | --- | --- |
-| `document` | 4 | Parsing `devpage.yml` and the `watch` default; rejecting a missing root and an unknown field; loading a bare file name from the current folder; serving only files inside the document's folder. |
-| `nav` | 2 | Reading links and `###` groups from the Topics section only; building the tree and stopping at a cycle. |
-| `render` | 5 | Raw HTML kept and Mermaid fences marked; code highlighted without a language label; unknown languages left plain and escaped; tables and heading ids; the page title. |
-| `main` | 1 | Taking the next port when the first is busy. |
+| Module | Tests | Ignored | What they pin |
+| --- | --- | --- | --- |
+| `check` | 5 | | Missing files and headings and links climbing out of the served folder; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
+| `comments` | 4 | 3 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; **C** on a deck. |
+| `document` | 7 | | Each kind parsed; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
+| `index` | 4 | | Document files found outside what `.gitignore` excludes; the nearest site above a page; nested `.gitignore` files and `.git` folders out of sight; changes keeping it current. |
+| `main` | 1 | | Taking the next port when the first is busy. |
+| `nav` | 3 | | Links and `###` groups read from the Topics section only; the tree stopping at a cycle; a Topics entry outside the site or to a missing file is a problem. |
+| `pdf` | 2 | 4 | The default file name made safe; a site refused. In Chrome: the example doc on A4 with its header and footer; the example deck one 16:9 page per slide; a deck's keys; a doc's outline above the text on a narrow screen. |
+| `render` | 9 | | Raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
+| `server` | 7 | | Comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link. |
+| `watch` | 3 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page. |
 
-The `document` and `nav` tests write small documents into a folder under the
-system temp directory, named with the test process's id
-(`devpage-doc-<pid>`, `devpage-nav-<pid>`), and don't remove it. One
-`document` test changes the process's current folder for a moment. The `main`
-test binds real ports on `127.0.0.1`, from 41000 up. The `render` tests work
-on strings alone.
+Tests that need files write them into folders under the system temp
+directory, named with the test process's id, and don't all remove them.
 
-**What has no test:** the HTTP routes and handlers in `src/server.rs` (path
-safety is tested only through `Document::file`), the watcher in
-`src/watch.rs`, `src/highlight.rs` except through the `render` tests, and
-everything in the browser — `assets/devpage.js`, the stylesheet and the
-diagrams. Diagrams are checked by hand with the Node command in
-[Diagrams and themes](../../viewer/diagrams-and-themes/README.md#writing-a-diagram).
+**What has no test:** syntax highlighting except through the `render` tests;
+Chromium's download when no Chrome is installed (it needs a machine without
+one); fullscreen on a deck (headless Chrome refuses it without a real user
+gesture); and the light and dark themes, which are checked by eye.
 
 ## The gates
 
@@ -81,76 +91,95 @@ for you: run them by hand before you push. See
 
 ## The code
 
-devpage is one binary — `main.rs` and six modules — with three built-in assets. Each part
-of the diagram opens the page that explains it.
+devpage is one binary — `main.rs` and ten modules — with three built-in assets.
+Each part of the diagram opens the page that explains it.
 
 ```mermaid
 flowchart LR
-  main["main.rs<br/>startup"] --> document["document.rs<br/>devpage.yml, path safety"]
+  main["main.rs<br/>commands, startup"] --> document["document.rs<br/>kinds, served folder"]
+  main --> index["index.rs<br/>document files, .gitignore"]
   main --> watch["watch.rs<br/>file watcher"]
   main --> server["server.rs<br/>routes"]
-  server --> render["render.rs<br/>Markdown → page"]
+  main --> pdf["pdf.rs<br/>Chrome prints"]
+  main --> check["check.rs<br/>links"]
+  server --> render["render.rs<br/>frames"]
+  server --> comments["comments.rs<br/>comment store"]
   render --> nav["nav.rs<br/>Topics → tree"]
   render --> highlight["highlight.rs<br/>code fences"]
-  server --> css["assets/style.css<br/>themes"]
-  server --> js["assets/devpage.js<br/>page script"]
-  server --> pele["assets/vendor/pele.js<br/>diagrams"]
+  server --> assets["assets/<br/>style, script, pele"]
   click main href "#how-main-wires-it-together" "How main wires it together"
-  click document href "../../viewer/configuration-reference/README.md" "Configuration reference"
+  click document href "../../viewer/configuration-reference/README.md#document-files" "Document files"
+  click index href "../../viewer/serving-pages/README.md#which-document-a-file-belongs-to" "Which document a file belongs to"
   click watch href "../../viewer/live-updates/README.md#the-watcher" "The watcher"
   click server href "../../viewer/serving-pages/README.md#routes" "Routes"
+  click pdf href "../../viewer/pdf/README.md" "Printing to PDF"
+  click check href "../../viewer/checking-links/README.md" "Checking links"
   click render href "../../viewer/serving-pages/README.md#rendering-a-markdown-file" "Rendering a Markdown file"
+  click comments href "../../viewer/comments/README.md#the-comment-store" "The comment store"
   click nav href "../../viewer/navigation-tree/README.md" "Navigation tree"
   click highlight href "../../viewer/serving-pages/README.md#rendering-a-markdown-file" "Code highlighting"
-  click css href "../../viewer/diagrams-and-themes/README.md#the-themes" "The themes"
-  click js href "../../viewer/live-updates/README.md#the-page-script" "The page script"
-  click pele href "../../viewer/vendored-pele/README.md" "The vendored pele bundle"
+  click assets href "../../viewer/serving-pages/README.md#built-in-assets" "Built-in assets"
 ```
 
 | Module | Does |
 | --- | --- |
-| `src/main.rs` | Reads the argument, wires the parts together, picks the port. |
-| `src/document.rs` | `Document`: loads and validates `devpage.yml`, matches `watch` patterns, maps a URL path to a file inside the document's folder. |
-| `src/watch.rs` | Watches the document's folder and sends a message on each change to a watched file. |
-| `src/server.rs` | The four routes, request logging, the event stream and the built-in assets. |
-| `src/render.rs` | A Markdown file to a whole page: GFM rendering, title, sidebar HTML, the page frame. |
-| `src/nav.rs` | Reads Topics sections and builds the sidebar tree. |
+| `src/main.rs` | The command line (clap): serving, `check` and `pdf`; wires the parts together and picks the address. |
+| `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. |
+| `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site. |
+| `src/watch.rs` | Watches the served folder, keeps the index current, and sends `change` or `comments /<page>` on the change channel. |
+| `src/server.rs` | The routes, request logging, the event stream, the comment requests and identity, and the built-in assets. |
+| `src/render.rs` | A page, a doc or a deck inside its frame; print mode; the problems bar; an invalid document file's page. |
+| `src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
+| `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
+| `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
+| `src/pdf.rs` | `devpage pdf`: serves the document internally and has Chrome print it, fetching a Chromium when none is installed. |
 
 What each crate does is in [Dependencies](../dependencies/README.md).
 
 ### How main wires it together
 
-`main` in `src/main.rs` starts devpage in this order; a failure at any step
-stops it with an error before anything is served.
+`main` in `src/main.rs` parses the command line. `devpage check` loads the
+document, checks it and exits with `0` or `1`; `devpage pdf` loads it and
+prints it. Serving starts in this order; a failure at any step stops devpage
+with an error before anything is served.
 
 ```mermaid
 flowchart LR
-  load["1. Load the document<br/>Document::load"] --> channel["2. Create the change channel<br/>broadcast, 16 messages"]
-  channel --> watcher["3. Start the watcher<br/>watch::start"]
-  watcher --> bind["4. Bind a port<br/>3030 and up, 127.0.0.1"]
-  bind --> serve["5. Print the address, serve<br/>server::router"]
-  click load href "../../viewer/configuration-reference/README.md#document-files" "The document file"
+  load["1. Load the document<br/>Document::load"] --> index["2. Build the index<br/>Index::build"]
+  index --> channel["3. Create the change channel<br/>broadcast, 16 messages"]
+  channel --> watcher["4. Start the watcher<br/>watch::start"]
+  watcher --> bind["5. Bind the address<br/>--host, --port or 3030 up"]
+  bind --> serve["6. Print the address, serve<br/>server::router_with_index"]
+  click load href "../../viewer/configuration-reference/README.md#document-files" "Document files"
+  click index href "../../viewer/serving-pages/README.md#which-document-a-file-belongs-to" "The index"
   click channel href "../../viewer/live-updates/README.md#the-channel-and-the-stream" "The channel and the stream"
   click watcher href "../../viewer/live-updates/README.md#the-watcher" "The watcher"
   click bind href "../../viewer/serving-pages/README.md#the-address" "The address"
   click serve href "../../viewer/serving-pages/README.md#routes" "Routes"
 ```
 
-1. **Load the document** from the first argument, or `.` when there is none.
-   The `Document` is shared (`Arc`) by the watcher and the server.
-2. **Create the broadcast channel** that carries "a watched file changed".
-   The watcher holds a sender; each open event stream subscribes.
-3. **Start the watcher** on the document's folder. `main` keeps it in a local
-   variable for the whole run; dropping it would stop watching.
-4. **Bind the first free port** from 3030 up, on the local machine only.
-5. **Print `<title> → http://localhost:<port>`** and serve the router until
-   devpage is stopped.
+1. **Load the document** from the path argument, or `.`, inside the served
+   folder — the current folder or `--root`. The `Document` is shared (`Arc`).
+2. **Build the index** of the served folder's document files and `.gitignore`
+   files; the watcher and the server share it.
+3. **Create the broadcast channel** that carries `change` and
+   `comments /<page>` messages, and hand it to the link checker, which sends
+   `change` when a background check of an external address finds it broken.
+4. **Start the watcher** on the served folder. `main` keeps it for the whole
+   run; dropping it would stop watching.
+5. **Bind** exactly `--port`, or the first free port from 3030 up, on `--host`
+   (`127.0.0.1` by default). The identity is local — `git config user.name` —
+   on a loopback address, and the `--user-header` header otherwise.
+6. **Print `<title> → http://<host>:<port>`** (`localhost` for a loopback
+   address) and serve until devpage is stopped.
 
 ## Working on the docs
 
-These docs are a devpage document: `docs/devpage.yml`, rooted at
-`docs/README.md`. Keep `cargo run -- docs/devpage.yml` open while you write.
+These docs are a devpage site: `docs/devpage.yml`, rooted at
+`docs/README.md`. Keep `cargo run -- docs` open, from the repository root,
+while you write, and run `cargo run -- check docs` before you push — `cargo
+test` checks the same internal links.
 How to write and organize pages is in the
 [viewer's task articles](../../viewer/README.md#topics); the reading hierarchy
 this repository follows is the documentation skill,
