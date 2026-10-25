@@ -132,14 +132,9 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
                 .extension()
                 .is_some_and(|ext| ext == "yml" || ext == "yaml")
             {
-                match Document::load(&target) {
-                    Ok(linked) => queue.extend(pages(&linked)),
-                    Err(error) => problems.push(Problem {
-                        file: document.url(&target)[1..].to_string(),
-                        line: None,
-                        message: format!("{error:#}"),
-                        target: None,
-                    }),
+                // An invalid one is a problem on the page linking to it.
+                if let Ok(linked) = Document::load(&target, &document.served) {
+                    queue.extend(pages(&linked));
                 }
             }
         }
@@ -194,7 +189,7 @@ fn page_links_with(
                 .join(path)
                 .canonicalize()
                 .ok()
-                .filter(|resolved| resolved.starts_with(&document.repo))
+                .filter(|resolved| resolved.starts_with(&document.served))
         };
         let Some(resolved) = resolved else {
             problems.push(Problem {
@@ -220,7 +215,36 @@ fn page_links_with(
                 });
             }
         }
+        if crate::document::kind_of(&resolved).is_some()
+            && let Err(error) = Document::load(&resolved, &document.served)
+        {
+            problems.push(Problem {
+                file: file.clone(),
+                line,
+                message: format!("broken link {target} — {error:#}"),
+                target: Some(target.clone()),
+            });
+            continue;
+        }
         reached.push(resolved);
+    }
+    // In a site, a Topics entry outside the site's folder is left out of the sidebar.
+    if matches!(document.kind, Kind::Site { .. }) {
+        for topic in crate::nav::topics(&source) {
+            if let crate::nav::Target::Problem(message) =
+                crate::nav::resolve(document, page, &topic.href)
+                && message.ends_with("outside the site's folder")
+            {
+                problems.push(Problem {
+                    file: file.clone(),
+                    line: source
+                        .find(&topic.href)
+                        .map(|at| source[..at].lines().count().max(1)),
+                    message,
+                    target: Some(topic.href.clone()),
+                });
+            }
+        }
     }
     (problems, reached)
 }
@@ -330,7 +354,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        let doc = Document::load(&dir).unwrap();
+        let doc = Document::load(&dir, &dir).unwrap();
         let found: Vec<String> = internal(&doc, &mut Vec::new())
             .iter()
             .map(ToString::to_string)
@@ -408,7 +432,7 @@ mod external {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        Document::load(&dir).unwrap()
+        Document::load(&dir, &dir).unwrap()
     }
 
     #[tokio::test]
@@ -473,12 +497,8 @@ mod examples {
     #[test]
     fn the_examples_have_no_broken_links() {
         for example in ["examples/sync-design", "examples/launch-talk"] {
-            let doc = Document::load(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join(example)
-                    .as_path(),
-            )
-            .unwrap();
+            let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+            let doc = Document::load(&root.join(example), root).unwrap();
             let problems = internal(&doc, &mut Vec::new());
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
@@ -488,8 +508,8 @@ mod examples {
     /// anchor must hold. External links aren't checked, so no network.
     #[test]
     fn devpage_docs_have_no_broken_links() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/README.md");
-        let doc = Document::load(&root).unwrap();
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let doc = Document::load(&root.join("docs"), root).unwrap();
         let problems: Vec<String> = internal(&doc, &mut Vec::new())
             .iter()
             .map(ToString::to_string)

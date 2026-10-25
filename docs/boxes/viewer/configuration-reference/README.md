@@ -107,8 +107,9 @@ the cause:
 | --- | --- |
 | The file, or a folder's `devpage.yml`, can't be read | `reading <file>` — then the system error, e.g. `No such file or directory (os error 2)` |
 | `kind` missing | `in <file>` — `` missing field `kind` `` |
-| `kind` not one of the three | `in <file>` — ``unknown variant `deck`, expected one of `site`, `doc`, `slides` `` |
-| A field the kind doesn't have | `in <file>` — ``unknown field `root`, expected one of `kind`, `title`, `chapters`, `pdf` `` |
+| `kind` not one of the three | `in <file>` — ``kind: unknown variant `deck`, expected one of `site`, `doc`, `slides` at line 1 column 7`` |
+| A field the kind doesn't have | `in <file>` — ``unknown field `root`, expected one of `title`, `chapters`, `pdf` `` |
+| A `watch` pattern isn't a valid glob | `in <file>` — `watch pattern <pattern>`, then the glob error, e.g. `error parsing glob 'a[b': unclosed character class; missing ']'` |
 | A required field missing, or of the wrong type | `in <file>` — the YAML error, with its line and column |
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |

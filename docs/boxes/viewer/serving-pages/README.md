@@ -65,17 +65,33 @@ gets `500` with the error's text.
 
 ## Which document a file belongs to
 
-devpage keeps an index of the served folder's **document files**: every `.yml`
-or `.yaml` file, outside what `.gitignore` files exclude, whose top-level `kind` is `site`, `doc`
-or `slides`. It is built at start and updated as files change.
+A **document file** is a `.yml` or `.yaml` file whose top-level `kind` is
+`site`, `doc` or `slides` (`document::kind_of`); a YAML file with any other
+`kind`, or none, is an ordinary file.
 
-- **A document file** is rendered as its kind: a site redirects to its root
-  page; a doc renders all its chapters as one page with its outline; a deck
-  renders its stage with every slide. One that is invalid renders as a page
-  listing its problems.
+- **A document file** is loaded with `Document::load` and rendered as its
+  kind: a site redirects to its root page; a doc renders all its chapters as
+  one page with its outline; a deck renders its stage with every slide. One
+  that can't be loaded — a missing chapter, an unknown field — gets
+  `render::invalid`, a page saying it is not a valid document and why.
 - **A Markdown file** is a page of the nearest site whose document file's
   folder holds it, shown in that site's frame with its sidebar. A Markdown file
-  in no site's folder is shown as a doc of one chapter.
+  in no site's folder — or whose nearest site can't be loaded — is shown as a
+  doc of one chapter.
+
+Finding the nearest site never scans folders. `src/index.rs` keeps an
+**index** of the served folder: every document file and its kind, and every
+`.gitignore`. `Index::build` walks the folder once at start with the `ignore`
+crate, honoring each `.gitignore` in it, nested ones included, without needing
+a `.git` folder, and skipping any `.git` and `.devpage` folders; a document
+file in an excluded folder is not indexed. The watcher keeps it current
+([Live updates](../live-updates/README.md#the-watcher)). `Index::site_for`
+picks, among the indexed sites whose folder holds the page, the deepest — and
+of two in the same folder, the one whose file name sorts first.
+
+`server::router` builds its own index without a watcher, which is what
+`devpage pdf` and the tests use; `devpage` itself shares one index between the
+server and the watcher (`server::router_with_index`).
 
 ## Rendering a Markdown file
 
@@ -131,8 +147,9 @@ A file ending in `.md` is read as text and passed to `render::page`:
    replace in place. Titles and sidebar labels are HTML-escaped; the page body
    is not, since raw HTML is allowed.
 
-Nothing is cached between requests: each page request re-reads the page and,
-to build the sidebar, every page the tree reaches.
+Beyond the index, nothing is cached between requests: each page request
+re-reads the page, its site's document file and, to build the sidebar, every
+page the tree reaches.
 
 ## Other files
 

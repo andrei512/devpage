@@ -30,20 +30,27 @@ sequenceDiagram
 
 ## The watcher
 
-When devpage starts it watches the whole
+When devpage starts, `watch::start` in `src/watch.rs` watches the whole
 [served folder](../writing-a-document/README.md#the-served-folder), recursively,
-with the platform's recommended `notify` watcher. For each file system event it:
+with the platform's recommended `notify` watcher. For each file system event it
+ignores accesses (a read, not a change), and for each path in the event:
 
-1. ignores the event if it is an access (a read, not a change);
-2. makes each path relative to the served folder, and drops paths inside
-   a `.git` folder, if there is one, and paths a `.gitignore` file in the folder
-   excludes — so build output and dependencies
-   never refresh a page — and, when the entry document is a site with a `watch`
-   list, paths that match none of its patterns;
-3. for a path in the comment store (`.devpage/comments/`), sends a `comments`
-   message naming the page the thread is about;
-4. for any other path, updates the index of document files if the path is a
-   YAML file, and sends a `change` message.
+1. canonicalizes it — falling back to the path as reported, as for a deleted
+   file — and skips it if it isn't inside the served folder;
+2. for a thread file in the comment store (`.devpage/comments/<page>/<id>.yml`),
+   sends `comments /<page>` and goes on to the next path — the comment store is
+   watched whatever a site's `watch` says, and never refreshes pages itself;
+3. otherwise tells the [index](../serving-pages/README.md#which-document-a-file-belongs-to)
+   the path changed (`Index::changed`), so a new, edited or deleted document
+   file or `.gitignore` is reflected at once;
+4. counts the path as a refresh unless the index finds it out of sight —
+   inside a `.git` or `.devpage` folder, or excluded by any `.gitignore` in the
+   served folder, nested ones included — or the entry document is a site
+   whose `watch` list matches none of it (`Document::watches`, patterns
+   relative to the site's folder).
+
+If any path counted, it sends one `change` message for the event. Nothing in
+this needs a `.git` folder to exist.
 
 A `change` message carries no file name: every open page refreshes, whichever
 file changed. There is no debouncing, so one save can produce several events —

@@ -54,10 +54,14 @@ fn children(document: &Document, page: &Path, seen: &mut HashSet<PathBuf>) -> Ve
     };
     let mut groups: Vec<Group> = Vec::new();
     for topic in topics(&source) {
-        let Some(file) = resolve(document, page, &topic.href) else {
-            continue;
+        let (file, expand) = match resolve(document, page, &topic.href) {
+            Target::Page(file) => {
+                let expand = seen.insert(file.clone());
+                (file, expand)
+            }
+            Target::Document(file) => (file, false),
+            Target::None | Target::Problem(_) => continue,
         };
-        let expand = seen.insert(file.clone());
         let entry = Entry {
             label: topic.label,
             children: if expand {
@@ -78,17 +82,43 @@ fn children(document: &Document, page: &Path, seen: &mut HashSet<PathBuf>) -> Ve
     groups
 }
 
-/// A Topics link's target, when it is a Markdown file inside the document.
-fn resolve(document: &Document, page: &Path, href: &str) -> Option<PathBuf> {
-    if href.contains("://") || href.starts_with('#') {
-        return None;
+/// What a Topics link names in a site's sidebar.
+#[derive(Debug, PartialEq)]
+pub enum Target {
+    /// A page in the site's folder: an entry with its own children.
+    Page(PathBuf),
+    /// A document file: an entry that opens that document, with no children.
+    Document(PathBuf),
+    /// Not an entry: another website, a `#fragment`, any other file.
+    None,
+    /// Left out, and a problem: a missing file, or a page outside the site.
+    Problem(String),
+}
+
+/// What a Topics link on `page` names.
+pub fn resolve(document: &Document, page: &Path, href: &str) -> Target {
+    if href.contains(':') || href.starts_with('#') {
+        return Target::None;
     }
     let path = href.split('#').next().unwrap_or(href);
-    let target = page.parent()?.join(path).canonicalize().ok()?;
-    (target.starts_with(&document.base)
-        && target.extension().is_some_and(|ext| ext == "md")
-        && target.is_file())
-    .then_some(target)
+    let Some(target) = page
+        .parent()
+        .and_then(|folder| folder.join(path).canonicalize().ok())
+        .filter(|target| target.starts_with(&document.served) && target.is_file())
+    else {
+        return Target::Problem(format!("Topics entry {href} — no such file"));
+    };
+    if target.extension().is_some_and(|ext| ext == "md") {
+        if target.starts_with(&document.base) {
+            Target::Page(target)
+        } else {
+            Target::Problem(format!("Topics entry {href} — outside the site's folder"))
+        }
+    } else if crate::document::kind_of(&target).is_some() {
+        Target::Document(target)
+    } else {
+        Target::None
+    }
 }
 
 /// The links listed in a page's `## Topics` section, in order.
@@ -182,7 +212,12 @@ mod tests {
         .unwrap();
         std::fs::write(
             dir.join("README.md"),
-            "# Home\n\n## Topics\n\n- [Guide](guide/README.md)\n- [Missing](nope.md)\n",
+            "# Home\n\n## Topics\n\n- [Guide](guide/README.md)\n- [Missing](nope.md)\n- [Talk](talk.yml)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("talk.yml"),
+            "kind: slides\ntitle: T\nslides: [README.md]\n",
         )
         .unwrap();
         std::fs::write(
@@ -191,10 +226,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("guide/step.md"), "# Step\n").unwrap();
-        let document = Document::load(&dir).unwrap();
+        let document = Document::load(&dir, &dir).unwrap();
 
         let tree = tree(&document);
         assert_eq!(tree.len(), 1);
+        let talk = &tree[0].entries[1];
+        assert_eq!(talk.label, "Talk", "a document file is an entry");
+        assert!(talk.children.is_empty());
         let guide = &tree[0].entries[0];
         assert_eq!(guide.label, "Guide");
         let under_guide: Vec<_> = guide.children[0]
@@ -207,5 +245,34 @@ mod tests {
             guide.children[0].entries[0].children.is_empty(),
             "the root is not expanded again"
         );
+    }
+
+    #[test]
+    fn a_page_outside_the_site_or_a_missing_one_is_a_problem() {
+        let dir = std::env::temp_dir().join(format!("devpage-nav-out-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("site")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(dir.join("outside.md"), "# Out\n").unwrap();
+        std::fs::write(dir.join("site/README.md"), "# Home\n").unwrap();
+        std::fs::write(
+            dir.join("site/devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir.join("site"), &dir).unwrap();
+        let page = dir.join("site/README.md");
+        assert!(matches!(
+            resolve(&document, &page, "../outside.md"),
+            Target::Problem(message) if message.contains("outside the site's folder")
+        ));
+        assert!(matches!(
+            resolve(&document, &page, "nope.md"),
+            Target::Problem(_)
+        ));
+        assert_eq!(
+            resolve(&document, &page, "https://example.com"),
+            Target::None
+        );
+        assert_eq!(resolve(&document, &page, "#top"), Target::None);
     }
 }

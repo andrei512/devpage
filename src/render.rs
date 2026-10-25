@@ -279,6 +279,30 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
+/// A document file that can't be loaded: a page listing what is wrong with it.
+pub fn invalid(entry: &Document, file: &Path, error: &anyhow::Error) -> String {
+    let address = entry.url(file);
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{address} · {document}</title>
+<link rel="stylesheet" href="/__devpage/style.css">
+</head>
+<body>
+<main id="page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
+<script src="/__devpage/pele.js"></script>
+<script src="/__devpage/devpage.js"></script>
+</body>
+</html>"#,
+        address = escape(&address),
+        document = escape(&entry.title),
+        error = escape(&format!("{error:#}")),
+    )
+}
+
 /// The page's problems, listed above it, with each broken link marked.
 fn problems(document: &Document, pages: &[PathBuf]) -> String {
     let found = check::preview(document, pages);
@@ -476,7 +500,7 @@ mod tests {
             "kind: doc\ntitle: Plan\nchapters: [a.md, b.md]\n",
         )
         .unwrap();
-        let document = Document::load(&dir.join("d.yml")).unwrap();
+        let document = Document::load(&dir.join("d.yml"), &dir).unwrap();
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
@@ -507,7 +531,7 @@ mod tests {
             "kind: slides\ntitle: Talk\nslides: [two.md, one.md]\n",
         )
         .unwrap();
-        let document = Document::load(&dir.join("d.yml")).unwrap();
+        let document = Document::load(&dir.join("d.yml"), &dir).unwrap();
         let crate::document::Kind::Slides { slides: files } = &document.kind else {
             panic!()
         };
@@ -533,12 +557,13 @@ mod tests {
             "kind: doc\ntitle: Plan\nchapters: [../shared/glossary.md]\n",
         )
         .unwrap();
-        let document = Document::load(&dir.join("doc/d.yml")).unwrap();
+        let document = Document::load(&dir.join("doc/d.yml"), &dir).unwrap();
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
         let html = doc(&document, chapters, pdf, false);
-        let base = document.url(&dir.canonicalize().unwrap());
+        // Served from `dir`, so addresses start at its top.
+        let base = "";
         assert!(
             html.contains(&format!("src=\"{base}/shared/map.svg\"")),
             "{html}"
@@ -560,7 +585,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("devpage-render-one-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("design.md"), "# Design\n\nText.\n").unwrap();
-        let document = Document::load(&dir.join("design.md")).unwrap();
+        let document = Document::load(&dir.join("design.md"), &dir).unwrap();
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
