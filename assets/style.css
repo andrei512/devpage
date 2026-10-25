@@ -309,9 +309,11 @@ body.design-page > canvas.design { position: fixed; inset: 0; width: 100vw; heig
 .design-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(15 23 42 / 0.4); }
 .design-overlay.design-overlay-page { position: fixed; z-index: 2; }
 .design-problems { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 3; margin: 0; padding: 10px 14px 10px 32px; border: 1px solid #d70015; border-radius: 10px; background: var(--background); color: #d70015; font: 13px var(--font-mono); }
-body.design-page > .design-problems { position: fixed; }
+/* On the canvas page the light/dark switch holds the top-right corner; the
+   bars stop short of it. */
+body.design-page > .design-problems { position: fixed; right: 60px; }
 .design-failed { margin: 0; padding: 10px 14px; border: 1px solid #d70015; border-radius: 10px; background: var(--background); color: #d70015; font: 13px var(--font-mono); }
-body.design-page > .design-failed { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; }
+body.design-page > .design-failed { position: fixed; top: 8px; left: 8px; right: 60px; z-index: 3; }
 
 /* ---- Widgets ---------------------------------------------------------- */
 .callout { display: block; margin: 1rem 0; padding: 0.75rem 1rem; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; }

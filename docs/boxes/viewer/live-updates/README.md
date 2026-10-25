@@ -100,7 +100,11 @@ open pages like any other change — that is how a page embedding the design
 gets its problems bar again. The refetch keeps the page's canvases: each
 embedded design still in the page keeps its drawing, and the page's one design
 stream stays open while the set of designs it shows is the same, so a design
-is redrawn only by that stream, and only where its nodes changed. A site whose
+is redrawn only by that stream, and only where its nodes changed. A design
+embedded inside a widget is the exception: React makes the widget's content
+again, canvas included, so the new canvas takes over what the old one showed —
+the design it had navigated to and its way back — and is drawn again from
+the stream. A site whose
 `watch` list leaves out `.design` files and the images designs use still has
 its canvases redrawn, but its problems bar waits for the next refetch.
 
@@ -116,7 +120,7 @@ the comments are shown — with the open page's. A different frame, as when a
 document changed kind, is loaded whole. The same frame is swapped in: the
 script replaces the children of `#devpage-page`, `#devpage-nav` and
 `#devpage-navbar` with the fresh ones — so the navbar's highlight follows the
-page — keeping every embedded design's canvas that is still in the page, sets
+page — keeping every embedded design's canvas that is still in the page, outside a widget, sets
 the document title, takes the fresh page's `window.devpageWidgets` — so
 widgets edited since are fetched at their new versions — mounts the new
 content's widgets, its Mermaid diagrams included, and starts any design it

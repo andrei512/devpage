@@ -176,11 +176,14 @@ function drawDesigns() {
 
 // A page fetched again keeps the canvases it already has: each embedded
 // design still in the page keeps its drawing and its stream. They never leave
-// this document — a canvas moved between documents may lose its context.
+// this document — a canvas moved between documents may lose its context. An
+// embed inside a widget is React's to make again; the design script carries
+// what it shows across that instead.
 function keepDesigns(swap) {
-  const kept = [...document.querySelectorAll("#devpage-page .design-embed")];
+  const outside = (embed) => !embed.closest("[data-widget]");
+  const kept = [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside);
   swap();
-  for (const embed of document.querySelectorAll("#devpage-page .design-embed")) {
+  for (const embed of [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside)) {
     // By selector: a problems bar can sit before the canvas.
     const src = embed.querySelector("canvas.design")?.getAttribute("src");
     const at = kept.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);

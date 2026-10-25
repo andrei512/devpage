@@ -150,6 +150,12 @@ class Host {
     this.overlay = null;
     this.frame = 0;
     if (mode === "embed") {
+      // A canvas made again from the page's HTML comes with copies of what
+      // the last one added beside it.
+      for (const stale of canvas.parentElement.querySelectorAll(":scope > a.design-open, :scope > .design-problems")) {
+        stale.remove();
+      }
+      canvas.removeAttribute("style");
       this.link = document.createElement("a");
       this.link.className = "design-open";
       this.link.textContent = "Open";
@@ -489,7 +495,17 @@ function fail(canvas, message) {
 // Starts every design canvas under `root` that isn't drawn yet, and stops
 // those no longer in the page.
 export function scan(root = document) {
-  for (const host of [...hosts]) if (!host.canvas.isConnected && host.mode !== "overlay") host.close();
+  // An embed whose canvas left the page may be coming back made again — a
+  // widget around it mounting afresh after a page refetch: what it showed,
+  // and the way back, go to the next canvas of the same design.
+  const carried = [];
+  for (const host of [...hosts]) {
+    if (host.canvas.isConnected || host.mode === "overlay") continue;
+    if (host.mode === "embed") {
+      carried.push({ src: host.canvas.getAttribute("src"), path: host.path, history: host.history });
+    }
+    host.close();
+  }
   const page = document.body.classList.contains("design-page");
   for (const canvas of root.querySelectorAll("canvas.design[src]")) {
     // By element, not by its mark: a widget mounting its content copies the
@@ -504,7 +520,10 @@ export function scan(root = document) {
     }
     const base = canvas.closest("[data-source]")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
-    const host = new Host(canvas, path, { mode: page ? "page" : "embed" });
+    const at = page ? -1 : carried.findIndex((state) => state.src === canvas.getAttribute("src"));
+    const state = at >= 0 ? carried.splice(at, 1)[0] : null;
+    const host = new Host(canvas, state?.path ?? path, { mode: page ? "page" : "embed" });
+    if (state) host.history = state.history;
     if (page) {
       addEventListener("popstate", () => {
         host.closeOverlay();

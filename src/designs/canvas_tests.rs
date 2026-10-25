@@ -1219,3 +1219,100 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
         "no image in the printed deck"
     );
 }
+
+#[tokio::test]
+#[ignore]
+async fn an_embed_in_a_widget_keeps_where_it_navigated_across_a_page_refetch() {
+    let dir = folder("widget-refetch");
+    std::fs::create_dir_all(dir.join("widgets")).unwrap();
+    std::fs::write(
+        dir.join("widgets/Box.tsx"),
+        "export default function Box({ children }) { return <div className=\"box\">{children}</div>; }\n",
+    )
+    .unwrap();
+    let page_source = |text: &str| {
+        format!("# Doc\n\n{text}\n\n<Box>\n\n![The screen](screen.design)\n\n</Box>\n")
+    };
+    std::fs::write(dir.join("doc.md"), page_source("Before.")).unwrap();
+    std::fs::write(
+        dir.join("doc.yml"),
+        "kind: doc\ntitle: Doc\nwidgets: widgets\nchapters: [doc.md]\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "doc.yml").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/doc.yml").as_str())
+        .await
+        .unwrap();
+    let painted = "document.querySelector('.box canvas.design')?.dataset.painted === 'true'";
+    until(&page, painted).await;
+    // Pay navigates inside the embed: the next design's yellow.
+    let corner = on_screen(&page, ".box canvas.design", 300.0, 40.0).await;
+    let pay = on_screen(&page, ".box canvas.design", 120.0, 40.0).await;
+    page.click(pay).await.unwrap();
+    until_pixel(&page, corner, [0xfe, 0xf3, 0xc7]).await;
+
+    // The page changes and is fetched again: React makes the widget again,
+    // and the embed still shows where it was — with its way back.
+    std::fs::write(dir.join("doc.md"), page_source("After.")).unwrap();
+    page.evaluate("load(location.href)").await.unwrap();
+    until(
+        &page,
+        "document.querySelector('article')?.textContent.includes('After.')",
+    )
+    .await;
+    until(&page, painted).await;
+    let corner = on_screen(&page, ".box canvas.design", 300.0, 40.0).await;
+    until_pixel(&page, corner, [0xfe, 0xf3, 0xc7]).await;
+    assert_eq!(
+        eval::<usize>(
+            &page,
+            "document.querySelectorAll('.box a.design-open').length"
+        )
+        .await,
+        1,
+        "one link to the canvas page"
+    );
+    // Back, inside the embed: the screen's grey again.
+    let back = on_screen(&page, ".box canvas.design", 120.0, 40.0).await;
+    page.click(back).await.unwrap();
+    until_pixel(&page, corner, [0xf8, 0xfa, 0xfc]).await;
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn the_canvas_pages_switch_leaves_the_problems_bar_whole() {
+    let dir = folder("corner");
+    std::fs::write(
+        dir.join("broken.design"),
+        r##"<Frame width={200} height={100} fill="#ffffff" lable="typo" />"##,
+    )
+    .unwrap();
+    let address = serve(&dir, "broken.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/broken.design").as_str())
+        .await
+        .unwrap();
+    until(&page, "!!document.querySelector('body > .design-problems')").await;
+    for theme in ["light", "dark"] {
+        page.evaluate(format!(
+            "document.documentElement.dataset.theme = '{theme}'"
+        ))
+        .await
+        .unwrap();
+        let overlap: bool = eval(
+            &page,
+            "(() => { const a = document.querySelector('body > .design-problems').getBoundingClientRect(); \
+             const b = document.querySelector('#devpage-corner').getBoundingClientRect(); \
+             return a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom; })()",
+        )
+        .await;
+        assert!(!overlap, "the switch covers the problems bar in {theme}");
+    }
+    browser.close().await.ok();
+    events.abort();
+}
