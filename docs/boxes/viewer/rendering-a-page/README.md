@@ -57,7 +57,7 @@ the page.
   HTML (`ClassStyle::SpacedPrefixed { prefix: "hl-" }`): nested spans such
   as `<span class="hl-keyword hl-operator hl-arithmetic hl-rust">`, colored by the
   `--syntax-*` tokens in `assets/style.css` (see
-  [Diagrams](../themes/README.md#the-tokens));
+  [Themes](../themes/README.md#the-tokens));
 - otherwise — no language, an unknown one, `mermaid`, or a highlighting
   error partway through — writes the code HTML-escaped and unhighlighted;
 - writes a bare `<pre>` and `<code>` with no language attributes, except
