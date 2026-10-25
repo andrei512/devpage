@@ -8,10 +8,11 @@ agent. These pages are devpage's own documentation, served by devpage.
 
 ## What devpage does
 
-- **Three kinds of document.** A **site** of pages with a sidebar built from
+- **Four kinds of document.** A **site** of pages with a sidebar built from
   their Topics sections; a **doc** read top to bottom, split into chapter files,
   with an outline that follows you; a deck of **slides**, one file per slide, on
-  a 16:9 stage.
+  a 16:9 stage; and a **design** — a UI an agent writes as code, drawn on a
+  canvas, clicked through as a prototype, and fetched as a PNG.
 - **Extended Markdown.** GitHub-flavoured Markdown with raw HTML allowed,
   highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to
   other pages — in a light and a dark theme that follow the reader's system.

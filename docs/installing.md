@@ -15,9 +15,14 @@ starting it. It is a task page under the [devpage landing page](README.md);
   `devpage pdf` downloads a Chromium once and keeps it in devpage's cache
   folder ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
 
-Nothing else is needed: the stylesheet, the page script and the diagram
-renderer are compiled into the binary, and diagrams are drawn by the reader's
-browser.
+- **The `wasm32-unknown-unknown` target**, because building devpage also
+  builds the [design engine](boxes/viewer/design-engine/README.md) for the
+  browser: `rustup target add wasm32-unknown-unknown`. In a checkout,
+  `rust-toolchain.toml` names the target and rustup adds it on the first build.
+
+Nothing else is needed: the stylesheet, the page script, the diagram renderer
+and the design engine's WebAssembly module are compiled into the binary;
+diagrams are drawn by the reader's browser, and designs by the module.
 
 ## Install it
 

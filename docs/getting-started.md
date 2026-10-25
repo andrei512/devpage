@@ -1,7 +1,7 @@
 # Getting started
 
 This page teaches the few ideas you need to reason about devpage — documents
-and their three kinds, the folder they are served from, live pages,
+and their kinds, the folder they are served from, live pages,
 diagrams and comments — and then walks a small site, a doc and a deck from an
 empty folder to pages that update while you edit them. It sits under the
 [devpage landing page](README.md); the [viewer](boxes/viewer/README.md)
@@ -13,7 +13,9 @@ see [Installing devpage](installing.md).
 **A document is Markdown files plus a small YAML file.** The YAML file's `kind`
 says which of three a document is: a **site** of pages with a sidebar, a
 **doc** read top to bottom like a Word file, or a deck of **slides**. A single
-Markdown file is a doc on its own, with no YAML at all.
+Markdown file is a doc on its own, with no YAML at all. A fourth kind, the
+**design**, is not Markdown: it is a `.design` file an agent writes, drawn on a
+canvas — see [Designs](boxes/viewer/designs/README.md).
 
 **A folder is what is served.** devpage serves the folder you start it from —
 usually the top of your repository. A file's address is its path in that

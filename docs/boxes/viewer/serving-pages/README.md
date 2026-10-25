@@ -20,6 +20,7 @@ flowchart TD
   inside -->|"yes"| kind{"what is it?"}
   kind -->|"a document file"| document["the document, as its kind"]
   kind -->|".md"| page["the page, in the frame of<br/>the document it belongs to"]
+  kind -->|".design"| design["the canvas page"]
   kind -->|"anything else"| raw["bytes + guessed content type"]
   click route href "#routes" "Routes"
   click redirect href "#routes" "Routes"
@@ -42,6 +43,8 @@ flowchart TD
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
+| `/devpage.design.v1.Designs/Watch` | a design's watch stream, as gRPC-Web — see [Design engine](../design-engine/README.md#the-watch-stream) |
+| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) |
 | `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,
@@ -77,6 +80,10 @@ A **document file** is a `.yml` or `.yaml` file whose top-level `kind` is
   one page with its outline; a deck renders its stage with every slide. One
   that can't be loaded — a missing chapter, an unknown field — gets
   `render::invalid`, a page saying it is not a valid document and why.
+- **A `.design` file** is shown on the canvas page: a frame holding a
+  `<canvas>` and the design script, which draws it as the
+  [design engine](../design-engine/README.md#in-the-browser) describes. It
+  belongs to no site and has no sidebar.
 - **A Markdown file** is a page of the nearest site whose document file's
   folder holds it, shown in that site's frame with its sidebar. While that
   site's file can't be loaded, the page shows `render::invalid` for it instead.
@@ -165,13 +172,16 @@ is unknown.
 
 ## Built-in assets
 
-The page's own files are compiled into the binary with `include_str!`:
+The page's own files are compiled into the binary with `include_str!`, and
+the design engine's module with `include_bytes!`:
 
 | URL | Source | Content type |
 | --- | --- | --- |
 | `/__devpage/style.css` | `assets/style.css` | `text/css` |
 | `/__devpage/devpage.js` | `assets/devpage.js` | `text/javascript` |
 | `/__devpage/pele.js` | `assets/vendor/pele.js` | `text/javascript` |
+| `/__devpage/design.js` | `assets/design.js` | `text/javascript` |
+| `/__devpage/design.wasm` | the [design engine](../design-engine/README.md#one-crate-two-targets), built for WebAssembly by `build.rs` and embedded with `include_bytes!` | `application/wasm` |
 
 They are sent with `Cache-Control: no-cache`; any other name under
 `/__devpage/` is `404`. Changing an asset means rebuilding devpage.

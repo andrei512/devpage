@@ -1,8 +1,9 @@
 # Viewer
 
 The viewer is the `devpage` program. It serves **documents** from a folder
-in the browser — a **site** of pages, a **doc** read top to bottom, or a deck
-of **slides** — keeps every open page current as the files change, lets readers
+in the browser — a **site** of pages, a **doc** read top to bottom, a deck
+of **slides**, or a **design** drawn on a canvas and clicked through as a
+prototype — keeps every open page current as the files change, lets readers
 leave **comments** on any of them, checks every link, and prints a doc or a
 deck to PDF exactly as the browser shows it. This page says what its parts are
 and where each is explained; it belongs to the [system catalog](../README.md).
@@ -15,6 +16,7 @@ devpage docs/devpage.yml      # or: devpage docs
 devpage design.md             # one Markdown file, served as a doc
 devpage check docs            # every link, exit 1 if one is broken
 devpage pdf talks/launch      # the deck as a PDF
+devpage app/checkout.design   # one design, on a canvas
 ```
 
 Every page is rendered when it is requested, straight from the files on disk,
@@ -38,6 +40,9 @@ flowchart LR
   browser <--> comments["Comments<br/>.devpage/comments"]
   serving --> check["Link checking<br/>preview and devpage check"]
   browser --> pdf["PDF<br/>Chrome prints the page"]
+  designfiles[".design files"] --> engine["Design engine<br/>Rust, native and WebAssembly"]
+  engine -->|"gRPC-Web: changed nodes"| browser
+  engine --> png["PNG of a design"]
   click yml href "./writing-a-document/README.md" "Writing a document"
   click serving href "./serving-pages/README.md" "How pages are served"
   click nav href "./navigation-tree/README.md" "How the sidebar is built"
@@ -46,6 +51,8 @@ flowchart LR
   click comments href "./comments/README.md" "Comments"
   click check href "./checking-links/README.md" "Checking links"
   click pdf href "./pdf/README.md" "Printing to PDF"
+  click designfiles href "./designs/README.md" "Designs"
+  click engine href "./design-engine/README.md" "The design engine"
 ```
 
 Each part of the diagram opens its page.
@@ -67,6 +74,9 @@ Each part of the diagram opens its page.
   while you write and failed by `devpage check` in tests.
 - **PDF** — `devpage pdf` has Chrome print a doc or a deck, so the PDF is the
   page the browser shows.
+- **Designs** — `.design` files an agent writes, parsed and painted by one
+  Rust engine: in the browser as a clickable canvas, fed the changed nodes
+  over gRPC-Web, and in the server as a PNG the agent can look at.
 
 ## Glossary
 
@@ -74,8 +84,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 
 | Term | Meaning |
 | --- | --- |
-| **document** | What devpage serves and a reader opens: a site, a doc or slides. Every kind is a document; the code uses the same word (`Document`, `Kind`). |
-| **kind** | Which of the three a document is, named by the `kind` field of its document file: `site`, `doc` or `slides`. |
+| **document** | What devpage serves and a reader opens: a site, a doc, slides or a design. Every kind is a document; the code uses the same word (`Document`, `Kind`). |
+| **kind** | Which of the four a document is. A site, a doc or slides is named by the `kind` field of its document file; a design is its own `.design` file and has no document file. |
 | **site** | A document of many pages with a sidebar built from Topics sections. Configured by `root`. |
 | **doc** | A document read top to bottom as one page — a design doc, a PRD — made of one or more chapters, with an outline beside it and PDF settings. The word for the kind is always *doc*, never "document". |
 | **chapter** | One Markdown file of a doc, listed in its `chapters` field. |
@@ -83,6 +93,14 @@ The words this box owns; the rest of the docs use them with these meanings.
 | **document file** | The YAML file describing a document — any name, `devpage.yml` by default. |
 | **entry document** | The document devpage was started with, where `/` leads. |
 | **served folder** | The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to. |
+| **design** | A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch. |
+| **instance** | A design used inside another, by the name it was imported as. |
+| **prop** | A value a design takes when it is used, declared with a default in its root's `props`. |
+| **node** | One element of a resolved design — a frame, text, rectangle, ellipse, vector or image; its **id** is its path of child positions. |
+| **scene** | A design resolved into one tree of nodes, imports and props substituted, ready to lay out and paint. |
+| **interaction** | What clicking a node does in a prototype: `navigate`, `back`, `overlay` or `close`. |
+| **prototype** | Designs linked by interactions, clicked through on the canvas. |
+| **design engine** | The `devpage-design` crate: parses, resolves, lays out and paints designs, natively and in WebAssembly. |
 | **page** | A Markdown (`.md`) file in the served folder, rendered into a frame when requested. Any other file is served as it is. |
 | **root page** | The page a site's `root` names: where the site opens, and the top of its sidebar tree. |
 | **page frame** | The HTML a page is wrapped in: the stylesheet, the scripts and the kind's own layout — a site's sidebar, a doc's outline, a deck's stage. |
@@ -113,6 +131,8 @@ The words this box owns; the rest of the docs use them with these meanings.
   — Chrome prints the same HTML; there is no second renderer.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — deployed, it trusts one header and must sit behind a proxy that sets it.
+- [A design has one renderer](constraints/a-design-has-one-renderer.md)
+  — the canvas and the PNG are painted by the same engine code.
 
 ## Topics
 
@@ -123,7 +143,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 
 ### Concepts and tasks
 
-- [Writing a document](writing-a-document/README.md) — the three kinds, the
+- [Writing a document](writing-a-document/README.md) — the four kinds, the
   document file, the served folder, links between pages and documents, and the
   Markdown that works.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
@@ -140,6 +160,8 @@ The words this box owns; the rest of the docs use them with these meanings.
   why the PDF matches the screen.
 - [Deploying devpage](deploying/README.md) — the example image, the auth
   proxy that names readers, and trying it with Docker Compose.
+- [Designs](designs/README.md) — writing a design as code, props and
+  instances, prototypes, embedding one in a page, and its PNG.
 - [Diagrams and themes](diagrams-and-themes/README.md) — writing Mermaid
   diagrams, what errors look like, and the light and dark color tokens that
   color the page, its code and its diagrams.
@@ -151,6 +173,8 @@ The words this box owns; the rest of the docs use them with these meanings.
   addresses and logging.
 - [Live updates](live-updates/README.md) — from a saved file to a swapped page:
   the watcher, the event stream and the page script.
+- [Design engine](design-engine/README.md) — parsing, resolving, layout and
+  painting in one crate for two targets, and the gRPC-Web watch stream.
 - [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
   from Topics sections, resolved, grouped and kept free of cycles.
 - [The vendored pele bundle](vendored-pele/README.md) — the third-party
@@ -173,3 +197,5 @@ The words this box owns; the rest of the docs use them with these meanings.
   — one renderer for screen and paper.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — identity comes from the proxy in front of it.
+- [A design has one renderer](constraints/a-design-has-one-renderer.md)
+  — the agent's PNG is the reader's canvas.

@@ -1,23 +1,27 @@
 # Writing a document
 
-How to write a devpage document: the three kinds and when to use each, the
+How to write a devpage document: the four kinds and when to use each, the
 document file that describes one, the folder devpage serves from, how
 pages and documents link to each other, and which Markdown features render. It
 is a task article under the [viewer](../README.md); read
 [Getting started](../../../getting-started.md) first for the mental model.
 
-## Three kinds
+## Four kinds
 
 | Kind | Like | Made of | Read as |
 | --- | --- | --- | --- |
 | `site` | a documentation website | a root page and the pages its Topics sections reach | many pages, with a sidebar |
 | `doc` | a Word document | one or more chapter files, in order | one long page, with an outline that follows you |
 | `slides` | a PowerPoint deck | one Markdown file per slide, in order | one slide at a time, 16:9 |
+| design | a Figma frame and its prototype | one `.design` file, using other designs | a canvas you can click through |
 
 A system's documentation is a site. A design doc, a PRD or a proposal is a
-doc. A talk is slides. All three are Markdown files on disk, render
-the same Markdown, take comments and are checked for broken links; a doc and a
-deck also [print to PDF](../pdf/README.md).
+doc. A talk is slides. A screen or a flow an agent proposes is a design. The
+first three are Markdown files on disk, render the same Markdown, take comments
+and are checked for broken links; a doc and a deck also
+[print to PDF](../pdf/README.md). A design is not Markdown and has no document
+file: its `.design` file is the whole document, and a page embeds it with
+`![Name](name.design)` — see [Designs](../designs/README.md).
 
 ## The document file
 

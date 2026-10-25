@@ -83,6 +83,16 @@ the page's path — including the error a subscriber
 gets when it falls more than 16 messages behind, so a slow page still hears
 that something changed. The stream sends a keep-alive every 15 seconds.
 
+## Designs
+
+A design on its canvas, or embedded in a page, is kept current by its own
+gRPC-Web watch stream rather than by refetching: the watcher also hands each
+changed path to the server's store of resolved designs, which resolves again
+only the designs made from that file and streams the nodes that changed
+([Design engine](../design-engine/README.md#the-watch-stream)). An embedding
+page's own refetch leaves its canvases alone, so a page edit never redraws a
+design and a design edit never refetches the page.
+
 ## The page script
 
 `assets/devpage.js` runs on every page. It does three things.

@@ -23,6 +23,11 @@ Every link a reader could follow and every file a page loads:
   requests with an error no reader sees. Each address is asked once per check,
   however many links point at it.
 - **Comment threads** — each file in the comment store must parse.
+- **Designs** — every `.design` file a page links to or embeds, and every
+  design those import, must parse and resolve: known elements, attributes and
+  props, values of the right type, imports and images that exist in the
+  served folder, and no design that uses itself
+  ([Designs](../designs/README.md#problems)).
 
 `mailto:` and other schemes are not checked.
 
