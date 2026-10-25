@@ -62,7 +62,7 @@ until someone resolves it.
 Threads live in `.devpage/comments/` at the top of the served folder — the same
 folder locally and in a deployed container's volume. devpage creates
 `.devpage/` with a `.gitignore` holding `*`, so git ignores the folder and
-everything in it without any other `.gitignore` changing. devpage
+everything in it without any other `.gitignore` changing. The server
 writes nothing else anywhere ([devpage never writes a document](../constraints/devpage-never-writes-a-document.md)).
 
 One thread is one file, under the path of the Markdown file it is about:
@@ -71,8 +71,9 @@ One thread is one file, under the path of the Markdown file it is about:
 .devpage/comments/docs/design/rollout.md/20261025T181502Z-7f3a.yml
 ```
 
-The file name is the thread's id: the UTC time it was started and four random
-hex digits, so a folder lists its threads oldest first. A comment on a doc's
+The file name is the thread's id: the UTC time it was started, to the second,
+and four hex digits from the clock's nanoseconds that tell apart threads
+started in the same second, so a folder lists its threads oldest first. A comment on a doc's
 chapter or a deck's slide belongs to that chapter's or slide's file, so it
 follows the file into any document that uses it.
 

@@ -44,9 +44,11 @@ flowchart TD
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/{*path}` | the file at `path` in the served folder |
 
-A query of `?print` on a doc's or deck's document file, or on a Markdown file
-in no site, renders it in **print mode**, the page `devpage pdf` has Chrome
-print; a site's pages are never printed, so they ignore it ([Printing to PDF](../pdf/README.md)).
+A query of `?print` renders a doc's or deck's document file in **print mode**,
+the page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).
+A site is never printed, so on a Markdown file `?print` always renders it as a
+doc of one chapter in print mode, even when the file is a page of a site — which
+is how `devpage pdf` prints one Markdown file.
 
 ## The URL is the file path
 

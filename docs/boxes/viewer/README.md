@@ -106,7 +106,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 ## Constraints
 
 - [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
-  — nothing outside it is served, read or written.
+  — nothing outside it is served or read.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
   — the server writes only in `.devpage/`; `devpage pdf` writes only its PDF.
 - [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)

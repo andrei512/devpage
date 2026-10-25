@@ -1,5 +1,5 @@
 //! The comment store: one YAML file per thread under `.devpage/comments/`, by
-//! the path of the page it is about. devpage writes nothing outside `.devpage/`.
+//! the path of the page it is about. The server writes nothing outside `.devpage/`.
 
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
