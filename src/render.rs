@@ -228,8 +228,11 @@ fn problems(document: &Document, pages: &[PathBuf]) -> String {
         .iter()
         .map(|problem| format!("<li>{}</li>", escape(&problem.to_string())))
         .collect();
+    // The links as written, for the page script to mark where they stand.
+    let broken: Vec<&str> = found.iter().filter_map(|p| p.target.as_deref()).collect();
     format!(
-        "<div class=\"problems\"><b>{} problem{}</b><ul>{items}</ul></div>",
+        "<div class=\"problems\" data-broken=\"{}\"><b>{} problem{}</b><ul>{items}</ul></div>",
+        escape(&serde_json::to_string(&broken).unwrap_or_default()),
         found.len(),
         if found.len() == 1 { "" } else { "s" }
     )
@@ -259,7 +262,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
-{problems}<main id="page" class="deck">{content}</main>
+<main id="page" class="deck">{problems}{content}</main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>

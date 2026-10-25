@@ -25,6 +25,17 @@ function drawDiagrams(root) {
   }
 }
 
+// Marks every link and image the page's problems name, where it stands — in
+// the text and in diagrams. The problems bar lists their targets as written.
+function markBroken(root) {
+  const bar = root.querySelector(".problems[data-broken]");
+  const broken = new Set(bar ? JSON.parse(bar.dataset.broken) : []);
+  for (const element of root.querySelectorAll("a[href], img[src]")) {
+    const target = element.getAttribute(element.tagName === "IMG" ? "src" : "href");
+    element.classList.toggle("broken", broken.has(target));
+  }
+}
+
 // Fetches a page of this document and swaps its content and sidebar in.
 async function load(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -36,6 +47,7 @@ async function load(url) {
   }
   document.title = next.title;
   drawDiagrams(document.getElementById("page"));
+  markBroken(document.getElementById("page"));
   showSlide();
   loadComments();
   return true;
@@ -298,6 +310,7 @@ function followOutline() {
 }
 
 drawDiagrams(document);
+markBroken(document);
 showSlide();
 followOutline();
 loadComments();

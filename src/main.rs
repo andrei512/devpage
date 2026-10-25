@@ -78,6 +78,7 @@ async fn main() -> Result<()> {
     let document = Arc::new(Document::load(&path)?);
 
     let (changes, _) = broadcast::channel(16);
+    check::announce_on(changes.clone());
     let _watcher = watch::start(document.clone(), changes.clone())?;
 
     let listener = match cli.port {

@@ -228,6 +228,9 @@ body.slides.show-comments #comments { display: block; }
 
 .problems { max-width: 780px; margin: 0 auto 24px; border: 1px solid #d70015; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #d70015; }
 .problems ul { margin: 4px 0 0; padding-left: 18px; }
+a.broken { color: #d70015; text-decoration: underline wavy #d70015; }
+img.broken { outline: 2px dashed #d70015; }
+.diagram a.broken rect, .diagram a.broken polygon, .diagram a.broken circle, .diagram a.broken ellipse, .diagram a.broken path { stroke: #d70015; stroke-dasharray: 6 4; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
 #paragraph-button, #comment-button { font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; z-index: 4; }
