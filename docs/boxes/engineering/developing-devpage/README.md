@@ -41,7 +41,7 @@ What you edit decides what you have to do to see it:
 ## Tests
 
 ```sh
-cargo test                  # 55 tests; needs no network and no Chrome
+cargo test                  # 56 tests; needs no network and no Chrome
 cargo test -- --ignored     # the 7 tests that drive the installed Chrome
 ```
 
@@ -55,7 +55,7 @@ with `--ignored` after changing the page script, the stylesheet, print mode or
 
 | Module | Tests | Ignored | What they pin |
 | --- | --- | --- | --- |
-| `check` | 9 | | Missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
+| `check` | 10 | | Missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site, and a page in no site checked as a doc; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
 | `comments` | 4 | 3 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; **C** on a deck. |
 | `document` | 7 | | Each kind parsed; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
 | `index` | 4 | | Document files found outside what `.gitignore` excludes; the nearest site above a page; nested `.gitignore` files and `.git` folders out of sight; changes keeping it current. |
