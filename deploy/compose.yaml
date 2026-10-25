@@ -10,7 +10,7 @@ services:
   proxy:
     image: caddy:2
     ports:
-      - "8090:8090"
+      - "8090:8080"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
