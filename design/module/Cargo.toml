@@ -1,0 +1,12 @@
+[package]
+name = "devpage-design-module"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Builds the design engine's WebAssembly module and vendors it into devpage's assets"
+publish = false
+
+[dependencies]
+sha2 = "0.10.9"
+toml = "0.9.12"
+wasm-bindgen-cli-support = "=0.2.129"

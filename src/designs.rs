@@ -15,10 +15,6 @@ use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
-pub mod service {
-    tonic::include_proto!("devpage.design.v1");
-}
-
 /// A design resolved once: its scene or its problems, and every file the
 /// resolving asked for — missing ones included, so creating one counts.
 #[derive(Clone)]
@@ -279,7 +275,7 @@ impl Sent {
 }
 
 #[tonic::async_trait]
-impl service::designs_server::Designs for Watch {
+impl devpage_design::proto::designs_server::Designs for Watch {
     type WatchStream = Pin<Box<dyn Stream<Item = Result<Update, Status>> + Send>>;
 
     async fn watch(

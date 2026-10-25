@@ -138,8 +138,10 @@ straight from disk instead, as they read pages.
 
 ## The watch stream
 
-The browser and the server speak gRPC-Web, defined in `proto/design.proto` and
-served by `tonic-web` on devpage's own address — no proxy. There is one
+The browser and the server speak gRPC-Web, defined in
+`design/proto/design.proto` — the engine crate generates the messages, and with
+its `server` feature the service, so the proto ships with the engine — and
+served by `tonic-web` on devpage's own address, with no proxy. There is one
 call:
 
 ```proto

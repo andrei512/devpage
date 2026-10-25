@@ -124,7 +124,7 @@ fn quiet(
             "/devpage.design.v1.Designs/{*method}",
             tower::ServiceBuilder::new()
                 .layer(tonic_web::GrpcWebLayer::new())
-                .service(crate::designs::service::designs_server::DesignsServer::new(
+                .service(devpage_design::proto::designs_server::DesignsServer::new(
                     crate::designs::Watch {
                         designs: designs.clone(),
                     },
@@ -279,7 +279,7 @@ async fn asset(Path(name): Path<String>) -> Response {
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
         "design.js" => (include_str!("../assets/design.js"), "text/javascript"),
         "design-engine.js" => (
-            include_str!(concat!(env!("OUT_DIR"), "/design-engine.js")),
+            include_str!("../assets/vendor/design-engine.js"),
             "text/javascript",
         ),
         "design-engine.wasm" => {
@@ -288,7 +288,7 @@ async fn asset(Path(name): Path<String>) -> Response {
                     (header::CONTENT_TYPE, "application/wasm"),
                     (header::CACHE_CONTROL, "no-cache"),
                 ],
-                &include_bytes!(concat!(env!("OUT_DIR"), "/design-engine_bg.wasm"))[..],
+                &include_bytes!("../assets/vendor/design-engine.wasm")[..],
             )
                 .into_response();
         }
