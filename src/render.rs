@@ -26,11 +26,47 @@ fn options() -> Options<'static> {
     options
 }
 
-/// Renders Markdown to HTML, highlighting fenced code (see `highlight`).
+/// Renders Markdown to HTML, highlighting fenced code (see `highlight`) and
+/// turning an image of a design into its canvas (see `embed_designs`).
 pub fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
-    markdown_to_html_with_plugins(source, &options(), &plugins)
+    embed_designs(&markdown_to_html_with_plugins(source, &options(), &plugins))
+}
+
+/// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas
+/// the design script draws on. The canvas keeps the link in `src`, so links
+/// are rebased and checked as an image's are.
+fn embed_designs(html: &str) -> String {
+    let mut out = String::new();
+    let mut rest = html;
+    while let Some(at) = rest.find("<img src=\"") {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = rest.find("/>").map_or(rest.len(), |end| end + 2);
+        let tag = &rest[..end];
+        let attribute = |name: &str| {
+            let start = tag.find(&format!(" {name}=\""))? + name.len() + 3;
+            Some(&tag[start..start + tag[start..].find('"')?])
+        };
+        match attribute("src") {
+            Some(src)
+                if src
+                    .split(['?', '#'])
+                    .next()
+                    .is_some_and(|p| p.ends_with(".design")) =>
+            {
+                out.push_str(&format!(
+                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"{src}\" role=\"img\" aria-label=\"{}\"></canvas></span>",
+                    attribute("alt").unwrap_or_default()
+                ));
+            }
+            _ => out.push_str(tag),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A page's title: its first level-one heading, or its file name.
@@ -441,7 +477,7 @@ fn tree(document: &Document, groups: &[nav::Group], current: &str, html: &mut St
     html.push_str("</ul>");
 }
 
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
@@ -451,6 +487,21 @@ fn escape(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_image_of_a_design_becomes_its_canvas() {
+        let html =
+            markdown("Here:\n\n![The checkout](app/checkout.design)\n\n![A photo](photo.png)\n");
+        assert!(
+            html.contains(
+                "<span class=\"design-embed\"><canvas class=\"design\" src=\"app/checkout.design\" role=\"img\" aria-label=\"The checkout\"></canvas></span>"
+            ),
+            "{html}"
+        );
+        assert!(html.contains("<img src=\"photo.png\" alt=\"A photo\" />"));
+        // The design's script is loaded by the page script only when a page has one.
+        assert!(!markdown("![A photo](photo.png)").contains("canvas"));
+    }
 
     #[test]
     fn keeps_raw_html_and_marks_mermaid_fences() {

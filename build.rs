@@ -1,5 +1,6 @@
 //! Builds the design engine for WebAssembly, which the binary embeds as the
-//! built-in asset `/__devpage/design.wasm`, and generates the server side of
+//! built-in assets `/__devpage/design-engine.wasm` and its bindings
+//! `/__devpage/design-engine.js`, and generates the server side of
 //! the watch stream from `proto/design.proto`.
 
 use std::env;
@@ -26,7 +27,9 @@ fn main() {
     let status = Command::new(cargo)
         .args([
             "build",
-            "--release",
+            // Release, optimised for size: the page downloads it.
+            "--profile",
+            "wasm",
             "--locked",
             "-p",
             "devpage-design-wasm",
@@ -46,8 +49,8 @@ fn main() {
     // wasm-bindgen as a library: the module and its JavaScript glue, with no
     // CLI to install.
     wasm_bindgen_cli_support::Bindgen::new()
-        .input_path(target_dir.join("wasm32-unknown-unknown/release/devpage_design_wasm.wasm"))
-        .out_name("design")
+        .input_path(target_dir.join("wasm32-unknown-unknown/wasm/devpage_design_wasm.wasm"))
+        .out_name("design-engine")
         .web(true)
         .expect("the web target")
         .generate(&out)

@@ -56,12 +56,10 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
     let page = browser.new_page(url.as_str()).await?;
-    // devpage.js marks the page ready once its diagrams are drawn.
-    for _ in 0..100 {
-        let ready: bool = page
-            .evaluate("document.documentElement.dataset.ready === 'true'")
-            .await?
-            .into_value()?;
+    // devpage.js marks the page ready once its diagrams are drawn; each
+    // embedded design marks its canvas once it is painted.
+    for _ in 0..400 {
+        let ready: bool = page.evaluate(READY).await?.into_value()?;
         if ready {
             break;
         }
@@ -76,6 +74,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     server.abort();
     Ok(())
 }
+
+/// True once the page is ready to print: its diagrams drawn and every
+/// embedded design painted.
+const READY: &str = "document.documentElement.dataset.ready === 'true' \
+    && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
 /// with the characters a file name can't hold replaced by `-`.
@@ -96,10 +99,10 @@ pub fn default_output(title: &str) -> std::path::PathBuf {
 /// A Chrome profile folder of its own for one run, so several prints can run
 /// at once without fighting over one profile's lock. It is deleted when the
 /// run ends.
-struct Profile(std::path::PathBuf);
+pub(crate) struct Profile(std::path::PathBuf);
 
 impl Profile {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static RUNS: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
@@ -110,7 +113,7 @@ impl Profile {
     }
 
     /// A headless Chrome using this profile.
-    fn chrome(&self) -> chromiumoxide::browser::BrowserConfigBuilder {
+    pub(crate) fn chrome(&self) -> chromiumoxide::browser::BrowserConfigBuilder {
         BrowserConfig::builder().user_data_dir(&self.0)
     }
 }
