@@ -1,0 +1,529 @@
+//! Widgets: React components used as capitalized HTML tags in Markdown.
+//!
+//! On the server a page's widget tags become placeholder elements carrying the
+//! widget's name, its props' source and its content, which comrak renders as
+//! Markdown. In the browser the page script loads React and the widgets,
+//! compiled here from TSX by oxc, and mounts each placeholder.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+use anyhow::{Result, anyhow};
+use oxc::allocator::Allocator;
+use oxc::codegen::Codegen;
+use oxc::parser::Parser;
+use oxc::semantic::SemanticBuilder;
+use oxc::span::SourceType;
+use oxc::transformer::{JsxRuntime, TransformOptions, Transformer};
+
+use crate::document::Document;
+
+/// The widgets devpage ships, compiled into the binary.
+pub const SYSTEM: &[(&str, &str)] = &[
+    ("Callout", include_str!("../assets/widgets/Callout.tsx")),
+    ("Diagram", include_str!("../assets/widgets/Diagram.tsx")),
+    ("Example", include_str!("../assets/widgets/Example.tsx")),
+    ("FileTree", include_str!("../assets/widgets/FileTree.tsx")),
+    ("Keys", include_str!("../assets/widgets/Keys.tsx")),
+    ("Tab", include_str!("../assets/widgets/Tab.tsx")),
+    ("Tabs", include_str!("../assets/widgets/Tabs.tsx")),
+    ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
+];
+
+/// The widgets a document's pages can use: name → the address its module is
+/// served at.
+#[derive(Debug, Default)]
+pub struct Widgets {
+    pub modules: BTreeMap<String, String>,
+    /// Widget files that can't be widgets: a lowercase name, or a system
+    /// widget's name.
+    pub problems: Vec<String>,
+}
+
+impl Widgets {
+    /// The system widgets plus the document's own, from its `widgets` folder.
+    pub fn of(document: &Document) -> Self {
+        let mut widgets = Self::default();
+        for (name, _) in SYSTEM {
+            widgets.modules.insert(
+                name.to_string(),
+                format!("/__devpage/system-widgets/{name}.tsx"),
+            );
+        }
+        let Some(folder) = &document.widgets else {
+            return widgets;
+        };
+        let Ok(entries) = std::fs::read_dir(folder) else {
+            return widgets;
+        };
+        let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
+        files.sort();
+        for file in files {
+            if file.extension().is_none_or(|ext| ext != "tsx") {
+                continue;
+            }
+            let name = file
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            let url = document.url(&file);
+            if !name.starts_with(|c: char| c.is_ascii_uppercase()) {
+                // A lowercase .tsx is a helper a widget imports, not a widget.
+                continue;
+            }
+            if SYSTEM.iter().any(|(system, _)| *system == name) {
+                widgets.problems.push(format!(
+                    "{} — {name} is a system widget's name",
+                    url.trim_start_matches('/')
+                ));
+                continue;
+            }
+            // The file's change time in the address, so an edited widget is
+            // fetched again rather than taken from the browser's module cache.
+            let version = std::fs::metadata(&file)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis());
+            widgets
+                .modules
+                .insert(name, format!("/__devpage/widgets{url}?v={version}"));
+        }
+        widgets
+    }
+
+    /// What a page's `<head>` needs: the import map naming React, and the
+    /// widgets the page script loads.
+    pub fn head(&self) -> String {
+        let modules = serde_json::to_string(&self.modules).unwrap_or_default();
+        format!(
+            r#"<script type="importmap">{{"imports":{{"react":"/__devpage/react.js","react/jsx-runtime":"/__devpage/react.js","react-dom/client":"/__devpage/react.js"}}}}</script>
+<script>window.devpageWidgets = {modules};</script>"#
+        )
+    }
+}
+
+/// Replaces the tags of known widgets in Markdown with placeholder elements,
+/// leaving code alone. Unknown capitalized tags are reported.
+pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> String {
+    let code = code_ranges(source);
+    let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
+    let bytes = source.as_bytes();
+    let mut out = String::with_capacity(source.len());
+    let mut at = 0;
+    while let Some(offset) = source[at..].find('<') {
+        let start = at + offset;
+        out.push_str(&source[at..start]);
+        at = start + 1;
+        let is_open = bytes.get(start + 1).is_some_and(|b| b.is_ascii_uppercase());
+        if !is_open || in_code(start) {
+            out.push('<');
+            continue;
+        }
+        let Some(tag) = parse_open(&source[start..]) else {
+            out.push('<');
+            continue;
+        };
+        if !widgets.modules.contains_key(&tag.name) {
+            let line = source[..start].matches('\n').count() + 1;
+            problems.push(format!("{line}: <{}> is not a widget", tag.name));
+            out.push('<');
+            continue;
+        }
+        let block = source[..start]
+            .rsplit('\n')
+            .next()
+            .is_some_and(|before| before.trim().is_empty());
+        let element = if block { "div" } else { "span" };
+        let props = escape(&tag.props);
+        let after_open = start + tag.len;
+        let (inner, end) = if tag.self_closing {
+            ("", after_open)
+        } else {
+            match find_close(source, after_open, &tag.name, &in_code) {
+                Some((close_start, close_end)) => (&source[after_open..close_start], close_end),
+                None => ("", after_open),
+            }
+        };
+        let open = format!(
+            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}">"#,
+            name = tag.name,
+            src = escape(inner.trim_matches('\n')),
+        );
+        // Widgets inside the content are expanded too, then left for comrak to
+        // render as Markdown: blank lines around a block widget's content
+        // make it Markdown rather than raw HTML.
+        let inner = expand(inner, widgets, problems);
+        if block {
+            out.push_str(&format!(
+                "{open}\n\n{}\n\n</{element}>",
+                inner.trim_matches('\n')
+            ));
+        } else {
+            out.push_str(&format!("{open}{inner}</{element}>"));
+        }
+        at = end;
+    }
+    out.push_str(&source[at..]);
+    out
+}
+
+struct OpenTag {
+    name: String,
+    /// The props as a JavaScript object literal.
+    props: String,
+    len: usize,
+    self_closing: bool,
+}
+
+/// Parses `<Name a="x" b={expr} c>` or `<Name … />` at the start of `text`.
+fn parse_open(text: &str) -> Option<OpenTag> {
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    let mut i = 1;
+    let mut name = String::new();
+    while let Some(&(_, c)) = chars.get(i) {
+        if c.is_ascii_alphanumeric() {
+            name.push(c);
+            i += 1;
+        } else {
+            break;
+        }
+    }
+    let mut props = Vec::new();
+    loop {
+        while chars.get(i).is_some_and(|(_, c)| c.is_whitespace()) {
+            i += 1;
+        }
+        let &(_, c) = chars.get(i)?;
+        if c == '>' {
+            return Some(OpenTag {
+                name,
+                props: format!("{{{}}}", props.join(", ")),
+                len: chars.get(i + 1).map_or(text.len(), |(at, _)| *at),
+                self_closing: false,
+            });
+        }
+        if c == '/' && chars.get(i + 1).is_some_and(|(_, c)| *c == '>') {
+            return Some(OpenTag {
+                name,
+                props: format!("{{{}}}", props.join(", ")),
+                len: chars.get(i + 2).map_or(text.len(), |(at, _)| *at),
+                self_closing: true,
+            });
+        }
+        let mut attr = String::new();
+        while let Some(&(_, c)) = chars.get(i) {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                attr.push(c);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        if attr.is_empty() {
+            return None;
+        }
+        let key = serde_json::to_string(&attr).ok()?;
+        if chars.get(i).is_some_and(|(_, c)| *c == '=') {
+            i += 1;
+            match chars.get(i)?.1 {
+                quote @ ('"' | '\'') => {
+                    let mut value = String::new();
+                    i += 1;
+                    while let Some(&(_, c)) = chars.get(i) {
+                        i += 1;
+                        if c == quote {
+                            break;
+                        }
+                        value.push(c);
+                    }
+                    props.push(format!("{key}: {}", serde_json::to_string(&value).ok()?));
+                }
+                '{' => {
+                    let mut depth = 0;
+                    let mut expr = String::new();
+                    let mut string: Option<char> = None;
+                    while let Some(&(_, c)) = chars.get(i) {
+                        i += 1;
+                        if let Some(q) = string {
+                            if c == q {
+                                string = None;
+                            }
+                        } else if matches!(c, '"' | '\'' | '`') {
+                            string = Some(c);
+                        } else if c == '{' {
+                            depth += 1;
+                            if depth == 1 {
+                                continue;
+                            }
+                        } else if c == '}' {
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                        expr.push(c);
+                    }
+                    props.push(format!("{key}: ({expr})"));
+                }
+                _ => return None,
+            }
+        } else {
+            props.push(format!("{key}: true"));
+        }
+    }
+}
+
+/// Finds `</Name>` matching an open tag, counting nested ones of the same
+/// name and skipping code.
+fn find_close(
+    source: &str,
+    from: usize,
+    name: &str,
+    in_code: &dyn Fn(usize) -> bool,
+) -> Option<(usize, usize)> {
+    let open = format!("<{name}");
+    let close = format!("</{name}>");
+    let mut depth = 1;
+    let mut at = from;
+    loop {
+        let next_close = source[at..].find(&close).map(|o| at + o)?;
+        let next_open = source[at..]
+            .find(&open)
+            .map(|o| at + o)
+            .filter(|&o| o < next_close);
+        if let Some(o) = next_open {
+            at = o + open.len();
+            let boundary = source[at..].starts_with(|c: char| c.is_whitespace() || c == '>');
+            if !in_code(o) && boundary {
+                depth += 1;
+            }
+            continue;
+        }
+        at = next_close + close.len();
+        if in_code(next_close) {
+            continue;
+        }
+        depth -= 1;
+        if depth == 0 {
+            return Some((next_close, at));
+        }
+    }
+}
+
+/// Byte ranges of fenced code blocks and inline code spans.
+fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut fence: Option<(usize, String)> = None;
+    let mut offset = 0;
+    for line in source.split_inclusive('\n') {
+        let trimmed = line.trim_start();
+        let marker: String = trimmed
+            .chars()
+            .take_while(|c| *c == '`' || *c == '~')
+            .collect();
+        match &fence {
+            Some((start, open)) => {
+                if marker.len() >= open.len() && marker.starts_with(&open[..1]) {
+                    ranges.push(*start..offset + line.len());
+                    fence = None;
+                }
+            }
+            None if marker.len() >= 3 => fence = Some((offset, marker)),
+            None => {
+                // Inline code spans on this line.
+                let mut i = 0;
+                let b = line.as_bytes();
+                while i < b.len() {
+                    if b[i] == b'`' {
+                        let run = b[i..].iter().take_while(|c| **c == b'`').count();
+                        let ticks = "`".repeat(run);
+                        if let Some(end) = line[i + run..].find(&ticks) {
+                            let close = i + run + end + run;
+                            ranges.push(offset + i..offset + close);
+                            i = close;
+                            continue;
+                        }
+                        i += run;
+                    } else {
+                        i += 1;
+                    }
+                }
+            }
+        }
+        offset += line.len();
+    }
+    if let Some((start, _)) = fence {
+        ranges.push(start..source.len());
+    }
+    ranges
+}
+
+fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        // An attribute stays on one line, or a blank line in it would end the
+        // HTML block before the widget's content.
+        .replace('\n', "&#10;")
+}
+
+/// Compiles a widget or helper from TSX to a browser module. Capitalized names
+/// the file uses but doesn't declare are other widgets, looked up by name when
+/// rendered.
+pub fn compile(path: &Path, source: &str, known: &[String]) -> Result<String> {
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::tsx());
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    let errors =
+        |d: &&oxc::diagnostics::OxcDiagnostic| d.severity == oxc::diagnostics::Severity::Error;
+    if let Some(error) = parsed.diagnostics.iter().find(errors) {
+        let line = error.labels.first().map(|label| {
+            source[..(label.offset() as usize).min(source.len())]
+                .matches('\n')
+                .count()
+                + 1
+        });
+        return Err(anyhow!(
+            "{}{}",
+            line.map(|l| format!("line {l}: ")).unwrap_or_default(),
+            error.message
+        ));
+    }
+    let mut program = parsed.program;
+    let semantic = SemanticBuilder::new().build(&program).semantic;
+    let scoping = semantic.into_scoping();
+    let mut used: Vec<String> = scoping
+        .root_unresolved_references()
+        .keys()
+        .map(|name| name.to_string())
+        .filter(|name| known.contains(name))
+        .collect();
+    used.sort();
+    let mut options = TransformOptions::default();
+    options.jsx.runtime = JsxRuntime::Automatic;
+    options.jsx.import_source = Some("react".into());
+    let transformed =
+        Transformer::new(&allocator, path, &options).build_with_scoping(scoping, &mut program);
+    if let Some(error) = transformed.diagnostics.iter().find(errors) {
+        return Err(anyhow!("{}", error.message));
+    }
+    let code = Codegen::new().build(&program).code;
+    let shims: String = used
+        .iter()
+        .map(|name| {
+            format!(
+                "const {name} = (props) => __devpageCreate(globalThis.__devpageWidget({name:?}), props);\n"
+            )
+        })
+        .collect();
+    let import = if shims.is_empty() {
+        String::new()
+    } else {
+        "import { createElement as __devpageCreate } from \"react\";\n".to_string()
+    };
+    Ok(format!("{import}{shims}{code}"))
+}
+
+/// The source of a system widget, by name.
+pub fn system(name: &str) -> Option<&'static str> {
+    SYSTEM.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn set(names: &[&str]) -> Widgets {
+        let mut widgets = Widgets::default();
+        for name in names {
+            widgets.modules.insert(name.to_string(), format!("/{name}"));
+        }
+        widgets
+    }
+
+    #[test]
+    fn expands_a_block_widget_with_markdown_content() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Callout kind=\"warning\">\nSome **markdown**\n</Callout>\n",
+            &set(&["Callout"]),
+            &mut problems,
+        );
+        assert!(
+            out.contains(
+                r#"<div data-widget="Callout" data-props="{&quot;kind&quot;: &quot;warning&quot;}""#
+            ),
+            "{out}"
+        );
+        assert!(out.contains("\n\nSome **markdown**\n\n</div>"), "{out}");
+        assert!(problems.is_empty());
+        let html = crate::render::markdown(&out);
+        assert!(html.contains("<strong>markdown</strong>"), "{html}");
+    }
+
+    #[test]
+    fn parses_expression_bare_and_self_closing_props() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Chart values={[3, {a: \"}\"}]} stacked title='T' />",
+            &set(&["Chart"]),
+            &mut problems,
+        );
+        assert!(out.contains(r#"data-props="{&quot;values&quot;: ([3, {a: &quot;}&quot;}]), &quot;stacked&quot;: true, &quot;title&quot;: &quot;T&quot;}""#), "{out}");
+    }
+
+    #[test]
+    fn leaves_code_alone_and_reports_unknown_tags() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "`<Callout>` and\n\n```\n<Callout>x</Callout>\n```\n\n<Nope />\n",
+            &set(&["Callout"]),
+            &mut problems,
+        );
+        assert!(!out.contains("data-widget"), "{out}");
+        assert_eq!(problems, vec!["7: <Nope> is not a widget".to_string()]);
+    }
+
+    #[test]
+    fn nests_widgets_and_keeps_inline_ones_inline() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Tabs>\n<Tab title=\"a\">\n\nPress <Keys>⌘ P</Keys>.\n\n</Tab>\n</Tabs>\n",
+            &set(&["Tabs", "Tab", "Keys"]),
+            &mut problems,
+        );
+        let html = crate::render::markdown(&out);
+        assert!(html.contains(r#"<div data-widget="Tabs""#), "{html}");
+        assert!(html.contains(r#"<div data-widget="Tab""#), "{html}");
+        assert!(
+            html.contains(
+                r#"<span data-widget="Keys" data-props="{}" data-source="⌘ P">⌘ P</span>"#
+            ),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn compiles_tsx_with_the_automatic_runtime_and_widget_shims() {
+        let js = compile(
+            Path::new("Card.tsx"),
+            "export default function Card({ n }: { n: number }) { new DOMParser(); return <Badge n={n}><b>{n}</b></Badge>; }",
+            &["Badge".to_string()],
+        )
+        .unwrap();
+        assert!(js.contains("react/jsx-runtime"), "{js}");
+        assert!(js.contains("const Badge = (props) =>"), "{js}");
+        assert!(!js.contains(": number"), "{js}");
+        assert!(!js.contains("const DOMParser"), "{js}");
+    }
+
+    #[test]
+    fn a_compile_error_names_its_line() {
+        let error =
+            compile(Path::new("Bad.tsx"), "export default 1;\nconst = ;\n", &[]).unwrap_err();
+        assert!(error.to_string().starts_with("line 2:"), "{error}");
+    }
+}

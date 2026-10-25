@@ -8,6 +8,8 @@ agent. These pages are devpage's own documentation, served by devpage.
 
 ## What devpage does
 
+<KindCards />
+
 - **Three kinds of document.** A **site** of pages with a sidebar built from
   their Topics sections; a **doc** read top to bottom, split into chapter files,
   with an outline that follows you; a deck of **slides**, one file per slide, on

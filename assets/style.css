@@ -256,3 +256,35 @@ img.broken { outline: 2px dashed #d70015; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
 @media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }
+
+/* ---- Widgets ---------------------------------------------------------- */
+.callout { display: block; margin: 1rem 0; padding: 0.75rem 1rem; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; }
+.callout-warning { border-left-color: #d29922; }
+.callout-danger { border-left-color: #cf222e; }
+.callout-tip { border-left-color: #1a7f37; }
+.callout-head { display: flex; gap: 0.5rem; align-items: center; }
+.callout-icon { font-weight: bold; }
+.callout-body > :first-child { margin-top: 0.25rem; }
+.callout-body > :last-child { margin-bottom: 0; }
+.tabs { margin: 1rem 0; border: 1px solid var(--border); border-radius: 6px; }
+.tabs-bar { display: flex; border-bottom: 1px solid var(--border); }
+.tabs-bar button { background: none; border: 0; padding: 0.5rem 1rem; color: inherit; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs-bar button.current { border-bottom-color: var(--accent); font-weight: 600; }
+.tabs-panel { padding: 0 1rem; }
+.example { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+.example figcaption { grid-column: 1 / -1; font-weight: 600; }
+.example-source { margin: 0; }
+.example-result { border: 1px solid var(--border); border-radius: 6px; padding: 0 1rem; }
+@media (max-width: 800px) { .example { grid-template-columns: 1fr; } }
+.filetree ul { list-style: none; padding-left: 1.25rem; margin: 0; }
+.filetree > ul { padding-left: 0; }
+.filetree { font-family: var(--mono, monospace); margin: 1rem 0; }
+.filetree-icon { display: inline-block; width: 1rem; color: var(--muted, gray); }
+.filetree-note { margin-left: 0.75rem; color: var(--muted, gray); font-family: var(--sans, sans-serif); }
+.terminal { margin: 1rem 0; border-radius: 8px; overflow: hidden; background: #1e1e1e; color: #e6e6e6; }
+.terminal figcaption { padding: 0.35rem 0.75rem; background: #333; font-size: 0.8rem; }
+.terminal pre { margin: 0; background: none; color: inherit; }
+.terminal-prompt { color: #7ee787; }
+kbd { display: inline-block; min-width: 1.4em; padding: 0 0.35em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; font: inherit; font-size: 0.85em; text-align: center; }
+.keys kbd + kbd { margin-left: 0.2em; }
+.widget-error { color: #cf222e; white-space: pre-wrap; }

@@ -11,6 +11,7 @@ mod pdf;
 mod render;
 mod server;
 mod watch;
+mod widgets;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;

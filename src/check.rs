@@ -163,9 +163,49 @@ fn page_links_with(
     external: &mut Vec<External>,
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
-    let html = render::markdown(&source);
+    let widgets = crate::widgets::Widgets::of(document);
+    let mut unknown = Vec::new();
+    let html = render::markdown(&crate::widgets::expand(&source, &widgets, &mut unknown));
     let file = document.url(page)[1..].to_string();
     let mut problems = Vec::new();
+    for found in unknown {
+        let (line, message) = found.split_once(": ").unwrap_or(("", &found));
+        problems.push(Problem {
+            file: file.clone(),
+            line: line.parse().ok(),
+            message: message.to_string(),
+            target: None,
+        });
+    }
+    for found in widgets.problems {
+        let (widget_file, message) = found.split_once(" — ").unwrap_or(("", &found));
+        problems.push(Problem {
+            file: widget_file.to_string(),
+            line: None,
+            message: message.to_string(),
+            target: None,
+        });
+    }
+    // A project widget that doesn't compile.
+    for url in widgets.modules.values() {
+        let url = url.split('?').next().unwrap_or_default();
+        let Some(path) = url.strip_prefix("/__devpage/widgets/") else {
+            continue;
+        };
+        let Some(widget) = document.file(path) else {
+            continue;
+        };
+        let text = std::fs::read_to_string(&widget).unwrap_or_default();
+        let names: Vec<String> = widgets.modules.keys().cloned().collect();
+        if let Err(error) = crate::widgets::compile(&widget, &text, &names) {
+            problems.push(Problem {
+                file: path.to_string(),
+                line: None,
+                message: format!("does not compile: {error}"),
+                target: None,
+            });
+        }
+    }
     let mut reached = Vec::new();
     let mut targets = attributes(&html, "href");
     targets.extend(attributes(&html, "src"));

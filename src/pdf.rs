@@ -279,6 +279,77 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
+    async fn widgets_mount_on_load_and_after_a_live_update() {
+        let dir = std::env::temp_dir().join(format!("devpage-widgets-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: W\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/Pair.tsx"),
+            "import { useState } from \"react\";\nexport default function Pair() { const [n] = useState(2); return <div className=\"pair\">{[...Array(n)].map((_, i) => <Callout title={String(i)}>x</Callout>)}</div>; }\n",
+        )
+        .unwrap();
+        let page_file = dir.join("docs/README.md");
+        std::fs::write(
+            &page_file,
+            "# W\n\n<Callout kind=\"warning\">\nSome **markdown**\n</Callout>\n\n<Pair />\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let profile = Profile::new();
+        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
+            .await
+            .unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}/docs/README.md").as_str())
+            .await
+            .unwrap();
+        let count = |page: chromiumoxide::Page| async move {
+            let value: String = page
+                .evaluate("document.documentElement.dataset.ready + ':' + document.querySelectorAll('aside.callout').length + ':' + !!document.querySelector('.callout-warning strong')")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            value
+        };
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        assert_eq!(count(page.clone()).await, "true:3:true");
+        std::fs::write(
+            &page_file,
+            "# W\n\n<Callout>one</Callout>\n\n<Callout>two</Callout>\n\n<Pair />\n",
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(count(page.clone()).await, "true:4:false");
+        // An edited widget is fetched again on the next live update.
+        std::fs::write(
+            dir.join("docs/widgets/Pair.tsx"),
+            "export default function Pair() { return <div className=\"pair\"><Callout>only</Callout></div>; }\n",
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(count(page.clone()).await, "true:3:false");
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
