@@ -7,7 +7,6 @@ RUN cargo install devpage --version 0.1.0 --locked
 FROM debian:bookworm-slim
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY docs /srv/docs
-COPY examples /srv/examples
 COPY LICENSE /srv/LICENSE
 WORKDIR /srv
 EXPOSE 3030

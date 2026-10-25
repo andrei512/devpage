@@ -8,8 +8,9 @@ navbar:
   Docs (book-open): README.md
   Getting started (rocket): getting-started.md
   Examples (layout-grid):
-    Sync design (file-text): ../examples/sync-design/devpage.yml
-    Launch talk (presentation): ../examples/launch-talk/devpage.yml
+    Site — these docs (book-open): README.md
+    Doc — feature catalog (file-text): features/devpage.yml
+    Slides — the devpage talk (presentation): talks/devpage/devpage.yml
   (github): https://github.com/andrei512/devpage
 watch:
   - "**/*.md"

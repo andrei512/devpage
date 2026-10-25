@@ -46,8 +46,8 @@ proves; a capability with no row isn't on the deck yet.
 | 8 | Your own widgets | project widgets in TSX | `FileTree` of `docs/widgets/`, the component's source |
 | 9 | Comments, with agents | comment, tell the agent, resolved | a diagram of the loop, the thread file |
 | 10 | Checked links | the problems bar, `devpage check` | `Terminal` with real output |
-| 11 | Paper | `devpage pdf` matches the screen | a page of this deck's PDF |
-| 12 | Navigation | navbar, sidebar, light and dark | the navbar, the theme switch |
+| 11 | Paper | `devpage pdf` matches the screen | `Terminal` with the real command, and the pages it prints, drawn |
+| 12 | Navigation | navbar, sidebar, light and dark | the site's frame drawn in light and dark: navbar, open menu, theme switch, sidebar |
 | 13 | Deployed | behind your auth proxy | a diagram of proxy → devpage → volume |
 | 14 | Start | `cargo install devpage` | `Terminal` |
 

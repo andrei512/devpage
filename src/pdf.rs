@@ -220,9 +220,10 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
-    async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
+    async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
+        let document =
+            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
         let Kind::Doc { pdf, .. } = &document.kind else {
             panic!()
         };
@@ -257,9 +258,9 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
-    async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
+    async fn the_talk_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
+        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
         let Kind::Slides { slides } = &document.kind else {
             panic!()
         };
@@ -352,7 +353,11 @@ mod tests {
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
+        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
+        let Kind::Slides { slides } = &document.kind else {
+            panic!()
+        };
+        let last = format!("{0}#{0}", slides.len());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -388,17 +393,17 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         // ⌘← is the browser's, not the deck's.
         page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', metaKey: true}))")
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         // A live update swaps the deck in place and stays on the slide shown.
         page.evaluate("load(location.href)").await.unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         browser.close().await.ok();
         events.abort();
     }
@@ -409,7 +414,8 @@ mod tests {
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
+        let document =
+            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
