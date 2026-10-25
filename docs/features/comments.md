@@ -1,6 +1,7 @@
 # Comments
 
-Select text or hover a paragraph to comment. Each thread is a file in a
+Turn on comment mode with the speech-bubble button by the theme toggle, then
+select text or hover a paragraph to comment. Each thread is a file in a
 `.devpage/` folder git ignores, so an agent can read it and resolve it by
 deleting the file.
 

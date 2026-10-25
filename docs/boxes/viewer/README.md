@@ -95,7 +95,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 | **entry** | One page in a sidebar tree, labelled with its Topics link's text. |
 | **group** | A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar. |
 | **live update** | An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed. |
-| **comment** | A thread a reader starts on selected text or on a paragraph: the first message and its replies, one level deep. Stored in the comment store; resolving deletes it. |
+| **comment mode** | The switch beside the theme toggle that turns commenting on: while it is on, selecting text or hovering a paragraph offers a comment. Off until the reader turns it on; the browser remembers it. |
+| **comment** | A thread a reader starts, in comment mode, on selected text or on a paragraph: the first message and its replies, one level deep. Stored in the comment store; resolving deletes it. |
 | **anchor** | What a comment is attached to: the quoted text, with a little of the text before and after it to tell repeats apart. |
 | **detached comment** | A comment whose quoted text is no longer on its page. It stays readable, listed at the top of the page, until it is resolved. |
 | **comment store** | `.devpage/comments/` at the top of the served folder: one YAML file per thread. Git never sees it — `.devpage/` ignores itself. |
@@ -137,6 +138,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [Writing a document](writing-a-document/README.md) — the three kinds, the
   document file, the served folder, links between pages and documents, and the
   Markdown that works.
+- [Making a site](making-a-site/README.md) — a site's document file, root page,
+  sidebar, navbar, logo and theme switch.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the

@@ -438,7 +438,7 @@ mod tests {
                 page.goto(url.as_str()).await.unwrap();
                 tokio::time::sleep(Duration::from_millis(300)).await;
                 let value: String = page
-                    .evaluate("(() => { const n = document.getElementById('nav').getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); return n.bottom <= a.top ? 'above' : n.right <= a.left ? 'beside' : 'overlap'; })()")
+                    .evaluate("(() => { const n = document.getElementById('devpage-nav').getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); return n.bottom <= a.top ? 'above' : n.right <= a.left ? 'beside' : 'overlap'; })()")
                     .await
                     .unwrap()
                     .into_value()
@@ -762,7 +762,7 @@ mod tests {
                 errors: document.querySelectorAll('.widget-error').length,
                 highlighted: document.querySelectorAll('.example-source [class^="hl-"], .example-source [class*=" hl-"]').length > 0,
                 scrolls: [...document.querySelectorAll('.example-source, .terminal pre')].map(p => p.scrollWidth > p.clientWidth && p.clientWidth > 0).join(','),
-                pageFits: document.documentElement.scrollWidth <= innerWidth || document.documentElement.scrollWidth + ':' + innerWidth + ':' + [...document.querySelectorAll('#page *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1 && !e.closest('.example-source, .terminal pre')).slice(0, 5).map(e => e.tagName + '.' + e.className).join(' '),
+                pageFits: document.documentElement.scrollWidth <= innerWidth || document.documentElement.scrollWidth + ':' + innerWidth + ':' + [...document.querySelectorAll('#devpage-page *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1 && !e.closest('.example-source, .terminal pre')).slice(0, 5).map(e => e.tagName + '.' + e.className).join(' '),
                 note: [...document.querySelectorAll('.filetree-note')].map(n => n.innerHTML).find(h => h.includes('code')) ?? '',
                 tasks: [...document.querySelectorAll('li')].filter(li => li.querySelector('input[type=checkbox]')).map(li => getComputedStyle(li).listStyleType).join(','),
                 keysLine: [...document.querySelectorAll('p .keys')].filter(k => k.closest('p').textContent.includes('starts a line')).length + '|' + [...document.querySelectorAll('p strong')].some(s => s.textContent === 'stays bold'),
@@ -802,7 +802,7 @@ mod tests {
         .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(
-            text(&page, "[...document.querySelectorAll('.example-source, .terminal pre')].map(p => p.scrollWidth > p.clientWidth && getComputedStyle(p).overflowX === 'auto').join(',') + '|' + (document.documentElement.scrollWidth <= innerWidth) + '|' + [...document.querySelectorAll('.example')].every(e => e.getBoundingClientRect().right <= document.querySelector('#page').getBoundingClientRect().right + 1)").await,
+            text(&page, "[...document.querySelectorAll('.example-source, .terminal pre')].map(p => p.scrollWidth > p.clientWidth && getComputedStyle(p).overflowX === 'auto').join(',') + '|' + (document.documentElement.scrollWidth <= innerWidth) + '|' + [...document.querySelectorAll('.example')].every(e => e.getBoundingClientRect().right <= document.querySelector('#devpage-page').getBoundingClientRect().right + 1)").await,
             "false,false,true,true|true|true"
         );
         // Clicking the second tab shows it.

@@ -25,7 +25,7 @@ sequenceDiagram
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (no-store)
   Server-->>Page: fresh HTML
-  Page->>Page: replace #page and #nav, mount widgets
+  Page->>Page: replace page, sidebar and navbar, mount widgets
 ```
 
 ## The watcher
@@ -91,8 +91,8 @@ that something changed. The stream sends a keep-alive every 15 seconds.
 
 **Swapping a page in place.** `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML, replaces the children of `#page`, `#nav` and
-`#navbar` with the fresh ones — so the navbar's highlight follows the page — sets the document title, takes the fresh page's
+otherwise it parses the HTML, replaces the children of `#devpage-page`, `#devpage-nav` and
+`#devpage-navbar` with the fresh ones — so the navbar's highlight follows the page — sets the document title, takes the fresh page's
 `window.devpageWidgets` — so widgets edited since are fetched at their new
 versions — and mounts the new content's widgets, its Mermaid diagrams included.
 The rest of the page — the scripts, the event stream, the scroll position —

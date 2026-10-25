@@ -26,14 +26,40 @@ fn options() -> Options<'static> {
     options
 }
 
+/// The ids of devpage's own frame — the page, the sidebar, the navbar, the
+/// theme corner and the comments — used by `assets/style.css` and
+/// `assets/devpage.js`. They all start with `devpage-`, so a heading's id,
+/// taken from its text, matches one only if the heading spells it out; such a
+/// heading's id gets `-heading` added, so a frame id is never a heading's.
+pub const FRAME_IDS: [&str; 7] = [
+    "devpage-page",
+    "devpage-nav",
+    "devpage-navbar",
+    "devpage-corner",
+    "devpage-comments",
+    "devpage-comments-toggle",
+    "devpage-comment-mode",
+];
+
 /// Renders Markdown to HTML, highlighting fenced code (see `highlight`).
 pub fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
     // A wide table scrolls inside its own box rather than widening the page.
-    markdown_to_html_with_plugins(source, &options(), &plugins)
+    let mut html = markdown_to_html_with_plugins(source, &options(), &plugins)
         .replace("<table>", "<div class=\"table-scroll\"><table>")
-        .replace("</table>", "</table></div>")
+        .replace("</table>", "</table></div>");
+    for id in FRAME_IDS {
+        if html.contains(&format!("id=\"{id}\"")) {
+            html = html
+                .replace(&format!("id=\"{id}\""), &format!("id=\"{id}-heading\""))
+                .replace(
+                    &format!("href=\"#{id}\""),
+                    &format!("href=\"#{id}-heading\""),
+                );
+        }
+    }
+    html
 }
 
 /// Renders a page of `document`'s Markdown, its widget tags expanded first.
@@ -73,7 +99,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 </head>
 <body class="{body_class}">
 {navbar}{sidebar}{corner}
-<main id="page">{problems}<article data-source="{current}">{content}</article></main>
+<main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
@@ -148,7 +174,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         String::new()
     } else {
         format!(
-            "<nav id=\"nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
+            "<nav id=\"devpage-nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
             crate::navbar::logo(document),
             escape(&document.title)
         )
@@ -167,7 +193,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 </head>
 <body class="doc{print_class}">
 {corner}{outline}
-<main id="page">{problems}<article>{heading}{content}</article></main>
+<main id="devpage-page">{problems}<article>{heading}{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
@@ -315,7 +341,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 <link rel="stylesheet" href="/__devpage/style.css">
 </head>
 <body class="invalid">
-<main id="page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
+<main id="devpage-page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
@@ -373,7 +399,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
-{corner}<main id="page" class="deck">{problems}{content}</main>
+{corner}<main id="devpage-page" class="deck">{problems}{content}</main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
@@ -471,7 +497,7 @@ fn sidebar(document: &Document, current: &str) -> String {
         String::new()
     };
     format!(
-        "<nav id=\"nav\">\n{title}{}\n</nav>",
+        "<nav id=\"devpage-nav\">\n{title}{}\n</nav>",
         navigation(document, current)
     )
 }
@@ -549,6 +575,34 @@ mod tests {
         let html = markdown("```nosuchlang\na < b\n```\n");
         assert!(html.contains("<pre><code>a &lt; b"), "{html}");
         assert!(!html.contains("hl-"));
+    }
+
+    #[test]
+    fn headings_never_take_an_id_the_frame_uses() {
+        // Every heading named like a part of devpage's own frame stays an
+        // ordinary heading: its id can't be the frame's, so no frame style or
+        // script ever lands on it.
+        let headings: String = ["Comments", "Nav", "Page", "Navbar", "Theme corner"]
+            .iter()
+            .chain(
+                FRAME_IDS
+                    .iter()
+                    .map(|id| &id[..])
+                    .collect::<Vec<_>>()
+                    .iter(),
+            )
+            .map(|name| format!("# {}\n\n", name.replace('-', " ")))
+            .collect();
+        let html = markdown(&headings);
+        for id in FRAME_IDS {
+            assert!(!html.contains(&format!("id=\"{id}\"")), "{id} in {html}");
+        }
+        assert!(html.contains("<h1 id=\"comments\">"), "{html}");
+        assert!(html.contains("id=\"devpage-comments-heading\""), "{html}");
+        assert!(
+            html.contains("href=\"#devpage-comments-heading\""),
+            "{html}"
+        );
     }
 
     #[test]

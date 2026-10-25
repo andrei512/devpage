@@ -2,7 +2,7 @@
 
 ```mermaid
 flowchart LR
-  you["You comment"] --> file["A thread file"]
+  you["You comment<br/>comment mode on"] --> file["A thread file"]
   file --> agent["The agent reads it"]
   agent --> docs["…edits the docs"]
   docs --> done["…deletes the thread"]

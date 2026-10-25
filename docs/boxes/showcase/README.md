@@ -44,7 +44,7 @@ proves; a capability with no row isn't on the deck yet.
 | 6 | Diagrams are navigation | clickable Mermaid | a clickable diagram |
 | 7 | Widgets | React components in Markdown | `Example` of a widget, `Tabs` |
 | 8 | Your own widgets | project widgets in TSX | `FileTree` of `docs/widgets/`, the component's source |
-| 9 | Comments, with agents | comment, tell the agent, resolved | a diagram of the loop, the thread file |
+| 9 | Comments, with agents | comment mode on, comment, tell the agent, resolved | a diagram of the loop, the thread file |
 | 10 | Checked links | the problems bar, `devpage check` | `Terminal` with real output |
 | 11 | Paper | `devpage pdf` matches the screen | `Terminal` with the real command, and the pages it prints, drawn |
 | 12 | Navigation | navbar, sidebar, light and dark | the site's frame drawn in light and dark: navbar, open menu, theme switch, sidebar |

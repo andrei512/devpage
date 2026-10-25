@@ -109,6 +109,6 @@ built the same way: every matching entry gets `class="current"` — more than on
 when a page is listed twice. The document-title link above the tree (class
 `document-title`) gets `current` when the page is the root page.
 
-The sidebar is part of every page's HTML, inside `<nav id="nav">`, so a
+The sidebar is part of every page's HTML, inside `<nav id="devpage-nav">`, so a
 [live update](../live-updates/README.md) or an in-place link swaps it together
 with the content.
