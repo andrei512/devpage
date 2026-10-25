@@ -5,8 +5,10 @@
 //! Markdown. In the browser the page script loads React and the widgets,
 //! compiled here from TSX by oxc, and mounts each placeholder.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use anyhow::{Result, anyhow};
 use oxc::allocator::Allocator;
@@ -29,6 +31,10 @@ pub const SYSTEM: &[(&str, &str)] = &[
     ("Tabs", include_str!("../assets/widgets/Tabs.tsx")),
     ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
 ];
+
+/// System widgets that show their own source: they also get it highlighted
+/// as Markdown, as the `sourceHtml` prop.
+const SHOWS_SOURCE: &[&str] = &["Example"];
 
 /// The widgets a document's pages can use: name → the address its module is
 /// served at.
@@ -56,6 +62,10 @@ impl Widgets {
         let Ok(entries) = std::fs::read_dir(folder) else {
             return widgets;
         };
+        // One version for the whole folder, in every widget's address: an
+        // edited widget or helper is fetched again rather than taken from the
+        // browser's module cache, and so is every widget that imports it.
+        let version = version(folder);
         let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
         files.sort();
         for file in files {
@@ -79,13 +89,6 @@ impl Widgets {
                 ));
                 continue;
             }
-            // The file's change time in the address, so an edited widget is
-            // fetched again rather than taken from the browser's module cache.
-            let version = std::fs::metadata(&file)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_millis());
             widgets
                 .modules
                 .insert(name, format!("/__devpage/widgets{url}?v={version}"));
@@ -102,6 +105,41 @@ impl Widgets {
 <script>window.devpageWidgets = {modules};</script>"#
         )
     }
+}
+
+/// A widgets folder's version: the latest change time of the folder and of the
+/// `.ts` and `.tsx` files in it, in milliseconds.
+pub fn version(folder: &Path) -> u128 {
+    let changed = |path: &Path| {
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_millis())
+    };
+    let files = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.extension()
+                .is_some_and(|ext| ext == "ts" || ext == "tsx")
+        });
+    files
+        .map(|path| changed(&path))
+        .chain([changed(folder)])
+        .max()
+        .unwrap_or(0)
+}
+
+/// Whether `path` is a widget or helper file: a `.ts` or `.tsx` directly in a
+/// widgets folder.
+pub fn is_widget_file(path: &Path, folder: &Path) -> bool {
+    path.parent() == Some(folder)
+        && path
+            .extension()
+            .is_some_and(|ext| ext == "ts" || ext == "tsx")
 }
 
 /// Replaces the tags of known widgets in Markdown with placeholder elements,
@@ -131,11 +169,6 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
             out.push('<');
             continue;
         }
-        let block = source[..start]
-            .rsplit('\n')
-            .next()
-            .is_some_and(|before| before.trim().is_empty());
-        let element = if block { "div" } else { "span" };
         let props = escape(&tag.props);
         let after_open = start + tag.len;
         let (inner, end) = if tag.self_closing {
@@ -146,8 +179,32 @@ pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> St
                 None => ("", after_open),
             }
         };
+        // A widget is a block when it has its lines to itself: nothing before
+        // its open tag and nothing after its close tag. Anywhere else it is
+        // inline, part of a paragraph.
+        let starts_line = source[..start]
+            .rsplit('\n')
+            .next()
+            .is_some_and(|before| before.trim().is_empty());
+        let ends_line = source[end..]
+            .split('\n')
+            .next()
+            .is_some_and(|after| after.trim().is_empty());
+        let block = starts_line && ends_line;
+        let element = if block { "div" } else { "span" };
+        let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
+            format!(
+                r#" data-source-html="{}""#,
+                escape(&crate::highlight::highlight(
+                    "markdown",
+                    inner.trim_matches('\n')
+                ))
+            )
+        } else {
+            String::new()
+        };
         let open = format!(
-            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}">"#,
+            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}"{source_html}>"#,
             name = tag.name,
             src = escape(inner.trim_matches('\n')),
         );
@@ -370,10 +427,51 @@ fn escape(text: &str) -> String {
         .replace('\n', "&#10;")
 }
 
+/// Compiled modules, by a hash of what went into them, so a widget is compiled
+/// once per change rather than once per request.
+static COMPILED: Mutex<Option<HashMap<u64, Result<String, String>>>> = Mutex::new(None);
+
+/// [`compile`], remembered: the same file, source, widget names and version
+/// compile once.
+pub fn compile_cached(
+    path: &Path,
+    source: &str,
+    known: &[String],
+    version: Option<u128>,
+) -> Result<String> {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (path, source, known, version).hash(&mut hasher);
+    let key = hasher.finish();
+    if let Some(found) = COMPILED
+        .lock()
+        .ok()
+        .and_then(|cache| cache.as_ref().and_then(|c| c.get(&key).cloned()))
+    {
+        return found.map_err(|e| anyhow!(e));
+    }
+    let result = compile(path, source, known, version).map_err(|e| e.to_string());
+    if let Ok(mut cache) = COMPILED.lock() {
+        let cache = cache.get_or_insert_with(HashMap::new);
+        // A long session edits many versions; start over rather than grow.
+        if cache.len() > 512 {
+            cache.clear();
+        }
+        cache.insert(key, result.clone());
+    }
+    result.map_err(|e| anyhow!(e))
+}
+
 /// Compiles a widget or helper from TSX to a browser module. Capitalized names
 /// the file uses but doesn't declare are other widgets, looked up by name when
-/// rendered.
-pub fn compile(path: &Path, source: &str, known: &[String]) -> Result<String> {
+/// rendered; the module lists them in `__devpageUses`, so the page loads them
+/// first. A relative import carries `version`, so an edited helper is fetched
+/// again.
+pub fn compile(
+    path: &Path,
+    source: &str,
+    known: &[String],
+    version: Option<u128>,
+) -> Result<String> {
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::tsx());
     let parsed = Parser::new(&allocator, source, source_type).parse();
@@ -393,6 +491,9 @@ pub fn compile(path: &Path, source: &str, known: &[String]) -> Result<String> {
         ));
     }
     let mut program = parsed.program;
+    if let Some(version) = version {
+        version_imports(&allocator, &mut program, version);
+    }
     let semantic = SemanticBuilder::new().build(&program).semantic;
     let scoping = semantic.into_scoping();
     let mut used: Vec<String> = scoping
@@ -424,7 +525,37 @@ pub fn compile(path: &Path, source: &str, known: &[String]) -> Result<String> {
     } else {
         "import { createElement as __devpageCreate } from \"react\";\n".to_string()
     };
-    Ok(format!("{import}{shims}{code}"))
+    let uses = serde_json::to_string(&used).unwrap_or_else(|_| "[]".into());
+    Ok(format!(
+        "{import}{shims}{code}\nexport const __devpageUses = {uses};\n"
+    ))
+}
+
+/// Adds `?v=<version>` to every relative import and re-export.
+fn version_imports<'a>(
+    allocator: &'a Allocator,
+    program: &mut oxc::ast::ast::Program<'a>,
+    version: u128,
+) {
+    use oxc::ast::ast::Statement;
+    let versioned = |value: &str| -> Option<&'a str> {
+        (value.starts_with("./") || value.starts_with("../"))
+            .then(|| allocator.alloc_str(&format!("{value}?v={version}")) as &str)
+    };
+    for statement in program.body.iter_mut() {
+        let source = match statement {
+            Statement::ImportDeclaration(decl) => Some(&mut decl.source),
+            Statement::ExportAllDeclaration(decl) => Some(&mut decl.source),
+            Statement::ExportFromDeclaration(decl) => Some(&mut decl.source),
+            _ => None,
+        };
+        if let Some(source) = source
+            && let Some(value) = versioned(source.value.as_str())
+        {
+            source.value = value.into();
+            source.raw = None;
+        }
+    }
 }
 
 /// The source of a system widget, by name.
@@ -512,6 +643,7 @@ mod tests {
             Path::new("Card.tsx"),
             "export default function Card({ n }: { n: number }) { new DOMParser(); return <Badge n={n}><b>{n}</b></Badge>; }",
             &["Badge".to_string()],
+            None,
         )
         .unwrap();
         assert!(js.contains("react/jsx-runtime"), "{js}");
@@ -522,8 +654,125 @@ mod tests {
 
     #[test]
     fn a_compile_error_names_its_line() {
-        let error =
-            compile(Path::new("Bad.tsx"), "export default 1;\nconst = ;\n", &[]).unwrap_err();
+        let error = compile(
+            Path::new("Bad.tsx"),
+            "export default 1;\nconst = ;\n",
+            &[],
+            None,
+        )
+        .unwrap_err();
         assert!(error.to_string().starts_with("line 2:"), "{error}");
+    }
+
+    #[test]
+    fn a_module_lists_the_widgets_it_renders_and_versions_its_relative_imports() {
+        let js = compile(
+            Path::new("Card.tsx"),
+            "import { label } from \"./label\";\nexport { tone } from \"./tone\";\nimport React from \"react\";\nexport default function Card() { return <Badge>{label}</Badge>; }",
+            &["Badge".to_string()],
+            Some(42),
+        )
+        .unwrap();
+        assert!(js.contains("\"./label?v=42\""), "{js}");
+        assert!(js.contains("\"./tone?v=42\""), "{js}");
+        assert!(
+            js.contains("from \"react\""),
+            "a package import is left alone: {js}"
+        );
+        assert!(
+            js.contains("export const __devpageUses = [\"Badge\"];"),
+            "{js}"
+        );
+    }
+
+    #[test]
+    fn compiling_is_remembered_until_the_source_or_version_changes() {
+        let path = Path::new("Same.tsx");
+        let first = compile_cached(path, "export default () => <b>1</b>;", &[], Some(1)).unwrap();
+        let again = compile_cached(path, "export default () => <b>1</b>;", &[], Some(1)).unwrap();
+        assert_eq!(first, again);
+        let edited = compile_cached(path, "export default () => <b>2</b>;", &[], Some(1)).unwrap();
+        assert!(edited.contains('2'), "{edited}");
+        let error = compile_cached(path, "export default (", &[], Some(2)).unwrap_err();
+        assert!(!error.to_string().is_empty());
+    }
+
+    #[test]
+    fn a_folders_version_moves_when_a_helper_changes() {
+        let dir = std::env::temp_dir().join(format!("devpage-wversion-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Card.tsx"), "export default () => null;").unwrap();
+        std::fs::write(dir.join("label.ts"), "export const label = 1;").unwrap();
+        let before = version(&dir);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("label.ts"), "export const label = 2;").unwrap();
+        assert!(version(&dir) > before);
+        assert!(is_widget_file(&dir.join("label.ts"), &dir));
+        assert!(!is_widget_file(&dir.join("notes.md"), &dir));
+    }
+
+    #[test]
+    fn lowercase_files_are_helpers_and_a_system_name_is_a_problem() {
+        let dir = std::env::temp_dir().join(format!("devpage-wset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# T\n").unwrap();
+        std::fs::write(dir.join("widgets/Card.tsx"), "export default () => null;").unwrap();
+        std::fs::write(dir.join("widgets/cards.tsx"), "export const x = 1;").unwrap();
+        std::fs::write(
+            dir.join("widgets/Callout.tsx"),
+            "export default () => null;",
+        )
+        .unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let document = Document::load(&dir, &dir).unwrap();
+        let widgets = Widgets::of(&document);
+        assert!(widgets.modules.contains_key("Card"));
+        assert!(!widgets.modules.contains_key("cards"));
+        assert!(widgets.modules["Callout"].starts_with("/__devpage/system-widgets/"));
+        assert_eq!(
+            widgets.problems,
+            vec!["widgets/Callout.tsx — Callout is a system widget's name".to_string()]
+        );
+        let v = version(&dir.join("widgets"));
+        assert!(
+            widgets.modules["Card"].ends_with(&format!("?v={v}")),
+            "{:?}",
+            widgets.modules
+        );
+    }
+
+    #[test]
+    fn an_inline_widget_at_the_start_of_a_line_stays_in_its_paragraph() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Keys>⌘ P</Keys> to **print**, then <Keys>⏎</Keys>.\n",
+            &set(&["Keys"]),
+            &mut problems,
+        );
+        let html = crate::render::markdown(&out);
+        assert!(html.starts_with("<p><span data-widget=\"Keys\""), "{html}");
+        assert!(html.contains("<strong>print</strong>"), "{html}");
+        assert_eq!(html.matches("data-widget=\"Keys\"").count(), 2, "{html}");
+    }
+
+    #[test]
+    fn an_example_gets_its_source_highlighted() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "<Example>\nA **word**\n</Example>\n",
+            &set(&["Example"]),
+            &mut problems,
+        );
+        assert!(out.contains("data-source-html=\""), "{out}");
+        assert!(out.contains("hl-"), "{out}");
+        let callout = expand("<Callout>x</Callout>\n", &set(&["Callout"]), &mut problems);
+        assert!(!callout.contains("data-source-html"), "{callout}");
     }
 }

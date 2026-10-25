@@ -166,6 +166,9 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [The vendored pele bundle](vendored-pele/README.md) — the third-party
   diagram renderer built into devpage: its source, version, licences and how
   to upgrade it.
+- [The vendored React bundle](vendored-react/README.md) — the React that
+  widgets run with: its version, how it is built, its licence and how to
+  upgrade it.
 
 ### Reference
 

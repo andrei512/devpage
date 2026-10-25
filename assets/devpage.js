@@ -23,13 +23,15 @@ globalThis.__devpageWidget = (name) => widgetModules[name]?.default ?? (() => { 
 const widgetUrls = {};
 
 // Loads a widget's module, again when its address changed — an edited widget
-// carries a new version — and puts its exported CSS in the page once.
+// or helper gives the folder a new version — puts its exported CSS in the page
+// once, and loads the widgets it renders by name, which it lists.
 async function loadWidget(name) {
   const url = (window.devpageWidgets || {})[name];
   if (!url) throw new Error(`<${name}> is not a widget`);
   if (widgetUrls[name] !== url) {
     widgetModules[name] = await import(url);
     widgetUrls[name] = url;
+    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used).catch(() => null)));
     document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
     const css = widgetModules[name].css;
     if (css) {
@@ -54,9 +56,10 @@ async function mountWidgets(root) {
   if (!placeholders.length) return;
   const React = await import("react");
   const { createRoot } = await import("react-dom/client");
-  // Every widget a placeholder names, nested ones included, and every one the
-  // document has — a widget may render any of them by name.
-  await Promise.all(Object.keys(window.devpageWidgets || {}).map((name) => loadWidget(name).catch(() => null)));
+  // Only the widgets this content names, nested ones included, and those they
+  // render by name.
+  const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
+  await Promise.all([...names].map((name) => loadWidget(name).catch(() => null)));
 
   class Boundary extends React.Component {
     constructor(props) { super(props); this.state = { error: null }; }
@@ -108,7 +111,7 @@ async function mountWidgets(root) {
     if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}> could not be loaded`);
     // Nested widgets are plain elements, so a parent reads their props — a
     // Tabs reads each Tab's title; the outermost one catches what they throw.
-    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", html: node.innerHTML, children: children.length ? children : undefined });
+    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
   };
 
   await Promise.all(placeholders.map((el) => new Promise((resolve) => {

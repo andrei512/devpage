@@ -197,7 +197,8 @@ fn page_links_with(
         };
         let text = std::fs::read_to_string(&widget).unwrap_or_default();
         let names: Vec<String> = widgets.modules.keys().cloned().collect();
-        if let Err(error) = crate::widgets::compile(&widget, &text, &names) {
+        let version = widget.parent().map(crate::widgets::version);
+        if let Err(error) = crate::widgets::compile_cached(&widget, &text, &names, version) {
             problems.push(Problem {
                 file: path.to_string(),
                 line: None,
@@ -730,6 +731,53 @@ mod external {
         let hits = web.hits.lock().unwrap();
         assert_eq!(hits.get("/missing"), Some(&1));
         assert_eq!(hits.get("/ok"), Some(&1));
+    }
+    #[tokio::test]
+    async fn widget_problems_are_reported_by_check() {
+        let doc = folder(
+            "widget-problems",
+            "# Home\n\n<Nope />\n\n<Callout>fine</Callout>\n",
+        );
+        std::fs::create_dir_all(doc.base.join("widgets")).unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("widgets/Callout.tsx"),
+            "export default () => null;",
+        )
+        .unwrap();
+        std::fs::write(doc.base.join("widgets/Broken.tsx"), "export default (").unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            found
+                .iter()
+                .any(|p| p == "README.md:3: <Nope> is not a widget"),
+            "{found:#?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("widgets/Callout.tsx") && p.contains("system widget's name")),
+            "{found:#?}"
+        );
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("widgets/Broken.tsx") && p.contains("does not compile")),
+            "{found:#?}"
+        );
+        assert!(
+            !found.iter().any(|p| p.contains("<Callout> is not")),
+            "{found:#?}"
+        );
     }
 }
 

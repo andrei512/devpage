@@ -43,6 +43,10 @@ doc's chapter or a slide.
   show their source or read the structure of their content.
 - **Self-closing.** A widget without content can close itself: `<Keys>⌘ P</Keys>`
   has content, `<KindCards />` has none.
+- **Block or inline.** A widget that has its lines to itself — nothing before
+  its open tag, nothing after its close tag — is a block. Anywhere else it is
+  part of the paragraph around it, at the start of a line included:
+  `<Keys>⌘ P</Keys> prints the **doc**.` stays one paragraph, bold and all.
 
 Tag names are matched exactly, and only names of known widgets are widgets: a
 capitalized tag that names no widget is a [problem](#when-a-widget-fails), and
@@ -57,9 +61,9 @@ devpage ships these, in every document:
 | `Callout` | `kind`: `note` (default), `tip`, `warning` or `danger`; `title` (optional) | Markdown | A highlighted box with a colored edge, an icon for its kind and an optional title. |
 | `Tabs` | — | `Tab` widgets | Tabs, the first one open; clicking a tab's title shows it. Printed, only the open tab shows. |
 | `Tab` | `title` | Markdown | One tab of a `Tabs`. Outside a `Tabs` it is a problem. |
-| `Example` | `title` (optional) | Markdown | The Markdown source, highlighted, beside — or, on a narrow page, above — what it renders to. |
-| `FileTree` | — | A Markdown list, nested for folders | A folder tree with file and folder icons. A list item's link makes its entry a link; text after the name is shown as a note beside it. |
-| `Terminal` | `title` (optional) | Text in a code block | A terminal window. Lines starting with `$ ` are commands, shown with a prompt; the rest is output. |
+| `Example` | `title` (optional) | Markdown | The Markdown source, highlighted, beside — or, on a narrow page, above — what it renders to. A long source line scrolls inside its box; on paper it wraps. |
+| `FileTree` | — | A Markdown list, nested for folders | A folder tree with file and folder icons. A list item's link makes its entry a link; text after the name and ` — ` is shown as a note beside it, with its inline Markdown — code, emphasis, links — kept. |
+| `Terminal` | `title` (optional) | Text in a code block | A terminal window. Lines starting with `$ ` are commands, shown with a prompt; the rest is output. A long line scrolls on screen and wraps on paper. |
 | `Keys` | — | Key names separated by spaces | Each key as a keycap, inline in the text: `<Keys>⌘ P</Keys>`. |
 | `Diagram` | — | Mermaid text | The diagram, drawn by pele. Every `mermaid` fence is rendered through it; the tag itself is rarely written. |
 
@@ -176,12 +180,48 @@ renders:
 
 ## Under the hood
 
-When devpage renders a page, it finds the tags of known widgets in the
-Markdown, parses their props, and renders their content as Markdown. Each
-widget becomes a placeholder element carrying its name, its props' source and
-its rendered content. In the browser, the page script loads React — vendored
-into devpage, like pele — and the page's widgets, compiled from TSX by `oxc`
-and served under `/__devpage/widgets/`, then mounts each placeholder: on page
-load, and again after every live update. The system widgets are `.tsx` files in
-devpage's own `assets/widgets/`, compiled the same way and built into the
-binary.
+**On the server** (`src/widgets.rs`), rendering a page finds the tags of known
+widgets in its Markdown — skipping fenced and inline code — and turns each into
+a placeholder: a `div` for a block widget, a `span` for an inline one, so an
+inline widget never breaks its paragraph. The placeholder carries the widget's
+name, its props as a JavaScript object literal (quoted values as strings, `{…}`
+as written, bare attributes as `true`) and its Markdown source — and, for
+`Example`, that source highlighted as Markdown by the same highlighter fenced
+code uses, which reaches it as the `sourceHtml` prop. Its content stays between
+the tags for comrak to render as Markdown. The page's `<head>` gets an import map
+naming React, and the list of the document's widgets with the address of each.
+
+**Compiling.** A widget or helper is compiled from TSX by `oxc` when the
+browser asks for it, with React's automatic JSX runtime. Capitalized names a
+widget uses without declaring them are other widgets: the compiled module looks
+each up by name when it renders, and lists them in `__devpageUses`. A system
+widget composes only system widgets; a project widget composes the system
+widgets and those of the document whose widgets folder holds it. Every project
+widget's address carries its folder's **version** — the latest change time of
+the folder and its `.ts` and `.tsx` files — and so does every relative import
+inside it, so an edited widget or helper is fetched afresh rather than taken
+from the browser's module cache. Compiled modules are remembered, keyed by the
+file, its source, the names it can use and the version, so a widget compiles
+once per change, not once per request. A file that doesn't compile is served as
+a module that throws the compiler's message.
+
+| Address | What it serves |
+| --- | --- |
+| `/__devpage/react.js` | React and react-dom, [vendored](../vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
+| `/__devpage/system-widgets/<Name>.tsx` | A system widget, compiled from `assets/widgets/`, built into the binary |
+| `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; an import without an extension finds the `.tsx` or `.ts` |
+
+**In the browser** (`assets/devpage.js`), each `pre[lang="mermaid"]` first
+becomes a `Diagram` placeholder. Then the page script loads only the widgets the
+content names, nested ones included, and those each lists in `__devpageUses`;
+adds a widget's exported `css` to the page once; and mounts each outermost
+placeholder with React. Nested widgets become React elements their parent can
+read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped
+in an error boundary that shows a failure in its place. Each widget gets its
+props, `children`, `source` and `html`. Mounting happens on page load and again
+after every live update, which takes the fresh page's widget list, so new
+versions are fetched. The page marks itself ready only once every widget has
+mounted, which is what `devpage pdf` waits for.
+
+Widget and helper files refresh open pages whatever a site's `watch` list says
+([Live updates](../live-updates/README.md#the-watcher)).

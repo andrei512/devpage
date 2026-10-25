@@ -90,6 +90,11 @@ impl Index {
         self.read().documents.get(file).copied()
     }
 
+    /// Every indexed document file.
+    pub fn documents(&self) -> Vec<PathBuf> {
+        self.read().documents.keys().cloned().collect()
+    }
+
     /// Brings the index up to date after `path` changed, appeared or vanished.
     pub fn changed(&self, path: &Path) {
         if !path.starts_with(&self.served) {

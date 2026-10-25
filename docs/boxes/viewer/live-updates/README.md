@@ -51,8 +51,10 @@ ignores accesses (a read, not a change), and for each path in the event:
    served folder, nested ones included — or the nearest site holding it has a
    `watch` list that matches none of it (`refreshes` in `src/watch.rs`, then
    `Document::watches`, patterns relative to that site's folder). A document
-   file always counts, and so does a path in no site with a `watch` list,
-   whichever document devpage was started with.
+   file always counts, and so does a widget or helper — a `.ts` or `.tsx` file
+   directly in the widgets folder of the entry document or of any indexed
+   document — and a path in no site with a `watch` list, whichever document
+   devpage was started with.
 
 If any path counted, it sends one `change` message for the event. Nothing in
 this needs a `.git` folder to exist.
