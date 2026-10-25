@@ -68,6 +68,8 @@ devpage ships these, in every document:
 | `FileTree` | — | A Markdown list, nested for folders | A folder tree with file and folder icons. A list item's link makes its entry a link; text after the name and ` — ` is shown as a note beside it, with its inline Markdown — code, emphasis, links — kept. |
 | `Terminal` | `title` (optional) | Text in a code block | A terminal window. Lines starting with `$ ` are commands, shown with a prompt; the rest is output. A long line scrolls on screen and wraps on paper. |
 | `Keys` | — | Key names separated by spaces | Each key as a keycap, inline in the text: `<Keys>⌘ P</Keys>`. |
+| `Steps` | — | A numbered Markdown list | Numbered steps down the page, each with its title (the item's first line, bold) and its body; a `$ command` line in a step is drawn as a command chip. |
+| `Cards` | `columns` (optional, 2–4; default fits the width) | A Markdown list of links | A grid of link cards: each item's first link is the card's title and target, the text after it its one-line summary; an `(icon)` before the link adds a Lucide icon. |
 | `Diagram` | — | Mermaid text | The diagram, drawn by pele. Every `mermaid` fence is rendered through it; the tag itself is rarely written. |
 
 A `FileTree` is written as a list, so it reads well anywhere, and a `Terminal`
