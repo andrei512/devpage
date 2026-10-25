@@ -16,16 +16,19 @@ enum Config {
         title: String,
         root: String,
         watch: Option<Vec<String>>,
+        widgets: Option<String>,
     },
     Doc {
         title: String,
         chapters: Vec<String>,
         #[serde(default)]
         pdf: Pdf,
+        widgets: Option<String>,
     },
     Slides {
         title: String,
         slides: Vec<String>,
+        widgets: Option<String>,
     },
 }
 
@@ -90,6 +93,8 @@ pub struct Document {
     pub served: PathBuf,
     /// A site's `watch` list: when set, only matching files refresh pages.
     watch: Option<GlobSet>,
+    /// The folder of the document's project widgets, if it has one.
+    pub widgets: Option<PathBuf>,
 }
 
 impl Document {
@@ -132,6 +137,7 @@ impl Document {
                 base,
                 file_name,
                 watch: None,
+                widgets: None,
             });
         }
         Self::parse(&text, base, file_name, served)
@@ -147,12 +153,15 @@ impl Document {
             }
         };
         let mut watch = None;
+        let widget_folder;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
                 root,
                 watch: patterns,
+                widgets,
             } => {
+                widget_folder = widgets;
                 existing("root", &root)?;
                 if let Some(patterns) = patterns {
                     let mut set = GlobSetBuilder::new();
@@ -170,7 +179,9 @@ impl Document {
                 title,
                 chapters,
                 pdf,
+                widgets,
             } => {
+                widget_folder = widgets;
                 if chapters.is_empty() {
                     bail!("chapters lists no files");
                 }
@@ -180,7 +191,12 @@ impl Document {
                     .collect::<Result<_>>()?;
                 (title, Kind::Doc { chapters, pdf })
             }
-            Config::Slides { title, slides } => {
+            Config::Slides {
+                title,
+                slides,
+                widgets,
+            } => {
+                widget_folder = widgets;
                 if slides.is_empty() {
                     bail!("slides lists no files");
                 }
@@ -191,6 +207,13 @@ impl Document {
                 (title, Kind::Slides { slides })
             }
         };
+        let widgets = match widget_folder {
+            Some(folder) => match base.join(&folder).canonicalize() {
+                Ok(dir) if dir.is_dir() && dir.starts_with(&served) => Some(dir),
+                _ => bail!("widgets {folder} is not a folder"),
+            },
+            None => None,
+        };
         Ok(Self {
             title,
             base,
@@ -198,6 +221,7 @@ impl Document {
             file_name,
             served,
             watch,
+            widgets,
         })
     }
 

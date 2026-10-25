@@ -114,6 +114,9 @@ pre { background: var(--code); padding: 16px 20px; border-radius: 10px; overflow
 pre code { background: none; padding: 0; font-size: 14px; }
 
 table { border-collapse: collapse; width: 100%; font-size: 15px; }
+/* A wide table scrolls inside its own box, never the page. */
+.table-scroll { overflow-x: auto; margin: 0 0 20px; }
+.table-scroll > table { margin: 0; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-weight: 600; }
 
@@ -131,9 +134,7 @@ th { font-weight: 600; }
   --pele-font: var(--font);
   --pele-font-mono: var(--font-mono);
   --pele-radius: 8px;
-  padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  padding: 8px 0;
   text-align: center;
 }
 
@@ -244,6 +245,9 @@ body.show-comments #comments:not(.beside):not(:empty) { display: block; }
 .comment-error { color: #d70015; font-size: 13px; }
 .comment-error:empty { display: none; }
 .comment-button, #comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
+.comment-button { display: inline-flex; align-items: center; gap: 6px; }
+.comment-button.comment-icon { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; color: var(--muted); background: var(--background); box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--text) 35%, transparent); transition: color 0.15s, border-color 0.15s; }
+.comment-button.comment-icon:hover { color: var(--accent); border-color: var(--accent); }
 @media print { #comments, #comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
 
 /* Problems: broken links found while the page is previewed. */
@@ -256,3 +260,49 @@ img.broken { outline: 2px dashed #d70015; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
 @media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }
+
+/* ---- Widgets ---------------------------------------------------------- */
+.callout { display: block; margin: 1rem 0; padding: 0.75rem 1rem; border: 1px solid var(--border); border-left: 4px solid var(--accent); border-radius: 6px; }
+.callout-warning { border-left-color: #d29922; }
+.callout-danger { border-left-color: #cf222e; }
+.callout-tip { border-left-color: #1a7f37; }
+.callout-head { display: flex; gap: 0.5rem; align-items: center; }
+.callout-icon { font-weight: bold; }
+.callout-body > :first-child { margin-top: 0.25rem; }
+.callout-body > :last-child { margin-bottom: 0; }
+.tabs { margin: 1rem 0 20px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.tabs-bar { display: flex; border-bottom: 1px solid var(--border); }
+.tabs-bar button { background: none; border: 0; padding: 0.5rem 1rem; color: inherit; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
+.tabs-bar button.current { border-bottom-color: var(--accent); font-weight: 600; }
+.tabs-panel { padding: 16px; }
+.tabs-panel > .tab > :first-child, .tabs-panel > :first-child { margin-top: 0; }
+.tabs-panel > .tab > :last-child, .tabs-panel > :last-child { margin-bottom: 0; }
+.example { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin: 1rem 0; }
+/* Grid items may shrink below their content, so a long source line scrolls
+   inside its box instead of widening the page. */
+.example > * { min-width: 0; }
+.example figcaption { grid-column: 1 / -1; font-weight: 600; }
+.example-source { margin: 0; }
+.example-result { border: 1px solid var(--border); border-radius: 6px; padding: 0 1rem; }
+@media (max-width: 800px) { .example { grid-template-columns: minmax(0, 1fr); } }
+.filetree ul { list-style: none; padding-left: 1.25rem; margin: 0; }
+.filetree > ul { padding-left: 0; }
+.filetree { font-family: var(--font-mono); margin: 1rem 0; }
+.filetree-icon { display: inline-block; width: 1rem; color: var(--muted); }
+.filetree-note { margin-left: 0.75rem; color: var(--muted); font-family: var(--font); }
+.terminal { margin: 1rem 0; border-radius: 8px; overflow: hidden; background: #1e1e1e; color: #e6e6e6; }
+.terminal figcaption { padding: 0.35rem 0.75rem; background: #333; font-size: 0.8rem; }
+.terminal pre { margin: 0; background: none; color: inherit; overflow-x: auto; }
+.terminal pre > div { min-height: 1.5em; }
+@media print {
+  /* Paper can't scroll: long lines wrap. */
+  .terminal pre, .example-source { white-space: pre-wrap; overflow-wrap: anywhere; }
+}
+/* A task list item shows its checkbox, not a bullet as well. */
+li:has(> input[type="checkbox"]), li:has(> p > input[type="checkbox"]) { list-style: none; }
+li > input[type="checkbox"], li > p > input[type="checkbox"] { margin: 0 0.4em 0 -1.3em; }
+.terminal-prompt { color: #7ee787; }
+kbd { display: inline-block; min-width: 1.4em; padding: 0 0.35em; border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 4px; font: inherit; font-size: 0.85em; text-align: center; }
+.keys kbd + kbd { margin-left: 0.2em; }
+.widget-error { color: #cf222e; white-space: pre-wrap; }
+div.widget-error { margin: 0 0 20px; }

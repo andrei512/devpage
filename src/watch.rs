@@ -59,11 +59,11 @@ pub fn start(
     Ok(watcher)
 }
 
-/// Whether a change to `path` refreshes open pages. Document files always do;
-/// any other path is judged by the `watch` list of the nearest site holding
-/// it, and refreshes when there is no such list.
+/// Whether a change to `path` refreshes open pages. Document files and
+/// widget files always do; any other path is judged by the `watch` list of the
+/// nearest site holding it, and refreshes when there is no such list.
 fn refreshes(entry: &Entry, index: &Index, path: &Path) -> bool {
-    if index.kind(path).is_some() {
+    if index.kind(path).is_some() || is_widget_file(entry, index, path) {
         return true;
     }
     let Some(site) = index.site_for(path) else {
@@ -77,6 +77,26 @@ fn refreshes(entry: &Entry, index: &Index, path: &Path) -> bool {
         Ok(site) => site.watches(path),
         Err(_) => true,
     }
+}
+
+/// Whether `path` is a widget or a helper in the widgets folder of the entry
+/// document or of any indexed document.
+fn is_widget_file(entry: &Entry, index: &Index, path: &Path) -> bool {
+    if !path
+        .extension()
+        .is_some_and(|ext| ext == "ts" || ext == "tsx")
+    {
+        return false;
+    }
+    let document = entry.document();
+    let in_folder = |folder: Option<&Path>| {
+        folder.is_some_and(|folder| crate::widgets::is_widget_file(path, folder))
+    };
+    in_folder(document.widgets.as_deref())
+        || index.documents().iter().any(|file| {
+            Document::load(file, &document.served)
+                .is_ok_and(|other| in_folder(other.widgets.as_deref()))
+        })
 }
 
 #[cfg(test)]
@@ -243,5 +263,25 @@ mod tests {
         })
         .await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn widget_files_refresh_whatever_watch_says() {
+        let dir = served(
+            "widgets",
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\nwatch: [\"**/*.md\"]\n",
+        );
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/other")).unwrap();
+        let quiet = after(&dir, || {
+            std::fs::write(dir.join("docs/other/app.tsx"), "x").unwrap(); // not a widgets folder
+        })
+        .await;
+        assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
+        let loud = after(&dir, || {
+            std::fs::write(dir.join("docs/widgets/format.ts"), "export const f = 1;").unwrap()
+        })
+        .await;
+        assert!(loud.iter().any(|m| m == "change"), "{loud:?}");
     }
 }

@@ -8,13 +8,14 @@ agent. These pages are devpage's own documentation, served by devpage.
 
 ## What devpage does
 
-- **Three kinds of document.** A **site** of pages with a sidebar built from
-  their Topics sections; a **doc** read top to bottom, split into chapter files,
-  with an outline that follows you; a deck of **slides**, one file per slide, on
-  a 16:9 stage.
+<KindCards />
+
 - **Extended Markdown.** GitHub-flavoured Markdown with raw HTML allowed,
   highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to
   other pages — in a light and a dark theme that follow the reader's system.
+- **Widgets.** React components used as HTML tags in Markdown: callouts, tabs,
+  file trees, source-beside-result examples, terminals and keycaps ship with
+  devpage, and a project adds its own as `.tsx` files.
 - **Live updates.** A file's change refreshes every open page in place,
   without a reload.
 - **Comments.** Select text or hover a paragraph to start a thread. Threads

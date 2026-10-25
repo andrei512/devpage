@@ -9,19 +9,135 @@
 
 const print = document.currentScript.hasAttribute("data-print");
 
-function drawDiagrams(root) {
-  for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
-    const diagram = document.createElement("div");
-    diagram.className = "diagram";
+// ---- Widgets --------------------------------------------------------------
+// The server leaves each widget as a placeholder carrying its name, its props'
+// source and its content rendered as Markdown; Mermaid fences stay as
+// <pre lang="mermaid"> and become Diagram widgets here. Each placeholder is
+// mounted with React, on load and after every live update.
+
+const widgetModules = {};
+
+// Widgets render other widgets by name; compiled widgets look them up here.
+globalThis.__devpageWidget = (name) => widgetModules[name]?.default ?? (() => { throw new Error(`<${name}> is not a widget`); });
+
+const widgetUrls = {};
+
+// Why a widget's module didn't load — a compile error in it or in a helper it
+// imports — so the widget's place shows the reason.
+const widgetLoadErrors = {};
+
+// Loads a widget's module, again when its address changed — an edited widget
+// or helper gives the folder a new version — puts its exported CSS in the page
+// once, and loads the widgets it renders by name, which it lists.
+async function loadWidget(name) {
+  const url = (window.devpageWidgets || {})[name];
+  if (!url) throw new Error(`<${name}> is not a widget`);
+  if (widgetUrls[name] !== url) {
     try {
-      diagram.innerHTML = pele.render(pre.textContent).svg;
+      widgetModules[name] = await import(url);
     } catch (error) {
-      const message = document.createElement("pre");
-      message.className = "diagram-error";
-      message.textContent = `Diagram error: ${error.message}\n\n${pre.textContent}`;
-      diagram.append(message);
+      // An edit that broke it shows the error, not the last version that worked.
+      delete widgetModules[name];
+      delete widgetUrls[name];
+      throw error;
     }
-    pre.replaceWith(diagram);
+    widgetUrls[name] = url;
+    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used)
+      .then(() => { delete widgetLoadErrors[used]; })
+      .catch((error) => { widgetLoadErrors[used] = error; })));
+    document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
+    const css = widgetModules[name].css;
+    if (css) {
+      const style = document.createElement("style");
+      style.dataset.widget = name;
+      style.textContent = css;
+      document.head.append(style);
+    }
+  }
+  return widgetModules[name];
+}
+
+async function mountWidgets(root) {
+  for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
+    const placeholder = document.createElement("div");
+    placeholder.dataset.widget = "Diagram";
+    placeholder.dataset.props = "{}";
+    placeholder.dataset.source = pre.textContent;
+    pre.replaceWith(placeholder);
+  }
+  const placeholders = [...root.querySelectorAll("[data-widget]")].filter((el) => !el.parentElement.closest("[data-widget]"));
+  if (!placeholders.length) return;
+  const React = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  // Only the widgets this content names, nested ones included, and those they
+  // render by name.
+  const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
+  await Promise.all([...names].map((name) => loadWidget(name)
+    .then(() => { delete widgetLoadErrors[name]; })
+    .catch((error) => { widgetLoadErrors[name] = error; })));
+
+  class Boundary extends React.Component {
+    constructor(props) { super(props); this.state = { error: null }; }
+    static getDerivedStateFromError(error) { return { error }; }
+    render() {
+      if (!this.state.error) return this.props.children;
+      return React.createElement("pre", { className: "widget-error" }, `<${this.props.name}>: ${this.state.error.message}`);
+    }
+  }
+
+  const attributes = (el) => {
+    const props = {};
+    for (const { name, value } of el.attributes) {
+      if (name === "class") props.className = value;
+      else if (name === "for") props.htmlFor = value;
+      else if (name === "style") props.style = Object.fromEntries(value.split(";").filter(Boolean).map((d) => {
+        const [k, ...v] = d.split(":");
+        return [k.trim().replace(/-([a-z])/g, (_, c) => c.toUpperCase()), v.join(":").trim()];
+      }));
+      else props[name] = value;
+    }
+    return props;
+  };
+
+  // Turns rendered content into React elements, so a widget's children can
+  // hold other widgets and a Tabs can read its Tabs' titles.
+  const toReact = (node, key) => {
+    if (node.nodeType === Node.TEXT_NODE) return node.textContent;
+    if (node.nodeType !== Node.ELEMENT_NODE) return null;
+    if (node.dataset.widget) return widgetElement(node, key);
+    const props = { ...attributes(node), key };
+    if (!node.querySelector("[data-widget]")) {
+      if (["BR", "HR", "IMG", "INPUT"].includes(node.tagName)) return React.createElement(node.tagName.toLowerCase(), props);
+      return React.createElement(node.tagName.toLowerCase(), { ...props, dangerouslySetInnerHTML: { __html: node.innerHTML } });
+    }
+    return React.createElement(node.tagName.toLowerCase(), props, ...[...node.childNodes].map((child, i) => toReact(child, i)));
+  };
+
+  const widgetElement = (node, key) => {
+    const name = node.dataset.widget;
+    let props;
+    try {
+      props = new Function(`return (${node.dataset.props || "{}"});`)();
+    } catch (error) {
+      return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${error.message}`);
+    }
+    const children = [...node.childNodes].map((child, i) => toReact(child, i)).filter((c) => c !== null && c !== "\n");
+    const component = widgetModules[name]?.default;
+    if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${widgetLoadErrors[name]?.message ?? "could not be loaded"}`);
+    // Nested widgets are plain elements, so a parent reads their props — a
+    // Tabs reads each Tab's title; the outermost one catches what they throw.
+    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
+  };
+
+  await Promise.all(placeholders.map((el) => new Promise((resolve) => {
+    const element = React.createElement(Boundary, { name: el.dataset.widget }, widgetElement(el, 0));
+    const root = createRoot(el);
+    root.render(React.createElement(Mounted, { onMount: resolve }, element));
+  })));
+
+  function Mounted({ onMount, children }) {
+    React.useEffect(() => { onMount(); }, []);
+    return children;
   }
 }
 
@@ -52,7 +168,10 @@ async function load(url) {
     if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
   }
   document.title = next.title;
-  drawDiagrams(document.getElementById("page"));
+  // The fresh page names its widgets' current versions.
+  const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
+  if (list) new Function(list.textContent)();
+  await mountWidgets(document.getElementById("page"));
   markBroken(document.getElementById("page"));
   showSlide();
   loadComments();
@@ -372,11 +491,17 @@ function compose(section, anchor, near) {
   card.querySelector("textarea").focus();
 }
 
+// A speech bubble, drawn in the text color so it follows the theme.
+const commentIcon =
+  '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 3.5h12A1.5 1.5 0 0 1 17.5 5v8a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V5A1.5 1.5 0 0 1 4 3.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
 function commentButton(label, title, top, left, onClick) {
   document.querySelectorAll(".comment-button").forEach((button) => button.remove());
   const button = document.createElement("button");
-  button.className = "comment-button comment-ui";
-  button.textContent = label;
+  button.className = label ? "comment-button comment-ui" : "comment-button comment-icon comment-ui";
+  button.innerHTML = commentIcon;
+  if (label) button.append(label);
+  button.setAttribute("aria-label", title);
   button.title = title;
   button.style.cssText = `position:absolute;top:${top}px;left:${left}px`;
   button.addEventListener("mousedown", (event) => event.preventDefault());
@@ -396,7 +521,12 @@ document.addEventListener("mouseover", (event) => {
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
   hovered = block;
   const rect = block.getBoundingClientRect();
-  commentButton("+", "Comment on this paragraph", scrollY + rect.top, scrollX + Math.max(rect.left - 34, 0), () => {
+  // The icon sits just right of the block, level with its first line — or,
+  // when the window has no room there, just inside the block's right edge.
+  const size = 28;
+  const room = document.documentElement.clientWidth - 8;
+  const left = rect.right + 10 + size <= room ? rect.right + 10 : Math.max(Math.min(rect.right, room) - size - 4, 0);
+  commentButton("", "Comment on this paragraph", scrollY + rect.top, scrollX + left, () => {
     const model = textModel(section);
     const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
     if (anchor.quote) compose(section, anchor, block);
@@ -506,11 +636,13 @@ function followOutline() {
   mark();
 }
 
-drawDiagrams(document);
-markBroken(document);
-showSlide();
-followOutline();
-loadComments();
-// Print mode has no live connection; Chrome waits for this before printing.
-document.documentElement.dataset.ready = "true";
+mountWidgets(document).catch((error) => console.error(error)).finally(() => {
+  markBroken(document);
+  showSlide();
+  followOutline();
+  loadComments();
+  // Print mode has no live connection; Chrome waits for this — every widget
+  // mounted — before printing.
+  document.documentElement.dataset.ready = "true";
+});
 if (!print && !document.hidden) connect();

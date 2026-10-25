@@ -35,6 +35,7 @@ flowchart LR
   serving --> browser["Open page"]
   live -. "change" .-> browser
   browser --> diagrams["Diagrams and themes<br/>drawn in the browser"]
+  browser --> widgets["Widgets<br/>React, mounted in the browser"]
   browser <--> comments["Comments<br/>.devpage/comments"]
   serving --> check["Link checking<br/>preview and devpage check"]
   browser --> pdf["PDF<br/>Chrome prints the page"]
@@ -43,6 +44,7 @@ flowchart LR
   click nav href "./navigation-tree/README.md" "How the sidebar is built"
   click live href "./live-updates/README.md" "How open pages stay current"
   click diagrams href "./diagrams-and-themes/README.md" "Diagrams and themes"
+  click widgets href "./widgets/README.md" "Widgets"
   click comments href "./comments/README.md" "Comments"
   click check href "./checking-links/README.md" "Checking links"
   click pdf href "./pdf/README.md" "Printing to PDF"
@@ -61,6 +63,8 @@ Each part of the diagram opens its page.
   open pages to fetch themselves, or their comments, again.
 - **Diagrams and themes** — Mermaid fences drawn as SVG in the browser, colored
   by the same tokens as the page.
+- **Widgets** — React components written as HTML tags in Markdown: devpage's
+  system widgets, and a project's own from its widgets folder.
 - **Comments** — threads anchored to selected text or a paragraph, one file per
   thread in a `.devpage/` folder git never sees.
 - **Link checking** — every link, image and diagram target, shown on the page
@@ -100,6 +104,9 @@ The words this box owns; the rest of the docs use them with these meanings.
 | **problem** | A broken link, a missing chapter or slide, a Topics entry pointing nowhere or an invalid document file — shown on the page in the preview and reported by `devpage check`. |
 | **print mode** | A page rendered for Chrome to print: no live updates, no comments, no navigation chrome. What `devpage pdf` captures. |
 | **built-in asset** | One of the files compiled into the binary and served under `/__devpage/`. |
+| **widget** | A React component used in Markdown as an HTML tag whose name starts with a capital letter — `<Callout>`. Its props come from the tag's attributes and its content, rendered as Markdown, is its `children`. |
+| **system widget** | A widget devpage ships, in every document: `Callout`, `Tabs`, `Tab`, `Example`, `FileTree`, `Terminal`, `Keys` and `Diagram`, through which every Mermaid fence renders. |
+| **project widget** | A widget a project writes: one `.tsx` file in the folder its document file's `widgets` field names, named by its file name. |
 | **theme** | A set of values for the color and font tokens. There are two, light and dark, chosen by the reader's system setting. |
 | **token** | A CSS custom property in `assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from. |
 
@@ -113,6 +120,9 @@ The words this box owns; the rest of the docs use them with these meanings.
   — Chrome prints the same HTML; there is no second renderer.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — deployed, it trusts one header and must sit behind a proxy that sets it.
+- [One name, one widget](constraints/one-name-one-widget.md)
+  — a project widget can't take a system widget's name; an unknown widget tag
+  is a problem.
 
 ## Topics
 
@@ -143,6 +153,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [Diagrams and themes](diagrams-and-themes/README.md) — writing Mermaid
   diagrams, what errors look like, and the light and dark color tokens that
   color the page, its code and its diagrams.
+- [Widgets](widgets/README.md) — the system widgets, writing a project's own
+  in TSX, props and content, styling, and what a failing widget looks like.
 
 ### Mechanisms
 
@@ -156,6 +168,9 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [The vendored pele bundle](vendored-pele/README.md) — the third-party
   diagram renderer built into devpage: its source, version, licences and how
   to upgrade it.
+- [The vendored React bundle](vendored-react/README.md) — the React that
+  widgets run with: its version, how it is built, its licence and how to
+  upgrade it.
 
 ### Reference
 
@@ -173,3 +188,5 @@ The words this box owns; the rest of the docs use them with these meanings.
   — one renderer for screen and paper.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — identity comes from the proxy in front of it.
+- [One name, one widget](constraints/one-name-one-widget.md)
+  — widgets compose by name, so no name is shadowed.

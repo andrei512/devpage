@@ -16,8 +16,9 @@ comments and replies in the browser.
 
 - **On text** — select it, and a **Comment** button appears under the
   selection.
-- **On a paragraph** — hover over it, and a **+** button appears in the margin
-  to its left. The whole paragraph — or heading, list item, table, code block
+- **On a paragraph** — hover over it, and a comment icon, a speech bubble,
+  appears just to its right (inside its right edge when the window has no room
+  beside it). The whole paragraph — or heading, list item, table, code block
   or diagram — is the anchor.
 
 Either opens a box at the top of the comments: write the comment and press
@@ -67,9 +68,16 @@ writes nothing else anywhere ([devpage never writes a document](../constraints/d
 
 One thread is one file, under the path of the Markdown file it is about:
 
-```text
-.devpage/comments/docs/design/rollout.md/20261025T181502Z-7f3a.yml
-```
+<FileTree>
+
+- .devpage/
+  - .gitignore — holds `*`, so git never sees the folder
+  - comments/
+    - docs/design/rollout.md/ — the threads on that page
+      - 20261025T181502Z-7f3a.yml — one thread
+      - 20261025T190344Z-0b91.yml — another
+
+</FileTree>
 
 The file name is the thread's id: the UTC time it was started, to the second,
 and four hex digits from the clock's nanoseconds that tell apart threads

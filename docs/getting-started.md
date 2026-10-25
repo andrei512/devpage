@@ -56,9 +56,19 @@ flowchart LR
 
 ## A site, end to end
 
-**1. Write the site.** Make a folder `garden/` with three files.
+**1. Write the site.** Make a folder `garden/` with three files:
 
-`garden/devpage.yml`:
+<FileTree>
+
+- garden/
+  - devpage.yml — the site: its title and root page
+  - README.md — the root page, whose Topics list the sidebar
+  - planting.md — a page with a diagram
+
+</FileTree>
+
+<Tabs>
+<Tab title="devpage.yml">
 
 ```yaml
 kind: site
@@ -66,7 +76,8 @@ title: Garden
 root: README.md
 ```
 
-`garden/README.md`:
+</Tab>
+<Tab title="README.md">
 
 ```markdown
 # Garden
@@ -78,7 +89,8 @@ Notes on the vegetable garden.
 - [Planting](planting.md) — what goes in the ground, and when.
 ```
 
-`garden/planting.md`:
+</Tab>
+<Tab title="planting.md">
 
 ````markdown
 # Planting
@@ -89,11 +101,19 @@ flowchart LR
 ```
 ````
 
+</Tab>
+</Tabs>
+
 **2. Run it.** From the folder holding `garden/`:
 
-```sh
-devpage garden
+<Terminal>
+
+```text
+$ devpage garden
+Garden → http://localhost:3030
 ```
+
+</Terminal>
 
 Given a folder, devpage reads the `devpage.yml` inside it. It prints the
 address it serves on — `Garden → http://localhost:3030`, or the next port up
@@ -134,8 +154,9 @@ long page with an outline beside it; `devpage pdf garden/plan` writes
 
 **A deck.** Add `garden/talk/devpage.yml` with `kind: slides`, a `title`, and
 `slides:` listing one Markdown file per slide, and link to it from `README.md`
-as `[Spring talk](talk/devpage.yml)`. Open it, use the arrow keys, press
-**F** for fullscreen; `devpage pdf garden/talk` prints one slide per page.
+as `[Spring talk](talk/devpage.yml)`. Open it, use the arrow keys <Keys>← →</Keys>,
+press <Keys>F</Keys> for fullscreen; `devpage pdf garden/talk` prints one slide
+per page.
 
 **Check it.** `devpage check garden` checks the site and everything it links
 to — here, all three — and exits `1` if a link is broken: ready for a test.

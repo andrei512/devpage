@@ -41,6 +41,8 @@ flowchart TD
 | `/` | `307 Temporary Redirect` to the entry document as its file says now — a site's root page, or a doc's or deck's document file (or the Markdown file devpage was given); while the entry's file is invalid, the page saying why |
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
+| `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
+| `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/{*path}` | the file at `path` in the served folder |
 
@@ -135,6 +137,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
      `<pre lang="mermaid">` for Mermaid blocks, which is how the page script
      finds the diagrams to draw.
 
+   Last, every Markdown table is wrapped in `<div class="table-scroll">`, so a
+   table wider than the page scrolls inside its own box instead of widening
+   the page.
+
 2. **Title.** `render::title` takes the first line starting with `# `, or the
    file name without its extension.
 3. **Sidebar.** The [navigation tree](../navigation-tree/README.md) is built
@@ -146,6 +152,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
    - `<nav id="nav">` holds a link to the site's root page with the site's
      title, then the tree;
    - `<main id="page"><article>` holds the rendered Markdown;
+   - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
+     `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
+     the document's widgets with the address of each
+     ([Widgets](../widgets/README.md#under-the-hood));
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.
 
@@ -172,6 +182,7 @@ The page's own files are compiled into the binary with `include_str!`:
 | `/__devpage/style.css` | `assets/style.css` | `text/css` |
 | `/__devpage/devpage.js` | `assets/devpage.js` | `text/javascript` |
 | `/__devpage/pele.js` | `assets/vendor/pele.js` | `text/javascript` |
+| `/__devpage/react.js` | `assets/vendor/react.js` | `text/javascript` |
 
 They are sent with `Cache-Control: no-cache`; any other name under
 `/__devpage/` is `404`. Changing an asset means rebuilding devpage.

@@ -105,6 +105,8 @@ fn quiet(
         )
         .route("/__devpage/comments/reply", post(reply_comment))
         .route("/__devpage/comments/resolve", post(resolve_comment))
+        .route("/__devpage/system-widgets/{name}", get(system_widget))
+        .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
         .with_state(AppState {
@@ -187,7 +189,17 @@ async fn file(
                 Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
             }
             None => match Document::load(&file, served) {
-                Ok(doc) => show(&doc, print),
+                Ok(mut doc) => {
+                    // A page keeps its site's widgets when printed on its own.
+                    if let Some(Ok(site)) = state
+                        .index
+                        .site_for(&file)
+                        .map(|site| Document::load(&site, served))
+                    {
+                        doc.widgets = site.widgets;
+                    }
+                    show(&doc, print)
+                }
                 Err(error) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
                 }
@@ -223,12 +235,168 @@ async fn events(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
+/// A system widget, compiled from the TSX built into the binary.
+async fn system_widget(Path(name): Path<String>) -> Response {
+    let stem = name.trim_end_matches(".tsx");
+    // System widgets compose only each other.
+    let known: Vec<String> = crate::widgets::SYSTEM
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
+    match crate::widgets::system(stem) {
+        Some(source) => compiled(std::path::Path::new(&name), &name, source, &known, None),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
+
+/// A project widget or a helper it imports, compiled from the served folder.
+/// An import without an extension finds the `.ts` or `.tsx` beside it.
+async fn project_widget(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+    let document = state.entry.document();
+    let found = ["", ".tsx", ".ts"]
+        .iter()
+        .find_map(|ext| document.file(&format!("{path}{ext}")));
+    let Some(file) = found else {
+        return (
+            StatusCode::NOT_FOUND,
+            format!("{path} is not part of the served folder"),
+        )
+            .into_response();
+    };
+    let folder = file.parent().unwrap_or(&file).to_path_buf();
+    let version = crate::widgets::version(&folder);
+    match std::fs::read_to_string(&file) {
+        Ok(source) => {
+            let known = known(&state, &folder);
+            // A helper this file imports that doesn't compile: the browser
+            // would only say the import failed, so say why, here.
+            if let Some(error) = broken_import(&document, &folder, &source, &known, version) {
+                return module_error(&error);
+            }
+            let label = document.url(&file)[1..].to_string();
+            compiled(&file, &label, &source, &known, Some(version))
+        }
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+/// The names a widget in `folder` can render by name: the system widgets and
+/// those of the document whose widgets folder it is — the entry document's
+/// when no other names it.
+fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
+    let entry = state.entry.document();
+    let owner = if entry.widgets.as_deref() == Some(folder) {
+        None
+    } else {
+        state
+            .index
+            .documents()
+            .into_iter()
+            .filter_map(|file| crate::document::Document::load(&file, &entry.served).ok())
+            .find(|document| document.widgets.as_deref() == Some(folder))
+    };
+    crate::widgets::Widgets::of(owner.as_ref().unwrap_or(&entry))
+        .modules
+        .into_keys()
+        .collect()
+}
+
+/// The first helper reached through `source`'s relative imports, in `folder`,
+/// that doesn't compile: its name and the compiler's message.
+fn broken_import(
+    document: &crate::document::Document,
+    folder: &std::path::Path,
+    source: &str,
+    known: &[String],
+    version: u128,
+) -> Option<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut queue = relative_imports(source);
+    while let Some(import) = queue.pop() {
+        let base = folder.join(import.trim_start_matches("./"));
+        let Some(file) = ["", ".tsx", ".ts"]
+            .iter()
+            .map(|ext| std::path::PathBuf::from(format!("{}{ext}", base.display())))
+            .find(|path| path.is_file())
+        else {
+            continue;
+        };
+        if !seen.insert(file.clone()) {
+            continue;
+        }
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        match crate::widgets::compile_cached(&file, &text, known, Some(version)) {
+            Ok(_) => queue.extend(relative_imports(&text)),
+            Err(error) => {
+                return Some(format!(
+                    "{} does not compile: {error}",
+                    &document.url(&file)[1..]
+                ));
+            }
+        }
+    }
+    None
+}
+
+/// The `./…` specifiers a module imports or re-exports from.
+fn relative_imports(source: &str) -> Vec<String> {
+    ["from \"./", "from './", "import \"./", "import './"]
+        .iter()
+        .flat_map(|pattern| {
+            let quote = &pattern[pattern.len() - 3..pattern.len() - 2];
+            source
+                .split(pattern)
+                .skip(1)
+                .filter_map(move |rest| rest.split(quote).next().map(|name| format!("./{name}")))
+        })
+        .collect()
+}
+
+/// A module that throws `message`, so the page shows it in the widget's place.
+fn module_error(message: &str) -> Response {
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, "no-cache"),
+        ],
+        format!(
+            "throw new Error({});",
+            serde_json::to_string(message).unwrap_or_default()
+        ),
+    )
+        .into_response()
+}
+
+/// A compiled module, or — when it doesn't compile — a module that throws the
+/// compiler's message, naming the file as `label`, so the page shows it in the
+/// place of the widget it belongs to.
+fn compiled(
+    path: &std::path::Path,
+    label: &str,
+    source: &str,
+    known: &[String],
+    version: Option<u128>,
+) -> Response {
+    match crate::widgets::compile_cached(path, source, known, version) {
+        Ok(js) => (
+            [
+                (header::CONTENT_TYPE, "text/javascript"),
+                (header::CACHE_CONTROL, "no-cache"),
+            ],
+            js,
+        )
+            .into_response(),
+        Err(error) => module_error(&format!("{label} does not compile: {error}")),
+    }
+}
+
 /// The page's own files, built into the binary.
 async fn asset(Path(name): Path<String>) -> Response {
     let (body, mime): (&'static str, &str) = match name.as_str() {
         "style.css" => (include_str!("../assets/style.css"), "text/css"),
         "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
+        "react.js" => (include_str!("../assets/vendor/react.js"), "text/javascript"),
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     (
@@ -727,5 +895,102 @@ mod tests {
         assert_eq!(home_becomes(&address, "/a.md").await, (307, "/a.md".into()));
         let (_, page) = get(&format!("{address}/a.md")).await;
         assert!(!page.contains("not a valid document"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn widgets_are_served_compiled_for_the_document_they_belong_to() {
+        let dir = served("widget-routes");
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        std::fs::create_dir_all(dir.join("notes/parts")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/Card.tsx"),
+            "import { label } from \"./label\";\nexport default () => <Callout>{label}</Callout>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/label.ts"),
+            "export const label = 'x';",
+        )
+        .unwrap();
+        std::fs::write(dir.join("docs/widgets/Broken.tsx"), "export default (").unwrap();
+        // Another document's widgets compose with that document's names.
+        std::fs::write(
+            dir.join("notes/talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md]\nwidgets: parts\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Pill.tsx"),
+            "export default () => <i>p</i>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Row.tsx"),
+            "export default () => <Pill />;",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+
+        let (status, system) = get(&format!("{base}/__devpage/system-widgets/Tabs.tsx")).await;
+        assert_eq!(status, 200);
+        assert!(system.contains("export const __devpageUses"), "{system}");
+        assert_eq!(
+            get(&format!("{base}/__devpage/system-widgets/Nope.tsx"))
+                .await
+                .0,
+            404
+        );
+
+        let version = crate::widgets::version(&dir.join("docs/widgets"));
+        let (status, card) = get(&format!(
+            "{base}/__devpage/widgets/docs/widgets/Card.tsx?v={version}"
+        ))
+        .await;
+        assert_eq!(status, 200);
+        assert!(card.contains(&format!("\"./label?v={version}\"")), "{card}");
+        assert!(card.contains("__devpageUses = [\"Callout\"]"), "{card}");
+        let (status, helper) = get(&format!(
+            "{base}/__devpage/widgets/docs/widgets/label?v={version}"
+        ))
+        .await;
+        assert_eq!(status, 200, "an import without an extension finds the .ts");
+        assert!(helper.contains("label"), "{helper}");
+
+        let (_, broken) = get(&format!("{base}/__devpage/widgets/docs/widgets/Broken.tsx")).await;
+        assert!(broken.starts_with("throw new Error("), "{broken}");
+
+        let (_, row) = get(&format!("{base}/__devpage/widgets/notes/parts/Row.tsx")).await;
+        assert!(row.contains("__devpageUses = [\"Pill\"]"), "{row}");
+
+        let (status, _) = get(&format!("{base}/__devpage/widgets/../secret.md")).await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn a_page_names_its_widgets_and_carries_their_placeholders() {
+        let dir = served("widget-page");
+        std::fs::write(
+            dir.join("docs/README.md"),
+            "# Home\n\n<Callout kind=\"tip\">\nSome **bold**\n</Callout>\n\n```md\n<Callout>code</Callout>\n```\n",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+        let (_, page) = get(&format!("{base}/docs/README.md")).await;
+        assert!(page.contains("<script type=\"importmap\">"), "{page}");
+        assert!(
+            page.contains("\"Callout\":\"/__devpage/system-widgets/Callout.tsx\""),
+            "{page}"
+        );
+        assert_eq!(
+            page.matches("data-widget=\"Callout\"").count(),
+            1,
+            "code is left alone: {page}"
+        );
+        assert!(page.contains("<strong>bold</strong>"), "{page}");
     }
 }
