@@ -1,0 +1,10 @@
+# An example doc: a design split into chapters, read as one page.
+kind: doc
+title: Offline sync
+chapters:
+  - context.md
+  - design.md
+  - rollout.md
+pdf:
+  header: Offline sync — draft
+  footer: "Page {page} of {pages}"

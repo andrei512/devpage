@@ -263,3 +263,22 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod examples {
+    use super::*;
+
+    #[test]
+    fn the_examples_have_no_broken_links() {
+        for example in ["examples/sync-design", "examples/launch-talk"] {
+            let doc = Document::load(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join(example)
+                    .as_path(),
+            )
+            .unwrap();
+            let problems = internal(&doc, &mut Vec::new());
+            assert!(problems.is_empty(), "{example}: {problems:#?}");
+        }
+    }
+}

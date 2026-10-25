@@ -231,3 +231,4 @@ body.slides.show-comments #comments { display: block; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
 #paragraph-button, #comment-button { font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; z-index: 4; }
+@media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }
