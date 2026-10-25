@@ -268,3 +268,5 @@ body.design-page > canvas.design { position: fixed; inset: 0; width: 100vw; heig
 .design-overlay.design-overlay-page { position: fixed; z-index: 2; }
 .design-problems { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 3; margin: 0; padding: 10px 14px 10px 32px; border: 1px solid #d70015; border-radius: 10px; background: var(--background); color: #d70015; font: 13px var(--font-mono); }
 body.design-page > .design-problems { position: fixed; }
+.design-failed { margin: 0; padding: 10px 14px; border: 1px solid #d70015; border-radius: 10px; background: var(--background); color: #d70015; font: 13px var(--font-mono); }
+body.design-page > .design-failed { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; }

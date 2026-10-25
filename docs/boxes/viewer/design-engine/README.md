@@ -146,9 +146,12 @@ and streams **updates** for as long as the page is open:
   changed, each replaced by its id;
 - when the design has problems, an update carries them instead, and the
   browser keeps the last scene it drew; once fixed, the next patch is against
-  that last scene;
+  that last scene — an empty one when the fix restored it exactly — and any
+  patch tells the browser the design is valid again;
 - when the design's own file is deleted, its `no such file` problem is the
-  last update and the stream ends.
+  last update and the stream ends with its trailers. A stream ended that way
+  is over: the browser doesn't open it again, while one that drops without
+  trailers — devpage stopped — is reopened.
 
 A save that changes nothing in a design's scene sends nothing, and the same
 problems are not sent twice.
@@ -188,7 +191,7 @@ embedded canvas still in it is kept, drawing and stream and all.
 | What happens | What the reader sees |
 | --- | --- |
 | A file has problems | The problems over the last valid drawing; the PNG route answers `422` with them. |
-| A design is deleted | The stream ends with the problem `no such file`. |
+| A design is deleted | The stream ends with the problem `no such file`, and the canvas stops asking for it. |
 | devpage stops | The canvas keeps its drawing; the page reopens the stream when devpage is back and gets the whole scene again. |
-| The module fails to load | The canvas says so; the PNG route is unaffected. |
+| The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |
 | The browser has no WebGPU | The module paints with `vello_cpu` and puts the buffer on the canvas. |

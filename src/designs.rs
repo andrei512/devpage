@@ -259,12 +259,15 @@ impl service::designs_server::Designs for Watch {
                 let resolved = store.get(&path);
                 let body = match resolved.result {
                     Ok(scene) => {
-                        shown = None;
+                        // Problems on show: even an empty patch says the
+                        // design is valid again.
+                        let fixed = shown.take().is_some();
                         let body = match &last {
                             None => Some(Body::Scene(wire::encode(&scene.root))),
                             Some(old) => {
                                 let replace = wire::diff(old, &scene.root);
-                                (!replace.is_empty()).then_some(Body::Patch(Patch { replace }))
+                                (fixed || !replace.is_empty())
+                                    .then_some(Body::Patch(Patch { replace }))
                             }
                         };
                         last = Some(scene.root);
@@ -307,7 +310,8 @@ impl service::designs_server::Designs for Watch {
 /// drawn by the design script.
 pub fn page(path: &str) -> String {
     let path = path.trim_start_matches('/');
-    let name = path.rsplit('/').next().unwrap_or(path);
+    let file = path.rsplit('/').next().unwrap_or(path);
+    let name = file.strip_suffix(".design").unwrap_or(file);
     format!(
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{name}</title>
@@ -545,6 +549,13 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_canvas_page_is_titled_without_the_extension() {
+        let page = page("/app/checkout.design");
+        assert!(page.contains("<title>checkout</title>"), "{page}");
+        assert!(page.contains(r#"src="/app/checkout.design""#), "{page}");
+    }
+
     #[tokio::test]
     async fn the_watch_stream_sends_the_scene_then_only_what_changed() {
         let dir = served("watch");
@@ -593,7 +604,22 @@ mod tests {
         };
         assert!(problems.problems[0].contains("lable"), "{problems:?}");
 
-        // Fixed again: a patch against the last scene sent.
+        // The typo undone: the scene is the one last sent, and an empty patch
+        // says the design is valid again.
+        save(&designs, &dir.join("app/screen.design"), SCREEN);
+        let Some(Ok(Body::Patch(patch))) = stream.next().await else {
+            panic!("an empty patch after the undo")
+        };
+        assert!(patch.replace.is_empty(), "{patch:?}");
+
+        // Problems again, then a fix that changes the scene: a patch against
+        // the last scene sent.
+        save(
+            &designs,
+            &dir.join("app/screen.design"),
+            &SCREEN.replace("<Button label", "<Button lable"),
+        );
+        assert!(matches!(stream.next().await, Some(Ok(Body::Problems(_)))));
         save(
             &designs,
             &dir.join("app/screen.design"),

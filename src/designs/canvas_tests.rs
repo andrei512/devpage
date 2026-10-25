@@ -82,6 +82,24 @@ async fn serve(dir: &Path, entry: &str) -> String {
     format!("http://{address}")
 }
 
+/// Serves `dir`, entered at `entry`, and hands back its design store, so a
+/// test can tell it about a saved file as the watcher would.
+async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
+    let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
+    let designs = super::Designs::new(dir.to_path_buf());
+    let router = server::router_with_index(
+        Arc::new(crate::document::Entry::new(document)),
+        Arc::new(crate::index::Index::build(dir)),
+        designs.clone(),
+        broadcast::channel(16).0,
+        server::Identity::Local("T".into()),
+    );
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+    (format!("http://{address}"), designs)
+}
+
 /// A headless Chrome with WebGPU.
 async fn chrome() -> (Browser, tokio::task::JoinHandle<()>, Profile) {
     let profile = Profile::new();
@@ -521,16 +539,109 @@ async fn the_wheel_zooms_about_the_pointer_and_pans() {
     let after = on_screen(&page, "canvas.design", 100.0, 100.0).await;
     assert!((after.x - pointer.x).abs() < 0.5 && (after.y - pointer.y).abs() < 0.5);
 
-    // The wheel alone pans.
+    // The wheel alone pans — recorded when the next frame paints, which a
+    // busy machine can take a while to reach.
+    let before: String = view().await;
     page.evaluate(
         "document.querySelector('canvas.design').dispatchEvent(new WheelEvent('wheel', \
          { deltaX: 40, deltaY: 0, bubbles: true, cancelable: true }))",
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    until(
+        &page,
+        &format!("document.querySelector('canvas.design').dataset.view !== '{before}'"),
+    )
+    .await;
     let panned = on_screen(&page, "canvas.design", 100.0, 100.0).await;
     assert!((panned.x - (after.x - 40.0)).abs() < 0.5);
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_undone_typo_clears_the_problems() {
+    let dir = folder("undo");
+    let (address, designs) = serve_designs(&dir, "screen.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/screen.design").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let file = dir.join("screen.design");
+    let good = std::fs::read_to_string(&file).unwrap();
+    std::fs::write(&file, good.replace("<Button label", "<Button lable")).unwrap();
+    designs.changed(&file);
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    // Saved back as it was: the scene is the one the canvas already has.
+    std::fs::write(&file, &good).unwrap();
+    designs.changed(&file);
+    until(&page, "!document.querySelector('.design-problems')").await;
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_deleted_design_stops_asking_for_its_stream() {
+    let dir = folder("deleted");
+    let (address, designs) = serve_designs(&dir, "screen.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    // Count the watch calls the page makes.
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+        "window.watchCalls = 0; const f = window.fetch; \
+         window.fetch = (url, ...rest) => { if (String(url).includes('/Watch')) window.watchCalls++; return f(url, ...rest); };",
+    ))
+    .await
+    .unwrap();
+    page.goto(format!("{address}/next.design")).await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    std::fs::remove_file(dir.join("next.design")).unwrap();
+    designs.changed(&dir.join("next.design"));
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    let calls: u32 = eval(&page, "window.watchCalls").await;
+    // Long enough for three reconnects, were it still reconnecting.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let later: u32 = eval(&page, "window.watchCalls").await;
+    assert_eq!(later, calls, "the canvas kept reopening its stream");
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_canvas_says_so_when_the_engine_does_not_load() {
+    let dir = folder("no-engine");
+    let address = serve(&dir, "screen.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    // A browser that can't compile the module.
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+        "const no = () => Promise.reject(new Error('no WebAssembly here')); \
+         WebAssembly.instantiate = no; WebAssembly.instantiateStreaming = no;",
+    ))
+    .await
+    .unwrap();
+    page.goto(format!("{address}/screen.design")).await.unwrap();
+    until(&page, "!!document.querySelector('.design-failed')").await;
+    let text: String = eval(
+        &page,
+        "document.querySelector('.design-failed').textContent",
+    )
+    .await;
+    assert!(text.contains("design engine didn't load"), "{text}");
+    assert!(text.contains("no WebAssembly here"), "{text}");
     browser.close().await.ok();
     events.abort();
 }
