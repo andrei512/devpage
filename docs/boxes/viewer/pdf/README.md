@@ -38,9 +38,13 @@ call Playwright makes, spoken directly over the DevTools protocol by the
 Each run gives Chrome a profile folder of its own in the system's temporary
 folder, so several prints can run at once, and deletes it when the run ends.
 
-It uses the Chrome or Chromium installed on the machine. When it finds none, it
-downloads a Chromium once, into devpage's cache folder, says so, and uses that
-from then on.
+The Chrome is always **chrome-headless-shell**, never a Chrome installed on
+the machine. devpage downloads it the first time it needs one — into
+`~/Library/Caches/devpage/chrome-headless-shell` on macOS,
+`~/.cache/devpage/chrome-headless-shell` elsewhere — and uses that copy from
+then on. It is a bare program with no app bundle, so nothing devpage launches
+appears in the macOS Dock, and every machine prints with the same browser.
+The Chrome tests drive the same copy.
 
 ## Why the PDF matches the screen
 

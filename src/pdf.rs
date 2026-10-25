@@ -43,15 +43,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     });
 
     let profile = Profile::new();
-    let config = match profile.chrome().build() {
-        Ok(config) => config,
-        // No Chrome installed: download a Chromium once, into devpage's cache.
-        Err(_) => profile
-            .chrome()
-            .chrome_executable(fetch_chromium().await?)
-            .build()
-            .map_err(anyhow::Error::msg)?,
-    };
+    let config = profile
+        .chrome()
+        .await?
+        .build()
+        .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(config).await.context("starting Chrome")?;
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
@@ -112,9 +108,11 @@ impl Profile {
         )))
     }
 
-    /// A headless Chrome using this profile.
-    pub(crate) fn chrome(&self) -> chromiumoxide::browser::BrowserConfigBuilder {
-        BrowserConfig::builder().user_data_dir(&self.0)
+    /// [`headless_shell`] using this profile.
+    pub(crate) async fn chrome(&self) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
+        Ok(BrowserConfig::builder()
+            .chrome_executable(headless_shell().await?)
+            .user_data_dir(&self.0))
     }
 }
 
@@ -124,25 +122,37 @@ impl Drop for Profile {
     }
 }
 
-/// Downloads a Chromium into devpage's cache folder, or finds the one there.
-async fn fetch_chromium() -> Result<std::path::PathBuf> {
-    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
-    let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
-    let cache = if cfg!(target_os = "macos") {
-        Path::new(&home).join("Library/Caches/devpage/chromium")
-    } else {
-        Path::new(&home).join(".cache/devpage/chromium")
-    };
-    std::fs::create_dir_all(&cache)?;
-    eprintln!("No Chrome found; using a Chromium in {}", cache.display());
-    let fetcher = BrowserFetcher::new(
-        BrowserFetcherOptions::builder()
-            .with_path(&cache)
-            .build()
-            .map_err(anyhow::Error::msg)?,
-    );
-    let info = fetcher.fetch().await.context("downloading Chromium")?;
-    Ok(info.executable_path)
+/// chrome-headless-shell, downloaded once into devpage's cache folder: the
+/// one browser devpage drives, for `devpage pdf` and for every Chrome test. It
+/// is a bare program with no app bundle, so nothing devpage launches ever shows
+/// in the macOS Dock, and every machine prints with the same browser. Prints
+/// running at once share one download.
+pub(crate) async fn headless_shell() -> Result<std::path::PathBuf> {
+    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
+    static SHELL: tokio::sync::OnceCell<std::path::PathBuf> = tokio::sync::OnceCell::const_new();
+    SHELL
+        .get_or_try_init(|| async {
+            let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
+            let cache = if cfg!(target_os = "macos") {
+                Path::new(&home).join("Library/Caches/devpage/chrome-headless-shell")
+            } else {
+                Path::new(&home).join(".cache/devpage/chrome-headless-shell")
+            };
+            std::fs::create_dir_all(&cache)?;
+            let fetcher = BrowserFetcher::new(
+                BrowserFetcherOptions::builder()
+                    .with_path(&cache)
+                    .with_kind(BrowserKind::ChromeHeadlessShell)
+                    .build()
+                    .map_err(anyhow::Error::msg)?,
+            );
+            let info = fetcher.fetch().await.with_context(|| {
+                format!("downloading chrome-headless-shell into {}", cache.display())
+            })?;
+            anyhow::Ok(info.executable_path)
+        })
+        .await
+        .cloned()
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -221,7 +231,7 @@ mod tests {
             .collect()
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
@@ -258,7 +268,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
@@ -280,7 +290,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
@@ -293,9 +303,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}{url}").as_str())
@@ -336,7 +347,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
@@ -350,9 +361,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser.new_page("about:blank").await.unwrap();
         let layout = |width: i64| {

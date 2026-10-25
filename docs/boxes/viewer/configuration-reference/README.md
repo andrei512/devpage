@@ -124,7 +124,8 @@ fixed, and the last valid version is kept meanwhile. The same problems in a
 document file reached by a link don't stop devpage: they are [problems](../checking-links/README.md), shown on the
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, and with the
-error from fetching Chromium when none is installed and the download fails,
+error `downloading chrome-headless-shell into <cache folder>` when the first
+download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
 and with `pdf prints a doc or slides, not a design` when given a design.
 
 A design's problems never stop devpage, even when the design is the entry:

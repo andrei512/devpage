@@ -1,5 +1,5 @@
 //! The canvas in Chrome: painting on the GPU and the CPU against the server's
-//! PNG, interactions, embedding and printing. They drive the installed Chrome;
+//! PNG, interactions, embedding and printing. They drive chrome-headless-shell;
 //! run them with `cargo test -- --ignored`.
 
 use std::path::{Path, PathBuf};
@@ -100,10 +100,19 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     (format!("http://{address}"), designs)
 }
 
-/// A headless Chrome with WebGPU.
+/// A headless Chrome with WebGPU. chrome-headless-shell keeps its GPU
+/// process off unless `enable-gpu` is passed; with it, WebGPU gets the real
+/// adapter and screenshots include the WebGPU canvas as the reader sees it,
+/// composited — without it they hold black where the canvas is. chromiumoxide
+/// adds the `--` itself.
 async fn chrome() -> (Browser, tokio::task::JoinHandle<()>, Profile) {
     let profile = Profile::new();
-    let config = profile.chrome().arg("--enable-unsafe-webgpu");
+    let config = profile
+        .chrome()
+        .await
+        .unwrap()
+        .arg("enable-unsafe-webgpu")
+        .arg("enable-gpu");
     let (browser, mut handler) = Browser::launch(config.build().unwrap()).await.unwrap();
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
     (browser, events, profile)
@@ -163,6 +172,21 @@ async fn screenshot(page: &Page, width: f64, height: f64) -> Vec<u8> {
 }
 
 /// The color on the screen at `at`, as `[r, g, b]`.
+/// Waits until the screen pixel `at` is `color`, for up to 20 seconds: a
+/// navigation opens a stream and paints when its scene arrives, which takes
+/// as long as the machine's load makes it.
+async fn until_pixel(page: &Page, at: Point, color: [u8; 3]) {
+    let mut last = [0; 3];
+    for _ in 0..200 {
+        last = pixel(page, at).await;
+        if last == color {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    panic!("timed out waiting for {color:?} at {at:?}, last {last:?}");
+}
+
 async fn pixel(page: &Page, at: Point) -> [u8; 3] {
     let bytes = page
         .screenshot(
@@ -433,9 +457,8 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
     assert_eq!(grey, [0xf8, 0xfa, 0xfc]);
     let pay = on_screen(&page, "canvas.design", 120.0, 40.0).await;
     page.click(pay).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    until_pixel(&page, corner, [0xfe, 0xf3, 0xc7]).await;
     assert_eq!(eval::<String>(&page, "location.pathname").await, "/page.md");
-    assert_eq!(pixel(&page, corner).await, [0xfe, 0xf3, 0xc7]);
 
     // A page edit swaps the text and keeps the very same canvas.
     std::fs::write(

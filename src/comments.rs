@@ -354,7 +354,7 @@ mod tests {
     }
 }
 
-/// The page script's side of comments, in the installed Chrome. Run with
+/// The page script's side of comments, in chrome-headless-shell. Run with
 /// `cargo test -- --ignored`.
 #[cfg(test)]
 mod browser {
@@ -407,6 +407,7 @@ mod browser {
             std::process::id()
         ));
         let config = BrowserConfig::builder()
+            .chrome_executable(crate::pdf::headless_shell().await.unwrap())
             .user_data_dir(profile)
             .viewport(chromiumoxide::handler::viewport::Viewport {
                 width: 1400,
@@ -421,7 +422,20 @@ mod browser {
             .new_page(format!("http://{address}{path}").as_str())
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Ready once the page and its scripts have loaded, however long a
+        // loaded machine takes, rather than after a fixed wait.
+        for _ in 0..200 {
+            let ready = page
+                .evaluate("document.readyState === 'complete' && !!document.getElementById('page')")
+                .await
+                .ok()
+                .and_then(|v| v.into_value::<bool>().ok())
+                .unwrap_or(false);
+            if ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         (browser, page, events)
     }
 
