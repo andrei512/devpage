@@ -431,20 +431,14 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
         "document.querySelector('canvas.design')?.dataset.painted === 'true'",
     )
     .await;
-    // At the page's width, as tall as the design is at that width.
+    // At its own size: the 400 × 300 screen is never enlarged to the page.
     let [width, height]: [f64; 2] = eval(
         &page,
         "(() => { const b = document.querySelector('canvas.design').getBoundingClientRect(); \
          return [b.width, b.height]; })()",
     )
     .await;
-    let article: f64 = eval(
-        &page,
-        "document.querySelector('article').getBoundingClientRect().width",
-    )
-    .await;
-    assert!((width - article).abs() < 1.0, "{width} vs {article}");
-    assert!((height - width * 0.75).abs() < 1.0, "{height} for {width}");
+    assert_eq!([width, height], [400.0, 300.0]);
 
     // Clicking Pay navigates inside the embed, not the page: the next
     // design's yellow replaces the screen's grey.
@@ -656,6 +650,167 @@ async fn a_canvas_says_so_when_the_engine_does_not_load() {
     .await;
     assert!(text.contains("design engine didn't load"), "{text}");
     assert!(text.contains("no WebAssembly here"), "{text}");
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// The canvas's CSS size and its gaps to the stage's content box, left and
+/// right: `[width, height, left gap, right gap]`.
+const EMBED_BOX: &str = "(() => { const c = document.querySelector('canvas.design'); \
+    const s = c.parentElement; const st = getComputedStyle(s); \
+    const b = c.getBoundingClientRect(); const o = s.getBoundingClientRect(); \
+    return [b.width, b.height, \
+      b.left - o.left - parseFloat(st.paddingLeft), \
+      o.right - parseFloat(st.paddingRight) - b.right]; })()";
+
+/// Opens `path` in a `width` × `height` window and waits for its design.
+async fn embedded(
+    browser: &mut Browser,
+    address: &str,
+    path: &str,
+    width: i64,
+    height: i64,
+) -> Page {
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(SetDeviceMetricsOverrideParams::new(
+        width, height, 1.0, false,
+    ))
+    .await
+    .unwrap();
+    page.goto(format!("{address}{path}")).await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    page
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dir = folder("own-size");
+    std::fs::write(
+        dir.join("page.md"),
+        "# Page\n\n![The screen](screen.design)\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+
+    // A wide window: 400 × 300, as the design is, centred on its stage.
+    let page = embedded(&mut browser, &address, "/page.md", 1280, 1000).await;
+    let [w, h, left, right]: [f64; 4] = eval(&page, EMBED_BOX).await;
+    assert_eq!([w, h], [400.0, 300.0]);
+    assert!(
+        left > 0.0 && (left - right).abs() <= 1.0,
+        "{left} vs {right}"
+    );
+    assert!(
+        eval::<String>(
+            &page,
+            "document.querySelector('canvas.design').dataset.view"
+        )
+        .await
+        .starts_with("1,")
+    );
+
+    // A narrow window: scaled down to the stage's width, keeping its shape.
+    let page = embedded(&mut browser, &address, "/page.md", 300, 1000).await;
+    let [w, h, left, right]: [f64; 4] = eval(&page, EMBED_BOX).await;
+    assert!(
+        w < 300.0 && left >= 0.0 && right >= -0.5,
+        "{w} {left} {right}"
+    );
+    assert!((h - w * 0.75).abs() <= 1.0, "{h} for {w}");
+
+    // A short window: scaled down until the whole design is in view.
+    let page = embedded(&mut browser, &address, "/page.md", 1280, 240).await;
+    let [w, h, _, _]: [f64; 4] = eval(&page, EMBED_BOX).await;
+    assert!(h <= 240.0 && (h - w * 0.75).abs() <= 1.0, "{w} × {h}");
+
+    // The real example: the 390-wide checkout screen stays 390 wide in a doc.
+    let address = serve(root, "docs/boxes/viewer/designs/README.md").await;
+    let page = embedded(
+        &mut browser,
+        &address,
+        "/docs/boxes/viewer/designs/README.md",
+        1280,
+        1000,
+    )
+    .await;
+    let [w, _, left, right]: [f64; 4] = eval(&page, EMBED_BOX).await;
+    assert_eq!(w, 390.0);
+    assert!((left - right).abs() <= 1.0, "{left} vs {right}");
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn the_stages_link_opens_the_design_it_shows_on_its_canvas_page() {
+    let dir = folder("open-link");
+    std::fs::create_dir_all(dir.join("notes")).unwrap();
+    std::fs::write(
+        dir.join("notes/page.md"),
+        "# Page\n\n![The screen](../screen.design)\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "notes/page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = embedded(&mut browser, &address, "/notes/page.md", 1280, 1000).await;
+    let link = "document.querySelector('.design-embed > a.design-open')";
+    assert_eq!(
+        eval::<String>(&page, &format!("{link}.getAttribute('href')")).await,
+        "/screen.design"
+    );
+    // After a navigation inside the embed the link follows the design shown.
+    let corner = on_screen(&page, "canvas.design", 300.0, 40.0).await;
+    let pay = on_screen(&page, "canvas.design", 120.0, 40.0).await;
+    page.click(pay).await.unwrap();
+    until_pixel(&page, corner, [0xfe, 0xf3, 0xc7]).await;
+    assert_eq!(
+        eval::<String>(&page, &format!("{link}.getAttribute('href')")).await,
+        "/next.design"
+    );
+    page.evaluate(format!("{link}.click()")).await.unwrap();
+    until(
+        &page,
+        "location.pathname === '/next.design' && document.body.classList.contains('design-page')",
+    )
+    .await;
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_small_design_is_not_enlarged_on_its_canvas_page() {
+    let dir = folder("small");
+    let address = serve(&dir, "button.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = embedded(&mut browser, &address, "/button.design", 1280, 1000).await;
+    let view: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.view",
+    )
+    .await;
+    let [zoom, x, y]: [f64; 3] = view
+        .split(',')
+        .map(|n| n.parse().unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    assert_eq!(zoom, 1.0);
+    // Centred in the 1280 × 1000 window.
+    assert_eq!(
+        [x, y],
+        [
+            ((1280.0 - 200.0) / 2.0_f64).round(),
+            ((1000.0 - 40.0) / 2.0_f64).round()
+        ]
+    );
     browser.close().await.ok();
     events.abort();
 }

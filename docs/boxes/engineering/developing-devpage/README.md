@@ -53,7 +53,7 @@ What you edit decides what you have to do to see it:
 
 ```sh
 cargo test                  # 104 tests in the three crates; needs no network and no Chrome
-cargo test -- --ignored     # the 17 tests that drive chrome-headless-shell
+cargo test -- --ignored     # the 20 tests that drive chrome-headless-shell
 ```
 
 `cargo test` runs every crate in the workspace: 65 in `devpage`, 36 in the
@@ -62,7 +62,7 @@ natively. Tests are written as `#[cfg(test)]` modules beside the code they
 test — the canvas's Chrome tests in `src/designs/canvas_tests.rs`, a child
 module of `designs`; there is no `tests/` folder. Route tests start the real router on a free port on
 `127.0.0.1` and talk to it with `reqwest`; external-link tests point the
-checker at a local web server, so the suite needs no network. The 17 tests
+checker at a local web server, so the suite needs no network. The 20 tests
 marked `#[ignore]` drive chrome-headless-shell through chromiumoxide — the
 copy [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
@@ -88,7 +88,7 @@ work before calling the suite green.
 | --- | --- | --- | --- |
 | `check` | 10 | | Missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site, and a page in no site checked as a doc; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
 | `comments` | 4 | 3 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; **C** on a deck. |
-| `designs` | 8 | 10 | The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; nothing outside the served folder read; a PNG, or `422` and the problems; a design as the entry document; the canvas page titled without `.design`; the watch stream over gRPC-Web sending the scene, a patch of only what changed, nothing for a no-op, problems, and the end of a deleted design; `devpage check` naming a broken embedded design's `file:line:col`. In Chrome: the canvas on the GPU and on the CPU each matching the PNG by the engine's comparison; a click navigating, back returning, an overlay opening and closing; an interaction inside an instance from another folder opening its own target; the wheel zooming about the pointer and panning; an undone typo clearing the problems; a deleted design no longer asking for its stream; a canvas saying so when the engine doesn't load; an embedded design drawing and surviving a page edit; a doc printing its embedded design. |
+| `designs` | 8 | 13 | The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; nothing outside the served folder read; a PNG, or `422` and the problems; a design as the entry document; the canvas page titled without `.design`; the watch stream over gRPC-Web sending the scene, a patch of only what changed, nothing for a no-op, problems, and the end of a deleted design; `devpage check` naming a broken embedded design's `file:line:col`. In Chrome: the canvas on the GPU and on the CPU each matching the PNG by the engine's comparison; a click navigating, back returning, an overlay opening and closing; an interaction inside an instance from another folder opening its own target; the wheel zooming about the pointer and panning; an undone typo clearing the problems; a deleted design no longer asking for its stream; a canvas saying so when the engine doesn't load; an embedded design drawing at its own size and surviving a page edit; an embedded design centred at its own size and only ever scaled down, to the page's width or the window's height; the stage's link opening the design it shows on its canvas page; a small design not enlarged on its canvas page; a doc printing its embedded design. |
 | `document` | 7 | | Each kind parsed; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
 | `index` | 4 | | Document files found outside what `.gitignore` excludes; the nearest site above a page; nested `.gitignore` files and `.git` folders out of sight; changes keeping it current. |
 | `main` | 1 | | Taking the next port when the first is busy. |
