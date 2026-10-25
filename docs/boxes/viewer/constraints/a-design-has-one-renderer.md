@@ -16,5 +16,11 @@ the rasterizers' edge anti-aliasing to differ, which no reader can see.
 
 **Check:** the server's PNG route and the WebAssembly module both call the
 engine's one function that builds the display list, each backend is a
-command-by-command translation, and neither draws anything else. A test paints the example designs with both backends and finds every
-pixel within a small anti-aliasing tolerance of the other.
+command-by-command translation, and neither draws anything else. Tests
+paint the example designs with both backends and compare each with the
+server's PNG by the engine's one rule (`render::compare`): a pixel is
+**unexplained** when a channel lies more than 8 outside the range of the other
+drawing's pixel and its eight neighbours — which is all an anti-aliased edge
+can move. At most 0.05% of the pixels may be unexplained, and no cluster of
+touching unexplained pixels may be larger than 4. A missing one-pixel divider
+or a missing icon fails it; a test proves that on the checkout design.

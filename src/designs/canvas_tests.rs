@@ -16,7 +16,7 @@ use chromiumoxide::layout::Point;
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
-use devpage_design::render::{EDGE, TOLERANCE};
+use devpage_design::render::{self, Difference};
 
 use crate::document::Document;
 use crate::pdf::Profile;
@@ -194,41 +194,34 @@ async fn pixel(page: &Page, at: Point) -> [u8; 3] {
     .await
 }
 
-/// How far the screenshot is from the server's PNG: the largest channel
-/// difference, and the share of pixels differing beyond the tolerance.
-async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
-    let shot = serde_json::to_string(shot).unwrap();
-    let [max, share]: [f64; 2] = eval(
+/// How the screenshot `shot` differs from the server's PNG at `png`, laid over
+/// the page's background as the screen shows it — compared by the engine's
+/// own rule, so the test and the constraint can't drift apart.
+async fn difference(page: &Page, address: &str, shot: &[u8], png: &str) -> Option<Difference> {
+    let background: [f64; 3] = eval(
         page,
-        &format!(
-            "(async () => {{
-              // Over the page's background, as the screen shows it.
-              const background = getComputedStyle(document.body).backgroundColor;
-              const pixels = async (blob) => {{
-                const bitmap = await createImageBitmap(blob);
-                const c = new OffscreenCanvas(bitmap.width, bitmap.height);
-                const ctx = c.getContext('2d');
-                ctx.fillStyle = background;
-                ctx.fillRect(0, 0, bitmap.width, bitmap.height);
-                ctx.drawImage(bitmap, 0, 0);
-                return ctx.getImageData(0, 0, bitmap.width, bitmap.height).data;
-              }};
-              const shot = new Blob([new Uint8Array({shot})], {{ type: 'image/png' }});
-              const [a, b] = [await pixels(shot), await pixels(await (await fetch('{png}')).blob())];
-              if (a.length !== b.length) return [999, 1];
-              let max = 0, over = 0;
-              for (let i = 0; i < a.length; i += 4) {{
-                let d = 0;
-                for (let k = 0; k < 3; k++) d = Math.max(d, Math.abs(a[i + k] - b[i + k]));
-                max = Math.max(max, d);
-                if (d > {EDGE}) over++;
-              }}
-              return [max, over / (a.length / 4)];
-            }})()"
-        ),
+        "getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number)",
     )
     .await;
-    (max as u32, share)
+    let served = reqwest::get(format!("{address}{png}"))
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let (mut b, width, _) = render::pixels(&served).unwrap();
+    for px in b.chunks_mut(4) {
+        let alpha = px[3] as f64 / 255.0;
+        for k in 0..3 {
+            px[k] = (px[k] as f64 * alpha + background[k] * (1.0 - alpha)).round() as u8;
+        }
+        px[3] = 255;
+    }
+    let (mut a, _, _) = render::pixels(shot).unwrap();
+    for px in a.chunks_mut(4) {
+        px[3] = 255;
+    }
+    render::compare(&a, &b, width as usize)
 }
 
 /// Each example design on the canvas page matches the server's PNG of it
@@ -275,12 +268,10 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
         // Let the GPU's frame reach the screen.
         tokio::time::sleep(Duration::from_millis(300)).await;
         let shot = screenshot(&page, width, height).await;
-        let (max, share) = difference(&page, &shot, &format!("{path}.png")).await;
-        eprintln!("{backend} {name}: {share:.5} of pixels more than {EDGE} apart (largest {max})");
-        if share > TOLERANCE {
-            failures.push(format!(
-                "{backend} {name}: {share} of pixels more than {EDGE} apart (largest {max})"
-            ));
+        let d = difference(&page, &address, &shot, &format!("{path}.png")).await;
+        eprintln!("{backend} {name}: {d:?}");
+        if !d.is_some_and(|d| d.within_tolerance()) {
+            failures.push(format!("{backend} {name}: {d:?}"));
         }
         page.close().await.ok();
     }

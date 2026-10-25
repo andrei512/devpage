@@ -124,8 +124,6 @@ pub struct Node {
     pub text: Option<TextStyle>,
     pub vector: Option<Vector>,
     pub image: Option<Image>,
-    /// The design an instance came from, on the instance's root.
-    pub design: Option<String>,
     pub children: Vec<Node>,
 }
 
@@ -154,7 +152,6 @@ impl Node {
             text: None,
             vector: None,
             image: None,
-            design: None,
             children: Vec::new(),
         }
     }
@@ -292,7 +289,7 @@ impl Resolver<'_> {
         for arg in args {
             if matches!(
                 arg.name.as_str(),
-                "x" | "y" | "width" | "height" | "name" | "onClick"
+                "x" | "y" | "width" | "height" | "name" | "opacity" | "onClick"
             ) {
                 overrides.push(arg.clone());
             } else if props.contains_key(&arg.name) {
@@ -310,7 +307,6 @@ impl Resolver<'_> {
         let mut root = self.element(path, &file.root, &props, &imports);
         self.stack.pop();
         if let Some(root) = root.as_mut() {
-            root.design = Some(path.to_string());
             for attr in &overrides {
                 // The caller's own props are already substituted into these.
                 self.common(&caller, root, attr, attr.value.clone());
@@ -576,7 +572,16 @@ impl Resolver<'_> {
             "name" => str_of(&value)
                 .map(|s| node.name = s)
                 .ok_or_else(|| "expected a string".into()),
-            "opacity" => num(&value).map(|n| node.opacity = n),
+            "opacity" => match value {
+                Value::Num(n) if (0.0..=1.0).contains(&n) => {
+                    node.opacity = n as f32;
+                    Ok(())
+                }
+                other => Err(format!(
+                    "expected a number from 0 to 1, found {}",
+                    show(&other)
+                )),
+            },
             "onClick" => match str_of(&value).filter(|s| interaction_ok(s)) {
                 Some(action) => self
                     .interaction(path, &action)
@@ -844,13 +849,13 @@ mod tests {
             (
                 "a/screen.design",
                 r#"import Button from "./button.design"
-<Frame width={390}><Button label="Pay" x={10} /></Frame>"#,
+<Frame width={390}><Button label="Pay" x={10} opacity={0.5} /></Frame>"#,
             ),
         ]);
         let scene = resolve(&fs, "a/screen.design").unwrap();
         let button = &scene.root.children[0];
-        assert_eq!(button.design.as_deref(), Some("a/button.design"));
         assert_eq!(button.x, 10.0);
+        assert_eq!(button.opacity, 0.5);
         assert_eq!(
             button.fill,
             Some(Fill::Solid(Color {
@@ -862,6 +867,29 @@ mod tests {
         );
         assert_eq!(button.children[0].text.as_ref().unwrap().content, "Pay");
         assert_eq!(scene.files, vec!["a/screen.design", "a/button.design"]);
+    }
+
+    #[test]
+    fn opacity_is_between_zero_and_one() {
+        let fs = files(&[
+            ("dot.design", "<Frame />"),
+            (
+                "screen.design",
+                "import Dot from \"./dot.design\"\n<Frame opacity={1}>\n  <Rect opacity={50} />\n  <Dot opacity={-0.1} />\n</Frame>",
+            ),
+        ]);
+        let problems: Vec<String> = resolve(&fs, "screen.design")
+            .unwrap_err()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        assert_eq!(
+            problems,
+            vec![
+                "screen.design:3:9: opacity: expected a number from 0 to 1, found 50",
+                "screen.design:4:8: opacity: expected a number from 0 to 1, found -0.1",
+            ]
+        );
     }
 
     #[test]
