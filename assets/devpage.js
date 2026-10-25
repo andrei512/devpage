@@ -140,7 +140,8 @@ async function mountWidgets(root) {
   // items from it — puts the placeholders of widgets inside that content back
   // on the page unmounted. Mount those too, outermost first, until none is left.
   for (let depth = 0; depth < 8; depth++) {
-    const left = [...root.querySelectorAll("[data-widget]:not([data-mounted])")]
+    // (A widget's own <style data-widget> in the head is not a placeholder.)
+    const left = [...root.querySelectorAll("[data-widget]:not([data-mounted]):not(style)")]
       .filter((el) => !el.parentElement.closest("[data-widget]:not([data-mounted])"));
     if (!left.length) break;
     await mount(left);
