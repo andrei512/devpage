@@ -221,9 +221,13 @@ class Host {
   }
 
   close() {
-    this.overlay?.close();
+    this.closeOverlay();
     this.resized?.disconnect();
+    cancelAnimationFrame(this.frame);
     hosts.delete(this);
+    // The scene lives in the module's memory, not in JavaScript's.
+    this.design?.free();
+    this.design = null;
     rewatch();
   }
 
@@ -294,7 +298,7 @@ class Host {
   }
 
   draw() {
-    if (!this.canvas.isConnected || !this.fit()) return;
+    if (!this.design || !this.canvas.isConnected || !this.fit()) return;
     const ratio = window.devicePixelRatio || 1;
     const box = this.canvas.getBoundingClientRect();
     const width = Math.max(1, Math.round(box.width * ratio));
@@ -478,7 +482,6 @@ class Host {
     if (!this.overlay) return;
     this.overlay.close();
     this.overlay.layer.remove();
-    this.overlay.design.free();
     this.overlay = null;
   }
 }
@@ -518,7 +521,10 @@ export function scan(root = document) {
       fail(canvas, `This design can't be drawn: the design engine didn't load (${failure.message ?? failure}).`);
       continue;
     }
-    const base = canvas.closest("[data-source]")?.dataset.source;
+    // The Markdown file the embed was written in: the nearest page, chapter
+    // or slide — not a widget around it, whose `data-source` is its own
+    // Markdown rather than an address.
+    const base = canvas.closest("[data-source]:not([data-widget])")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
     const at = page ? -1 : carried.findIndex((state) => state.src === canvas.getAttribute("src"));
     const state = at >= 0 ? carried.splice(at, 1)[0] : null;

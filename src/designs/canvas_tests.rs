@@ -1316,3 +1316,59 @@ async fn the_canvas_pages_switch_leaves_the_problems_bar_whole() {
     browser.close().await.ok();
     events.abort();
 }
+
+#[tokio::test]
+#[ignore]
+async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
+    let dir = folder("widget-subfolder");
+    let sub = dir.join("sub");
+    std::fs::create_dir_all(&sub).unwrap();
+    designs(&sub);
+    std::fs::write(
+        dir.join("devpage.yml"),
+        "kind: site\ntitle: Site\nroot: README.md\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("README.md"),
+        "# Root\n\n## Topics\n\n- [Sub](sub/page.md)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        sub.join("page.md"),
+        "# Sub\n\n![Plain](button.design)\n\n<Callout>\n\n![In a callout](button.design)\n\n</Callout>\n\n\
+<Tabs>\n<Tab title=\"One\">\n\n![In a tab](button.design)\n\n</Tab>\n</Tabs>\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "devpage.yml").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/sub/page.md").as_str())
+        .await
+        .unwrap();
+    // Three embeds — plain, in a Callout, in a Tab — each paints its design
+    // and links to it beside the page, not at the top of the served folder.
+    until(
+        &page,
+        "document.querySelectorAll('canvas.design').length === 3 \
+         && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')",
+    )
+    .await;
+    let links: Vec<String> = eval(
+        &page,
+        "[...document.querySelectorAll('a.design-open')].map((a) => new URL(a.href).pathname)",
+    )
+    .await;
+    assert_eq!(links, vec!["/sub/button.design"; 3]);
+    assert_eq!(
+        eval::<usize>(
+            &page,
+            "document.querySelectorAll('.design-problems').length"
+        )
+        .await,
+        0,
+        "no embed reports a problem"
+    );
+    browser.close().await.ok();
+    events.abort();
+}
