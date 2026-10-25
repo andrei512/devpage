@@ -445,6 +445,19 @@ impl Resolver<'_> {
                 }
                 continue;
             }
+            // Shown on its own a design has no parent to place it in, and used
+            // as an instance it goes where the instance's own x and y say.
+            if root && matches!(attr.name.as_str(), "x" | "y") {
+                self.problem(
+                    path,
+                    attr.pos,
+                    format!(
+                        "{}: a design's root has no place of its own; place an instance with x and y where it is used",
+                        attr.name
+                    ),
+                );
+                continue;
+            }
             let value = match &attr.value {
                 Value::Prop(p) => match props.get(p) {
                     Some(v) => v.clone(),
@@ -1085,6 +1098,43 @@ mod tests {
             problems_in(&fs, "a.design"),
             vec!["a.design:2:10: props: only a design's root declares props"]
         );
+    }
+
+    #[test]
+    fn a_root_has_no_place_of_its_own() {
+        let fs = files(&[
+            (
+                "dot.design",
+                r#"<Frame x={40} y={30} width={10} height={10} />"#,
+            ),
+            (
+                "a.design",
+                r#"import Dot from "./dot.design"
+<Frame width={100} height={100}>
+  <Dot x={5} y={6} />
+</Frame>"#,
+            ),
+        ]);
+        let expected = [
+            "dot.design:1:8: x: a design's root has no place of its own; place an instance with x and y where it is used",
+            "dot.design:1:15: y: a design's root has no place of its own; place an instance with x and y where it is used",
+        ];
+        assert_eq!(problems_in(&fs, "dot.design"), expected);
+        // Used as an instance, the root's own x and y are still a problem; the
+        // instance's x and y are where it goes.
+        assert_eq!(problems_in(&fs, "a.design"), expected);
+        let fs = files(&[
+            ("dot.design", r#"<Frame width={10} height={10} />"#),
+            (
+                "a.design",
+                r#"import Dot from "./dot.design"
+<Frame width={100} height={100}>
+  <Dot x={5} y={6} />
+</Frame>"#,
+            ),
+        ]);
+        let dot = &resolve(&fs, "a.design").unwrap().root.children[0];
+        assert_eq!((dot.x, dot.y), (5.0, 6.0));
     }
 
     #[test]
