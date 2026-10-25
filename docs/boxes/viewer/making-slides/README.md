@@ -32,6 +32,18 @@ ordinary Markdown — headings, lists, code, images, raw HTML and Mermaid
 diagrams all work as on any page, with links and images relative to the
 slide's own file.
 
+**A real deck to copy.** [The devpage talk](../../../talks/devpage/devpage.yml)
+is fifteen slides made this way, about devpage itself. Every slide is a
+[widget](../widgets/README.md) or two: devpage's own (`Terminal`, `FileTree`,
+`Example`, `Keys`, Mermaid diagrams) and the project widgets in `docs/widgets/`
+that lay a slide out — `Hero` for a title, `Statement` for one big sentence,
+`Columns` for side-by-side blocks, `Pillars` for numbered cards, `Chips` and
+`PaperSketch`. The deck names that folder with `widgets: ../../widgets`.
+
+**Widgets on the stage.** A system widget on a slide looks as it does on a
+page, magnified for the 1920 × 1080 stage; Mermaid diagrams fill the width
+they are given.
+
 ## The stage
 
 Every slide is laid out on a **1920 × 1080** stage and then scaled, as a

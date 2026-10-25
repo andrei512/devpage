@@ -227,6 +227,15 @@ body.slides { display: block; background: #000; overflow: hidden; }
 .slide-body pre code { font-size: 30px; }
 .slide-body table { font-size: 34px; }
 .slide-body .diagram { font-size: 28px; }
+/* Widgets on a slide look as they do on a page, magnified for the stage. */
+.slide-body :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) { font-size: 16px; line-height: 1.5; zoom: 2.2; }
+.slide-body :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) :is(table, pre code) { font-size: 14px; }
+.slide-body .kind-cards { zoom: 1.7; margin: 0; }
+.slide-body .example { zoom: 1.7; margin: 0; }
+.slide-body .example .example-source code { font-size: 19px; }
+/* A diagram fills the room it is given. */
+.slide-body .diagram svg { width: 100%; height: auto; max-height: 760px; }
+.slide-body .diagram { margin: 0; padding: 0; }
 
 @media print {
   body.slides { background: none; overflow: visible; }
@@ -280,6 +289,9 @@ img.broken { outline: 2px dashed #d70015; }
 .diagram a.broken rect, .diagram a.broken polygon, .diagram a.broken circle, .diagram a.broken ellipse, .diagram a.broken path { stroke: #d70015; stroke-dasharray: 6 4; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
+/* Soft shadows are left out on paper: PDF viewers draw Chrome's blurred
+   shadows as grey boxes. */
+@media print { * { box-shadow: none !important; } }
 @media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }
 
 /* ---- Widgets ---------------------------------------------------------- */

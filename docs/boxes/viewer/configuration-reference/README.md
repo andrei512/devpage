@@ -156,4 +156,5 @@ watch:
   - "**/*.yml"
 ```
 
-The example doc and deck in `examples/` show the other two kinds.
+[The devpage talk](../../../talks/devpage/devpage.yml) is a deck; its
+`devpage.yml` shows the slides kind.

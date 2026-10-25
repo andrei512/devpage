@@ -107,9 +107,10 @@ root: README.md
 navbar:
   Docs (book-open): README.md
   Getting started (rocket): getting-started.md
-  Examples (layout-grid):
-    Sync design (file-text): ../examples/sync-design/devpage.yml
-    Launch talk (presentation): ../examples/launch-talk/devpage.yml
+  Guides (compass):
+    Writing a document (file-text): boxes/viewer/writing-a-document/README.md
+    Making slides (presentation): boxes/viewer/making-slides/README.md
+  Talk (presentation): talks/devpage/devpage.yml
   (github): https://github.com/andrei512/devpage
 ```
 

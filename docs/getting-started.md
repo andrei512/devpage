@@ -161,9 +161,9 @@ per page.
 **Check it.** `devpage check garden` checks the site and everything it links
 to — here, all three — and exits `1` if a link is broken: ready for a test.
 
-The repository's own `examples/` folder holds a finished
-[doc](../examples/sync-design/devpage.yml) and
-[deck](../examples/launch-talk/devpage.yml) to read and copy.
+For a finished example of each, read these docs — they are a devpage
+site — and [the devpage talk](talks/devpage/devpage.yml), a deck made with
+devpage about devpage.
 
 ## Where next
 

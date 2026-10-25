@@ -895,12 +895,12 @@ mod external {
 }
 
 #[cfg(test)]
-mod examples {
+mod documents {
     use super::*;
 
     #[test]
-    fn the_examples_have_no_broken_links() {
-        for example in ["examples/sync-design", "examples/launch-talk"] {
+    fn the_fixture_doc_and_the_talk_have_no_broken_links() {
+        for example in ["tests/fixtures/sync-design", "docs/talks/devpage"] {
             let root = Path::new(env!("CARGO_MANIFEST_DIR"));
             let doc = Document::load(&root.join(example), root).unwrap();
             let problems = internal(&doc, &mut Vec::new());

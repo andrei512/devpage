@@ -1,0 +1,21 @@
+# The devpage talk: what devpage does and why to use it, as a deck made with
+# devpage — every slide uses what it describes.
+kind: slides
+title: devpage
+widgets: ../../widgets
+slides:
+  - title.md
+  - problem.md
+  - idea.md
+  - kinds.md
+  - markdown.md
+  - diagrams.md
+  - widgets.md
+  - live.md
+  - comments.md
+  - checked.md
+  - paper.md
+  - deploy.md
+  - why.md
+  - start.md
+  - end.md
