@@ -2,7 +2,9 @@
 //! patch between two scenes.
 
 use crate::proto;
-use crate::resolve::{Align, Color, Kind, Layout, Node, Shadow, Size, TextStyle};
+use crate::resolve::{
+    Align, Color, Fill, Image, Kind, Layout, Node, Shadow, Size, TextAlign, TextStyle, Vector,
+};
 
 fn rgba(c: Color) -> u32 {
     u32::from_be_bytes([c.r, c.g, c.b, c.a])
@@ -56,6 +58,8 @@ pub fn encode(n: &Node) -> proto::Node {
             Kind::Text => proto::Kind::Text,
             Kind::Rect => proto::Kind::Rect,
             Kind::Ellipse => proto::Kind::Ellipse,
+            Kind::Vector => proto::Kind::Vector,
+            Kind::Image => proto::Kind::Image,
         } as i32,
         name: n.name.clone(),
         x: n.x,
@@ -64,7 +68,31 @@ pub fn encode(n: &Node) -> proto::Node {
         height: size(n.height),
         opacity: n.opacity,
         on_click: n.on_click.clone().unwrap_or_default(),
-        fill: n.fill.map(rgba),
+        fill: match &n.fill {
+            Some(Fill::Solid(c)) => Some(rgba(*c)),
+            _ => None,
+        },
+        gradient: match &n.fill {
+            Some(Fill::Linear { angle, stops }) => Some(proto::Gradient {
+                angle: *angle,
+                stops: stops
+                    .iter()
+                    .map(|(c, at)| proto::Stop {
+                        color: rgba(*c),
+                        at: *at,
+                    })
+                    .collect(),
+            }),
+            _ => None,
+        },
+        vector: n.vector.as_ref().map(|v| proto::Vector {
+            d: v.d.clone(),
+            view_box: v.view_box.to_vec(),
+        }),
+        image: n.image.as_ref().map(|i| proto::Image {
+            src: i.src.clone(),
+            data: i.data.clone(),
+        }),
         stroke: n.stroke.map(rgba),
         stroke_width: n.stroke_width,
         radius: n.radius.to_vec(),
@@ -91,6 +119,11 @@ pub fn encode(n: &Node) -> proto::Node {
             weight: t.weight as u32,
             color: rgba(t.color),
             line_height: t.line_height,
+            align: match t.align {
+                TextAlign::Left => proto::TextAlign::Left,
+                TextAlign::Center => proto::TextAlign::Center,
+                TextAlign::Right => proto::TextAlign::Right,
+            } as i32,
         }),
         design: n.design.clone().unwrap_or_default(),
         children: n.children.iter().map(encode).collect(),
@@ -105,6 +138,8 @@ pub fn decode(n: &proto::Node) -> Node {
             proto::Kind::Text => Kind::Text,
             proto::Kind::Rect => Kind::Rect,
             proto::Kind::Ellipse => Kind::Ellipse,
+            proto::Kind::Vector => Kind::Vector,
+            proto::Kind::Image => Kind::Image,
         },
         name: n.name.clone(),
         x: n.x,
@@ -113,7 +148,14 @@ pub fn decode(n: &proto::Node) -> Node {
         height: unsize(n.height),
         opacity: n.opacity,
         on_click: Some(n.on_click.clone()).filter(|s| !s.is_empty()),
-        fill: n.fill.map(color),
+        fill: match (&n.fill, &n.gradient) {
+            (Some(c), _) => Some(Fill::Solid(color(*c))),
+            (None, Some(g)) => Some(Fill::Linear {
+                angle: g.angle,
+                stops: g.stops.iter().map(|s| (color(s.color), s.at)).collect(),
+            }),
+            (None, None) => None,
+        },
         stroke: n.stroke.map(color),
         stroke_width: n.stroke_width,
         radius: four(&n.radius),
@@ -140,6 +182,19 @@ pub fn decode(n: &proto::Node) -> Node {
             weight: t.weight as u16,
             color: color(t.color),
             line_height: t.line_height,
+            align: match proto::TextAlign::try_from(t.align).unwrap_or(proto::TextAlign::Left) {
+                proto::TextAlign::Left => TextAlign::Left,
+                proto::TextAlign::Center => TextAlign::Center,
+                proto::TextAlign::Right => TextAlign::Right,
+            },
+        }),
+        vector: n.vector.as_ref().map(|v| Vector {
+            d: v.d.clone(),
+            view_box: four(&v.view_box),
+        }),
+        image: n.image.as_ref().map(|i| Image {
+            src: i.src.clone(),
+            data: i.data.clone(),
         }),
         design: Some(n.design.clone()).filter(|s| !s.is_empty()),
         children: n.children.iter().map(decode).collect(),

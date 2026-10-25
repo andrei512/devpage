@@ -1,10 +1,10 @@
 //! The canvas on the GPU: the engine's display list replayed into a `vello`
 //! scene and drawn with WebGPU.
 
-use devpage_design::render::Draw;
+use devpage_design::render::{Draw, Paint};
 use devpage_design::{Renderer, Scene};
 use vello::kurbo::Affine;
-use vello::peniko::Fill;
+use vello::peniko::{Fill, ImageBrush};
 use vello::wgpu;
 use wasm_bindgen::prelude::*;
 
@@ -102,7 +102,15 @@ impl Gpu {
         let mut v = vello::Scene::new();
         for draw in &list {
             match draw {
-                Draw::Fill(path, c) => v.fill(Fill::NonZero, t, *c, None, path),
+                Draw::Fill(path, Paint::Solid(c)) => v.fill(Fill::NonZero, t, *c, None, path),
+                Draw::Fill(path, Paint::Gradient(g)) => v.fill(Fill::NonZero, t, g, None, path),
+                Draw::Fill(path, Paint::Image(data, place)) => v.fill(
+                    Fill::NonZero,
+                    t,
+                    &ImageBrush::new(data.clone()),
+                    Some(*place),
+                    path,
+                ),
                 Draw::Stroke(path, width, c) => {
                     v.stroke(&vello::kurbo::Stroke::new(*width as f64), t, *c, None, path)
                 }
