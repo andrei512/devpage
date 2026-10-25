@@ -5,34 +5,115 @@ use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use axum::Json;
 use axum::Router;
-use axum::extract::{Path, Request, State};
-use axum::http::{StatusCode, header};
+use axum::extract::Query;
+use axum::extract::{Path, RawQuery, Request, State};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
+use serde::Deserialize;
 use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::document::Document;
+use crate::comments::{Anchor, Store};
+use crate::document::{self, Document, Entry, Kind};
+use crate::index::Index;
 use crate::render;
 
 #[derive(Clone)]
 struct AppState {
-    document: Arc<Document>,
-    changes: broadcast::Sender<()>,
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    changes: broadcast::Sender<String>,
+    store: Arc<Store>,
+    identity: Arc<Identity>,
 }
 
-pub fn router(document: Arc<Document>, changes: broadcast::Sender<()>) -> Router {
+/// Who writes a comment: one local author, or — deployed — whoever the auth
+/// proxy names in a header. devpage authenticates no one itself.
+pub enum Identity {
+    Local(String),
+    Header(String),
+}
+
+impl Identity {
+    #[allow(clippy::result_large_err)]
+    fn author(&self, headers: &HeaderMap) -> Result<String, Response> {
+        match self {
+            Identity::Local(name) => Ok(name.clone()),
+            Identity::Header(name) => headers
+                .get(name.as_str())
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    (StatusCode::UNAUTHORIZED, format!("no {name} header")).into_response()
+                }),
+        }
+    }
+}
+
+/// The server for one entry document, with a fresh index of its served folder.
+#[cfg(test)]
+pub fn router(
+    document: Arc<Document>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
+    let index = Arc::new(Index::build(&document.served));
+    router_with_index(Arc::new(Entry::new(document)), index, changes, identity)
+}
+
+/// The server, sharing the entry document and the index the watcher keeps
+/// current, logging every request.
+pub fn router_with_index(
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
+    quiet(entry, index, changes, identity).layer(middleware::from_fn(log))
+}
+
+/// The server for `devpage pdf`, which serves only Chrome and logs nothing.
+pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
+    let index = Arc::new(Index::build(&document.served));
+    quiet(
+        Arc::new(Entry::new(document)),
+        index,
+        changes,
+        Identity::Local(String::new()),
+    )
+}
+
+fn quiet(
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
+        .route(
+            "/__devpage/comments",
+            get(list_comments).post(create_comment),
+        )
+        .route("/__devpage/comments/reply", post(reply_comment))
+        .route("/__devpage/comments/resolve", post(resolve_comment))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
-        .layer(middleware::from_fn(log))
-        .with_state(AppState { document, changes })
+        .with_state(AppState {
+            store: Arc::new(Store::new(&entry.document().served)),
+            identity: Arc::new(identity),
+            entry,
+            index,
+            changes,
+        })
 }
 
 /// Logs each request with its status and how long the response took to start.
@@ -48,32 +129,88 @@ async fn log(request: Request, next: Next) -> Response {
     response
 }
 
-async fn home(State(state): State<AppState>) -> Redirect {
-    Redirect::temporary(&format!("/{}", state.document.root))
+/// `/` leads to the entry document as its file says now — or, while the file
+/// is invalid, shows why.
+async fn home(State(state): State<AppState>) -> Response {
+    let entry = &state.entry;
+    match entry.error() {
+        Some(error) => {
+            Html(render::invalid(&entry.document(), entry.file(), &error)).into_response()
+        }
+        None => Redirect::temporary(&entry.document().entry()).into_response(),
+    }
 }
 
-/// A Markdown file becomes a page; anything else in the folder is served as is.
-async fn file(State(state): State<AppState>, Path(path): Path<String>) -> Response {
-    let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
+/// A document file opens as its kind; a Markdown file becomes a page of its
+/// nearest site, or a doc of one chapter; anything else is served as it is.
+async fn file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    let entry = state.entry.document();
+    let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
-            format!("{path} is not part of this document"),
+            format!("{path} is not part of the served folder"),
         )
             .into_response();
     };
-    if file.extension().is_some_and(|ext| ext == "md") {
-        match tokio::fs::read_to_string(&file).await {
-            Ok(source) => Html(render::page(&state.document, &file, &source)).into_response(),
-            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
-        }
-    } else {
-        match tokio::fs::read(&file).await {
-            Ok(bytes) => {
-                let mime = mime_guess::from_path(&file).first_or_octet_stream();
-                ([(header::CONTENT_TYPE, mime.to_string())], bytes).into_response()
+    let served = &entry.served;
+    if document::kind_of(&file).is_some() {
+        return match Document::load(&file, served) {
+            Ok(document) => show(&document, print),
+            Err(error) => {
+                Html(render::invalid(&entry, &file, &format!("{error:#}"))).into_response()
             }
-            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+        };
+    }
+    if file.extension().is_some_and(|ext| ext == "md") {
+        let source = match tokio::fs::read_to_string(&file).await {
+            Ok(source) => source,
+            Err(error) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
+            }
+        };
+        // A site is never printed: in print mode a Markdown file is a doc of
+        // one chapter, whatever site holds it — what `devpage pdf` prints.
+        // A page of a site whose file is invalid shows why, until it is fixed.
+        let site = state
+            .index
+            .site_for(&file)
+            .filter(|_| !print)
+            .map(|site| (Document::load(&site, served), site));
+        return match site {
+            Some((Ok(site), _)) => Html(render::page(&site, &file, &source)).into_response(),
+            Some((Err(error), site)) => {
+                Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
+            }
+            None => match Document::load(&file, served) {
+                Ok(doc) => show(&doc, print),
+                Err(error) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
+                }
+            },
+        };
+    }
+    match tokio::fs::read(&file).await {
+        Ok(bytes) => {
+            let mime = mime_guess::from_path(&file).first_or_octet_stream();
+            ([(header::CONTENT_TYPE, mime.to_string())], bytes).into_response()
         }
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    }
+}
+
+/// A document as its kind: a site opens on its root page.
+fn show(document: &Document, print: bool) -> Response {
+    match &document.kind {
+        Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
+        Kind::Doc { chapters, pdf } => {
+            Html(render::doc(document, chapters, pdf, print)).into_response()
+        }
+        Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
     }
 }
 
@@ -82,7 +219,7 @@ async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
     let stream = BroadcastStream::new(state.changes.subscribe())
-        .map(|_| Ok(Event::default().data("change")));
+        .map(|message| Ok(Event::default().data(message.unwrap_or_else(|_| "change".into()))));
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
@@ -102,4 +239,493 @@ async fn asset(Path(name): Path<String>) -> Response {
         body,
     )
         .into_response()
+}
+
+#[derive(Deserialize)]
+struct PageQuery {
+    page: String,
+}
+
+#[derive(Deserialize)]
+struct NewThread {
+    page: String,
+    anchor: Anchor,
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct Reply {
+    page: String,
+    id: String,
+    #[serde(default)]
+    text: String,
+}
+
+fn failed(error: anyhow::Error) -> Response {
+    (StatusCode::BAD_REQUEST, format!("{error:#}")).into_response()
+}
+
+async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
+    match state.store.list(&query.page) {
+        Ok(threads) => Json(threads).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn create_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(new): Json<NewThread>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
+    // A thread is about a file that exists in the served folder.
+    if state
+        .entry
+        .document()
+        .file(&new.page)
+        .is_none_or(|file| !file.is_file())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("{} is not a page in the served folder", new.page),
+        )
+            .into_response();
+    }
+    match state
+        .store
+        .create(&new.page, new.anchor, &author, &new.text)
+    {
+        Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn reply_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
+    match state
+        .store
+        .reply(&reply.page, &reply.id, &author, &reply.text)
+    {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+async fn resolve_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    if let Err(refused) = state.identity.author(&headers) {
+        return refused;
+    }
+    match state.store.resolve(&reply.page, &reply.id) {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => failed(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+
+    /// A served folder holding one page, served by the real router on a free
+    /// port, with the given identity.
+    async fn serve_comments(name: &str, identity: Identity) -> (String, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("devpage-routes-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\nThe client retries every write.\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
+        let (changes, _) = broadcast::channel(16);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router(document, changes, identity))
+                .await
+                .unwrap()
+        });
+        (address, root)
+    }
+
+    fn new_thread() -> Value {
+        json!({
+            "page": "/a.md",
+            "anchor": { "quote": "retries", "prefix": "The client ", "suffix": " every write." },
+            "text": "Every write?",
+        })
+    }
+
+    #[tokio::test]
+    async fn a_thread_is_created_replied_to_and_resolved_over_http() {
+        let (address, root) = serve_comments("life", Identity::Local("Ana".into())).await;
+        let client = reqwest::Client::new();
+        let created: Value = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+        let reply = client
+            .post(format!("{address}/__devpage/comments/reply"))
+            .json(&json!({ "page": "/a.md", "id": id, "text": "Only the outbox." }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), 204);
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed[0]["id"], id.as_str());
+        assert_eq!(listed[0]["anchor"]["quote"], "retries");
+        assert_eq!(listed[0]["thread"][0]["author"], "Ana");
+        assert_eq!(listed[0]["thread"][1]["text"], "Only the outbox.");
+        assert!(
+            root.join(format!(".devpage/comments/a.md/{id}.yml"))
+                .is_file()
+        );
+
+        let resolved = client
+            .post(format!("{address}/__devpage/comments/resolve"))
+            .json(&json!({ "page": "/a.md", "id": id }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resolved.status(), 204);
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed, json!([]));
+    }
+
+    #[tokio::test]
+    async fn deployed_writes_need_the_header_and_are_stamped_with_it() {
+        let identity = Identity::Header("X-Forwarded-Email".into());
+        let (address, _) = serve_comments("deployed", identity).await;
+        let client = reqwest::Client::new();
+        let refused = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 401);
+        let created: Value = client
+            .post(format!("{address}/__devpage/comments"))
+            .header("X-Forwarded-Email", "ana@example.com")
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+        for action in ["reply", "resolve"] {
+            let refused = client
+                .post(format!("{address}/__devpage/comments/{action}"))
+                .json(&json!({ "page": "/a.md", "id": id, "text": "x" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 401, "{action} without the header");
+        }
+        // Reading needs no header: the proxy decides who may read.
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed[0]["thread"][0]["author"], "ana@example.com");
+    }
+
+    #[tokio::test]
+    async fn a_thread_on_a_page_that_isnt_in_the_served_folder_is_refused() {
+        let (address, _) = serve_comments("outside", Identity::Local("Ana".into())).await;
+        let mut thread = new_thread();
+        for page in ["/../escape.md", "/missing.md"] {
+            thread["page"] = json!(page);
+            let refused = reqwest::Client::new()
+                .post(format!("{address}/__devpage/comments"))
+                .json(&thread)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 400, "{page}");
+        }
+    }
+
+    #[test]
+    fn deployed_authors_come_from_the_proxy_header_or_are_refused() {
+        let deployed = Identity::Header("X-Forwarded-Email".into());
+        let mut headers = HeaderMap::new();
+        let refused = deployed.author(&headers).unwrap_err();
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        headers.insert("x-forwarded-email", "ana@example.com".parse().unwrap());
+        assert_eq!(deployed.author(&headers).unwrap(), "ana@example.com");
+        let local = Identity::Local("Andrei".into());
+        assert_eq!(local.author(&headers).unwrap(), "Andrei");
+    }
+
+    /// Serves `dir` as the served folder, with `entry` as the entry document,
+    /// and returns the server's address.
+    async fn serve(dir: &std::path::Path, entry: &str) -> String {
+        let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
+        let (changes, _) = broadcast::channel(1);
+        let router = router(document, changes, Identity::Local("T".into()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        address
+    }
+
+    async fn get(url: &str) -> (u16, String) {
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .unwrap();
+        let response = client.get(url).send().await.unwrap();
+        let status = response.status().as_u16();
+        let location = response
+            .headers()
+            .get("location")
+            .map(|value| value.to_str().unwrap().to_string());
+        let body = response.text().await.unwrap();
+        (status, location.unwrap_or(body))
+    }
+
+    fn served(name: &str) -> std::path::PathBuf {
+        let top =
+            std::env::temp_dir().join(format!("devpage-server-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&top);
+        let dir = top.join("served");
+        std::fs::create_dir_all(dir.join("docs/guide")).unwrap();
+        std::fs::create_dir_all(dir.join("notes")).unwrap();
+        std::fs::write(top.join("secret.md"), "# Secret\n").unwrap();
+        std::fs::write(dir.join("docs/README.md"), "# Home\n").unwrap();
+        std::fs::write(dir.join("docs/guide/step.md"), "# Step\n").unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("notes/one.md"), "# One\n").unwrap();
+        std::fs::write(dir.join("notes/loose.md"), "# Loose\n").unwrap();
+        std::fs::write(
+            dir.join("notes/broken.yml"),
+            "kind: doc\ntitle: B\nchapters: [gone.md]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("notes/ci.yml"), "on: push\n").unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    #[tokio::test]
+    async fn serves_a_folder_without_git_by_what_each_file_is() {
+        let dir = served("routes");
+        assert!(!dir.join(".git").exists());
+        let base = serve(&dir, "docs").await;
+
+        assert_eq!(
+            get(&format!("{base}/")).await,
+            (307, "/docs/README.md".into())
+        );
+        let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert_eq!(status, 200);
+        assert!(
+            page.contains("<nav id=\"nav\">"),
+            "a page of its nearest site"
+        );
+        assert!(page.contains("Step · Docs"), "{page}");
+
+        let (status, deck) = get(&format!("{base}/notes/talk.yml")).await;
+        assert_eq!(status, 200);
+        assert!(deck.contains("Talk"), "a document file opens as its kind");
+        assert!(!deck.contains("<nav id=\"nav\">"));
+
+        let (status, loose) = get(&format!("{base}/notes/loose.md")).await;
+        assert_eq!(status, 200);
+        assert!(
+            !loose.contains("<nav id=\"nav\">"),
+            "in no site: a doc of one chapter"
+        );
+        assert!(loose.contains("Loose"));
+
+        let (status, broken) = get(&format!("{base}/notes/broken.yml")).await;
+        assert_eq!(status, 200);
+        assert!(broken.contains("not a valid document"), "{broken}");
+        assert!(
+            broken.contains("chapter gone.md does not exist"),
+            "{broken}"
+        );
+
+        assert_eq!(
+            get(&format!("{base}/notes/ci.yml")).await,
+            (200, "on: push\n".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_of_a_site_prints_as_a_doc_of_one_chapter() {
+        let dir = served("print-page");
+        let base = serve(&dir, "docs").await;
+        let (status, page) = get(&format!("{base}/docs/guide/step.md?print")).await;
+        assert_eq!(status, 200);
+        assert!(page.contains("<body class=\"doc print\">"), "{page}");
+        assert!(page.contains("@page { size: A4;"), "{page}");
+        assert!(!page.contains("<nav id=\"nav\">"), "{page}");
+        let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert!(
+            on_screen.contains("<nav id=\"nav\">"),
+            "still a site page on screen"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_sites_title_links_to_its_own_root_page() {
+        let dir = served("titles");
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        std::fs::write(dir.join("other/index.md"), "# Index\n").unwrap();
+        std::fs::write(dir.join("other/page.md"), "# Page\n").unwrap();
+        std::fs::write(
+            dir.join("other/devpage.yml"),
+            "kind: site\ntitle: Other\nroot: index.md\n",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+        let (_, page) = get(&format!("{base}/other/page.md")).await;
+        assert!(
+            page.contains("<a class=\"document-title\" href=\"/other/index.md\">Other</a>"),
+            "{page}"
+        );
+        let (_, home) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert!(
+            home.contains("<a class=\"document-title\" href=\"/docs/README.md\">Docs</a>"),
+            "{home}"
+        );
+    }
+
+    #[tokio::test]
+    async fn nothing_outside_the_served_folder_is_served() {
+        let dir = served("outside");
+        std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
+        let base = serve(&dir, "docs").await;
+        for path in [
+            "/../secret.md",
+            "/%2E%2E/secret.md",
+            "/docs/escape.md",
+            "/docs/missing.md",
+        ] {
+            let (status, body) = get(&format!("{base}{path}")).await;
+            assert_eq!(status, 404, "{path}: {body}");
+        }
+    }
+
+    #[tokio::test]
+    async fn serves_a_folder_reached_through_a_symbolic_link() {
+        let dir = served("symlinked");
+        let link = dir.parent().unwrap().join("link");
+        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        let base = serve(&link, "docs").await;
+        let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert_eq!(status, 200, "{page}");
+        assert_eq!(get(&format!("{base}/notes/ci.yml")).await.0, 200);
+    }
+
+    /// What `/` answers once a watched entry file settles: polls until
+    /// `expected` shows up in the answer, or gives up after two seconds.
+    async fn home_becomes(address: &str, expected: &str) -> (u16, String) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let answer = get(&format!("{address}/")).await;
+            if answer.1.contains(expected) || Instant::now() > deadline {
+                return answer;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn the_entry_document_follows_its_file_without_a_restart() {
+        let dir = std::env::temp_dir().join(format!("devpage-entry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(dir.join("a.md"), "# A").unwrap();
+        std::fs::write(dir.join("b.md"), "# B").unwrap();
+        let site = dir.join("devpage.yml");
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
+
+        let document = Arc::new(Document::load(&site, &dir).unwrap());
+        let index = Arc::new(Index::build(&dir));
+        let entry = Arc::new(Entry::new(document));
+        let (changes, _) = broadcast::channel(16);
+        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
+        let router = router_with_index(entry, index, changes, Identity::Local("T".into()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        assert_eq!(get(&format!("{address}/")).await, (307, "/a.md".into()));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // A new root: `/` follows it.
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: b.md\n").unwrap();
+        assert_eq!(home_becomes(&address, "/b.md").await, (307, "/b.md".into()));
+
+        // An invalid file doesn't stop devpage: `/` and the site's pages say why.
+        std::fs::write(&site, "kind: site\ntitle: T\n").unwrap();
+        let (status, body) = home_becomes(&address, "not a valid document").await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("/devpage.yml is not a valid document"),
+            "{body}"
+        );
+        assert!(body.contains("missing field"), "{body}");
+        let (_, page) = get(&format!("{address}/a.md")).await;
+        assert!(page.contains("not a valid document"), "{page}");
+
+        // Fixing it recovers.
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
+        assert_eq!(home_becomes(&address, "/a.md").await, (307, "/a.md".into()));
+        let (_, page) = get(&format!("{address}/a.md")).await;
+        assert!(!page.contains("not a valid document"), "{page}");
+    }
 }

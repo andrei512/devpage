@@ -1,4 +1,5 @@
-//! Watches the document's folder and announces changes to the files it names.
+//! Watches the served folder: keeps the index current, tells open pages a
+//! watched file changed, and tells them a comment thread changed.
 
 use std::sync::Arc;
 
@@ -6,29 +7,241 @@ use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
-use crate::document::Document;
+use crate::document::{Document, Entry};
+use crate::index::Index;
+use std::path::Path;
 
-/// Starts watching; every change to a watched file is sent on `changes`. The
-/// returned watcher stops when dropped.
+/// Starts watching. A change to a watched file sends `change`; a change to a
+/// comment thread sends `comments /<page>`, whatever the site's `watch` says.
+/// The returned watcher stops when dropped.
 pub fn start(
-    document: Arc<Document>,
-    changes: broadcast::Sender<()>,
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    changes: broadcast::Sender<String>,
 ) -> Result<RecommendedWatcher> {
-    let base = document.base.clone();
+    let served = entry.document().served.clone();
+    let root = served.clone();
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         if event.kind.is_access() {
             return;
         }
-        let watched = event.paths.iter().any(|path| {
+        let mut refresh = false;
+        for path in &event.paths {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            path.strip_prefix(&document.base)
-                .is_ok_and(|relative| document.watches(relative))
-        });
-        if watched {
-            let _ = changes.send(());
+            let Ok(relative) = path.strip_prefix(&served) else {
+                continue;
+            };
+            // A thread changed: tell the pages showing its page to fetch comments.
+            if let Ok(thread) = relative.strip_prefix(".devpage/comments") {
+                if thread.extension().is_some_and(|ext| ext == "yml")
+                    && let Some(page) = thread.parent()
+                {
+                    let _ = changes.send(format!("comments /{}", page.display()));
+                }
+                continue;
+            }
+            index.changed(&path);
+            // The entry's own file: re-read it, so `/` and `watch` follow it,
+            // and refresh open pages whatever `watch` says.
+            if path == entry.file() {
+                entry.reload();
+                refresh = true;
+            } else if !index.ignored(&path, path.is_dir()) && refreshes(&entry, &index, &path) {
+                refresh = true;
+            }
+        }
+        if refresh {
+            let _ = changes.send("change".into());
         }
     })?;
-    watcher.watch(&base, RecursiveMode::Recursive)?;
+    watcher.watch(&root, RecursiveMode::Recursive)?;
     Ok(watcher)
+}
+
+/// Whether a change to `path` refreshes open pages. Document files always do;
+/// any other path is judged by the `watch` list of the nearest site holding
+/// it, and refreshes when there is no such list.
+fn refreshes(entry: &Entry, index: &Index, path: &Path) -> bool {
+    if index.kind(path).is_some() {
+        return true;
+    }
+    let Some(site) = index.site_for(path) else {
+        return true;
+    };
+    let document = entry.document();
+    if site == document.path() {
+        return document.watches(path);
+    }
+    match Document::load(&site, &document.served) {
+        Ok(site) => site.watches(path),
+        Err(_) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    fn served(name: &str, site: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("devpage-watch-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs/build")).unwrap();
+        std::fs::write(dir.join("docs/README.md"), "# Home").unwrap();
+        std::fs::write(dir.join("docs/devpage.yml"), site).unwrap();
+        std::fs::write(dir.join("docs/.gitignore"), "build/\n").unwrap();
+        dir.canonicalize().unwrap()
+    }
+
+    /// The messages that arrive within a short while after `touch` runs.
+    async fn after(dir: &Path, touch: impl FnOnce()) -> Vec<String> {
+        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let index = Arc::new(Index::build(dir));
+        let (changes, mut received) = broadcast::channel(64);
+        let _watcher = start(Arc::new(Entry::new(document)), index, changes).unwrap();
+        // Let the platform's watcher settle before changing anything.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        touch();
+        let mut messages = Vec::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(1500);
+        while let Ok(Ok(message)) = tokio::time::timeout_at(deadline, received.recv()).await {
+            messages.push(message);
+        }
+        messages
+    }
+
+    #[tokio::test]
+    async fn a_saved_page_refreshes_open_pages() {
+        let dir = served("page", "kind: site\ntitle: T\nroot: README.md\n");
+        let messages = after(&dir, || {
+            std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
+        })
+        .await;
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn ignored_files_and_files_outside_watch_do_not_refresh() {
+        let dir = served(
+            "quiet",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+        );
+        let messages = after(&dir, || {
+            std::fs::write(dir.join("docs/build/out.md"), "x").unwrap(); // nested .gitignore
+            std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap(); // outside watch
+        })
+        .await;
+        assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn a_comment_thread_always_reaches_its_page() {
+        let dir = served(
+            "comments",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+        );
+        let messages = after(&dir, || {
+            let thread = dir.join(".devpage/comments/docs/README.md");
+            std::fs::create_dir_all(&thread).unwrap();
+            std::fs::write(thread.join("20261025T000000Z-abcd.yml"), "thread: []\n").unwrap();
+        })
+        .await;
+        assert!(
+            messages.iter().any(|m| m == "comments /docs/README.md"),
+            "{messages:?}"
+        );
+        assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn the_watch_list_follows_the_entry_file() {
+        let dir = served(
+            "relist",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+        );
+        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let entry = Arc::new(Entry::new(document));
+        let index = Arc::new(Index::build(&dir));
+        let (changes, mut received) = broadcast::channel(64);
+        let _watcher = start(entry.clone(), index, changes).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // Its own file changing refreshes pages, though `watch` names only Markdown.
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.svg\"]\n",
+        )
+        .unwrap();
+        let drain = |received: &mut broadcast::Receiver<String>| {
+            let mut messages = Vec::new();
+            while let Ok(message) = received.try_recv() {
+                messages.push(message);
+            }
+            messages
+        };
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+
+        // Now Markdown is outside `watch`, and an SVG is in it.
+        std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
+        std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let messages = drain(&mut received);
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn a_sites_watch_list_narrows_only_its_own_folder() {
+        // The entry site has no `watch`; a second site watches only text files.
+        let dir = served("other", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        std::fs::write(dir.join("other/index.md"), "# Other").unwrap();
+        std::fs::write(
+            dir.join("other/devpage.yml"),
+            "kind: site\ntitle: O\nroot: index.md\nwatch: [\"*.txt\"]\n",
+        )
+        .unwrap();
+        let quiet = after(&dir, || {
+            std::fs::write(dir.join("other/index.md"), "# Changed").unwrap()
+        })
+        .await;
+        assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
+        let loud = after(&dir, || {
+            std::fs::write(dir.join("other/notes.txt"), "x").unwrap()
+        })
+        .await;
+        assert!(loud.iter().any(|m| m == "change"), "{loud:?}");
+        // The entry's own pages still refresh, and so does a doc in no site.
+        let entry = after(&dir, || {
+            std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
+        })
+        .await;
+        assert!(entry.iter().any(|m| m == "change"), "{entry:?}");
+        std::fs::create_dir_all(dir.join("plan")).unwrap();
+        let loose = after(&dir, || {
+            std::fs::write(dir.join("plan/design.md"), "# Plan").unwrap()
+        })
+        .await;
+        assert!(loose.iter().any(|m| m == "change"), "{loose:?}");
+    }
+
+    #[tokio::test]
+    async fn the_entrys_watch_list_does_not_quiet_another_folder() {
+        let dir = served(
+            "entry-watch",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"*.svg\"]\n",
+        );
+        std::fs::create_dir_all(dir.join("examples")).unwrap();
+        let messages = after(&dir, || {
+            std::fs::write(dir.join("examples/design.md"), "# Design").unwrap()
+        })
+        .await;
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
 }

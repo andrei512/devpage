@@ -1,0 +1,7 @@
+# A stand-in for the auth proxy: every request arrives signed in as
+# dev@example.com. On a cluster this is oauth2-proxy or the ingress's auth.
+:8080 {
+	reverse_proxy devpage:3030 {
+		header_up X-Forwarded-Email dev@example.com
+	}
+}

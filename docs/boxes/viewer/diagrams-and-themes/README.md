@@ -64,8 +64,8 @@ resolved against the page the diagram is on, the same way the
 [page script](../live-updates/README.md#the-page-script) treats a link in the
 text:
 
-- A link to another Markdown page of the document opens it in place, like a
-  link in the text; a `#heading` after it scrolls to that heading.
+- A link to another Markdown page opens it in place, like a link in the
+  text; a `#heading` after it scrolls to that heading.
 - A `#heading` link scrolls to that heading on the same page.
 - Any other link — an `https://` URL, a file that isn't Markdown — is left to
   the browser, which navigates to it. So is a click with Cmd, Ctrl or Shift
@@ -134,15 +134,16 @@ How the server highlights code is in
 [Serving pages](../serving-pages/README.md#rendering-a-markdown-file).
 
 Two font tokens, `--font` and `--font-mono`, are shared by both themes. A
-theme is a set of values for these tokens. Two colors are fixed rather than
-taken from a token: the text of the current sidebar entry (white) and the
-diagram error text (red).
+theme is a set of values for these tokens. A few colors are fixed rather than
+taken from a token: the text of the current sidebar entry (white); the red
+(`#d70015`) of diagram errors, comment errors, the problems bar and broken-link
+marks; and the black behind a deck's stage.
 
 ## Changing the look
 
-The themes can't be changed per document today. `devpage.yml` has only
-`title`, `root` and `watch` — any other field stops devpage with an error —
-and the stylesheet is compiled into the binary, so there is no theme setting,
+The themes can't be changed per document. A document file has no theme
+field — any field its kind doesn't have stops devpage with an error — and the
+stylesheet is compiled into the binary, so there is no theme setting,
 no custom stylesheet option and no way to add a third theme without changing
 `assets/style.css` and rebuilding devpage.
 

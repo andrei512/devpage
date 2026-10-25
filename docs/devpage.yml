@@ -1,5 +1,7 @@
 # devpage's own documentation, served by devpage.
+kind: site
 title: devpage
 root: README.md
 watch:
   - "**/*.md"
+  - "**/*.yml"

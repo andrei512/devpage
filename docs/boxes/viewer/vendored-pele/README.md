@@ -53,7 +53,7 @@ There is no package manager step and no script; an upgrade is done by hand:
    licence for the version and for any newly bundled third-party notices.
 2. **Rebuild and restart.** The bundle is embedded with `include_str!`, so a
    running devpage keeps serving the old one until it is rebuilt and
-   restarted (`cargo run -- docs/devpage.yml`, or `cargo install --path .`
+   restarted (`cargo run -- docs`, or `cargo install --path .`
    again for an installed copy).
 3. **Re-run the diagram check** over every page that holds a diagram — the
    Node command in [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram) —

@@ -169,3 +169,90 @@ pre code { color: var(--text); }
 .diagram a { cursor: pointer; text-decoration: none; }
 .diagram a:hover rect, .diagram a:hover polygon, .diagram a:hover circle,
 .diagram a:hover ellipse, .diagram a:hover path { stroke: var(--accent); stroke-width: 2.5px; }
+
+/* A doc: one long page, its outline beside it. */
+
+.outline li.h2 { padding-left: 14px; font-size: 14px; }
+.doc .chapter + .chapter { margin-top: 48px; }
+
+/* Print mode, and the browser's own print: the page alone, in the light theme. */
+
+@media print {
+  :root { color-scheme: light; }
+  #nav { display: none; }
+  body { display: block; }
+}
+.print #nav { display: none; }
+
+.doc-title { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
+
+/* Slides: each slide a 1920 × 1080 stage, scaled whole to the window. */
+
+body.slides { display: block; background: #000; overflow: hidden; }
+.deck .slide {
+  position: absolute; top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  transform-origin: 0 0;
+  background: var(--background);
+  display: none;
+  overflow: hidden;
+}
+.deck .slide.shown { display: block; }
+.slide-body { padding: 96px 128px; font-size: 48px; line-height: 1.4; }
+.slide-body h1 { font-size: 104px; }
+.slide-body h2 { font-size: 72px; }
+.slide-body h3 { font-size: 56px; }
+.slide-body pre code { font-size: 30px; }
+.slide-body table { font-size: 34px; }
+.slide-body .diagram { font-size: 28px; }
+
+@media print {
+  body.slides { background: none; overflow: visible; }
+  .deck .slide {
+    display: block; position: relative; transform: none !important;
+  }
+  .deck .slide:not(:last-child) { break-after: page; }
+  body.slides, .deck { margin: 0; padding: 0; }
+}
+
+/* Comments: highlighted anchors, and threads beside the text on a wide page
+   (each card level with its anchor) or, on narrow screens and decks, in a
+   panel the reader opens. Never printed. */
+
+mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; border-radius: 2px; }
+#comments { flex-shrink: 0; font-size: 14px; line-height: 1.45; }
+#comments:empty { display: none; }
+#comments.beside { position: relative; width: 300px; margin: 56px 16px 0 0; }
+#comments.beside > * { position: absolute; left: 0; right: 0; }
+#comments:not(.beside) {
+  position: fixed; right: 0; top: 0; bottom: 0; width: min(360px, 100vw);
+  overflow: auto; padding: 16px; z-index: 5; display: none;
+  background: var(--background); border-left: 1px solid var(--border);
+}
+body.show-comments #comments:not(.beside):not(:empty) { display: block; }
+#comments-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 6; display: none; }
+#comments-toggle.shown { display: block; }
+:fullscreen #comments-toggle { display: none; }
+#comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
+#comments .composer { border-color: var(--accent); }
+#comments blockquote { margin: 0 0 6px; padding: 0 0 0 8px; background: none; border-left: 3px solid var(--accent); color: var(--muted); max-height: 4.4em; overflow: hidden; }
+#comments p { margin: 4px 0; overflow-wrap: anywhere; }
+#comments time { color: var(--muted); font-size: 12px; }
+#comments h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.comment-editor textarea { width: 100%; margin: 6px 0 2px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.comment-editor button { margin: 4px 6px 0 0; }
+.comment-error { color: #d70015; font-size: 13px; }
+.comment-error:empty { display: none; }
+.comment-button, #comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
+@media print { #comments, #comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
+
+/* Problems: broken links found while the page is previewed. */
+
+.problems { max-width: 780px; margin: 0 auto 24px; border: 1px solid #d70015; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #d70015; }
+.problems ul { margin: 4px 0 0; padding-left: 18px; }
+a.broken { color: #d70015; text-decoration: underline wavy #d70015; }
+img.broken { outline: 2px dashed #d70015; }
+.diagram a.broken rect, .diagram a.broken polygon, .diagram a.broken circle, .diagram a.broken ellipse, .diagram a.broken path { stroke: #d70015; stroke-dasharray: 6 4; }
+body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
+@media print { .problems { display: none; } }
+@media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }

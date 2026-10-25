@@ -2,15 +2,29 @@
 name = "devpage"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.89"
+description = "Live documents from Markdown in a repository: sites, docs and slides, with comments, link checking and PDF"
+license = "MIT"
+repository = "https://github.com/andrei512/devpage"
+readme = "docs/README.md"
+keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["deploy/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 anyhow = "1.0.104"
 axum = "0.8.9"
+chromiumoxide = { version = "0.9.1", features = ["fetcher", "rustls", "zip8"] }
+clap = { version = "4.6.7", features = ["derive"] }
 comrak = "0.57.0"
+futures = "0.3.34"
 globset = "0.4.20"
+ignore = "0.4.33"
 mime_guess = "2.0.5"
 notify = "8.2.1"
+reqwest = "0.13"
 serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
 serde_yaml = "0.9.34"
 syntect = "5.3.0"
 tokio = { version = "1.54.1", features = ["full"] }
