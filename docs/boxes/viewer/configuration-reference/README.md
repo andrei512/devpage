@@ -71,6 +71,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
 | `theme-selector` | boolean | no | Whether the light/dark selector shows ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme)). Default: `true`. |
+| `logo` | path | no | An image — usually an SVG — shown before the title in the navbar (or the sidebar heading when there is no navbar) and used as the browser tab's icon. Default: none. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
@@ -88,6 +89,7 @@ belongs to the nearest one.
 | `pdf.footer` | string | no | `"{page} / {pages}"` | Printed at the bottom of every page. |
 | `widgets` | path | no | none | The folder of this doc's [project widgets](../widgets/README.md#a-projects-own-widgets). |
 | `theme-selector` | boolean | no | `true` | Whether the light/dark selector shows. |
+| `logo` | path | no | none | The browser tab's icon, and an image before the title. |
 
 In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
@@ -104,6 +106,7 @@ default.
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/README.md#a-projects-own-widgets); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark selector shows; default `true`. Hidden in fullscreen. |
+| `logo` | path | no | The browser tab's icon; default none. |
 
 ## Errors
 
