@@ -67,7 +67,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
-| `widgets` | path | no | The folder of this document's [project widgets](../widgets/README.md#a-projects-own-widgets), relative to this file: every `.tsx` in it is a widget. Default: none — only the system widgets. |
+| `widgets` | path | no | The folder of this document's [project widgets](../widgets/README.md#a-projects-own-widgets), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page

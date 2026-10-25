@@ -7,9 +7,9 @@ starting it. It is a task page under the [devpage landing page](README.md);
 
 ## What you need
 
-- **Rust 1.89 or later**, with `cargo` — devpage is installed by building it.
-  The locked `comrak 0.57.0` declares `rust-version = 1.89`, the highest of any
-  dependency. Check what you have with `cargo --version`; install or update
+- **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
+  The locked `oxc 0.153.0`, which compiles widgets, declares
+  `rust-version = 1.97`, the highest of any dependency. Check what you have with `cargo --version`; install or update
   Rust with [rustup](https://rustup.rs) (`rustup update`).
 - **Chrome or Chromium**, only for `devpage pdf`. Without one installed,
   `devpage pdf` downloads a Chromium once and keeps it in devpage's cache

@@ -39,7 +39,8 @@ doc's chapter or a slide.
   with or without blank lines around it — and arrives as `children`. Links and
   images in it are checked like any other ([Checking links](../checking-links/README.md)).
   The Markdown text itself, exactly as written, also arrives as the `source`
-  prop, for widgets that show or read their source.
+  prop, and the rendered HTML as a string as the `html` prop, for widgets that
+  show their source or read the structure of their content.
 - **Self-closing.** A widget without content can close itself: `<Keys>⌘ P</Keys>`
   has content, `<KindCards />` has none.
 
@@ -87,8 +88,10 @@ root: README.md
 widgets: widgets          # every .tsx in docs/widgets/ is a widget
 ```
 
-Every `.tsx` file in the folder is a widget, named by its file name:
-`KindCards.tsx` is `<KindCards>`. The field works the same for every kind; a
+Every `.tsx` file in the folder whose name starts with a capital letter is a
+widget, named by its file name: `KindCards.tsx` is `<KindCards>`. Files whose
+names start with a lowercase letter — `format.ts`, `cards.tsx` — are helpers
+that widgets import; they name no tag. The field works the same for every kind; a
 doc's or deck's widgets are its own.
 
 A widget is a React component — its default export — written in TSX:
@@ -114,8 +117,7 @@ export default function KindCards() {
 - **Widgets compose.** A widget can render any other widget — a system widget or
   one of the project's — by name, without importing it.
 - **Helpers.** A widget can import `.ts` and `.tsx` files from the same folder
-  (`import { format } from "./format"`). Files a widget imports are compiled
-  with it; a helper file that isn't a widget names no tag. npm packages can't be
+  (`import { format } from "./format"`); they are compiled with it. npm packages can't be
   imported — devpage has no package manager.
 - **Images** are referenced by their address from the top of the served folder
   (`/docs/images/logo.svg`), since a widget appears on many pages.
@@ -125,8 +127,10 @@ export default function KindCards() {
   ([the rule](../constraints/one-name-one-widget.md)).
 
 devpage compiles each widget from TSX when a page needs it, and again when its
-file changes — saving a widget updates every open page that uses it, like
-saving a page does. There is no build step.
+file changes — saving a widget or a helper updates every open page that uses
+it, like saving a page does, whatever a site's `watch` list says. There is no
+build step. A page of a site has that site's widgets wherever it is shown,
+printed on its own included.
 
 ## Styling
 
@@ -165,8 +169,7 @@ bar, on the terminal, and failing `devpage check` — and the rest of the page
 renders:
 
 - a capitalized tag that names no widget;
-- a project widget with a system widget's name, or a file name that doesn't
-  start with a capital letter;
+- a project widget with a system widget's name;
 - a widget file that doesn't compile, with the compiler's message and line;
 - a widget, or one of its prop expressions, that throws while rendering — shown
   in the widget's place, with the error, in the browser.
