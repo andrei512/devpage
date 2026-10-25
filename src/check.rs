@@ -37,7 +37,48 @@ fn pages(document: &Document) -> Vec<PathBuf> {
 
 /// Checks the document and every page and document reachable from it by
 /// links inside the repository.
-pub fn document(document: &Document) -> Vec<Problem> {
+pub async fn document(document: &Document, check_external: bool) -> Vec<Problem> {
+    let mut external = Vec::new();
+    let mut problems = internal(document, &mut external);
+    if check_external {
+        problems.extend(external_links(external).await);
+    }
+    problems
+}
+
+/// External addresses must answer below 400, following redirects, in 10 s.
+async fn external_links(links: Vec<(String, Option<usize>, String)>) -> Vec<Problem> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent(concat!("devpage/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .expect("an HTTP client");
+    let checks = links.into_iter().map(|(file, line, address)| {
+        let client = client.clone();
+        async move {
+            let message = match client.get(&address).send().await {
+                Ok(response) if response.status().as_u16() < 400 => return None,
+                Ok(response) => format!("{address} — {}", response.status()),
+                Err(error) => format!("{address} — {error}"),
+            };
+            Some(Problem {
+                file,
+                line,
+                message,
+            })
+        }
+    });
+    futures::future::join_all(checks)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+fn internal(
+    document: &Document,
+    external: &mut Vec<(String, Option<usize>, String)>,
+) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut queue: VecDeque<PathBuf> = pages(document).into();
@@ -45,7 +86,7 @@ pub fn document(document: &Document) -> Vec<Problem> {
         if !seen.insert(page.clone()) {
             continue;
         }
-        let (found, reached) = page_links(document, &page);
+        let (found, reached) = page_links_with(document, &page, external);
         problems.extend(found);
         for target in reached {
             if target.extension().is_some_and(|ext| ext == "md") {
@@ -70,6 +111,17 @@ pub fn document(document: &Document) -> Vec<Problem> {
 
 /// One page's problems, and the files its working links reach.
 pub fn page_links(document: &Document, page: &Path) -> (Vec<Problem>, Vec<PathBuf>) {
+    let mut external = Vec::new();
+    page_links_with(document, page, &mut external)
+}
+
+/// One page's problems and reached files; its external links are collected
+/// in `external` as (file, line, address).
+fn page_links_with(
+    document: &Document,
+    page: &Path,
+    external: &mut Vec<(String, Option<usize>, String)>,
+) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
     let html = render::markdown(&source);
     let file = document.url(page)[1..].to_string();
@@ -91,12 +143,16 @@ pub fn page_links(document: &Document, page: &Path) -> (Vec<Problem>, Vec<PathBu
         }));
     }
     for target in targets {
-        if target.contains("://") || target.starts_with("mailto:") {
-            continue;
-        }
         let line = source
             .find(&target)
             .map(|at| source[..at].lines().count().max(1));
+        if target.starts_with("http://") || target.starts_with("https://") {
+            external.push((file.clone(), line, target));
+            continue;
+        }
+        if target.contains(':') {
+            continue; // mailto: and other schemes are not checked
+        }
         let (path, fragment) = target.split_once('#').unwrap_or((&target, ""));
         let resolved = if path.is_empty() {
             Some(page.to_path_buf())
@@ -185,7 +241,10 @@ mod tests {
         )
         .unwrap();
         let doc = Document::load(&dir).unwrap();
-        let found: Vec<String> = document(&doc).iter().map(ToString::to_string).collect();
+        let found: Vec<String> = internal(&doc, &mut Vec::new())
+            .iter()
+            .map(ToString::to_string)
+            .collect();
         assert_eq!(found.len(), 5, "{found:#?}");
         assert!(
             found.contains(

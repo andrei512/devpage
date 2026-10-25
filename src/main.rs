@@ -61,7 +61,7 @@ async fn main() -> Result<()> {
     let mut cli = Cli::parse();
     if let Some(Command::Check { path }) = &cli.command {
         let document = Document::load(path.as_deref().unwrap_or(std::path::Path::new(".")))?;
-        let problems = check::document(&document);
+        let problems = check::document(&document, true).await;
         for problem in &problems {
             println!("{problem}");
         }
