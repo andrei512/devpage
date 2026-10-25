@@ -1,5 +1,5 @@
-// The watch stream between devpage and a canvas page: a design's scene,
-// then patches of the nodes that changed, or its problems.
+// The watch stream between devpage and a page: for each design the page
+// shows, its scene, then patches of the nodes that changed, or its problems.
 syntax = "proto3";
 
 package devpage.design.v1;
@@ -9,8 +9,9 @@ service Designs {
 }
 
 message WatchRequest {
-  // The design's address, from the top of the served folder.
-  string path = 1;
+  // Every design the page shows, by address from the top of the served
+  // folder. A page holds one stream for all of them.
+  repeated string paths = 1;
 }
 
 message Update {
@@ -19,6 +20,10 @@ message Update {
     Patch patch = 2;
     Problems problems = 3;
   }
+  // The design this update is about, as the request named it.
+  string path = 4;
+  // Its file was deleted: this is the last update about it.
+  bool gone = 5;
 }
 
 message Patch {

@@ -219,6 +219,7 @@ mod tests {
         let scene = devpage_design::resolve(&files(), "screen.design").unwrap();
         Update {
             body: Some(Body::Scene(wire::encode(&scene.root))),
+            ..Default::default()
         }
         .encode_to_vec()
     }
@@ -249,6 +250,7 @@ mod tests {
             body: Some(Body::Problems(Problems {
                 problems: vec!["screen.design:1:1: broken".into()],
             })),
+            ..Default::default()
         }
         .encode_to_vec();
         assert_eq!(design.apply(&problems), Applied::Problems);
@@ -265,6 +267,7 @@ mod tests {
                     node: Some(wire::encode(&wider.root)),
                 }],
             })),
+            ..Default::default()
         }
         .encode_to_vec();
         assert_eq!(design.apply(&patch), Applied::Changed);
@@ -277,6 +280,7 @@ mod tests {
         let mut design = Design::new();
         let patch = Update {
             body: Some(Body::Patch(Patch { replace: vec![] })),
+            ..Default::default()
         }
         .encode_to_vec();
         assert_eq!(design.apply(&patch), Applied::Nothing);

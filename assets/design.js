@@ -1,6 +1,6 @@
 // Draws designs. The design engine, compiled to WebAssembly, holds each
-// canvas's scene — fed by a gRPC-Web watch stream — lays it out, hit-tests
-// clicks and paints it: with vello on WebGPU, or with vello_cpu where the
+// canvas's scene — fed by the page's one gRPC-Web watch stream, over every
+// design the page shows — lays it out, hit-tests clicks and paints it: with vello on WebGPU, or with vello_cpu where the
 // browser has no WebGPU (and in print mode, where a 2D canvas prints
 // reliably).
 //
@@ -39,19 +39,59 @@ function address(link, base) {
   return decodeURIComponent(new URL(link, base).pathname).replace(/^\//, "");
 }
 
-// The watch request: one string field, the design's address.
-function watchRequest(path) {
-  const name = new TextEncoder().encode(path);
-  const length = [];
-  for (let n = name.length; ; n >>>= 7) {
-    if (n < 0x80) { length.push(n); break; }
-    length.push((n & 0x7f) | 0x80);
+// A varint, as protobuf writes one.
+function varint(n) {
+  const bytes = [];
+  for (; ; n >>>= 7) {
+    if (n < 0x80) { bytes.push(n); return bytes; }
+    bytes.push((n & 0x7f) | 0x80);
   }
-  const message = new Uint8Array([0x0a, ...length, ...name]);
-  const body = new Uint8Array(5 + message.length);
-  new DataView(body.buffer).setUint32(1, message.length);
-  body.set(message, 5);
+}
+
+// The watch request, framed for gRPC-Web: field 1, repeated, each design's
+// address.
+function watchRequest(paths) {
+  const fields = [];
+  for (const path of paths) {
+    const name = new TextEncoder().encode(path);
+    fields.push(0x0a, ...varint(name.length), ...name);
+  }
+  const body = new Uint8Array(5 + fields.length);
+  new DataView(body.buffer).setUint32(1, fields.length);
+  body.set(fields, 5);
   return body;
+}
+
+// The design an update is about (field 4) and whether it was deleted (field
+// 5), read from the update's top level; the engine decodes the rest.
+function addressed(message) {
+  let at = 0;
+  const next = () => {
+    let n = 0;
+    for (let shift = 0; ; shift += 7) {
+      const byte = message[at++];
+      n += (byte & 0x7f) * 2 ** shift;
+      if (byte < 0x80) return n;
+    }
+  };
+  let path = "";
+  let gone = false;
+  while (at < message.length) {
+    const key = next();
+    const field = Math.floor(key / 8);
+    const type = key & 7;
+    if (type === 0) {
+      const value = next();
+      if (field === 5) gone = value !== 0;
+    } else if (type === 2) {
+      const length = next();
+      if (field === 4) path = new TextDecoder().decode(message.subarray(at, at + length));
+      at += length;
+    } else if (type === 1) at += 8;
+    else if (type === 5) at += 4;
+    else break; // not an update this script knows
+  }
+  return { path, gone };
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -115,82 +155,37 @@ class Host {
     this.canvas.dataset.backend = this.target ? "gpu" : "cpu";
   }
 
-  // Shows the design at `path`: a new scene from a new stream.
+  // Shows the design at `path`: a new scene, which the page's stream sends
+  // once it watches this design.
   open(path) {
-    this.controller?.abort();
     this.design?.free();
     this.design = new Design();
     this.path = path;
+    this.gone = false;
     this.cpu = null;
     this.view.fitted = true;
     if (this.link) this.link.href = `/${path}`;
-    this.stream();
+    rewatch();
   }
 
-  // Reads the watch stream until the host closes it, reopening it — and
-  // getting the whole scene again — whenever devpage drops it. A stream
-  // devpage ended itself, with its trailers, is over: the design was deleted.
-  async stream() {
-    const controller = new AbortController();
-    this.controller = controller;
-    const design = this.design;
-    while (!controller.signal.aborted && this.canvas.isConnected) {
-      try {
-        if (await this.read(design, controller.signal)) return;
-      } catch {
-        // devpage stopped, or the stream was closed: try again below.
-      }
-      if (controller.signal.aborted || print) return;
-      await sleep(1000);
+  // Applies one update about this host's design.
+  receive(message, gone) {
+    const applied = this.design.apply(message);
+    if (applied === Applied.Changed) {
+      this.showProblems([]);
+      this.cpu = null;
+      this.paint();
+    } else if (applied === Applied.Problems) {
+      this.showProblems(this.design.problems());
     }
-  }
-
-  // Applies the stream's messages; true when it ended with devpage's trailers.
-  async read(design, signal) {
-    const response = await fetch("/devpage.design.v1.Designs/Watch", {
-      method: "POST",
-      headers: { "content-type": "application/grpc-web+proto", "x-grpc-web": "1" },
-      body: watchRequest(this.path),
-      signal,
-    });
-    const reader = response.body.getReader();
-    let buffer = new Uint8Array(0);
-    let ended = false;
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) return ended;
-      const joined = new Uint8Array(buffer.length + value.length);
-      joined.set(buffer);
-      joined.set(value, buffer.length);
-      buffer = joined;
-      // gRPC-Web frames: a flag byte, a 4-byte length, the message.
-      while (buffer.length >= 5) {
-        const n = new DataView(buffer.buffer, buffer.byteOffset).getUint32(1);
-        if (buffer.length < 5 + n) break;
-        const flag = buffer[0];
-        const message = buffer.slice(5, 5 + n);
-        buffer = buffer.slice(5 + n);
-        if (flag & 0x80) {
-          ended = true;
-          continue;
-        }
-        if (design !== this.design) continue; // a design no longer shown
-        const applied = design.apply(message);
-        if (applied === Applied.Changed) {
-          this.showProblems([]);
-          this.cpu = null;
-          this.paint();
-        } else if (applied === Applied.Problems) {
-          this.showProblems(design.problems());
-        }
-      }
-    }
+    // Deleted: its last update. The page leaves it out of the next stream.
+    if (gone) this.gone = true;
   }
 
   close() {
-    this.controller?.abort();
     this.overlay?.close();
     hosts.delete(this);
+    rewatch();
   }
 
   // The problems bar over the last valid drawing.
@@ -421,7 +416,7 @@ class Host {
   }
 
   // An overlay: the design at `path`, centered over this one on a dimmed
-  // backdrop, with its own stream.
+  // backdrop, added to the page's stream.
   showOverlay(path) {
     this.closeOverlay();
     const layer = document.createElement("div");
@@ -482,12 +477,105 @@ addEventListener("resize", () => {
   for (const host of hosts) host.paint();
 });
 
-// A hidden tab keeps no streams open; shown again, each design reopens its
-// stream and gets its whole scene.
+// The page's one watch stream, over every design its canvases show. A
+// browser keeps at most six connections to devpage open, so the page never
+// holds more than this and its event stream.
+const watch = { key: null, controller: null, pending: false };
+
+// The designs to watch: each shown design once, leaving out deleted ones.
+function watched() {
+  const paths = new Set();
+  for (const host of hosts) if (!host.gone && host.canvas.isConnected) paths.add(host.path);
+  return [...paths].sort();
+}
+
+// Opens the stream again once the set of designs has changed — after
+// whatever else this turn changes, so a page swap reopens it once.
+function rewatch() {
+  if (watch.pending) return;
+  watch.pending = true;
+  queueMicrotask(() => {
+    watch.pending = false;
+    connect();
+  });
+}
+
+function connect() {
+  const paths = watched();
+  const key = paths.join("\n");
+  if (key === watch.key && watch.controller) return;
+  watch.controller?.abort();
+  watch.controller = null;
+  watch.key = key;
+  if (!paths.length || document.hidden) return;
+  const controller = new AbortController();
+  watch.controller = controller;
+  stream(paths, controller);
+}
+
+// Reads the stream until the page closes it, reopening it — and getting each
+// whole scene again — whenever devpage drops it. A stream devpage ended
+// itself, with its trailers, is over: every design in it was deleted.
+async function stream(paths, controller) {
+  while (!controller.signal.aborted) {
+    try {
+      if (await read(paths, controller.signal)) break;
+    } catch {
+      // devpage stopped, or the page closed the stream: try again below.
+    }
+    if (controller.signal.aborted || print) return;
+    await sleep(1000);
+  }
+  if (watch.controller === controller) watch.controller = null;
+}
+
+// Hands each update to the canvases showing its design; true when the stream
+// ended with devpage's trailers.
+async function read(paths, signal) {
+  const response = await fetch("/devpage.design.v1.Designs/Watch", {
+    method: "POST",
+    headers: { "content-type": "application/grpc-web+proto", "x-grpc-web": "1" },
+    body: watchRequest(paths),
+    signal,
+  });
+  const reader = response.body.getReader();
+  let buffer = new Uint8Array(0);
+  let ended = false;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return ended;
+    const joined = new Uint8Array(buffer.length + value.length);
+    joined.set(buffer);
+    joined.set(value, buffer.length);
+    buffer = joined;
+    // gRPC-Web frames: a flag byte, a 4-byte length, the message.
+    while (buffer.length >= 5) {
+      const n = new DataView(buffer.buffer, buffer.byteOffset).getUint32(1);
+      if (buffer.length < 5 + n) break;
+      const flag = buffer[0];
+      const message = buffer.slice(5, 5 + n);
+      buffer = buffer.slice(5 + n);
+      if (flag & 0x80) {
+        ended = true;
+        continue;
+      }
+      if (signal.aborted) return false;
+      const { path, gone } = addressed(message);
+      for (const host of hosts) {
+        if (host.path === path && !host.gone && host.canvas.isConnected) host.receive(message, gone);
+      }
+    }
+  }
+}
+
+// A hidden tab keeps no stream open; shown again, the page reopens it and
+// gets each whole scene.
 document.addEventListener("visibilitychange", () => {
-  for (const host of hosts) {
-    if (document.hidden) host.controller?.abort();
-    else host.stream();
+  if (document.hidden) {
+    watch.controller?.abort();
+    watch.controller = null;
+  } else {
+    connect();
   }
 });
 
