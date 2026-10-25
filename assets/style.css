@@ -198,9 +198,13 @@ body.slides { display: block; background: #000; overflow: hidden; }
   overflow: hidden;
 }
 .deck .slide.shown { display: block; }
-.slide-body { padding: 96px 128px; font-size: 40px; line-height: 1.4; }
-.slide-body h1 { font-size: 96px; }
-.slide-body h2 { font-size: 64px; }
+.slide-body { padding: 96px 128px; font-size: 48px; line-height: 1.4; }
+.slide-body h1 { font-size: 104px; }
+.slide-body h2 { font-size: 72px; }
+.slide-body h3 { font-size: 56px; }
+.slide-body pre code { font-size: 30px; }
+.slide-body table { font-size: 34px; }
+.slide-body .diagram { font-size: 28px; }
 
 @media print {
   body.slides { background: none; overflow: visible; }

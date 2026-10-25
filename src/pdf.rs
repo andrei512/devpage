@@ -44,10 +44,12 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
         .ok();
     });
 
-    let config = match chrome().build() {
+    let profile = Profile::new();
+    let config = match profile.chrome().build() {
         Ok(config) => config,
         // No Chrome installed: download a Chromium once, into devpage's cache.
-        Err(_) => chrome()
+        Err(_) => profile
+            .chrome()
             .chrome_executable(fetch_chromium().await?)
             .build()
             .map_err(anyhow::Error::msg)?,
@@ -71,22 +73,54 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))?;
 
     browser.close().await.ok();
+    browser.wait().await.ok();
     events.abort();
     server.abort();
     Ok(())
 }
 
-/// A headless Chrome with a profile of its own, so several prints can run at
-/// once without fighting over one profile's lock.
-fn chrome() -> chromiumoxide::browser::BrowserConfigBuilder {
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    static RUNS: AtomicUsize = AtomicUsize::new(0);
-    let profile = std::env::temp_dir().join(format!(
-        "devpage-chrome-{}-{}",
-        std::process::id(),
-        RUNS.fetch_add(1, Ordering::Relaxed)
-    ));
-    BrowserConfig::builder().user_data_dir(profile)
+/// The file `devpage pdf` writes when `-o` names none: the document's title,
+/// with the characters a file name can't hold replaced by `-`.
+pub fn default_output(title: &str) -> std::path::PathBuf {
+    let name: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect();
+    let name = name.trim().trim_start_matches('.');
+    let name = if name.is_empty() { "document" } else { name };
+    std::path::PathBuf::from(format!("{name}.pdf"))
+}
+
+/// A Chrome profile folder of its own for one run, so several prints can run
+/// at once without fighting over one profile's lock. It is deleted when the
+/// run ends.
+struct Profile(std::path::PathBuf);
+
+impl Profile {
+    fn new() -> Self {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static RUNS: AtomicUsize = AtomicUsize::new(0);
+        Self(std::env::temp_dir().join(format!(
+            "devpage-chrome-{}-{}",
+            std::process::id(),
+            RUNS.fetch_add(1, Ordering::Relaxed)
+        )))
+    }
+
+    /// A headless Chrome using this profile.
+    fn chrome(&self) -> chromiumoxide::browser::BrowserConfigBuilder {
+        BrowserConfig::builder().user_data_dir(&self.0)
+    }
+}
+
+impl Drop for Profile {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
 }
 
 /// Downloads a Chromium into devpage's cache folder, or finds the one there.
@@ -144,6 +178,108 @@ fn doc_params(title: &str, pdf: &Pdf) -> PrintToPdfParams {
 mod tests {
     use super::*;
 
+    #[test]
+    fn the_default_file_name_is_the_title_made_safe() {
+        assert_eq!(
+            default_output("Offline sync"),
+            Path::new("Offline sync.pdf")
+        );
+        assert_eq!(default_output("A/B: why?"), Path::new("A-B- why-.pdf"));
+        assert_eq!(default_output("..."), Path::new("document.pdf"));
+    }
+
+    #[tokio::test]
+    async fn a_site_is_refused() {
+        let dir = std::env::temp_dir().join(format!("devpage-pdf-site-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: Home\nroot: README.md\n",
+        )
+        .unwrap();
+        let site = Arc::new(Document::load(&dir).unwrap());
+        let error = print(site, Path::new("never.pdf")).await.unwrap_err();
+        assert_eq!(error.to_string(), "pdf prints a doc or slides, not a site");
+        assert!(!Path::new("never.pdf").exists());
+    }
+
+    /// The pages of a PDF Chrome wrote: each one's width and height in points.
+    fn pages(pdf: &[u8]) -> Vec<(f64, f64)> {
+        let text = String::from_utf8_lossy(pdf);
+        text.match_indices("/MediaBox [")
+            .map(|(at, _)| {
+                let numbers: Vec<f64> = text[at + 11..]
+                    .split(']')
+                    .next()
+                    .unwrap()
+                    .split_whitespace()
+                    .map(|n| n.parse().unwrap())
+                    .collect();
+                (numbers[2] - numbers[0], numbers[3] - numbers[1])
+            })
+            .collect()
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let document = Arc::new(Document::load(&root.join("examples/sync-design")).unwrap());
+        let Kind::Doc { pdf, .. } = &document.kind else {
+            panic!()
+        };
+        let params = doc_params(&document.title, pdf);
+        assert!(
+            params
+                .header_template
+                .unwrap()
+                .contains("Offline sync — draft")
+        );
+        let footer = params.footer_template.unwrap();
+        assert!(
+            footer.contains(
+                "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
+            ),
+            "{footer}"
+        );
+
+        let out = std::env::temp_dir().join(format!("devpage-doc-{}.pdf", std::process::id()));
+        print(document, &out).await.unwrap();
+        let pages = pages(&std::fs::read(&out).unwrap());
+        assert!(!pages.is_empty());
+        for (width, height) in pages {
+            // A4 is 595 × 842 points.
+            assert!(
+                (width - 595.0).abs() < 2.0 && (height - 842.0).abs() < 2.0,
+                "{width} × {height}"
+            );
+        }
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let document = Arc::new(Document::load(&root.join("examples/launch-talk")).unwrap());
+        let Kind::Slides { slides } = &document.kind else {
+            panic!()
+        };
+        let count = slides.len();
+        let out = std::env::temp_dir().join(format!("devpage-deck-{}.pdf", std::process::id()));
+        print(document, &out).await.unwrap();
+        let pages = pages(&std::fs::read(&out).unwrap());
+        assert_eq!(pages.len(), count, "{pages:?}");
+        for (width, height) in pages {
+            assert!(
+                (width / height - 16.0 / 9.0).abs() < 0.01,
+                "{width} × {height}"
+            );
+        }
+    }
+
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
@@ -175,7 +311,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
 
-        let (mut browser, mut handler) = Browser::launch(chrome().build().unwrap()).await.unwrap();
+        let profile = Profile::new();
+        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
+            .await
+            .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}/one.md").as_str())
@@ -222,7 +361,10 @@ mod tests {
         let (changes, _) = broadcast::channel(1);
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-        let (mut browser, mut handler) = Browser::launch(chrome().build().unwrap()).await.unwrap();
+        let profile = Profile::new();
+        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
+            .await
+            .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}{url}").as_str())
@@ -249,6 +391,59 @@ mod tests {
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert_eq!(shown(page.clone()).await, "3#3");
+        // ⌘← is the browser's, not the deck's.
+        page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', metaKey: true}))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(shown(page.clone()).await, "3#3");
+        // A live update swaps the deck in place and stays on the slide shown.
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(shown(page.clone()).await, "3#3");
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let document = Arc::new(Document::load(&root.join("examples/sync-design")).unwrap());
+        let url = document.entry();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let profile = Profile::new();
+        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
+            .await
+            .unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser.new_page("about:blank").await.unwrap();
+        let layout = |width: i64| {
+            let page = page.clone();
+            let url = format!("http://{address}{url}");
+            async move {
+                page.execute(SetDeviceMetricsOverrideParams::new(width, 900, 1.0, false))
+                    .await
+                    .unwrap();
+                page.goto(url.as_str()).await.unwrap();
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let value: String = page
+                    .evaluate("(() => { const n = document.getElementById('nav').getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); return n.bottom <= a.top ? 'above' : n.right <= a.left ? 'beside' : 'overlap'; })()")
+                    .await
+                    .unwrap()
+                    .into_value()
+                    .unwrap();
+                value
+            }
+        };
+        assert_eq!(layout(1300).await, "beside");
+        assert_eq!(layout(600).await, "above");
         browser.close().await.ok();
         events.abort();
     }

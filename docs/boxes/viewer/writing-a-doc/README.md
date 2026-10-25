@@ -36,7 +36,9 @@ name, shown above the first chapter, in the tab and in the PDF's metadata. A
 doc made from one Markdown file has no separate title: its `# heading` is the
 title. A
 chapter can be any Markdown file in the served folder, so one shared chapter — a
-glossary, a context section — can appear in several docs.
+glossary, a context section — can appear in several docs. A chapter's links
+and images are relative to the chapter's own file, wherever its folder is, as
+they are on disk.
 
 ## The outline
 
@@ -56,9 +58,11 @@ The rollout is in [three steps](rollout.md#steps).
 ```
 
 In the doc, that link scrolls to the *Steps* heading of the rollout chapter.
-In a doc, a heading's id is its chapter's file name, without `.md`, then `--`,
-then the heading's own id — `rollout--steps` — so two chapters can both have a
-`## Risks` section and links to each still land in the right one. Links between
+In a doc of more than one chapter, a heading's id is its chapter's file name,
+without `.md`, then `--`, then the heading's own id — `rollout--steps` — so two
+chapters can both have a `## Risks` section and links to each still land in the
+right one; a link to a chapter file without a heading lands on the chapter's
+start. A doc of one chapter keeps its headings' own ids. Links between
 chapters, and `#heading` links within one, are rewritten to those ids when the
 doc renders. A link from outside the doc to a chapter file opens that file on
 its own, as a page; link to the doc's document file to open the doc.

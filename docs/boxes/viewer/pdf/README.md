@@ -13,7 +13,8 @@ devpage pdf design.md                   # one Markdown file, as a doc
 ```
 
 It takes the same argument as `devpage` and writes `<title>.pdf` in the current
-folder unless `-o` names the file. It prints a **doc** — on A4 or Letter, with
+folder unless `-o` names the file; characters a file name can't hold — `/`,
+`:`, `?` and the like — become `-`. It prints the file's name when it is done. It prints a **doc** — on A4 or Letter, with
 its header and footer ([Writing a doc](../writing-a-doc/README.md#on-paper)) —
 or a **deck**, one slide per 16:9 page
 ([Making slides](../making-slides/README.md#on-paper)). A site is many pages,
@@ -32,6 +33,9 @@ background, opens the document in print mode in a headless Chrome, waits until
 every diagram is drawn, and has Chrome print it — the same `Page.printToPDF`
 call Playwright makes, spoken directly over the DevTools protocol by the
 `chromiumoxide` crate, with no Node and no extra process.
+
+Each run gives Chrome a profile folder of its own in the system's temporary
+folder, so several prints can run at once, and deletes it when the run ends.
 
 It uses the Chrome or Chromium installed on the machine. When it finds none, it
 downloads a Chromium once, into devpage's cache folder, says so, and uses that

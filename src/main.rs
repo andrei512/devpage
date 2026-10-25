@@ -69,7 +69,7 @@ async fn main() -> Result<()> {
     }
     if let Some(Command::Pdf { path, output }) = cli.command.take() {
         let document = Arc::new(Document::load(&path)?);
-        let output = output.unwrap_or_else(|| PathBuf::from(format!("{}.pdf", document.title)));
+        let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
         pdf::print(document, &output).await?;
         println!("{}", output.display());
         return Ok(());

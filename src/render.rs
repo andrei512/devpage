@@ -109,14 +109,22 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         if chapters.len() > 1 {
             html = scope_ids(&html, chapter, &names);
         }
+        let html = rebase(&html, chapter, document);
         for (level, id, text) in headings(&html) {
             outline.push_str(&format!(
                 "<li class=\"h{level}\"><a href=\"#{id}\">{text}</a></li>"
             ));
         }
+        // A link to a chapter lands on its section, which only needs an id
+        // when there is more than one — and then can't clash with a heading's,
+        // which carries the chapter's prefix.
+        let id = if chapters.len() > 1 {
+            format!(" id=\"{}\"", chapter_name(chapter, &names))
+        } else {
+            String::new()
+        };
         content.push_str(&format!(
-            "<section class=\"chapter\" id=\"{}\" data-source=\"{}\">{html}</section>",
-            chapter_name(chapter, &names),
+            "<section class=\"chapter\"{id} data-source=\"{}\">{html}</section>",
             document.url(chapter)
         ));
     }
@@ -218,6 +226,59 @@ fn scope_ids(html: &str, chapter: &Path, names: &[(PathBuf, String)]) -> String 
     out
 }
 
+/// Points a file's relative links and images at their served addresses. A
+/// doc or a deck is served at its document file's address, so a chapter or
+/// slide from another folder would otherwise resolve its links against the
+/// wrong one.
+fn rebase(html: &str, file: &Path, document: &Document) -> String {
+    let folder = file.parent().unwrap_or(Path::new("."));
+    let mut out = String::new();
+    let mut rest = html;
+    // Attributes, and a Mermaid `click … href "…"` line, which is still
+    // source here — the browser draws the diagram later.
+    const STARTS: [(&str, &str); 3] = [(" href=\"", "\""), (" src=\"", "\""), (" href \"", "\"")];
+    loop {
+        let next = STARTS
+            .iter()
+            .filter_map(|(start, end)| rest.find(start).map(|at| (at + start.len(), *end)))
+            .min();
+        let Some((start, close)) = next else { break };
+        out.push_str(&rest[..start]);
+        rest = &rest[start..];
+        let end = rest.find(close).unwrap_or(rest.len());
+        let value = &rest[..end];
+        if value.is_empty() || value.starts_with(['#', '/']) || value.contains(':') {
+            out.push_str(value);
+        } else {
+            let (path, fragment) = match value.split_once('#') {
+                Some((path, fragment)) => (path, format!("#{fragment}")),
+                None => (value, String::new()),
+            };
+            out.push_str(&document.url(&normalize(&folder.join(path))));
+            out.push_str(&fragment);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Resolves `.` and `..` in a path without touching the disk, so a link to a
+/// file that doesn't exist yet still gets an address (and a problem).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 /// The page's problems, listed above it, with each broken link marked.
 fn problems(document: &Document, pages: &[PathBuf]) -> String {
     let found = check::preview(document, pages);
@@ -245,7 +306,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
             document.url(slide),
-            markdown(&source)
+            rebase(&markdown(&source), slide, document)
         ));
     }
     format!(
@@ -259,7 +320,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
-{problems}<main id="page" class="deck">{content}</main>
+<main id="page" class="deck">{problems}{content}</main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
@@ -451,6 +512,63 @@ mod tests {
         assert_eq!(html.matches("class=\"slide\"").count(), 2);
         assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
         assert!(html.contains("size: 1920px 1080px"));
+    }
+
+    #[test]
+    fn chapters_and_slides_from_other_folders_keep_their_links() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-render-rebase-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("doc")).unwrap();
+        std::fs::create_dir_all(dir.join("shared")).unwrap();
+        std::fs::write(
+            dir.join("shared/glossary.md"),
+            "# Glossary\n\n![map](map.svg) [up](../README.md#top) [web](https://x.y/z) [here](#glossary)\n\n```mermaid\nflowchart LR\n  a\n  click a href \"terms.md\" \"Terms\"\n```\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("doc/d.yml"),
+            "kind: doc\ntitle: Plan\nchapters: [../shared/glossary.md]\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir.join("doc/d.yml")).unwrap();
+        let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
+            panic!()
+        };
+        let html = doc(&document, chapters, pdf, false);
+        let base = document.url(&dir.canonicalize().unwrap());
+        assert!(
+            html.contains(&format!("src=\"{base}/shared/map.svg\"")),
+            "{html}"
+        );
+        assert!(
+            html.contains(&format!("href=\"{base}/README.md#top\"")),
+            "{html}"
+        );
+        assert!(html.contains("href=\"https://x.y/z\""), "{html}");
+        assert!(html.contains("href=\"#glossary\""), "{html}");
+        assert!(
+            html.contains(&format!("href \"{base}/shared/terms.md\"")),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn a_one_file_doc_has_no_separate_title() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-one-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("design.md"), "# Design\n\nText.\n").unwrap();
+        let document = Document::load(&dir.join("design.md")).unwrap();
+        let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
+            panic!()
+        };
+        let html = doc(&document, chapters, pdf, false);
+        assert!(!html.contains("doc-title\">"), "{html}");
+        assert_eq!(html.matches("<h1").count(), 1, "{html}");
+        assert_eq!(
+            html.matches("id=\"design\"").count(),
+            1,
+            "ids are unique: {html}"
+        );
     }
 
     #[test]

@@ -19,7 +19,8 @@ slides:
 Each slide is its own Markdown file, so reordering a deck is moving a line in
 its document file, and a slide can be reused in another deck. A slide is
 ordinary Markdown — headings, lists, code, images, raw HTML and Mermaid
-diagrams all work as on any page.
+diagrams all work as on any page, with links and images relative to the
+slide's own file.
 
 ## The stage
 
@@ -38,6 +39,9 @@ to read from the back of a room.
 | Home / End | first / last slide |
 | F | fullscreen on and off |
 | C | the slide's comments on and off |
+
+Keys pressed with ⌘, Ctrl or Alt are left to the browser, so copying and
+finding work as usual; F and C work in either case.
 
 The slide's number is in the address — `/talks/launch/devpage.yml#3` is the
 third slide — so a reload stays put and a link can point at one slide. A
