@@ -36,14 +36,20 @@ pub fn markdown(source: &str) -> String {
 
 /// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas
 /// the design script draws on. The canvas keeps the link in `src`, so links
-/// are rebased and checked as an image's are.
+/// are rebased and checked as an image's are. A raw `<img>` in the page is an
+/// image like any other, with or without a closing `/`.
 fn embed_designs(html: &str) -> String {
     let mut out = String::new();
     let mut rest = html;
-    while let Some(at) = rest.find("<img src=\"") {
+    while let Some(at) = rest.find("<img") {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
-        let end = rest.find("/>").map_or(rest.len(), |end| end + 2);
+        if !rest[4..].starts_with(|c: char| c.is_ascii_whitespace()) {
+            out.push_str("<img");
+            rest = &rest[4..];
+            continue;
+        }
+        let end = tag_end(rest);
         let tag = &rest[..end];
         let attribute = |name: &str| {
             let start = tag.find(&format!(" {name}=\""))? + name.len() + 3;
@@ -67,6 +73,21 @@ fn embed_designs(html: &str) -> String {
     }
     out.push_str(rest);
     out
+}
+
+/// The length of the tag `html` starts with: up to and including its closing
+/// `>`, skipping any `>` inside a quoted attribute value.
+fn tag_end(html: &str) -> usize {
+    let mut quote = None;
+    for (i, c) in html.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None, '>') => return i + 1,
+            _ => {}
+        }
+    }
+    html.len()
 }
 
 /// A page's title: its first level-one heading, or its file name.
@@ -501,6 +522,44 @@ mod tests {
         assert!(html.contains("<img src=\"photo.png\" alt=\"A photo\" />"));
         // The design's script is loaded by the page script only when a page has one.
         assert!(!markdown("![A photo](photo.png)").contains("canvas"));
+    }
+
+    #[test]
+    fn a_raw_image_without_a_closing_slash_leaves_the_embed_after_it_working() {
+        let html = markdown(
+            "<img src=\"logo.png\" width=\"40\">\n\nThen:\n\n![Checkout](checkout.design)\n",
+        );
+        assert!(
+            html.contains("<img src=\"logo.png\" width=\"40\">"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<canvas class=\"design\" src=\"checkout.design\""),
+            "{html}"
+        );
+        assert!(!html.contains("<img src=\"checkout.design\""), "{html}");
+    }
+
+    #[test]
+    fn a_raw_image_of_a_design_embeds_it_and_keeps_what_follows() {
+        let html = markdown(
+            "<img src=\"checkout.design\" alt=\"Raw\" width=\"300\">\n\nA paragraph.\n\n![Logo](logo.png)\n",
+        );
+        assert!(
+            html.contains(
+                "<canvas class=\"design\" src=\"checkout.design\" role=\"img\" aria-label=\"Raw\"></canvas>"
+            ),
+            "{html}"
+        );
+        assert!(html.contains("<p>A paragraph.</p>"), "{html}");
+        assert!(
+            html.contains("<img src=\"logo.png\" alt=\"Logo\" />"),
+            "{html}"
+        );
+        // A `>` inside a quoted value doesn't end the tag.
+        let html = markdown("<img alt=\"a > b\" src=\"x.design\">\n\nAfter.\n");
+        assert!(html.contains("aria-label=\"a > b\""), "{html}");
+        assert!(html.contains("<p>After.</p>"), "{html}");
     }
 
     #[test]

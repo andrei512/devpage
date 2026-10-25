@@ -4,7 +4,8 @@ The viewer is the `devpage` program. It serves **documents** from a folder
 in the browser — a **site** of pages, a **doc** read top to bottom, a deck
 of **slides**, or a **design** drawn on a canvas and clicked through as a
 prototype — keeps every open page current as the files change, lets readers
-leave **comments** on any of them, checks every link, and prints a doc or a
+leave **comments** on any page of a site, a doc or a deck (a design is
+discussed on the page that embeds it), checks every link, and prints a doc or a
 deck to PDF exactly as the browser shows it. This page says what its parts are
 and where each is explained; it belongs to the [system catalog](../README.md).
 

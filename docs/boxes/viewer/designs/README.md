@@ -65,7 +65,8 @@ designs use. A file:
 - starts with any number of **imports**, one per line —
   `import Button from "./button.design"` — each a name and a path relative to
   the file. The path must lie in the
-  [served folder](../constraints/the-served-folder-is-the-boundary.md).
+  [served folder](../constraints/the-served-folder-is-the-boundary.md), and
+  the file must exist, whether the design uses the import or not.
 - holds exactly one **root element**, which is a `Frame`. Its `width` and
   `height` are the design's size; a root sized `"hug"` takes its content's
   size.
@@ -134,7 +135,7 @@ Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 | `shadow` | `{ x, y, blur, spread, color }`, each optional, drawn outside the box | none |
 | `clip` | `{true}` to clip the children to the box | `{false}` |
 
-A color is `#rgb`, `#rrggbb` or `#rrggbbaa`.
+A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
 
 `Frame` lays out its children with Figma's auto layout:
 
@@ -226,7 +227,9 @@ This is how an agent looks at its work: write the file, fetch the PNG, look,
 fix. devpage keeps every design it has read resolved in memory and paints the PNG
 itself on the CPU, without a browser, so the answer arrives as fast as a
 page. A design
-with problems answers `422` with the problems as plain text, one per line.
+with problems answers `422` with the problems as plain text, one per line; an
+address that isn't a design file in the served folder answers `404`, as any
+other path does.
 
 ## Problems
 
@@ -235,8 +238,8 @@ it, reported by `devpage check` like a broken link
 ([Checking links](../checking-links/README.md)), and returned instead of a PNG:
 
 ```text
-examples/checkout/checkout.design:7:3: Button has no prop "lable"
-examples/checkout/button.design:2:40: padding: expected pixels or an array of 2 or 4, found "12px"
+examples/checkout/checkout.design:7:11: Button has no prop "lable"
+examples/checkout/button.design:2:21: padding: expected pixels or an array of 2 or 4, found "12px"
 examples/checkout/cart.design:1:1: import ./row.design — no such file
 ```
 

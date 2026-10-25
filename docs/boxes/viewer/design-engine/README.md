@@ -133,7 +133,7 @@ straight from disk instead, as they read pages.
 | Route | Answer |
 | --- | --- |
 | `GET /{path}.design` | the canvas page for the design |
-| `GET /{path}.design.png` | the design painted at 1×, `image/png`; `422` and the problems as `text/plain` when it has any |
+| `GET /{path}.design.png` | the design painted at 1×, `image/png`; `422` and the problems as `text/plain` when it has any; `404` and `<path> is not part of the served folder` when the design isn't a file in the served folder |
 | `POST /devpage.design.v1.Designs/Watch` | a page's [watch stream](#the-watch-stream), as gRPC-Web |
 
 ## The watch stream

@@ -187,6 +187,7 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         problems: Vec::new(),
         read: Vec::new(),
         stack: Vec::new(),
+        missing: Vec::new(),
     };
     let root = r.design(path, &[], None, "");
     if r.problems.is_empty() {
@@ -204,6 +205,9 @@ struct Resolver<'a> {
     problems: Vec<Problem>,
     read: Vec<String>,
     stack: Vec<String>,
+    /// Imports already reported as `no such file`, so a use of one isn't
+    /// reported a second time.
+    missing: Vec<String>,
 }
 
 type Props = HashMap<String, Value>;
@@ -231,6 +235,9 @@ impl Resolver<'_> {
             return None;
         }
         let Some(source) = self.files.read(path) else {
+            if from.is_some() && self.missing.iter().any(|p| p == path) {
+                return None;
+            }
             let (file, pos) = from.unwrap_or((path, Pos { line: 1, col: 1 }));
             self.problem(file, pos, format!("{path} — no such file"));
             return None;
@@ -250,6 +257,15 @@ impl Resolver<'_> {
         for import in &file.imports {
             match join(path, &import.path) {
                 Some(target) => {
+                    // Every import must exist, used or not.
+                    if self.files.read(&target).is_none() {
+                        self.problem(
+                            path,
+                            import.pos,
+                            format!("import {} — no such file", import.path),
+                        );
+                        self.missing.push(target.clone());
+                    }
                     imports.insert(import.name.clone(), target);
                 }
                 None => self.problem(
@@ -912,11 +928,25 @@ mod tests {
         assert_eq!(
             problems,
             vec![
+                "screen.design:2:1: import ./row.design — no such file",
                 "screen.design:4:11: Button has no prop \"lable\"",
                 "button.design:1:31: padding: expected pixels or an array of 2 or 4, found \"12px\"",
-                "screen.design:5:3: row.design — no such file",
                 "screen.design:6:3: unknown element Blob",
             ]
+        );
+    }
+
+    #[test]
+    fn an_import_of_a_missing_file_is_a_problem_even_unused() {
+        let fs = files(&[("cart.design", "import Row from \"./row.design\"\n<Frame />")]);
+        let problems: Vec<String> = resolve(&fs, "cart.design")
+            .unwrap_err()
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        assert_eq!(
+            problems,
+            vec!["cart.design:1:1: import ./row.design — no such file"]
         );
     }
 

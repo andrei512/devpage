@@ -174,6 +174,20 @@ async fn file(
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
     if let Some(design) = path.strip_suffix(".png").filter(|p| p.ends_with(".design")) {
+        // A design that isn't a file in the served folder is like any other
+        // path that isn't: 404, never its problems.
+        if !state
+            .entry
+            .document()
+            .file(design)
+            .is_some_and(|f| f.is_file())
+        {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("{path} is not part of the served folder"),
+            )
+                .into_response();
+        }
         return match state.designs.png(design.to_string()).await {
             Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
             Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),

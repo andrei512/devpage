@@ -510,6 +510,29 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn no_png_of_a_design_outside_the_served_folder() {
+        let dir = served("png-outside");
+        let outside = dir.join("../png-outside-secret.design");
+        std::fs::write(&outside, "<Frame width={10} height={10} />").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("app/escape.design")).unwrap();
+        let (address, _) = start(&dir, "app/screen.design").await;
+        for path in [
+            "/../png-outside-secret.design.png",
+            "/%2E%2E/png-outside-secret.design.png",
+            "/app/escape.design.png",
+            "/app/missing.design.png",
+        ] {
+            let response = reqwest::get(format!("{address}{path}")).await.unwrap();
+            assert_eq!(response.status(), 404, "{path}");
+            let body = response.text().await.unwrap();
+            assert!(
+                body.ends_with("is not part of the served folder"),
+                "{path}: {body}"
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn a_design_is_an_entry_document() {
         let dir = served("entry");
         let (address, _) = start(&dir, "app/screen.design").await;

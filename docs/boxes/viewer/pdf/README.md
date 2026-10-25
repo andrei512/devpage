@@ -30,8 +30,10 @@ agent wants.
 
 devpage does not render PDF itself. It starts its own server in the
 background, which logs nothing, opens the document in print mode in a headless Chrome, waits until
-every diagram is drawn and every embedded design is painted, and has Chrome
-print it — the same `Page.printToPDF`
+every diagram is drawn and every embedded design is painted — for at most 20
+seconds, after which it prints whatever the page shows, so a design that never
+paints (one with problems, say) costs that wait but doesn't stop the PDF; `devpage check`
+is what reports it — and has Chrome print it — the same `Page.printToPDF`
 call Playwright makes, spoken directly over the DevTools protocol by the
 `chromiumoxide` crate, with no Node and no extra process.
 
