@@ -1,7 +1,8 @@
 # Widgets
 
 React components written as tags in Markdown. devpage ships `Callout`,
-`Tabs`, `Example`, `FileTree`, `Terminal`, `Keys` and `Diagram`; a project adds
+`Tabs`, `Example`, `FileTree`, `Terminal`, `Keys`, `Steps`, `Cards` and
+`Diagram`; a project adds
 its own as one `.tsx` file each, with no build step.
 
 <Example>

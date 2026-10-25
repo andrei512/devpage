@@ -745,7 +745,7 @@ mod tests {
         let long = "word ".repeat(80);
         let readme = format!(
             "{}\n\n<Example>\n{long}\n</Example>\n\n<Terminal>\n\n```\n$ {long}\n```\n\n</Terminal>\n\n<FileTree>\n\n- notes.md — kept as `code` and *emphasis*\n\n</FileTree>\n\n- [ ] open task\n- [x] done task\n\n<Keys>⌘ K</Keys> starts a line and **stays bold**.\n",
-            "# W\n\n<Callout kind=\"tip\" title=\"Heads up\">\nSome **bold**\n</Callout>\n\n<Tabs>\n<Tab title=\"One\">\n\nfirst tab\n\n</Tab>\n<Tab title=\"Two\">\n\nsecond tab\n\n</Tab>\n</Tabs>\n\n<Example>\nA *word*\n</Example>\n\n<FileTree>\n\n- garden/\n  - [devpage.yml](README.md) — the site\n  - README.md\n\n</FileTree>\n\n<Terminal>\n\n```\n$ devpage check docs\nall good\n```\n\n</Terminal>\n\nPress <Keys>⌘ P</Keys> to print.\n\n```mermaid\nflowchart LR\n  A --> B\n```\n"
+            "# W\n\n<Callout kind=\"tip\" title=\"Heads up\">\nSome **bold**\n</Callout>\n\n<Tabs>\n<Tab title=\"One\">\n\nfirst tab\n\n</Tab>\n<Tab title=\"Two\">\n\nsecond tab\n\n</Tab>\n</Tabs>\n\n<Example>\nA *word*\n</Example>\n\n<FileTree>\n\n- garden/\n  - [devpage.yml](README.md) — the site\n  - README.md\n\n</FileTree>\n\n<Terminal>\n\n```\n$ devpage check docs\nall good\n```\n\n</Terminal>\n\nPress <Keys>⌘ P</Keys> to print.\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n<Steps>\n\n1. Install it\n   From crates.io.\n\n   $ cargo install devpage\n\n2. Run it\n   $ devpage docs\n\n</Steps>\n\n<Cards columns={2}>\n\n- (rocket) [Start](README.md) — begin *here*\n- [Plain](README.md) — no icon\n\n</Cards>\n"
         );
         let dir = widget_folder("system", &readme, &[]);
         let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
@@ -765,6 +765,8 @@ mod tests {
                 pageFits: document.documentElement.scrollWidth <= innerWidth || document.documentElement.scrollWidth + ':' + innerWidth + ':' + [...document.querySelectorAll('#devpage-page *')].filter(e => e.getBoundingClientRect().right > innerWidth + 1 && !e.closest('.example-source, .terminal pre')).slice(0, 5).map(e => e.tagName + '.' + e.className).join(' '),
                 note: [...document.querySelectorAll('.filetree-note')].map(n => n.innerHTML).find(h => h.includes('code')) ?? '',
                 tasks: [...document.querySelectorAll('li')].filter(li => li.querySelector('input[type=checkbox]')).map(li => getComputedStyle(li).listStyleType).join(','),
+                steps: [...document.querySelectorAll('.step')].map(li => li.querySelector('.step-number').textContent + ':' + li.querySelector('.step-title').textContent + ':' + [...li.querySelectorAll('.step-command')].map(c => c.textContent).join('/')).join(','),
+                cards: [...document.querySelectorAll('.cards .card')].map(c => c.querySelector('.card-title').textContent + ':' + c.getAttribute('href') + ':' + !!c.querySelector('.card-icon svg') + ':' + (c.querySelector('.card-summary')?.innerHTML ?? '')).join(',') + '|' + getComputedStyle(document.querySelector('.cards')).gridTemplateColumns.split(' ').length,
                 keysLine: [...document.querySelectorAll('p .keys')].filter(k => k.closest('p').textContent.includes('starts a line')).length + '|' + [...document.querySelectorAll('p strong')].some(s => s.textContent === 'stays bold'),
             })"#,
         )
@@ -787,6 +789,15 @@ mod tests {
         );
         assert_eq!(v["tasks"], "none,none", "{report}");
         assert_eq!(v["keysLine"], "1|true", "{report}");
+        assert_eq!(
+            v["steps"], "1:Install it:$cargo install devpage,2:Run it:$devpage docs",
+            "{report}"
+        );
+        assert_eq!(
+            v["cards"],
+            "Start→:README.md:true:begin <em>here</em>,Plain→:README.md:false:no icon|2",
+            "{report}"
+        );
         // On a wide window, where Example sets source and result side by side,
         // long lines still scroll inside their boxes rather than widen the page.
         page.execute(
