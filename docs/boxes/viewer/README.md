@@ -133,7 +133,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — deployed, it trusts one header and must sit behind a proxy that sets it.
 - [A design has one renderer](constraints/a-design-has-one-renderer.md)
-  — the canvas and the PNG are one layout and one vello scene.
+  — the canvas and the PNG replay one layout's one display list.
 
 ## Topics
 

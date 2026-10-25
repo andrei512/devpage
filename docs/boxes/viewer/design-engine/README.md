@@ -80,10 +80,12 @@ the same natively and in WebAssembly. No system font is ever consulted.
 
 ## Painting
 
-The painter walks the laid-out scene once and encodes it as a `vello` scene:
-fills and gradients, strokes, rounded corners, blurred shadows, clipping,
-vector paths, images and parley's glyph runs, each at the node's opacity.
-That one encoding is drawn by one of vello's two backends:
+The painter walks the laid-out scene once and turns it into the engine's
+**display list**: an ordered list of drawing commands in canvas pixels —
+fills and gradients, strokes, rounded corners, blurred shadows, clip and
+opacity layers, vector paths, images and parley's glyph runs. Everything a
+drawing depends on is decided there. Two thin backends replay that one list,
+each translating a command into its library's call and nothing more:
 
 - **In the browser, on the GPU**: `vello` through `wgpu` on WebGPU, straight
   into the canvas. This is the path for speed — a pan or a zoom repaints the
@@ -92,9 +94,11 @@ That one encoding is drawn by one of vello's two backends:
   encoded as the PNG — a server, a CI runner or a container has no GPU to
   count on. A browser without WebGPU paints the canvas with `vello_cpu` too.
 
-Both backends draw the same scene from the
-[same encoding](../constraints/a-design-has-one-renderer.md); they differ
+Both backends replay the
+[same display list](../constraints/a-design-has-one-renderer.md); they differ
 only where two rasterizers can — the last bit of anti-aliasing at an edge.
+`vello_cpu` has its own API rather than replaying a `vello` scene, which is why
+the shared form is the engine's list and not a vello type.
 
 ## In the server
 
