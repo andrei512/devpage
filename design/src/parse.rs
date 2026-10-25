@@ -357,9 +357,15 @@ impl Parser {
     }
 
     fn value(&mut self) -> Result<Value, Problem> {
-        self.deeper()?;
+        // Only arrays and objects nest, so only they count toward the limit.
+        let nests = matches!(self.peek(), Some('[' | '{'));
+        if nests {
+            self.deeper()?;
+        }
         let value = self.value_inner();
-        self.depth -= 1;
+        if nests {
+            self.depth -= 1;
+        }
         value
     }
 
@@ -422,6 +428,9 @@ impl Parser {
                 }
                 match s.parse::<f64>() {
                     Ok(n) if n.abs() <= MAX_NUMBER => Ok(Value::Num(n)),
+                    Ok(n) if n < 0.0 => Err(self.problem(&format!(
+                        "`{s}` is too small: numbers go down to -{MAX_NUMBER}"
+                    ))),
                     Ok(_) => Err(self.problem(&format!(
                         "`{s}` is too large: numbers go up to {MAX_NUMBER}"
                     ))),
@@ -613,6 +622,35 @@ import Button from "./button.design"
         assert!(parse("<Frame width={1000000} />").is_ok());
         let fine = "<Frame>".repeat(MAX_DEPTH) + &"</Frame>".repeat(MAX_DEPTH);
         assert!(parse(&fine).is_ok());
+    }
+
+    #[test]
+    fn arrays_and_objects_count_toward_the_limit_as_elements_do() {
+        // One element and 255 arrays are 256 deep: fine. One more is not.
+        let at = |n: usize| format!("<Frame gap={{{}1{}}} />", "[".repeat(n), "]".repeat(n));
+        assert!(parse(&at(MAX_DEPTH - 1)).is_ok());
+        assert_eq!(
+            parse(&at(MAX_DEPTH)).unwrap_err().message,
+            format!("nested more than {MAX_DEPTH} deep")
+        );
+        let objects = |n: usize| {
+            format!(
+                "<Frame shadow={{{}1{}}} />",
+                "{ a: ".repeat(n),
+                "}".repeat(n)
+            )
+        };
+        assert!(parse(&objects(MAX_DEPTH - 1)).is_ok());
+        assert!(parse(&objects(MAX_DEPTH)).is_err());
+    }
+
+    #[test]
+    fn a_number_below_the_limit_is_too_small() {
+        assert_eq!(
+            parse("<Frame x={-1000001} />").unwrap_err().message,
+            "`-1000001` is too small: numbers go down to -1000000"
+        );
+        assert!(parse("<Frame x={-1000000} />").is_ok());
     }
 
     #[test]

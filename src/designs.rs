@@ -291,6 +291,13 @@ pub struct Watch {
     pub designs: Designs,
 }
 
+/// A scene encoded for the stream: whole, the first time, then as the
+/// subtrees that changed since.
+enum Encoded {
+    Whole(Box<devpage_design::proto::Node>),
+    Changed(Vec<devpage_design::proto::Replace>),
+}
+
 /// What one design's watcher last sent.
 #[derive(Default)]
 struct Sent {
@@ -299,17 +306,32 @@ struct Sent {
 }
 
 impl Sent {
-    /// The update `resolved` calls for after what was sent, if any.
-    fn next(&mut self, resolved: Resolved) -> Option<Body> {
-        match resolved.result {
-            Ok(scene) => {
+    /// The update `resolved` calls for after what was sent, if any. `path`
+    /// names the design should encoding it ever fail.
+    fn next(&mut self, path: &str, resolved: Resolved) -> Option<Body> {
+        let result = resolved.result.and_then(|scene| {
+            // Encoding is a call into the engine too, so it is guarded.
+            let old = self.scene.as_ref();
+            let body = guarded(
+                path,
+                || {
+                    Ok(match old {
+                        None => Encoded::Whole(Box::new(wire::encode(&scene.root))),
+                        Some(old) => Encoded::Changed(wire::diff(old, &scene.root)),
+                    })
+                },
+                |problem| vec![problem],
+            )?;
+            Ok((scene, body))
+        });
+        match result {
+            Ok((scene, body)) => {
                 // Problems on show: even an empty patch says the design is
                 // valid again.
                 let fixed = self.problems.take().is_some();
-                let body = match &self.scene {
-                    None => Some(Body::Scene(wire::encode(&scene.root))),
-                    Some(old) => {
-                        let replace = wire::diff(old, &scene.root);
+                let body = match body {
+                    Encoded::Whole(whole) => Some(Body::Scene(*whole)),
+                    Encoded::Changed(replace) => {
                         (fixed || !replace.is_empty()).then_some(Body::Patch(Patch { replace }))
                     }
                 };
@@ -356,7 +378,7 @@ impl devpage_design::proto::designs_server::Designs for Watch {
                     };
                     let resolved = store.get(&path);
                     let (_, named, sent) = &mut watched[index];
-                    if let Some(body) = sent.next(resolved) {
+                    if let Some(body) = sent.next(&path, resolved) {
                         let update = Update {
                             body: Some(body),
                             path: named.clone(),
@@ -630,6 +652,21 @@ mod tests {
                 "{path}: {body}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn the_design_service_answers_only_watch() {
+        let dir = served("only-watch");
+        let (address, _) = start(&dir, "app/screen.design").await;
+        let client = reqwest::Client::new();
+        let other = client
+            .post(format!("{address}/devpage.design.v1.Designs/Other"))
+            .header("content-type", "application/grpc-web+proto")
+            .body(vec![0u8, 0, 0, 0, 0])
+            .send()
+            .await
+            .unwrap();
+        assert!(other.status().is_client_error(), "{}", other.status());
     }
 
     #[tokio::test]

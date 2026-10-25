@@ -263,6 +263,22 @@ impl Resolver<'_> {
         };
         let mut imports = HashMap::new();
         for import in &file.imports {
+            if ELEMENTS.contains(&import.name.as_str()) {
+                self.problem(
+                    path,
+                    import.pos,
+                    format!("import {0} — {0} is a built-in element", import.name),
+                );
+                continue;
+            }
+            if imports.contains_key(&import.name) {
+                self.problem(
+                    path,
+                    import.pos,
+                    format!("import {0} — {0} is already imported", import.name),
+                );
+                continue;
+            }
             if !import.path.ends_with(".design") {
                 self.problem(
                     path,
@@ -405,6 +421,7 @@ impl Resolver<'_> {
             return self.design(&target, &args, Some((path, el.pos)), &el.name, parent);
         }
         let kind = match el.name.as_str() {
+            // Keep in step with ELEMENTS.
             "Frame" => Kind::Frame,
             "Text" => Kind::Text,
             "Rect" => Kind::Rect,
@@ -552,11 +569,11 @@ impl Resolver<'_> {
             }
             ("fill", k) if k != Kind::Text => fill(&value).map(|f| node.fill = Some(f)),
             ("stroke", k) if k != Kind::Text => color(&value).map(|c| node.stroke = Some(c)),
-            ("strokeWidth", k) if k != Kind::Text => num(&value).map(|n| node.stroke_width = n),
+            ("strokeWidth", k) if k != Kind::Text => px(&value).map(|n| node.stroke_width = n),
             ("radius", k) if k != Kind::Text => match &value {
-                Value::Num(n) => Ok(node.radius = [*n as f32; 4]),
+                Value::Num(_) => px(&value).map(|n| node.radius = [n; 4]),
                 Value::Array(a) if a.len() == 4 => {
-                    nums(a).map(|v| node.radius = [v[0], v[1], v[2], v[3]])
+                    pxs(a).map(|v| node.radius = [v[0], v[1], v[2], v[3]])
                 }
                 _ => Err("expected pixels or an array of 4".into()),
             },
@@ -571,14 +588,14 @@ impl Resolver<'_> {
                 Some("none") => Ok(node.layout = Layout::None),
                 _ => Err("expected \"row\", \"column\" or \"none\"".into()),
             },
-            ("gap", Kind::Frame) => num(&value).map(|n| node.gap = n),
+            ("gap", Kind::Frame) => px(&value).map(|n| node.gap = n),
             ("padding", Kind::Frame) => match &value {
-                Value::Num(n) => Ok(node.padding = [*n as f32; 4]),
+                Value::Num(_) => px(&value).map(|n| node.padding = [n; 4]),
                 Value::Array(a) if a.len() == 2 => {
-                    nums(a).map(|v| node.padding = [v[0], v[1], v[0], v[1]])
+                    pxs(a).map(|v| node.padding = [v[0], v[1], v[0], v[1]])
                 }
                 Value::Array(a) if a.len() == 4 => {
-                    nums(a).map(|v| node.padding = [v[0], v[1], v[2], v[3]])
+                    pxs(a).map(|v| node.padding = [v[0], v[1], v[2], v[3]])
                 }
                 other => Err(format!(
                     "expected pixels or an array of 2 or 4, found {}",
@@ -588,7 +605,7 @@ impl Resolver<'_> {
             ("align", Kind::Frame) => align(&value, false).map(|a| node.align = a),
             ("justify", Kind::Frame) => align(&value, true).map(|a| node.justify = a),
             ("size", Kind::Text) => {
-                num(&value).map(|n| node.text.get_or_insert_with(default_text).size = n)
+                px(&value).map(|n| node.text.get_or_insert_with(default_text).size = n)
             }
             ("weight", Kind::Text) => match num(&value) {
                 Ok(w) if [400.0, 500.0, 600.0, 700.0].contains(&w) => {
@@ -600,7 +617,7 @@ impl Resolver<'_> {
                 color(&value).map(|c| node.text.get_or_insert_with(default_text).color = c)
             }
             ("lineHeight", Kind::Text) => {
-                num(&value).map(|n| node.text.get_or_insert_with(default_text).line_height = n)
+                px(&value).map(|n| node.text.get_or_insert_with(default_text).line_height = n)
             }
             ("textAlign", Kind::Text) => match str_of(&value).as_deref() {
                 Some("left") => {
@@ -674,6 +691,9 @@ impl Resolver<'_> {
             return Ok(action.to_string());
         };
         let target = target.trim();
+        if !target.ends_with(".design") {
+            return Err(format!("{action} — a design is a .design file"));
+        }
         match join(path, target) {
             None => Err(format!("{action} — outside the served folder")),
             Some(at) if self.files.bytes(&at).is_none() => Err(format!("{action} — no such file")),
@@ -813,6 +833,9 @@ fn str_of(v: &Value) -> Option<String> {
     }
 }
 
+/// The built-in elements; an import can't take one of their names.
+const ELEMENTS: [&str; 6] = ["Frame", "Text", "Rect", "Ellipse", "Vector", "Image"];
+
 fn num(v: &Value) -> Result<f32, String> {
     match v {
         Value::Num(n) => Ok(*n as f32),
@@ -820,8 +843,17 @@ fn num(v: &Value) -> Result<f32, String> {
     }
 }
 
-fn nums(a: &[Value]) -> Result<Vec<f32>, String> {
-    a.iter().map(num).collect()
+/// A length or a multiple that can't be negative: pixels, a size, a line height.
+fn px(v: &Value) -> Result<f32, String> {
+    match v {
+        Value::Num(n) if *n >= 0.0 => Ok(*n as f32),
+        Value::Num(n) => Err(format!("expected a number of 0 or more, found {n}")),
+        other => Err(format!("expected a number, found {}", show(other))),
+    }
+}
+
+fn pxs(a: &[Value]) -> Result<Vec<f32>, String> {
+    a.iter().map(px).collect()
 }
 
 fn size(v: &Value) -> Result<Size, String> {
@@ -843,6 +875,7 @@ fn align(v: &Value, justify: bool) -> Result<Align, String> {
         Some("center") => Ok(Align::Center),
         Some("end") => Ok(Align::End),
         Some("space-between") if justify => Ok(Align::SpaceBetween),
+        _ if justify => Err("expected \"start\", \"center\", \"end\" or \"space-between\"".into()),
         _ => Err("expected \"start\", \"center\" or \"end\"".into()),
     }
 }
@@ -1474,6 +1507,77 @@ mod tests {
         assert_eq!(
             join("/a/b.design", "x/../y.png").as_deref(),
             Some("a/y.png")
+        );
+    }
+
+    #[test]
+    fn an_interaction_leads_only_to_a_design() {
+        for (click, expected) in [
+            (
+                "navigate ./notes.txt",
+                "d/a.design:1:8: onClick: navigate ./notes.txt — a design is a .design file",
+            ),
+            (
+                "overlay ./photo.png",
+                "d/a.design:1:8: onClick: overlay ./photo.png — a design is a .design file",
+            ),
+        ] {
+            assert_eq!(
+                problems(&format!("<Frame onClick=\"{click}\" />")),
+                vec![expected.to_string()],
+                "{click}"
+            );
+        }
+        assert!(problems(r#"<Frame onClick="navigate ./b.design" />"#).is_empty());
+    }
+
+    #[test]
+    fn sizes_and_spacing_are_never_negative() {
+        for (attr, element) in [
+            ("gap={-4}", "Frame"),
+            ("padding={-1}", "Frame"),
+            ("padding={[4, -2]}", "Frame"),
+            ("radius={-3}", "Rect"),
+            ("radius={[1, 2, -3, 4]}", "Rect"),
+            ("strokeWidth={-1}", "Rect"),
+            ("size={-12}", "Text"),
+            ("lineHeight={-1}", "Text"),
+        ] {
+            let found = problems(&format!("<Frame><{element} {attr} /></Frame>"));
+            assert_eq!(found.len(), 1, "{attr}: {found:?}");
+            assert!(found[0].contains("of 0 or more"), "{attr}: {found:?}");
+        }
+    }
+
+    #[test]
+    fn an_import_name_is_unique_and_not_an_element() {
+        let found = problems(
+            r#"import B from "./b.design"
+import B from "./b.design"
+<Frame />"#,
+        );
+        assert_eq!(found, ["d/a.design:2:1: import B — B is already imported"]);
+        let found = problems(
+            r#"import Frame from "./b.design"
+<Frame />"#,
+        );
+        assert_eq!(
+            found,
+            ["d/a.design:1:1: import Frame — Frame is a built-in element"]
+        );
+    }
+
+    #[test]
+    fn justify_names_all_it_takes() {
+        assert_eq!(
+            problems(r#"<Frame justify="middle" />"#),
+            [
+                "d/a.design:1:8: justify: expected \"start\", \"center\", \"end\" or \"space-between\""
+            ]
+        );
+        assert_eq!(
+            problems(r#"<Frame align="middle" />"#),
+            ["d/a.design:1:8: align: expected \"start\", \"center\" or \"end\""]
         );
     }
 

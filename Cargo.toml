@@ -33,7 +33,7 @@ tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 two-face = "0.5.2"
 devpage-design = { path = "design", version = "0.2.0", features = ["server"] }
-tonic = { version = "0.14.6", default-features = false, features = ["router", "codegen"] }
+tonic = { version = "0.14.6", default-features = false, features = ["codegen"] }
 tonic-web = "0.14.6"
 tower = "0.5"
 
