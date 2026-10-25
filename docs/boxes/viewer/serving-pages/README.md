@@ -42,6 +42,8 @@ flowchart TD
 | `/` | `307 Temporary Redirect` to the entry document as its file says now — a site's root page, or a doc's or deck's document file (or the Markdown file devpage was given); while the entry's file is invalid, the page saying why |
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
+| `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
+| `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/devpage.design.v1.Designs/Watch` | a design's watch stream, as gRPC-Web — see [Design engine](../design-engine/README.md#the-watch-stream) |
 | `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) — unless a real file of that name is in the served folder, which is served as it is |
@@ -142,6 +144,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
      `<pre lang="mermaid">` for Mermaid blocks, which is how the page script
      finds the diagrams to draw.
 
+   Last, every Markdown table is wrapped in `<div class="table-scroll">`, so a
+   table wider than the page scrolls inside its own box instead of widening
+   the page.
+
 2. **Title.** `render::title` takes the first line starting with `# `, or the
    file name without its extension.
 3. **Sidebar.** The [navigation tree](../navigation-tree/README.md) is built
@@ -150,14 +156,39 @@ A file ending in `.md` is read as text and passed to `render::page`:
 4. **Frame.** The pieces go into one HTML page:
 
    - `<title>` is `<page title> · <document title>`;
-   - `<nav id="nav">` holds a link to the site's root page with the site's
-     title, then the tree;
-   - `<main id="page"><article>` holds the rendered Markdown;
+   - first in `<head>`, the document's logo as `<link rel="icon">` when it has
+     one, then a small script that sets `data-theme` on `<html>` — the
+     reader's stored choice, or the system's — before anything paints
+     ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme));
+   - `<body>`'s class names the frame: `site`, plus `with-navbar` and
+     `no-sidebar` as the document file says;
+   - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
+     title, its links and dropdowns with their icons drawn as inline SVG, then
+     the comment-mode switch and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
+   - `<nav id="devpage-nav">`, unless `sidebar: false`, holds the tree — after a link
+     to the site's root page with its logo and title when there is no navbar
+     to hold it;
+   - with no navbar, the comment-mode switch and the theme selector (unless
+     `theme-selector: false`) in `<div id="devpage-corner">`, top right;
+   - `<main id="devpage-page"><article>` holds the rendered Markdown;
+   - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
+     `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
+     the document's widgets with the address of each
+     ([Widgets](../widgets/README.md#under-the-hood));
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.
 
-   The ids `nav` and `page` are what [live updates](../live-updates/README.md)
-   replace in place. Titles and sidebar labels are HTML-escaped; the page body
+   Every id the frame uses starts with `devpage-` — `devpage-page`,
+   `devpage-nav`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
+   `devpage-comments-toggle` — and a heading whose text would give it one of
+   them gets `-heading` added to its id. So a page can have a heading called
+   *Comments*, *Page* or *Navigation* and it stays an ordinary heading, never
+   styled or replaced as part of the frame.
+
+   The ids `navbar`, `nav` and `page` are what
+   [live updates](../live-updates/README.md) replace in place. A doc's and a
+   deck's frames carry the same head — the logo's icon link and the theme script —
+   and the theme corner. Titles and sidebar labels are HTML-escaped; the page body
    is not, since raw HTML is allowed.
 
 Beyond the index, nothing is cached between requests: each page request
@@ -180,6 +211,7 @@ the design engine's module with `include_bytes!`:
 | `/__devpage/style.css` | `assets/style.css` | `text/css` |
 | `/__devpage/devpage.js` | `assets/devpage.js` | `text/javascript` |
 | `/__devpage/pele.js` | `assets/vendor/pele.js` | `text/javascript` |
+| `/__devpage/react.js` | `assets/vendor/react.js` | `text/javascript` |
 | `/__devpage/design.js` | `assets/design.js`, the canvas page's script | `text/javascript` |
 | `/__devpage/design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
 | `/__devpage/design-engine.wasm` | `assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module, embedded with `include_bytes!` | `application/wasm` |

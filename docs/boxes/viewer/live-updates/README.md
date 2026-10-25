@@ -25,7 +25,7 @@ sequenceDiagram
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (no-store)
   Server-->>Page: fresh HTML
-  Page->>Page: replace #page and #nav, redraw diagrams
+  Page->>Page: replace page, sidebar and navbar, mount widgets
 ```
 
 ## The watcher
@@ -51,8 +51,10 @@ ignores accesses (a read, not a change), and for each path in the event:
    served folder, nested ones included — or the nearest site holding it has a
    `watch` list that matches none of it (`refreshes` in `src/watch.rs`, then
    `Document::watches`, patterns relative to that site's folder). A document
-   file always counts, and so does a path in no site with a `watch` list,
-   whichever document devpage was started with.
+   file always counts, and so does a widget or helper — a `.ts` or `.tsx` file
+   directly in the widgets folder of the entry document or of any indexed
+   document — and a path in no site with a `watch` list, whichever document
+   devpage was started with.
 
 If any path counted, it sends one `change` message for the event. Nothing in
 this needs a `.git` folder to exist.
@@ -104,17 +106,28 @@ its canvases redrawn, but its problems bar waits for the next refetch.
 
 ## The page script
 
-`assets/devpage.js` runs on every page. It does three things.
+`assets/devpage.js` runs on every page. It does the following.
 
 **Swapping a page in place.** `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
 otherwise it parses the HTML and compares its frame — the classes the server
 put on its `<body>`, less `show-comments`, which the script itself adds while
-the comments are shown — with the open page's. A different frame is loaded
-whole; the same frame is swapped in: the script replaces the children of
-`#page` and `#nav` with the fresh ones, sets the document title and draws the new content's Mermaid
-diagrams. The rest of the page — the scripts, the event stream, the scroll
-position — stays as it was.
+the comments are shown — with the open page's. A different frame, as when a
+document changed kind, is loaded whole. The same frame is swapped in: the
+script replaces the children of `#devpage-page`, `#devpage-nav` and
+`#devpage-navbar` with the fresh ones — so the navbar's highlight follows the
+page — keeping every embedded design's canvas that is still in the page, sets
+the document title, takes the fresh page's `window.devpageWidgets` — so
+widgets edited since are fetched at their new versions — mounts the new
+content's widgets, its Mermaid diagrams included, and starts any design it
+newly embeds. The rest of the page — the scripts, the event stream, the
+scroll position — stays as it was.
+
+**Mounting widgets.** On load and after every swap, each Mermaid fence becomes
+a `Diagram` placeholder, and every widget placeholder in the content is
+mounted with React — the widgets it names loaded first
+([Widgets](../widgets/README.md#under-the-hood)). The page marks itself ready
+once every widget has mounted.
 
 **The live-update stream.** `connect()` opens an `EventSource` on
 `/__devpage/events`. Each `change` message calls `load(location.href)`, so the
@@ -142,6 +155,17 @@ Back and forward (`popstate`) load the address they land on the same way.
 Every other link — other sites, non-Markdown files such as a doc's or deck's
 document file — is left to the browser and loads a whole new page. A site's
 title links to its root page, a Markdown file, so it swaps in place too.
+
+**The theme.** It keeps the theme the page's head chose current: a click on
+the theme selector switches `data-theme` on `<html>` to the other theme, labels
+the button with the next switch, and stores the theme in `localStorage`; until
+the reader has switched, the page follows the system setting as it changes. A
+blocked `localStorage` leaves the switch working for that page.
+
+**The navbar.** A click on a dropdown's button opens it; ↓ opens it and
+focuses its first link, ↑ and ↓ move between links, and Escape, a click
+elsewhere or a followed link closes it. On a narrow screen the menu button
+shows and hides the links.
 
 **Hidden tabs.** When a tab is hidden it closes its stream; when it is shown
 again it reopens the stream and loads its page once, to catch up on changes

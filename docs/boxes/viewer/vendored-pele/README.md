@@ -32,11 +32,12 @@ taken from.
 `src/server.rs` compiles the bundle into the binary with `include_str!` and
 serves it at `/__devpage/pele.js` — see
 [built-in assets](../serving-pages/README.md#built-in-assets). Every page loads
-it before `devpage.js`, which uses one function of it: for each
-`<pre lang="mermaid">` block, `pele.render(source)` returns an object whose
-`svg` string replaces the block, and a thrown error becomes the
-[diagram error block](../diagrams-and-themes/README.md#when-a-diagram-fails)
-(`drawDiagrams` in `assets/devpage.js`). The bundle exports more — zoom
+it before `devpage.js`. One function of it is used, by the `Diagram`
+[system widget](../widgets/README.md#system-widgets) (`assets/widgets/Diagram.tsx`)
+that every `<pre lang="mermaid">` block is mounted as: `pele.render(source)`
+returns an object whose `svg` string the widget renders, and a thrown error
+becomes the
+[diagram error block](../diagrams-and-themes/README.md#when-a-diagram-fails). The bundle exports more — zoom
 controls, mounting, registering diagram types — and devpage calls none of it.
 
 pele colors its SVG with `--pele-*` CSS variables; `assets/style.css` sets

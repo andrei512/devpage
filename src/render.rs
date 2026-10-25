@@ -26,12 +26,47 @@ fn options() -> Options<'static> {
     options
 }
 
+/// The ids of devpage's own frame — the page, the sidebar, the navbar, the
+/// theme corner and the comments — used by `assets/style.css` and
+/// `assets/devpage.js`. They all start with `devpage-`, so a heading's id,
+/// taken from its text, matches one only if the heading spells it out; such a
+/// heading's id gets `-heading` added, so a frame id is never a heading's.
+pub const FRAME_IDS: [&str; 7] = [
+    "devpage-page",
+    "devpage-nav",
+    "devpage-navbar",
+    "devpage-corner",
+    "devpage-comments",
+    "devpage-comments-toggle",
+    "devpage-comment-mode",
+];
+
 /// Renders Markdown to HTML, highlighting fenced code (see `highlight`) and
 /// turning an image of a design into its canvas (see `embed_designs`).
 pub fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
-    embed_designs(&markdown_to_html_with_plugins(source, &options(), &plugins))
+    // A wide table scrolls inside its own box rather than widening the page.
+    let mut html = markdown_to_html_with_plugins(source, &options(), &plugins)
+        .replace("<table>", "<div class=\"table-scroll\"><table>")
+        .replace("</table>", "</table></div>");
+    for id in FRAME_IDS {
+        if html.contains(&format!("id=\"{id}\"")) {
+            html = html
+                .replace(&format!("id=\"{id}\""), &format!("id=\"{id}-heading\""))
+                .replace(
+                    &format!("href=\"#{id}\""),
+                    &format!("href=\"#{id}-heading\""),
+                );
+        }
+    }
+    embed_designs(&html)
+}
+
+/// Renders a page of `document`'s Markdown, its widget tags expanded first.
+pub fn markdown_in(document: &Document, source: &str) -> String {
+    let widgets = crate::widgets::Widgets::of(document);
+    markdown(&crate::widgets::expand(source, &widgets, &mut Vec::new()))
 }
 
 /// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas
@@ -179,29 +214,31 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{page} · {document}</title>
+{theme}
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 </head>
-<body>
-<nav id="nav">
-<a class="document-title{root_class}" href="{home}">{document}</a>
-{nav}
-</nav>
-<main id="page">{problems}<article data-source="{current}">{content}</article></main>
+<body class="{body_class}">
+{navbar}{sidebar}{corner}
+<main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
 </html>"#,
         page = escape(&title(source, file)),
         document = escape(&document.title),
-        nav = navigation(document, &current),
-        home = escape(&document.entry()),
-        root_class = if current == document.entry() {
-            " current"
+        theme = crate::navbar::head(document),
+        body_class = site_class(document),
+        navbar = crate::navbar::render(document, &current),
+        sidebar = sidebar(document, &current),
+        corner = if document.navbar.is_empty() {
+            crate::navbar::corner(document)
         } else {
-            ""
+            String::new()
         },
-        content = markdown(source),
+        content = markdown_in(document, source),
         problems = problems(document, &[file.to_path_buf()]),
+        widgets = crate::widgets::Widgets::of(document).head(),
     )
 }
 
@@ -227,7 +264,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         .collect();
     for chapter in chapters {
         let source = std::fs::read_to_string(chapter).unwrap_or_default();
-        let mut html = markdown(&source);
+        let mut html = markdown_in(document, &source);
         if chapters.len() > 1 {
             html = scope_ids(&html, chapter, &names);
         }
@@ -258,7 +295,8 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         String::new()
     } else {
         format!(
-            "<nav id=\"nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}</a><ul>{outline}</ul></nav>",
+            "<nav id=\"devpage-nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
+            crate::navbar::logo(document),
             escape(&document.title)
         )
     };
@@ -269,17 +307,26 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+{theme}
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 <style>@page {{ size: {paper}; margin: 22mm 18mm; }}</style>
 </head>
 <body class="doc{print_class}">
-{outline}
-<main id="page">{problems}<article>{heading}{content}</article></main>
+{corner}{outline}
+<main id="devpage-page">{problems}<article>{heading}{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
 </html>"#,
         title = escape(&document.title),
+        theme = crate::navbar::head(document),
+        corner = if print {
+            String::new()
+        } else {
+            crate::navbar::corner(document)
+        },
+        widgets = crate::widgets::Widgets::of(document).head(),
         // A lone Markdown file's title is its own first heading; don't repeat it.
         heading = if document.file_name.ends_with(".md") {
             String::new()
@@ -411,16 +458,18 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{address} · {document}</title>
+{theme}
 <link rel="stylesheet" href="/__devpage/style.css">
 </head>
 <body class="invalid">
-<main id="page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
+<main id="devpage-page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
 </html>"#,
         address = escape(&address),
         document = escape(&entry.title),
+        theme = crate::navbar::head(entry),
         error = escape(error),
     )
 }
@@ -455,7 +504,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
             document.url(slide),
-            rebase(&markdown(&source), slide, document)
+            rebase(&markdown_in(document, &source), slide, document)
         ));
     }
     format!(
@@ -465,16 +514,25 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+{theme}
 <link rel="stylesheet" href="/__devpage/style.css">
+{widgets}
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
-<main id="page" class="deck">{problems}{content}</main>
+{corner}<main id="devpage-page" class="deck">{problems}{content}</main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
 </html>"#,
         title = escape(&document.title),
+        theme = crate::navbar::head(document),
+        corner = if print {
+            String::new()
+        } else {
+            crate::navbar::corner(document)
+        },
+        widgets = crate::widgets::Widgets::of(document).head(),
         print_class = if print { " print" } else { "" },
         live = if print { " data-print" } else { "" },
         problems = if print {
@@ -523,6 +581,46 @@ fn strip_tags(html: &str) -> String {
         }
     }
     text.trim().to_string()
+}
+
+/// A site page's body classes, which name its frame: a page with another frame
+/// can't be swapped in part.
+fn site_class(document: &Document) -> String {
+    let mut class = String::from("site");
+    if !document.navbar.is_empty() {
+        class.push_str(" with-navbar");
+    }
+    if !document.sidebar {
+        class.push_str(" no-sidebar");
+    }
+    class
+}
+
+/// A site's sidebar, unless it sets `sidebar: false`: its title — left to the
+/// navbar when there is one — then the tree its Topics sections form.
+fn sidebar(document: &Document, current: &str) -> String {
+    if !document.sidebar {
+        return String::new();
+    }
+    let title = if document.navbar.is_empty() {
+        format!(
+            "<a class=\"document-title{}\" href=\"{}\">{}{}</a>\n",
+            if current == document.entry() {
+                " current"
+            } else {
+                ""
+            },
+            escape(&document.entry()),
+            crate::navbar::logo(document),
+            escape(&document.title)
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "<nav id=\"devpage-nav\">\n{title}{}\n</nav>",
+        navigation(document, current)
+    )
 }
 
 /// The sidebar: the document's title, then the tree the pages' Topics sections form.
@@ -683,6 +781,34 @@ mod tests {
     }
 
     #[test]
+    fn headings_never_take_an_id_the_frame_uses() {
+        // Every heading named like a part of devpage's own frame stays an
+        // ordinary heading: its id can't be the frame's, so no frame style or
+        // script ever lands on it.
+        let headings: String = ["Comments", "Nav", "Page", "Navbar", "Theme corner"]
+            .iter()
+            .chain(
+                FRAME_IDS
+                    .iter()
+                    .map(|id| &id[..])
+                    .collect::<Vec<_>>()
+                    .iter(),
+            )
+            .map(|name| format!("# {}\n\n", name.replace('-', " ")))
+            .collect();
+        let html = markdown(&headings);
+        for id in FRAME_IDS {
+            assert!(!html.contains(&format!("id=\"{id}\"")), "{id} in {html}");
+        }
+        assert!(html.contains("<h1 id=\"comments\">"), "{html}");
+        assert!(html.contains("id=\"devpage-comments-heading\""), "{html}");
+        assert!(
+            html.contains("href=\"#devpage-comments-heading\""),
+            "{html}"
+        );
+    }
+
+    #[test]
     fn renders_tables_and_heading_ids() {
         let html = markdown("## Two words\n\n| a | b |\n| - | - |\n| 1 | 2 |\n");
         assert!(html.contains("id=\"two-words\""));
@@ -801,6 +927,49 @@ mod tests {
             1,
             "ids are unique: {html}"
         );
+    }
+
+    #[test]
+    fn every_frame_carries_the_logo_as_its_tab_icon() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-logo-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("art")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("art/logo.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("README.md"),
+            "# Home\n\n## Topics\n\n- [Page](page.md)\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("page.md"), "# Page\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: Garden\nroot: README.md\nlogo: art/logo.svg\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("doc.yml"),
+            "kind: doc\ntitle: Plan\nchapters: [page.md]\nlogo: art/logo.svg\n",
+        )
+        .unwrap();
+        let icon = "<link rel=\"icon\" href=\"/art/logo.svg\">";
+        let img = "<img class=\"logo\" src=\"/art/logo.svg\" alt=\"\">";
+        // A site with no navbar: the logo heads the sidebar, on every page.
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let html = page(&site, &dir.join("page.md"), "# Page\n");
+        assert!(html.contains(icon), "{html}");
+        assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
+        // A doc: before its title in the outline.
+        let plan = Document::load(&dir.join("doc.yml"), &dir).unwrap();
+        let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
+            panic!()
+        };
+        let html = doc(&plan, chapters, pdf, false);
+        assert!(html.contains(icon), "{html}");
+        assert!(html.contains(&format!("{img}Plan</a>")), "{html}");
     }
 
     #[test]

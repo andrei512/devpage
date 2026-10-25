@@ -14,10 +14,19 @@ comments and replies in the browser.
 
 ## Commenting
 
+Commenting is opt-in, so reading a page never sprouts buttons. **Turn comment
+mode on** with the speech-bubble button beside the theme toggle — at the right
+end of the navbar, or in the top-right corner of a page without one. It shows
+pressed while on, and the browser remembers it for the next visit. Threads
+already written, their highlights and the margin show either way.
+
+With comment mode on:
+
 - **On text** — select it, and a **Comment** button appears under the
   selection.
-- **On a paragraph** — hover over it, and a **+** button appears in the margin
-  to its left. The whole paragraph — or heading, list item, table, code block
+- **On a paragraph** — hover over it, and a comment icon, a speech bubble,
+  appears just to its right (inside its right edge when the window has no room
+  beside it). The whole paragraph — or heading, list item, table, code block
   or diagram — is the anchor.
 
 Either opens a box at the top of the comments: write the comment and press
@@ -67,9 +76,16 @@ writes nothing else anywhere ([devpage never writes a document](../constraints/d
 
 One thread is one file, under the path of the Markdown file it is about:
 
-```text
-.devpage/comments/docs/design/rollout.md/20261025T181502Z-7f3a.yml
-```
+<FileTree>
+
+- .devpage/
+  - .gitignore — holds `*`, so git never sees the folder
+  - comments/
+    - docs/design/rollout.md/ — the threads on that page
+      - 20261025T181502Z-7f3a.yml — one thread
+      - 20261025T190344Z-0b91.yml — another
+
+</FileTree>
 
 The file name is the thread's id: the UTC time it was started, to the second,
 and four hex digits from the clock's nanoseconds that tell apart threads

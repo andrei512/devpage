@@ -26,6 +26,7 @@ except where a code comment says so, and this page doesn't guess.
 | `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends; `ReceiverStream` and the `Stream` trait, which make the design store's updates the watch stream's response. | `src/server.rs`, `src/designs.rs` |
 | `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
 | `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `src/render.rs`, `src/nav.rs`, `src/highlight.rs` |
+| `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `Cargo.toml` pins it exactly (`=0.153.0`). | `src/widgets.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `src/highlight.rs` |
 | `notify` | 8.2.1 | CC0-1.0 | The file watcher: the platform's recommended watcher, on the served folder, recursively. | `src/watch.rs` |
@@ -33,8 +34,8 @@ except where a code comment says so, and this page doesn't guess.
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `src/document.rs` |
 | `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `src/document.rs`, `src/comments.rs`, `src/server.rs` |
 | `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `src/document.rs`, `src/comments.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, and the list of broken links the problems bar carries for the page script to mark. | `src/server.rs`, `src/render.rs` |
-| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, 10-second timeout); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/server.rs`, `src/render.rs`, `src/widgets.rs` |
+| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests) |
 | `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`) and the Chrome tests; `fetcher` downloads chrome-headless-shell, the only Chrome devpage drives, into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/comments.rs` (tests) |
 | `anyhow` | 1.0.104 | MIT or Apache-2.0 | Errors: `Result`, `.context(…)` to say what devpage was doing, and `bail!`. `main` returns `anyhow::Result`, so a failure prints in anyhow's format — `Error: <context>`, then `Caused by:` and the underlying errors. | most modules |
@@ -107,12 +108,14 @@ fails when the fingerprint no longer matches the sources
 Licences are as each crate's own `Cargo.toml` declares them. devpage itself
 is MIT — see [Installing devpage](../../../installing.md#licence).
 
-Two more pieces of third-party work are built into the binary but aren't
+Four more pieces of third-party work are built into the binary but aren't
 crates: the [vendored pele bundle](../../viewer/vendored-pele/README.md), the
-JavaScript that draws diagrams, and the Inter typeface — regular, medium,
-semibold and bold, in `design/fonts/` — which the design engine embeds with
-`include_bytes!` and sets every design's text in. Inter is under the SIL Open
-Font License 1.1, whose text ships beside the fonts as
+JavaScript that draws diagrams; the [vendored React bundle](../../viewer/vendored-react/README.md),
+which widgets run with; the [vendored icons](../../viewer/vendored-icons/README.md),
+Lucide's icon set (ISC) and GitHub's mark (CC0); and the Inter typeface —
+regular, medium, semibold and bold, in `design/fonts/` — which the design
+engine embeds with `include_bytes!` and sets every design's text in. Inter is
+under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
 
 The error messages each failure produces are listed in the

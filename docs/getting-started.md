@@ -36,7 +36,8 @@ page fetches itself again and swaps in the new content without reloading.
 A `click` line in a flowchart makes a node a link, so a diagram can lead
 to the page that explains each of its parts — like the one below.
 
-**Comments are notes on the docs, not part of them.** Select text or hover a
+**Comments are notes on the docs, not part of them.** Turn on comment mode with
+the speech-bubble button by the theme toggle, then select text or hover a
 paragraph to comment. Each thread is a file in a `.devpage/` folder git
 ignores; resolving it deletes the file.
 
@@ -49,7 +50,7 @@ flowchart LR
   edit["Save a file"] -.->|"live update"| open["Open pages swap in place"]
   open <--> comments["Comments<br/>.devpage/"]
   click yml href "./boxes/viewer/writing-a-document/README.md#the-document-file" "The document file"
-  click site href "./boxes/viewer/organizing-navigation/README.md" "How Topics build the sidebar"
+  click site href "./boxes/viewer/making-a-site/README.md" "Making a site"
   click doc href "./boxes/viewer/writing-a-doc/README.md" "Writing a doc"
   click slides href "./boxes/viewer/making-slides/README.md" "Making slides"
   click open href "./boxes/viewer/live-updates/README.md" "How open pages stay current"
@@ -58,9 +59,19 @@ flowchart LR
 
 ## A site, end to end
 
-**1. Write the site.** Make a folder `garden/` with three files.
+**1. Write the site.** Make a folder `garden/` with three files:
 
-`garden/devpage.yml`:
+<FileTree>
+
+- garden/
+  - devpage.yml — the site: its title and root page
+  - README.md — the root page, whose Topics list the sidebar
+  - planting.md — a page with a diagram
+
+</FileTree>
+
+<Tabs>
+<Tab title="devpage.yml">
 
 ```yaml
 kind: site
@@ -68,7 +79,8 @@ title: Garden
 root: README.md
 ```
 
-`garden/README.md`:
+</Tab>
+<Tab title="README.md">
 
 ```markdown
 # Garden
@@ -80,7 +92,8 @@ Notes on the vegetable garden.
 - [Planting](planting.md) — what goes in the ground, and when.
 ```
 
-`garden/planting.md`:
+</Tab>
+<Tab title="planting.md">
 
 ````markdown
 # Planting
@@ -91,11 +104,19 @@ flowchart LR
 ```
 ````
 
+</Tab>
+</Tabs>
+
 **2. Run it.** From the folder holding `garden/`:
 
-```sh
-devpage garden
+<Terminal>
+
+```text
+$ devpage garden
+Garden → http://localhost:3030
 ```
+
+</Terminal>
 
 Given a folder, devpage reads the `devpage.yml` inside it. It prints the
 address it serves on — `Garden → http://localhost:3030`, or the next port up
@@ -115,7 +136,8 @@ The page updates within moments, without a reload. Add a Topics item in
 marked broken and listed at the top of the page until you create the file —
 then the sidebar grows a *Watering* entry on every open page.
 
-**6. Comment.** Select a few words on *Planting* and comment on them. The
+**6. Comment.** Turn on comment mode with the speech-bubble button in the top-right
+corner, select a few words on *Planting* and comment on them. The
 comment is in the margin, and in `.devpage/comments/` as a small YAML file;
 press **Resolve** and the file is gone.
 
@@ -136,15 +158,17 @@ long page with an outline beside it; `devpage pdf garden/plan` writes
 
 **A deck.** Add `garden/talk/devpage.yml` with `kind: slides`, a `title`, and
 `slides:` listing one Markdown file per slide, and link to it from `README.md`
-as `[Spring talk](talk/devpage.yml)`. Open it, use the arrow keys, press
-**F** for fullscreen; `devpage pdf garden/talk` prints one slide per page.
+as `[Spring talk](talk/devpage.yml)`. Open it, use the arrow keys <Keys>← →</Keys>,
+press <Keys>F</Keys> for fullscreen; `devpage pdf garden/talk` prints one slide
+per page.
 
 **Check it.** `devpage check garden` checks the site and everything it links
 to — here, all three — and exits `1` if a link is broken: ready for a test.
 
-The repository's own `examples/` folder holds a finished
-[doc](../examples/sync-design/devpage.yml) and
-[deck](../examples/launch-talk/devpage.yml) to read and copy.
+For a finished example of each kind: these docs are a site,
+[the feature catalog](features/devpage.yml) is a doc, and
+[the devpage talk](talks/devpage/devpage.yml) is a deck — all three in the
+navbar's **Examples** menu.
 
 ## Where next
 

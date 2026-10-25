@@ -51,8 +51,9 @@ The Chrome tests drive the same copy.
 ## Why the PDF matches the screen
 
 Print mode is the same page, with the same Markdown, stylesheet, highlighting
-and diagrams; it only leaves out live updates, comments, navigation and the
-deck's controls, and sets the page size
+and diagrams; it only leaves out live updates, comments, navigation, the
+deck's controls and soft shadows (PDF viewers draw them as grey boxes), and
+sets the page size
 ([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)).
 A deck's slides are laid out at a fixed 1920 × 1080 and only scaled to the
 window, so the printed page is the slide as it shows.

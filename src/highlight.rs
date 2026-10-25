@@ -23,6 +23,13 @@ const MERMAID: &str = "mermaid";
 
 pub struct Highlighter;
 
+/// `code` highlighted as `lang`, as the HTML that goes inside a `<code>`.
+pub fn highlight(lang: &str, code: &str) -> String {
+    let mut html = String::new();
+    let _ = Highlighter.write_highlighted(&mut html, Some(lang), code);
+    html
+}
+
 impl SyntaxHighlighterAdapter for Highlighter {
     fn write_highlighted(
         &self,

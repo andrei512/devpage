@@ -8,17 +8,22 @@ agent. These pages are devpage's own documentation, served by devpage.
 
 ## What devpage does
 
-- **Four kinds of document.** A **site** of pages with a sidebar built from
-  their Topics sections; a **doc** read top to bottom, split into chapter files,
-  with an outline that follows you; a deck of **slides**, one file per slide, on
-  a 16:9 stage; and a **design** — a UI an agent writes as code, drawn on a
-  canvas, clicked through as a prototype, and fetched as a PNG.
+<KindCards />
+
 - **Extended Markdown.** GitHub-flavoured Markdown with raw HTML allowed,
   highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to
-  other pages — in a light and a dark theme that follow the reader's system.
+  other pages — in a light and a dark theme the reader can switch between.
+- **Widgets.** React components used as HTML tags in Markdown: callouts, tabs,
+  file trees, source-beside-result examples, terminals and keycaps ship with
+  devpage, and a project adds its own as `.tsx` files.
+- **Designs.** A UI an agent writes as code — a `.design` file in JSX syntax
+  over Figma's node model — drawn on a canvas, clicked through as a
+  prototype, embedded in any page, and fetched as a PNG so the agent can see
+  its work.
 - **Live updates.** A file's change refreshes every open page in place,
   without a reload.
-- **Comments.** Select text or hover a paragraph to start a thread. Threads
+- **Comments.** Turn on comment mode, then select text or hover a paragraph to
+  start a thread. Threads
   are files in a `.devpage/` folder git ignores, so an agent can read them and
   resolve them by deleting the file.
 - **Checked links.** Broken links show on the page while you write, and
@@ -55,6 +60,12 @@ isn't built yet lives on a design branch until the code catches up. The words
 each subject owns are in its glossary — the [viewer's](boxes/viewer/README.md#glossary)
 for documents and pages, [engineering's](boxes/engineering/README.md#glossary)
 for the development flow.
+
+## Contributors
+
+- [Andrei Puni](https://github.com/andrei512) — author.
+- [Radu Marias](https://github.com/radumarias) — clickable Mermaid diagrams:
+  nodes that act as links, highlighted on hover.
 
 ## Topics
 

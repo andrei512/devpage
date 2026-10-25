@@ -11,6 +11,9 @@ read by a review of the box that breaks them.
 
 - [No knowable rework](no-knowable-rework.md) — the final shape of what's
   needed now.
+- [A feature a user sees arrives on the deck](features-arrive-on-the-deck.md)
+  — the showcase deck shows every capability, so the change adds or remakes
+  its slide.
 - [Surface area arrives with its consumer](surface-arrives-with-its-consumer.md)
   — a Markdown extension, layout, CLI flag, config field, extension hook or CSS
   hook is added only when something in the repository needs it.
