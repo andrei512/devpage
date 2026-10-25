@@ -50,17 +50,25 @@ A page may have more than one `## Topics` heading; each is read.
 
 ## Resolving a link
 
-`resolve` turns an `href` into a file, or drops the topic:
+`nav::resolve` turns an `href` into a `Target`:
 
-1. An `href` containing `://` or starting with `#` is dropped.
-2. Any `#fragment` is cut off.
-3. The rest is joined to the **listing page's folder** and canonicalized;
-   failure — usually a missing file — drops it.
-4. It is kept only if it lies inside the document's folder, ends in `.md` and
-   is a file.
+1. An `href` containing `:` (another website, `mailto:`) or starting with `#`
+   is **`None`** — not an entry.
+2. Otherwise any `#fragment` is cut off, the rest is joined to the **listing
+   page's folder** and canonicalized. If that fails, or the file is outside
+   the served folder or not a regular file, it is a **`Problem`**: `Topics
+   entry <href> — no such file`.
+3. A Markdown file inside the site's folder is a **`Page`**: an entry with its
+   own children. A Markdown file outside the site's folder is a **`Problem`**:
+   `Topics entry <href> — outside the site's folder`.
+4. A document file (`document::kind_of`) is a **`Document`**: an entry that
+   opens that document, with no children.
+5. Anything else is `None`.
 
-Dropped topics produce no warning. The `href` is used as written, without
-percent-decoding.
+`None` and `Problem` targets are left out of the tree. A problem is reported
+by [link checking](../checking-links/README.md): a missing file as the broken
+link it is, a page outside the site's folder as the Topics problem above. The
+`href` is used as written, without percent-decoding.
 
 ## Building the tree and stopping cycles
 
@@ -68,8 +76,9 @@ percent-decoding.
 on the root. `children` reads the page from disk (an unreadable page has no
 children), and for each resolved topic:
 
-- inserts the file into `seen`; if it was **not** there before, the entry's
-  children are built recursively, otherwise the entry gets none;
+- for a page, inserts the file into `seen`; if it was **not** there before,
+  the entry's children are built recursively, otherwise the entry gets none;
+  a document entry never has children;
 - appends the entry to the last group if that group has the same title, or
   starts a new group.
 
@@ -94,7 +103,7 @@ result is kept between requests.
   children's list, if any;
 - labels and group titles are HTML-escaped.
 
-The `href` is `/` plus the file's path relative to the document's folder.
+The `href` is the file's address: `/` plus its path in the served folder.
 **Current-page highlighting** compares that with the requested page's own path
 built the same way: every matching entry gets `class="current"` — more than one
 when a page is listed twice. The document-title link above the tree (class

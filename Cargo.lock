@@ -637,6 +637,7 @@ dependencies = [
  "clap",
  "comrak",
  "futures",
+ "globset",
  "ignore",
  "mime_guess",
  "notify",

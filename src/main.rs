@@ -5,6 +5,7 @@ mod check;
 mod comments;
 mod document;
 mod highlight;
+mod index;
 mod nav;
 mod pdf;
 mod render;
@@ -21,6 +22,7 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 use crate::document::Document;
+use crate::index::Index;
 
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
@@ -32,6 +34,9 @@ struct Cli {
     command: Option<Command>,
     /// A document file, a folder holding devpage.yml, or a Markdown file.
     path: Option<PathBuf>,
+    /// The served folder: nothing outside it is served. The current folder by default.
+    #[arg(long, global = true)]
+    root: Option<PathBuf>,
     /// The address to listen on; any non-loopback address means deployed.
     #[arg(long, default_value = "127.0.0.1")]
     host: IpAddr,
@@ -59,8 +64,12 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
+    let served = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
     if let Some(Command::Check { path }) = &cli.command {
-        let document = Document::load(path.as_deref().unwrap_or(std::path::Path::new(".")))?;
+        let document = Document::load(
+            path.as_deref().unwrap_or(std::path::Path::new(".")),
+            &served,
+        )?;
         let problems = check::document(&document, true).await;
         for problem in &problems {
             println!("{problem}");
@@ -68,18 +77,19 @@ async fn main() -> Result<()> {
         std::process::exit(i32::from(!problems.is_empty()));
     }
     if let Some(Command::Pdf { path, output }) = cli.command.take() {
-        let document = Arc::new(Document::load(&path)?);
+        let document = Arc::new(Document::load(&path, &served)?);
         let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
         pdf::print(document, &output).await?;
         println!("{}", output.display());
         return Ok(());
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let document = Arc::new(Document::load(&path)?);
+    let document = Arc::new(Document::load(&path, &served)?);
+    let index = Arc::new(Index::build(&document.served));
 
     let (changes, _) = broadcast::channel(16);
     check::announce_on(changes.clone());
-    let _watcher = watch::start(document.clone(), changes.clone())?;
+    let _watcher = watch::start(document.clone(), index.clone(), changes.clone())?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -95,11 +105,15 @@ async fn main() -> Result<()> {
     };
     println!("{} → http://{shown}:{port}", document.title);
     let identity = if cli.host.is_loopback() {
-        server::Identity::Local(comments::local_author(&document.repo))
+        server::Identity::Local(comments::local_author(&document.served))
     } else {
         server::Identity::Header(cli.user_header)
     };
-    axum::serve(listener, server::router(document, changes, identity)).await?;
+    axum::serve(
+        listener,
+        server::router_with_index(document, index, changes, identity),
+    )
+    .await?;
     Ok(())
 }
 

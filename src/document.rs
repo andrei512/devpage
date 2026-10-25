@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
 /// The YAML as written, tagged by `kind`. Paths are relative to its folder.
@@ -13,6 +14,7 @@ enum Config {
     Site {
         title: String,
         root: String,
+        watch: Option<Vec<String>>,
     },
     Doc {
         title: String,
@@ -66,6 +68,14 @@ pub enum Kind {
     Slides { slides: Vec<PathBuf> },
 }
 
+/// Which kind a document file names, read without loading the document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KindName {
+    Site,
+    Doc,
+    Slides,
+}
+
 /// A loaded document: its title, its folder, what it is, and where it is served.
 #[derive(Debug)]
 pub struct Document {
@@ -74,20 +84,17 @@ pub struct Document {
     pub kind: Kind,
     /// The document file's name inside `base`.
     pub file_name: String,
-    /// The repository: the git working tree holding the document, or its
-    /// folder outside git. Nothing outside it is served.
-    pub repo: PathBuf,
+    /// The served folder: where devpage was started, or `--root`. Addresses
+    /// are paths in it, and nothing outside it is served.
+    pub served: PathBuf,
+    /// A site's `watch` list: when set, only matching files refresh pages.
+    watch: Option<GlobSet>,
 }
 
 impl Document {
-    /// Loads a document file, `devpage.yml` in a folder, or a Markdown file.
-    pub fn load(path: &Path) -> Result<Self> {
-        Self::load_in(path, None)
-    }
-
-    /// Loads a document inside a repository already known — one reached by a
-    /// link from the entry document, which shares its repository.
-    pub fn load_in(path: &Path, repo: Option<&Path>) -> Result<Self> {
+    /// Loads a document file, `devpage.yml` in a folder, or a Markdown file,
+    /// which must lie inside the served folder `served`.
+    pub fn load(path: &Path, served: &Path) -> Result<Self> {
         let file = if path.is_dir() {
             path.join("devpage.yml")
         } else {
@@ -95,18 +102,27 @@ impl Document {
         };
         let text = std::fs::read_to_string(&file)
             .with_context(|| format!("reading {}", file.display()))?;
+        let served = served
+            .canonicalize()
+            .with_context(|| format!("reading {}", served.display()))?;
         // A bare file name has an empty parent, which means the current folder.
         let parent = file.parent().filter(|p| !p.as_os_str().is_empty());
         let base = parent.unwrap_or(Path::new(".")).canonicalize()?;
+        if !base.starts_with(&served) {
+            bail!(
+                "{} is outside the served folder {}",
+                path.display(),
+                served.display()
+            );
+        }
         let file_name = file
             .file_name()
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
-        let repo = repo.map_or_else(|| repository(&base), Path::to_path_buf);
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
-                repo,
+                served,
                 title: crate::render::title(&text, &file),
                 kind: Kind::Doc {
                     chapters: vec![base.join(&file_name)],
@@ -114,22 +130,39 @@ impl Document {
                 },
                 base,
                 file_name,
+                watch: None,
             });
         }
-        Self::parse(&text, base, file_name, repo).with_context(|| format!("in {}", file.display()))
+        Self::parse(&text, base, file_name, served)
+            .with_context(|| format!("in {}", file.display()))
     }
 
-    fn parse(text: &str, base: PathBuf, file_name: String, repo: PathBuf) -> Result<Self> {
+    fn parse(text: &str, base: PathBuf, file_name: String, served: PathBuf) -> Result<Self> {
+        // A part must be an existing file inside the served folder.
         let existing = |field: &str, path: &str| -> Result<PathBuf> {
-            let file = base.join(path);
-            if !file.is_file() {
-                bail!("{field} {path} does not exist");
+            match base.join(path).canonicalize() {
+                Ok(file) if file.is_file() && file.starts_with(&served) => Ok(file),
+                _ => bail!("{field} {path} does not exist"),
             }
-            Ok(file)
         };
+        let mut watch = None;
         let (title, kind) = match serde_yaml::from_str(text)? {
-            Config::Site { title, root } => {
+            Config::Site {
+                title,
+                root,
+                watch: patterns,
+            } => {
                 existing("root", &root)?;
+                if let Some(patterns) = patterns {
+                    let mut set = GlobSetBuilder::new();
+                    for pattern in &patterns {
+                        set.add(
+                            Glob::new(pattern)
+                                .with_context(|| format!("watch pattern {pattern}"))?,
+                        );
+                    }
+                    watch = Some(set.build()?);
+                }
                 (title, Kind::Site { root })
             }
             Config::Doc {
@@ -162,7 +195,8 @@ impl Document {
             base,
             kind,
             file_name,
-            repo,
+            served,
+            watch,
         })
     }
 
@@ -179,61 +213,52 @@ impl Document {
         self.base.join(&self.file_name)
     }
 
-    /// A file's address: its path from the top of the repository.
+    /// A file's address: its path from the top of the served folder.
     pub fn url(&self, file: &Path) -> String {
         format!(
             "/{}",
-            file.strip_prefix(&self.repo).unwrap_or(file).display()
+            file.strip_prefix(&self.served).unwrap_or(file).display()
         )
     }
 
-    /// The file a URL path names, if it lies inside the repository.
+    /// The file a URL path names, if it lies inside the served folder.
     pub fn file(&self, url_path: &str) -> Option<PathBuf> {
         let candidate = self
-            .repo
+            .served
             .join(url_path.trim_start_matches('/'))
             .canonicalize()
             .ok()?;
-        candidate.starts_with(&self.repo).then_some(candidate)
+        candidate.starts_with(&self.served).then_some(candidate)
+    }
+
+    /// Whether a change to `file` refreshes open pages: always, unless this
+    /// is a site whose `watch` list matches none of it, relative to its folder.
+    pub fn watches(&self, file: &Path) -> bool {
+        let Some(watch) = &self.watch else {
+            return true;
+        };
+        file.strip_prefix(&self.base)
+            .is_ok_and(|relative| watch.is_match(relative))
     }
 }
 
-/// The nearest site whose document file's folder holds `page`: the document
-/// files in its folder, then in each folder above it, up to the repository.
-pub fn site_for(page: &Path, repo: &Path) -> Option<Document> {
-    for folder in page.ancestors().skip(1) {
-        let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| {
-                path.extension()
-                    .is_some_and(|ext| ext == "yml" || ext == "yaml")
-            })
-            .collect();
-        files.sort();
-        for file in files {
-            if let Ok(document) = Document::load_in(&file, Some(repo))
-                && matches!(document.kind, Kind::Site { .. })
-            {
-                return Some(document);
-            }
-        }
-        if folder == repo {
-            break;
-        }
+/// The kind a YAML file names in its top-level `kind`, when it is one of
+/// devpage's three; any other file is not a document file.
+pub fn kind_of(file: &Path) -> Option<KindName> {
+    if !file
+        .extension()
+        .is_some_and(|ext| ext == "yml" || ext == "yaml")
+    {
+        return None;
     }
-    None
-}
-
-/// The git working tree holding `folder`, or `folder` itself outside git.
-fn repository(folder: &Path) -> PathBuf {
-    folder
-        .ancestors()
-        .find(|dir| dir.join(".git").exists())
-        .unwrap_or(folder)
-        .to_path_buf()
+    let text = std::fs::read_to_string(file).ok()?;
+    let value: serde_yaml::Value = serde_yaml::from_str(&text).ok()?;
+    match value.get("kind")?.as_str()? {
+        "site" => Some(KindName::Site),
+        "doc" => Some(KindName::Doc),
+        "slides" => Some(KindName::Slides),
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -281,8 +306,11 @@ mod tests {
             "kind: deck\ntitle: Docs\nroot: README.md\n",
             "kind: site\ntitle: Docs\nroot: nope.md\n",
             "kind: site\ntitle: Docs\nroot: README.md\ncolour: red\n",
+            "kind: site\ntitle: Docs\nroot: README.md\nwatch: \"*.md\"\n",
+            "kind: site\ntitle: Docs\nroot: README.md\nwatch: [\"a[b\"]\n",
             "kind: doc\ntitle: Docs\nroot: README.md\nchapters: [README.md]\n",
             "kind: doc\ntitle: Docs\nchapters: [missing.md]\n",
+            "kind: doc\ntitle: Docs\nchapters: [../outside.md]\n",
         ] {
             assert!(parse(text, dir.clone()).is_err(), "{text}");
         }
@@ -291,63 +319,68 @@ mod tests {
     #[test]
     fn a_markdown_file_is_a_doc_of_one_chapter() {
         let dir = folder("md");
-        let doc = Document::load(&dir.join("guides/start.md")).unwrap();
+        let doc = Document::load(&dir.join("guides/start.md"), &dir).unwrap();
         assert_eq!(doc.title, "Start");
         assert!(matches!(&doc.kind, Kind::Doc { chapters, .. } if chapters.len() == 1));
     }
 
     #[test]
-    fn the_repository_is_the_git_working_tree_and_addresses_start_there() {
-        let repo = folder("repo");
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
+    fn the_served_folder_is_the_boundary_and_addresses_start_there() {
+        // No .git anywhere: the served folder is whatever devpage was given.
+        let served = folder("served");
         std::fs::write(
-            repo.join("guides/devpage.yml"),
+            served.join("guides/devpage.yml"),
             "kind: site\ntitle: G\nroot: start.md\n",
         )
         .unwrap();
-        let doc = Document::load(&repo.join("guides")).unwrap();
-        assert_eq!(doc.repo, repo);
+        let doc = Document::load(&served.join("guides"), &served).unwrap();
+        assert_eq!(doc.served, served);
         assert_eq!(doc.entry(), "/guides/start.md");
         assert!(
             doc.file("/README.md").is_some(),
             "files beside the docs are served"
         );
         assert!(doc.file("/../x").is_none());
+
+        // --root moves the boundary: served from guides/, README.md is outside.
+        let guides = served.join("guides");
+        let narrow = Document::load(&guides, &guides).unwrap();
+        assert_eq!(narrow.entry(), "/start.md");
+        assert!(narrow.file("/../README.md").is_none());
     }
 
     #[test]
-    fn a_page_belongs_to_the_nearest_site_above_it() {
-        let repo = folder("nearest");
-        std::fs::create_dir_all(repo.join(".git")).unwrap();
-        std::fs::write(
-            repo.join("site.yml"),
-            "kind: site\ntitle: Outer\nroot: README.md\n",
-        )
-        .unwrap();
-        std::fs::write(
-            repo.join("guides/inner.yml"),
-            "kind: site\ntitle: Inner\nroot: start.md\n",
-        )
-        .unwrap();
-        std::fs::write(
-            repo.join("guides/talk.yml"),
-            "kind: slides\ntitle: T\nslides: [start.md]\n",
-        )
-        .unwrap();
-        let inner = site_for(&repo.join("guides/start.md"), &repo).unwrap();
-        assert_eq!(inner.title, "Inner");
-        let outer = site_for(&repo.join("README.md"), &repo).unwrap();
-        assert_eq!(outer.title, "Outer");
+    fn a_document_outside_the_served_folder_is_refused() {
+        let served = folder("outside");
+        let error = Document::load(&served.join("README.md"), &served.join("guides"))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("is outside the served folder"), "{error}");
     }
 
     #[test]
-    fn serves_only_files_inside_the_document_folder() {
-        let doc = parse(
-            "kind: site\ntitle: Docs\nroot: README.md\n",
-            folder("inside"),
+    fn a_site_watch_list_narrows_what_refreshes() {
+        let dir = folder("watch");
+        let all = parse("kind: site\ntitle: D\nroot: README.md\n", dir.clone()).unwrap();
+        assert!(all.watches(&dir.join("logo.png")));
+        let narrow = parse(
+            "kind: site\ntitle: D\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+            dir.clone(),
         )
         .unwrap();
-        assert!(doc.file("/guides/start.md").is_some());
-        assert!(doc.file("/../../etc/passwd").is_none());
+        assert!(narrow.watches(&dir.join("guides/start.md")));
+        assert!(!narrow.watches(&dir.join("logo.png")));
+    }
+
+    #[test]
+    fn only_yaml_with_a_devpage_kind_is_a_document_file() {
+        let dir = folder("kind-of");
+        std::fs::write(dir.join("site.yml"), "kind: site\ntitle: T\n").unwrap();
+        std::fs::write(dir.join("deploy.yaml"), "kind: Deployment\n").unwrap();
+        std::fs::write(dir.join("ci.yml"), "on: push\n").unwrap();
+        assert_eq!(kind_of(&dir.join("site.yml")), Some(KindName::Site));
+        assert_eq!(kind_of(&dir.join("deploy.yaml")), None);
+        assert_eq!(kind_of(&dir.join("ci.yml")), None);
+        assert_eq!(kind_of(&dir.join("README.md")), None);
     }
 }

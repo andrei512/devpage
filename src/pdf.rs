@@ -198,7 +198,7 @@ mod tests {
             "kind: site\ntitle: Home\nroot: README.md\n",
         )
         .unwrap();
-        let site = Arc::new(Document::load(&dir).unwrap());
+        let site = Arc::new(Document::load(&dir, &dir).unwrap());
         let error = print(site, Path::new("never.pdf")).await.unwrap_err();
         assert_eq!(error.to_string(), "pdf prints a doc or slides, not a site");
         assert!(!Path::new("never.pdf").exists());
@@ -226,7 +226,7 @@ mod tests {
     #[ignore]
     async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design")).unwrap());
+        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
         let Kind::Doc { pdf, .. } = &document.kind else {
             panic!()
         };
@@ -263,7 +263,7 @@ mod tests {
     #[ignore]
     async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk")).unwrap());
+        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
         let Kind::Slides { slides } = &document.kind else {
             panic!()
         };
@@ -291,8 +291,8 @@ mod tests {
             "# One\n\nThe client retries every write.\n",
         )
         .unwrap();
-        let document = Arc::new(Document::load(&dir.join("one.md")).unwrap());
-        let store = crate::comments::Store::new(&document.repo);
+        let document = Arc::new(Document::load(&dir.join("one.md"), &dir).unwrap());
+        let store = crate::comments::Store::new(&document.served);
         let anchor = |quote: &str| crate::comments::Anchor {
             quote: quote.into(),
             prefix: String::new(),
@@ -354,7 +354,7 @@ mod tests {
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk")).unwrap());
+        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -411,7 +411,7 @@ mod tests {
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design")).unwrap());
+        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
