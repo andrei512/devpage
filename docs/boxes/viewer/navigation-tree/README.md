@@ -52,6 +52,19 @@ A page may have more than one `## Topics` heading; each is read.
 
 `nav::resolve` turns an `href` into a `Target`:
 
+```mermaid
+flowchart TD
+  href["A Topics href"] --> other{"Another website,<br/>mailto: or #fragment?"}
+  other -->|"no"| exists{"An existing file<br/>in the served folder?"}
+  exists -->|"no"| problem["Problem"]
+  exists -->|"yes"| md{"Markdown in<br/>the site's folder?"}
+  md -->|"yes"| page["Page, with children"]
+  md -->|"no"| doc{"A document<br/>file?"}
+  doc -->|"yes"| document["Document, no children"]
+```
+
+Any other outcome is `None`. In detail:
+
 1. An `href` containing `:` (another website, `mailto:`) or starting with `#`
    is **`None`** — not an entry.
 2. Otherwise any `#fragment` is cut off, the rest is joined to the **listing
@@ -102,6 +115,21 @@ result is kept between requests.
 - each entry becomes `<li><a href="/path">label</a>`, followed by its
   children's list, if any;
 - labels and group titles are HTML-escaped.
+
+For a root page listing *Getting started* and, under a *Guide* group, a page
+with children of its own, the sidebar reads:
+
+```html
+<ul>
+  <li><a href="/docs/getting-started.md" class="current">Getting started</a></li>
+  <li class="group"><span>Guide</span></li>
+  <li><a href="/docs/guide/README.md">Guide</a>
+    <ul>
+      <li><a href="/docs/guide/writing.md">Writing</a></li>
+    </ul>
+  </li>
+</ul>
+```
 
 The `href` is the file's address: `/` plus its path in the served folder.
 **Current-page highlighting** compares that with the requested page's own path

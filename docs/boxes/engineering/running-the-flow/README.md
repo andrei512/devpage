@@ -19,92 +19,105 @@ is not permission to spike it, and a conversation stays a conversation until
 the operator asks for the artifact (`AGENTS.md`).
 
 **Some skills only the operator can start.** `design`, `plan`, `build`, `hack`
-and `improve-codebase-architecture` carry `disable-model-invocation: true` in
-their frontmatter: an agent can't start them on its own initiative, only the
-operator's slash command does. The rest — `prototype`, `implement-ticket`,
-`review`, `retro` and the supporting `align`, `documentation` and
-`codebase-design` — an agent may also reach for when its work calls for one:
-the design session forks itself to run `prototype`, a lane runs
-`implement-ticket`, every stage uses `align` to talk.
+and `improve-codebase-architecture` carry `disable-model-invocation: true`, so
+only the operator's slash command starts them; agents may reach for the rest
+when their work calls for one — the design session forks itself to run
+`prototype`, a lane runs `implement-ticket`, every stage uses `align` to talk.
+Who may start each skill is on the [skills reference](../skills-reference/README.md#the-skills).
 
 **The branches carry the state.** A design lives on `design/<name>` until the
 code catches up; tickets are branches off it; which tickets are done is which
 branches are merged. `main` only ever holds docs that are true.
 
-```mermaid
-flowchart LR
-  design["/design<br/>box docs on design/name"] --> prototype["/prototype<br/>code + docs/plan/00-prototype.md"]
-  prototype --> plan["/plan<br/>tickets in docs/plan/"]
-  plan --> build["/build<br/>lanes merged, docs/plan deleted"]
-  build --> review["/review<br/>drift bar on the PR to main"]
-  review --> merge["operator merges"]
-  merge --> retro["/retro<br/>report in chat"]
-  click design href "../sdlc/README.md#design" "Design"
-  click prototype href "../sdlc/README.md#prototype" "Prototype"
-  click plan href "../sdlc/README.md#plan" "Plan"
-  click build href "../sdlc/README.md#build" "Build"
-  click review href "../sdlc/README.md#review" "Review"
-  click merge href "../sdlc/README.md#branches" "Branches"
-  click retro href "../sdlc/README.md#retro" "Retro"
-```
-
 ## What the operator types
 
-| Command | When | What happens | Where the output lands |
-| --- | --- | --- | --- |
-| `/design` | An idea that changes what the box docs say. | A conversation, using `align`, until a blast-radius pass turns up nothing new; then, when asked, the write. | The box docs under `docs/boxes/` (and `docs/constraints/` for a system-wide rule), on a branch `design/<name>` cut once the shape is clear. |
-| `/prototype` | After the design is settled — the operator asks for the spike. | The design session forks itself; the fork builds one end-to-end path in thirty measured minutes, with tests. | Code on `prototype/<name>`, merged back into the design branch by the fork; its report at `docs/plan/00-prototype.md`. |
-| `/plan` | After the prototype has merged. | A separate session turns the report into tickets; the operator approves a story, one line per step. | One file per ticket in `docs/plan/`, numbered in dependency order, each opening with front-matter (`id`, `blocked-by`, `boxes`). |
-| `/build` | After the story is approved. | A coordinator hands lanes to forks, each in its own worktree running `implement-ticket`, and merges them with `--no-ff` as they pass their own review. | Ticket branches merged into the design branch; `docs/plan/` deleted; a pull request from the design branch to `main`, reviewed at the drift bar by a fresh agent. |
-| `/review` | Any branch or pull request; the operator, a lane or the coordinator. | The change is checked against its target's bar — the task bar into a design branch, the drift bar into `main`. | Findings in the conversation; on the design-branch PR they come back as new tickets. |
-| `/retro` | After the operator merges the design branch — normally run by the session that coordinated `/build`. | One line per stage, cost and catch, and a paragraph on what looked off. | Chat only; nothing is written. |
-| `/hack` | A bug fix or a small change. | Align, then build together in the operator's checkout; docs, tests and gates once the operator says it's right. | A branch `hack/<name>` and a pull request to `main`. |
+The full flow, step by step, with an imagined change — the sidebar collapsing
+its groups — as the example. It illustrates the flow; it isn't a planned
+feature.
 
-The operator does the final review and the merge into `main`, and after it
-`/build`'s session deletes the design branch and its ticket branches.
+<Steps>
 
-### Plan files in the served docs
+1. Design
+   An idea that changes what the box docs say. A conversation, using `align`,
+   until a blast-radius pass turns up nothing new; then, when asked, the write:
+   the box docs under `docs/boxes/` (and `docs/constraints/` for a system-wide
+   rule), on a branch `design/<name>` cut once the shape is clear.
+
+   $ /design
+
+   *Example:* the agent works out the blast radius — the viewer's navigation
+   pages, `assets/devpage.js`, the stylesheet — and writes the change into
+   `docs/boxes/viewer/` on `design/collapsible-groups`.
+
+2. Prototype
+   After the design is settled, the operator asks for the spike. The design
+   session forks itself; the fork builds one end-to-end path in thirty measured
+   minutes, with tests, on `prototype/<name>`, commits its report at
+   `docs/plan/00-prototype.md` and merges back into the design branch.
+
+   $ /prototype
+
+   *Example:* one group collapses end to end with a test.
+
+3. Plan
+   After the prototype has merged. A separate session turns the report into
+   tickets; the operator approves a story, one line per step. One file per
+   ticket lands in `docs/plan/`, numbered in dependency order, each opening
+   with front-matter (`id`, `blocked-by`, `boxes`).
+
+   $ /plan
+
+   *Example:* a two-step story; `docs/plan/01-…md` and `02-…md` appear.
+
+4. Build
+   After the story is approved. A coordinator hands lanes to forks, each in its
+   own worktree running `implement-ticket`, and merges them with `--no-ff` as
+   they pass their own review; then deletes `docs/plan/` and opens a pull
+   request from the design branch to `main`.
+
+   $ /build
+
+5. Review
+   Any branch or pull request — by the operator, a lane or the coordinator —
+   is checked against its target's bar: the task bar into a design branch, the
+   drift bar into `main`. On the design branch's pull request a fresh agent
+   reviews, and findings come back as new tickets.
+
+   $ /review
+
+6. Merge, then retro
+   The operator does the final review and the merge into `main`; `/build`'s
+   session deletes the design branch and its ticket branches, then reports one
+   line per stage — cost and catch — and a paragraph on what looked off, in
+   chat only.
+
+   $ /retro
+
+</Steps>
+
+A bug fix or a small change can go another way: `/hack` aligns, then builds
+together in the operator's checkout; docs, tests and gates once the operator
+says it's right, on a branch `hack/<name>` with a pull request to `main`.
+
+<Callout kind="note" title="Plan files in the served docs">
 
 `docs/plan/` sits inside this documentation's folder, so while a design branch
 holds it, devpage serves those files like any page — `/docs/plan/00-prototype.md`
-renders, and saving one refreshes open pages. No Topics section lists them, so they never appear in the
-sidebar; open them by address. They never reach `main`: `/build` deletes
-`docs/plan/` before the pull request opens.
+renders, and saving one refreshes open pages. No Topics section lists them, so
+they never appear in the sidebar; open them by address. They never reach
+`main`: `/build` deletes `docs/plan/` before the pull request opens.
+
+</Callout>
 
 ## Choosing a path
 
-- **Full flow** — the change alters what the box docs say: a new mechanism, a
-  new contract, a rule. Design → prototype → plan → build → review.
-- **Hacking session** — a bug fix or a small change where iterating on running
-  code beats writing docs first. Only the operator opens one (or accepts one
-  offered); if it starts crossing boxes or bending a constraint, it goes back
-  to `/design`. It ends at the same bar: docs true, tests, gates, a reviewed
-  pull request.
-- **Direct pull request** — the change alters no design: a typo, a dependency
-  bump, a fix whose shape the docs already describe. Branch off `main`, open a
-  pull request, reviewed at the task bar. No skill is required.
+<Cards columns={3}>
 
-## An example, end to end
+- [Full flow](../sdlc/stages/README.md) — The change alters what the box docs say: a new mechanism, a new contract, a rule. Design → prototype → plan → build → review.
+- [Hacking session](../sdlc/stages/README.md#hack) — A bug fix or small change where iterating on running code beats writing docs first. Only the operator opens one; if it crosses boxes or bends a constraint, it goes back to `/design`. It ends at the same bar: docs true, tests, gates, a reviewed pull request.
+- [Direct pull request](../sdlc/branches/README.md#changes-that-alter-no-design) — The change alters no design: a typo, a dependency bump, a fix whose shape the docs already describe. Branch off `main`, pull request, task bar. No skill is required.
 
-To make the order concrete, follow one imagined change — the sidebar
-collapsing its groups. This is an illustration of the flow, not a planned
-feature.
-
-1. The operator types `/design` and talks it through. The agent works out the
-   blast radius — the viewer's navigation pages, `assets/devpage.js`, the
-   stylesheet — and, when asked, writes the change into
-   `docs/boxes/viewer/` on `design/collapsible-groups`.
-2. The operator asks for the spike. The fork cuts
-   `prototype/collapsible-groups`, makes one group collapse end to end with a
-   test, commits `docs/plan/00-prototype.md`, merges into the design branch and
-   deletes its branch.
-3. `/plan` in a new session reads that report and proposes a two-step story;
-   the operator approves it, and `docs/plan/01-…md` and `02-…md` appear.
-4. `/build` hands each ticket to a fork, merges both, deletes `docs/plan/`,
-   opens the pull request to `main` and has a fresh agent `/review` it at the
-   drift bar.
-5. The operator reviews and merges; the coordinator deletes the branches and
-   prints the `/retro`.
+</Cards>
 
 ## Where next
 

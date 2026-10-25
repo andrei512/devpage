@@ -62,17 +62,14 @@ page.
 
 ### Concepts and tasks
 
+- [SDLC](sdlc/README.md) — how a change reaches main: the stages, the
+  branches, the review bars, and how the box docs are organized and kept true.
 - [Developing devpage](developing-devpage/README.md) — build, test and the
-  gates; running the docs while you edit; what needs a rebuild; the code map.
-
-### Mechanisms
-
-- [SDLC](sdlc/README.md) — how a change reaches main, and how the box docs that
-  describe the system are organized and kept true.
+  gates; running the docs while you edit; what needs a rebuild.
 
 ### Reference
 
 - [Skills reference](skills-reference/README.md) — the twelve skills, who
   starts each, what goes in and comes out, and the upstream ones.
-- [Dependencies](dependencies/README.md) — every crate devpage depends on and
-  what it does here.
+- [Dependencies](dependencies/README.md) — every crate devpage depends on,
+  grouped by what it does here.

@@ -49,31 +49,40 @@ them from devpage's theme tokens on every `.diagram`, and fixes
 
 There is no package manager step and no script; an upgrade is done by hand:
 
-1. **Replace the files.** Put the new bundle at `assets/vendor/pele.js` and its
-   licence at `assets/vendor/pele.LICENSE`. Check the new header line and the
-   licence for the version and for any newly bundled third-party notices.
-2. **Rebuild and restart.** The bundle is embedded with `include_str!`, so a
-   running devpage keeps serving the old one until it is rebuilt and
-   restarted (`cargo run -- docs`, or `cargo install --path .`
-   again for an installed copy).
-3. **Re-run the diagram check** over every page that holds a diagram — the
-   Node command in [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram) —
-   and confirm each diagram renders and each one's `click` count equals its
-   link count. `grep -rl '```mermaid' docs` lists the pages to run it on.
+<Steps>
 
-4. **Re-check the `--pele-*` mapping.** List the variables the new bundle
-   reads and compare them with the ones `assets/style.css` sets:
+1. Replace the files
+   Put the new bundle at `assets/vendor/pele.js` and its licence at
+   `assets/vendor/pele.LICENSE`. Check the new header line and the licence for
+   the version and for any newly bundled third-party notices.
 
-   ```sh
-   grep -o -- '--pele-[a-z-]*' assets/vendor/pele.js | sort -u
-   grep -o -- '--pele-[a-z-]*' assets/style.css | sort -u
-   ```
+2. Rebuild and restart
+   The bundle is embedded with `include_str!`, so a running devpage keeps
+   serving the old one until it is rebuilt and restarted (`cargo run -- docs`,
+   or `cargo install --path .` again for an installed copy).
 
-   A variable the stylesheet doesn't set keeps pele's own default, which
-   doesn't follow devpage's light and dark tokens, so look at a diagram in
-   both themes.
-5. **Update the docs** that name the version — this page and
+3. Re-run the diagram check
+   Run the Node command in
+   [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram)
+   over every page that holds a diagram, and confirm each diagram renders and
+   each one's `click` count equals its link count.
+
+   $ grep -rl '```mermaid' docs
+
+4. Re-check the `--pele-*` mapping
+   List the variables the new bundle reads and compare them with the ones
+   `assets/style.css` sets. A variable the stylesheet doesn't set keeps pele's
+   own default, which doesn't follow devpage's light and dark tokens, so look
+   at a diagram in both themes.
+
+   $ grep -o -- '--pele-[a-z-]*' assets/vendor/pele.js | sort -u
+   $ grep -o -- '--pele-[a-z-]*' assets/style.css | sort -u
+
+5. Update the docs
+   The pages that name the version — this page and
    [Diagrams and themes](../diagrams-and-themes/README.md#writing-a-diagram).
+
+</Steps>
 
 The bundle 1.10.0 reads these variables today: `--pele-bg`, `--pele-fg`,
 `--pele-muted`, `--pele-line`, `--pele-surface`, `--pele-surface-alt`,

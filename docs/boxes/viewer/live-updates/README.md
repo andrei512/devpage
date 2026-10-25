@@ -5,7 +5,8 @@ folder skips what isn't watched, a broadcast channel fans each change out to one
 server-sent event stream per open tab, and the page script fetches its page —
 or, for a change in the comment store, the page's comments — again and swaps
 it in place. It also covers why
-the script keeps one stream per tab and closes it in hidden tabs. It is a
+there is one stream per tab; [the page script](../page-script/README.md) is
+the browser's side. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
 `src/watch.rs`, `src/server.rs` or `assets/devpage.js`.
 
@@ -19,7 +20,7 @@ sequenceDiagram
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
-  Watcher->>Watcher: ignored by git?
+  Watcher->>Watcher: watched?
   Watcher->>Channel: send("change")
   Channel-->>Server: one message per open stream
   Server-->>Page: event stream: data change
@@ -32,29 +33,44 @@ sequenceDiagram
 
 When devpage starts, `watch::start` in `src/watch.rs` watches the whole
 [served folder](../writing-a-document/README.md#the-served-folder), recursively,
-with the platform's recommended `notify` watcher. For each file system event it
-ignores accesses (a read, not a change), and for each path in the event:
+with the platform's recommended `notify` watcher. It ignores accesses (a read,
+not a change), and decides each changed path like this:
 
-1. canonicalizes it — falling back to the path as reported, as for a deleted
-   file — and skips it if it isn't inside the served folder;
-2. for a thread file in the comment store (`.devpage/comments/<page>/<id>.yml`),
-   sends `comments /<page>` and goes on to the next path — the comment store is
-   watched whatever a site's `watch` says, and never refreshes pages itself;
-3. otherwise tells the [index](../serving-pages/README.md#which-document-a-file-belongs-to)
-   the path changed (`Index::changed`), so a new, edited or deleted document
-   file or `.gitignore` is reflected at once;
-4. if the path is the entry document's own file, re-reads it (`Entry::reload`)
-   — so `/` and the `watch` list follow the file — and counts it as a refresh,
-   whatever `watch` says;
-5. otherwise counts the path as a refresh unless the index finds it out of sight —
-   inside a `.git` or `.devpage` folder, or excluded by any `.gitignore` in the
-   served folder, nested ones included — or the nearest site holding it has a
-   `watch` list that matches none of it (`refreshes` in `src/watch.rs`, then
-   `Document::watches`, patterns relative to that site's folder). A document
-   file always counts, and so does a widget or helper — a `.ts` or `.tsx` file
-   directly in the widgets folder of the entry document or of any indexed
-   document — and a path in no site with a `watch` list, whichever document
-   devpage was started with.
+```mermaid
+flowchart TD
+  path["A changed path,<br/>canonicalized"] --> thread{"A comment<br/>thread file?"}
+  thread -->|"yes"| comments["Send comments /page"]
+  thread -->|"no"| entry{"The entry<br/>document's file?"}
+  entry -->|"yes"| reload["Re-read it,<br/>count a refresh"]
+  entry -->|"no"| seen{"Out of sight, or<br/>not in its site's watch?"}
+  seen -->|"no"| refresh["Count a refresh"]
+  seen -->|"yes"| quiet["No refresh"]
+  click comments href "../comments/README.md#under-the-hood" "Comments under the hood"
+  click seen href "#what-is-out-of-sight" "What is out of sight"
+```
+
+Before the decision, a path is canonicalized — falling back to the path as
+reported, as for a deleted file — and skipped if it isn't inside the served
+folder. A thread file in the comment store
+(`.devpage/comments/<page>/<id>.yml`) sends `comments /<page>`; the comment
+store is watched whatever a site's `watch` says, and never refreshes pages
+itself. Every other path is first passed to the
+[index](../document-index/README.md#the-index) (`Index::changed`), so a new,
+edited or deleted document file or `.gitignore` is reflected at once. The
+entry document's own file is re-read (`Entry::reload`) — so `/` and the
+`watch` list follow the file — and refreshes whatever `watch` says.
+
+### What is out of sight
+
+A path doesn't refresh when the index finds it out of sight — inside a `.git`
+or `.devpage` folder, or excluded by any `.gitignore` in the served folder,
+nested ones included — or when the nearest site holding it has a `watch` list
+that matches none of it (`refreshes` in `src/watch.rs`, then
+`Document::watches`, patterns relative to that site's folder). A document file
+always counts, and so does a widget or helper — a `.ts` or `.tsx` file
+directly in the widgets folder of the entry document or of any indexed
+document — and a path in no site with a `watch` list, whichever document
+devpage was started with.
 
 If any path counted, it sends one `change` message for the event. Nothing in
 this needs a `.git` folder to exist.
@@ -87,66 +103,9 @@ that something changed. The stream sends a keep-alive every 15 seconds.
 
 ## The page script
 
-`assets/devpage.js` runs on every page. It does the following.
-
-**Swapping a page in place.** `load(url)` fetches the URL with
-`cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML, replaces the children of `#devpage-page`, `#devpage-nav` and
-`#devpage-navbar` with the fresh ones — so the navbar's highlight follows the page — sets the document title, takes the fresh page's
-`window.devpageWidgets` — so widgets edited since are fetched at their new
-versions — and mounts the new content's widgets, its Mermaid diagrams included.
-The rest of the page — the scripts, the event stream, the scroll position —
-stays as it was. A fresh page in a different frame (its `<body>` class differs,
-as when a document changed kind) is loaded whole instead.
-
-**Mounting widgets.** On load and after every swap, each Mermaid fence becomes
-a `Diagram` placeholder, and every widget placeholder in the content is
-mounted with React — the widgets it names loaded first
-([Widgets](../widgets/README.md#under-the-hood)). The page marks itself ready
-once every widget has mounted.
-
-**The live-update stream.** `connect()` opens an `EventSource` on
-`/__devpage/events`. Each `change` message calls `load(location.href)`, so the
-page the tab shows is fetched again and swapped in; a `comments` message for a
-file the tab shows fetches that file's threads again. A tab holds at most one stream.
-
-**Links and history.** One click listener on the document handles every
-link, in the text and in
-[clickable diagrams](../diagrams-and-themes/README.md#clickable-diagrams), where
-pele turns a Mermaid `click … href` line into an SVG `<a href>` inside the
-node. The listener reads the link's `href` *attribute* and resolves it against
-the page's address: an SVG link's `href` property is an object, not a URL
-string, so the attribute is the one form both kinds of link share. A click is
-handled in place when it is a plain left click — no Cmd, Ctrl or Shift, not
-already handled — on a link to the same origin whose path ends in `.md`:
-
-- a link to the page already shown only updates the `#fragment` — this is how
-  a bare `#heading` link scrolls on the same page;
-- otherwise the target is loaded with `load`, pushed onto the history with
-  `history.pushState`, and the view scrolls to the fragment, or to the top;
-- if `load` fails (an error status or a non-HTML response) the browser
-  navigates to the link normally.
-
-Back and forward (`popstate`) load the address they land on the same way.
-Every other link — other sites, non-Markdown files such as a doc's or deck's
-document file — is left to the browser and loads a whole new page. A site's
-title links to its root page, a Markdown file, so it swaps in place too.
-
-**The theme.** It keeps the theme the page's head chose current: a click on
-the theme selector switches `data-theme` on `<html>` to the other theme, labels
-the button with the next switch, and stores the theme in `localStorage`; until
-the reader has switched, the page follows the system setting as it changes. A
-blocked `localStorage` leaves the switch working for that page.
-
-**The navbar.** A click on a dropdown's button opens it; ↓ opens it and
-focuses its first link, ↑ and ↓ move between links, and Escape, a click
-elsewhere or a followed link closes it. On a narrow screen the menu button
-shows and hides the links.
-
-**Hidden tabs.** When a tab is hidden it closes its stream; when it is shown
-again it reopens the stream and loads its page once, to catch up on changes
-made while it was hidden. A page being unloaded (`pagehide`) closes its stream
-too. A tab opened in the background doesn't connect until it is shown.
+What the script in every open page does with a `change` or `comments`
+message — and with links, the theme, the navbar and hidden tabs — is on
+[The page script](../page-script/README.md).
 
 ## Why one stream per tab
 
@@ -177,3 +136,9 @@ back until it is shown.
   [configuration reference](../configuration-reference/README.md#errors)).
 
 How comments reach a page is on [Comments](../comments/README.md#under-the-hood).
+
+## Topics
+
+- [The page script](../page-script/README.md) — swapping pages in place,
+  mounting widgets, the stream, links and history, the theme, the navbar and
+  hidden tabs.

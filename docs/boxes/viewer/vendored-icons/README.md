@@ -26,8 +26,10 @@ devpage draws icons in a site's navbar and in the theme selector (`moon` and
 
 ## Upgrading them
 
-1. Pick a `lucide-static` version published at least two weeks ago and fetch
-   its icon nodes and licence:
+<Steps>
+
+1. Fetch the icons and the licence
+   Pick a `lucide-static` version published at least two weeks ago.
 
    ```sh
    curl -so nodes.json https://cdn.jsdelivr.net/npm/lucide-static@<version>/icon-nodes.json
@@ -35,10 +37,17 @@ devpage draws icons in a site's navbar and in the theme selector (`moon` and
    python3 -c 'import json; json.dump(json.load(open("nodes.json")), open("assets/vendor/lucide.json", "w"), separators=(",", ":"))'
    ```
 
-2. Check every icon devpage's own controls and docs name still exists — Lucide
-   renames icons now and then — with `cargo test` (the icons test names them)
-   and `cargo run -- check docs`.
-3. Update the version, count and date in this page.
+2. Check every icon devpage names still exists
+   Lucide renames icons now and then; the icons test names devpage's own, and
+   the docs check covers the docs' navbars.
+
+   $ cargo test
+   $ cargo run -- check docs
+
+3. Update this page
+   The version, count and date.
+
+</Steps>
 
 GitHub's mark changes rarely; to replace it, copy the `d` of the path in
 Simple Icons' `icons/github.svg` into `BRANDS` in `src/icons.rs`.
