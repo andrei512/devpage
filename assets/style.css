@@ -267,11 +267,13 @@ body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-inde
 .callout-icon { font-weight: bold; }
 .callout-body > :first-child { margin-top: 0.25rem; }
 .callout-body > :last-child { margin-bottom: 0; }
-.tabs { margin: 1rem 0; border: 1px solid var(--border); border-radius: 6px; }
+.tabs { margin: 1rem 0 20px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .tabs-bar { display: flex; border-bottom: 1px solid var(--border); }
 .tabs-bar button { background: none; border: 0; padding: 0.5rem 1rem; color: inherit; font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
 .tabs-bar button.current { border-bottom-color: var(--accent); font-weight: 600; }
-.tabs-panel { padding: 0 1rem; }
+.tabs-panel { padding: 16px; }
+.tabs-panel > .tab > :first-child, .tabs-panel > :first-child { margin-top: 0; }
+.tabs-panel > .tab > :last-child, .tabs-panel > :last-child { margin-bottom: 0; }
 .example { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; margin: 1rem 0; }
 /* Grid items may shrink below their content, so a long source line scrolls
    inside its box instead of widening the page. */
