@@ -20,7 +20,7 @@ sequenceDiagram
   Editor->>Disk: save
   Disk-->>Watcher: file system event
   Watcher->>Watcher: ignored by git?
-  Watcher->>Channel: send(())
+  Watcher->>Channel: send("change")
   Channel-->>Server: one message per open stream
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (no-store)
@@ -48,9 +48,11 @@ ignores accesses (a read, not a change), and for each path in the event:
    whatever `watch` says;
 5. otherwise counts the path as a refresh unless the index finds it out of sight —
    inside a `.git` or `.devpage` folder, or excluded by any `.gitignore` in the
-   served folder, nested ones included — or the entry document is a site
-   whose `watch` list matches none of it (`Document::watches`, patterns
-   relative to the site's folder).
+   served folder, nested ones included — or the nearest site holding it has a
+   `watch` list that matches none of it (`refreshes` in `src/watch.rs`, then
+   `Document::watches`, patterns relative to that site's folder). A document
+   file always counts, and so does a path in no site with a `watch` list,
+   whichever document devpage was started with.
 
 If any path counted, it sends one `change` message for the event. Nothing in
 this needs a `.git` folder to exist.
@@ -115,8 +117,9 @@ already handled — on a link to the same origin whose path ends in `.md`:
   navigates to the link normally.
 
 Back and forward (`popstate`) load the address they land on the same way.
-Every other link — other sites, non-Markdown files, the document title's link to
-`/` — is left to the browser and loads a whole new page.
+Every other link — other sites, non-Markdown files such as a doc's or deck's
+document file — is left to the browser and loads a whole new page. A site's
+title links to its root page, a Markdown file, so it swaps in place too.
 
 **Hidden tabs.** When a tab is hidden it closes its stream; when it is shown
 again it reopens the stream and loads its page once, to catch up on changes

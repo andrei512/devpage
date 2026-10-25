@@ -7,8 +7,9 @@ use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
-use crate::document::Entry;
+use crate::document::{Document, Entry};
 use crate::index::Index;
+use std::path::Path;
 
 /// Starts watching. A change to a watched file sends `change`; a change to a
 /// comment thread sends `comments /<page>`, whatever the site's `watch` says.
@@ -46,7 +47,7 @@ pub fn start(
             if path == entry.file() {
                 entry.reload();
                 refresh = true;
-            } else if !index.ignored(&path, path.is_dir()) && entry.document().watches(&path) {
+            } else if !index.ignored(&path, path.is_dir()) && refreshes(&entry, &index, &path) {
                 refresh = true;
             }
         }
@@ -58,11 +59,30 @@ pub fn start(
     Ok(watcher)
 }
 
+/// Whether a change to `path` refreshes open pages. Document files always do;
+/// any other path is judged by the `watch` list of the nearest site holding
+/// it, and refreshes when there is no such list.
+fn refreshes(entry: &Entry, index: &Index, path: &Path) -> bool {
+    if index.kind(path).is_some() {
+        return true;
+    }
+    let Some(site) = index.site_for(path) else {
+        return true;
+    };
+    let document = entry.document();
+    if site == document.path() {
+        return document.watches(path);
+    }
+    match Document::load(&site, &document.served) {
+        Ok(site) => site.watches(path),
+        Err(_) => true,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Document;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use std::time::Duration;
 
     fn served(name: &str, site: &str) -> PathBuf {
@@ -173,6 +193,55 @@ mod tests {
         std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap();
         tokio::time::sleep(Duration::from_millis(800)).await;
         let messages = drain(&mut received);
+        assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
+    }
+
+    #[tokio::test]
+    async fn a_sites_watch_list_narrows_only_its_own_folder() {
+        // The entry site has no `watch`; a second site watches only text files.
+        let dir = served("other", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        std::fs::write(dir.join("other/index.md"), "# Other").unwrap();
+        std::fs::write(
+            dir.join("other/devpage.yml"),
+            "kind: site\ntitle: O\nroot: index.md\nwatch: [\"*.txt\"]\n",
+        )
+        .unwrap();
+        let quiet = after(&dir, || {
+            std::fs::write(dir.join("other/index.md"), "# Changed").unwrap()
+        })
+        .await;
+        assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
+        let loud = after(&dir, || {
+            std::fs::write(dir.join("other/notes.txt"), "x").unwrap()
+        })
+        .await;
+        assert!(loud.iter().any(|m| m == "change"), "{loud:?}");
+        // The entry's own pages still refresh, and so does a doc in no site.
+        let entry = after(&dir, || {
+            std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
+        })
+        .await;
+        assert!(entry.iter().any(|m| m == "change"), "{entry:?}");
+        std::fs::create_dir_all(dir.join("plan")).unwrap();
+        let loose = after(&dir, || {
+            std::fs::write(dir.join("plan/design.md"), "# Plan").unwrap()
+        })
+        .await;
+        assert!(loose.iter().any(|m| m == "change"), "{loose:?}");
+    }
+
+    #[tokio::test]
+    async fn the_entrys_watch_list_does_not_quiet_another_folder() {
+        let dir = served(
+            "entry-watch",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"*.svg\"]\n",
+        );
+        std::fs::create_dir_all(dir.join("examples")).unwrap();
+        let messages = after(&dir, || {
+            std::fs::write(dir.join("examples/design.md"), "# Design").unwrap()
+        })
+        .await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
     }
 }

@@ -86,7 +86,6 @@ impl Index {
     }
 
     /// The kind of an indexed document file.
-    #[cfg(test)]
     pub fn kind(&self, file: &Path) -> Option<KindName> {
         self.read().documents.get(file).copied()
     }

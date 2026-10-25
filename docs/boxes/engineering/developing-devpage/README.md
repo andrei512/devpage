@@ -41,7 +41,7 @@ What you edit decides what you have to do to see it:
 ## Tests
 
 ```sh
-cargo test                  # 45 tests; needs no network and no Chrome
+cargo test                  # 52 tests; needs no network and no Chrome
 cargo test -- --ignored     # the 7 tests that drive the installed Chrome
 ```
 
@@ -55,7 +55,7 @@ with `--ignored` after changing the page script, the stylesheet, print mode or
 
 | Module | Tests | Ignored | What they pin |
 | --- | --- | --- | --- |
-| `check` | 5 | | Missing files and headings and links climbing out of the served folder; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
+| `check` | 7 | | Missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
 | `comments` | 4 | 3 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; **C** on a deck. |
 | `document` | 7 | | Each kind parsed; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
 | `index` | 4 | | Document files found outside what `.gitignore` excludes; the nearest site above a page; nested `.gitignore` files and `.git` folders out of sight; changes keeping it current. |
@@ -63,8 +63,8 @@ with `--ignored` after changing the page script, the stylesheet, print mode or
 | `nav` | 3 | | Links and `###` groups read from the Topics section only; the tree stopping at a cycle; a Topics entry outside the site or to a missing file is a problem. |
 | `pdf` | 2 | 4 | The default file name made safe; a site refused. In Chrome: the example doc on A4 with its header and footer; the example deck one 16:9 page per slide; a deck's keys; a doc's outline above the text on a narrow screen. |
 | `render` | 9 | | Raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
-| `server` | 8 | | `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back; comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link. |
-| `watch` | 4 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page; the `watch` list following the entry file. |
+| `server` | 9 | | `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back; comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link; each site's title linking to its own root page. |
+| `watch` | 6 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page; the `watch` list following the entry file; a site's `watch` narrowing only its own folder, whichever document devpage was started with. |
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.

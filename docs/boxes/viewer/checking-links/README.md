@@ -37,9 +37,13 @@ devpage also prints each problem once on its terminal, as it first finds it:
 
 ```text
 docs/boxes/viewer/README.md:42: broken link ../serving/README.md — no such file
-docs/design/devpage.yml: chapter rollout.md — no such file
+docs/README.md:7: broken link design/devpage.yml — in docs/design/devpage.yml: chapter rollout.md does not exist
+docs/README.md:9: broken link talk/devpage.yml#9 — the deck has 3 slides
 docs/README.md:12: https://example.com/gone — 404 Not Found
 ```
+
+Files are named by their path from the top of the served folder. A document
+file that can't be loaded is reported on the page that links to it.
 
 External links are checked in the background, once per address for as long as
 devpage runs, so a slow site never holds a page up; a problem with one shows up

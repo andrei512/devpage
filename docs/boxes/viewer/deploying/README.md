@@ -55,19 +55,24 @@ devpage from crates.io — the same `cargo install devpage` anyone runs — copi
 the docs in, and starts devpage deployed:
 
 ```dockerfile
-FROM rust:1.89-slim AS build
+FROM rust:1.89-slim-bookworm AS build
 RUN cargo install devpage --version 0.1.0 --locked
 
 FROM debian:bookworm-slim
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY docs /srv/docs
+COPY examples /srv/examples
+COPY LICENSE /srv/LICENSE
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 ```
 
 Build it from the repository root: `docker build -f deploy/Dockerfile .`. The
-docs are baked in, so a docs change is a new image, shipped like any other.
+builder is Debian bookworm, the same as the runtime image, so the binary finds
+the C library it was linked against. The docs are baked in — with the examples
+and the licence they link to — so a docs change is a new image, shipped like
+any other.
 devpage runs from `/srv`, so the [served folder](../writing-a-document/README.md#the-served-folder)
 is `/srv` and the comment store is `/srv/.devpage/comments`.
 **Mount a volume at `/srv/.devpage`** so comments survive a new image, and

@@ -578,6 +578,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_sites_title_links_to_its_own_root_page() {
+        let dir = served("titles");
+        std::fs::create_dir_all(dir.join("other")).unwrap();
+        std::fs::write(dir.join("other/index.md"), "# Index\n").unwrap();
+        std::fs::write(dir.join("other/page.md"), "# Page\n").unwrap();
+        std::fs::write(
+            dir.join("other/devpage.yml"),
+            "kind: site\ntitle: Other\nroot: index.md\n",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+        let (_, page) = get(&format!("{base}/other/page.md")).await;
+        assert!(
+            page.contains("<a class=\"document-title\" href=\"/other/index.md\">Other</a>"),
+            "{page}"
+        );
+        let (_, home) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert!(
+            home.contains("<a class=\"document-title\" href=\"/docs/README.md\">Docs</a>"),
+            "{home}"
+        );
+    }
+
+    #[tokio::test]
     async fn nothing_outside_the_served_folder_is_served() {
         let dir = served("outside");
         std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();

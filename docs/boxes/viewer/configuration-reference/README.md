@@ -66,7 +66,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `kind` | `site` | yes | |
 | `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
-| `watch` | list of glob patterns | no | Narrows what refreshes open pages to the files matching a pattern, relative to the site's folder. Default: every file in the served folder that no `.gitignore` excludes. |
+| `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page

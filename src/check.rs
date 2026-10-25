@@ -215,16 +215,42 @@ fn page_links_with(
                 });
             }
         }
-        if crate::document::kind_of(&resolved).is_some()
-            && let Err(error) = Document::load(&resolved, &document.served)
-        {
-            problems.push(Problem {
-                file: file.clone(),
-                line,
-                message: format!("broken link {target} — {error:#}"),
-                target: Some(target.clone()),
-            });
-            continue;
+        if crate::document::kind_of(&resolved).is_some() {
+            match Document::load(&resolved, &document.served) {
+                Err(error) => {
+                    problems.push(Problem {
+                        file: file.clone(),
+                        line,
+                        message: format!(
+                            "broken link {target} — {}",
+                            relative(&format!("{error:#}"), &document.served)
+                        ),
+                        target: Some(target.clone()),
+                    });
+                    continue;
+                }
+                // `#n` on a deck must name one of its slides.
+                Ok(Document {
+                    kind: Kind::Slides { slides },
+                    ..
+                }) if !fragment.is_empty()
+                    && !fragment
+                        .parse::<usize>()
+                        .is_ok_and(|n| (1..=slides.len()).contains(&n)) =>
+                {
+                    problems.push(Problem {
+                        file: file.clone(),
+                        line,
+                        message: format!(
+                            "broken link {target} — the deck has {} slide{}",
+                            slides.len(),
+                            if slides.len() == 1 { "" } else { "s" }
+                        ),
+                        target: Some(target.clone()),
+                    });
+                }
+                Ok(_) => {}
+            }
         }
         reached.push(resolved);
     }
@@ -248,6 +274,12 @@ fn page_links_with(
     }
     problems.extend(crate::comments::problems(document, page));
     (problems, reached)
+}
+
+/// An error's text with the served folder's absolute path taken out, so
+/// files read as their addresses do.
+fn relative(text: &str, served: &Path) -> String {
+    text.replace(&format!("{}/", served.display()), "")
 }
 
 /// What the preview knows about each external address.
@@ -434,6 +466,58 @@ mod external {
         )
         .unwrap();
         Document::load(&dir, &dir).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_slide_number_must_be_one_the_deck_has() {
+        let doc = folder(
+            "deck-number",
+            "# Home\n\n[two](deck/devpage.yml#2) [nine](deck/devpage.yml#9) [word](deck/devpage.yml#intro)\n",
+        );
+        std::fs::create_dir_all(doc.base.join("deck")).unwrap();
+        std::fs::write(doc.base.join("deck/a.md"), "# A").unwrap();
+        std::fs::write(doc.base.join("deck/b.md"), "# B").unwrap();
+        std::fs::write(
+            doc.base.join("deck/devpage.yml"),
+            "kind: slides\ntitle: D\nslides: [a.md, b.md]\n",
+        )
+        .unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                "README.md:3: broken link deck/devpage.yml#9 — the deck has 2 slides".to_string(),
+                "README.md:3: broken link deck/devpage.yml#intro — the deck has 2 slides"
+                    .to_string(),
+            ],
+            "{found:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_broken_linked_document_is_named_by_its_address() {
+        let doc = folder("linked-relative", "# Home\n\n[plan](plan/devpage.yml)\n");
+        std::fs::create_dir_all(doc.base.join("plan")).unwrap();
+        std::fs::write(
+            doc.base.join("plan/devpage.yml"),
+            "kind: doc\ntitle: P\nchapters: [missing.md]\n",
+        )
+        .unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            !found[0].contains(&doc.served.display().to_string()),
+            "{found:#?}"
+        );
+        assert!(found[0].contains("in plan/devpage.yml"), "{found:#?}");
     }
 
     #[tokio::test]
