@@ -1,6 +1,6 @@
 # Viewer
 
-The viewer is the `devpage` program. It serves **documents** from a repository
+The viewer is the `devpage` program. It serves **documents** from a folder
 in the browser — a **site** of pages, a **doc** read top to bottom, or a deck
 of **slides** — keeps every open page current as the files change, lets readers
 leave **comments** on any of them, checks every link, and prints a doc or a
@@ -18,7 +18,7 @@ devpage pdf talks/launch      # the deck as a PDF
 ```
 
 Every page is rendered when it is requested, straight from the files on disk,
-so what the browser shows is what the repository holds. A site's sidebar is
+so what the browser shows is what the files hold. A site's sidebar is
 the tree its pages form by listing their children in `## Topics` sections; a
 doc's outline is its chapters' headings; a deck is its slides in the order its
 YAML lists them. While a page is open it listens for changes and swaps in the
@@ -52,12 +52,12 @@ Each part of the diagram opens its page.
 
 - **Document files** — a YAML file whose `kind` says what it describes: a
   site, a doc or slides. A lone Markdown file is a doc with defaults.
-- **Serving pages** — a request names a file in the repository; a Markdown
+- **Serving pages** — a request names a file in the served folder; a Markdown
   file is rendered into the frame of the document it belongs to, and any other
   file is served as it is.
 - **Navigation** — a site's sidebar, rebuilt from the Topics sections on every
   request.
-- **Live updates** — a file watcher over the repository and a stream that tells
+- **Live updates** — a file watcher over the served folder and a stream that tells
   open pages to fetch themselves, or their comments, again.
 - **Diagrams and themes** — Mermaid fences drawn as SVG in the browser, colored
   by the same tokens as the page.
@@ -82,19 +82,19 @@ The words this box owns; the rest of the docs use them with these meanings.
 | **slides** | A document that is a deck: one Markdown file per slide, in the order its `slides` field lists them, each laid out at 1920 × 1080. The kind is *slides*; one deck is a **deck**, one file a **slide**. |
 | **document file** | The YAML file describing a document — any name, `devpage.yml` by default. |
 | **entry document** | The document devpage was started with, where `/` leads. |
-| **repository** | The git working tree holding the entry document, or the entry's folder when it is in none. Nothing outside it is served, read or linked to. |
-| **page** | A Markdown (`.md`) file in the repository, rendered into a frame when requested. Any other file is served as it is. |
+| **served folder** | The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to. |
+| **page** | A Markdown (`.md`) file in the served folder, rendered into a frame when requested. Any other file is served as it is. |
 | **root page** | The page a site's `root` names: where the site opens, and the top of its sidebar tree. |
 | **page frame** | The HTML a page is wrapped in: the stylesheet, the scripts and the kind's own layout — a site's sidebar, a doc's outline, a deck's stage. |
 | **outline** | A doc's navigation: its chapters' headings, beside the text, following the reader as they scroll. |
 | **Topics** | A page's `## Topics` section. The first link of each top-level list item names a child of the page in a site's sidebar. |
 | **entry** | One page in a sidebar tree, labelled with its Topics link's text. |
 | **group** | A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar. |
-| **live update** | An open page fetching itself again and swapping in its content and navigation, in place, after a file in the repository changed. |
+| **live update** | An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed. |
 | **comment** | A thread a reader starts on selected text or on a paragraph: the first message and its replies, one level deep. Stored in the comment store; resolving deletes it. |
 | **anchor** | What a comment is attached to: the quoted text, with a little of the text before and after it to tell repeats apart. |
 | **detached comment** | A comment whose quoted text is no longer on its page. It stays readable, listed at the top of the page, until it is resolved. |
-| **comment store** | `.devpage/comments/` at the top of the repository: one YAML file per thread. Git never sees it — `.devpage/` ignores itself. |
+| **comment store** | `.devpage/comments/` at the top of the served folder: one YAML file per thread. Git never sees it — `.devpage/` ignores itself. |
 | **author** | Who wrote a comment: `git config user.name` (or the system's user name) when devpage runs locally, the identity header's value when it is deployed. |
 | **deployed** | devpage listening on an address other than the local machine's (`--host`), behind an auth proxy that names the reader in a header. |
 | **problem** | A broken link, a missing chapter or slide, a Topics entry pointing nowhere or an invalid document file — shown on the page in the preview and reported by `devpage check`. |
@@ -105,7 +105,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 
 ## Constraints
 
-- [The repository is the boundary](constraints/the-repository-is-the-boundary.md)
+- [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
   — nothing outside it is served, read or written.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
   — the only files it writes are in `.devpage/`.
@@ -124,7 +124,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 ### Concepts and tasks
 
 - [Writing a document](writing-a-document/README.md) — the three kinds, the
-  document file, the repository, links between pages and documents, and the
+  document file, the served folder, links between pages and documents, and the
   Markdown that works.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
@@ -147,7 +147,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 ### Mechanisms
 
 - [Serving pages](serving-pages/README.md) — from a request to a file to a
-  page: the repository, the document a page belongs to, rendering, assets,
+  page: the served folder, the document a page belongs to, rendering, assets,
   addresses and logging.
 - [Live updates](live-updates/README.md) — from a saved file to a swapped page:
   the watcher, the event stream and the page script.
@@ -165,7 +165,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 
 ### Constraints
 
-- [The repository is the boundary](constraints/the-repository-is-the-boundary.md)
+- [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
   — what devpage may serve, read and link to.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
   — comments and every other write stay in `.devpage/`.

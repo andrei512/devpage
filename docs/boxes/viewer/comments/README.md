@@ -38,7 +38,7 @@ Comments are never printed: print mode leaves them out
 A comment is stamped with its **author** and the time it was written.
 
 - **Locally** the author is `git config user.name` as git sees it in the
-  repository, or the system's user name when git has none.
+  served folder, or the system's user name when git has none.
 - **Deployed** the author is the value of the identity header the auth proxy
   sets — `X-Forwarded-Email` unless `--user-header` names another. A comment
   without it is refused ([devpage authenticates no one](../constraints/devpage-authenticates-no-one.md),
@@ -55,10 +55,10 @@ until someone resolves it.
 
 ## The comment store
 
-Threads live in `.devpage/comments/` at the top of the repository — the same
+Threads live in `.devpage/comments/` at the top of the served folder — the same
 folder locally and in a deployed container's volume. devpage creates
 `.devpage/` with a `.gitignore` holding `*`, so git ignores the folder and
-everything in it without the repository's own `.gitignore` changing. devpage
+everything in it without any other `.gitignore` changing. devpage
 writes nothing else anywhere ([devpage never writes a document](../constraints/devpage-never-writes-a-document.md)).
 
 One thread is one file, under the path of the Markdown file it is about:
@@ -102,7 +102,7 @@ page's problems ([Checking links](../checking-links/README.md)) and left alone.
 
 The page script asks for a page's threads when it loads, and writes through
 four requests under `/__devpage/comments`: list a page's threads, start a
-thread, reply, resolve. The comment store is watched like the rest of the
-repository, so a thread written, changed or deleted — by a reader or by an
+thread, reply, resolve. The comment store is always watched, whatever a site's `watch`
+says, so a thread written, changed or deleted — by a reader or by an
 agent editing the files — reaches every open page through the
 [live-update stream](../live-updates/README.md).

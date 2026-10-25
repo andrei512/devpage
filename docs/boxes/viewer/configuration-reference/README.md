@@ -8,16 +8,16 @@ under the [viewer](../README.md).
 ## Command line
 
 ```sh
-devpage [path] [--host <address>] [--port <port>] [--user-header <name>]
-devpage check [path]
-devpage pdf <path> [-o <file>]
+devpage [path] [--root <folder>] [--host <address>] [--port <port>] [--user-header <name>]
+devpage check [path] [--root <folder>]
+devpage pdf <path> [--root <folder>] [-o <file>]
 devpage --help
 devpage --version
 ```
 
 | Command | Does |
 | --- | --- |
-| `devpage [path]` | Serves the document at `path` and everything in its repository, until stopped. |
+| `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
 | `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
 
@@ -34,13 +34,14 @@ devpage --version
 
 | Flag | Command | Default | Meaning |
 | --- | --- | --- | --- |
+| `--root <folder>` | all | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 
-On start, `devpage` finds the [repository](../writing-a-document/README.md#the-repository),
-watches it, binds its address and prints one line on standard output — the entry
+On start, `devpage` checks the document is inside the
+[served folder](../writing-a-document/README.md#the-served-folder), watches it, binds its address and prints one line on standard output — the entry
 document's title and its address:
 
 ```text
@@ -56,7 +57,7 @@ and pages take effect on the next request; nothing needs a restart.
 
 A document file is a YAML mapping whose `kind` field says what it describes.
 Paths in it are relative to the file's folder and must stay inside the
-repository. A field the kind doesn't have is an error, not ignored.
+served folder. A field the kind doesn't have is an error, not ignored.
 
 ### `site`
 
@@ -65,6 +66,7 @@ repository. A field the kind doesn't have is an error, not ignored.
 | `kind` | `site` | yes | |
 | `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
+| `watch` | list of glob patterns | no | Narrows what refreshes open pages to the files matching a pattern, relative to the site's folder. Default: every file in the served folder that no `.gitignore` excludes. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
@@ -108,7 +110,8 @@ the cause:
 | `kind` not one of the three | `in <file>` — ``unknown variant `deck`, expected one of `site`, `doc`, `slides` `` |
 | A field the kind doesn't have | `in <file>` — ``unknown field `root`, expected one of `kind`, `title`, `chapters`, `pdf` `` |
 | A required field missing, or of the wrong type | `in <file>` — the YAML error, with its line and column |
-| `root`, a chapter or a slide isn't an existing file in the repository | `in <file>` — `<field> <path> does not exist` |
+| `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
+| The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
 | `--port` is taken | `binding <address>:<port>` — the system error |
 | Every port from 3030 up is taken | `no free port` |
 
@@ -127,6 +130,9 @@ devpage's own documentation, `docs/devpage.yml`:
 kind: site
 title: devpage
 root: README.md
+watch:
+  - "**/*.md"
+  - "**/*.yml"
 ```
 
 The example doc and deck in `examples/` show the other two kinds.

@@ -2,7 +2,7 @@
 
 devpage has no login, no sessions and no user list. Running locally — on a
 loopback address — the author of a comment is `git config user.name`
-as git sees it in the repository, or the system's user name when git has none. Deployed — on any other address — the author is the
+as git sees it in the served folder, or the system's user name when git has none. Deployed — on any other address — the author is the
 value of one request header, `X-Forwarded-Email` unless `--user-header` names
 another, set by the auth proxy in front of it; a request that writes a comment
 without that header is refused with `401`. Reading needs no header: whoever the

@@ -1,7 +1,7 @@
 # Live updates
 
-How a saved file reaches every open page: a file watcher over the repository
-skips what git ignores, a broadcast channel fans each change out to one
+How a saved file reaches every open page: a file watcher over the served
+folder skips what isn't watched, a broadcast channel fans each change out to one
 server-sent event stream per open tab, and the page script fetches its page —
 or, for a change in the comment store, the page's comments — again and swaps
 it in place. It also covers why
@@ -31,13 +31,15 @@ sequenceDiagram
 ## The watcher
 
 When devpage starts it watches the whole
-[repository](../writing-a-document/README.md#the-repository), recursively,
+[served folder](../writing-a-document/README.md#the-served-folder), recursively,
 with the platform's recommended `notify` watcher. For each file system event it:
 
 1. ignores the event if it is an access (a read, not a change);
-2. makes each path relative to the repository, and drops paths inside `.git/`
-   and paths git ignores — read from the repository's `.gitignore` files — so
-   build output and dependencies never refresh a page;
+2. makes each path relative to the served folder, and drops paths inside
+   a `.git` folder, if there is one, and paths a `.gitignore` file in the folder
+   excludes — so build output and dependencies
+   never refresh a page — and, when the entry document is a site with a `watch`
+   list, paths that match none of its patterns;
 3. for a path in the comment store (`.devpage/comments/`), sends a `comments`
    message naming the page the thread is about;
 4. for any other path, updates the index of document files if the path is a
@@ -117,7 +119,7 @@ back until it is shown.
 
 ## Failure modes
 
-- **A file git ignores changes.** Nothing refreshes; the next request or
+- **A file that isn't watched changes.** Nothing refreshes; the next request or
   link still shows the new content, since pages are read on every request.
 - **devpage stops.** Open pages stop updating. The browser's `EventSource`
   reconnects on its own once devpage is back, but the page is not fetched again

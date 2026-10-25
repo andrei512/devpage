@@ -35,7 +35,7 @@ moving a line; nobody edits one huge file. Each chapter starts with its own
 name, shown above the first chapter, in the tab and in the PDF's metadata. A
 doc made from one Markdown file has no separate title: its `# heading` is the
 title. A
-chapter can be any Markdown file in the repository, so one shared chapter — a
+chapter can be any Markdown file in the served folder, so one shared chapter — a
 glossary, a context section — can appear in several docs.
 
 ## The outline

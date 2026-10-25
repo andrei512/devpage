@@ -10,8 +10,8 @@ Every link a reader could follow and every file a page loads:
 
 - **Links and images** in every page — Markdown links, images, links and
   `src` attributes in raw HTML, and the targets of Mermaid `click` lines.
-- **Targets inside the repository** — the file must exist, inside the
-  [repository](../constraints/the-repository-is-the-boundary.md); a `#fragment`
+- **Targets inside the served folder** — the file must exist, inside the
+  [served folder](../constraints/the-served-folder-is-the-boundary.md); a `#fragment`
   must name a heading or id on the page it points at; `#n` on a deck must be a
   slide it has.
 - **Document files** — each must be valid for its kind, and its `root`,
@@ -48,7 +48,7 @@ devpage check design.md       # one Markdown file
 ```
 
 `devpage check` takes the same argument as `devpage`, checks that document and
-every page and document reachable from it by links within the repository,
+every page and document reachable from it by links within the served folder,
 prints every problem in the same `file:line: problem` form, and exits with `1`
 if there was any and `0` if there were none. It starts no server. Use it in a
 test or a CI job to keep the docs from shipping a broken link. devpage's own

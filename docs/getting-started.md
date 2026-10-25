@@ -1,7 +1,7 @@
 # Getting started
 
 This page teaches the few ideas you need to reason about devpage — documents
-and their three kinds, the repository they are served from, live pages,
+and their three kinds, the folder they are served from, live pages,
 diagrams and comments — and then walks a small site, a doc and a deck from an
 empty folder to pages that update while you edit them. It sits under the
 [devpage landing page](README.md); the [viewer](boxes/viewer/README.md)
@@ -15,9 +15,9 @@ says which of three a document is: a **site** of pages with a sidebar, a
 **doc** read top to bottom like a Word file, or a deck of **slides**. A single
 Markdown file is a doc on its own, with no YAML at all.
 
-**The repository is what is served.** devpage serves from the git repository
-holding the document you start it with. A file's address is its path in the
-repository, so links between Markdown files work exactly as they do on disk —
+**A folder is what is served.** devpage serves the folder you start it from —
+usually the top of your repository. A file's address is its path in that
+folder, so links between Markdown files work exactly as they do on disk —
 including links from one document to another.
 
 **A site's sidebar is its Topics.** A page lists its children in a
@@ -147,7 +147,7 @@ and copy.
 - [Documenting another repository](boxes/viewer/writing-a-document/README.md#documenting-another-repository)
   — giving a real project's docs a `devpage.yml`.
 - [Writing a document](boxes/viewer/writing-a-document/README.md) — the three
-  kinds, the document file, the repository, links, and the Markdown that works.
+  kinds, the document file, the served folder, links, and the Markdown that works.
 - [Writing a doc](boxes/viewer/writing-a-doc/README.md) and
   [Making slides](boxes/viewer/making-slides/README.md) — chapters, slides and
   paper.

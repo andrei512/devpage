@@ -1,7 +1,7 @@
 # Writing a document
 
 How to write a devpage document: the three kinds and when to use each, the
-document file that describes one, the repository devpage serves from, how
+document file that describes one, the folder devpage serves from, how
 pages and documents link to each other, and which Markdown features render. It
 is a task article under the [viewer](../README.md); read
 [Getting started](../../../getting-started.md) first for the mental model.
@@ -15,7 +15,7 @@ is a task article under the [viewer](../README.md); read
 | `slides` | a PowerPoint deck | one Markdown file per slide, in order | one slide at a time, 16:9 |
 
 A system's documentation is a site. A design doc, a PRD or a proposal is a
-doc. A talk is slides. All three are Markdown files in the repository, render
+doc. A talk is slides. All three are Markdown files on disk, render
 the same Markdown, take comments and are checked for broken links; a doc and a
 deck also [print to PDF](../pdf/README.md).
 
@@ -56,15 +56,22 @@ it as a doc of one chapter, titled by its `# heading`, with the default PDF
 settings. Give it a document file when it grows chapters or needs a header or
 footer on paper.
 
-## The repository
+## The served folder
 
-devpage serves from the **repository** holding the document it was started
-with: the git working tree, found by walking up from the document's folder to
-the folder holding `.git`, or — outside git — the document's own folder.
-Everything in it can be served, and nothing outside it can: not through `..`,
-not through a symbolic link ([the rule](../constraints/the-repository-is-the-boundary.md)).
+devpage serves from the **served folder**: the folder you start it from, or
+the one `--root` names. Start it from the top of the repository and the whole
+repository is served, whichever document you open:
 
-A file's address is its path from the top of the repository:
+```sh
+cd my-project && devpage docs              # serves my-project/
+devpage --root ~/code/my-project ~/code/my-project/docs
+```
+
+Everything in the served folder can be served, and nothing outside it can: not
+through `..`, not through a symbolic link ([the rule](../constraints/the-served-folder-is-the-boundary.md)).
+
+The document you start devpage with must be inside the served folder. A
+file's address is its path from the top of the served folder:
 `docs/boxes/viewer/README.md` is served at `/docs/boxes/viewer/README.md`, and
 `/` leads to the document devpage was started with. A folder has no address of
 its own; link to a file in it instead.
@@ -75,8 +82,8 @@ A page's title — shown in the browser tab — is its first line that starts wi
 
 ## Links between pages and documents
 
-Because addresses are repository paths, a relative link between files works
-exactly as it does when the files are read in the repository — including one
+Because addresses are file paths, a relative link between files works
+exactly as it does when the files are read on disk — including one
 that climbs out of the docs folder to the repository's `README.md`:
 
 ```markdown
@@ -152,27 +159,28 @@ with a relative path:
 ![The parts](parts.svg)
 ```
 
-A change to any file in the repository refreshes the open pages, images
-included; files git ignores are not watched.
+By default a change to any file in the served folder refreshes the open
+pages, images included, except files a `.gitignore` excludes. A site can
+narrow that with its `watch` list ([configuration reference](../configuration-reference/README.md#site)).
 
 ## Documenting another repository
 
 devpage serves any repository's Markdown, not only its own. Give the other
 repository a document file — usually `docs/devpage.yml` with `kind: site` — and
-point devpage at it:
+start devpage from that repository's top:
 
 ```sh
-devpage ../my-project/docs              # the folder holding devpage.yml
-devpage ~/code/my-project/devpage.yml   # the file itself
+cd ../my-project && devpage docs                  # the folder holding devpage.yml
+devpage --root ~/code/my-project ~/code/my-project/docs/devpage.yml
 ```
 
-Pages can link anywhere in that repository, so the docs can stay in `docs/`
+Pages can link anywhere in the served folder, so the docs can stay in `docs/`
 and still link to the top-level `README.md` or to images beside the code.
-Remember that everything in the repository can be served to whoever can reach
+Remember that everything in the served folder can be served to whoever can reach
 the address — only the local machine, unless devpage is
 [deployed](../deploying/README.md).
 
-**Several at once.** Each devpage process serves one repository and takes the
+**Several at once.** Each devpage process serves one folder and takes the
 first free port from 3030 up, so a second one started while the first runs
 prints `http://localhost:3031`, the next `3032`, and so on. Read the port from
 the line each one prints.

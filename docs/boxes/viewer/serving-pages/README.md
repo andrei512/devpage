@@ -1,7 +1,7 @@
 # Serving pages
 
 How the viewer turns a request into a response: the URL names a file in the
-repository, the file is checked to lie inside it, a document file or a Markdown
+served folder, the file is checked to lie inside it, a document file or a Markdown
 file is rendered into the frame of the document it belongs to, and anything
 else is sent as it is. It also covers the built-in assets, the address devpage
 listens on and what is logged. It is a mechanism page under the
@@ -14,9 +14,9 @@ flowchart TD
   route -->|"/__devpage/events"| sse["event stream"]
   route -->|"/__devpage/comments"| comments["comment store"]
   route -->|"/__devpage/name"| asset["built-in asset or 404"]
-  route -->|"anything else"| resolve["repository + path, canonicalize"]
-  resolve --> inside{"exists, inside the repository,<br/>and a file?"}
-  inside -->|"no"| notfound["404: not part of this repository"]
+  route -->|"anything else"| resolve["served folder + path, canonicalize"]
+  resolve --> inside{"exists, inside the served folder,<br/>and a file?"}
+  inside -->|"no"| notfound["404: not part of the served folder"]
   inside -->|"yes"| kind{"what is it?"}
   kind -->|"a document file"| document["the document, as its kind"]
   kind -->|".md"| page["the page, in the frame of<br/>the document it belongs to"]
@@ -42,31 +42,31 @@ flowchart TD
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
-| `/{*path}` | the file at `path` in the repository |
+| `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` on a document or page renders it in **print mode**, the
 page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).
 
 ## The URL is the file path
 
-A URL path is joined to the [repository](../writing-a-document/README.md#the-repository)
-— `/docs/boxes/README.md` is `<repository>/docs/boxes/README.md` — so relative
+A URL path is joined to the [served folder](../writing-a-document/README.md#the-served-folder)
+— `/docs/boxes/README.md` is `<served folder>/docs/boxes/README.md` — so relative
 links between files work as written. Nothing is precomputed: every request
 reads its files from disk.
 
-**Path safety.** The path is joined to the repository, canonicalized —
+**Path safety.** The path is joined to the served folder, canonicalized —
 resolving `..` and symbolic links, and failing if the file doesn't exist — and
-accepted only if it still starts with the repository's canonical path
-([the rule](../constraints/the-repository-is-the-boundary.md)). It must then be
+accepted only if it still starts with the served folder's canonical path
+([the rule](../constraints/the-served-folder-is-the-boundary.md)). It must then be
 a regular file. Anything else — a path escaping with `..`, a symbolic link
 pointing outside, a missing file, a folder — gets `404` with the body
-`<path> is not part of this repository`. A file that exists but can't be read
+`<path> is not part of the served folder`. A file that exists but can't be read
 gets `500` with the error's text.
 
 ## Which document a file belongs to
 
-devpage keeps an index of the repository's **document files**: every `.yml` or
-`.yaml` file, outside what git ignores, whose top-level `kind` is `site`, `doc`
+devpage keeps an index of the served folder's **document files**: every `.yml`
+or `.yaml` file, outside what `.gitignore` files exclude, whose top-level `kind` is `site`, `doc`
 or `slides`. It is built at start and updated as files change.
 
 - **A document file** is rendered as its kind: a site redirects to its root

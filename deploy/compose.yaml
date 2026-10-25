@@ -6,7 +6,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     volumes:
-      - comments:/srv/docs/.devpage
+      - comments:/srv/.devpage
   proxy:
     image: caddy:2
     ports:

@@ -61,15 +61,16 @@ RUN cargo install devpage --version 0.1.0 --locked
 FROM debian:bookworm-slim
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY docs /srv/docs
+WORKDIR /srv
 EXPOSE 3030
-CMD ["devpage", "/srv/docs", "--host", "0.0.0.0", "--port", "3030"]
+CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 ```
 
 Build it from the repository root: `docker build -f deploy/Dockerfile .`. The
 docs are baked in, so a docs change is a new image, shipped like any other.
-There is no git in the image, so the [repository](../writing-a-document/README.md#the-repository)
-is `/srv/docs` itself and the comment store is `/srv/docs/.devpage/comments`.
-**Mount a volume at `/srv/docs/.devpage`** so comments survive a new image, and
+devpage runs from `/srv`, so the [served folder](../writing-a-document/README.md#the-served-folder)
+is `/srv` and the comment store is `/srv/.devpage/comments`.
+**Mount a volume at `/srv/.devpage`** so comments survive a new image, and
 run **one replica**: the store is files, written by one process.
 
 ## Trying it with Docker Compose
