@@ -48,7 +48,7 @@ flowchart LR
   edit["Save a file"] -.->|"live update"| open["Open pages swap in place"]
   open <--> comments["Comments<br/>.devpage/"]
   click yml href "./boxes/viewer/writing-a-document/README.md#the-document-file" "The document file"
-  click site href "./boxes/viewer/organizing-navigation/README.md" "How Topics build the sidebar"
+  click site href "./boxes/viewer/making-a-site/README.md" "Making a site"
   click doc href "./boxes/viewer/writing-a-doc/README.md" "Writing a doc"
   click slides href "./boxes/viewer/making-slides/README.md" "Making slides"
   click open href "./boxes/viewer/live-updates/README.md" "How open pages stay current"

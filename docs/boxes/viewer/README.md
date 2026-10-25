@@ -138,6 +138,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [Writing a document](writing-a-document/README.md) — the three kinds, the
   document file, the served folder, links between pages and documents, and the
   Markdown that works.
+- [Making a site](making-a-site/README.md) — a site's document file, root page,
+  sidebar, navbar, logo and theme switch.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the

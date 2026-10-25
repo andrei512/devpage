@@ -11,5 +11,6 @@ navbar:
   (github): https://github.com/andrei512/devpage
 ```
 
-Teaches it: [Organizing navigation](../boxes/viewer/organizing-navigation/README.md),
+Teaches it: [Making a site](../boxes/viewer/making-a-site/README.md),
+[Organizing navigation](../boxes/viewer/organizing-navigation/README.md),
 [Choosing a theme](../boxes/viewer/diagrams-and-themes/README.md#choosing-a-theme).
