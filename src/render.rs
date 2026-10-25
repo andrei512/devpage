@@ -89,16 +89,34 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) -> String {
     let mut content = String::new();
     let mut outline = String::new();
+    // Several chapters share one page, so each one's ids are prefixed with its
+    // name, and links to a chapter or its headings point at those ids.
+    let names: Vec<(PathBuf, String)> = chapters
+        .iter()
+        .map(|chapter| {
+            let canonical = chapter.canonicalize().unwrap_or_else(|_| chapter.clone());
+            let name = chapter
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            (canonical, name)
+        })
+        .collect();
     for chapter in chapters {
         let source = std::fs::read_to_string(chapter).unwrap_or_default();
-        let html = markdown(&source);
+        let mut html = markdown(&source);
+        if chapters.len() > 1 {
+            html = scope_ids(&html, chapter, &names);
+        }
         for (level, id, text) in headings(&html) {
             outline.push_str(&format!(
                 "<li class=\"h{level}\"><a href=\"#{id}\">{text}</a></li>"
             ));
         }
         content.push_str(&format!(
-            "<section class=\"chapter\" data-source=\"{}\">{html}</section>",
+            "<section class=\"chapter\" id=\"{}\" data-source=\"{}\">{html}</section>",
+            chapter_name(chapter, &names),
             document.url(chapter)
         ));
     }
@@ -146,6 +164,58 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
             problems(document, chapters)
         },
     )
+}
+
+fn chapter_name(chapter: &Path, names: &[(PathBuf, String)]) -> String {
+    let canonical = chapter
+        .canonicalize()
+        .unwrap_or_else(|_| chapter.to_path_buf());
+    names
+        .iter()
+        .find(|(path, _)| *path == canonical)
+        .map(|(_, name)| name.clone())
+        .unwrap_or_default()
+}
+
+/// Prefixes a chapter's ids with its name and points links at the doc's ids:
+/// `#why` → `#context--why`, `rollout.md#steps` → `#rollout--steps`,
+/// `rollout.md` → `#rollout`.
+fn scope_ids(html: &str, chapter: &Path, names: &[(PathBuf, String)]) -> String {
+    let own = chapter_name(chapter, names);
+    let html = html.replace(" id=\"", &format!(" id=\"{own}--"));
+    let mut out = String::new();
+    let mut rest = html.as_str();
+    while let Some(at) = rest.find(" href=\"") {
+        out.push_str(&rest[..at + 7]);
+        rest = &rest[at + 7..];
+        let end = rest.find('"').unwrap_or(rest.len());
+        let href = &rest[..end];
+        let (path, fragment) = href.split_once('#').unwrap_or((href, ""));
+        let target = if path.is_empty() {
+            Some(own.clone())
+        } else if href.contains("://") {
+            None
+        } else {
+            let resolved = chapter
+                .parent()
+                .unwrap_or(Path::new("."))
+                .join(path)
+                .canonicalize()
+                .ok();
+            names
+                .iter()
+                .find(|(file, _)| Some(file) == resolved.as_ref())
+                .map(|(_, name)| name.clone())
+        };
+        match target {
+            Some(name) if fragment.is_empty() => out.push_str(&format!("#{name}")),
+            Some(name) => out.push_str(&format!("#{name}--{fragment}")),
+            None => out.push_str(href),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// The page's problems, listed above it, with each broken link marked.
@@ -331,7 +401,11 @@ mod tests {
     fn a_doc_renders_its_chapters_in_order_with_an_outline() {
         let dir = std::env::temp_dir().join(format!("devpage-render-doc-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("a.md"), "# Context\n\n## Why\n\ntext").unwrap();
+        std::fs::write(
+            dir.join("a.md"),
+            "# Context\n\n## Why\n\nSee [it](b.md#rollout), [here](#why), [web](https://x.y/a.md).",
+        )
+        .unwrap();
         std::fs::write(dir.join("b.md"), "# Rollout\n").unwrap();
         std::fs::write(
             dir.join("d.yml"),
@@ -348,7 +422,10 @@ mod tests {
             html.find(">Rollout<").unwrap(),
         );
         assert!(context < rollout);
-        assert!(html.contains("href=\"#why\">Why</a>"), "{html}");
+        assert!(html.contains("href=\"#a--why\">Why</a>"), "{html}");
+        assert!(html.contains("id=\"a--why\""), "{html}");
+        assert!(html.contains("href=\"#b--rollout\""), "{html}");
+        assert!(html.contains("href=\"https://x.y/a.md\""), "{html}");
         assert!(html.contains("size: A4"));
         let print = doc(&document, chapters, pdf, true);
         assert!(!print.contains("class=\"outline\""));
