@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.89"
 description = "The design engine: parses, resolves, lays out and paints devpage designs"
 license = "MIT"
-publish = false
+repository = "https://github.com/andrei512/devpage"
 
 [dependencies]
 parley = "0.12.0"
@@ -14,7 +14,13 @@ vello_cpu = "0.3.0"
 prost = "0.14.4"
 png = "0.18.1"
 zune-jpeg = "0.5.15"
+tonic = { version = "0.14.6", default-features = false, features = ["codegen"], optional = true }
+tonic-prost = { version = "0.14.6", optional = true }
+
+[features]
+# The server side of the `Designs` watch service, which `devpage` serves.
+server = ["dep:tonic", "dep:tonic-prost"]
 
 [build-dependencies]
-prost-build = "0.14.4"
 protox = "0.10.0"
+tonic-prost-build = { version = "0.14.6", default-features = false }

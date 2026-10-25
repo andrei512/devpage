@@ -17,14 +17,10 @@ cargo build                 # debug build, target/debug/devpage
 cargo run -- docs           # build if needed, then serve these docs
 ```
 
-Building devpage also builds the [design engine](../../viewer/design-engine/README.md)
-for the browser: `build.rs` runs a nested `cargo build` of
-`devpage-design-wasm` for `wasm32-unknown-unknown`, in the size-optimised
-`wasm` profile, into its own folder under `target/`, then runs wasm-bindgen on
-it as a library ([Dependencies](../dependencies/README.md#build-dependencies-of-devpage)).
-`rust-toolchain.toml` names that target, so rustup adds it on the first build.
-The engine is compiled twice — natively and for WebAssembly — so a build that
-touches it takes correspondingly longer.
+Building devpage builds no WebAssembly: the
+[design engine](../../viewer/design-engine/README.md)'s module for the browser
+is [vendored](#the-vendored-design-engine) in `assets/vendor/`, and the binary
+embeds it.
 
 Run it from the repository root: the folder devpage starts from is the
 [served folder](../../viewer/writing-a-document/README.md#the-served-folder),
@@ -34,6 +30,31 @@ devpage, so `cargo run -- check docs` and `cargo run -- pdf examples/sync-design
 work the way an installed `devpage` would. It prints the address —
 `http://localhost:3030`, or the next free port up if another devpage already
 holds 3030.
+
+### The vendored design engine
+
+`assets/vendor/design-engine.wasm` and `assets/vendor/design-engine.js` are
+the engine built for the browser and its bindings, committed like the pele
+bundle. Rebuild them after changing anything they are built from:
+
+```sh
+cargo run -p devpage-design-module
+```
+
+It builds `devpage-design-wasm` for `wasm32-unknown-unknown` in the
+size-optimised `wasm` profile, into `target/design-module/`, runs wasm-bindgen
+on it as a library, and writes the two files and
+`assets/vendor/design-engine.fingerprint`
+([Dependencies](../dependencies/README.md#devpage-design-module-the-modules-builder)).
+The target is the one `rust-toolchain.toml` names, so rustup adds it in a
+checkout; nothing else needs it. The fingerprint is a SHA-256 of everything
+the module is built from: every file in `design/src/`, `design/fonts/`,
+`design/proto/`, `design/wasm/src/` and `design/module/src/`, the three crates'
+`Cargo.toml` and `design/build.rs`, the `wasm` profile, and the locked version
+of every package in the module's and wasm-bindgen's dependency trees. The
+toolchain is recorded beside it but not hashed, so the same sources give the
+same fingerprint on every machine. `cargo test` fails while the recorded
+fingerprint differs from the sources', and says to run the command.
 
 ## The edit–save–refresh loop
 
@@ -47,18 +68,18 @@ What you edit decides what you have to do to see it:
 | Rust code in `src/` | Stop devpage (Ctrl-C) and `cargo run` again, then reload the browser tab. A page reconnects to its event stream by itself, but doesn't fetch itself again on reconnecting. |
 | `assets/style.css`, `assets/devpage.js`, `assets/design.js`, `assets/vendor/pele.js` | Rebuild and restart — they are compiled into the binary with `include_str!` — then do a full reload of the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts. |
 | A `.design` file, or an image a design uses | Save. The design store resolves again the designs made from that file and the open canvases redraw in place ([Designs](../../viewer/designs/README.md)). |
-| The engine in `design/src/`, the module in `design/wasm/src/`, or `proto/design.proto` | Rebuild and restart, then do a full reload of the tab: `build.rs` rebuilds the WebAssembly module and its bindings whenever these change, and the binary embeds them. After changing what the engine draws, run `DEVPAGE_UPDATE_REFERENCES=1 cargo test -p devpage-design` to rewrite the reference PNGs in `design/testdata/`, and look at them before committing. |
+| The engine in `design/src/`, the module in `design/wasm/src/`, or `design/proto/design.proto` | Run `cargo run -p devpage-design-module` to rebuild the [vendored module](#the-vendored-design-engine), then rebuild and restart devpage, and do a full reload of the tab — the binary embeds the module. After changing what the engine draws, run `DEVPAGE_UPDATE_REFERENCES=1 cargo test -p devpage-design` to rewrite the reference PNGs in `design/testdata/`, and look at them before committing. |
 
 ## Tests
 
 ```sh
-cargo test                  # 110 tests in the three crates; needs no network and no Chrome
+cargo test                  # 112 tests in the four crates; needs no network and no Chrome
 cargo test -- --ignored     # the 24 tests that drive chrome-headless-shell
 ```
 
 `cargo test` runs every crate in the workspace: 70 in `devpage`, 37 in the
-engine `devpage-design` and 3 in `devpage-design-wasm`, whose tests run
-natively. Tests are written as `#[cfg(test)]` modules beside the code they
+engine `devpage-design`, 3 in `devpage-design-wasm`, whose tests run
+natively, and 2 in `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside the code they
 test — the canvas's Chrome tests in `src/designs/canvas_tests.rs`, a child
 module of `designs`; there is no `tests/` folder. Route tests start the real router on a free port on
 `127.0.0.1` and talk to it with `reqwest`; external-link tests point the
@@ -109,7 +130,10 @@ The engine's tests pin, in `devpage-design`:
 
 and in `devpage-design-wasm`, 3: a scene sized, painted and hit-tested; a
 patch before any scene, or garbage, doing nothing; problems keeping the scene
-until a patch clears them.
+until a patch clears them; and in `devpage-design-module`, 2: the vendored
+module built from the sources as they are, and the fingerprint changing with
+an engine source, the `wasm` profile and a locked version in the module's
+tree, but not with a package outside it.
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.
@@ -140,9 +164,10 @@ for you: run them by hand before you push. See
 ## The code
 
 devpage is one binary — `main.rs` and eleven modules — with six built-in
-assets, and the [design engine](../../viewer/design-engine/README.md) in two
-workspace crates beside it: `design/` (`devpage-design`) and `design/wasm/`
-(`devpage-design-wasm`).
+assets, and the [design engine](../../viewer/design-engine/README.md) in three
+workspace crates beside it: `design/` (`devpage-design`), `design/wasm/`
+(`devpage-design-wasm`) and `design/module/` (`devpage-design-module`, which
+vendors the module).
 Each part of the diagram opens the page that explains it.
 
 ```mermaid
@@ -191,8 +216,9 @@ flowchart LR
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
 | `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted, downloading the shell the first time. |
-| `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages). |
+| `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages, and with the `server` feature the `Designs` service). |
 | `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas — apply, lay out, paint on the CPU, hit-test; `gpu.rs`, the GPU backend on WebGPU. |
+| `design/module/src/` | The module's builder: `main.rs` builds and vendors it, `lib.rs` computes and checks the fingerprint. |
 
 What each crate does is in [Dependencies](../dependencies/README.md).
 

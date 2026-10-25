@@ -15,20 +15,17 @@ starting it. It is a task page under the [devpage landing page](README.md);
   machine: the first time it prints, it downloads chrome-headless-shell once
   into devpage's cache folder and uses that from then on
   ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
-- **The `wasm32-unknown-unknown` target**, because building devpage also
-  builds the [design engine](boxes/viewer/design-engine/README.md) for the
-  browser: `rustup target add wasm32-unknown-unknown`. In a checkout,
-  `rust-toolchain.toml` names the target and rustup adds it on the first build.
-
-Nothing else is needed: the stylesheet, the page script, the diagram renderer
-and the design engine's WebAssembly module are compiled into the binary;
-diagrams are drawn by the reader's browser, and designs by the module. No
-`protoc` and no wasm-bindgen CLI are needed: the build compiles the protobuf
-file and generates the module's bindings with Rust libraries
-([Dependencies](boxes/engineering/dependencies/README.md#build-dependencies-of-devpage)).
-The first build downloads the crates of all three workspace crates — the
-WebAssembly module's included — and compiles the design engine twice, once
-for your machine and once for the browser.
+Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
+no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer and
+the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
+are compiled into the binary; the module is
+[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), built
+once and committed beside the code, so installing devpage builds no
+WebAssembly. Diagrams are drawn by the reader's browser, and designs by the
+module. The engine's protobuf file is compiled with a Rust library
+([Dependencies](boxes/engineering/dependencies/README.md#devpage-design-the-design-engine)).
+The first build downloads the crates `devpage` and `devpage-design` use and
+compiles the engine once, for your machine.
 
 The result is one file. A release build of `devpage` for 64-bit ARM macOS is
 about 34 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as a
@@ -55,7 +52,10 @@ cargo install --path . --locked     # onto your PATH
 cargo build --release               # or just build: target/release/devpage
 ```
 
-Without installing, `cargo run -- <path>` runs it from the checkout.
+Without installing, `cargo run -- <path>` runs it from the checkout. In a
+checkout, rustup also adds the `wasm32-unknown-unknown` target that
+`rust-toolchain.toml` names; only rebuilding the vendored design engine uses
+it ([Developing devpage](boxes/engineering/developing-devpage/README.md)).
 
 ## Run it
 
