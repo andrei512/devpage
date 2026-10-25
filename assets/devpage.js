@@ -37,6 +37,7 @@ async function load(url) {
   document.title = next.title;
   drawDiagrams(document.getElementById("page"));
   showSlide();
+  loadComments();
   return true;
 }
 
@@ -63,6 +64,137 @@ document.addEventListener("click", async (event) => {
   }
 });
 
+
+// Comments: threads anchored to rendered text, kept by the server in
+// .devpage/comments/. Each section with a data-source is one page's text.
+const sources = () => [...document.querySelectorAll("[data-source]")];
+
+async function loadComments() {
+  if (print) return;
+  document.querySelectorAll("mark.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
+  let panel = document.getElementById("comments");
+  if (!panel) {
+    panel = document.createElement("aside");
+    panel.id = "comments";
+    document.body.append(panel);
+  }
+  panel.replaceChildren();
+  const detached = [];
+  for (const section of sources()) {
+    const page = section.dataset.source;
+    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-store" });
+    if (!response.ok) continue;
+    for (const thread of await response.json()) {
+      const mark = highlight(section, thread.anchor);
+      const card = threadCard(page, thread);
+      if (mark) {
+        mark.addEventListener("click", () => card.scrollIntoView({ block: "nearest" }));
+        panel.append(card);
+      } else {
+        detached.push(card);
+      }
+    }
+  }
+  if (detached.length) {
+    const heading = document.createElement("h3");
+    heading.textContent = "Detached comments";
+    panel.prepend(heading, ...detached);
+  }
+}
+
+// Wraps the first occurrence of prefix+quote+suffix (or just the quote) in a mark.
+function highlight(section, anchor) {
+  const nodes = [];
+  const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
+  let text = "";
+  while (walker.nextNode()) {
+    nodes.push({ node: walker.currentNode, start: text.length });
+    text += walker.currentNode.data;
+  }
+  let at = text.indexOf(anchor.prefix + anchor.quote + anchor.suffix);
+  at = at >= 0 ? at + anchor.prefix.length : text.indexOf(anchor.quote);
+  if (at < 0 || !anchor.quote) return null;
+  const locate = (offset) => {
+    const hit = nodes.findLast((n) => n.start <= offset);
+    return [hit.node, offset - hit.start];
+  };
+  const range = document.createRange();
+  range.setStart(...locate(at));
+  range.setEnd(...locate(at + anchor.quote.length));
+  const mark = document.createElement("mark");
+  mark.className = "comment";
+  try {
+    range.surroundContents(mark);
+  } catch {
+    mark.append(range.extractContents());
+    range.insertNode(mark);
+  }
+  return mark;
+}
+
+function threadCard(page, thread) {
+  const card = document.createElement("div");
+  card.className = "thread";
+  const quote = document.createElement("blockquote");
+  quote.textContent = thread.anchor.quote;
+  card.append(quote);
+  for (const message of thread.thread) {
+    const p = document.createElement("p");
+    p.innerHTML = "<b></b> ";
+    p.firstChild.textContent = message.author;
+    p.append(message.text);
+    card.append(p);
+  }
+  const reply = document.createElement("input");
+  reply.placeholder = "Reply";
+  reply.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && reply.value) post("reply", { page, id: thread.id, text: reply.value });
+  });
+  const resolve = document.createElement("button");
+  resolve.textContent = "Resolve";
+  resolve.addEventListener("click", () => post("resolve", { page, id: thread.id }));
+  card.append(reply, resolve);
+  return card;
+}
+
+async function post(action, body) {
+  const url = action ? `/__devpage/comments/${action}` : "/__devpage/comments";
+  await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+}
+
+// Selecting text inside one source offers a comment on it.
+document.addEventListener("mouseup", () => {
+  document.getElementById("comment-button")?.remove();
+  const selection = getSelection();
+  if (print || selection.isCollapsed) return;
+  const range = selection.getRangeAt(0);
+  const section = range.commonAncestorContainer.parentElement?.closest("[data-source]");
+  if (!section) return;
+  const before = document.createRange();
+  before.setStart(section, 0);
+  before.setEnd(range.startContainer, range.startOffset);
+  const after = document.createRange();
+  after.setStart(range.endContainer, range.endOffset);
+  after.setEndAfter(section.lastChild);
+  const anchor = {
+    quote: range.toString(),
+    prefix: before.toString().slice(-32),
+    suffix: after.toString().slice(0, 32),
+  };
+  const button = document.createElement("button");
+  button.id = "comment-button";
+  button.textContent = "Comment";
+  const rect = range.getBoundingClientRect();
+  button.style.cssText = `position:absolute;top:${scrollY + rect.bottom + 6}px;left:${scrollX + rect.left}px`;
+  button.addEventListener("mousedown", (event) => event.preventDefault());
+  button.addEventListener("click", () => {
+    const text = prompt("Comment");
+    button.remove();
+    if (text) post("", { page: section.dataset.source, anchor, text });
+  });
+  document.body.append(button);
+});
+
 window.addEventListener("popstate", () => load(location.href));
 
 // The live-update stream, open only while the tab is visible.
@@ -71,7 +203,13 @@ let stream = null;
 function connect() {
   if (stream) return;
   stream = new EventSource("/__devpage/events");
-  stream.onmessage = () => load(location.href);
+  stream.onmessage = (event) => {
+    if (event.data.startsWith("comments ")) {
+      if (sources().some((s) => s.dataset.source === event.data.slice(9))) loadComments();
+    } else {
+      load(location.href);
+    }
+  };
 }
 
 function disconnect() {
@@ -106,6 +244,7 @@ function showSlide() {
 }
 
 document.addEventListener("keydown", (event) => {
+  if (event.target.closest?.("input, textarea")) return;
   const state = showSlide();
   if (!state) return;
   const go = (n) => { location.hash = `#${Math.min(Math.max(n, 1), state.count)}`; };
@@ -113,6 +252,7 @@ document.addEventListener("keydown", (event) => {
   else if (["ArrowLeft", "PageUp", "ArrowUp"].includes(event.key)) go(state.index - 1);
   else if (event.key === "Home") go(1);
   else if (event.key === "End") go(state.count);
+  else if (event.key === "c") document.body.classList.toggle("show-comments");
   else if (event.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   else return;
   event.preventDefault();
@@ -122,6 +262,7 @@ window.addEventListener("resize", showSlide);
 
 drawDiagrams(document);
 showSlide();
+loadComments();
 // Print mode has no live connection; Chrome waits for this before printing.
 document.documentElement.dataset.ready = "true";
 if (!print && !document.hidden) connect();

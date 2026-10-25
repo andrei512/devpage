@@ -210,3 +210,16 @@ body.slides { display: block; background: #000; overflow: hidden; }
   .deck .slide:not(:last-child) { break-after: page; }
   body.slides, .deck { margin: 0; padding: 0; }
 }
+
+/* Comments: highlighted anchors, threads in a panel on the right. */
+
+mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; }
+#comments { width: 300px; flex-shrink: 0; padding: 56px 16px; font-size: 14px; }
+#comments:empty { display: none; }
+#comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
+#comments blockquote { margin: 0 0 6px; color: var(--muted); border-left: 3px solid var(--accent); padding-left: 8px; }
+#comments p { margin: 4px 0; }
+#comments input { width: 100%; margin: 6px 0; }
+body.slides #comments { position: fixed; right: 0; top: 0; bottom: 0; overflow: auto; background: var(--background); z-index: 2; display: none; }
+body.slides.show-comments #comments { display: block; }
+@media print { #comments, #comment-button { display: none; } mark.comment { background: none; } }

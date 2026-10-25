@@ -12,7 +12,7 @@ use crate::document::Document;
 /// returned watcher stops when dropped.
 pub fn start(
     document: Arc<Document>,
-    changes: broadcast::Sender<()>,
+    changes: broadcast::Sender<String>,
 ) -> Result<RecommendedWatcher> {
     let base = document.repo.clone();
     // What git ignores — build output, dependencies — never refreshes a page.
@@ -22,17 +22,29 @@ pub fn start(
         if event.kind.is_access() {
             return;
         }
-        let inside = event.paths.iter().any(|path| {
+        for path in &event.paths {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            path.strip_prefix(&document.repo).is_ok_and(|relative| {
-                !relative.starts_with(".git")
-                    && !ignored
-                        .matched_path_or_any_parents(relative, path.is_dir())
-                        .is_ignore()
-            })
-        });
-        if inside {
-            let _ = changes.send(());
+            let Ok(relative) = path.strip_prefix(&document.repo) else {
+                continue;
+            };
+            // A thread changed: tell the pages showing its page to fetch comments.
+            if let Ok(thread) = relative.strip_prefix(".devpage/comments") {
+                if thread.extension().is_some_and(|ext| ext == "yml")
+                    && let Some(page) = thread.parent()
+                {
+                    let _ = changes.send(format!("comments /{}", page.display()));
+                }
+                return;
+            }
+            let skipped = relative.starts_with(".git")
+                || relative.starts_with(".devpage")
+                || ignored
+                    .matched_path_or_any_parents(relative, path.is_dir())
+                    .is_ignore();
+            if !skipped {
+                let _ = changes.send("change".into());
+                return;
+            }
         }
     })?;
     watcher.watch(&base, RecursiveMode::Recursive)?;

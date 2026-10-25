@@ -64,7 +64,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 <a class="document-title{root_class}" href="/">{document}</a>
 {nav}
 </nav>
-<main id="page"><article>{content}</article></main>
+<main id="page"><article data-source="{current}">{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
@@ -95,7 +95,10 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
                 "<li class=\"h{level}\"><a href=\"#{id}\">{text}</a></li>"
             ));
         }
-        content.push_str(&format!("<section class=\"chapter\">{html}</section>"));
+        content.push_str(&format!(
+            "<section class=\"chapter\" data-source=\"{}\">{html}</section>",
+            document.url(chapter)
+        ));
     }
     let paper = match pdf.paper {
         Paper::A4 => "A4",
@@ -145,8 +148,9 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
     for (index, slide) in slides.iter().enumerate() {
         let source = std::fs::read_to_string(slide).unwrap_or_default();
         content.push_str(&format!(
-            "<section class=\"slide\" data-slide=\"{}\"><div class=\"slide-body\">{}</div></section>",
+            "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
+            document.url(slide),
             markdown(&source)
         ));
     }

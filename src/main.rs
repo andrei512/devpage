@@ -1,6 +1,7 @@
 //! devpage: serves the documents of a repository — sites, docs and slides
 //! written in Markdown — live in the browser, and prints them to PDF.
 
+mod comments;
 mod document;
 mod highlight;
 mod nav;
