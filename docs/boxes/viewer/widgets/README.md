@@ -176,12 +176,46 @@ renders:
 
 ## Under the hood
 
-When devpage renders a page, it finds the tags of known widgets in the
-Markdown, parses their props, and renders their content as Markdown. Each
-widget becomes a placeholder element carrying its name, its props' source and
-its rendered content. In the browser, the page script loads React — vendored
-into devpage, like pele — and the page's widgets, compiled from TSX by `oxc`
-and served under `/__devpage/widgets/`, then mounts each placeholder: on page
-load, and again after every live update. The system widgets are `.tsx` files in
-devpage's own `assets/widgets/`, compiled the same way and built into the
-binary.
+**On the server** (`src/widgets.rs`), rendering a page finds the tags of known
+widgets in its Markdown — skipping fenced and inline code — and turns each into
+a placeholder: a `div` for a widget on its own line, a `span` for one inside a
+line of text. The placeholder carries the widget's name, its props as a
+JavaScript object literal (quoted values as strings, `{…}` as written, bare
+attributes as `true`) and its Markdown source; its content stays between the
+tags for comrak to render as Markdown. The page's `<head>` gets an import map
+naming React, and the list of the document's widgets with the address of each.
+
+**Compiling.** A widget or helper is compiled from TSX by `oxc` when the
+browser asks for it, with React's automatic JSX runtime. Capitalized names a
+widget uses without declaring them are other widgets: the compiled module looks
+each up by name when it renders, and lists them in `__devpageUses`. A system
+widget composes only system widgets; a project widget composes the system
+widgets and those of the document whose widgets folder holds it. Every project
+widget's address carries its folder's **version** — the latest change time of
+the folder and its `.ts` and `.tsx` files — and so does every relative import
+inside it, so an edited widget or helper is fetched afresh rather than taken
+from the browser's module cache. Compiled modules are remembered, keyed by the
+file, its source, the names it can use and the version, so a widget compiles
+once per change, not once per request. A file that doesn't compile is served as
+a module that throws the compiler's message.
+
+| Address | What it serves |
+| --- | --- |
+| `/__devpage/react.js` | React and react-dom, [vendored](../vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
+| `/__devpage/system-widgets/<Name>.tsx` | A system widget, compiled from `assets/widgets/`, built into the binary |
+| `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; an import without an extension finds the `.tsx` or `.ts` |
+
+**In the browser** (`assets/devpage.js`), each `pre[lang="mermaid"]` first
+becomes a `Diagram` placeholder. Then the page script loads only the widgets the
+content names, nested ones included, and those each lists in `__devpageUses`;
+adds a widget's exported `css` to the page once; and mounts each outermost
+placeholder with React. Nested widgets become React elements their parent can
+read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped
+in an error boundary that shows a failure in its place. Each widget gets its
+props, `children`, `source` and `html`. Mounting happens on page load and again
+after every live update, which takes the fresh page's widget list, so new
+versions are fetched. The page marks itself ready only once every widget has
+mounted, which is what `devpage pdf` waits for.
+
+Widget and helper files refresh open pages whatever a site's `watch` list says
+([Live updates](../live-updates/README.md#the-watcher)).

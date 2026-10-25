@@ -236,10 +236,15 @@ async fn events(
 }
 
 /// A system widget, compiled from the TSX built into the binary.
-async fn system_widget(State(state): State<AppState>, Path(name): Path<String>) -> Response {
+async fn system_widget(Path(name): Path<String>) -> Response {
     let stem = name.trim_end_matches(".tsx");
+    // System widgets compose only each other.
+    let known: Vec<String> = crate::widgets::SYSTEM
+        .iter()
+        .map(|(name, _)| name.to_string())
+        .collect();
     match crate::widgets::system(stem) {
-        Some(source) => compiled(std::path::Path::new(&name), source, &known(&state)),
+        Some(source) => compiled(std::path::Path::new(&name), source, &known, None),
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -258,16 +263,30 @@ async fn project_widget(State(state): State<AppState>, Path(path): Path<String>)
         )
             .into_response();
     };
+    let folder = file.parent().unwrap_or(&file).to_path_buf();
+    let version = crate::widgets::version(&folder);
     match std::fs::read_to_string(&file) {
-        Ok(source) => compiled(&file, &source, &known(&state)),
+        Ok(source) => compiled(&file, &source, &known(&state, &folder), Some(version)),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
 
-/// The names a widget can render by name: the system widgets and the entry
-/// document's own.
-fn known(state: &AppState) -> Vec<String> {
-    crate::widgets::Widgets::of(&state.entry.document())
+/// The names a widget in `folder` can render by name: the system widgets and
+/// those of the document whose widgets folder it is — the entry document's
+/// when no other names it.
+fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
+    let entry = state.entry.document();
+    let owner = if entry.widgets.as_deref() == Some(folder) {
+        None
+    } else {
+        state
+            .index
+            .documents()
+            .into_iter()
+            .filter_map(|file| crate::document::Document::load(&file, &entry.served).ok())
+            .find(|document| document.widgets.as_deref() == Some(folder))
+    };
+    crate::widgets::Widgets::of(owner.as_ref().unwrap_or(&entry))
         .modules
         .into_keys()
         .collect()
@@ -275,8 +294,13 @@ fn known(state: &AppState) -> Vec<String> {
 
 /// A compiled module, or — when it doesn't compile — a module that throws the
 /// compiler's message, so the page shows it in the widget's place.
-fn compiled(path: &std::path::Path, source: &str, known: &[String]) -> Response {
-    let body = match crate::widgets::compile(path, source, known) {
+fn compiled(
+    path: &std::path::Path,
+    source: &str,
+    known: &[String],
+    version: Option<u128>,
+) -> Response {
+    let body = match crate::widgets::compile_cached(path, source, known, version) {
         Ok(js) => js,
         Err(error) => format!(
             "throw new Error({});",
@@ -798,5 +822,102 @@ mod tests {
         assert_eq!(home_becomes(&address, "/a.md").await, (307, "/a.md".into()));
         let (_, page) = get(&format!("{address}/a.md")).await;
         assert!(!page.contains("not a valid document"), "{page}");
+    }
+
+    #[tokio::test]
+    async fn widgets_are_served_compiled_for_the_document_they_belong_to() {
+        let dir = served("widget-routes");
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        std::fs::create_dir_all(dir.join("notes/parts")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/Card.tsx"),
+            "import { label } from \"./label\";\nexport default () => <Callout>{label}</Callout>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/label.ts"),
+            "export const label = 'x';",
+        )
+        .unwrap();
+        std::fs::write(dir.join("docs/widgets/Broken.tsx"), "export default (").unwrap();
+        // Another document's widgets compose with that document's names.
+        std::fs::write(
+            dir.join("notes/talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md]\nwidgets: parts\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Pill.tsx"),
+            "export default () => <i>p</i>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Row.tsx"),
+            "export default () => <Pill />;",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+
+        let (status, system) = get(&format!("{base}/__devpage/system-widgets/Tabs.tsx")).await;
+        assert_eq!(status, 200);
+        assert!(system.contains("export const __devpageUses"), "{system}");
+        assert_eq!(
+            get(&format!("{base}/__devpage/system-widgets/Nope.tsx"))
+                .await
+                .0,
+            404
+        );
+
+        let version = crate::widgets::version(&dir.join("docs/widgets"));
+        let (status, card) = get(&format!(
+            "{base}/__devpage/widgets/docs/widgets/Card.tsx?v={version}"
+        ))
+        .await;
+        assert_eq!(status, 200);
+        assert!(card.contains(&format!("\"./label?v={version}\"")), "{card}");
+        assert!(card.contains("__devpageUses = [\"Callout\"]"), "{card}");
+        let (status, helper) = get(&format!(
+            "{base}/__devpage/widgets/docs/widgets/label?v={version}"
+        ))
+        .await;
+        assert_eq!(status, 200, "an import without an extension finds the .ts");
+        assert!(helper.contains("label"), "{helper}");
+
+        let (_, broken) = get(&format!("{base}/__devpage/widgets/docs/widgets/Broken.tsx")).await;
+        assert!(broken.starts_with("throw new Error("), "{broken}");
+
+        let (_, row) = get(&format!("{base}/__devpage/widgets/notes/parts/Row.tsx")).await;
+        assert!(row.contains("__devpageUses = [\"Pill\"]"), "{row}");
+
+        let (status, _) = get(&format!("{base}/__devpage/widgets/../secret.md")).await;
+        assert_eq!(status, 404);
+    }
+
+    #[tokio::test]
+    async fn a_page_names_its_widgets_and_carries_their_placeholders() {
+        let dir = served("widget-page");
+        std::fs::write(
+            dir.join("docs/README.md"),
+            "# Home\n\n<Callout kind=\"tip\">\nSome **bold**\n</Callout>\n\n```md\n<Callout>code</Callout>\n```\n",
+        )
+        .unwrap();
+        let base = serve(&dir, "docs").await;
+        let (_, page) = get(&format!("{base}/docs/README.md")).await;
+        assert!(page.contains("<script type=\"importmap\">"), "{page}");
+        assert!(
+            page.contains("\"Callout\":\"/__devpage/system-widgets/Callout.tsx\""),
+            "{page}"
+        );
+        assert_eq!(
+            page.matches("data-widget=\"Callout\"").count(),
+            1,
+            "code is left alone: {page}"
+        );
+        assert!(page.contains("<strong>bold</strong>"), "{page}");
     }
 }

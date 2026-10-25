@@ -6,4 +6,3 @@ widgets: widgets
 watch:
   - "**/*.md"
   - "**/*.yml"
-  - "widgets/*.tsx"

@@ -445,4 +445,281 @@ mod tests {
         browser.close().await.ok();
         events.abort();
     }
+
+    /// A served folder for the widget tests: `docs/` is a site with the given
+    /// README, and `files` are written beside it.
+    fn widget_folder(name: &str, readme: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("devpage-w-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: W\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("docs/README.md"), readme).unwrap();
+        for (file, text) in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        dir
+    }
+
+    /// Serves `dir` with `docs` as the entry and opens `path` in headless
+    /// Chrome, once every widget has mounted.
+    async fn open(
+        dir: &Path,
+        path: &str,
+    ) -> (
+        Browser,
+        chromiumoxide::Page,
+        tokio::task::JoinHandle<()>,
+        Profile,
+    ) {
+        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let profile = Profile::new();
+        let (browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
+            .await
+            .unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}{path}").as_str())
+            .await
+            .unwrap();
+        for _ in 0..50 {
+            let ready: Option<String> = page
+                .evaluate("document.documentElement.dataset.ready ?? null")
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok());
+            if ready.as_deref() == Some("true") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        (browser, page, events, profile)
+    }
+
+    async fn text(page: &chromiumoxide::Page, script: &str) -> String {
+        page.evaluate(script).await.unwrap().into_value().unwrap()
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn every_system_widget_renders() {
+        let readme = "# W\n\n<Callout kind=\"tip\" title=\"Heads up\">\nSome **bold**\n</Callout>\n\n<Tabs>\n<Tab title=\"One\">\n\nfirst tab\n\n</Tab>\n<Tab title=\"Two\">\n\nsecond tab\n\n</Tab>\n</Tabs>\n\n<Example>\nA *word*\n</Example>\n\n<FileTree>\n\n- garden/\n  - [devpage.yml](README.md) — the site\n  - README.md\n\n</FileTree>\n\n<Terminal>\n\n```\n$ devpage check docs\nall good\n```\n\n</Terminal>\n\nPress <Keys>⌘ P</Keys> to print.\n\n```mermaid\nflowchart LR\n  A --> B\n```\n";
+        let dir = widget_folder("system", readme, &[]);
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        let report = text(
+            &page,
+            r#"JSON.stringify({
+                callout: document.querySelector('aside.callout-tip strong')?.textContent + '|' + !!document.querySelector('aside.callout-tip .callout-body strong'),
+                tabs: [...document.querySelectorAll('.tabs-bar button')].map(b => b.textContent).join(',') + '|' + document.querySelector('.tabs-panel').textContent.trim(),
+                example: document.querySelector('.example-source').textContent.trim() + '|' + !!document.querySelector('.example-result em'),
+                tree: [...document.querySelectorAll('.filetree li')].map(li => li.className).join(',') + '|' + document.querySelector('.filetree a')?.getAttribute('href') + '|' + document.querySelector('.filetree-note')?.textContent,
+                terminal: document.querySelector('.terminal-command')?.textContent + '|' + document.querySelector('.terminal-output')?.textContent,
+                keys: document.querySelectorAll('.keys kbd').length,
+                diagram: !!document.querySelector('.diagram svg'),
+                errors: document.querySelectorAll('.widget-error').length,
+            })"#,
+        )
+        .await;
+        let v: serde_json::Value = serde_json::from_str(&report).unwrap();
+        assert_eq!(v["callout"], "Heads up|true", "{report}");
+        assert_eq!(v["tabs"], "One,Two|first tab", "{report}");
+        assert_eq!(v["example"], "A *word*|true", "{report}");
+        assert_eq!(v["tree"], "folder,file,file|README.md|the site", "{report}");
+        assert_eq!(v["terminal"], "$ devpage check docs|all good", "{report}");
+        assert_eq!(v["keys"], 2, "{report}");
+        assert_eq!(v["diagram"], true, "{report}");
+        assert_eq!(v["errors"], 0, "{report}");
+        // Clicking the second tab shows it.
+        page.evaluate("document.querySelectorAll('.tabs-bar button')[1].click()")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.tabs-panel').textContent.trim()"
+            )
+            .await,
+            "second tab"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
+        let dir = widget_folder(
+            "kinds",
+            "# W\n\n<Callout>home</Callout>\n",
+            &[
+                (
+                    "docs/widgets/Unused.tsx",
+                    "export default () => <b>never</b>;",
+                ),
+                (
+                    "docs/widgets/Badge.tsx",
+                    "export default ({ n }) => <span className=\"badge\">{n}</span>;",
+                ),
+                (
+                    "docs/widgets/Pair.tsx",
+                    "export default () => <div className=\"pair\"><Badge n={1} /><Badge n={2} /></div>;",
+                ),
+                (
+                    "docs/design/devpage.yml",
+                    "kind: doc\ntitle: D\nchapters: [one.md, two.md]\nwidgets: ../widgets\n",
+                ),
+                ("docs/design/one.md", "# One\n\n<Pair />\n"),
+                (
+                    "docs/design/two.md",
+                    "# Two\n\n<Callout kind=\"danger\">careful</Callout>\n",
+                ),
+                (
+                    "docs/talk/devpage.yml",
+                    "kind: slides\ntitle: T\nslides: [a.md]\n",
+                ),
+                ("docs/talk/a.md", "# A\n\nPress <Keys>→</Keys>\n"),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/design/devpage.yml").await;
+        assert_eq!(
+            text(&page, "document.querySelectorAll('.pair .badge').length + ':' + document.querySelectorAll('aside.callout-danger').length").await,
+            "2:1"
+        );
+        // Only the widgets the page names, and what they render, were fetched.
+        let fetched = text(&page, "performance.getEntriesByType('resource').map(r => r.name).filter(n => n.includes('/__devpage/widgets/')).map(n => n.split('/').pop().split('?')[0]).sort().join(',')").await;
+        assert_eq!(fetched, "Badge.tsx,Pair.tsx", "{fetched}");
+        page.goto(
+            page.url()
+                .await
+                .unwrap()
+                .unwrap()
+                .replace("/docs/design/devpage.yml", "/docs/talk/devpage.yml"),
+        )
+        .await
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+        assert_eq!(
+            text(
+                &page,
+                "String(document.querySelectorAll('.slide .keys kbd').length)"
+            )
+            .await,
+            "1"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn an_edited_helper_reaches_open_pages() {
+        let dir = widget_folder(
+            "helper",
+            "# W\n\n<Label />\n",
+            &[
+                (
+                    "docs/widgets/Label.tsx",
+                    "import { word } from \"./word\";\nexport default () => <span className=\"label\">{word}</span>;",
+                ),
+                ("docs/widgets/word.ts", "export const word = \"before\";"),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "before"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        std::fs::write(
+            dir.join("docs/widgets/word.ts"),
+            "export const word = \"after\";",
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "after"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_comment_anchors_on_text_inside_a_widget() {
+        let dir = widget_folder(
+            "comment",
+            "# W\n\n<Callout>\nThe proxy names the reader.\n</Callout>\n",
+            &[(
+                ".devpage/comments/docs/README.md/20261025T000000Z-0001.yml",
+                "anchor:\n  quote: names the reader\n  prefix: 'The proxy '\n  suffix: .\nthread:\n- author: T\n  at: 2026-10-25T00:00:00Z\n  text: which header?\n",
+            )],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('aside.callout mark.comment')?.textContent ?? 'none'"
+            )
+            .await,
+            "names the reader"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_printed_doc_shows_each_widgets_first_render() {
+        let dir = widget_folder(
+            "print",
+            "# W\n",
+            &[
+                (
+                    "docs/design/devpage.yml",
+                    "kind: doc\ntitle: D\nchapters: [one.md]\n",
+                ),
+                (
+                    "docs/design/one.md",
+                    "# One\n\n<Tabs>\n<Tab title=\"First\">\n\nshown on paper\n\n</Tab>\n<Tab title=\"Second\">\n\nonly on screen\n\n</Tab>\n</Tabs>\n",
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile) =
+            open(&dir, "/docs/design/devpage.yml?print").await;
+        assert_eq!(
+            text(&page, "document.documentElement.dataset.ready + ':' + document.querySelector('.tabs-panel').textContent.trim() + ':' + document.body.textContent.includes('only on screen')").await,
+            "true:shown on paper:false"
+        );
+        browser.close().await.ok();
+        events.abort();
+        let document = Arc::new(Document::load(&dir.join("docs/design"), &dir).unwrap());
+        let out = dir.join("d.pdf");
+        print(document, &out).await.unwrap();
+        assert!(!pages(&std::fs::read(&out).unwrap()).is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }
