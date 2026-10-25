@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
 
 /// What a thread is attached to: rendered text, with a little context.
@@ -38,6 +38,9 @@ pub struct Listed {
     #[serde(flatten)]
     pub thread: Thread,
 }
+
+/// Thread files that don't parse, each with its error.
+type Unparsable = Vec<(PathBuf, String)>;
 
 pub struct Store {
     root: PathBuf,
@@ -80,28 +83,41 @@ impl Store {
         Ok(())
     }
 
+    /// A page's threads, oldest first. A thread file that doesn't parse is
+    /// left out — and left alone; [`problems`] names it.
     pub fn list(&self, page: &str) -> Result<Vec<Listed>> {
+        Ok(self.read(page)?.0)
+    }
+
+    /// The page's threads, and the thread files that don't parse with why.
+    fn read(&self, page: &str) -> Result<(Vec<Listed>, Unparsable)> {
         let Ok(entries) = std::fs::read_dir(self.folder(page)?) else {
-            return Ok(Vec::new());
+            return Ok(Default::default());
         };
-        let mut listed = Vec::new();
+        let (mut listed, mut broken) = (Vec::new(), Vec::new());
         for entry in entries.flatten() {
             let path = entry.path();
             if path.extension().is_none_or(|ext| ext != "yml") {
                 continue;
             }
-            let text = std::fs::read_to_string(&path)?;
-            let thread =
-                serde_yaml::from_str(&text).with_context(|| format!("in {}", path.display()))?;
-            let id = path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            listed.push(Listed { id, thread });
+            let parsed = std::fs::read_to_string(&path)
+                .map_err(anyhow::Error::from)
+                .and_then(|text| Ok(serde_yaml::from_str::<Thread>(&text)?));
+            match parsed {
+                Ok(thread) => {
+                    let id = path
+                        .file_stem()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .into_owned();
+                    listed.push(Listed { id, thread });
+                }
+                Err(error) => broken.push((path, format!("{error:#}"))),
+            }
         }
         listed.sort_by(|a, b| a.id.cmp(&b.id));
-        Ok(listed)
+        broken.sort();
+        Ok((listed, broken))
     }
 
     pub fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String> {
@@ -141,7 +157,29 @@ impl Store {
     }
 }
 
-/// The local author: `git config user.name` in the repository, or the
+/// The page's thread files that don't parse, as problems: listed on the page
+/// in the preview and reported by `devpage check`.
+pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::check::Problem> {
+    let store = Store::new(&document.served);
+    let unparsable = store.read(&document.url(page)).map(|(_, broken)| broken);
+    unparsable
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(file, error)| crate::check::Problem {
+            file: file
+                .strip_prefix(&document.served)
+                .unwrap_or(&file)
+                .display()
+                .to_string(),
+            line: None,
+            message: format!("comment thread doesn't parse — {error}"),
+            target: None,
+        })
+        .collect()
+}
+
+/// The local author: `git config user.name` as git sees it from the served
+/// folder — its global setting counts, so no `.git` folder is needed — or the
 /// system's user name when git has none.
 pub fn local_author(repo: &Path) -> String {
     std::process::Command::new("git")
@@ -154,6 +192,7 @@ pub fn local_author(repo: &Path) -> String {
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .filter(|name| !name.is_empty())
         .or_else(|| std::env::var("USER").ok())
+        .or_else(|| std::env::var("USERNAME").ok())
         .unwrap_or_else(|| "unknown".into())
 }
 
@@ -252,6 +291,59 @@ mod tests {
     }
 
     #[test]
+    fn a_thread_file_that_doesnt_parse_is_named_and_left_alone() {
+        let root = std::env::temp_dir().join(format!("devpage-unparsable-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let store = Store::new(&root);
+        let anchor = Anchor {
+            quote: "x".into(),
+            prefix: String::new(),
+            suffix: String::new(),
+        };
+        store.create("/a.md", anchor, "Ana", "fine").unwrap();
+        let bad = root.join(".devpage/comments/a.md/20261025T000000Z-0000.yml");
+        std::fs::write(&bad, "anchor: [not, a, mapping]\n").unwrap();
+        assert_eq!(
+            store.list("/a.md").unwrap().len(),
+            1,
+            "the good thread still lists"
+        );
+        let broken = store.read("/a.md").unwrap().1;
+        assert_eq!(broken.len(), 1);
+        assert_eq!(broken[0].0, bad);
+        assert!(bad.is_file(), "left alone");
+
+        std::fs::write(root.join("a.md"), "# A\n").unwrap();
+        let document = crate::document::Document::load(&root.join("a.md"), &root).unwrap();
+        let found = problems(&document, &document.served.join("a.md"));
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].file,
+            ".devpage/comments/a.md/20261025T000000Z-0000.yml"
+        );
+        assert!(
+            found[0].message.starts_with("comment thread doesn't parse"),
+            "{}",
+            found[0]
+        );
+    }
+
+    #[test]
+    fn the_local_author_needs_no_git_folder() {
+        let folder = std::env::temp_dir().join(format!("devpage-author-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        assert!(!folder.join(".git").exists());
+        let expected = Command::new("git")
+            .args(["config", "--global", "user.name"])
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .filter(|name| !name.is_empty())
+            .or_else(|| std::env::var("USER").ok());
+        assert_eq!(Some(local_author(&folder)), expected);
+    }
+
+    #[test]
     fn timestamps_are_rfc3339_utc() {
         let (stamp, _) = now();
         assert_eq!(stamp.len(), 20);
@@ -259,5 +351,281 @@ mod tests {
             stamp.ends_with('Z') && stamp.as_bytes()[10] == b'T',
             "{stamp}"
         );
+    }
+}
+
+/// The page script's side of comments, in the installed Chrome. Run with
+/// `cargo test -- --ignored`.
+#[cfg(test)]
+mod browser {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use chromiumoxide::browser::{Browser, BrowserConfig};
+    use futures::StreamExt;
+    use tokio::sync::broadcast;
+
+    use super::*;
+    use crate::document::Document;
+    use crate::server;
+
+    /// Serves `entry` from `root` and opens `path` in a headless Chrome with a
+    /// profile of its own.
+    async fn open(
+        name: &str,
+        root: &Path,
+        entry: &Path,
+        path: &str,
+    ) -> (Browser, chromiumoxide::Page, tokio::task::JoinHandle<()>) {
+        let document = Arc::new(Document::load(entry, root).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(16);
+        let index = Arc::new(crate::index::Index::build(&document.served));
+        let _watcher =
+            crate::watch::start(document.clone(), index.clone(), changes.clone()).unwrap();
+        let router = server::router_with_index(
+            document,
+            index,
+            changes,
+            server::Identity::Local("Ana".into()),
+        );
+        tokio::spawn(async move {
+            let _watcher = _watcher;
+            axum::serve(listener, router).await.ok();
+        });
+        let profile = std::env::temp_dir().join(format!(
+            "devpage-chrome-comments-{name}-{}",
+            std::process::id()
+        ));
+        let config = BrowserConfig::builder()
+            .user_data_dir(profile)
+            .viewport(chromiumoxide::handler::viewport::Viewport {
+                width: 1400,
+                height: 900,
+                ..Default::default()
+            })
+            .build()
+            .unwrap();
+        let (browser, mut handler) = Browser::launch(config).await.unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}{path}").as_str())
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        (browser, page, events)
+    }
+
+    async fn eval<T: serde::de::DeserializeOwned>(page: &chromiumoxide::Page, js: &str) -> T {
+        page.evaluate(js).await.unwrap().into_value().unwrap()
+    }
+
+    /// Polls `js` until it returns true, for up to four seconds.
+    async fn until(page: &chromiumoxide::Page, js: &str) -> bool {
+        for _ in 0..40 {
+            if eval::<bool>(page, js).await {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let root =
+            std::env::temp_dir().join(format!("devpage-browser-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
+        let root = folder("select");
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\nThe client retries every write until the server acknowledges it.\n",
+        )
+        .unwrap();
+        let (mut browser, page, events) = open("select", &root, &root.join("a.md"), "/a.md").await;
+
+        // Select "retries every write" and release the mouse.
+        eval::<bool>(
+            &page,
+            "(() => { const p = document.querySelector('article p'); const t = p.firstChild;
+               const at = t.data.indexOf('retries every write');
+               const r = document.createRange(); r.setStart(t, at); r.setEnd(t, at + 19);
+               getSelection().removeAllRanges(); getSelection().addRange(r);
+               p.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); return true; })()",
+        )
+        .await;
+        assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+        eval::<bool>(
+            &page,
+            "document.querySelector('.comment-button').click(), true",
+        )
+        .await;
+        assert!(
+            until(
+                &page,
+                "!!document.querySelector('#comments .composer textarea')"
+            )
+            .await
+        );
+        eval::<bool>(
+            &page,
+            "(() => { const box = document.querySelector('#comments .composer textarea');
+               box.value = 'Every write, or only the outbox?';
+               box.closest('form').requestSubmit(); return true; })()",
+        )
+        .await;
+        assert!(
+            until(
+                &page,
+                "document.querySelector('mark.comment')?.textContent === 'retries every write'"
+            )
+            .await
+        );
+        let layout: String = eval(
+            &page,
+            "innerWidth + ' ' + document.getElementById('comments').className
+             + ' ' + !!document.querySelector('#comments .composer')",
+        )
+        .await;
+        assert_eq!(
+            layout, "1400 comment-ui beside false",
+            "the thread sits beside the text and the composer closed"
+        );
+
+        let threads = Store::new(&root).list("/a.md").unwrap();
+        assert_eq!(threads.len(), 1);
+        let thread = &threads[0].thread;
+        assert_eq!(thread.anchor.quote, "retries every write");
+        assert_eq!(
+            thread.anchor.prefix, "A The client ",
+            "up to 32 characters of the text before, headings included"
+        );
+        assert_eq!(thread.anchor.suffix, " until the server acknowledges i");
+        assert_eq!(thread.thread[0].author, "Ana");
+        assert_eq!(thread.thread[0].text, "Every write, or only the outbox?");
+
+        // Rewrite the sentence: the thread is detached, not lost.
+        std::fs::write(root.join("a.md"), "# A\n\nThe client gives up.\n").unwrap();
+        assert!(
+            until(
+                &page,
+                "(document.getElementById('comments')?.textContent ?? '').includes('Detached comments')
+                 && !document.querySelector('mark.comment')"
+            )
+            .await
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload() {
+        let root = folder("paragraph");
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\n- Writes\n  - retried   until acknowledged\n  - dropped after a day\n- Reads\n",
+        )
+        .unwrap();
+        let (mut browser, page, events) =
+            open("paragraph", &root, &root.join("a.md"), "/a.md").await;
+
+        eval::<bool>(
+            &page,
+            "(document.querySelector('article li').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)",
+        )
+        .await;
+        assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+        eval::<bool>(
+            &page,
+            "document.querySelector('.comment-button').click(), true",
+        )
+        .await;
+        let quote: String = eval(
+            &page,
+            "document.querySelector('#comments .composer blockquote').textContent",
+        )
+        .await;
+        assert_eq!(
+            quote,
+            "Writes retried until acknowledged dropped after a day"
+        );
+        eval::<bool>(
+            &page,
+            "(() => { const box = document.querySelector('#comments .composer textarea');
+               box.value = 'Why a day?'; box.closest('form').requestSubmit(); return true; })()",
+        )
+        .await;
+        assert!(
+            until(
+                &page,
+                "document.querySelectorAll('mark.comment').length > 0"
+            )
+            .await
+        );
+
+        page.reload().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert!(
+            until(
+                &page,
+                "[...document.querySelectorAll('mark.comment')].map(m => m.textContent).join('|')
+                   .replace(/\\s+/g, ' ') .includes('retried until acknowledged')
+                 && !(document.getElementById('comments')?.textContent ?? '').includes('Detached')"
+            )
+            .await
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn on_a_deck_c_toggles_the_comments_panel() {
+        let root = folder("deck");
+        std::fs::write(
+            root.join("devpage.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md, two.md]\n",
+        )
+        .unwrap();
+        std::fs::write(root.join("one.md"), "# One\n\nThe opening line.\n").unwrap();
+        std::fs::write(root.join("two.md"), "# Two\n").unwrap();
+        let anchor = Anchor {
+            quote: "opening line".into(),
+            prefix: "The ".into(),
+            suffix: ".".into(),
+        };
+        Store::new(&root)
+            .create("/one.md", anchor, "Bo", "Sharper?")
+            .unwrap();
+        let (mut browser, page, events) =
+            open("deck", &root, &root.join("devpage.yml"), "/devpage.yml").await;
+
+        let shown = "getComputedStyle(document.getElementById('comments')).display !== 'none'";
+        assert!(until(&page, "!!document.querySelector('mark.comment')").await);
+        assert!(!eval::<bool>(&page, shown).await, "hidden until asked for");
+        eval::<bool>(
+            &page,
+            "(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' })), true)",
+        )
+        .await;
+        assert!(until(&page, shown).await);
+        let text: String = eval(&page, "document.getElementById('comments').innerText").await;
+        assert!(text.contains("Sharper?"), "{text}");
+        eval::<bool>(
+            &page,
+            "(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' })), true)",
+        )
+        .await;
+        assert!(until(&page, &format!("!({shown})")).await);
+        browser.close().await.ok();
+        events.abort();
     }
 }

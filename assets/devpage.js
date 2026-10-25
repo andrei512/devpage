@@ -77,158 +77,347 @@ document.addEventListener("click", async (event) => {
 });
 
 
+// ---------------------------------------------------------------------------
 // Comments: threads anchored to rendered text, kept by the server in
-// .devpage/comments/. Each section with a data-source is one page's text.
-const sources = () => [...document.querySelectorAll("[data-source]")];
+// .devpage/comments/. Each element with a data-source is one Markdown file's
+// text — a page, a doc's chapter or a deck's slide.
+//
+// One text model serves both ends: a section's text is its text nodes in order
+// with every run of whitespace collapsed to one space. A new comment's quote,
+// prefix and suffix are cut from that text, and a thread is found again by
+// searching the same text, so nested lists, tables and code anchor the same
+// way they were quoted.
 
+const sources = () => [...document.querySelectorAll("[data-source]")];
+const CONTEXT = 32;
+
+// The section's normalised text, and for each of its characters the text node
+// and offset it came from.
+function textModel(section) {
+  const chars = [];
+  let text = "";
+  const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.parentElement?.closest(".comment-ui") ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    for (let offset = 0; offset < node.data.length; offset++) {
+      const white = /\s/.test(node.data[offset]);
+      if (white && text.endsWith(" ")) continue;
+      text += white ? " " : node.data[offset];
+      chars.push({ node, offset });
+    }
+  }
+  return { text, chars };
+}
+
+// The index in the model of a DOM boundary point inside the section.
+function indexOf(model, container, offset) {
+  const point = document.createRange();
+  point.setStart(container, offset);
+  const index = model.chars.findIndex(({ node, offset: at }) => point.comparePoint(node, at) >= 0);
+  return index < 0 ? model.text.length : index;
+}
+
+// The anchor for the text between two model indexes, trimmed of spaces.
+function anchorFor(model, start, end) {
+  while (start < end && model.text[start] === " ") start++;
+  while (end > start && model.text[end - 1] === " ") end--;
+  return {
+    quote: model.text.slice(start, end),
+    prefix: model.text.slice(Math.max(0, start - CONTEXT), start),
+    suffix: model.text.slice(end, end + CONTEXT),
+  };
+}
+
+// Where an anchor is in the model now: its quote with its context, else the
+// quote alone; null when the quote is gone.
+function find(model, anchor) {
+  if (!anchor.quote) return null;
+  const quote = anchor.quote.replace(/\s+/g, " ");
+  const prefix = anchor.prefix.replace(/\s+/g, " ");
+  const suffix = anchor.suffix.replace(/\s+/g, " ");
+  let at = model.text.indexOf(prefix + quote + suffix);
+  if (at >= 0) at += prefix.length;
+  else at = model.text.indexOf(quote);
+  return at < 0 ? null : [at, at + quote.length];
+}
+
+// Wraps the text between two model indexes in marks, one per text node, so
+// the page's structure is never moved.
+function highlight(model, [start, end], id) {
+  const marks = [];
+  let i = start;
+  while (i < end) {
+    const { node, offset } = model.chars[i];
+    let last = i;
+    while (last + 1 < end && model.chars[last + 1].node === node) last++;
+    const range = document.createRange();
+    range.setStart(node, offset);
+    range.setEnd(node, model.chars[last].offset + 1);
+    const mark = document.createElement("mark");
+    mark.className = "comment";
+    mark.dataset.thread = id;
+    range.surroundContents(mark);
+    marks.push(mark);
+    i = last + 1;
+  }
+  return marks;
+}
+
+function panel() {
+  let aside = document.getElementById("comments");
+  if (!aside) {
+    aside = document.createElement("aside");
+    aside.id = "comments";
+    aside.className = "comment-ui";
+    document.body.append(aside);
+  }
+  return aside;
+}
+
+// Fetches every source's threads, then marks and lists them in one go; a
+// newer call that finishes first wins, so overlapping refreshes never mix.
+let commentsGeneration = 0;
 async function loadComments() {
   if (print) return;
-  document.querySelectorAll("mark.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
-  let panel = document.getElementById("comments");
-  if (!panel) {
-    panel = document.createElement("aside");
-    panel.id = "comments";
-    document.body.append(panel);
-  }
-  panel.replaceChildren();
-  const detached = [];
+  const generation = ++commentsGeneration;
+  const fetched = [];
   for (const section of sources()) {
     const page = section.dataset.source;
     const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-store" });
-    if (!response.ok) continue;
-    for (const thread of await response.json()) {
-      const mark = highlight(section, thread.anchor);
+    fetched.push({ section, page, threads: response.ok ? await response.json() : [] });
+  }
+  if (generation !== commentsGeneration) return;
+  document.querySelectorAll("mark.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
+  sources().forEach((section) => section.normalize());
+  const aside = panel();
+  aside.querySelectorAll(".thread:not(.composer), .detached-heading").forEach((card) => card.remove());
+  const placed = [];
+  const detached = [];
+  for (const { section, page, threads } of fetched) {
+    if (!section.isConnected) continue;
+    for (const thread of threads) {
       const card = threadCard(page, thread);
-      if (mark) {
-        mark.addEventListener("click", () => card.scrollIntoView({ block: "nearest" }));
-        panel.append(card);
-      } else {
+      const model = textModel(section);
+      const at = find(model, thread.anchor);
+      if (!at) {
         detached.push(card);
+        continue;
       }
+      const marks = highlight(model, at, thread.id);
+      for (const mark of marks) mark.addEventListener("click", () => focusThread(thread.id));
+      card.anchorMark = marks[0];
+      placed.push(card);
     }
   }
   if (detached.length) {
     const heading = document.createElement("h3");
+    heading.className = "detached-heading";
     heading.textContent = "Detached comments";
-    panel.prepend(heading, ...detached);
+    aside.prepend(heading, ...detached);
   }
+  aside.append(...placed);
+  layoutComments();
 }
 
-// Wraps the first occurrence of prefix+quote+suffix (or just the quote) in a mark.
-function highlight(section, anchor) {
-  const nodes = [];
-  const walker = document.createTreeWalker(section, NodeFilter.SHOW_TEXT);
-  let text = "";
-  while (walker.nextNode()) {
-    nodes.push({ node: walker.currentNode, start: text.length });
-    text += walker.currentNode.data;
+// Where the threads aren't beside the text, a button opens and closes them.
+function toggleButton() {
+  let button = document.getElementById("comments-toggle");
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "comments-toggle";
+    button.className = "comment-ui";
+    button.addEventListener("click", () => document.body.classList.toggle("show-comments"));
+    document.body.append(button);
   }
-  let at = text.indexOf(anchor.prefix + anchor.quote + anchor.suffix);
-  at = at >= 0 ? at + anchor.prefix.length : text.indexOf(anchor.quote);
-  if (at < 0 || !anchor.quote) return null;
-  const locate = (offset) => {
-    const hit = nodes.findLast((n) => n.start <= offset);
-    return [hit.node, offset - hit.start];
-  };
-  const range = document.createRange();
-  range.setStart(...locate(at));
-  range.setEnd(...locate(at + anchor.quote.length));
-  const mark = document.createElement("mark");
-  mark.className = "comment";
-  try {
-    range.surroundContents(mark);
-  } catch {
-    mark.append(range.extractContents());
-    range.insertNode(mark);
+  return button;
+}
+
+// Beside the text on a wide page: each card level with its anchor, pushed down
+// so none overlap. Elsewhere — narrow screens, decks — the panel is a list.
+function layoutComments() {
+  const aside = document.getElementById("comments");
+  if (!aside) return;
+  const beside = !document.body.classList.contains("slides") && matchMedia("(min-width: 1100px)").matches;
+  aside.classList.toggle("beside", beside);
+  let floor = 0;
+  for (const card of aside.children) {
+    card.style.top = "";
+    if (!beside) continue;
+    const top = aside.getBoundingClientRect().top;
+    const want = card.anchorMark ? card.anchorMark.getBoundingClientRect().top - top : floor;
+    const at = Math.max(want, floor);
+    card.style.top = `${at}px`;
+    floor = at + card.offsetHeight + 12;
   }
-  return mark;
+  aside.style.minHeight = beside ? `${floor}px` : "";
+  const count = aside.querySelectorAll(".thread:not(.composer)").length;
+  const button = toggleButton();
+  button.textContent = `Comments (${count})`;
+  button.classList.toggle("shown", !beside && count > 0);
+}
+window.addEventListener("resize", layoutComments);
+
+function focusThread(id) {
+  document.body.classList.add("show-comments");
+  const card = document.querySelector(`#comments .thread[data-thread="${CSS.escape(id)}"]`);
+  card?.scrollIntoView({ block: "nearest" });
+  card?.querySelector("textarea")?.focus();
+}
+
+function messageLine(message) {
+  const p = document.createElement("p");
+  const author = document.createElement("b");
+  author.textContent = message.author;
+  const time = document.createElement("time");
+  time.textContent = message.at.slice(0, 16).replace("T", " ");
+  p.append(author, " ", time, document.createElement("br"), message.text);
+  return p;
 }
 
 function threadCard(page, thread) {
   const card = document.createElement("div");
   card.className = "thread";
+  card.dataset.thread = thread.id;
   const quote = document.createElement("blockquote");
   quote.textContent = thread.anchor.quote;
-  card.append(quote);
-  for (const message of thread.thread) {
-    const p = document.createElement("p");
-    p.innerHTML = "<b></b> ";
-    p.firstChild.textContent = message.author;
-    p.append(message.text);
-    card.append(p);
-  }
-  const reply = document.createElement("input");
-  reply.placeholder = "Reply";
-  reply.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && reply.value) post("reply", { page, id: thread.id, text: reply.value });
-  });
+  card.append(quote, ...thread.thread.map(messageLine));
   const resolve = document.createElement("button");
   resolve.textContent = "Resolve";
-  resolve.addEventListener("click", () => post("resolve", { page, id: thread.id }));
-  card.append(reply, resolve);
+  resolve.addEventListener("click", () => send("resolve", { page, id: thread.id }, card));
+  card.append(editor("Reply", (text) => send("reply", { page, id: thread.id, text }, card), [resolve]));
   return card;
 }
 
-async function post(action, body) {
-  const url = action ? `/__devpage/comments/${action}` : "/__devpage/comments";
-  await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+// A text box with a submit button: ⌘/Ctrl-Enter submits, Escape cancels.
+function editor(label, submit, extra = [], cancel = null) {
+  const form = document.createElement("form");
+  form.className = "comment-editor";
+  const box = document.createElement("textarea");
+  box.rows = 2;
+  box.placeholder = label === "Reply" ? "Reply" : "Comment";
+  const ok = document.createElement("button");
+  ok.type = "submit";
+  ok.textContent = label;
+  const error = document.createElement("p");
+  error.className = "comment-error";
+  form.append(box, error, ok, ...extra);
+  if (cancel) {
+    const no = document.createElement("button");
+    no.type = "button";
+    no.textContent = "Cancel";
+    no.addEventListener("click", cancel);
+    form.append(no);
+  }
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = box.value.trim();
+    if (!text) return;
+    error.textContent = (await submit(text)) ?? "";
+    if (!error.textContent) box.value = "";
+  });
+  box.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) form.requestSubmit();
+    if (event.key === "Escape" && cancel) cancel();
+    event.stopPropagation();
+  });
+  return form;
+}
+
+// Sends a write; returns the server's refusal as text, or nothing.
+async function send(action, body, card) {
+  const response = await fetch(action ? `/__devpage/comments/${action}` : "/__devpage/comments", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const reason = await response.text();
+    if (card && action === "resolve") card.querySelector(".comment-error").textContent = reason;
+    return reason || `${response.status}`;
+  }
+  loadComments();
+}
+
+// A new comment on an anchor: a card at the top of the panel until it is sent
+// or cancelled.
+function compose(section, anchor, near) {
+  document.querySelectorAll(".comment-button").forEach((button) => button.remove());
+  document.querySelector("#comments .composer")?.remove();
+  const aside = panel();
+  const card = document.createElement("div");
+  card.className = "thread composer";
+  const quote = document.createElement("blockquote");
+  quote.textContent = anchor.quote;
+  const close = () => {
+    card.remove();
+    layoutComments();
+  };
+  card.append(quote, editor("Comment", async (text) => {
+    const refused = await send("", { page: section.dataset.source, anchor, text });
+    if (!refused) close();
+    return refused;
+  }, [], close));
+  card.anchorMark = near;
+  aside.prepend(card);
+  document.body.classList.add("show-comments");
+  layoutComments();
+  card.querySelector("textarea").focus();
+}
+
+function commentButton(label, title, top, left, onClick) {
+  document.querySelectorAll(".comment-button").forEach((button) => button.remove());
+  const button = document.createElement("button");
+  button.className = "comment-button comment-ui";
+  button.textContent = label;
+  button.title = title;
+  button.style.cssText = `position:absolute;top:${top}px;left:${left}px`;
+  button.addEventListener("mousedown", (event) => event.preventDefault());
+  button.addEventListener("click", onClick);
+  document.body.append(button);
+  return button;
 }
 
 // Hovering a paragraph — or a list item, table, code block or diagram —
 // offers a comment on the whole of it.
-const blocks = "p, li, pre, table, .diagram, blockquote";
+const blocks = "p, li, pre, table, .diagram, blockquote, h1, h2, h3, h4";
 let hovered = null;
 document.addEventListener("mouseover", (event) => {
-  if (print) return;
+  if (print || !getSelection().isCollapsed) return;
   const block = event.target.closest?.(blocks);
-  if (!block || block === hovered || !block.closest("[data-source]") || block.closest("#comments")) return;
+  const section = block?.closest("[data-source]");
+  if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
   hovered = block;
-  document.getElementById("paragraph-button")?.remove();
-  const button = document.createElement("button");
-  button.id = "paragraph-button";
-  button.textContent = "+";
-  button.title = "Comment on this paragraph";
   const rect = block.getBoundingClientRect();
-  button.style.cssText = `position:absolute;top:${scrollY + rect.top}px;left:${scrollX + rect.left - 34}px`;
-  button.addEventListener("click", () => {
-    const text = prompt("Comment");
-    if (text) post("", { page: block.closest("[data-source]").dataset.source, anchor: { quote: block.innerText.trim(), prefix: "", suffix: "" }, text });
+  commentButton("+", "Comment on this paragraph", scrollY + rect.top, scrollX + Math.max(rect.left - 34, 0), () => {
+    const model = textModel(section);
+    const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
+    if (anchor.quote) compose(section, anchor, block);
   });
-  document.body.append(button);
 });
 
 // Selecting text inside one source offers a comment on it.
-document.addEventListener("mouseup", () => {
-  document.getElementById("comment-button")?.remove();
-  const selection = getSelection();
-  if (print || selection.isCollapsed) return;
-  const range = selection.getRangeAt(0);
-  const section = range.commonAncestorContainer.parentElement?.closest("[data-source]");
-  if (!section) return;
-  const before = document.createRange();
-  before.setStart(section, 0);
-  before.setEnd(range.startContainer, range.startOffset);
-  const after = document.createRange();
-  after.setStart(range.endContainer, range.endOffset);
-  after.setEndAfter(section.lastChild);
-  const anchor = {
-    quote: range.toString(),
-    prefix: before.toString().slice(-32),
-    suffix: after.toString().slice(0, 32),
-  };
-  const button = document.createElement("button");
-  button.id = "comment-button";
-  button.textContent = "Comment";
-  const rect = range.getBoundingClientRect();
-  button.style.cssText = `position:absolute;top:${scrollY + rect.bottom + 6}px;left:${scrollX + rect.left}px`;
-  button.addEventListener("mousedown", (event) => event.preventDefault());
-  button.addEventListener("click", () => {
-    const text = prompt("Comment");
-    button.remove();
-    if (text) post("", { page: section.dataset.source, anchor, text });
+document.addEventListener("mouseup", (event) => {
+  if (print || event.target.closest?.(".comment-ui")) return;
+  setTimeout(() => {
+    const selection = getSelection();
+    if (selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    const common = range.commonAncestorContainer;
+    const section = (common.nodeType === Node.ELEMENT_NODE ? common : common.parentElement)?.closest("[data-source]");
+    if (!section) return;
+    const model = textModel(section);
+    const anchor = anchorFor(model, indexOf(model, range.startContainer, range.startOffset), indexOf(model, range.endContainer, range.endOffset));
+    if (!anchor.quote) return;
+    const rect = range.getBoundingClientRect();
+    commentButton("Comment", "Comment on the selection", scrollY + rect.bottom + 6, scrollX + rect.left, () => {
+      selection.removeAllRanges();
+      compose(section, anchor, range.startContainer.parentElement);
+    });
   });
-  document.body.append(button);
 });
+// ---------------------------------------------------------------------------
 
 window.addEventListener("popstate", () => load(location.href));
 

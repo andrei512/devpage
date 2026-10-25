@@ -246,6 +246,7 @@ fn page_links_with(
             }
         }
     }
+    problems.extend(crate::comments::problems(document, page));
     (problems, reached)
 }
 
