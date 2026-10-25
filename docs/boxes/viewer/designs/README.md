@@ -196,12 +196,18 @@ linked to. Each state of a prototype is a design of its own.
 ## Viewing a design
 
 A design is a [document](../writing-a-document/README.md#four-kinds): its
-address shows it on a canvas, fit to the window, and a reader can zoom with
-the pinch gesture or **Ctrl**/**⌘** and the wheel, and pan by dragging or
-scrolling. A page
-**embeds** one with the image syntax — `![Checkout](checkout.design)` — drawn at
-the page's width and clickable like the design's own address. Embedded designs
-follow the page's live updates and print in a PDF as they show.
+address shows it on a canvas, centred, at its own size — scaled down to fit
+the window when it is bigger, never enlarged — and a reader can zoom with the
+pinch gesture or **Ctrl**/**⌘** and the wheel, and pan by dragging or
+scrolling.
+
+A page **embeds** one with the image syntax — `![Checkout](checkout.design)`.
+An embedded design is shown the same way: at its own size, never enlarged,
+scaled down only as far as it needs to fit the page's width and the window's
+height, centred on a quiet stage that sets it apart from the text. It is
+clickable like the design's own address, and a link in the stage's corner
+opens it on its own canvas page. Embedded designs follow the page's live
+updates and print in a PDF as they show.
 
 While a design is open, saving any file it is made of redraws it in place —
 only the parts that changed are sent to the browser.
