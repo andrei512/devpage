@@ -4,7 +4,7 @@ Measured: started 18:10:09, end-to-end path (doc → `devpage pdf` → PDF with
 diagram, highlighting, header and footer) at 18:13:30 — about 3.5 minutes.
 The rest of the budget went down the design: slides, the repository boundary,
 linked documents, comments, deployed identity, link checking, the deploy
-example, crate metadata and examples. Stopped at about 18:28 with every part of
+example, crate metadata and examples. Stopped at 18:29 with every part of
 the design running once, end to end. The design update is not too big.
 
 ## What I touched
@@ -55,8 +55,11 @@ included (the page marks itself ready after drawing). The real snags:
   Chrome's `SingletonLock`. Each launch now gets its own profile directory.
 - **The example image didn't run.** `rust:1.89-slim` is built on a newer Debian
   than `debian:bookworm-slim`, so the binary needed `GLIBC_2.39`. The builder is
-  now `rust:1.89-slim-bookworm`. (Checked by building the same Dockerfile from
-  local source, since the crate isn't on crates.io yet.)
+  now `rust:1.89-slim-bookworm`. Checked by building the same Dockerfile from
+  local source (the crate isn't on crates.io yet) and running the compose file:
+  behind the Caddy stand-in a comment is stamped `dev@example.com`, a request
+  straight to devpage without the header gets `401`, and comments survive a
+  container restart on the volume.
 - **Diagram `click` targets** must be read from real Mermaid blocks in the
   rendered HTML, not from source lines — a Mermaid example inside a
   four-backtick `markdown` fence otherwise reports false broken links.
