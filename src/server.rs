@@ -123,7 +123,7 @@ fn quiet(
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
         .route_service(
-            "/devpage.design.v1.Designs/{*method}",
+            "/devpage.design.v1.Designs/Watch",
             tower::ServiceBuilder::new()
                 .layer(tonic_web::GrpcWebLayer::new())
                 .service(devpage_design::proto::designs_server::DesignsServer::new(

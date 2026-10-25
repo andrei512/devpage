@@ -45,7 +45,7 @@ flowchart TD
 | `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
-| `/devpage.design.v1.Designs/Watch` | a design's watch stream, as gRPC-Web — see [Design engine](../design-engine/README.md#the-watch-stream) |
+| `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
 | `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) — unless a real file of that name is in the served folder, which is served as it is |
 | `/{*path}` | the file at `path` in the served folder |
 

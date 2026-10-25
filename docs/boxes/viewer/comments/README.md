@@ -1,7 +1,7 @@
 # Comments
 
-How readers comment on any document — a site, a doc or a deck — and where those
-comments live: threads anchored to selected text or a paragraph, kept one file
+How readers comment on a site, a doc or a deck — a design is discussed on the
+page that embeds it — and where those comments live: threads anchored to selected text or a paragraph, kept one file
 per thread in a `.devpage/` folder git never sees, and resolved by deleting
 that file. It is a concept and task article under the [viewer](../README.md),
 with the store's format as its reference section for anyone — person or agent

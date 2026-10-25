@@ -175,7 +175,7 @@ four in the navbar's **Examples** menu.
 
 - [Documenting another repository](boxes/viewer/writing-a-document/README.md#documenting-another-repository)
   — giving a real project's docs a `devpage.yml`.
-- [Writing a document](boxes/viewer/writing-a-document/README.md) — the three
+- [Writing a document](boxes/viewer/writing-a-document/README.md) — the four
   kinds, the document file, the served folder, links, and the Markdown that works.
 - [Writing a doc](boxes/viewer/writing-a-doc/README.md) and
   [Making slides](boxes/viewer/making-slides/README.md) — chapters, slides and

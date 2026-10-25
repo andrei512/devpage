@@ -71,13 +71,16 @@ designs use. A file:
   `import Button from "./button.design"` — each a name and a path relative to
   the file. The path must name a `.design` file that exists in the
   [served folder](../constraints/the-served-folder-is-the-boundary.md),
-  whether the design uses the import or not.
+  whether the design uses the import or not. Each import takes a name of its
+  own, and none takes a built-in element's name — `Frame`, `Text`, `Rect`,
+  `Ellipse`, `Vector` or `Image`.
 - holds exactly one **root element**, which is a `Frame`. Its `width` and
   `height` are the design's size; a root sized `"hug"` takes its content's
   size.
 
 Elements, arrays and objects nest at most 256 deep, counting through the
-designs a design uses — far deeper than any real design.
+designs a design uses — far deeper than any real design. A number or a string
+inside them is not a level of its own.
 
 Using an imported design places an **instance** of it: `<Button label="Pay" />`
 draws `button.design` with `label` set to `"Pay"`. An instance takes the
@@ -149,8 +152,8 @@ Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 | --- | --- | --- |
 | `fill` | a color, or `"linear-gradient(<angle>deg, <color> <stop>%, …)"` | none |
 | `stroke` | a color | none |
-| `strokeWidth` | pixels, drawn inside the box | `1` |
-| `radius` | pixels, or `[topLeft, topRight, bottomRight, bottomLeft]` | `0` |
+| `strokeWidth` | pixels from `0` up, drawn inside the box | `1` |
+| `radius` | pixels from `0` up, or `[topLeft, topRight, bottomRight, bottomLeft]` | `0` |
 | `shadow` | `{ x, y, blur, spread, color }`, each optional, drawn outside the box | none |
 | `clip` | `{true}` to clip the children to the box | `{false}` |
 
@@ -161,8 +164,8 @@ A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
 | Attribute | Value | Default |
 | --- | --- | --- |
 | `layout` | `"row"`, `"column"`, or `"none"` — children placed by their `x` and `y`, and a hugging frame as big as their furthest right and bottom edges | `"none"` |
-| `gap` | pixels between children | `0` |
-| `padding` | pixels, `[vertical, horizontal]` or `[top, right, bottom, left]` | `0` |
+| `gap` | pixels from `0` up between children | `0` |
+| `padding` | pixels from `0` up, `[vertical, horizontal]` or `[top, right, bottom, left]` | `0` |
 | `align` | across the layout direction: `"start"`, `"center"`, `"end"` | `"start"` |
 | `justify` | along it: `"start"`, `"center"`, `"end"`, `"space-between"` | `"start"` |
 
@@ -170,10 +173,10 @@ A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
 
 | Attribute | Value | Default |
 | --- | --- | --- |
-| `size` | pixels | `14` |
+| `size` | pixels from `0` up | `14` |
 | `weight` | `400`, `500`, `600` or `700` | `400` |
 | `color` | a color | `#0f172a` |
-| `lineHeight` | a multiple of the size | `1.4` |
+| `lineHeight` | a multiple of the size, from `0` up | `1.4` |
 | `textAlign` | `"left"`, `"center"`, `"right"` | `"left"` |
 
 A text wraps at its width when it has one and runs on one line when it hugs.
@@ -205,8 +208,8 @@ takes one:
 
 A path is relative to the file the `onClick` is written in, like every path in
 a design, so an interaction inside an imported design works wherever that
-design is used. A path to a file that doesn't exist, or outside the served
-folder, is a problem.
+design is used. A path must name a `.design` file that exists in the served
+folder; anything else is a problem.
 
 The element under the pointer that has an interaction takes the click, and a
 pointer over one turns into a hand. A navigation changes the address, so the

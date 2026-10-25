@@ -43,7 +43,7 @@ function Frame({ theme }: { theme: "light" | "dark" }) {
           <span className="frame-switch">{theme === "light" ? "☾" : "☀"}</span>
         </div>
         {theme === "dark" ? (
-          <div className="frame-menu"><div>Site</div><div>Doc</div><div>Slides</div></div>
+          <div className="frame-menu"><div>Site</div><div>Doc</div><div>Slides</div><div>Design</div></div>
         ) : null}
         <div className="frame-body">
           <div className="frame-side">
