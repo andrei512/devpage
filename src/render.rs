@@ -30,7 +30,10 @@ fn options() -> Options<'static> {
 pub fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
+    // A wide table scrolls inside its own box rather than widening the page.
     markdown_to_html_with_plugins(source, &options(), &plugins)
+        .replace("<table>", "<div class=\"table-scroll\"><table>")
+        .replace("</table>", "</table></div>")
 }
 
 /// Renders a page of `document`'s Markdown, its widget tags expanded first.

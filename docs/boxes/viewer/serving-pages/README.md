@@ -137,6 +137,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
      `<pre lang="mermaid">` for Mermaid blocks, which is how the page script
      finds the diagrams to draw.
 
+   Last, every Markdown table is wrapped in `<div class="table-scroll">`, so a
+   table wider than the page scrolls inside its own box instead of widening
+   the page.
+
 2. **Title.** `render::title` takes the first line starting with `# `, or the
    file name without its extension.
 3. **Sidebar.** The [navigation tree](../navigation-tree/README.md) is built

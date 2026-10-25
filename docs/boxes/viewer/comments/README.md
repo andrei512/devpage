@@ -16,8 +16,9 @@ comments and replies in the browser.
 
 - **On text** — select it, and a **Comment** button appears under the
   selection.
-- **On a paragraph** — hover over it, and a **+** button appears in the margin
-  to its left. The whole paragraph — or heading, list item, table, code block
+- **On a paragraph** — hover over it, and a comment icon, a speech bubble,
+  appears just to its right (inside its right edge when the window has no room
+  beside it). The whole paragraph — or heading, list item, table, code block
   or diagram — is the anchor.
 
 Either opens a box at the top of the comments: write the comment and press

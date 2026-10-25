@@ -521,8 +521,12 @@ document.addEventListener("mouseover", (event) => {
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
   hovered = block;
   const rect = block.getBoundingClientRect();
-  // The icon sits just right of the block, level with its first line.
-  commentButton("", "Comment on this paragraph", scrollY + rect.top, scrollX + rect.right + 10, () => {
+  // The icon sits just right of the block, level with its first line — or,
+  // when the window has no room there, just inside the block's right edge.
+  const size = 28;
+  const room = document.documentElement.clientWidth - 8;
+  const left = rect.right + 10 + size <= room ? rect.right + 10 : Math.max(Math.min(rect.right, room) - size - 4, 0);
+  commentButton("", "Comment on this paragraph", scrollY + rect.top, scrollX + left, () => {
     const model = textModel(section);
     const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
     if (anchor.quote) compose(section, anchor, block);

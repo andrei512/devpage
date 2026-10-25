@@ -397,8 +397,34 @@ fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
     let mut ranges = Vec::new();
     let mut fence: Option<(usize, String)> = None;
     let mut offset = 0;
+    // An indented code block starts after a blank line, outside a list, and
+    // runs while lines stay indented by four spaces or a tab (or are blank).
+    let mut previous_blank = true;
+    let mut in_list = false;
+    let mut indented: Option<usize> = None;
     for line in source.split_inclusive('\n') {
         let trimmed = line.trim_start();
+        let blank = trimmed.is_empty();
+        let is_indented = line.starts_with("    ") || line.starts_with('\t');
+        if fence.is_none() {
+            if let Some(start) = indented {
+                if !blank && !is_indented {
+                    ranges.push(start..offset);
+                    indented = None;
+                }
+            } else if is_indented && !blank && previous_blank && !in_list {
+                indented = Some(offset);
+            }
+            if indented.is_some() {
+                previous_blank = blank;
+                offset += line.len();
+                continue;
+            }
+            if !blank && !is_indented {
+                in_list = is_list_item(trimmed);
+            }
+        }
+        previous_blank = blank;
         let marker: String = trimmed
             .chars()
             .take_while(|c| *c == '`' || *c == '~')
@@ -437,7 +463,33 @@ fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
     if let Some((start, _)) = fence {
         ranges.push(start..source.len());
     }
+    if let Some(start) = indented {
+        ranges.push(start..source.len());
+    }
+    // HTML comments, outside code, hide whatever they hold.
+    let mut from = 0;
+    while let Some(open) = source[from..].find("<!--") {
+        let open = from + open;
+        if ranges.iter().any(|r| r.contains(&open)) {
+            from = open + 4;
+            continue;
+        }
+        let close = source[open + 4..]
+            .find("-->")
+            .map_or(source.len(), |end| open + 4 + end + 3);
+        ranges.push(open..close);
+        from = close;
+    }
+    ranges.sort_by_key(|r| r.start);
     ranges
+}
+
+/// Whether a line, without its indentation, starts a Markdown list item.
+fn is_list_item(trimmed: &str) -> bool {
+    let bullet =
+        trimmed.starts_with("- ") || trimmed.starts_with("* ") || trimmed.starts_with("+ ");
+    let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
+    bullet || (digits > 0 && matches!(trimmed[digits..].chars().next(), Some('.' | ')')))
 }
 
 fn escape(text: &str) -> String {
@@ -639,6 +691,35 @@ mod tests {
         );
         assert!(!out.contains("data-widget"), "{out}");
         assert_eq!(problems, vec!["7: <Nope> is not a widget".to_string()]);
+    }
+
+    #[test]
+    fn leaves_indented_code_and_html_comments_alone() {
+        let mut problems = Vec::new();
+        let source = "Code:\n\n    let v: Vec<String> = Vec::new();\n    <Callout>shown as code</Callout>\n\nAfter.\n\n<!-- old: <Todo> -->\n<!--\n<Callout>draft</Callout>\n-->\n";
+        let out = expand(source, &set(&["Callout"]), &mut problems);
+        assert_eq!(out, source, "{out}");
+        assert!(problems.is_empty(), "{problems:?}");
+        let html = crate::render::markdown(&out);
+        assert!(
+            html.contains("let v: Vec&lt;String&gt; = Vec::new();"),
+            "{html}"
+        );
+        assert!(
+            html.contains("&lt;Callout&gt;shown as code&lt;/Callout&gt;"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn indented_lines_in_a_list_are_not_code() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "- item\n\n    more of the item with <Callout>x</Callout>\n",
+            &set(&["Callout"]),
+            &mut problems,
+        );
+        assert!(out.contains("data-widget=\"Callout\""), "{out}");
     }
 
     #[test]
