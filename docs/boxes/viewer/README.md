@@ -35,6 +35,7 @@ flowchart LR
   serving --> browser["Open page"]
   live -. "change" .-> browser
   browser --> diagrams["Diagrams and themes<br/>drawn in the browser"]
+  browser --> widgets["Widgets<br/>React, mounted in the browser"]
   browser <--> comments["Comments<br/>.devpage/comments"]
   serving --> check["Link checking<br/>preview and devpage check"]
   browser --> pdf["PDF<br/>Chrome prints the page"]
@@ -43,6 +44,7 @@ flowchart LR
   click nav href "./navigation-tree/README.md" "How the sidebar is built"
   click live href "./live-updates/README.md" "How open pages stay current"
   click diagrams href "./diagrams-and-themes/README.md" "Diagrams and themes"
+  click widgets href "./widgets/README.md" "Widgets"
   click comments href "./comments/README.md" "Comments"
   click check href "./checking-links/README.md" "Checking links"
   click pdf href "./pdf/README.md" "Printing to PDF"

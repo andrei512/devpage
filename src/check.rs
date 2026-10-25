@@ -122,6 +122,7 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     // A page is checked as its nearest site's page, whichever document the
     // check started from — as the preview shows it.
     let index = crate::index::Index::build(&document.served);
+    let mut widget_folders = HashSet::new();
     while let Some(page) = queue.pop_front() {
         if !seen.insert(page.clone()) {
             continue;
@@ -136,6 +137,11 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
             None => None,
         };
         let owner = owner.as_ref().unwrap_or(document);
+        if let Some(folder) = &owner.widgets
+            && widget_folders.insert(folder.clone())
+        {
+            problems.extend(widget_problems(owner));
+        }
         let (found, reached) = page_links_with(owner, &page, external);
         problems.extend(found);
         for target in reached {
@@ -176,36 +182,6 @@ fn page_links_with(
             message: message.to_string(),
             target: None,
         });
-    }
-    for found in widgets.problems {
-        let (widget_file, message) = found.split_once(" — ").unwrap_or(("", &found));
-        problems.push(Problem {
-            file: widget_file.to_string(),
-            line: None,
-            message: message.to_string(),
-            target: None,
-        });
-    }
-    // A project widget that doesn't compile.
-    for url in widgets.modules.values() {
-        let url = url.split('?').next().unwrap_or_default();
-        let Some(path) = url.strip_prefix("/__devpage/widgets/") else {
-            continue;
-        };
-        let Some(widget) = document.file(path) else {
-            continue;
-        };
-        let text = std::fs::read_to_string(&widget).unwrap_or_default();
-        let names: Vec<String> = widgets.modules.keys().cloned().collect();
-        let version = widget.parent().map(crate::widgets::version);
-        if let Err(error) = crate::widgets::compile_cached(&widget, &text, &names, version) {
-            problems.push(Problem {
-                file: path.to_string(),
-                line: None,
-                message: format!("does not compile: {error}"),
-                target: None,
-            });
-        }
     }
     let mut reached = Vec::new();
     let mut targets = attributes(&html, "href");
@@ -350,6 +326,51 @@ fn page_links_with(
     (problems, reached)
 }
 
+/// The problems of a document's widgets folder, once per document rather than
+/// once per page: a file with a system widget's name, and every widget or
+/// helper that doesn't compile.
+fn widget_problems(document: &Document) -> Vec<Problem> {
+    let widgets = crate::widgets::Widgets::of(document);
+    let mut problems: Vec<Problem> = widgets
+        .problems
+        .iter()
+        .map(|found| {
+            let (widget_file, message) = found.split_once(" — ").unwrap_or(("", found));
+            Problem {
+                file: widget_file.to_string(),
+                line: None,
+                message: message.to_string(),
+                target: None,
+            }
+        })
+        .collect();
+    let Some(folder) = &document.widgets else {
+        return problems;
+    };
+    let names: Vec<String> = widgets.modules.keys().cloned().collect();
+    let version = crate::widgets::version(folder);
+    let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| crate::widgets::is_widget_file(path, folder))
+        .collect();
+    files.sort();
+    for file in files {
+        let text = std::fs::read_to_string(&file).unwrap_or_default();
+        if let Err(error) = crate::widgets::compile_cached(&file, &text, &names, Some(version)) {
+            problems.push(Problem {
+                file: document.url(&file)[1..].to_string(),
+                line: None,
+                message: format!("does not compile: {error}"),
+                target: None,
+            });
+        }
+    }
+    problems
+}
+
 /// An error's text with the served folder's absolute path taken out, so
 /// files read as their addresses do.
 fn relative(text: &str, served: &Path) -> String {
@@ -383,10 +404,12 @@ pub fn announce_on(changes: broadcast::Sender<String>) {
 pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
     static REPORTED: LazyLock<Mutex<HashSet<Problem>>> = LazyLock::new(Mutex::default);
     let mut external = Vec::new();
-    let mut problems: Vec<Problem> = pages
-        .iter()
-        .flat_map(|page| page_links_with(document, page, &mut external).0)
-        .collect();
+    let mut problems = widget_problems(document);
+    problems.extend(
+        pages
+            .iter()
+            .flat_map(|page| page_links_with(document, page, &mut external).0),
+    );
     let mut answers = EXTERNAL
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -736,8 +759,13 @@ mod external {
     async fn widget_problems_are_reported_by_check() {
         let doc = folder(
             "widget-problems",
-            "# Home\n\n<Nope />\n\n<Callout>fine</Callout>\n",
+            "# Home\n\n<Nope />\n\n<Callout>fine</Callout>\n\n[Two](two.md)\n",
         );
+        std::fs::write(
+            doc.base.join("two.md"),
+            "# Two\n\n<Callout>also</Callout>\n",
+        )
+        .unwrap();
         std::fs::create_dir_all(doc.base.join("widgets")).unwrap();
         std::fs::write(
             doc.base.join("devpage.yml"),
@@ -750,6 +778,8 @@ mod external {
         )
         .unwrap();
         std::fs::write(doc.base.join("widgets/Broken.tsx"), "export default (").unwrap();
+        // A helper that doesn't compile is a problem too.
+        std::fs::write(doc.base.join("widgets/fmt.ts"), "export const x = ;").unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
         let found: Vec<String> = document(&doc, false)
             .await
@@ -775,9 +805,23 @@ mod external {
             "{found:#?}"
         );
         assert!(
+            found
+                .iter()
+                .any(|p| p.contains("widgets/fmt.ts: does not compile: line 1:")),
+            "{found:#?}"
+        );
+        assert!(
             !found.iter().any(|p| p.contains("<Callout> is not")),
             "{found:#?}"
         );
+        // Two pages, but the widgets folder's problems are reported once.
+        for once in ["Callout.tsx", "Broken.tsx", "fmt.ts"] {
+            assert_eq!(
+                found.iter().filter(|p| p.contains(once)).count(),
+                1,
+                "{once}: {found:#?}"
+            );
+        }
     }
 }
 
