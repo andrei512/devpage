@@ -73,11 +73,11 @@ What you edit decides what you have to do to see it:
 ## Tests
 
 ```sh
-cargo test                  # 171 tests in the four crates; needs no network and no Chrome
+cargo test                  # 172 tests in the four crates; needs no network and no Chrome
 cargo test -- --ignored     # the 46 tests that drive chrome-headless-shell
 ```
 
-`cargo test` runs every crate in the workspace: 109 in `devpage`, 56 in the
+`cargo test` runs every crate in the workspace: 109 in `devpage`, 57 in the
 engine `devpage-design`, 4 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside the code they
 test — the canvas's Chrome tests in `src/designs/canvas_tests.rs`, a child
@@ -142,7 +142,7 @@ The engine's tests pin, in `devpage-design`:
 | Module | Tests | What they pin |
 | --- | --- | --- |
 | `parse` | 8 | Imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column. |
-| `resolve` | 21 | Props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none. |
+| `resolve` | 22 | Props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none. |
 | `render` | 26 | Auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design. |
 | `wire` | 1 | A patch carrying only the nodes that changed. |
 

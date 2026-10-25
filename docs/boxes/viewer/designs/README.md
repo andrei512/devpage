@@ -76,7 +76,8 @@ designs use. A file:
   `Ellipse`, `Vector` or `Image`.
 - holds exactly one **root element**, which is a `Frame`. Its `width` and
   `height` are the design's size; a root sized `"hug"` takes its content's
-  size.
+  size. A root takes no `x` or `y`: it has no place of its own, and an
+  instance goes where the instance's own `x` and `y` say.
 
 Elements, arrays and objects nest at most 256 deep, counting through the
 designs a design uses — far deeper than any real design. A number or a string
@@ -141,7 +142,7 @@ Every element takes:
 | Attribute | Value | Default |
 | --- | --- | --- |
 | `name` | a label for the node, shown in problems | the element's name |
-| `x`, `y` | position in pixels inside a parent with no layout; in a parent with `layout="row"` or `"column"`, which places its children itself, they are a problem | `0` |
+| `x`, `y` | position in pixels inside a parent with no layout; in a parent with `layout="row"` or `"column"`, which places its children itself, and on a design's root, which has no parent, they are a problem | `0` |
 | `width`, `height` | pixels from `0` up, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`; a design's root shown on its own has no parent, and there `"fill"` hugs) | `"hug"` |
 | `opacity` | `0` to `1` | `1` |
 | `onClick` | an [interaction](#prototypes) | none |

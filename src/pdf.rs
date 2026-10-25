@@ -369,7 +369,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
@@ -555,7 +555,7 @@ mod tests {
         )
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
@@ -584,7 +584,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
@@ -655,7 +655,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
@@ -726,7 +726,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
@@ -762,7 +762,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn every_system_widget_renders() {
@@ -847,7 +847,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
@@ -914,7 +914,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn an_edited_helper_reaches_open_pages() {
@@ -951,7 +951,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
@@ -1013,7 +1013,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_comment_anchors_on_text_inside_a_widget() {
@@ -1040,7 +1040,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_printed_doc_shows_each_widgets_first_render() {
