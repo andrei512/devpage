@@ -64,9 +64,18 @@ pub enum Paper {
 /// What a document is, with its parts resolved to files.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
-    Site { root: String },
-    Doc { chapters: Vec<PathBuf>, pdf: Pdf },
-    Slides { slides: Vec<PathBuf> },
+    Site {
+        root: String,
+    },
+    Doc {
+        chapters: Vec<PathBuf>,
+        pdf: Pdf,
+    },
+    Slides {
+        slides: Vec<PathBuf>,
+    },
+    /// A `.design` file, which is the whole document.
+    Design,
 }
 
 /// Which kind a document file names, read without loading the document.
@@ -93,8 +102,8 @@ pub struct Document {
 }
 
 impl Document {
-    /// Loads a document file, `devpage.yml` in a folder, or a Markdown file,
-    /// which must lie inside the served folder `served`.
+    /// Loads a document file, `devpage.yml` in a folder, a Markdown file or a
+    /// design, which must lie inside the served folder `served`.
     pub fn load(path: &Path, served: &Path) -> Result<Self> {
         let file = if path.is_dir() {
             path.join("devpage.yml")
@@ -121,6 +130,20 @@ impl Document {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
+        if file.extension().is_some_and(|ext| ext == "design") {
+            return Ok(Self {
+                served,
+                title: file
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned(),
+                kind: Kind::Design,
+                base,
+                file_name,
+                watch: None,
+            });
+        }
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
                 served,

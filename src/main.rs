@@ -89,9 +89,16 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served));
     let entry = Arc::new(Entry::new(document.clone()));
 
+    let designs = designs::Designs::new(document.served.clone());
+
     let (changes, _) = broadcast::channel(16);
     check::announce_on(changes.clone());
-    let _watcher = watch::start(entry.clone(), index.clone(), changes.clone())?;
+    let _watcher = watch::start(
+        entry.clone(),
+        index.clone(),
+        designs.clone(),
+        changes.clone(),
+    )?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -113,7 +120,7 @@ async fn main() -> Result<()> {
     };
     axum::serve(
         listener,
-        server::router_with_index(entry, index, changes, identity),
+        server::router_with_index(entry, index, designs, changes, identity),
     )
     .await?;
     Ok(())

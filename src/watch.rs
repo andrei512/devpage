@@ -1,5 +1,6 @@
 //! Watches the served folder: keeps the index current, tells open pages a
-//! watched file changed, and tells them a comment thread changed.
+//! watched file changed, tells them a comment thread changed, and tells the
+//! design store every file that changed.
 
 use std::sync::Arc;
 
@@ -7,16 +8,20 @@ use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
+use crate::designs::Designs;
 use crate::document::{Document, Entry};
 use crate::index::Index;
 use std::path::Path;
 
 /// Starts watching. A change to a watched file sends `change`; a change to a
 /// comment thread sends `comments /<page>`, whatever the site's `watch` says.
-/// The returned watcher stops when dropped.
+/// Every changed file outside `.devpage/` also goes to the design store,
+/// whatever `watch` and `.gitignore` say, since any file may be part of a
+/// design. The returned watcher stops when dropped.
 pub fn start(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
 ) -> Result<RecommendedWatcher> {
     let served = entry.document().served.clone();
@@ -41,6 +46,10 @@ pub fn start(
                 }
                 continue;
             }
+            if relative.starts_with(".devpage") {
+                continue;
+            }
+            designs.changed(&path);
             index.changed(&path);
             // The entry's own file: re-read it, so `/` and `watch` follow it,
             // and refresh open pages whatever `watch` says.
@@ -100,7 +109,8 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let (changes, mut received) = broadcast::channel(64);
-        let _watcher = start(Arc::new(Entry::new(document)), index, changes).unwrap();
+        let designs = Designs::new(dir.to_path_buf());
+        let _watcher = start(Arc::new(Entry::new(document)), index, designs, changes).unwrap();
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch();
@@ -165,7 +175,8 @@ mod tests {
         let entry = Arc::new(Entry::new(document));
         let index = Arc::new(Index::build(&dir));
         let (changes, mut received) = broadcast::channel(64);
-        let _watcher = start(entry.clone(), index, changes).unwrap();
+        let designs = Designs::new(dir.clone());
+        let _watcher = start(entry.clone(), index, designs, changes).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Its own file changing refreshes pages, though `watch` names only Markdown.
