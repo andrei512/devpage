@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -59,7 +60,6 @@ type External = (String, Option<usize>, String);
 /// some sites answer other requests with an error a reader never sees.
 static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
     reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
         .user_agent(concat!("devpage/", env!("CARGO_PKG_VERSION")))
         .default_headers(reqwest::header::HeaderMap::from_iter([(
             reqwest::header::ACCEPT,
@@ -69,21 +69,76 @@ static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
         .expect("an HTTP client")
 });
 
-/// Why an external address is broken, or `None` when it answers below 400,
-/// following redirects, within 10 seconds.
-async fn answer(address: &str) -> Option<String> {
-    match CLIENT.get(address).send().await {
-        Ok(response) if response.status().as_u16() < 400 => None,
-        Ok(response) => Some(response.status().to_string()),
-        Err(error) if error.is_timeout() => Some("no answer in 10 seconds".into()),
+/// How long an external address gets to answer, and how the preview retries
+/// one that didn't. Milliseconds; tests shorten them.
+static FIRST_WAIT: AtomicU64 = AtomicU64::new(10_000);
+static RETRY_WAIT: AtomicU64 = AtomicU64::new(30_000);
+static RETRY_AFTER: AtomicU64 = AtomicU64::new(30_000);
+
+/// The preview reports an address that can't be reached only after this many
+/// failures in a row; one slow answer is the network, not a broken link.
+const FAILURES_BEFORE_A_PROBLEM: u32 = 3;
+
+#[cfg(test)]
+fn set_waits(first: u64, retry: u64, retry_after: u64) {
+    FIRST_WAIT.store(first, Ordering::Relaxed);
+    RETRY_WAIT.store(retry, Ordering::Relaxed);
+    RETRY_AFTER.store(retry_after, Ordering::Relaxed);
+}
+
+/// What asking an external address once found.
+enum Outcome {
+    /// A status below 400, following redirects.
+    Fine,
+    /// A definite answer of 400 or above: the link is broken.
+    Broken(String),
+    /// No answer in time, or no connection: maybe the network, maybe the site.
+    Unreachable(String),
+}
+
+fn seconds(millis: u64) -> String {
+    if millis.is_multiple_of(1000) {
+        format!("{} seconds", millis / 1000)
+    } else {
+        format!("{millis} ms")
+    }
+}
+
+/// Asks an address once, giving it `wait` milliseconds to answer.
+async fn ask(address: &str, wait: u64) -> Outcome {
+    match CLIENT
+        .get(address)
+        .timeout(Duration::from_millis(wait))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().as_u16() < 400 => Outcome::Fine,
+        Ok(response) => Outcome::Broken(response.status().to_string()),
+        Err(error) if error.is_timeout() => {
+            Outcome::Unreachable(format!("no answer in {}", seconds(wait)))
+        }
         // reqwest's own message repeats the address; the root cause says why.
         Err(error) => {
             let mut cause: &dyn std::error::Error = &error;
             while let Some(source) = cause.source() {
                 cause = source;
             }
-            Some(cause.to_string())
+            Outcome::Unreachable(cause.to_string())
         }
+    }
+}
+
+/// Why an external address is broken, for `devpage check`, or `None` when it
+/// answers. An address that can't be reached is asked once more, with longer
+/// to answer, before it counts as broken.
+async fn answer(address: &str) -> Option<String> {
+    match ask(address, FIRST_WAIT.load(Ordering::Relaxed)).await {
+        Outcome::Fine => None,
+        Outcome::Broken(why) => Some(why),
+        Outcome::Unreachable(_) => match ask(address, RETRY_WAIT.load(Ordering::Relaxed)).await {
+            Outcome::Fine => None,
+            Outcome::Broken(why) | Outcome::Unreachable(why) => Some(why),
+        },
     }
 }
 
@@ -404,6 +459,8 @@ enum Answer {
     Pending,
     Fine,
     Broken(String),
+    /// Not reached this many times in a row; still being retried.
+    Unreachable(u32, String),
 }
 
 /// Every external address the preview has asked about, for as long as
@@ -421,8 +478,10 @@ pub fn announce_on(changes: broadcast::Sender<String>) {
 
 /// The problems on the given pages, for the preview: each is printed on the
 /// terminal the first time it is found, and returned for the page to list.
-/// External addresses are checked in the background, once each; a broken one
-/// shows from the next render, which its answer triggers.
+/// External addresses are checked in the background: a definite error shows
+/// from the next render, which its answer triggers; an address that can't be
+/// reached is retried, and shows only after three failures in a row, until it
+/// answers again.
 pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
     static REPORTED: LazyLock<Mutex<HashSet<Problem>>> = LazyLock::new(Mutex::default);
     let mut external = Vec::new();
@@ -445,7 +504,17 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
                 message: format!("{address} — {why}"),
                 target: Some(address),
             }),
-            Some(Answer::Pending | Answer::Fine) => {}
+            Some(Answer::Unreachable(failures, why)) if *failures >= FAILURES_BEFORE_A_PROBLEM => {
+                problems.push(Problem {
+                    file,
+                    line,
+                    message: format!(
+                        "{address} — {why}, {FAILURES_BEFORE_A_PROBLEM} times in a row"
+                    ),
+                    target: Some(address),
+                })
+            }
+            Some(Answer::Pending | Answer::Fine | Answer::Unreachable(..)) => {}
             None => {
                 // Outside a runtime (a unit test rendering a page) nothing is
                 // checked in the background.
@@ -453,17 +522,7 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
                     continue;
                 };
                 answers.insert(address.clone(), Answer::Pending);
-                runtime.spawn(async move {
-                    let result = answer(&address).await;
-                    let broken = result.is_some();
-                    EXTERNAL
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .insert(address, result.map_or(Answer::Fine, Answer::Broken));
-                    if broken && let Some(changes) = CHANGES.get() {
-                        let _ = changes.send("change".into());
-                    }
-                });
+                runtime.spawn(watch_address(address));
             }
         }
     }
@@ -477,6 +536,42 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
         }
     }
     problems
+}
+
+/// Asks an address in the background until it gives a definite answer,
+/// retrying one that can't be reached after a growing pause, and asks open
+/// pages to fetch themselves again whenever what they would show changes.
+async fn watch_address(address: String) {
+    let mut failures = 0;
+    loop {
+        let outcome = ask(&address, FIRST_WAIT.load(Ordering::Relaxed)).await;
+        let shown_before = failures >= FAILURES_BEFORE_A_PROBLEM;
+        let (answer, shown_now, done) = match outcome {
+            Outcome::Fine => (Answer::Fine, false, true),
+            Outcome::Broken(why) => (Answer::Broken(why), true, true),
+            Outcome::Unreachable(why) => {
+                failures += 1;
+                let shown = failures >= FAILURES_BEFORE_A_PROBLEM;
+                (Answer::Unreachable(failures, why), shown, false)
+            }
+        };
+        EXTERNAL
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(address.clone(), answer);
+        // A problem appeared or cleared: open pages show the difference.
+        if shown_now != shown_before
+            && let Some(changes) = CHANGES.get()
+        {
+            let _ = changes.send("change".into());
+        }
+        if done {
+            return;
+        }
+        // 30 s, then 60 s, then every 120 s while it stays out of reach.
+        let pause = RETRY_AFTER.load(Ordering::Relaxed) << (failures - 1).min(2);
+        tokio::time::sleep(Duration::from_millis(pause)).await;
+    }
 }
 
 /// The values of every `name="…"` attribute in rendered HTML.
@@ -550,23 +645,44 @@ pub(crate) mod web {
         let address = format!("http://{}", listener.local_addr().unwrap());
         let hits = Arc::new(Mutex::new(HashMap::new()));
         let counted = hits.clone();
+        // `/ok` answers 200 and anything else 404, except: `/slow-<ms>` answers
+        // 200 after that long, `/drop` closes without answering, and
+        // `/flaky-<n>` closes without answering its first n times, then 200.
         std::thread::spawn(move || {
             for stream in listener.incoming() {
                 let Ok(mut stream) = stream else { continue };
-                let mut request = String::new();
-                let mut reader = BufReader::new(stream.try_clone().unwrap());
-                let _ = reader.read_line(&mut request);
-                let path = request.split(' ').nth(1).unwrap_or("/").to_string();
-                *counted.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
-                let status = if path == "/ok" {
-                    "200 OK"
-                } else {
-                    "404 Not Found"
-                };
-                let _ = write!(
-                    stream,
-                    "HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-                );
+                let counted = counted.clone();
+                std::thread::spawn(move || {
+                    let mut request = String::new();
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let _ = reader.read_line(&mut request);
+                    let path = request.split(' ').nth(1).unwrap_or("/").to_string();
+                    let hit = {
+                        let mut hits = counted.lock().unwrap();
+                        let n = hits.entry(path.clone()).or_insert(0);
+                        *n += 1;
+                        *n
+                    };
+                    let status = if path == "/ok" {
+                        "200 OK"
+                    } else if let Some(ms) = path.strip_prefix("/slow-") {
+                        std::thread::sleep(std::time::Duration::from_millis(ms.parse().unwrap()));
+                        "200 OK"
+                    } else if path == "/drop" {
+                        return;
+                    } else if let Some(n) = path.strip_prefix("/flaky-") {
+                        if hit <= n.parse::<usize>().unwrap() {
+                            return;
+                        }
+                        "200 OK"
+                    } else {
+                        "404 Not Found"
+                    };
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                    );
+                });
             }
         });
         Server { address, hits }
@@ -748,6 +864,108 @@ mod external {
         assert_eq!(hits.get("/ok"), Some(&1));
     }
 
+    #[tokio::test]
+    async fn check_asks_an_unreachable_address_again_before_reporting_it() {
+        set_waits(300, 3000, 50);
+        let web = web::start();
+        let doc = folder(
+            "check-retry",
+            &format!(
+                "# Home\n\n[slow]({0}/slow-800) [down]({0}/drop) [gone]({0}/gone)\n",
+                web.address
+            ),
+        );
+        let found: Vec<String> = document(&doc, true)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        // Slow but there: the second, longer wait gets its answer.
+        assert!(!found.iter().any(|p| p.contains("/slow-800")), "{found:#?}");
+        // Never there: reported after the second try.
+        assert!(found.iter().any(|p| p.contains("/drop")), "{found:#?}");
+        // A definite error is reported without asking again.
+        assert!(
+            found.iter().any(|p| p.contains("/gone — 404 Not Found")),
+            "{found:#?}"
+        );
+        let hits = web.hits.lock().unwrap();
+        assert_eq!(hits.get("/slow-800"), Some(&2));
+        assert_eq!(hits.get("/drop"), Some(&2));
+        assert_eq!(hits.get("/gone"), Some(&1));
+    }
+
+    /// The live-update channel the preview announces on, shared by every test
+    /// in the process, since the preview's checks are process-wide.
+    fn listen() -> broadcast::Receiver<String> {
+        static SHARED: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+        let sender = SHARED.get_or_init(|| broadcast::channel(64).0);
+        announce_on(sender.clone());
+        CHANGES.get().expect("announced").subscribe()
+    }
+
+    /// Renders until `done` holds of the problems found, or five seconds pass.
+    async fn render_until(
+        doc: &Document,
+        pages: &[PathBuf],
+        done: impl Fn(&[Problem]) -> bool,
+    ) -> Vec<Problem> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            let found = preview(doc, pages);
+            if done(&found) || tokio::time::Instant::now() > deadline {
+                return found;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    fn unreachable_count(address: &str) -> u32 {
+        match EXTERNAL.lock().unwrap().get(address) {
+            Some(Answer::Unreachable(failures, _)) => *failures,
+            _ => 0,
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_preview_shows_an_unreachable_address_only_after_three_failures() {
+        set_waits(300, 3000, 50);
+        let web = web::start();
+        let flaky = format!("{}/flaky-3", web.address);
+        let doc = folder("preview-retry", &format!("# Home\n\n[f]({flaky})\n"));
+        let mut heard = listen();
+        let pages = [doc.base.join("README.md")];
+        assert!(preview(&doc, &pages).is_empty());
+
+        // One failure, or two, is the network: nothing to show.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while unreachable_count(&flaky) < 1 && tokio::time::Instant::now() < deadline {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(unreachable_count(&flaky), 1);
+        assert!(preview(&doc, &pages).is_empty());
+
+        // The third failure in a row is a problem, and open pages hear of it …
+        let found = render_until(&doc, &pages, |found| !found.is_empty()).await;
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(found[0].message.ends_with("3 times in a row"), "{found:#?}");
+        assert_eq!(unreachable_count(&flaky), 3);
+        assert_eq!(heard.try_recv().ok().as_deref(), Some("change"));
+
+        // … and when the address answers again, the problem goes, and they
+        // hear of that too.
+        let found = render_until(&doc, &pages, |found| found.is_empty()).await;
+        assert!(found.is_empty(), "{found:#?}");
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        let mut cleared = false;
+        while !cleared && tokio::time::Instant::now() < deadline {
+            cleared = heard.try_recv().is_ok();
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(cleared, "no change announced when the problem cleared");
+        assert_eq!(web.hits.lock().unwrap().get("/flaky-3"), Some(&4));
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn the_preview_checks_in_the_background_and_refreshes_open_pages() {
         let web = web::start();
@@ -755,8 +973,7 @@ mod external {
             "preview-external",
             &format!("# Home\n\n[a]({0}/missing) [b]({0}/ok)\n", web.address),
         );
-        let (changes, mut heard) = broadcast::channel(16);
-        announce_on(changes);
+        let mut heard = listen();
         let pages = [doc.base.join("README.md")];
 
         // The first render holds nothing up: the answer isn't in yet.
@@ -768,7 +985,7 @@ mod external {
             .unwrap();
         assert_eq!(message, "change");
         // … and the next render lists it, marking the link as written.
-        let found = preview(&doc, &pages);
+        let found = render_until(&doc, &pages, |found| !found.is_empty()).await;
         assert_eq!(found.len(), 1, "{found:#?}");
         let missing = format!("{}/missing", web.address);
         assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
