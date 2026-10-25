@@ -162,6 +162,29 @@ async function post(action, body) {
   await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
+// Hovering a paragraph — or a list item, table, code block or diagram —
+// offers a comment on the whole of it.
+const blocks = "p, li, pre, table, .diagram, blockquote";
+let hovered = null;
+document.addEventListener("mouseover", (event) => {
+  if (print) return;
+  const block = event.target.closest?.(blocks);
+  if (!block || block === hovered || !block.closest("[data-source]") || block.closest("#comments")) return;
+  hovered = block;
+  document.getElementById("paragraph-button")?.remove();
+  const button = document.createElement("button");
+  button.id = "paragraph-button";
+  button.textContent = "+";
+  button.title = "Comment on this paragraph";
+  const rect = block.getBoundingClientRect();
+  button.style.cssText = `position:absolute;top:${scrollY + rect.top}px;left:${scrollX + rect.left - 34}px`;
+  button.addEventListener("click", () => {
+    const text = prompt("Comment");
+    if (text) post("", { page: block.closest("[data-source]").dataset.source, anchor: { quote: block.innerText.trim(), prefix: "", suffix: "" }, text });
+  });
+  document.body.append(button);
+});
+
 // Selecting text inside one source offers a comment on it.
 document.addEventListener("mouseup", () => {
   document.getElementById("comment-button")?.remove();
