@@ -161,9 +161,10 @@ per page.
 **Check it.** `devpage check garden` checks the site and everything it links
 to — here, all three — and exits `1` if a link is broken: ready for a test.
 
-For a finished example of each, read these docs — they are a devpage
-site — and [the devpage talk](talks/devpage/devpage.yml), a deck made with
-devpage about devpage.
+For a finished example of each kind: these docs are a site,
+[the release notes](releases/devpage.yml) are a doc, and
+[the devpage talk](talks/devpage/devpage.yml) is a deck — all three in the
+navbar's **Examples** menu.
 
 ## Where next
 

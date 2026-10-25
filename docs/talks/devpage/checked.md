@@ -1,11 +1,11 @@
-<Columns kicker="Checked" title="Broken links fail the build — not the reader.">
+<Columns kicker="Checked links" title="Broken links fail the build — not the reader.">
 
-<Terminal title="CI">
+<Terminal title="my-project">
 
 ```
 $ devpage check docs
-docs/README.md:12: broken link design.md — no such file
-docs/README.md:30: broken link talk/devpage.yml#9 — the deck has 6 slides
+docs/README.md:3: broken link design.md — no such file
+docs/README.md:3: broken link talk/devpage.yml#9 — the deck has 3 slides
 $ echo $?
 1
 ```

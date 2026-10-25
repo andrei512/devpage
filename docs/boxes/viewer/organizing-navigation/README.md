@@ -107,10 +107,10 @@ root: README.md
 navbar:
   Docs (book-open): README.md
   Getting started (rocket): getting-started.md
-  Guides (compass):
-    Writing a document (file-text): boxes/viewer/writing-a-document/README.md
-    Making slides (presentation): boxes/viewer/making-slides/README.md
-  Talk (presentation): talks/devpage/devpage.yml
+  Examples (layout-grid):
+    Site — these docs (book-open): README.md
+    Doc — release notes (file-text): releases/devpage.yml
+    Slides — the devpage talk (presentation): talks/devpage/devpage.yml
   (github): https://github.com/andrei512/devpage
 ```
 

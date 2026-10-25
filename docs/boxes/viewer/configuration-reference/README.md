@@ -156,5 +156,6 @@ watch:
   - "**/*.yml"
 ```
 
-[The devpage talk](../../../talks/devpage/devpage.yml) is a deck; its
-`devpage.yml` shows the slides kind.
+[The release notes](../../../releases/devpage.yml) show the doc kind and
+[the devpage talk](../../../talks/devpage/devpage.yml) the slides kind; each
+`devpage.yml` is beside its chapters or slides.

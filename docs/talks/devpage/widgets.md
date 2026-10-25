@@ -1,27 +1,20 @@
-<Columns kicker="Widgets" title="React components, written as HTML tags.">
+<Columns kicker="Widgets" title="React components, written in Markdown as tags.">
 
-```tsx
-// docs/widgets/Badge.tsx
-export default function Badge({ state }) {
-  return <b className="badge">{state}</b>;
-}
-```
+<Example>
 
-<div>
+<Tabs>
+<Tab title="crates.io">
 
-<Chips>
+    cargo install devpage
 
-- Callout
-- Tabs
-- Example
-- FileTree
-- Terminal
-- Keys
-- Diagram
-- `<YourOwn />`
+</Tab>
+<Tab title="From a checkout">
 
-</Chips>
+    cargo install --path .
 
-</div>
+</Tab>
+</Tabs>
+
+</Example>
 
 </Columns>

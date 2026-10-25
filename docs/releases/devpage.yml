@@ -1,0 +1,12 @@
+# devpage's release notes: a doc with one chapter per release, newest first.
+# A release adds its chapter; changes on main not yet released are in
+# unreleased.md.
+kind: doc
+title: devpage release notes
+logo: ../logo.svg
+chapters:
+  - unreleased.md
+  - 0.1.0.md
+pdf:
+  header: devpage release notes
+  footer: "Page {page} of {pages}"

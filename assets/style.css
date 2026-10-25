@@ -230,8 +230,9 @@ body.slides { display: block; background: #000; overflow: hidden; }
 /* Widgets on a slide look as they do on a page, magnified for the stage. */
 .slide-body :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) { font-size: 16px; line-height: 1.5; zoom: 2.2; }
 .slide-body :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) :is(table, pre code) { font-size: 14px; }
+.slide-body :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) :is(.callout, .tabs, .example, .filetree, .terminal, .kind-cards) { zoom: 1; font-size: 16px; }
 .slide-body .kind-cards { zoom: 1.7; margin: 0; }
-.slide-body .example { zoom: 1.7; margin: 0; }
+.slide-body .example { zoom: 2; margin: 0; }
 .slide-body .example .example-source code { font-size: 19px; }
 /* A diagram fills the room it is given. */
 .slide-body .diagram svg { width: 100%; height: auto; max-height: 760px; }
