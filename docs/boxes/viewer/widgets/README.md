@@ -99,6 +99,36 @@ Press <Keys>⌘ P</Keys> to print.
 
 </Example>
 
+`Steps` and `Cards` are lists too — numbered steps, and links with a summary
+after each — so on GitHub they read as the plain lists they are:
+
+<Example>
+
+<Steps>
+
+1. Install devpage
+   It builds from crates.io.
+
+   $ cargo install devpage --locked
+
+2. Run it from the top of your repository
+   $ devpage docs
+
+</Steps>
+
+<Cards>
+
+- (rocket) [Making a site](../making-a-site/README.md) — pages with a sidebar.
+- (file-text) [Writing a doc](../writing-a-doc/README.md) — one long page.
+
+</Cards>
+
+</Example>
+
+In a step, the first line is its title and the lines after it its body; a
+paragraph of lines starting with `$ ` becomes command chips. In `Cards`, an
+icon name that Lucide doesn't have is a [problem](../checking-links/README.md).
+
 ## A project's own widgets
 
 A project adds widgets in one folder, named by its document file's `widgets`

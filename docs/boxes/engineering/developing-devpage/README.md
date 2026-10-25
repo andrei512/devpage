@@ -41,7 +41,7 @@ What you edit decides what you have to do to see it:
 ## Tests
 
 ```sh
-cargo test                  # 90 tests; needs no network and no Chrome
+cargo test                  # 91 tests; needs no network and no Chrome
 cargo test -- --ignored     # the 20 tests that drive the installed Chrome
 ```
 
@@ -68,7 +68,7 @@ print mode or `devpage pdf`.
 | `render` | 11 | | Headings never taking an id the frame uses; every frame carrying the logo as its tab's icon, before the sidebar's and the outline's title; Raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
 | `server` | 12 | | Widgets served compiled, for the document they belong to, with versioned helper imports; a page naming its widgets and carrying their placeholders, code left alone; a site's page printing as a doc of one chapter; `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back; comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link; each site's title linking to its own root page. |
 | `watch` | 7 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page; the `watch` list following the entry file; a site's `watch` narrowing only its own folder, whichever document devpage was started with; widget files refreshing whatever `watch` says. |
-| `widgets` | 16 | | Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content; an unknown tag replaced by an error, not passed through; a `Tab` outside a `Tabs` reported at its page line; nested and inline widgets, an inline widget at the start of a line staying in its paragraph; `Example`'s highlighted source; TSX compiled with the automatic runtime, widget shims, `__devpageUses` and versioned relative imports; a compile error's line; compiles remembered until the source or version changes; a folder's version moving when a helper changes; lowercase files as helpers and a system widget's name as a problem. |
+| `widgets` | 17 | | Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content; an unknown tag replaced by an error, not passed through; a `Tab` outside a `Tabs` reported at its page line; nested and inline widgets, an inline widget at the start of a line staying in its paragraph; `Example`'s highlighted source; TSX compiled with the automatic runtime, widget shims, `__devpageUses` and versioned relative imports; a compile error's line; compiles remembered until the source or version changes; a folder's version moving when a helper changes; lowercase files as helpers and a system widget's name as a problem; a `Cards` icon drawn on the server and an unknown icon name as a problem. |
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.

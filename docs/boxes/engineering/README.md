@@ -10,7 +10,7 @@ Changes reach `main` through a flow of stages — design, prototype, plan, build
 review — each run by a skill the operator starts. The box docs on `main`
 describe the system as it is; a design not yet built waits on its own branch.
 Underneath sit the everyday mechanics of working on the code: a Rust build,
-90 tests plus 20 that drive Chrome, and three gates, run by hand.
+91 tests plus 20 that drive Chrome, and three gates, run by hand.
 
 ```mermaid
 flowchart LR
