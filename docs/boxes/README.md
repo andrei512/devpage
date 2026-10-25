@@ -4,48 +4,64 @@ Every part of devpage is explained here once, in the folder of the subject that
 owns it. Start from the [vision](../vision.md) for where this is going; come
 here for how the system works.
 
-A box appears when its area is designed; the boxes are listed under
-[Topics](#topics) below. Today there are two: the viewer, which is the program,
-and engineering, which is how the program is changed.
+The boxes are listed under [Topics](#topics) below: the viewer, which is the
+program; engineering, which is how the program is changed; and the showcase
+deck, devpage presenting itself.
 
 ```mermaid
 flowchart LR
   catalog["System catalog"] --> viewer["Viewer<br/>the devpage program"]
   catalog --> engineering["Engineering<br/>how changes reach main"]
+  catalog --> showcase["Showcase deck<br/>devpage's pitch"]
   catalog --> constraints["General constraints<br/>checked on every review"]
-  viewer --> vparts["config, serving, navigation,<br/>live updates, diagrams"]
-  engineering --> eparts["flow and skills, SDLC,<br/>developing, dependencies"]
   click viewer href "./viewer/README.md" "Viewer"
   click engineering href "./engineering/README.md" "Engineering"
+  click showcase href "./showcase/README.md" "The showcase deck"
   click constraints href "../constraints/README.md" "General constraints"
-  click vparts href "./viewer/README.md#topics" "The viewer's pages"
-  click eparts href "./engineering/README.md#topics" "Engineering's pages"
 ```
 
 ## How to read the catalog
 
-Folders are the hierarchy. Each subject folder has a README that is its
-landing page: what the subject is and why it exists, a picture of its parts,
-and a Topics section that leads down layer by layer — essentials that teach the
+Every subject has one home: a folder under `boxes/` whose README is its
+entrance. Folders are the hierarchy, and nesting means containment — a part
+that merely uses another does not contain it, so follow links to reach the
+owner. One box looks like this:
+
+<FileTree>
+
+- viewer/
+  - README.md — the entrance: what the subject is, a picture of its parts, and its Topics
+  - glossary/README.md — the words it owns, one anchor per term
+  - constraints/
+    - the-served-folder-is-the-boundary.md — one rule per file: the rule, why, how it is checked
+  - writing-a-document/README.md — a concept or task article
+  - serving-pages/README.md — a mechanism page
+
+</FileTree>
+
+A README's Topics section leads down layer by layer — essentials that teach the
 mental model, concept and task articles organized around what a reader wants to
-do, mechanism pages that explain one part fully, and reference. Each child is a
-subdirectory with its own README. Nesting describes conceptual
-containment; a part that merely uses another does not contain it, so follow
-links to reach the owner.
+do, mechanism pages that explain one part fully, and reference. A broad box
+summarizes its parts and links to focused child designs; a focused box can
+explain its behavior fully. Code belonging to a child remains bound by its own
+and its ancestors' constraints. Each subject's words are in its glossary — the
+[viewer's](viewer/glossary/README.md) for documents and pages,
+[engineering's](engineering/README.md#glossary) for the development flow.
 
-Beside the READMEs, a subject can hold:
-
-- `constraints/` — one file per rule: the rule, why it holds and how it is
-  checked. The subject's README lists them one line each.
-
-- a glossary — the words the subject owns, as a section of its landing page.
+The docs on `main` describe the system as it is; a design that isn't built yet
+lives on a design branch until the code catches up. A box appears when its area
+is designed. Exact contracts stay beside their definitions in code; box docs
+explain them and link to them. A change updates the explanations, contracts,
+examples and incoming links it affects; a design decision lives in its owning
+focused design, linked from the box entrance, and the reason for changing it
+belongs in the commit message, not an ADR.
 
 ## Constraints
 
 Rules that belong to no single subject are the
 [general constraints](../constraints/README.md), checked on every review. Every
-other constraint lives with the subject it governs and applies to that
-subject's descendants.
+other constraint lives with the subject it governs, one file per rule listed
+one line each in that subject's Topics, and applies to its descendants.
 
 ## Topics
 

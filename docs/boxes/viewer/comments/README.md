@@ -33,7 +33,8 @@ already written, their highlights and the margin show either way.
 
 3. Write it
    A box opens at the top of the comments: write the comment and press
-   **Comment** (or ⌘-Enter / Ctrl-Enter); **Cancel** or Escape drops it.
+   **Comment** (or <Keys>⌘ Enter</Keys> / <Keys>Ctrl Enter</Keys>); **Cancel**
+   or <Keys>Esc</Keys> drops it.
 
 </Steps>
 

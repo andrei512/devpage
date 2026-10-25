@@ -18,12 +18,11 @@ the agent follows it. Between stages nothing moves on its own: a settled design
 is not permission to spike it, and a conversation stays a conversation until
 the operator asks for the artifact (`AGENTS.md`).
 
-**Some skills only the operator can start.** `design`, `plan`, `build`, `hack`
-and `improve-codebase-architecture` carry `disable-model-invocation: true`, so
-only the operator's slash command starts them; agents may reach for the rest
-when their work calls for one — the design session forks itself to run
+**Some skills only the operator can start**; agents reach for the rest when
+their work calls for one — the design session forks itself to run
 `prototype`, a lane runs `implement-ticket`, every stage uses `align` to talk.
-Who may start each skill is on the [skills reference](../skills-reference/README.md#the-skills).
+Which is which is listed once, on the
+[skills reference](../skills-reference/README.md#the-skills).
 
 **The branches carry the state.** A design lives on `design/<name>` until the
 code catches up; tickets are branches off it; which tickets are done is which
