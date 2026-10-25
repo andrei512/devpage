@@ -41,7 +41,7 @@ What you edit decides what you have to do to see it:
 ## Tests
 
 ```sh
-cargo test                  # 87 tests; needs no network and no Chrome
+cargo test                  # 89 tests; needs no network and no Chrome
 cargo test -- --ignored     # the 19 tests that drive the installed Chrome
 ```
 
@@ -56,7 +56,7 @@ print mode or `devpage pdf`.
 
 | Module | Tests | Ignored | What they pin |
 | --- | --- | --- | --- |
-| `check` | 13 | | A site's navbar reported once and its links followed; a missing logo reported once; widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages; missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site, and a page in no site checked as a doc; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the fixture doc, the devpage talk and devpage's own docs free of broken internal links. |
+| `check` | 15 | | A site's navbar reported once and its links followed; a missing logo reported once; widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages; missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site, and a page in no site checked as a doc; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; an unreachable address asked again before `devpage check` reports it; the preview's background check refreshing open pages; an unreachable address shown only after three failures in a row and cleared when it answers; the fixture doc, the devpage talk and devpage's own docs free of broken internal links. |
 | `comments` | 4 | 4 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; the comment icon and a wide table staying inside 390 px and 820 px windows; **C** on a deck. |
 | `document` | 8 | | Each kind parsed; a navbar read in order with its icons and dropdowns, `sidebar` and `theme-selector`, and its bad shapes refused; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
 | `icons` | 1 | | Lucide icons and GitHub's mark drawn; unknown names known as such. |
