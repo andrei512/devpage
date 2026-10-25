@@ -59,8 +59,13 @@ every attribute checked, typed and defaulted. An instance becomes the
 imported design's tree with its props substituted; it stays one node — its
 root — that knows which design it came from. Resolving reports every problem
 it finds, not just the first: unknown elements, attributes and props, values
-of the wrong type, missing or out-of-folder imports and images, and designs
-that use themselves.
+of the wrong type, missing or out-of-folder imports, images and interaction
+targets, and designs that use themselves.
+
+Every path a node carries — an image's file, an interaction's target — is
+stored as an address in the served folder, worked out from the file it was
+written in. The canvas uses an interaction's target as it is, so it never
+needs to know which file an instance came from.
 
 A node's **id** is the path of child positions from the root (`0.2.1`), which
 is what [patches](#the-watch-stream) address.

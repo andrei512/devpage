@@ -553,6 +553,20 @@ impl Resolver<'_> {
         }
     }
 
+    /// An interaction with its path, if it has one, made relative to the top of
+    /// the served folder instead of to `path`, the file it is written in.
+    fn interaction(&mut self, path: &str, action: &str) -> Result<String, String> {
+        let Some((verb, target)) = action.split_once(' ') else {
+            return Ok(action.to_string());
+        };
+        let target = target.trim();
+        match join(path, target) {
+            None => Err(format!("{action} — outside the served folder")),
+            Some(at) if self.files.bytes(&at).is_none() => Err(format!("{action} — no such file")),
+            Some(at) => Ok(format!("{verb} {at}")),
+        }
+    }
+
     fn common(&mut self, path: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
         let ok = match attr.name.as_str() {
             "x" => num(&value).map(|n| node.x = n),
@@ -563,12 +577,15 @@ impl Resolver<'_> {
                 .map(|s| node.name = s)
                 .ok_or_else(|| "expected a string".into()),
             "opacity" => num(&value).map(|n| node.opacity = n),
-            "onClick" => str_of(&value)
-                .filter(|s| interaction_ok(s))
-                .map(|s| node.on_click = Some(s))
-                .ok_or_else(|| {
-                    "expected \"navigate <path>\", \"back\", \"overlay <path>\" or \"close\"".into()
-                }),
+            "onClick" => match str_of(&value).filter(|s| interaction_ok(s)) {
+                Some(action) => self
+                    .interaction(path, &action)
+                    .map(|a| node.on_click = Some(a)),
+                None => Err(
+                    "expected \"navigate <path>\", \"back\", \"overlay <path>\" or \"close\""
+                        .into(),
+                ),
+            },
             _ => unreachable!(),
         };
         if let Err(e) = ok {
@@ -1054,6 +1071,51 @@ mod tests {
         ];
         for (source, expected) in cases {
             assert_eq!(problems(source), vec![expected.to_string()], "{source}");
+        }
+    }
+
+    #[test]
+    fn an_interaction_is_relative_to_the_file_that_wrote_it() {
+        let fs = files(&[
+            (
+                "app/a.design",
+                "import B from \"../lib/b.design\"\n<Frame><B /><B onClick=\"overlay ./c.design\" /></Frame>",
+            ),
+            ("app/c.design", "<Frame />"),
+            (
+                "lib/b.design",
+                "<Frame onClick=\"navigate ./next.design\" />",
+            ),
+            ("lib/next.design", "<Frame />"),
+        ]);
+        let root = resolve(&fs, "app/a.design").unwrap().root;
+        assert_eq!(
+            root.children[0].on_click.as_deref(),
+            Some("navigate lib/next.design")
+        );
+        assert_eq!(
+            root.children[1].on_click.as_deref(),
+            Some("overlay app/c.design")
+        );
+    }
+
+    #[test]
+    fn an_interaction_to_nowhere_is_a_problem() {
+        for (click, expected) in [
+            (
+                "navigate ./nope.design",
+                "d/a.design:1:8: onClick: navigate ./nope.design — no such file",
+            ),
+            (
+                "overlay ../../x.design",
+                "d/a.design:1:8: onClick: overlay ../../x.design — outside the served folder",
+            ),
+        ] {
+            assert_eq!(
+                problems(&format!("<Frame onClick=\"{click}\" />")),
+                vec![expected.to_string()],
+                "{click}"
+            );
         }
     }
 
