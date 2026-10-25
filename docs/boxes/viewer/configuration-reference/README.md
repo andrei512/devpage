@@ -68,6 +68,10 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/README.md#a-projects-own-widgets), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
+| `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
+| `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
+| `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme)). Default: `true`. |
+| `logo` | path | no | An image — usually an SVG — shown before the title in the navbar (or the sidebar heading when there is no navbar) and used as the browser tab's icon. Default: none. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
@@ -84,6 +88,8 @@ belongs to the nearest one.
 | `pdf.header` | string | no | none | Printed at the top of every page. |
 | `pdf.footer` | string | no | `"{page} / {pages}"` | Printed at the bottom of every page. |
 | `widgets` | path | no | none | The folder of this doc's [project widgets](../widgets/README.md#a-projects-own-widgets). |
+| `theme-selector` | boolean | no | `true` | Whether the light/dark switch shows. |
+| `logo` | path | no | none | The browser tab's icon, and an image before the title. |
 
 In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
@@ -99,6 +105,8 @@ default.
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/README.md#a-projects-own-widgets); default none. |
+| `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
+| `logo` | path | no | The browser tab's icon; default none. |
 
 ## Errors
 
@@ -117,6 +125,10 @@ the cause:
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
+| A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
+| A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
+| A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
+| A `navbar` key has neither a label nor an `(icon)` | `in <file>` — `navbar has an entry with neither a label nor an icon` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
 | `--port` is taken | `binding <address>:<port>` — the system error |
 | Every port from 3030 up is taken | `no free port` |
@@ -144,4 +156,6 @@ watch:
   - "**/*.yml"
 ```
 
-The example doc and deck in `examples/` show the other two kinds.
+[The feature catalog](../../../features/devpage.yml) shows the doc kind and
+[the devpage talk](../../../talks/devpage/devpage.yml) the slides kind; each
+`devpage.yml` is beside its chapters or slides.

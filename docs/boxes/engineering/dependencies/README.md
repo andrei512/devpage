@@ -36,9 +36,11 @@ except where a code comment says so, and this page doesn't guess.
 Licences are as each crate's own `Cargo.toml` declares them. devpage itself
 is MIT — see [Installing devpage](../../../installing.md#licence).
 
-One more piece of third-party code is built into the binary but isn't a crate:
-the [vendored pele bundle](../../viewer/vendored-pele/README.md), the
-JavaScript that draws diagrams.
+Three more pieces of third-party code are built into the binary but aren't
+crates: the [vendored pele bundle](../../viewer/vendored-pele/README.md), the
+JavaScript that draws diagrams; the [vendored React bundle](../../viewer/vendored-react/README.md),
+which widgets run with; and the [vendored icons](../../viewer/vendored-icons/README.md),
+Lucide's icon set (ISC) and GitHub's mark (CC0).
 
 The error messages each failure produces are listed in the
 [configuration reference](../../viewer/configuration-reference/README.md#errors).

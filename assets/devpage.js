@@ -161,12 +161,14 @@ async function load(url) {
   // a document that changed kind — can't be swapped in part: load it whole.
   if (next.body.className !== document.body.className) {
     location.assign(url);
-    return true;
+    return "navigating";
   }
-  for (const id of ["page", "nav"]) {
+  for (const id of ["page", "nav", "navbar"]) {
     const fresh = next.getElementById(id);
-    if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
+    if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
   }
+  document.getElementById("navbar")?.classList.remove("open");
+  applyTheme();
   document.title = next.title;
   // The fresh page names its widgets' current versions.
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
@@ -192,7 +194,10 @@ document.addEventListener("click", async (event) => {
     if (url.hash) location.hash = url.hash;
     return;
   }
-  if (await load(url)) {
+  const loaded = await load(url);
+  // A page of another kind loads whole; touching history now would cancel it.
+  if (loaded === "navigating") return;
+  if (loaded) {
     history.pushState(null, "", url);
     if (url.hash) document.querySelector(url.hash)?.scrollIntoView();
     else window.scrollTo(0, 0);
@@ -646,3 +651,103 @@ mountWidgets(document).catch((error) => console.error(error)).finally(() => {
   document.documentElement.dataset.ready = "true";
 });
 if (!print && !document.hidden) connect();
+
+// ---- Theme ----------------------------------------------------------------
+// One button switches between light and dark, and the browser remembers the
+// theme switched to. Until the reader switches, the page follows the system
+// setting, live. The page's head set the theme before it painted; this keeps
+// it current.
+
+const themeQuery = matchMedia("(prefers-color-scheme: dark)");
+
+function savedTheme() {
+  if (!document.querySelector(".theme-toggle")) return null;
+  try {
+    const saved = localStorage.getItem("devpage-theme");
+    return saved === "light" || saved === "dark" ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+function applyTheme(theme = savedTheme()) {
+  const root = document.documentElement;
+  root.dataset.theme = theme || (themeQuery.matches ? "dark" : "light");
+  const label = root.dataset.theme === "dark" ? "Switch to light" : "Switch to dark";
+  for (const button of document.querySelectorAll(".theme-toggle")) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+}
+
+applyTheme();
+themeQuery.addEventListener("change", () => applyTheme());
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.(".theme-toggle")) return;
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+  try {
+    localStorage.setItem("devpage-theme", theme);
+  } catch {
+    // Storage may be blocked; the switch still holds for this page.
+  }
+  applyTheme(theme);
+});
+
+// ---- Navbar ---------------------------------------------------------------
+// Dropdowns open on click or from the keyboard and close on Escape, on a click
+// elsewhere, or when a link in them is followed. On a narrow screen the links
+// fold into a menu the toggle opens.
+
+function closeMenus(except) {
+  for (const menu of document.querySelectorAll(".navbar-menu.open")) {
+    if (menu === except) continue;
+    menu.classList.remove("open");
+    menu.querySelector(":scope > button").setAttribute("aria-expanded", "false");
+  }
+}
+
+function openMenu(menu, focusFirst) {
+  closeMenus(menu);
+  menu.classList.add("open");
+  menu.querySelector(":scope > button").setAttribute("aria-expanded", "true");
+  if (focusFirst) menu.querySelector(".navbar-entry")?.focus();
+}
+
+document.addEventListener("click", (event) => {
+  const toggle = event.target.closest?.(".navbar-toggle");
+  if (toggle) {
+    const bar = document.getElementById("navbar");
+    const open = bar.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  const button = event.target.closest?.(".navbar-menu > button");
+  if (button) {
+    const menu = button.parentElement;
+    if (menu.classList.contains("open")) closeMenus();
+    else openMenu(menu, false);
+    return;
+  }
+  // Anywhere else, or a followed link, closes what is open.
+  if (!event.target.closest?.(".navbar-dropdown") || event.target.closest("a")) closeMenus();
+  if (event.target.closest?.("#navbar a")) document.getElementById("navbar")?.classList.remove("open");
+});
+
+document.addEventListener("keydown", (event) => {
+  const menu = event.target.closest?.(".navbar-menu");
+  if (!menu) return;
+  const entries = [...menu.querySelectorAll(".navbar-entry")];
+  const at = entries.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    closeMenus();
+    menu.querySelector(":scope > button").focus();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (!menu.classList.contains("open")) openMenu(menu, true);
+    else entries[(at + 1) % entries.length]?.focus();
+  } else if (event.key === "ArrowUp" && menu.classList.contains("open")) {
+    event.preventDefault();
+    entries[(at - 1 + entries.length) % entries.length]?.focus();
+  }
+});

@@ -149,8 +149,20 @@ A file ending in `.md` is read as text and passed to `render::page`:
 4. **Frame.** The pieces go into one HTML page:
 
    - `<title>` is `<page title> · <document title>`;
-   - `<nav id="nav">` holds a link to the site's root page with the site's
-     title, then the tree;
+   - first in `<head>`, the document's logo as `<link rel="icon">` when it has
+     one, then a small script that sets `data-theme` on `<html>` — the
+     reader's stored choice, or the system's — before anything paints
+     ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme));
+   - `<body>`'s class names the frame: `site`, plus `with-navbar` and
+     `no-sidebar` as the document file says;
+   - `<header id="navbar">`, when the site has a navbar: its logo and title, its links
+     and dropdowns with their icons drawn as inline SVG, and the theme
+     selector ([the navbar](../organizing-navigation/README.md#the-navbar));
+   - `<nav id="nav">`, unless `sidebar: false`, holds the tree — after a link
+     to the site's root page with its logo and title when there is no navbar
+     to hold it;
+   - with no navbar, the theme selector in `<div id="theme-corner">`, top
+     right, unless `theme-selector: false`;
    - `<main id="page"><article>` holds the rendered Markdown;
    - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
      `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
@@ -159,8 +171,10 @@ A file ending in `.md` is read as text and passed to `render::page`:
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.
 
-   The ids `nav` and `page` are what [live updates](../live-updates/README.md)
-   replace in place. Titles and sidebar labels are HTML-escaped; the page body
+   The ids `navbar`, `nav` and `page` are what
+   [live updates](../live-updates/README.md) replace in place. A doc's and a
+   deck's frames carry the same head — the logo's icon link and the theme script —
+   and the theme corner. Titles and sidebar labels are HTML-escaped; the page body
    is not, since raw HTML is allowed.
 
 Beyond the index, nothing is cached between requests: each page request

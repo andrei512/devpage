@@ -220,9 +220,10 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
-    async fn the_example_doc_prints_on_a4_with_its_header_and_footer() {
+    async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
+        let document =
+            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
         let Kind::Doc { pdf, .. } = &document.kind else {
             panic!()
         };
@@ -257,9 +258,9 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
-    async fn the_example_deck_prints_one_16_by_9_page_per_slide() {
+    async fn the_talk_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
+        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
         let Kind::Slides { slides } = &document.kind else {
             panic!()
         };
@@ -352,7 +353,11 @@ mod tests {
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/launch-talk"), root).unwrap());
+        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
+        let Kind::Slides { slides } = &document.kind else {
+            panic!()
+        };
+        let last = format!("{0}#{0}", slides.len());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -388,17 +393,17 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         // ⌘← is the browser's, not the deck's.
         page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', metaKey: true}))")
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         // A live update swaps the deck in place and stays on the slide shown.
         page.evaluate("load(location.href)").await.unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        assert_eq!(shown(page.clone()).await, "3#3");
+        assert_eq!(shown(page.clone()).await, last);
         browser.close().await.ok();
         events.abort();
     }
@@ -409,7 +414,8 @@ mod tests {
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("examples/sync-design"), root).unwrap());
+        let document =
+            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -509,6 +515,227 @@ mod tests {
 
     async fn text(page: &chromiumoxide::Page, script: &str) -> String {
         page.evaluate(script).await.unwrap().into_value().unwrap()
+    }
+
+    const NAVBAR_SITE: &str = "kind: site\ntitle: Garden\nroot: README.md\nnavbar:\n  Home (house): README.md\n  Guide (book-open): guide.md\n  More (layout-grid):\n    Plan (file-text): plan.md\n    Web: https://example.com/garden\n  (github): https://github.com/someone/garden\n";
+
+    fn navbar_folder(name: &str) -> std::path::PathBuf {
+        widget_folder(
+            name,
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Plan](plan.md)\n",
+            &[
+                ("docs/devpage.yml", NAVBAR_SITE),
+                ("docs/guide.md", "# Guide\n\nRead on.\n"),
+                ("docs/plan.md", "# Plan\n\nThe plan.\n"),
+            ],
+        )
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
+        let logo = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" fill=\"#0066cc\"/></svg>";
+        let dir = widget_folder(
+            "navbar-logo",
+            "# Home\n",
+            &[
+                (
+                    "docs/devpage.yml",
+                    &format!("{NAVBAR_SITE}logo: logo.svg\n"),
+                ),
+                ("docs/guide.md", "# Guide\n"),
+                ("docs/plan.md", "# Plan\n"),
+                ("docs/logo.svg", logo),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        // Loaded, 22px, before the title and centred on it, and the tab's icon.
+        let shown = "(() => { const i = document.querySelector('.navbar-title .logo'), t = document.querySelector('.navbar-title'); const a = i.getBoundingClientRect(), b = t.getBoundingClientRect(); return [i.complete && i.naturalWidth > 0, a.width, a.height, i === t.firstElementChild, Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5, document.querySelector('link[rel=icon]').getAttribute('href')].join(' '); })()";
+        assert_eq!(
+            text(&page, shown).await,
+            "true 22 22 true true /docs/logo.svg"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
+        let dir = navbar_folder("navbar-menu");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.navbar-link.current span').textContent"
+            )
+            .await,
+            "Home"
+        );
+        // Click opens the dropdown; Escape closes it.
+        page.evaluate("document.querySelector('.navbar-menu > button').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "grid"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.navbar-menu > button').getAttribute('aria-expanded')"
+            )
+            .await,
+            "true"
+        );
+        page.evaluate("document.querySelector('.navbar-menu > button').dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))").await.unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "none"
+        );
+        // ArrowDown opens it and focuses the first entry.
+        page.evaluate("document.querySelector('.navbar-menu > button').dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowDown', bubbles: true}))").await.unwrap();
+        assert_eq!(
+            text(&page, "document.activeElement.textContent").await,
+            "Plan"
+        );
+        // Following a dropdown link swaps the page in place and lights its menu.
+        page.evaluate("document.activeElement.click()")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(text(&page, "location.pathname").await, "/docs/plan.md");
+        assert_eq!(
+            text(&page, "document.querySelector('.navbar-menu').className").await,
+            "navbar-menu current"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-dropdown')).display"
+            )
+            .await,
+            "none"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
+        let dir = navbar_folder("navbar-theme");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        let background = "getComputedStyle(document.body).backgroundColor";
+        let theme = "document.documentElement.dataset.theme";
+        // Shown icon: the moon in light, the sun in dark.
+        let shown = "['to-dark','to-light'].filter(c => getComputedStyle(document.querySelector('.theme-toggle .' + c)).display !== 'none').join()";
+        // Nothing saved: the page follows the system.
+        assert_eq!(
+            text(&page, theme).await,
+            text(
+                &page,
+                "matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"
+            )
+            .await
+        );
+        let start = text(&page, theme).await;
+        let other = if start == "dark" { "light" } else { "dark" };
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        assert_eq!(text(&page, theme).await, other);
+        assert_eq!(
+            text(&page, "String(localStorage.getItem('devpage-theme'))").await,
+            other
+        );
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        // Now dark wherever it started.
+        if start == "dark" {
+            page.evaluate("document.querySelector('.theme-toggle').click()")
+                .await
+                .unwrap();
+        }
+        assert_eq!(text(&page, theme).await, "dark");
+        assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
+        assert_eq!(text(&page, shown).await, "to-light");
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.theme-toggle').getAttribute('aria-label')"
+            )
+            .await,
+            "Switch to light"
+        );
+        // A reload keeps it, before anything paints.
+        page.reload().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(text(&page, theme).await, "dark");
+        assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
+        // One click back to light, the moon showing.
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        assert_eq!(text(&page, background).await, "rgb(255, 255, 255)");
+        assert_eq!(text(&page, shown).await, "to-dark");
+        assert_eq!(
+            text(&page, "String(localStorage.getItem('devpage-theme'))").await,
+            "light"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
+        use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+        let dir = navbar_folder("navbar-narrow");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.execute(SetDeviceMetricsOverrideParams::new(390, 800, 1.0, false))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-toggle').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
+        assert_eq!(text(&page, fits).await, "true true true");
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-links')).display"
+            )
+            .await,
+            "none"
+        );
+        page.evaluate("document.querySelector('.navbar-toggle').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('.navbar-links')).display"
+            )
+            .await,
+            "flex"
+        );
+        browser.close().await.ok();
+        events.abort();
     }
 
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.

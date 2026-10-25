@@ -1,7 +1,0 @@
-# An example deck: one Markdown file per slide, in order.
-kind: slides
-title: Introducing devpage
-slides:
-  - title.md
-  - problem.md
-  - kinds.md
