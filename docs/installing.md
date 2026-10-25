@@ -8,13 +8,12 @@ starting it. It is a task page under the [devpage landing page](README.md);
 ## What you need
 
 - **Rust 1.89 or later**, with `cargo` — devpage is installed by building it.
-  The locked `comrak 0.57.0` declares `rust-version = 1.89`, the highest of any
-  dependency. Check what you have with `cargo --version`; install or update
+  The locked `comrak 0.57.0` and the `vello` crates declare
+  `rust-version = 1.89`, the highest of any dependency. Check what you have with `cargo --version`; install or update
   Rust with [rustup](https://rustup.rs) (`rustup update`).
 - **Chrome or Chromium**, only for `devpage pdf`. Without one installed,
   `devpage pdf` downloads a Chromium once and keeps it in devpage's cache
   folder ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
-
 - **The `wasm32-unknown-unknown` target**, because building devpage also
   builds the [design engine](boxes/viewer/design-engine/README.md) for the
   browser: `rustup target add wasm32-unknown-unknown`. In a checkout,
@@ -22,7 +21,18 @@ starting it. It is a task page under the [devpage landing page](README.md);
 
 Nothing else is needed: the stylesheet, the page script, the diagram renderer
 and the design engine's WebAssembly module are compiled into the binary;
-diagrams are drawn by the reader's browser, and designs by the module.
+diagrams are drawn by the reader's browser, and designs by the module. No
+`protoc` and no wasm-bindgen CLI are needed: the build compiles the protobuf
+file and generates the module's bindings with Rust libraries
+([Dependencies](boxes/engineering/dependencies/README.md#build-dependencies-of-devpage)).
+The first build downloads the crates of all three workspace crates — the
+WebAssembly module's included — and compiles the design engine twice, once
+for your machine and once for the browser.
+
+The result is one file. A release build of `devpage` for 64-bit ARM macOS is
+about 34 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as a
+compressing proxy in front of a deployed devpage would send it; devpage itself
+sends it uncompressed).
 
 ## Install it
 

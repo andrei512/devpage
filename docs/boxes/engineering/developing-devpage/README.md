@@ -17,6 +17,15 @@ cargo build                 # debug build, target/debug/devpage
 cargo run -- docs           # build if needed, then serve these docs
 ```
 
+Building devpage also builds the [design engine](../../viewer/design-engine/README.md)
+for the browser: `build.rs` runs a nested `cargo build` of
+`devpage-design-wasm` for `wasm32-unknown-unknown`, in the size-optimised
+`wasm` profile, into its own folder under `target/`, then runs wasm-bindgen on
+it as a library ([Dependencies](../dependencies/README.md#build-dependencies-of-devpage)).
+`rust-toolchain.toml` names that target, so rustup adds it on the first build.
+The engine is compiled twice — natively and for WebAssembly — so a build that
+touches it takes correspondingly longer.
+
 Run it from the repository root: the folder devpage starts from is the
 [served folder](../../viewer/writing-a-document/README.md#the-served-folder),
 so the whole repository is served and the docs' links to `../LICENSE` and to
@@ -36,40 +45,72 @@ What you edit decides what you have to do to see it:
 | A page's Topics list | Save. The sidebar is rebuilt on every request, on every open page. |
 | `docs/devpage.yml`, or any document file | Save. Document files are read on every request and the index of them is kept current by the watcher. |
 | Rust code in `src/` | Stop devpage (Ctrl-C) and `cargo run` again, then reload the browser tab. A page reconnects to its event stream by itself, but doesn't fetch itself again on reconnecting. |
-| `assets/style.css`, `assets/devpage.js`, `assets/vendor/pele.js` | Rebuild and restart — they are compiled into the binary with `include_str!` — then do a full reload of the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts. |
+| `assets/style.css`, `assets/devpage.js`, `assets/design.js`, `assets/vendor/pele.js` | Rebuild and restart — they are compiled into the binary with `include_str!` — then do a full reload of the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts. |
+| A `.design` file, or an image a design uses | Save. The design store resolves again the designs made from that file and the open canvases redraw in place ([Designs](../../viewer/designs/README.md)). |
+| The engine in `design/src/`, the module in `design/wasm/src/`, or `proto/design.proto` | Rebuild and restart, then do a full reload of the tab: `build.rs` rebuilds the WebAssembly module and its bindings whenever these change, and the binary embeds them. After changing what the engine draws, run `DEVPAGE_UPDATE_REFERENCES=1 cargo test -p devpage-design` to rewrite the reference PNGs in `design/testdata/`, and look at them before committing. |
 
 ## Tests
 
 ```sh
-cargo test                  # 56 tests; needs no network and no Chrome
-cargo test -- --ignored     # the 7 tests that drive the installed Chrome
+cargo test                  # 99 tests in the three crates; needs no network and no Chrome
+cargo test -- --ignored     # the 13 tests that drive the installed Chrome
 ```
 
-Tests are written as `#[cfg(test)]` modules beside the code they test; there
-is no `tests/` folder. Route tests start the real router on a free port on
+`cargo test` runs every crate in the workspace: 64 in `devpage`, 32 in the
+engine `devpage-design` and 3 in `devpage-design-wasm`, whose tests run
+natively. Tests are written as `#[cfg(test)]` modules beside the code they
+test — the canvas's Chrome tests in `src/designs/canvas_tests.rs`, a child
+module of `designs`; there is no `tests/` folder. Route tests start the real router on a free port on
 `127.0.0.1` and talk to it with `reqwest`; external-link tests point the
-checker at a local web server, so the suite needs no network. The 7 tests
+checker at a local web server, so the suite needs no network. The 13 tests
 marked `#[ignore]` drive the installed Chrome through chromiumoxide — run them
-with `--ignored` after changing the page script, the stylesheet, print mode or
-`devpage pdf`.
+with `--ignored` after changing the page script, the design script, the
+module, the stylesheet, print mode or `devpage pdf`. The canvas tests start
+Chrome with `--enable-unsafe-webgpu`, so the GPU path runs headless.
+
+**The watcher's tests need file-system events.** The six `watch` tests,
+`server`'s test of the entry following its file, and the Chrome test of a
+selected-text comment save a file and wait for devpage to hear of it through
+`notify`. Where the platform delivers no events to the test process —
+`notify` itself receives nothing, as can happen in some sandboxed or
+restricted sessions on macOS — those tests fail while everything else passes.
+That says nothing about the change under test; run them where file events
+work before calling the suite green.
 
 | Module | Tests | Ignored | What they pin |
 | --- | --- | --- | --- |
 | `check` | 10 | | Missing files and headings and links climbing out of the served folder; a slide number the deck doesn't have; a heading in a doc checked against the ids the doc renders; Topics checked against the page's own site, and a page in no site checked as a doc; a broken linked document named by its address, not an absolute path; each external address asked once and every link to it reported; the preview's background check refreshing open pages; the examples and devpage's own docs free of broken internal links. |
 | `comments` | 4 | 3 | A thread's whole life leaving `git status` clean; a thread file that doesn't parse named and left alone; the local author without a `.git` folder; timestamps. In Chrome: selected text becoming a thread in the margin and the store, then detaching; a paragraph comment on a nested list anchoring again after a reload; **C** on a deck. |
+| `designs` | 7 | 6 | The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; nothing outside the served folder read; a PNG, or `422` and the problems; a design as the entry document; the watch stream over gRPC-Web sending the scene, a patch of only what changed, nothing for a no-op, problems, and the end of a deleted design; `devpage check` naming a broken embedded design's `file:line:col`. In Chrome: the canvas on the GPU and on the CPU each matching the PNG within the engine's tolerance; a click navigating, back returning, an overlay opening and closing; the wheel zooming about the pointer and panning; an embedded design drawing and surviving a page edit; a doc printing its embedded design. |
 | `document` | 7 | | Each kind parsed; bad kinds, fields and missing files rejected; a Markdown file as a one-chapter doc; the served folder as boundary and address root; a document outside it refused; a site's `watch` list; only YAML with a devpage `kind` is a document file. |
 | `index` | 4 | | Document files found outside what `.gitignore` excludes; the nearest site above a page; nested `.gitignore` files and `.git` folders out of sight; changes keeping it current. |
 | `main` | 1 | | Taking the next port when the first is busy. |
 | `nav` | 3 | | Links and `###` groups read from the Topics section only; the tree stopping at a cycle; a Topics entry outside the site or to a missing file is a problem. |
 | `pdf` | 2 | 4 | The default file name made safe; a site refused. In Chrome: the example doc on A4 with its header and footer; the example deck one 16:9 page per slide; a deck's keys; a doc's outline above the text on a narrow screen. |
-| `render` | 9 | | Raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
+| `render` | 10 | | An image of a design becoming its canvas; raw HTML kept and Mermaid fences marked; highlighting without a language label; unknown languages left plain; tables and heading ids; a doc's chapters with its outline; a deck's slides; links kept for chapters and slides from other folders; a one-file doc's title; a page's title. |
 | `server` | 10 | | A site's page printing as a doc of one chapter; `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back; comment threads over HTTP; deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone; a thread on a page outside the served folder refused; serving a folder with no `.git` by what each file is; nothing outside the served folder served; a served folder reached through a symbolic link; each site's title linking to its own root page. |
 | `watch` | 6 | | A saved page refreshing open pages; ignored files and files outside `watch` not refreshing; a comment thread always reaching its page; the `watch` list following the entry file; a site's `watch` narrowing only its own folder, whichever document devpage was started with. |
+
+The engine's tests pin, in `devpage-design`:
+
+| Module | Tests | What they pin |
+| --- | --- | --- |
+| `parse` | 4 | Imports, attributes and text with props; JSX whitespace in text; every syntax error, and each problem, at its line and column. |
+| `resolve` | 8 | Props and defaults; an instance taking its props; values parsed into their types; every problem reported at once and each at its place; a design that uses itself; paths kept inside the served folder; a valid design having none. |
+| `render` | 19 | Auto layout, hug, fill, align and justify, and absolute placement; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; the example designs painting as their reference PNGs, and the tolerance forgiving edges only. |
+| `wire` | 1 | A patch carrying only the nodes that changed. |
+
+and in `devpage-design-wasm`, 3: a scene sized, painted and hit-tested; a
+patch before any scene, or garbage, doing nothing; problems keeping the scene
+until a patch clears them.
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.
 
 **What has no test:** syntax highlighting except through the `render` tests;
+a design's problems shown on its canvas, a canvas reopening its stream after
+devpage restarts, closing streams in a hidden tab, and drag-to-pan and pinch
+on the canvas;
 Chromium's download when no Chrome is installed (it needs a machine without
 one); fullscreen on a deck (headless Chrome refuses it without a real user
 gesture); and the light and dark themes, which are checked by eye.
@@ -91,7 +132,10 @@ for you: run them by hand before you push. See
 
 ## The code
 
-devpage is one binary — `main.rs` and ten modules — with three built-in assets.
+devpage is one binary — `main.rs` and eleven modules — with six built-in
+assets, and the [design engine](../../viewer/design-engine/README.md) in two
+workspace crates beside it: `design/` (`devpage-design`) and `design/wasm/`
+(`devpage-design-wasm`).
 Each part of the diagram opens the page that explains it.
 
 ```mermaid
@@ -106,7 +150,10 @@ flowchart LR
   server --> comments["comments.rs<br/>comment store"]
   render --> nav["nav.rs<br/>Topics → tree"]
   render --> highlight["highlight.rs<br/>code fences"]
-  server --> assets["assets/<br/>style, script, pele"]
+  server --> designs["designs.rs<br/>design store, stream, PNG"]
+  watch --> designs
+  designs --> engine["design/<br/>the design engine"]
+  server --> assets["assets/<br/>style, scripts, pele,<br/>design engine module"]
   click main href "#how-main-wires-it-together" "How main wires it together"
   click document href "../../viewer/configuration-reference/README.md#document-files" "Document files"
   click index href "../../viewer/serving-pages/README.md#which-document-a-file-belongs-to" "Which document a file belongs to"
@@ -118,6 +165,8 @@ flowchart LR
   click comments href "../../viewer/comments/README.md#the-comment-store" "The comment store"
   click nav href "../../viewer/navigation-tree/README.md" "Navigation tree"
   click highlight href "../../viewer/serving-pages/README.md#rendering-a-markdown-file" "Code highlighting"
+  click designs href "../../viewer/design-engine/README.md#in-the-server" "The design engine in the server"
+  click engine href "../../viewer/design-engine/README.md" "The design engine"
   click assets href "../../viewer/serving-pages/README.md#built-in-assets" "Built-in assets"
 ```
 
@@ -126,14 +175,17 @@ flowchart LR
 | `src/main.rs` | The command line (clap): serving, `check` and `pdf`; wires the parts together and picks the address. |
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site. |
-| `src/watch.rs` | Watches the served folder, keeps the index current, and sends `change` or `comments /<page>` on the change channel. |
-| `src/server.rs` | The routes, request logging, the event stream, the comment requests and identity, and the built-in assets. |
-| `src/render.rs` | A page, a doc or a deck inside its frame; print mode; the problems bar; an invalid document file's page. |
+| `src/watch.rs` | Watches the served folder, keeps the index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store. |
+| `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes; the `Designs` gRPC service and its watch stream; the PNG route; the canvas page; design problems for `devpage check`. |
+| `src/server.rs` | The routes — the gRPC-Web watch route among them — request logging, the event stream, the comment requests and identity, and the built-in assets. |
+| `src/render.rs` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar; an invalid document file's page. |
 | `src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
-| `src/pdf.rs` | `devpage pdf`: serves the document internally and has Chrome print it, fetching a Chromium when none is installed. |
+| `src/pdf.rs` | `devpage pdf`: serves the document internally and has Chrome print it once every embedded design has painted, fetching a Chromium when none is installed. |
+| `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages). |
+| `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas — apply, lay out, paint on the CPU, hit-test; `gpu.rs`, the GPU backend on WebGPU. |
 
 What each crate does is in [Dependencies](../dependencies/README.md).
 
@@ -146,7 +198,7 @@ with an error before anything is served.
 
 ```mermaid
 flowchart LR
-  load["1. Load the document<br/>Document::load"] --> index["2. Build the index<br/>Index::build"]
+  load["1. Load the document<br/>Document::load"] --> index["2. Build the index, create the design store<br/>Index::build, Designs::new"]
   index --> channel["3. Create the change channel<br/>broadcast, 16 messages"]
   channel --> watcher["4. Start the watcher<br/>watch::start"]
   watcher --> bind["5. Bind the address<br/>--host, --port or 3030 up"]
@@ -163,11 +215,14 @@ flowchart LR
    folder — the current folder or `--root`. It becomes the `Entry`, shared by
    the watcher and the server, which re-reads it whenever its file changes.
 2. **Build the index** of the served folder's document files and `.gitignore`
-   files; the watcher and the server share it.
+   files; the watcher and the server share it. Then **create the design
+   store**, empty: it resolves a design the first time one is asked for, and
+   the watcher and the server share it too.
 3. **Create the broadcast channel** that carries `change` and
    `comments /<page>` messages, and hand it to the link checker, which sends
    `change` when a background check of an external address finds it broken.
-4. **Start the watcher** on the served folder. `main` keeps it for the whole
+4. **Start the watcher** on the served folder, with the design store to hand
+   changed paths to. `main` keeps it for the whole
    run; dropping it would stop watching.
 5. **Bind** exactly `--port`, or the first free port from 3030 up, on `--host`
    (`127.0.0.1` by default). The identity is local — `git config user.name` —
