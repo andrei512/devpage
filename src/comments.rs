@@ -329,6 +329,21 @@ mod tests {
     }
 
     #[test]
+    fn the_local_author_needs_no_git_folder() {
+        let folder = std::env::temp_dir().join(format!("devpage-author-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        assert!(!folder.join(".git").exists());
+        let expected = Command::new("git")
+            .args(["config", "--global", "user.name"])
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            .filter(|name| !name.is_empty())
+            .or_else(|| std::env::var("USER").ok());
+        assert_eq!(Some(local_author(&folder)), expected);
+    }
+
+    #[test]
     fn timestamps_are_rfc3339_utc() {
         let (stamp, _) = now();
         assert_eq!(stamp.len(), 20);
