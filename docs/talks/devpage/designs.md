@@ -1,7 +1,7 @@
 <Columns kicker="Designs" title="Your agent draws the UI. You click through it.">
 
 ```jsx
-// button.design
+// button.design, shortened
 <Frame props={{ label: "Button" }}
        layout="row" padding={[12, 20]}
        radius={8} fill="#2563eb">

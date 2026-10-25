@@ -10,9 +10,11 @@ PNG, so it can look at its work before anyone else does.
 
 ```jsx
 // button.design
-<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]}
-       radius={8} fill="#2563eb">
-  <Text color="#ffffff">{label}</Text>
+// A button: one line of text on a filled, rounded box.
+<Frame props={{ label: "Button", fill: "#2563eb" }}
+       layout="row" padding={[12, 20]} radius={8} fill={fill}
+       justify="center" shadow={{ y: 2, blur: 6, color: "#1e3a8a33" }}>
+  <Text size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>
 ```
 
