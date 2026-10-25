@@ -18,7 +18,17 @@ use crate::server;
 pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let params = match &document.kind {
         Kind::Doc { pdf, .. } => doc_params(&document.title, pdf),
-        Kind::Slides { .. } => bail!("slides can't be printed yet"),
+        Kind::Slides { .. } => PrintToPdfParams {
+            print_background: Some(true),
+            prefer_css_page_size: Some(true),
+            paper_width: Some(20.0),
+            paper_height: Some(11.25),
+            margin_top: Some(0.0),
+            margin_bottom: Some(0.0),
+            margin_left: Some(0.0),
+            margin_right: Some(0.0),
+            ..Default::default()
+        },
         Kind::Site { .. } => bail!("pdf prints a doc or slides, not a site"),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;

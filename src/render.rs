@@ -138,6 +138,40 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
     )
 }
 
+/// A deck: every slide on its own 1920 × 1080 stage, scaled to the window as a
+/// whole, one shown at a time. In print mode each slide is one 16:9 page.
+pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
+    let mut content = String::new();
+    for (index, slide) in slides.iter().enumerate() {
+        let source = std::fs::read_to_string(slide).unwrap_or_default();
+        content.push_str(&format!(
+            "<section class=\"slide\" data-slide=\"{}\"><div class=\"slide-body\">{}</div></section>",
+            index + 1,
+            markdown(&source)
+        ));
+    }
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{title}</title>
+<link rel="stylesheet" href="/__devpage/style.css">
+<style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
+</head>
+<body class="slides{print_class}">
+<main id="page" class="deck">{content}</main>
+<script src="/__devpage/pele.js"></script>
+<script src="/__devpage/devpage.js"{live}></script>
+</body>
+</html>"#,
+        title = escape(&document.title),
+        print_class = if print { " print" } else { "" },
+        live = if print { " data-print" } else { "" },
+    )
+}
+
 /// The `h1` and `h2` headings of rendered HTML: level, id and text.
 fn headings(html: &str) -> Vec<(u8, String, String)> {
     let mut found = Vec::new();
@@ -292,6 +326,27 @@ mod tests {
         let print = doc(&document, chapters, pdf, true);
         assert!(!print.contains("class=\"outline\""));
         assert!(print.contains("data-print"));
+    }
+
+    #[test]
+    fn a_deck_renders_one_section_per_slide_in_order() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-deck-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("one.md"), "# One").unwrap();
+        std::fs::write(dir.join("two.md"), "# Two").unwrap();
+        std::fs::write(
+            dir.join("d.yml"),
+            "kind: slides\ntitle: Talk\nslides: [two.md, one.md]\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir.join("d.yml")).unwrap();
+        let crate::document::Kind::Slides { slides: files } = &document.kind else {
+            panic!()
+        };
+        let html = slides(&document, files, false);
+        assert_eq!(html.matches("class=\"slide\"").count(), 2);
+        assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
+        assert!(html.contains("size: 1920px 1080px"));
     }
 
     #[test]

@@ -64,6 +64,11 @@ async fn file(
     {
         return Html(render::doc(&state.document, chapters, pdf, print)).into_response();
     }
+    if path == state.document.file_name
+        && let Kind::Slides { slides } = &state.document.kind
+    {
+        return Html(render::slides(&state.document, slides, print)).into_response();
+    }
     let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,

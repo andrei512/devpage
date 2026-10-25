@@ -7,6 +7,8 @@
 // the page in place instead of loading a new one — and a hidden tab closes its
 // stream, reopening it (and catching up) when it is shown again.
 
+const print = document.currentScript.hasAttribute("data-print");
+
 function drawDiagrams(root) {
   for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
     const diagram = document.createElement("div");
@@ -34,6 +36,7 @@ async function load(url) {
   }
   document.title = next.title;
   drawDiagrams(document.getElementById("page"));
+  showSlide();
   return true;
 }
 
@@ -76,8 +79,6 @@ function disconnect() {
   stream = null;
 }
 
-const print = document.currentScript.hasAttribute("data-print");
-
 document.addEventListener("visibilitychange", () => {
   if (print) return;
   if (document.hidden) {
@@ -89,7 +90,38 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("pagehide", disconnect);
 
+// A deck shows one slide at a time, scaled to the window; its number is the
+// address's #fragment.
+function showSlide() {
+  const slides = [...document.querySelectorAll(".deck .slide")];
+  if (!slides.length || print) return;
+  const index = Math.min(Math.max(parseInt(location.hash.slice(1)) || 1, 1), slides.length);
+  const scale = Math.min(innerWidth / 1920, innerHeight / 1080);
+  const left = (innerWidth - 1920 * scale) / 2, top = (innerHeight - 1080 * scale) / 2;
+  slides.forEach((slide, i) => {
+    slide.classList.toggle("shown", i === index - 1);
+    slide.style.transform = `translate(${left}px, ${top}px) scale(${scale})`;
+  });
+  return { index, count: slides.length };
+}
+
+document.addEventListener("keydown", (event) => {
+  const state = showSlide();
+  if (!state) return;
+  const go = (n) => { location.hash = `#${Math.min(Math.max(n, 1), state.count)}`; };
+  if (["ArrowRight", " ", "PageDown", "ArrowDown"].includes(event.key)) go(state.index + 1);
+  else if (["ArrowLeft", "PageUp", "ArrowUp"].includes(event.key)) go(state.index - 1);
+  else if (event.key === "Home") go(1);
+  else if (event.key === "End") go(state.count);
+  else if (event.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  else return;
+  event.preventDefault();
+});
+window.addEventListener("hashchange", showSlide);
+window.addEventListener("resize", showSlide);
+
 drawDiagrams(document);
+showSlide();
 // Print mode has no live connection; Chrome waits for this before printing.
 document.documentElement.dataset.ready = "true";
 if (!print && !document.hidden) connect();

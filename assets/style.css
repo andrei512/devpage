@@ -185,3 +185,28 @@ pre code { color: var(--text); }
 .print #nav { display: none; }
 
 .doc-title { color: var(--muted); font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; margin: 0 0 8px; }
+
+/* Slides: each slide a 1920 × 1080 stage, scaled whole to the window. */
+
+body.slides { display: block; background: #000; overflow: hidden; }
+.deck .slide {
+  position: absolute; top: 0; left: 0;
+  width: 1920px; height: 1080px;
+  transform-origin: 0 0;
+  background: var(--background);
+  display: none;
+  overflow: hidden;
+}
+.deck .slide.shown { display: block; }
+.slide-body { padding: 96px 128px; font-size: 40px; line-height: 1.4; }
+.slide-body h1 { font-size: 96px; }
+.slide-body h2 { font-size: 64px; }
+
+@media print {
+  body.slides { background: none; overflow: visible; }
+  .deck .slide {
+    display: block; position: relative; transform: none !important;
+  }
+  .deck .slide:not(:last-child) { break-after: page; }
+  body.slides, .deck { margin: 0; padding: 0; }
+}
