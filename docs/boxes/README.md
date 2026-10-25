@@ -53,3 +53,5 @@ subject's descendants.
   keeps open pages live.
 - [Engineering](engineering/README.md) — how changes reach main and how the
   system documents itself.
+- [The showcase deck](showcase/README.md) — devpage's own presentation: what
+  each slide proves, and the rules that keep it current.
