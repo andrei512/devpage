@@ -476,11 +476,17 @@ function compose(section, anchor, near) {
   card.querySelector("textarea").focus();
 }
 
+// A speech bubble, drawn in the text color so it follows the theme.
+const commentIcon =
+  '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M4 3.5h12A1.5 1.5 0 0 1 17.5 5v8a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V5A1.5 1.5 0 0 1 4 3.5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>';
+
 function commentButton(label, title, top, left, onClick) {
   document.querySelectorAll(".comment-button").forEach((button) => button.remove());
   const button = document.createElement("button");
-  button.className = "comment-button comment-ui";
-  button.textContent = label;
+  button.className = label ? "comment-button comment-ui" : "comment-button comment-icon comment-ui";
+  button.innerHTML = commentIcon;
+  if (label) button.append(label);
+  button.setAttribute("aria-label", title);
   button.title = title;
   button.style.cssText = `position:absolute;top:${top}px;left:${left}px`;
   button.addEventListener("mousedown", (event) => event.preventDefault());
@@ -500,7 +506,8 @@ document.addEventListener("mouseover", (event) => {
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
   hovered = block;
   const rect = block.getBoundingClientRect();
-  commentButton("+", "Comment on this paragraph", scrollY + rect.top, scrollX + Math.max(rect.left - 34, 0), () => {
+  // The icon sits just right of the block, level with its first line.
+  commentButton("", "Comment on this paragraph", scrollY + rect.top, scrollX + rect.right + 10, () => {
     const model = textModel(section);
     const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
     if (anchor.quote) compose(section, anchor, block);

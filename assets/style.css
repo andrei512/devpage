@@ -131,9 +131,7 @@ th { font-weight: 600; }
   --pele-font: var(--font);
   --pele-font-mono: var(--font-mono);
   --pele-radius: 8px;
-  padding: 24px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  padding: 8px 0;
   text-align: center;
 }
 
@@ -244,6 +242,9 @@ body.show-comments #comments:not(.beside):not(:empty) { display: block; }
 .comment-error { color: #d70015; font-size: 13px; }
 .comment-error:empty { display: none; }
 .comment-button, #comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
+.comment-button { display: inline-flex; align-items: center; gap: 6px; }
+.comment-button.comment-icon { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; color: var(--muted); background: var(--background); box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--text) 35%, transparent); transition: color 0.15s, border-color 0.15s; }
+.comment-button.comment-icon:hover { color: var(--accent); border-color: var(--accent); }
 @media print { #comments, #comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
 
 /* Problems: broken links found while the page is previewed. */
