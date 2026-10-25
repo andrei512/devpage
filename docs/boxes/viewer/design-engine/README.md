@@ -35,12 +35,23 @@ results, so the same code runs in two places.
   `wasm32-unknown-unknown`. The canvas page lays out and paints with it, on
   the GPU.
 
-`devpage`'s build script builds the WebAssembly module and generates its
-JavaScript bindings with `wasm-bindgen`, used as a library
-(`wasm-bindgen-cli-support`), so building needs no tool beyond `cargo`. The
-binary carries both as [built-in assets](../serving-pages/README.md#built-in-assets),
-so an installed `devpage` is still one file. `rust-toolchain.toml` names the
-`wasm32-unknown-unknown` target, so `rustup` installs it on the first build.
+The WebAssembly module and its JavaScript bindings are **vendored**: built
+once, committed under `assets/vendor/` like the
+[pele bundle](../vendored-pele/README.md), and compiled into the binary as
+[built-in assets](../serving-pages/README.md#built-in-assets), so an installed
+`devpage` is still one file and building devpage needs neither the
+`wasm32-unknown-unknown` target nor a nested build. One command, named on
+[Developing devpage](../../engineering/developing-devpage/README.md), rebuilds
+them — with `wasm-bindgen` used as a library — and records a fingerprint of
+everything they are built from: the engine's and the module's sources, the
+proto and the locked dependency versions. A test fails when that fingerprint
+no longer matches the sources, naming the command, so the vendored module can
+never silently lag the engine. Only someone changing the engine needs the
+`wasm32-unknown-unknown` target, which `rust-toolchain.toml` names.
+
+`devpage-design` is published to crates.io with devpage, at the same version,
+so `cargo install devpage` builds the native engine from the registry and
+takes the module from the vendored files.
 
 ## Parsing
 
@@ -123,7 +134,7 @@ straight from disk instead, as they read pages.
 | --- | --- |
 | `GET /{path}.design` | the canvas page for the design |
 | `GET /{path}.design.png` | the design painted at 1×, `image/png`; `422` and the problems as `text/plain` when it has any |
-| `POST /devpage.design.v1.Designs/Watch` | the [watch stream](#the-watch-stream), as gRPC-Web |
+| `POST /devpage.design.v1.Designs/Watch` | a page's [watch stream](#the-watch-stream), as gRPC-Web |
 
 ## The watch stream
 
@@ -137,8 +148,18 @@ service Designs {
 }
 ```
 
-`Watch` names a design by its address — with or without the leading `/` —
-and streams **updates** for as long as the page is open:
+A page opens **one** watch stream, whatever it shows. `Watch` names every
+design the page is showing — the canvas page's design and any overlay open on
+it, or each design a page embeds — by its address, with or without the
+leading `/`, and streams **updates**, each naming the design it is about, for
+as long as the page is open. When the set changes — a navigation, an overlay
+opening or closing, embeds arriving or leaving with a page swap — the page
+closes the stream and opens one for the new set, which starts again with each
+design's whole scene. One stream per page matters: a browser keeps at most six
+connections open to one address over HTTP/1.1, which is what devpage speaks
+unless it sits behind a proxy that offers more, and the page's
+[event stream](../live-updates/README.md#the-channel-and-the-stream) already
+holds one. For each design in the set:
 
 - the first update is the whole scene;
 - after a save, the server resolves the design again, compares the new scene
@@ -149,9 +170,9 @@ and streams **updates** for as long as the page is open:
   that last scene — an empty one when the fix restored it exactly — and any
   patch tells the browser the design is valid again;
 - when the design's own file is deleted, its `no such file` problem is the
-  last update and the stream ends with its trailers. A stream ended that way
-  is over: the browser doesn't open it again, while one that drops without
-  trailers — devpage stopped — is reopened.
+  last update about it. The stream goes on for the rest of the set, and the
+  page leaves that design out when it next opens a stream; a stream that
+  drops — devpage stopped — is reopened for the whole set.
 
 A save that changes nothing in a design's scene sends nothing, and the same
 problems are not sent twice.
@@ -174,24 +195,26 @@ CPU, into a 2D canvas, which Chrome prints reliably.
 
 Clicks are hit-tested by the module against the laid-out scene, and an
 interaction runs in the page: a navigation pushes the new address onto the
-browser's history and opens a stream for that design, an overlay opens a
-second stream and paints its scene on a canvas of its own, centered over the
-first behind a dimmed backdrop.
+browser's history and watches that design instead, an overlay adds its design
+to the stream's set and paints its scene on a canvas of its own, centered over
+the first behind a dimmed backdrop.
 
-A page that embeds designs does the same for each `<canvas>` it holds, one
-stream per embedded design, closed while the tab is hidden like the
-[event stream](../live-updates/README.md#why-one-stream-per-tab). The page
-script loads the design script only on a page that has a design. An embedded
+A page that embeds designs does the same for each `<canvas>` it holds, all
+through the page's one stream, closed while the tab is hidden like the
+[event stream](../live-updates/README.md#why-one-stream-per-tab) and closed
+when an in-place navigation leaves no design on the page. The page script
+loads the design script only on a page that has a design. An embedded
 design navigates inside its own canvas, with a back stack of its own, so the
 page around it stays where it is; and when the page fetches itself again, each
-embedded canvas still in it is kept, drawing and stream and all.
+embedded canvas still in it is kept with its drawing, and the stream changes
+only if the set of designs did.
 
 ## Failure modes
 
 | What happens | What the reader sees |
 | --- | --- |
 | A file has problems | The problems over the last valid drawing; the PNG route answers `422` with them. |
-| A design is deleted | The stream ends with the problem `no such file`, and the canvas stops asking for it. |
-| devpage stops | The canvas keeps its drawing; the page reopens the stream when devpage is back and gets the whole scene again. |
+| A design is deleted | Its canvas shows the problem `no such file`, and the page stops asking for it. |
+| devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |
 | The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |
 | The browser has no WebGPU | The module paints with `vello_cpu` and puts the buffer on the canvas. |
