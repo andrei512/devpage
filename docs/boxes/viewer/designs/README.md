@@ -71,9 +71,11 @@ designs use. A file:
   size.
 
 Using an imported design places an **instance** of it: `<Button label="Pay" />`
-draws `button.design` with `label` set to `"Pay"`. An instance can be given
-the root element's `x`, `y`, `width`, `height` and `name`, and any of the
-design's props — nothing else. A design that uses itself, directly or through
+draws `button.design` with `label` set to `"Pay"`. An instance takes the
+attributes [every element takes](#attributes) — `name`, `x`, `y`, `width`,
+`height`, `opacity` and `onClick`, each applied to the used design's root —
+and the design's props; nothing else. Its look — fill, stroke, corners — is
+the design's own, changed only through its props. A design that uses itself, directly or through
 others, is a problem.
 
 `//` starts a comment that runs to the end of the line, outside elements and
@@ -121,8 +123,7 @@ Every element takes:
 | `opacity` | `0` to `1` | `1` |
 | `onClick` | an [interaction](#prototypes) | none |
 
-Boxes — `Frame`, `Rect`, `Ellipse`, `Vector`, `Image`, and the root of an
-instance — also take:
+Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 
 | Attribute | Value | Default |
 | --- | --- | --- |

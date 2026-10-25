@@ -125,7 +125,6 @@ pub fn encode(n: &Node) -> proto::Node {
                 TextAlign::Right => proto::TextAlign::Right,
             } as i32,
         }),
-        design: n.design.clone().unwrap_or_default(),
         children: n.children.iter().map(encode).collect(),
     }
 }
@@ -196,7 +195,6 @@ pub fn decode(n: &proto::Node) -> Node {
             src: i.src.clone(),
             data: i.data.clone(),
         }),
-        design: Some(n.design.clone()).filter(|s| !s.is_empty()),
         children: n.children.iter().map(decode).collect(),
     }
 }

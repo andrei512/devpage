@@ -426,31 +426,116 @@ fn decode(data: &[u8]) -> Option<ImageData> {
     })
 }
 
-/// How far apart two drawings of the same scene may be — two rasterizers
-/// differ only in the anti-aliasing of edges: at most this share of pixels may
-/// have a channel more than [`EDGE`] apart.
-pub const TOLERANCE: f64 = 0.01;
-/// The largest per-channel difference that is not counted against
-/// [`TOLERANCE`].
+/// How far apart two drawings of the same scene may be. Two rasterizers of one
+/// display list differ only in how they anti-alias an edge: a pixel on an edge
+/// takes some value between the colors either side of it, and each rasterizer
+/// picks a slightly different one. So a pixel is **unexplained** when, in some
+/// channel, its value lies more than [`EDGE`] outside the range of the other
+/// drawing's pixels around it (itself and its eight neighbours), in either
+/// direction. A missing or moved part — a divider, an icon, a word — leaves
+/// pixels no neighbour in the other drawing explains. At most [`SHARE`] of the
+/// pixels may be unexplained, and no 8-connected cluster of them may be larger
+/// than [`CLUSTER`].
 pub const EDGE: u8 = 8;
+/// The largest share of pixels that may be unexplained.
+pub const SHARE: f64 = 0.0005;
+/// The largest cluster of touching unexplained pixels.
+pub const CLUSTER: usize = 4;
 
-/// Whether two RGBA buffers of the same size are the same drawing within
-/// [`TOLERANCE`]; the share of pixels that differ is the error.
-pub fn matches(a: &[u8], b: &[u8]) -> Result<(), f64> {
-    if a.len() != b.len() {
-        return Err(1.0);
+/// How two drawings of the same size differ.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Difference {
+    /// The share of pixels that are unexplained.
+    pub share: f64,
+    /// The size of the largest 8-connected cluster of unexplained pixels.
+    pub cluster: usize,
+    /// The largest difference in any channel between the same pixel of each.
+    pub max: u8,
+}
+
+impl Difference {
+    /// Whether this is only the anti-aliasing two rasterizers may differ by.
+    pub fn within_tolerance(&self) -> bool {
+        self.share <= SHARE && self.cluster <= CLUSTER
     }
-    let differ = a
-        .chunks(4)
-        .zip(b.chunks(4))
-        .filter(|(p, q)| p.iter().zip(*q).any(|(x, y)| x.abs_diff(*y) > EDGE))
-        .count();
-    let share = differ as f64 / (a.len() / 4).max(1) as f64;
-    if share <= TOLERANCE {
-        Ok(())
-    } else {
-        Err(share)
+}
+
+/// How two RGBA buffers `width` pixels wide differ; `None` when their sizes
+/// differ.
+pub fn compare(a: &[u8], b: &[u8], width: usize) -> Option<Difference> {
+    if a.len() != b.len() || width == 0 || !a.len().is_multiple_of(4 * width) {
+        return None;
     }
+    let count = a.len() / 4;
+    let height = count / width;
+    let neighbours = |i: usize| {
+        let (x, y) = (i % width, i / width);
+        let xs = x.saturating_sub(1)..=(x + 1).min(width - 1);
+        (y.saturating_sub(1)..=(y + 1).min(height - 1))
+            .flat_map(move |ny| xs.clone().map(move |nx| ny * width + nx))
+    };
+    // Whether pixel `i` of `p` lies outside what `q` has around it.
+    let outside = |p: &[u8], q: &[u8], i: usize| {
+        (0..4).any(|c| {
+            let v = p[4 * i + c];
+            let (lo, hi) = neighbours(i).fold((u8::MAX, 0), |(lo, hi), n| {
+                (lo.min(q[4 * n + c]), hi.max(q[4 * n + c]))
+            });
+            v.saturating_add(EDGE) < lo || v > hi.saturating_add(EDGE)
+        })
+    };
+    let max = a
+        .iter()
+        .zip(b)
+        .map(|(x, y)| x.abs_diff(*y))
+        .max()
+        .unwrap_or(0);
+    let unexplained: Vec<bool> = (0..count)
+        .map(|i| outside(a, b, i) || outside(b, a, i))
+        .collect();
+    let mut seen = vec![false; count];
+    let (mut total, mut cluster) = (0, 0);
+    let mut stack = Vec::new();
+    for start in 0..count {
+        if !unexplained[start] || seen[start] {
+            continue;
+        }
+        seen[start] = true;
+        stack.push(start);
+        let mut size = 0;
+        while let Some(i) = stack.pop() {
+            size += 1;
+            for n in neighbours(i) {
+                if unexplained[n] && !seen[n] {
+                    seen[n] = true;
+                    stack.push(n);
+                }
+            }
+        }
+        total += size;
+        cluster = cluster.max(size);
+    }
+    Some(Difference {
+        share: total as f64 / count.max(1) as f64,
+        cluster,
+        max,
+    })
+}
+
+/// Whether two RGBA buffers `width` pixels wide are the same drawing within
+/// the tolerance; otherwise how they differ, or `None` for different sizes.
+pub fn matches(a: &[u8], b: &[u8], width: usize) -> Result<(), Option<Difference>> {
+    match compare(a, b, width) {
+        Some(d) if d.within_tolerance() => Ok(()),
+        other => Err(other),
+    }
+}
+
+/// A PNG's or JPEG's pixels as straight RGBA, with its width and height —
+/// for comparing drawings.
+pub fn pixels(data: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
+    let image = decode(data)?;
+    Some((image.data.data().to_vec(), image.width, image.height))
 }
 
 fn build(
@@ -895,7 +980,7 @@ mod examples {
     }
 
     /// Each example design, painted natively, matches its reference PNG in
-    /// `design/testdata/` within [`TOLERANCE`]. After a deliberate change to
+    /// `design/testdata/` within the tolerance [`matches`] applies. After a deliberate change to
     /// how designs look, `DEVPAGE_UPDATE_REFERENCES=1 cargo test` rewrites
     /// them — and the diff shows the new drawings for review.
     #[test]
@@ -919,24 +1004,88 @@ mod examples {
                 (expected.width, expected.height),
                 "{name}"
             );
-            if let Err(share) = matches(painted.data.data(), expected.data.data()) {
-                panic!("{name}: {:.2}% of pixels differ", share * 100.0);
+            if let Err(d) = matches(
+                painted.data.data(),
+                expected.data.data(),
+                painted.width as usize,
+            ) {
+                panic!("{name}: {d:?}");
             }
         }
     }
 
-    #[test]
-    fn matching_tolerates_edges_only() {
-        let a = vec![100u8; 4 * 1000];
-        let mut b = a.clone();
-        b[0] = 100 + EDGE; // within the edge allowance
-        assert!(matches(&a, &b).is_ok());
-        for px in b.chunks_mut(4).take(10) {
-            px[1] = 0; // 1% of pixels far off: still within tolerance
+    /// The repository with one file's text replaced.
+    struct Edited(Repo, &'static str, String);
+
+    impl Files for Edited {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            if path == self.1 {
+                Some(self.2.clone().into_bytes())
+            } else {
+                self.0.bytes(path)
+            }
         }
-        assert!(matches(&a, &b).is_ok());
-        b[4 * 10 + 2] = 0; // one more pixel tips it over
-        assert_eq!(matches(&a, &b), Err(0.011));
-        assert_eq!(matches(&a, &a[4..]), Err(1.0));
+    }
+
+    /// Hiding one small part of the checkout design — painting it in the
+    /// color behind it, so nothing else moves — takes it outside the
+    /// tolerance: the comparison catches a missing part, not only a missing
+    /// screen.
+    #[test]
+    fn a_missing_divider_or_icon_is_outside_the_tolerance() {
+        let path = "examples/checkout/checkout.design";
+        let original = std::fs::read_to_string(repo().0.join(path)).unwrap();
+        let mut renderer = Renderer::new();
+        let mut paint = |files: &dyn Files| {
+            let scene = crate::resolve(files, path).unwrap_or_else(|p| panic!("{p:?}"));
+            pixels(&crate::png(&mut renderer, &scene)).unwrap()
+        };
+        let whole = paint(&repo());
+        for (part, hidden) in [
+            (
+                r##"<Rect name="Divider" width="fill" height={1} fill="#e2e8f0" />"##,
+                r##"<Rect name="Divider" width="fill" height={1} fill="#f8fafc" />"##,
+            ),
+            (
+                r##"viewBox="0 0 24 24" width={20} height={20} fill="#64748b""##,
+                r##"viewBox="0 0 24 24" width={20} height={20} fill="#ffffff""##,
+            ),
+        ] {
+            assert!(original.contains(part), "{part}");
+            let edited = Edited(repo(), path, original.replace(part, hidden));
+            let without = paint(&edited);
+            let d = matches(&whole.0, &without.0, whole.1 as usize);
+            assert!(d.is_err(), "hiding {part} went unnoticed: {d:?}");
+        }
+    }
+
+    #[test]
+    fn matching_tolerates_anti_aliasing_only() {
+        let width = 100;
+        // A dark square on white, its edge anti-aliased to grey.
+        let mut a = vec![255u8; 4 * width * 100];
+        for y in 20..60 {
+            for x in 20..60 {
+                let edge = x == 20 || x == 59 || y == 20 || y == 59;
+                let v = if edge { 128 } else { 0 };
+                a[4 * (y * width + x)..][..3].copy_from_slice(&[v; 3]);
+            }
+        }
+        // Another rasterizer's edge: any grey between the two sides.
+        let mut b = a.clone();
+        for px in b.chunks_mut(4).filter(|p| p[0] == 128) {
+            px[..3].copy_from_slice(&[40; 3]);
+        }
+        let d = compare(&a, &b, width).unwrap();
+        assert_eq!((d.share, d.max), (0.0, 88));
+        assert!(matches(&a, &b, width).is_ok());
+        // A missing one-pixel divider is unexplained along its whole length.
+        let mut line = a.clone();
+        for x in 0..width {
+            line[4 * (80 * width + x)..][..3].copy_from_slice(&[226; 3]);
+        }
+        let d = matches(&a, &line, width).unwrap_err().unwrap();
+        assert_eq!(d.cluster, width);
+        assert_eq!(matches(&a, &a[4..], width), Err(None));
     }
 }
