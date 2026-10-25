@@ -303,20 +303,22 @@ impl service::designs_server::Designs for Watch {
     }
 }
 
-/// The canvas page for the design at `path`.
+/// The canvas page for the design at `path`: the design fills the window,
+/// drawn by the design script.
 pub fn page(path: &str) -> String {
+    let path = path.trim_start_matches('/');
     let name = path.rsplit('/').next().unwrap_or(path);
     format!(
         r#"<!doctype html>
-<html><head><meta charset="utf-8"><title>{name}</title>
+<html lang="en"><head><meta charset="utf-8"><title>{name}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="/__devpage/style.css">
-<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg, #e2e8f0)}}canvas{{box-shadow:0 8px 32px #0f172a26}}</style>
-</head><body>
-<canvas data-design="/{path}"></canvas>
+</head><body class="design-page">
+<canvas class="design" src="/{path}" role="img" aria-label="{name}"></canvas>
 <script type="module" src="/__devpage/design.js"></script>
 </body></html>"#,
-        path = path.trim_start_matches('/'),
+        name = crate::render::escape(name),
+        path = crate::render::escape(path),
     )
 }
 
@@ -650,3 +652,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod canvas_tests;

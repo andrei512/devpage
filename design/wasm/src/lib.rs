@@ -1,105 +1,178 @@
-//! The design engine for the browser: raw `extern "C"` exports over linear
-//! memory, so building it needs nothing but `cargo`.
-
-use std::collections::HashMap;
-
-use devpage_design::Renderer;
+//! The design engine for the browser. Each canvas holds a `Design`: the scene
+//! its watch stream built, laid out once per change, painted on the GPU by
+//! `Gpu` or on the CPU by `Design::paint`, and hit-tested for clicks.
 
 use devpage_design::proto::{Update, update::Body};
+use devpage_design::render::{Draw, Frame};
 use devpage_design::resolve::Node;
-use devpage_design::{Scene, wire};
+use devpage_design::{Renderer, Scene, wire};
 use prost::Message;
+use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 mod gpu;
 
-thread_local! {
-    static RENDERER: std::cell::RefCell<Option<Renderer>> = const { std::cell::RefCell::new(None) };
-    static SCENE: std::cell::RefCell<Option<Scene>> = const { std::cell::RefCell::new(None) };
+/// What one watch-stream message did to a design.
+#[wasm_bindgen]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Applied {
+    /// Nothing the canvas has to show.
+    Nothing = 0,
+    /// The scene changed: paint again.
+    Changed = 1,
+    /// The design has problems; the last scene is kept.
+    Problems = 2,
 }
 
-/// Applies one watch-stream message: a whole scene or a patch. Returns 1 when
-/// the scene changed, 2 for problems (the scene is kept), 0 otherwise.
-///
-/// # Safety
-/// `ptr` must point at `len` initialized bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn apply(ptr: *const u8, len: usize) -> u32 {
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let Ok(update) = Update::decode(bytes) else {
-        return 0;
-    };
-    SCENE.with(|s| {
-        let mut s = s.borrow_mut();
+/// One canvas's design: its scene, its problems, and its layout while the
+/// scene stands.
+#[wasm_bindgen]
+pub struct Design {
+    engine: Renderer,
+    scene: Option<Scene>,
+    problems: Vec<String>,
+    laid_out: Option<LaidOut>,
+}
+
+/// A scene laid out and turned into its display list.
+struct LaidOut {
+    frames: Vec<Frame>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    list: Vec<Draw>,
+}
+
+/// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
+#[wasm_bindgen]
+pub struct Pixels {
+    width: u32,
+    height: u32,
+    rgba: Vec<u8>,
+}
+
+#[wasm_bindgen]
+impl Pixels {
+    #[wasm_bindgen(getter)]
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    #[wasm_bindgen(getter)]
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// The pixels, moved out to the page.
+    pub fn take(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.rgba)
+    }
+}
+
+impl Default for Design {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[wasm_bindgen]
+impl Design {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> Design {
+        Design {
+            engine: Renderer::new(),
+            scene: None,
+            problems: Vec::new(),
+            laid_out: None,
+        }
+    }
+
+    /// Applies one watch-stream message: a whole scene, a patch or problems.
+    pub fn apply(&mut self, bytes: &[u8]) -> Applied {
+        let Ok(update) = Update::decode(bytes) else {
+            return Applied::Nothing;
+        };
         match update.body {
             Some(Body::Scene(root)) => {
-                *s = Some(Scene {
+                self.scene = Some(Scene {
                     root: wire::decode(&root),
                     files: Vec::new(),
                 });
-                1
             }
-            Some(Body::Patch(patch)) => match s.as_mut() {
-                Some(scene) => {
-                    wire::apply(&mut scene.root, &patch.replace);
-                    1
-                }
-                None => 0,
+            Some(Body::Patch(patch)) => match self.scene.as_mut() {
+                Some(scene) => wire::apply(&mut scene.root, &patch.replace),
+                None => return Applied::Nothing,
             },
-            Some(Body::Problems(_)) => 2,
-            None => 0,
-        }
-    })
-}
-
-/// Paints the scene the stream built, like `paint`.
-#[unsafe(no_mangle)]
-pub extern "C" fn paint_scene(scale: f32) -> *mut u8 {
-    SCENE.with(|s| match s.borrow().as_ref() {
-        Some(scene) => pixels(scene, scale),
-        None => std::ptr::null_mut(),
-    })
-}
-
-/// The interaction of the topmost node under `(x, y)` that has one, as
-/// `[length u32 LE, UTF-8…]`, or null.
-#[unsafe(no_mangle)]
-pub extern "C" fn click(x: f32, y: f32) -> *mut u8 {
-    SCENE.with(|s| {
-        let s = s.borrow();
-        let Some(scene) = s.as_ref() else {
-            return std::ptr::null_mut();
-        };
-        let frames = RENDERER.with(|r| {
-            r.borrow_mut()
-                .get_or_insert_with(Renderer::new)
-                .layout(scene)
-        });
-        let mut found = None;
-        let mut at = 0;
-        hit(&scene.root, &frames, &mut at, x, y, &mut found);
-        match found {
-            Some(action) => {
-                let mut out = (action.len() as u32).to_le_bytes().to_vec();
-                out.extend_from_slice(action.as_bytes());
-                let ptr = out.as_mut_ptr();
-                std::mem::forget(out);
-                ptr
+            Some(Body::Problems(problems)) => {
+                self.problems = problems.problems;
+                return Applied::Problems;
             }
-            None => std::ptr::null_mut(),
+            None => return Applied::Nothing,
         }
-    })
+        self.problems.clear();
+        self.laid_out = None;
+        Applied::Changed
+    }
+
+    /// The problems the last message reported, one per line, until a scene
+    /// or a patch arrives.
+    pub fn problems(&self) -> Vec<String> {
+        self.problems.clone()
+    }
+
+    /// The design's size in its own pixels, `[width, height]`, or empty
+    /// before the first scene.
+    pub fn size(&mut self) -> Vec<f32> {
+        match self.laid_out() {
+            Some(l) => vec![l.frames[0].width, l.frames[0].height],
+            None => Vec::new(),
+        }
+    }
+
+    /// The interaction of the topmost node at `(x, y)`, in the design's
+    /// pixels, that has one.
+    pub fn action_at(&mut self, x: f32, y: f32) -> Option<String> {
+        let root = self.scene.as_ref()?.root.clone();
+        let frames = &self.laid_out()?.frames;
+        let mut found = None;
+        hit(&root, frames, &mut 0, x, y, &mut found);
+        found
+    }
+
+    /// Paints the design on the CPU with `vello_cpu`, at `scale` device
+    /// pixels per design pixel.
+    pub fn paint(&mut self, scale: f32) -> Option<Pixels> {
+        let scene = self.scene.as_ref()?;
+        let pixmap = self.engine.paint(scene, scale);
+        let mut rgba = pixmap.data_as_u8_slice().to_vec();
+        for px in rgba.chunks_exact_mut(4) {
+            let a = px[3] as u32;
+            if a != 0 && a != 255 {
+                for c in &mut px[..3] {
+                    *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+                }
+            }
+        }
+        Some(Pixels {
+            width: pixmap.width() as u32,
+            height: pixmap.height() as u32,
+            rgba,
+        })
+    }
+}
+
+impl Design {
+    fn laid_out(&mut self) -> Option<&LaidOut> {
+        if self.laid_out.is_none() {
+            let scene = self.scene.as_ref()?;
+            let frames = self.engine.layout(scene);
+            let (_, list) = self.engine.display_list(scene);
+            self.laid_out = Some(LaidOut { frames, list });
+        }
+        self.laid_out.as_ref()
+    }
 }
 
 /// Walks in paint order, so the last hit is the topmost.
-fn hit(
-    node: &Node,
-    frames: &[devpage_design::render::Frame],
-    at: &mut usize,
-    x: f32,
-    y: f32,
-    found: &mut Option<String>,
-) {
+fn hit(node: &Node, frames: &[Frame], at: &mut usize, x: f32, y: f32, found: &mut Option<String>) {
     let f = frames[*at];
     *at += 1;
     if let Some(action) = &node.on_click
@@ -115,92 +188,98 @@ fn hit(
     }
 }
 
-fn pixels(scene: &Scene, scale: f32) -> *mut u8 {
-    let pixmap = RENDERER.with(|r| {
-        r.borrow_mut()
-            .get_or_insert_with(Renderer::new)
-            .paint(scene, scale)
-    });
-    let data = pixmap.data_as_u8_slice();
-    let mut out = Vec::with_capacity(8 + data.len());
-    out.extend_from_slice(&(pixmap.width() as u32).to_le_bytes());
-    out.extend_from_slice(&(pixmap.height() as u32).to_le_bytes());
-    out.extend_from_slice(data);
-    let ptr = out.as_mut_ptr();
-    std::mem::forget(out);
-    ptr
-}
-
-/// Room for `len` bytes the page writes into before a call.
-#[unsafe(no_mangle)]
-pub extern "C" fn alloc(len: usize) -> *mut u8 {
-    let mut buf = Vec::<u8>::with_capacity(len);
-    let ptr = buf.as_mut_ptr();
-    std::mem::forget(buf);
-    ptr
-}
-
-/// Frees what `alloc` or `paint` returned.
-///
-/// # Safety
-/// `ptr` and `len` must come from one `alloc(len)` or one `paint` result.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dealloc(ptr: *mut u8, len: usize) {
-    drop(unsafe { Vec::from_raw_parts(ptr, 0, len) });
-}
-
-/// Paints the design named first in `files` at `scale`. `files` is
-/// `path\n<byte length>\n<source>` repeated. Returns a pointer to
-/// `[width u32 LE, height u32 LE, RGBA premultiplied…]`, or null on problems.
-///
-/// # Safety
-/// `ptr` must point at `len` initialized bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn paint(ptr: *const u8, len: usize, scale: f32) -> *mut u8 {
-    let input = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let Some((first, files)) = decode(input) else {
-        return std::ptr::null_mut();
-    };
-    let Ok(scene) = devpage_design::resolve(&files, &first) else {
-        return std::ptr::null_mut();
-    };
-    pixels(&scene, scale)
-}
-
-fn decode(mut input: &[u8]) -> Option<(String, HashMap<String, String>)> {
-    let mut files = HashMap::new();
-    let mut first = None;
-    while !input.is_empty() {
-        let nl = input.iter().position(|&b| b == b'\n')?;
-        let path = std::str::from_utf8(&input[..nl]).ok()?.to_string();
-        input = &input[nl + 1..];
-        let nl = input.iter().position(|&b| b == b'\n')?;
-        let n: usize = std::str::from_utf8(&input[..nl]).ok()?.parse().ok()?;
-        input = &input[nl + 1..];
-        let source = std::str::from_utf8(input.get(..n)?).ok()?.to_string();
-        input = &input[n..];
-        first.get_or_insert_with(|| path.clone());
-        files.insert(path, source);
-    }
-    Some((first?, files))
-}
-
 #[cfg(test)]
 mod tests {
-    /// Writes what `paint` gives natively, for comparing with the module's
-    /// output: `DESIGN_RAW_IN=<input> DESIGN_RAW_OUT=<file> cargo test`.
+    use super::*;
+    use devpage_design::proto::{Patch, Problems, Replace};
+    use std::collections::HashMap;
+
+    fn files() -> HashMap<String, String> {
+        HashMap::from([
+            (
+                "button.design".to_string(),
+                r##"<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]} fill="#2563eb">
+  <Text color="#ffffff">{label}</Text>
+</Frame>"##
+                    .to_string(),
+            ),
+            (
+                "screen.design".to_string(),
+                r##"import Button from "./button.design"
+<Frame width={200} height={120} fill="#ffffff" layout="column" padding={10}>
+  <Button label="Go" onClick="navigate ./next.design" />
+</Frame>"##
+                    .to_string(),
+            ),
+        ])
+    }
+
+    fn scene_message() -> Vec<u8> {
+        let scene = devpage_design::resolve(&files(), "screen.design").unwrap();
+        Update {
+            body: Some(Body::Scene(wire::encode(&scene.root))),
+        }
+        .encode_to_vec()
+    }
+
     #[test]
-    fn paint_natively() {
-        let (Ok(input), Ok(out)) = (
-            std::env::var("DESIGN_RAW_IN"),
-            std::env::var("DESIGN_RAW_OUT"),
-        ) else {
-            return;
-        };
-        let input = std::fs::read(input).unwrap();
-        let ptr = unsafe { super::paint(input.as_ptr(), input.len(), 1.0) };
-        let (w, h) = unsafe { (*(ptr as *const u32), *(ptr.add(4) as *const u32)) };
-        let bytes = unsafe { std::slice::from_raw_parts(ptr, 8 + (w * h * 4) as usize) };
-        std::fs::write(out, bytes).unwrap();
+    fn a_scene_is_sized_painted_and_hit_tested() {
+        let mut design = Design::new();
+        assert!(design.size().is_empty());
+        assert_eq!(design.apply(&scene_message()), Applied::Changed);
+        assert_eq!(design.size(), vec![200.0, 120.0]);
+        // Inside the button (padding 10), and outside it.
+        assert_eq!(
+            design.action_at(15.0, 15.0).as_deref(),
+            Some("navigate ./next.design")
+        );
+        assert_eq!(design.action_at(190.0, 110.0), None);
+        let mut pixels = design.paint(2.0).unwrap();
+        assert_eq!((pixels.width(), pixels.height()), (400, 240));
+        let rgba = pixels.take();
+        assert_eq!(&rgba[..4], &[255, 255, 255, 255]);
+    }
+
+    #[test]
+    fn problems_keep_the_scene_and_a_patch_clears_them() {
+        let mut design = Design::new();
+        design.apply(&scene_message());
+        let problems = Update {
+            body: Some(Body::Problems(Problems {
+                problems: vec!["screen.design:1:1: broken".into()],
+            })),
+        }
+        .encode_to_vec();
+        assert_eq!(design.apply(&problems), Applied::Problems);
+        assert_eq!(design.problems(), vec!["screen.design:1:1: broken"]);
+        assert_eq!(design.size(), vec![200.0, 120.0]);
+
+        // The root replaced by a wider one: laid out again, problems gone.
+        let mut wider = devpage_design::resolve(&files(), "screen.design").unwrap();
+        wider.root.width = devpage_design::resolve::Size::Px(300.0);
+        let patch = Update {
+            body: Some(Body::Patch(Patch {
+                replace: vec![Replace {
+                    id: "0".to_string(),
+                    node: Some(wire::encode(&wider.root)),
+                }],
+            })),
+        }
+        .encode_to_vec();
+        assert_eq!(design.apply(&patch), Applied::Changed);
+        assert!(design.problems().is_empty());
+        assert_eq!(design.size(), vec![300.0, 120.0]);
+    }
+
+    #[test]
+    fn a_patch_before_any_scene_or_garbage_does_nothing() {
+        let mut design = Design::new();
+        let patch = Update {
+            body: Some(Body::Patch(Patch { replace: vec![] })),
+        }
+        .encode_to_vec();
+        assert_eq!(design.apply(&patch), Applied::Nothing);
+        assert_eq!(design.apply(&[0xff, 0xff, 0xff]), Applied::Nothing);
+        assert!(design.paint(1.0).is_none());
     }
 }

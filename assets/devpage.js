@@ -36,6 +36,25 @@ function markBroken(root) {
   }
 }
 
+// Embedded designs are drawn by the design script, loaded only by pages that
+// have one: it starts every canvas not yet drawn and stops those gone.
+function drawDesigns() {
+  if (document.querySelector("canvas.design")) import("/__devpage/design.js").then((designs) => designs.scan());
+}
+
+// A page fetched again keeps the canvases it already has: each embedded
+// design still in the page keeps its drawing and its stream. They never leave
+// this document — a canvas moved between documents may lose its context.
+function keepDesigns(swap) {
+  const kept = [...document.querySelectorAll("#page .design-embed")];
+  swap();
+  for (const embed of document.querySelectorAll("#page .design-embed")) {
+    const src = embed.firstElementChild?.getAttribute("src");
+    const at = kept.findIndex((old) => old.firstElementChild?.getAttribute("src") === src);
+    if (at >= 0) embed.replaceWith(kept.splice(at, 1)[0]);
+  }
+}
+
 // Fetches a page of this document and swaps its content and sidebar in.
 async function load(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -47,12 +66,15 @@ async function load(url) {
     location.assign(url);
     return true;
   }
-  for (const id of ["page", "nav"]) {
-    const fresh = next.getElementById(id);
-    if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
-  }
+  keepDesigns(() => {
+    for (const id of ["page", "nav"]) {
+      const fresh = next.getElementById(id);
+      if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
+    }
+  });
   document.title = next.title;
   drawDiagrams(document.getElementById("page"));
+  drawDesigns();
   markBroken(document.getElementById("page"));
   showSlide();
   loadComments();
@@ -507,6 +529,7 @@ function followOutline() {
 }
 
 drawDiagrams(document);
+drawDesigns();
 markBroken(document);
 showSlide();
 followOutline();

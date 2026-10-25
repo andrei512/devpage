@@ -42,6 +42,15 @@ protox = "0.10.0"
 tonic-prost-build = { version = "0.14.6", default-features = false }
 wasm-bindgen-cli-support = "=0.2.129"
 
+# The design engine's WebAssembly module, which `build.rs` builds: the page
+# downloads it, so it is optimised for size.
+[profile.wasm]
+inherits = "release"
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
+
 [workspace]
 members = [".", "design", "design/wasm"]
 default-members = [".", "design", "design/wasm"]
