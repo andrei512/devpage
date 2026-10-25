@@ -20,13 +20,13 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::comments::{Anchor, Store};
-use crate::document::{self, Document, Kind};
+use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
 
 #[derive(Clone)]
 struct AppState {
-    document: Arc<Document>,
+    entry: Arc<Entry>,
     index: Arc<Index>,
     changes: broadcast::Sender<String>,
     store: Arc<Store>,
@@ -64,12 +64,13 @@ pub fn router(
     identity: Identity,
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
-    router_with_index(document, index, changes, identity)
+    router_with_index(Arc::new(Entry::new(document)), index, changes, identity)
 }
 
-/// The server, sharing an index the watcher keeps current.
+/// The server, sharing the entry document and the index the watcher keeps
+/// current.
 pub fn router_with_index(
-    document: Arc<Document>,
+    entry: Arc<Entry>,
     index: Arc<Index>,
     changes: broadcast::Sender<String>,
     identity: Identity,
@@ -87,9 +88,9 @@ pub fn router_with_index(
         .route("/{*path}", get(file))
         .layer(middleware::from_fn(log))
         .with_state(AppState {
-            store: Arc::new(Store::new(&document.served)),
+            store: Arc::new(Store::new(&entry.document().served)),
             identity: Arc::new(identity),
-            document,
+            entry,
             index,
             changes,
         })
@@ -108,8 +109,16 @@ async fn log(request: Request, next: Next) -> Response {
     response
 }
 
-async fn home(State(state): State<AppState>) -> Redirect {
-    Redirect::temporary(&state.document.entry())
+/// `/` leads to the entry document as its file says now — or, while the file
+/// is invalid, shows why.
+async fn home(State(state): State<AppState>) -> Response {
+    let entry = &state.entry;
+    match entry.error() {
+        Some(error) => {
+            Html(render::invalid(&entry.document(), entry.file(), &error)).into_response()
+        }
+        None => Redirect::temporary(&entry.document().entry()).into_response(),
+    }
 }
 
 /// A document file opens as its kind; a Markdown file becomes a page of its
@@ -120,30 +129,37 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
-    let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
+    let entry = state.entry.document();
+    let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
             format!("{path} is not part of the served folder"),
         )
             .into_response();
     };
-    let served = &state.document.served;
+    let served = &entry.served;
     if document::kind_of(&file).is_some() {
         return match Document::load(&file, served) {
             Ok(document) => show(&document, print),
-            Err(error) => Html(render::invalid(&state.document, &file, &error)).into_response(),
+            Err(error) => {
+                Html(render::invalid(&entry, &file, &format!("{error:#}"))).into_response()
+            }
         };
     }
     if file.extension().is_some_and(|ext| ext == "md") {
         let Ok(source) = tokio::fs::read_to_string(&file).await else {
             return (StatusCode::INTERNAL_SERVER_ERROR, "unreadable").into_response();
         };
+        // A page of a site whose file is invalid shows why, until it is fixed.
         let site = state
             .index
             .site_for(&file)
-            .and_then(|site| Document::load(&site, served).ok());
+            .map(|site| (Document::load(&site, served), site));
         return match site {
-            Some(site) => Html(render::page(&site, &file, &source)).into_response(),
+            Some((Ok(site), _)) => Html(render::page(&site, &file, &source)).into_response(),
+            Some((Err(error), site)) => {
+                Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
+            }
             None => match Document::load(&file, served) {
                 Ok(doc) => show(&doc, print),
                 Err(error) => {
@@ -241,7 +257,8 @@ async fn create_comment(
     };
     // A thread is about a file that exists in the served folder.
     if state
-        .document
+        .entry
+        .document()
         .file(&new.page)
         .is_none_or(|file| !file.is_file())
     {
@@ -585,5 +602,64 @@ mod tests {
         let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
         assert_eq!(status, 200, "{page}");
         assert_eq!(get(&format!("{base}/notes/ci.yml")).await.0, 200);
+    }
+
+    /// What `/` answers once a watched entry file settles: polls until
+    /// `expected` shows up in the answer, or gives up after two seconds.
+    async fn home_becomes(address: &str, expected: &str) -> (u16, String) {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        loop {
+            let answer = get(&format!("{address}/")).await;
+            if answer.1.contains(expected) || Instant::now() > deadline {
+                return answer;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn the_entry_document_follows_its_file_without_a_restart() {
+        let dir = std::env::temp_dir().join(format!("devpage-entry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(dir.join("a.md"), "# A").unwrap();
+        std::fs::write(dir.join("b.md"), "# B").unwrap();
+        let site = dir.join("devpage.yml");
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
+
+        let document = Arc::new(Document::load(&site, &dir).unwrap());
+        let index = Arc::new(Index::build(&dir));
+        let entry = Arc::new(Entry::new(document));
+        let (changes, _) = broadcast::channel(16);
+        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
+        let router = router_with_index(entry, index, changes, Identity::Local("T".into()));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        assert_eq!(get(&format!("{address}/")).await, (307, "/a.md".into()));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        // A new root: `/` follows it.
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: b.md\n").unwrap();
+        assert_eq!(home_becomes(&address, "/b.md").await, (307, "/b.md".into()));
+
+        // An invalid file doesn't stop devpage: `/` and the site's pages say why.
+        std::fs::write(&site, "kind: site\ntitle: T\n").unwrap();
+        let (status, body) = home_becomes(&address, "not a valid document").await;
+        assert_eq!(status, 200);
+        assert!(
+            body.contains("/devpage.yml is not a valid document"),
+            "{body}"
+        );
+        assert!(body.contains("missing field"), "{body}");
+        let (_, page) = get(&format!("{address}/a.md")).await;
+        assert!(page.contains("not a valid document"), "{page}");
+
+        // Fixing it recovers.
+        std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
+        assert_eq!(home_becomes(&address, "/a.md").await, (307, "/a.md".into()));
+        let (_, page) = get(&format!("{address}/a.md")).await;
+        assert!(!page.contains("not a valid document"), "{page}");
     }
 }

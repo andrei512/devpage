@@ -43,7 +43,10 @@ ignores accesses (a read, not a change), and for each path in the event:
 3. otherwise tells the [index](../serving-pages/README.md#which-document-a-file-belongs-to)
    the path changed (`Index::changed`), so a new, edited or deleted document
    file or `.gitignore` is reflected at once;
-4. counts the path as a refresh unless the index finds it out of sight —
+4. if the path is the entry document's own file, re-reads it (`Entry::reload`)
+   — so `/` and the `watch` list follow the file — and counts it as a refresh,
+   whatever `watch` says;
+5. otherwise counts the path as a refresh unless the index finds it out of sight —
    inside a `.git` or `.devpage` folder, or excluded by any `.gitignore` in the
    served folder, nested ones included — or the entry document is a site
    whose `watch` list matches none of it (`Document::watches`, patterns
@@ -57,6 +60,11 @@ file changed. There is no debouncing, so one save can produce several events —
 and several refreshes — depending on how the editor writes the file and how the
 platform reports it. Creating a file and deleting a file both count as changes.
 Document files are re-read as they change, so editing one needs no restart.
+While the entry's file is invalid, the last valid version stays in use, and
+`/` and the pages of a site whose file is invalid show why instead; when a
+refreshed page comes back in a different frame — that problem page replaced
+by the fixed site, or a document that changed kind — the page script loads it
+whole rather than swapping its parts.
 
 The watcher lives for the whole run.
 

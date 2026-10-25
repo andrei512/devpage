@@ -21,7 +21,7 @@ use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
-use crate::document::Document;
+use crate::document::{Document, Entry};
 use crate::index::Index;
 
 /// The first port tried; when it is taken, the next one up, until one is free.
@@ -86,10 +86,11 @@ async fn main() -> Result<()> {
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served)?);
     let index = Arc::new(Index::build(&document.served));
+    let entry = Arc::new(Entry::new(document.clone()));
 
     let (changes, _) = broadcast::channel(16);
     check::announce_on(changes.clone());
-    let _watcher = watch::start(document.clone(), index.clone(), changes.clone())?;
+    let _watcher = watch::start(entry.clone(), index.clone(), changes.clone())?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -111,7 +112,7 @@ async fn main() -> Result<()> {
     };
     axum::serve(
         listener,
-        server::router_with_index(document, index, changes, identity),
+        server::router_with_index(entry, index, changes, identity),
     )
     .await?;
     Ok(())

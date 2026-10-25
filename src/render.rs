@@ -280,7 +280,7 @@ fn normalize(path: &Path) -> PathBuf {
 }
 
 /// A document file that can't be loaded: a page listing what is wrong with it.
-pub fn invalid(entry: &Document, file: &Path, error: &anyhow::Error) -> String {
+pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
     let address = entry.url(file);
     format!(
         r#"<!doctype html>
@@ -291,7 +291,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &anyhow::Error) -> String {
 <title>{address} · {document}</title>
 <link rel="stylesheet" href="/__devpage/style.css">
 </head>
-<body>
+<body class="invalid">
 <main id="page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
@@ -299,7 +299,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &anyhow::Error) -> String {
 </html>"#,
         address = escape(&address),
         document = escape(&entry.title),
-        error = escape(&format!("{error:#}")),
+        error = escape(error),
     )
 }
 

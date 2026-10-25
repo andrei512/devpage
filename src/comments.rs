@@ -382,14 +382,10 @@ mod browser {
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(16);
         let index = Arc::new(crate::index::Index::build(&document.served));
-        let _watcher =
-            crate::watch::start(document.clone(), index.clone(), changes.clone()).unwrap();
-        let router = server::router_with_index(
-            document,
-            index,
-            changes,
-            server::Identity::Local("Ana".into()),
-        );
+        let entry = Arc::new(crate::document::Entry::new(document));
+        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
+        let router =
+            server::router_with_index(entry, index, changes, server::Identity::Local("Ana".into()));
         tokio::spawn(async move {
             let _watcher = _watcher;
             axum::serve(listener, router).await.ok();
