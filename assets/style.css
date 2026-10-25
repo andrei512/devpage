@@ -215,18 +215,36 @@ body.slides { display: block; background: #000; overflow: hidden; }
   body.slides, .deck { margin: 0; padding: 0; }
 }
 
-/* Comments: highlighted anchors, threads in a panel on the right. */
+/* Comments: highlighted anchors, and threads beside the text on a wide page
+   (each card level with its anchor) or, on narrow screens and decks, in a
+   panel the reader opens. Never printed. */
 
-mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; }
-#comments { width: 300px; flex-shrink: 0; padding: 56px 16px; font-size: 14px; }
+mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; border-radius: 2px; }
+#comments { flex-shrink: 0; font-size: 14px; line-height: 1.45; }
 #comments:empty { display: none; }
+#comments.beside { position: relative; width: 300px; margin: 56px 16px 0 0; }
+#comments.beside > * { position: absolute; left: 0; right: 0; }
+#comments:not(.beside) {
+  position: fixed; right: 0; top: 0; bottom: 0; width: min(360px, 100vw);
+  overflow: auto; padding: 16px; z-index: 5; display: none;
+  background: var(--background); border-left: 1px solid var(--border);
+}
+body.show-comments #comments:not(.beside):not(:empty) { display: block; }
+#comments-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 6; display: none; }
+#comments-toggle.shown { display: block; }
+:fullscreen #comments-toggle { display: none; }
 #comments .thread { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; background: var(--surface); }
-#comments blockquote { margin: 0 0 6px; color: var(--muted); border-left: 3px solid var(--accent); padding-left: 8px; }
-#comments p { margin: 4px 0; }
-#comments input { width: 100%; margin: 6px 0; }
-body.slides #comments { position: fixed; right: 0; top: 0; bottom: 0; overflow: auto; background: var(--background); z-index: 2; display: none; }
-body.slides.show-comments #comments { display: block; }
-@media print { #comments, #comment-button { display: none; } mark.comment { background: none; } }
+#comments .composer { border-color: var(--accent); }
+#comments blockquote { margin: 0 0 6px; padding: 0 0 0 8px; background: none; border-left: 3px solid var(--accent); color: var(--muted); max-height: 4.4em; overflow: hidden; }
+#comments p { margin: 4px 0; overflow-wrap: anywhere; }
+#comments time { color: var(--muted); font-size: 12px; }
+#comments h3 { font-size: 14px; margin: 0 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.comment-editor textarea { width: 100%; margin: 6px 0 2px; font: inherit; color: inherit; background: var(--background); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; resize: vertical; }
+.comment-editor button { margin: 4px 6px 0 0; }
+.comment-error { color: #d70015; font-size: 13px; }
+.comment-error:empty { display: none; }
+.comment-button, #comments-toggle, .comment-editor button { font: 13px var(--font); border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; z-index: 4; }
+@media print { #comments, #comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
 
 /* Problems: broken links found while the page is previewed. */
 
@@ -237,5 +255,4 @@ img.broken { outline: 2px dashed #d70015; }
 .diagram a.broken rect, .diagram a.broken polygon, .diagram a.broken circle, .diagram a.broken ellipse, .diagram a.broken path { stroke: #d70015; stroke-dasharray: 6 4; }
 body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
 @media print { .problems { display: none; } }
-#paragraph-button, #comment-button { font-size: 13px; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; cursor: pointer; z-index: 4; }
 @media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }

@@ -239,6 +239,18 @@ async fn create_comment(
         Ok(author) => author,
         Err(refused) => return refused,
     };
+    // A thread is about a file that exists in the served folder.
+    if state
+        .document
+        .file(&new.page)
+        .is_none_or(|file| !file.is_file())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            format!("{} is not a page in the served folder", new.page),
+        )
+            .into_response();
+    }
     match state
         .store
         .create(&new.page, new.anchor, &author, &new.text)
@@ -283,6 +295,155 @@ async fn resolve_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{Value, json};
+
+    /// A served folder holding one page, served by the real router on a free
+    /// port, with the given identity.
+    async fn serve_comments(name: &str, identity: Identity) -> (String, std::path::PathBuf) {
+        let root =
+            std::env::temp_dir().join(format!("devpage-routes-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("a.md"),
+            "# A\n\nThe client retries every write.\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
+        let (changes, _) = broadcast::channel(16);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            axum::serve(listener, router(document, changes, identity))
+                .await
+                .unwrap()
+        });
+        (address, root)
+    }
+
+    fn new_thread() -> Value {
+        json!({
+            "page": "/a.md",
+            "anchor": { "quote": "retries", "prefix": "The client ", "suffix": " every write." },
+            "text": "Every write?",
+        })
+    }
+
+    #[tokio::test]
+    async fn a_thread_is_created_replied_to_and_resolved_over_http() {
+        let (address, root) = serve_comments("life", Identity::Local("Ana".into())).await;
+        let client = reqwest::Client::new();
+        let created: Value = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+        let reply = client
+            .post(format!("{address}/__devpage/comments/reply"))
+            .json(&json!({ "page": "/a.md", "id": id, "text": "Only the outbox." }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(reply.status(), 204);
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed[0]["id"], id.as_str());
+        assert_eq!(listed[0]["anchor"]["quote"], "retries");
+        assert_eq!(listed[0]["thread"][0]["author"], "Ana");
+        assert_eq!(listed[0]["thread"][1]["text"], "Only the outbox.");
+        assert!(
+            root.join(format!(".devpage/comments/a.md/{id}.yml"))
+                .is_file()
+        );
+
+        let resolved = client
+            .post(format!("{address}/__devpage/comments/resolve"))
+            .json(&json!({ "page": "/a.md", "id": id }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resolved.status(), 204);
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed, json!([]));
+    }
+
+    #[tokio::test]
+    async fn deployed_writes_need_the_header_and_are_stamped_with_it() {
+        let identity = Identity::Header("X-Forwarded-Email".into());
+        let (address, _) = serve_comments("deployed", identity).await;
+        let client = reqwest::Client::new();
+        let refused = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 401);
+        let created: Value = client
+            .post(format!("{address}/__devpage/comments"))
+            .header("X-Forwarded-Email", "ana@example.com")
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+        for action in ["reply", "resolve"] {
+            let refused = client
+                .post(format!("{address}/__devpage/comments/{action}"))
+                .json(&json!({ "page": "/a.md", "id": id, "text": "x" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 401, "{action} without the header");
+        }
+        // Reading needs no header: the proxy decides who may read.
+        let listed: Value = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(listed[0]["thread"][0]["author"], "ana@example.com");
+    }
+
+    #[tokio::test]
+    async fn a_thread_on_a_page_that_isnt_in_the_served_folder_is_refused() {
+        let (address, _) = serve_comments("outside", Identity::Local("Ana".into())).await;
+        let mut thread = new_thread();
+        for page in ["/../escape.md", "/missing.md"] {
+            thread["page"] = json!(page);
+            let refused = reqwest::Client::new()
+                .post(format!("{address}/__devpage/comments"))
+                .json(&thread)
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 400, "{page}");
+        }
+    }
 
     #[test]
     fn deployed_authors_come_from_the_proxy_header_or_are_refused() {

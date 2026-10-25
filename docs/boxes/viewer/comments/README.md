@@ -14,19 +14,22 @@ comments and replies in the browser.
 
 ## Commenting
 
-- **On text** — select it, and a **Comment** button appears beside the
+- **On text** — select it, and a **Comment** button appears under the
   selection.
-- **On a paragraph** — hover over it, and a comment button appears in the
-  margin. The whole paragraph — or list item, table, code block or diagram — is
-  the anchor.
+- **On a paragraph** — hover over it, and a **+** button appears in the margin
+  to its left. The whole paragraph — or heading, list item, table, code block
+  or diagram — is the anchor.
 
-Write the comment and save it. It appears in the margin beside its text, which
-is highlighted; on a narrow screen, and on slides, comments sit in a panel
-instead (**C** toggles it on a deck). Every open page showing that text gets the
-comment at once.
+Either opens a box at the top of the comments: write the comment and press
+**Comment** (or ⌘/Ctrl-Enter); **Cancel** or Escape drops it. The comment's
+text is highlighted, and on a wide window its thread sits in the margin level
+with it. On a narrow window, and on slides, threads sit in a panel instead,
+opened with the **Comments (n)** button in the corner — or **C** on a deck.
+Clicking highlighted text opens its thread. Every open page showing that text
+gets the comment at once.
 
 Each comment is a **thread**: the first message, then replies, one level deep
-as in Google Docs. Anyone can reply. **Resolve** deletes the thread — there is
+as in Google Docs. Anyone can reply, in the box under the thread. **Resolve** deletes the thread — there is
 no archive and no "resolved" state, because the store is not history. Anyone
 can resolve any thread.
 
@@ -46,8 +49,9 @@ A comment is stamped with its **author** and the time it was written.
 
 ## When the text changes
 
-A comment is anchored to the **rendered text** it quotes, with up to 32
-characters before and after to tell repeats apart. When the page changes, the
+A comment is anchored to the **rendered text** it quotes — the page's text as
+the reader sees it, every run of spaces and line breaks counted as one space —
+with up to 32 characters before and after to tell repeats apart. When the page changes, the
 comment follows its quote wherever it now is. When the quote is gone — the
 sentence was rewritten — the comment is **detached**: it is listed at the top of
 the page under *Detached comments*, still readable and resolvable, never lost
@@ -88,8 +92,8 @@ thread:
 
 | Field | Meaning |
 | --- | --- |
-| `anchor.quote` | The rendered text the comment is on — the selection, or the whole paragraph's text. |
-| `anchor.prefix`, `anchor.suffix` | Up to 32 characters of rendered text just before and after the quote; empty at a paragraph's edges. |
+| `anchor.quote` | The rendered text the comment is on — the selection, or the whole paragraph's text — with whitespace collapsed. |
+| `anchor.prefix`, `anchor.suffix` | Up to 32 characters of the page's rendered text just before and after the quote, headings included; empty at the start or end of the page. |
 | `thread` | The messages, oldest first. The first is the comment; the rest are replies. |
 | `author`, `at`, `text` | Who wrote a message, when (UTC, RFC 3339), and what it says. |
 
@@ -100,9 +104,19 @@ page's problems ([Checking links](../checking-links/README.md)) and left alone.
 
 ## Under the hood
 
-The page script asks for a page's threads when it loads, and writes through
-four requests under `/__devpage/comments`: list a page's threads, start a
-thread, reply, resolve. The comment store is always watched, whatever a site's `watch`
+The page script asks for the threads of every Markdown file it shows — a
+page, each chapter of a doc, each slide of a deck — when it loads, and writes
+through four requests:
+
+| Request | Does |
+| --- | --- |
+| `GET /__devpage/comments?page=/docs/a.md` | The file's threads, oldest first, each with its `id`. |
+| `POST /__devpage/comments` with `{page, anchor, text}` | Starts a thread; answers `{id}`. The page must be a file in the served folder. |
+| `POST /__devpage/comments/reply` with `{page, id, text}` | Appends a reply. |
+| `POST /__devpage/comments/resolve` with `{page, id}` | Deletes the thread's file. |
+
+The three writes need an author: deployed, a write without the identity header
+gets `401`; reading needs none. The comment store is always watched, whatever a site's `watch`
 says, so a thread written, changed or deleted — by a reader or by an
 agent editing the files — reaches every open page through the
 [live-update stream](../live-updates/README.md).
