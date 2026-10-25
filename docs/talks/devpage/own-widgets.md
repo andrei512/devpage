@@ -1,4 +1,4 @@
-<Columns kicker="Your own widgets" title="One .tsx file is one widget. No build step.">
+<Columns kicker="Your own widgets" title="Your own components: one file each, no build step.">
 
 <FileTree>
 

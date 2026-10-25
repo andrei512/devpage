@@ -23,10 +23,10 @@ export const css = `
 function A4({ page }: { page: number }) {
   return (
     <div className="paper-sheet paper-a4">
-      <div className="paper-head"><span>Offline sync — draft</span></div>
+      <div className="paper-head"><span>devpage features</span></div>
       <div className="paper-line accent" />
       {[0, 1, 2, 3, 4, 5, 6].map((i) => <div className={`paper-line ${i % 3 === 2 ? "short" : ""}`} />)}
-      <div className="paper-foot"><span /><span>Page {page} of 3</span></div>
+      <div className="paper-foot"><span /><span>Page {page} of 9</span></div>
     </div>
   );
 }

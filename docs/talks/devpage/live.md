@@ -1,4 +1,4 @@
-<Columns kicker="Live" title="Save a file. Every open page updates.">
+<Columns kicker="Live" title="Think out loud: every save shows up instantly.">
 
 ```mermaid
 sequenceDiagram

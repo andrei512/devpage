@@ -1,4 +1,4 @@
-<Columns kicker="Extended Markdown" title="Plain Markdown in. A designed page out.">
+<Columns kicker="Extended Markdown" title="Write plain Markdown. Get a designed page.">
 
 <Example>
 

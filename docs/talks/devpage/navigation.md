@@ -1,4 +1,4 @@
-<Columns kicker="Navigation" title="A navbar, a sidebar, light and dark — in a few lines of YAML.">
+<Columns kicker="Navigation" title="Looks like a product — in a few lines of YAML.">
 
 <FrameSketch />
 

@@ -1,4 +1,4 @@
-<Columns kicker="Get started" title="Two commands.">
+<Columns kicker="Get started" title="Start in two commands.">
 
 <Terminal>
 

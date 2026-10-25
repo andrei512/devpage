@@ -1,1 +1,1 @@
-<Hero logo="/docs/logo.svg" kicker="Live documents" title="devpage" subtitle="The documents your project lives by — rendered from the Markdown in your repository, while you and your agents write them." />
+<Hero logo="/docs/logo.svg" kicker="Live documents" title="devpage" subtitle="The best way to write your project's docs: Markdown in your repository, rendered live — for you, your team and your agents." />

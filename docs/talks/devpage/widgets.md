@@ -1,4 +1,4 @@
-<Columns kicker="Widgets" title="React components, written in Markdown as tags.">
+<Columns kicker="Widgets" title="Rich pages, without leaving Markdown.">
 
 <Example>
 

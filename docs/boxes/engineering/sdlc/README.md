@@ -96,11 +96,6 @@ replaced — so it happens only when the operator says so. The
 [example image](../../viewer/deploying/README.md#the-image) installs the
 released version, so it follows each release.
 
-A release also adds its chapter to the
-[release notes](../../../releases/devpage.yml): what was under *Unreleased*
-becomes the new version's chapter, with its date, and *Unreleased* starts
-empty.
-
 ### Retro
 
 After the operator merges the design branch into main, the session

@@ -1,4 +1,4 @@
-<Columns kicker="Diagrams" title="Diagrams are navigation. Click a box.">
+<Columns kicker="Diagrams" title="Diagrams readers can click through.">
 
 ```mermaid
 flowchart LR

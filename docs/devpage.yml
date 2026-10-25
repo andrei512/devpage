@@ -9,7 +9,7 @@ navbar:
   Getting started (rocket): getting-started.md
   Examples (layout-grid):
     Site — these docs (book-open): README.md
-    Doc — release notes (file-text): releases/devpage.yml
+    Doc — feature catalog (file-text): features/devpage.yml
     Slides — the devpage talk (presentation): talks/devpage/devpage.yml
   (github): https://github.com/andrei512/devpage
 watch:

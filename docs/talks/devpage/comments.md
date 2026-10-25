@@ -1,4 +1,4 @@
-<Columns rows kicker="Comments, with agents" title="Comment in the browser. Your agent resolves it.">
+<Columns rows kicker="Comments, with agents" title="Review in the browser. Your agent does the rest.">
 
 ```mermaid
 flowchart LR

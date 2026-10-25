@@ -162,7 +162,7 @@ per page.
 to — here, all three — and exits `1` if a link is broken: ready for a test.
 
 For a finished example of each kind: these docs are a site,
-[the release notes](releases/devpage.yml) are a doc, and
+[the feature catalog](features/devpage.yml) is a doc, and
 [the devpage talk](talks/devpage/devpage.yml) is a deck — all three in the
 navbar's **Examples** menu.
 

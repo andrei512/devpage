@@ -45,8 +45,9 @@ cargo test                  # 87 tests; needs no network and no Chrome
 cargo test -- --ignored     # the 19 tests that drive the installed Chrome
 ```
 
-Tests are written as `#[cfg(test)]` modules beside the code they test; there
-is no `tests/` folder. Route tests start the real router on a free port on
+Tests are written as `#[cfg(test)]` modules beside the code they test; the
+`tests/` folder holds only fixtures — `tests/fixtures/sync-design`, a doc of
+three chapters that the doc and PDF tests load. Route tests start the real router on a free port on
 `127.0.0.1` and talk to it with `reqwest`; external-link tests point the
 checker at a local web server, so the suite needs no network. The 19 tests
 marked `#[ignore]` drive the installed Chrome through chromiumoxide — run them

@@ -1,4 +1,4 @@
-<Columns kicker="Deployed" title="Local for you. Deployed for your team — behind the proxy you already run.">
+<Columns kicker="Deployed" title="Local for you. Shared with your team — behind the proxy you already run.">
 
 ```mermaid
 flowchart LR
