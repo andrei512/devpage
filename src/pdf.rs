@@ -101,3 +101,76 @@ fn doc_params(title: &str, pdf: &Pdf) -> PrintToPdfParams {
         ..Default::default()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn comments_show_on_the_page_and_detach_when_their_text_is_gone() {
+        let dir = std::env::temp_dir().join(format!("devpage-chrome-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        std::fs::write(
+            dir.join("one.md"),
+            "# One\n\nThe client retries every write.\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&dir.join("one.md")).unwrap());
+        let store = crate::comments::Store::new(&document.repo);
+        let anchor = |quote: &str| crate::comments::Anchor {
+            quote: quote.into(),
+            prefix: String::new(),
+            suffix: String::new(),
+        };
+        store
+            .create("/one.md", anchor("retries"), "Ana", "Every write?")
+            .unwrap();
+        store
+            .create("/one.md", anchor("long gone"), "Bo", "Old")
+            .unwrap();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+        let (mut browser, mut handler) = Browser::launch(BrowserConfig::builder().build().unwrap())
+            .await
+            .unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}/one.md").as_str())
+            .await
+            .unwrap();
+        let mut found = (0, String::new());
+        for _ in 0..40 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let marks: i64 = page
+                .evaluate("document.querySelectorAll('mark.comment').length")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            let panel: String = page
+                .evaluate("document.getElementById('comments')?.innerText ?? ''")
+                .await
+                .unwrap()
+                .into_value()
+                .unwrap();
+            found = (marks, panel);
+            if found.0 == 1 && found.1.contains("Detached") {
+                break;
+            }
+        }
+        browser.close().await.ok();
+        events.abort();
+        assert_eq!(found.0, 1, "{found:?}");
+        assert!(
+            found.1.contains("Detached comments") && found.1.contains("Every write?"),
+            "{found:?}"
+        );
+    }
+}
