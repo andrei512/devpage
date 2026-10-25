@@ -132,10 +132,11 @@ Every other link — other sites, non-Markdown files such as a doc's or deck's
 document file — is left to the browser and loads a whole new page. A site's
 title links to its root page, a Markdown file, so it swaps in place too.
 
-**The theme.** It keeps the theme the page's head chose current: a click in
-the selector sets `data-theme` on `<html>`, marks the choice, and stores it in
-`localStorage` (Auto removes it); on Auto it follows the system setting as it
-changes. A blocked `localStorage` leaves the choice working for that page.
+**The theme.** It keeps the theme the page's head chose current: a click on
+the theme selector switches `data-theme` on `<html>` to the other theme, labels
+the button with the next switch, and stores the theme in `localStorage`; until
+the reader has switched, the page follows the system setting as it changes. A
+blocked `localStorage` leaves the switch working for that page.
 
 **The navbar.** A click on a dropdown's button opens it; ↓ opens it and
 focuses its first link, ↑ and ↓ move between links, and Escape, a click

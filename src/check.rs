@@ -124,6 +124,7 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     let index = crate::index::Index::build(&document.served);
     let mut widget_folders = HashSet::new();
     let mut navbars = HashSet::new();
+    let mut logos = HashSet::new();
     while let Some(page) = queue.pop_front() {
         if !seen.insert(page.clone()) {
             continue;
@@ -142,6 +143,12 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
             && widget_folders.insert(folder.clone())
         {
             problems.extend(widget_problems(owner));
+        }
+        // A document's logo is checked once.
+        if logos.insert(owner.path())
+            && let Some(problem) = crate::navbar::logo_problem(owner)
+        {
+            problems.push(problem);
         }
         // A site's navbar is checked once, and what it links to is checked too.
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
@@ -421,6 +428,7 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
     let mut external = Vec::new();
     let mut problems = widget_problems(document);
     problems.extend(crate::navbar::problems(document));
+    problems.extend(crate::navbar::logo_problem(document));
     problems.extend(
         pages
             .iter()
@@ -792,6 +800,28 @@ mod external {
         assert_eq!(count("navbar: no icon named no-such-icon"), 1, "{found:#?}");
         assert_eq!(count("navbar: missing.md — no such file"), 1, "{found:#?}");
         assert_eq!(count("only.md:3: broken link gone.md"), 1, "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn check_reports_a_missing_logo_once() {
+        let doc = folder("logo-check", "# Home\n\n[Two](two.md)\n");
+        std::fs::write(doc.base.join("two.md"), "# Two\n").unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nlogo: gone.svg\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let count = found
+            .iter()
+            .filter(|p| p.contains("logo: gone.svg — no such file"))
+            .count();
+        assert_eq!(count, 1, "{found:#?}");
     }
 
     #[tokio::test]

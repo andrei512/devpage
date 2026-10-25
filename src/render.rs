@@ -148,7 +148,8 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         String::new()
     } else {
         format!(
-            "<nav id=\"nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}</a><ul>{outline}</ul></nav>",
+            "<nav id=\"nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
+            crate::navbar::logo(document),
             escape(&document.title)
         )
     };
@@ -456,13 +457,14 @@ fn sidebar(document: &Document, current: &str) -> String {
     }
     let title = if document.navbar.is_empty() {
         format!(
-            "<a class=\"document-title{}\" href=\"{}\">{}</a>\n",
+            "<a class=\"document-title{}\" href=\"{}\">{}{}</a>\n",
             if current == document.entry() {
                 " current"
             } else {
                 ""
             },
             escape(&document.entry()),
+            crate::navbar::logo(document),
             escape(&document.title)
         )
     } else {
@@ -668,6 +670,49 @@ mod tests {
             1,
             "ids are unique: {html}"
         );
+    }
+
+    #[test]
+    fn every_frame_carries_the_logo_as_its_tab_icon() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-logo-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("art")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("art/logo.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("README.md"),
+            "# Home\n\n## Topics\n\n- [Page](page.md)\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("page.md"), "# Page\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: Garden\nroot: README.md\nlogo: art/logo.svg\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("doc.yml"),
+            "kind: doc\ntitle: Plan\nchapters: [page.md]\nlogo: art/logo.svg\n",
+        )
+        .unwrap();
+        let icon = "<link rel=\"icon\" href=\"/art/logo.svg\">";
+        let img = "<img class=\"logo\" src=\"/art/logo.svg\" alt=\"\">";
+        // A site with no navbar: the logo heads the sidebar, on every page.
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let html = page(&site, &dir.join("page.md"), "# Page\n");
+        assert!(html.contains(icon), "{html}");
+        assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
+        // A doc: before its title in the outline.
+        let plan = Document::load(&dir.join("doc.yml"), &dir).unwrap();
+        let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
+            panic!()
+        };
+        let html = doc(&plan, chapters, pdf, false);
+        assert!(html.contains(icon), "{html}");
+        assert!(html.contains(&format!("{img}Plan</a>")), "{html}");
     }
 
     #[test]

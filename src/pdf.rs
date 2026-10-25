@@ -528,6 +528,35 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
+    async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
+        let logo = "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 8 8\"><rect width=\"8\" height=\"8\" fill=\"#0066cc\"/></svg>";
+        let dir = widget_folder(
+            "navbar-logo",
+            "# Home\n",
+            &[
+                (
+                    "docs/devpage.yml",
+                    &format!("{NAVBAR_SITE}logo: logo.svg\n"),
+                ),
+                ("docs/guide.md", "# Guide\n"),
+                ("docs/plan.md", "# Plan\n"),
+                ("docs/logo.svg", logo),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        // Loaded, 22px, before the title and centred on it, and the tab's icon.
+        let shown = "(() => { const i = document.querySelector('.navbar-title .logo'), t = document.querySelector('.navbar-title'); const a = i.getBoundingClientRect(), b = t.getBoundingClientRect(); return [i.complete && i.naturalWidth > 0, a.width, a.height, i === t.firstElementChild, Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5, document.querySelector('link[rel=icon]').getAttribute('href')].join(' '); })()";
+        assert_eq!(
+            text(&page, shown).await,
+            "true 22 22 true true /docs/logo.svg"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
     async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
         let dir = navbar_folder("navbar-menu");
         let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
@@ -599,42 +628,69 @@ mod tests {
     /// Drives the installed Chrome; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
-    async fn the_theme_selector_switches_every_token_and_remembers_the_choice() {
+    async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
         let dir = navbar_folder("navbar-theme");
         let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
         let background = "getComputedStyle(document.body).backgroundColor";
-        page.evaluate("document.querySelector('button[data-theme-choice=dark]').click()")
+        let theme = "document.documentElement.dataset.theme";
+        // Shown icon: the moon in light, the sun in dark.
+        let shown = "['to-dark','to-light'].filter(c => getComputedStyle(document.querySelector('.theme-toggle .' + c)).display !== 'none').join()";
+        // Nothing saved: the page follows the system.
+        assert_eq!(
+            text(&page, theme).await,
+            text(
+                &page,
+                "matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'"
+            )
+            .await
+        );
+        let start = text(&page, theme).await;
+        let other = if start == "dark" { "light" } else { "dark" };
+        page.evaluate("document.querySelector('.theme-toggle').click()")
             .await
             .unwrap();
+        assert_eq!(text(&page, theme).await, other);
         assert_eq!(
-            text(&page, "document.documentElement.dataset.theme").await,
-            "dark"
+            text(&page, "String(localStorage.getItem('devpage-theme'))").await,
+            other
         );
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        // Now dark wherever it started.
+        if start == "dark" {
+            page.evaluate("document.querySelector('.theme-toggle').click()")
+                .await
+                .unwrap();
+        }
+        assert_eq!(text(&page, theme).await, "dark");
         assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
-        assert_eq!(text(&page, "document.querySelector('button[data-theme-choice=dark]').getAttribute('aria-checked')").await, "true");
-        // A reload keeps the choice, before anything paints.
+        assert_eq!(text(&page, shown).await, "to-light");
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.theme-toggle').getAttribute('aria-label')"
+            )
+            .await,
+            "Switch to light"
+        );
+        // A reload keeps it, before anything paints.
         page.reload().await.unwrap();
         tokio::time::sleep(Duration::from_millis(400)).await;
-        assert_eq!(
-            text(&page, "document.documentElement.dataset.theme").await,
-            "dark"
-        );
+        assert_eq!(text(&page, theme).await, "dark");
         assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
-        // Light, then back to Auto, which forgets the choice.
-        page.evaluate("document.querySelector('button[data-theme-choice=light]').click()")
+        // One click back to light, the moon showing.
+        page.evaluate("document.querySelector('.theme-toggle').click()")
             .await
             .unwrap();
         assert_eq!(text(&page, background).await, "rgb(255, 255, 255)");
-        page.evaluate("document.querySelector('button[data-theme-choice=auto]').click()")
-            .await
-            .unwrap();
+        assert_eq!(text(&page, shown).await, "to-dark");
         assert_eq!(
             text(&page, "String(localStorage.getItem('devpage-theme'))").await,
-            "null"
-        );
-        assert_eq!(
-            text(&page, "document.documentElement.dataset.themeChoice").await,
-            "auto"
+            "light"
         );
         browser.close().await.ok();
         events.abort();
@@ -651,7 +707,7 @@ mod tests {
             .await
             .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
-        let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-selector').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
+        let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-toggle').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
         assert_eq!(text(&page, fits).await, "true true true");
         assert_eq!(
             text(

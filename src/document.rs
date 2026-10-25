@@ -21,6 +21,7 @@ enum Config {
         sidebar: Option<bool>,
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
+        logo: Option<String>,
     },
     Doc {
         title: String,
@@ -30,6 +31,7 @@ enum Config {
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
+        logo: Option<String>,
     },
     Slides {
         title: String,
@@ -37,6 +39,7 @@ enum Config {
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
+        logo: Option<String>,
     },
 }
 
@@ -201,6 +204,9 @@ pub struct Document {
     pub sidebar: bool,
     /// Whether the page shows the light/dark selector.
     pub theme_selector: bool,
+    /// The `logo` field as written: an image relative to the document file,
+    /// shown before the title and used as the browser tab's icon.
+    pub logo: Option<String>,
 }
 
 impl Document {
@@ -247,6 +253,7 @@ impl Document {
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
+                logo: None,
             });
         }
         Self::parse(&text, base, file_name, served)
@@ -266,6 +273,7 @@ impl Document {
         let mut nav_items = Vec::new();
         let mut show_sidebar = true;
         let show_selector;
+        let logo_path;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
@@ -275,7 +283,9 @@ impl Document {
                 navbar: nav,
                 sidebar,
                 theme_selector,
+                logo,
             } => {
+                logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
                 show_sidebar = sidebar.unwrap_or(true);
@@ -301,7 +311,9 @@ impl Document {
                 pdf,
                 widgets,
                 theme_selector,
+                logo,
             } => {
+                logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
                 if chapters.is_empty() {
@@ -318,7 +330,9 @@ impl Document {
                 slides,
                 widgets,
                 theme_selector,
+                logo,
             } => {
+                logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
                 if slides.is_empty() {
@@ -349,6 +363,7 @@ impl Document {
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,
+            logo: logo_path,
         })
     }
 
@@ -363,6 +378,15 @@ impl Document {
     /// The document file itself.
     pub fn path(&self) -> PathBuf {
         self.base.join(&self.file_name)
+    }
+
+    /// The logo's address, when the document has one and the file exists in
+    /// the served folder. A logo that doesn't is a problem, not an error:
+    /// the page shows without it.
+    pub fn logo_url(&self) -> Option<String> {
+        let written = self.logo.as_ref()?;
+        let file = self.base.join(written).canonicalize().ok()?;
+        (file.is_file() && file.starts_with(&self.served)).then(|| self.url(&file))
     }
 
     /// A file's address: its path from the top of the served folder.
