@@ -279,16 +279,18 @@ function showSlide() {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.target.closest?.("input, textarea")) return;
+  // Typing, and the browser's own shortcuts (⌘C, ⌘F), are left alone.
+  if (event.target.closest?.("input, textarea") || event.metaKey || event.ctrlKey || event.altKey) return;
   const state = showSlide();
   if (!state) return;
+  const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
   const go = (n) => { location.hash = `#${Math.min(Math.max(n, 1), state.count)}`; };
-  if (["ArrowRight", " ", "PageDown", "ArrowDown"].includes(event.key)) go(state.index + 1);
-  else if (["ArrowLeft", "PageUp", "ArrowUp"].includes(event.key)) go(state.index - 1);
-  else if (event.key === "Home") go(1);
-  else if (event.key === "End") go(state.count);
-  else if (event.key === "c") document.body.classList.toggle("show-comments");
-  else if (event.key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+  if (["ArrowRight", " ", "PageDown", "ArrowDown"].includes(key)) go(state.index + 1);
+  else if (["ArrowLeft", "PageUp", "ArrowUp"].includes(key)) go(state.index - 1);
+  else if (key === "Home") go(1);
+  else if (key === "End") go(state.count);
+  else if (key === "c") document.body.classList.toggle("show-comments");
+  else if (key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   else return;
   event.preventDefault();
 });
