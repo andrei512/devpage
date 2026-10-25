@@ -8,7 +8,9 @@ use std::time::Duration;
 
 use chromiumoxide::Page;
 use chromiumoxide::browser::Browser;
-use chromiumoxide::cdp::browser_protocol::page::{CaptureScreenshotParams, Viewport};
+use chromiumoxide::cdp::browser_protocol::page::{
+    AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotParams, Viewport,
+};
 use chromiumoxide::layout::Point;
 use futures::StreamExt;
 use tokio::sync::broadcast;
@@ -17,11 +19,12 @@ use crate::document::Document;
 use crate::pdf::Profile;
 use crate::server;
 
-/// The largest difference, per channel, the GPU's and the CPU's anti-aliasing
-/// may leave between the canvas and the PNG — and the share of pixels allowed
-/// to differ at all.
-const CHANNEL_TOLERANCE: u32 = 48;
-const DIFFERING_SHARE: f64 = 0.02;
+/// The edge anti-aliasing the GPU's and the CPU's rasterizers may leave
+/// between the canvas and the PNG: at most this share of pixels may differ by
+/// more than this much in any channel. Measured on the GPU: about 0.01% beyond
+/// 4, none beyond 16; the CPU canvas is identical to the PNG.
+const CHANNEL_TOLERANCE: u32 = 16;
+const DIFFERING_SHARE: f64 = 0.001;
 
 /// A screen of two buttons — Pay navigates, Sheet opens an overlay — a next
 /// screen with a back button, and the overlay with a close button. Every box
@@ -83,15 +86,10 @@ async fn serve(dir: &Path, entry: &str) -> String {
     format!("http://{address}")
 }
 
-/// A headless Chrome, with WebGPU or without it.
-async fn chrome(webgpu: bool) -> (Browser, tokio::task::JoinHandle<()>, Profile) {
+/// A headless Chrome with WebGPU.
+async fn chrome() -> (Browser, tokio::task::JoinHandle<()>, Profile) {
     let profile = Profile::new();
-    let mut config = profile.chrome().window_size(1280, 1000);
-    config = if webgpu {
-        config.arg("--enable-unsafe-webgpu")
-    } else {
-        config.arg("--disable-gpu")
-    };
+    let config = profile.chrome().arg("--enable-unsafe-webgpu");
     let (browser, mut handler) = Browser::launch(config.build().unwrap()).await.unwrap();
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
     (browser, events, profile)
@@ -152,6 +150,38 @@ async fn screenshot(page: &Page) -> Vec<u8> {
     bytes
 }
 
+/// The color on the screen at `at`, as `[r, g, b]`.
+async fn pixel(page: &Page, at: Point) -> [u8; 3] {
+    let bytes = page
+        .screenshot(
+            CaptureScreenshotParams::builder()
+                .clip(Viewport {
+                    x: at.x.floor(),
+                    y: at.y.floor(),
+                    width: 1.0,
+                    height: 1.0,
+                    scale: 1.0,
+                })
+                .build(),
+        )
+        .await
+        .unwrap();
+    let bytes = serde_json::to_string(&bytes).unwrap();
+    eval(
+        page,
+        &format!(
+            "(async () => {{
+              const bitmap = await createImageBitmap(new Blob([new Uint8Array({bytes})], {{ type: 'image/png' }}));
+              const c = new OffscreenCanvas(1, 1);
+              const ctx = c.getContext('2d');
+              ctx.drawImage(bitmap, 0, 0);
+              return [...ctx.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+            }})()"
+        ),
+    )
+    .await
+}
+
 /// How far the screenshot is from the server's PNG: the largest channel
 /// difference, and the share of pixels differing beyond the tolerance.
 async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
@@ -188,11 +218,17 @@ async fn difference(page: &Page, shot: &[u8], png: &str) -> (u32, f64) {
 async fn canvas_matches_the_png(webgpu: bool) {
     let dir = folder(if webgpu { "gpu" } else { "cpu" });
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome(webgpu).await;
-    let page = browser
-        .new_page(format!("{address}/screen.design").as_str())
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    if !webgpu {
+        // A browser without WebGPU, from the page's first script on.
+        page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+            "delete Navigator.prototype.gpu;",
+        ))
         .await
         .unwrap();
+    }
+    page.goto(format!("{address}/screen.design")).await.unwrap();
     until(
         &page,
         "document.querySelector('canvas.design')?.dataset.painted === 'true'",
@@ -234,7 +270,7 @@ async fn the_canvas_on_the_cpu_matches_the_png() {
 async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
     let dir = folder("click");
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome(true).await;
+    let (mut browser, events, _profile) = chrome().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -291,7 +327,7 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome(true).await;
+    let (mut browser, events, _profile) = chrome().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -316,14 +352,20 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
     assert!((width - article).abs() < 1.0, "{width} vs {article}");
     assert!((height - width * 0.75).abs() < 1.0, "{height} for {width}");
 
-    // Clicking Pay navigates inside the embed, not the page.
+    // Clicking Pay navigates inside the embed, not the page: the next
+    // design's yellow replaces the screen's grey.
     page.evaluate("document.querySelector('canvas.design').marked = true")
         .await
         .unwrap();
+    // Beside the Pay button: the design's own background.
+    let corner = on_screen(&page, "canvas.design", 300.0, 40.0).await;
+    let grey = pixel(&page, corner).await;
+    assert_eq!(grey, [0xf8, 0xfa, 0xfc]);
     let pay = on_screen(&page, "canvas.design", 120.0, 40.0).await;
     page.click(pay).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(eval::<String>(&page, "location.pathname").await, "/page.md");
+    assert_eq!(pixel(&page, corner).await, [0xfe, 0xf3, 0xc7]);
 
     // A page edit swaps the text and keeps the very same canvas.
     std::fs::write(
@@ -371,4 +413,63 @@ async fn a_doc_prints_its_embedded_design() {
     };
     assert!(images(&with) > 0, "no image in the printed doc");
     assert_eq!(images(&without), 0);
+}
+
+#[tokio::test]
+#[ignore]
+async fn the_wheel_zooms_about_the_pointer_and_pans() {
+    let dir = folder("zoom");
+    let address = serve(&dir, "screen.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/screen.design").as_str())
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let view = || async {
+        eval::<String>(
+            &page,
+            "document.querySelector('canvas.design').dataset.view",
+        )
+        .await
+    };
+    // Fit to the window: 400 × 300 at 100%, centered.
+    let fitted = view().await;
+    let [zoom, x, y]: [f64; 3] = serde_json::from_str(&format!("[{fitted}]")).unwrap();
+    assert_eq!(zoom, 1.0);
+    assert!(x > 0.0 && y > 0.0, "{fitted}");
+
+    // ⌘ and the wheel zooms in, keeping the design point under the pointer.
+    let pointer = on_screen(&page, "canvas.design", 100.0, 100.0).await;
+    page.evaluate(format!(
+        "document.querySelector('canvas.design').dispatchEvent(new WheelEvent('wheel', \
+         {{ deltaY: -100, metaKey: true, clientX: {}, clientY: {}, bubbles: true, cancelable: true }}))",
+        pointer.x, pointer.y
+    ))
+    .await
+    .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design').dataset.view.split(',')[0] > 2",
+    )
+    .await;
+    let after = on_screen(&page, "canvas.design", 100.0, 100.0).await;
+    assert!((after.x - pointer.x).abs() < 0.5 && (after.y - pointer.y).abs() < 0.5);
+
+    // The wheel alone pans.
+    page.evaluate(
+        "document.querySelector('canvas.design').dispatchEvent(new WheelEvent('wheel', \
+         { deltaX: 40, deltaY: 0, bubbles: true, cancelable: true }))",
+    )
+    .await
+    .unwrap();
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let panned = on_screen(&page, "canvas.design", 100.0, 100.0).await;
+    assert!((panned.x - (after.x - 40.0)).abs() < 0.5);
+    browser.close().await.ok();
+    events.abort();
 }

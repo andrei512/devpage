@@ -191,7 +191,8 @@ linked to. Each state of a prototype is a design of its own.
 
 A design is a [document](../writing-a-document/README.md#four-kinds): its
 address shows it on a canvas, fit to the window, and a reader can zoom with
-the pinch gesture or **Ctrl**/**⌘** and the wheel and pan by dragging. A page
+the pinch gesture or **Ctrl**/**⌘** and the wheel, and pan by dragging or
+scrolling. A page
 **embeds** one with the image syntax — `![Checkout](checkout.design)` — drawn at
 the page's width and clickable like the design's own address. Embedded designs
 follow the page's live updates and print in a PDF as they show.

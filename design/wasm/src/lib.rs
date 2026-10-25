@@ -143,7 +143,7 @@ impl Design {
         let scene = self.scene.as_ref()?;
         let pixmap = self.engine.paint(scene, scale);
         let mut rgba = pixmap.data_as_u8_slice().to_vec();
-        for px in rgba.chunks_exact_mut(4) {
+        for px in rgba.as_chunks_mut::<4>().0 {
             let a = px[3] as u32;
             if a != 0 && a != 255 {
                 for c in &mut px[..3] {

@@ -150,21 +150,33 @@ problems are not sent twice.
 
 ## In the browser
 
-The canvas page loads the WebAssembly module, opens the watch stream with
-`fetch`, reads the gRPC-Web frames off the response body and hands each
-message's bytes to the module, which decodes it and applies it to the scene it
-holds. The module lays out and paints on the GPU into a `<canvas>` sized to the
-screen's device pixels. It lays out again only when the scene changes, and
-paints only when the scene or the view does — a zoom, a pan, a resize.
+The canvas page loads the WebAssembly module (`assets/design.js` does the
+page's part), opens the watch stream with `fetch`, reads the gRPC-Web frames
+off the response body and hands each message's bytes to the module, which
+decodes it and applies it to the scene that canvas holds — the module keeps
+one per canvas. The module lays out and paints on the GPU into a `<canvas>`
+sized to the screen's device pixels; one WebGPU device serves every canvas on
+the page. It lays out again only when the scene changes, and paints only when
+the scene or the view does — a zoom, a pan, a resize — at most once per
+animation frame.
+
+Without WebGPU the module paints with `vello_cpu` once per zoom level, and a
+pan only moves that painting on the canvas. Print mode always paints on the
+CPU, into a 2D canvas, which Chrome prints reliably.
 
 Clicks are hit-tested by the module against the laid-out scene, and an
 interaction runs in the page: a navigation pushes the new address onto the
 browser's history and opens a stream for that design, an overlay opens a
-second stream and paints its scene over a dimmed copy of the first.
+second stream and paints its scene on a canvas of its own, centered over the
+first behind a dimmed backdrop.
 
 A page that embeds designs does the same for each `<canvas>` it holds, one
 stream per embedded design, closed while the tab is hidden like the
-[event stream](../live-updates/README.md#why-one-stream-per-tab).
+[event stream](../live-updates/README.md#why-one-stream-per-tab). The page
+script loads the design script only on a page that has a design. An embedded
+design navigates inside its own canvas, with a back stack of its own, so the
+page around it stays where it is; and when the page fetches itself again, each
+embedded canvas still in it is kept, drawing and stream and all.
 
 ## Failure modes
 
