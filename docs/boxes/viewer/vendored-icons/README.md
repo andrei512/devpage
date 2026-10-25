@@ -21,8 +21,8 @@ reads it once, on first use. An icon is drawn on the server, as inline SVG in
 the page — `<svg class="icon">`, in the text color (`currentColor`) — so a
 page carries only the icons it shows and they follow the theme. A name the set
 doesn't have is a problem ([Checking links](../checking-links/README.md)).
-devpage draws icons in a site's navbar and in the theme selector (`monitor`,
-`sun`, `moon`, and `menu` and `chevron-down` for the navbar's own controls).
+devpage draws icons in a site's navbar and in the theme selector (`moon` and
+`sun`, and `menu` and `chevron-down` for the navbar's own controls).
 
 ## Upgrading them
 

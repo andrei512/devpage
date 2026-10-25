@@ -253,35 +253,55 @@ pub fn render(document: &Document, current: &str) -> String {
         }
     }
     format!(
-        "<header id=\"navbar\"><div class=\"navbar-inner\"><a class=\"navbar-title{root}\" href=\"{home}\">{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
+        "<header id=\"navbar\"><div class=\"navbar-inner\"><a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
         root = if current == document.entry() {
             " current"
         } else {
             ""
         },
         home = escape(&document.entry()),
+        logo = logo(document),
         title = escape(&document.title),
         selector = selector(document),
         menu = icons::svg("menu").unwrap_or_default(),
     )
 }
 
-/// The Auto / Light / Dark selector, when the document shows one.
+/// The document's logo, to sit before its title; nothing when it has none.
+/// It is decoration beside the title it repeats, so it has no alt text.
+pub fn logo(document: &Document) -> String {
+    match document.logo_url() {
+        Some(url) => format!("<img class=\"logo\" src=\"{}\" alt=\"\">", escape(&url)),
+        None => String::new(),
+    }
+}
+
+/// A logo that names no image in the served folder. It belongs to the
+/// document file, like a broken navbar link.
+pub fn logo_problem(document: &Document) -> Option<Problem> {
+    let written = document.logo.as_ref()?;
+    if document.logo_url().is_some() {
+        return None;
+    }
+    Some(Problem {
+        file: document.url(&document.path())[1..].to_string(),
+        line: None,
+        message: format!("logo: {written} — no such file"),
+        target: Some(written.clone()),
+    })
+}
+
+/// The theme selector, when the document shows one: one button that switches
+/// between light and dark. It carries both icons; the stylesheet shows the one
+/// for the theme a click switches to — the moon in light, the sun in dark.
 pub fn selector(document: &Document) -> String {
     if !document.theme_selector {
         return String::new();
     }
-    let button = |choice: &str, label: &str, name: &str| {
-        format!(
-            "<button type=\"button\" role=\"radio\" aria-checked=\"false\" data-theme-choice=\"{choice}\" title=\"{label}\" aria-label=\"{label}\">{}</button>",
-            icons::svg(name).unwrap_or_default()
-        )
-    };
     format!(
-        "<div class=\"theme-selector\" role=\"radiogroup\" aria-label=\"Theme\">{}{}{}</div>",
-        button("auto", "Auto", "monitor"),
-        button("light", "Light", "sun"),
-        button("dark", "Dark", "moon")
+        "<button type=\"button\" class=\"theme-toggle\" title=\"Switch theme\" aria-label=\"Switch theme\"><span class=\"to-dark\">{}</span><span class=\"to-light\">{}</span></button>",
+        icons::svg("moon").unwrap_or_default(),
+        icons::svg("sun").unwrap_or_default()
     )
 }
 
@@ -293,17 +313,22 @@ pub fn corner(document: &Document) -> String {
     format!("<div id=\"theme-corner\">{}</div>", selector(document))
 }
 
-/// Sets the theme before the page paints, so it never flashes the wrong one:
-/// the reader's choice if the page offers one and they made it, else the
-/// system's setting.
+/// What every page of a document puts in its head: the logo as the browser
+/// tab's icon, and a script that sets the theme before the page paints, so it
+/// never flashes the wrong one — the theme the reader switched to, if the page
+/// offers the switch and they used it, else the system's setting.
 pub fn head(document: &Document) -> String {
     let stored = if document.theme_selector {
         r#"try{c=localStorage.getItem("devpage-theme")}catch(e){}"#
     } else {
         ""
     };
+    let icon = match document.logo_url() {
+        Some(url) => format!("<link rel=\"icon\" href=\"{}\">\n", escape(&url)),
+        None => String::new(),
+    };
     format!(
-        r#"<script>(function(){{var c;{stored}var d=document.documentElement;d.dataset.themeChoice=c==="light"||c==="dark"?c:"auto";d.dataset.theme=d.dataset.themeChoice==="auto"?(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light"):d.dataset.themeChoice}})()</script>"#
+        r#"{icon}<script>(function(){{var c;{stored}var d=document.documentElement;d.dataset.theme=c==="light"||c==="dark"?c:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})()</script>"#
     )
 }
 
@@ -359,8 +384,8 @@ mod tests {
         assert!(html.contains("href=\"/talk.yml\""), "{html}");
         assert!(html.contains("aria-haspopup=\"true\""), "{html}");
         assert!(html.contains("class=\"navbar-link icon-only\" href=\"https://github.com/someone/garden\" title=\"github.com\""), "{html}");
-        // house, layout-grid, chevron, presentation, github, menu, and the selector's three.
-        assert_eq!(html.matches("<svg class=\"icon\"").count(), 9, "{html}");
+        // house, layout-grid, chevron, presentation, github, menu, and the switch's moon and sun.
+        assert_eq!(html.matches("<svg class=\"icon\"").count(), 8, "{html}");
     }
 
     #[test]
@@ -412,7 +437,7 @@ mod tests {
         let dir = folder("off");
         let plain = site(&dir, "kind: site\ntitle: T\nroot: README.md\n");
         assert_eq!(render(&plain, "/README.md"), "");
-        assert!(corner(&plain).contains("data-theme-choice=\"dark\""));
+        assert!(corner(&plain).contains("class=\"theme-toggle\""));
         assert!(head(&plain).contains("localStorage"));
         let off = site(
             &dir,
@@ -423,5 +448,52 @@ mod tests {
             !head(&off).contains("localStorage"),
             "the system decides when there is no selector"
         );
+    }
+
+    #[test]
+    fn a_logo_sits_before_the_title_and_is_the_tab_icon() {
+        let dir = folder("logo");
+        std::fs::write(
+            dir.join("logo.svg"),
+            "<svg xmlns=\"http://www.w3.org/2000/svg\"/>",
+        )
+        .unwrap();
+        let with = site(&dir, &format!("{NAVBAR}logo: logo.svg\n"));
+        let bar = render(&with, "/README.md");
+        let img = bar
+            .find("<img class=\"logo\" src=\"/logo.svg\" alt=\"\">")
+            .expect(&bar);
+        assert!(
+            img < bar.find("Garden").unwrap(),
+            "the logo comes first: {bar}"
+        );
+        assert!(head(&with).contains("<link rel=\"icon\" href=\"/logo.svg\">"));
+        assert_eq!(logo_problem(&with), None);
+        // A doc and a deck take one too, for their tab.
+        std::fs::write(
+            dir.join("deck.yml"),
+            "kind: slides\ntitle: D\nslides: [guide/deep.md]\nlogo: logo.svg\n",
+        )
+        .unwrap();
+        let deck = Document::load(&dir.join("deck.yml"), &dir).unwrap();
+        assert!(head(&deck).contains("rel=\"icon\" href=\"/logo.svg\""));
+        // None, no image and no icon.
+        let without = site(&dir, NAVBAR);
+        assert!(!render(&without, "/README.md").contains("<img"));
+        assert!(!head(&without).contains("rel=\"icon\""));
+    }
+
+    #[test]
+    fn a_missing_logo_is_a_problem_and_the_page_shows_without_it() {
+        let dir = folder("logo-missing");
+        let document = site(&dir, &format!("{NAVBAR}logo: gone.svg\n"));
+        let problem = logo_problem(&document).expect("a problem");
+        assert_eq!(problem.message, "logo: gone.svg — no such file");
+        assert_eq!(problem.file, "devpage.yml");
+        assert!(!render(&document, "/README.md").contains("<img"));
+        assert!(!head(&document).contains("rel=\"icon\""));
+        // Outside the served folder is no logo either.
+        let outside = site(&dir, &format!("{NAVBAR}logo: ../../etc/hosts\n"));
+        assert!(logo_problem(&outside).is_some());
     }
 }

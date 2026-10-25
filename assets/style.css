@@ -347,6 +347,11 @@ body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
 .navbar-inner { height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 24px; }
 .navbar-title { font-size: 17px; font-weight: 650; letter-spacing: -0.015em; color: var(--text); white-space: nowrap; }
 .navbar-title:hover { text-decoration: none; opacity: 0.8; }
+/* A document's logo, before its title: sized to the title's line and centred on it. */
+.navbar-title { display: inline-flex; align-items: center; gap: 9px; }
+#nav .document-title { display: flex; align-items: center; gap: 9px; }
+.navbar-title .logo { width: 22px; height: 22px; flex: none; }
+#nav .document-title .logo { width: 20px; height: 20px; flex: none; }
 .navbar-links { margin-left: auto; display: flex; align-items: center; gap: 2px; }
 .navbar-link, .navbar-entry {
   display: inline-flex; align-items: center; gap: 6px;
@@ -395,21 +400,20 @@ body.with-navbar #nav { top: 52px; height: calc(100vh - 52px); }
   .navbar-menu > .navbar-link .icon:last-child:not(:first-child) { display: none; }
 }
 
-/* The theme selector: Auto, Light, Dark. In the navbar when a site has one,
-   else in the top-right corner. Never printed; a deck hides it in fullscreen. */
+/* The theme selector: one quiet icon button, the size of the navbar's icons,
+   showing the theme a click switches to — a moon in light, a sun in dark. In
+   the navbar when a site has one, else in the top-right corner. Never printed;
+   a deck hides it in fullscreen. */
 
-.theme-selector { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
-.theme-selector button {
+.theme-toggle {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 999px;
+  width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
   background: none; color: var(--muted); cursor: pointer; transition: color 0.15s, background 0.15s;
 }
-.theme-selector button .icon { width: 14px; height: 14px; }
-.theme-selector button:hover { color: var(--text); }
-.theme-selector button[aria-checked="true"] {
-  background: var(--background); color: var(--text);
-  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 25%, transparent);
-}
+.theme-toggle:hover { color: var(--text); background: var(--surface); }
+.theme-toggle span { display: inline-flex; }
+.theme-toggle .to-light, :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
+:root[data-theme="dark"] .theme-toggle .to-light { display: inline-flex; }
 #theme-corner { position: fixed; top: 14px; right: 16px; z-index: 15; }
 :root:fullscreen #theme-corner, .print #theme-corner { display: none; }
 @media print { #navbar, #theme-corner { display: none !important; } body.with-navbar #nav { top: 0; } }

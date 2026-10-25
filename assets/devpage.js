@@ -168,7 +168,7 @@ async function load(url) {
     if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
   }
   document.getElementById("navbar")?.classList.remove("open");
-  applyTheme(document.documentElement.dataset.themeChoice || "auto");
+  applyTheme();
   document.title = next.title;
   // The fresh page names its widgets' current versions.
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
@@ -650,35 +650,45 @@ mountWidgets(document).catch((error) => console.error(error)).finally(() => {
 if (!print && !document.hidden) connect();
 
 // ---- Theme ----------------------------------------------------------------
-// The selector's choice — Auto, Light or Dark — is remembered by the browser;
-// Auto follows the system setting, live. The page's head set the theme before
-// it painted; this keeps it current and the selector showing it.
+// One button switches between light and dark, and the browser remembers the
+// theme switched to. Until the reader switches, the page follows the system
+// setting, live. The page's head set the theme before it painted; this keeps
+// it current.
 
 const themeQuery = matchMedia("(prefers-color-scheme: dark)");
 
-function applyTheme(choice) {
-  const root = document.documentElement;
-  root.dataset.themeChoice = choice;
-  root.dataset.theme = choice === "auto" ? (themeQuery.matches ? "dark" : "light") : choice;
-  for (const button of document.querySelectorAll("button[data-theme-choice]")) {
-    button.setAttribute("aria-checked", String(button.dataset.themeChoice === choice));
+function savedTheme() {
+  if (!document.querySelector(".theme-toggle")) return null;
+  try {
+    const saved = localStorage.getItem("devpage-theme");
+    return saved === "light" || saved === "dark" ? saved : null;
+  } catch {
+    return null;
   }
 }
 
-applyTheme(document.documentElement.dataset.themeChoice || "auto");
-themeQuery.addEventListener("change", () => applyTheme(document.documentElement.dataset.themeChoice || "auto"));
+function applyTheme(theme = savedTheme()) {
+  const root = document.documentElement;
+  root.dataset.theme = theme || (themeQuery.matches ? "dark" : "light");
+  const label = root.dataset.theme === "dark" ? "Switch to light" : "Switch to dark";
+  for (const button of document.querySelectorAll(".theme-toggle")) {
+    button.title = label;
+    button.setAttribute("aria-label", label);
+  }
+}
+
+applyTheme();
+themeQuery.addEventListener("change", () => applyTheme());
 
 document.addEventListener("click", (event) => {
-  const button = event.target.closest?.("button[data-theme-choice]");
-  if (!button) return;
-  const choice = button.dataset.themeChoice;
+  if (!event.target.closest?.(".theme-toggle")) return;
+  const theme = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   try {
-    if (choice === "auto") localStorage.removeItem("devpage-theme");
-    else localStorage.setItem("devpage-theme", choice);
+    localStorage.setItem("devpage-theme", theme);
   } catch {
-    // Storage may be blocked; the choice still holds for this page.
+    // Storage may be blocked; the switch still holds for this page.
   }
-  applyTheme(choice);
+  applyTheme(theme);
 });
 
 // ---- Navbar ---------------------------------------------------------------

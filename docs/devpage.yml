@@ -3,6 +3,7 @@ kind: site
 title: devpage
 root: README.md
 widgets: widgets
+logo: logo.svg
 navbar:
   Docs (book-open): README.md
   Getting started (rocket): getting-started.md

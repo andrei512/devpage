@@ -97,9 +97,10 @@ redraws on the open page.
 
 ## The themes
 
-The viewer has a light and a dark theme. Which one shows is the reader's
-choice in the [theme selector](#choosing-a-theme), or — on Auto, and on a page
-without a selector — the system setting (`prefers-color-scheme`). The chosen
+The viewer has a light and a dark theme. Which one shows is the one the
+reader switched to with the [theme selector](#choosing-a-theme), or — until
+they switch, and on a page without a selector — the system setting
+(`prefers-color-scheme`). The chosen
 theme is set on the page as `data-theme="light"` or `data-theme="dark"` on
 `<html>`, before it paints, and every dark value hangs off that. The page's
 colors come from seven tokens, defined in `assets/style.css`:
@@ -144,14 +145,16 @@ marks; and the black behind a deck's stage.
 
 ## Choosing a theme
 
-Every page — a site's, a doc, a deck — has a selector in its top-right corner:
-**Auto**, which follows the reader's system setting, **Light** or **Dark**. The
-browser remembers the choice for the address it was made on, and it switches
-everything drawn from the tokens at once: the page, highlighted code,
-diagrams and widgets. On a site with a navbar the selector sits at the right
-end of the bar. It is never printed, and a deck hides it in fullscreen. A
-document file turns it off with `theme-selector: false`; the page then follows
-the system setting, as before the selector existed.
+Every page — a site's, a doc, a deck — has a theme selector in its top-right
+corner: one small icon button that switches between light and dark. It shows
+the theme a click switches to — a moon in light, a sun in dark. Until the reader
+clicks it, the page follows their system setting; after, the browser remembers
+the theme they switched to, for the address it was made on. A switch changes
+everything drawn from the tokens at once: the page, highlighted code, diagrams
+and widgets. On a site with a navbar the button sits at the right end of the
+bar. It is never printed, and a deck hides it in fullscreen. A document file
+turns it off with `theme-selector: false`; the page then follows the system
+setting, as before the selector existed.
 
 ## Changing the look
 
