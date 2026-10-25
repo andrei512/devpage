@@ -188,8 +188,9 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         read: Vec::new(),
         stack: Vec::new(),
         missing: Vec::new(),
+        depth: 0,
     };
-    let root = r.design(path, &[], None, "");
+    let root = r.design(path, &[], None, "", None);
     if r.problems.is_empty() {
         Ok(Scene {
             root: root.expect("no problems means a root"),
@@ -208,7 +209,13 @@ struct Resolver<'a> {
     /// Imports already reported as `no such file`, so a use of one isn't
     /// reported a second time.
     missing: Vec<String>,
+    /// How many elements enclose the current one, across instances.
+    depth: usize,
 }
+
+/// How deep a resolved design's tree may nest, counting through instances:
+/// the parser's own limit for one file, and so far beyond any real design.
+const MAX_DEPTH: usize = parse::MAX_DEPTH;
 
 type Props = HashMap<String, Value>;
 
@@ -228,6 +235,7 @@ impl Resolver<'_> {
         args: &[parse::Attr],
         from: Option<(&str, Pos)>,
         used_as: &str,
+        parent: Option<Layout>,
     ) -> Option<Node> {
         if self.stack.iter().any(|p| p == path) {
             let (file, pos) = from.unwrap_or((path, Pos { line: 1, col: 1 }));
@@ -320,12 +328,13 @@ impl Resolver<'_> {
         }
         let _ = caller_pos;
         self.stack.push(path.to_string());
-        let mut root = self.element(path, &file.root, &props, &imports);
+        let mut root = self.element(path, &file.root, &props, &imports, true, parent);
         self.stack.pop();
         if let Some(root) = root.as_mut() {
             for attr in &overrides {
                 // The caller's own props are already substituted into these.
                 self.common(&caller, root, attr, attr.value.clone());
+                self.fill_needs_layout(&caller, attr, &attr.value, parent);
             }
         }
         root
@@ -337,6 +346,27 @@ impl Resolver<'_> {
         el: &Element,
         props: &Props,
         imports: &HashMap<String, String>,
+        root: bool,
+        parent: Option<Layout>,
+    ) -> Option<Node> {
+        if self.depth >= MAX_DEPTH {
+            self.problem(path, el.pos, format!("nested more than {MAX_DEPTH} deep"));
+            return None;
+        }
+        self.depth += 1;
+        let node = self.element_inner(path, el, props, imports, root, parent);
+        self.depth -= 1;
+        node
+    }
+
+    fn element_inner(
+        &mut self,
+        path: &str,
+        el: &Element,
+        props: &Props,
+        imports: &HashMap<String, String>,
+        root: bool,
+        parent: Option<Layout>,
     ) -> Option<Node> {
         if let Some(target) = imports.get(&el.name) {
             if !el.children.is_empty() {
@@ -352,7 +382,7 @@ impl Resolver<'_> {
                 })
                 .collect();
             let target = target.clone();
-            return self.design(&target, &args, Some((path, el.pos)), &el.name);
+            return self.design(&target, &args, Some((path, el.pos)), &el.name, parent);
         }
         let kind = match el.name.as_str() {
             "Frame" => Kind::Frame,
@@ -369,6 +399,13 @@ impl Resolver<'_> {
         let mut node = Node::new(kind, &el.name);
         for attr in &el.attrs {
             if attr.name == "props" {
+                if !root {
+                    self.problem(
+                        path,
+                        attr.pos,
+                        "props: only a design's root declares props".into(),
+                    );
+                }
                 continue;
             }
             let value = match &attr.value {
@@ -381,6 +418,7 @@ impl Resolver<'_> {
                 },
                 v => v.clone(),
             };
+            self.fill_needs_layout(path, attr, &value, parent);
             self.attribute(path, &mut node, attr, value);
         }
         match kind {
@@ -424,7 +462,9 @@ impl Resolver<'_> {
                     Child::Element(e) => {
                         if kind != Kind::Frame {
                             self.problem(path, e.pos, format!("{} takes no children", el.name));
-                        } else if let Some(n) = self.element(path, e, props, imports) {
+                        } else if let Some(n) =
+                            self.element(path, e, props, imports, false, Some(node.layout))
+                        {
                             node.children.push(n);
                         }
                     }
@@ -437,6 +477,30 @@ impl Resolver<'_> {
             }
         }
         Some(node)
+    }
+
+    /// `"fill"` takes the free space of a parent's auto layout, so a child of a
+    /// frame with no layout can't have it.
+    fn fill_needs_layout(
+        &mut self,
+        path: &str,
+        attr: &parse::Attr,
+        value: &Value,
+        parent: Option<Layout>,
+    ) {
+        if parent == Some(Layout::None)
+            && matches!(attr.name.as_str(), "width" | "height")
+            && matches!(value, Value::Str(s) if s == "fill")
+        {
+            self.problem(
+                path,
+                attr.pos,
+                format!(
+                    "{}: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+                    attr.name
+                ),
+            );
+        }
     }
 
     // Each arm sets a field and says whether the value fit: `Ok(field = v)`.
@@ -749,6 +813,9 @@ fn color(v: &Value) -> Result<Color, String> {
         return Err(format!("expected a color, found {}", show(v)));
     };
     let hex = s.strip_prefix('#').ok_or("expected a color like #rrggbb")?;
+    if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(format!("{s} is not a color"));
+    }
     let d = |i: usize, n: usize| {
         u8::from_str_radix(&hex[i..i + n], 16).map_err(|_| format!("{s} is not a color"))
     };
@@ -905,6 +972,95 @@ mod tests {
                 "screen.design:3:9: opacity: expected a number from 0 to 1, found 50",
                 "screen.design:4:8: opacity: expected a number from 0 to 1, found -0.1",
             ]
+        );
+    }
+
+    fn problems_in(fs: &HashMap<String, String>, path: &str) -> Vec<String> {
+        resolve(fs, path)
+            .unwrap_err()
+            .iter()
+            .map(|p| p.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_color_with_any_character_but_hex_digits_is_a_problem() {
+        // A pasted zero-width space, other non-ASCII, and plain non-hex.
+        for (value, col) in [
+            ("#fff\u{200b}", 13),
+            ("#ffé", 13),
+            ("#ff€f00", 13),
+            ("#ggg", 13),
+        ] {
+            let fs = files(&[("a.design", &format!(r#"<Frame fill="{value}" />"#))]);
+            assert_eq!(
+                problems_in(&fs, "a.design"),
+                vec![format!("a.design:1:8: fill: {value} is not a color")],
+                "{value:?} at {col}"
+            );
+        }
+    }
+
+    #[test]
+    fn props_belong_to_the_root_only() {
+        let fs = files(&[(
+            "a.design",
+            r#"<Frame props={{ a: "x" }}>
+  <Frame props={{ b: "y" }} />
+</Frame>"#,
+        )]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec!["a.design:2:10: props: only a design's root declares props"]
+        );
+    }
+
+    #[test]
+    fn fill_needs_a_parent_with_auto_layout() {
+        let fs = files(&[
+            ("dot.design", r#"<Frame width="fill" />"#),
+            (
+                "a.design",
+                r#"import Dot from "./dot.design"
+<Frame width={100} height={100}>
+  <Rect width="fill" height={10} />
+  <Dot />
+  <Dot height="fill" />
+  <Frame layout="row"><Rect width="fill" /></Frame>
+</Frame>"#,
+            ),
+        ]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec![
+                "a.design:3:9: width: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+                "dot.design:1:8: width: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+                "dot.design:1:8: width: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+                "a.design:5:8: height: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tree_nests_at_most_so_deep_through_instances() {
+        // Each file nests a little; through instances the tree goes too deep.
+        let mut list = Vec::new();
+        let depth = 40;
+        for i in 0..depth {
+            let body = if i + 1 < depth {
+                let inner = "<Frame>".repeat(10) + "<N />" + &"</Frame>".repeat(10);
+                format!("import N from \"./{}.design\"\n{inner}", i + 1)
+            } else {
+                "<Frame />".to_string()
+            };
+            list.push((format!("{i}.design"), body));
+        }
+        let fs: HashMap<String, String> = list.into_iter().collect();
+        let found = problems_in(&fs, "0.design");
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(
+            found[0].ends_with(&format!("nested more than {MAX_DEPTH} deep")),
+            "{found:?}"
         );
     }
 

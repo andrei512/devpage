@@ -22,6 +22,15 @@ use crate::resolve::{
     self, Align, Color, Fill, Kind, Layout, Node, Scene, Size as DSize, TextAlign,
 };
 
+/// Inter's ascender and descender, as fractions of the font size: how far a
+/// line's glyphs can reach above and below its baseline.
+const INTER_ASCENT: f64 = 0.969;
+const INTER_DESCENT: f64 = 0.242;
+
+/// The largest drawing a design may have, in pixels a side at 1×: far beyond
+/// any screen, and a PNG of it still fits in memory.
+pub const MAX_SIDE: f32 = 16384.0;
+
 const FONTS: [&[u8]; 4] = [
     include_bytes!("../fonts/Inter-Regular.ttf"),
     include_bytes!("../fonts/Inter-Medium.ttf"),
@@ -135,7 +144,53 @@ impl Renderer {
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
         let mut texts = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut texts, self);
+        let mut hugs = Vec::new();
+        let root = build(&mut tree, &scene.root, None, &mut texts, &mut hugs, self);
+        // A frame with no layout places its children absolutely, so flexbox
+        // gives a hugging one no size; it takes its children's extent
+        // instead. `hugs` is in post-order, so a pass settles every frame
+        // whose children are settled, and each pass settles at least one
+        // more level — so `hugs.len()` passes after the first always suffice.
+        for _ in 0..=hugs.len() {
+            self.compute(&mut tree, root, &texts);
+            let mut changed = false;
+            for &(id, w, h) in &hugs {
+                let (mut ew, mut eh) = (0.0f32, 0.0f32);
+                for child in tree.children(id).expect("children") {
+                    let l = tree.layout(child).expect("laid out");
+                    ew = ew.max(l.location.x + l.size.width);
+                    eh = eh.max(l.location.y + l.size.height);
+                }
+                let mut style = tree.style(id).expect("style").clone();
+                let mut set = |d: &mut Dimension, v: f32| {
+                    if *d != Dimension::length(v) {
+                        *d = Dimension::length(v);
+                        changed = true;
+                    }
+                };
+                if w {
+                    set(&mut style.size.width, ew);
+                }
+                if h {
+                    set(&mut style.size.height, eh);
+                }
+                tree.set_style(id, style).expect("style");
+            }
+            if !changed {
+                break;
+            }
+        }
+        let mut frames = Vec::new();
+        collect(&tree, root, 0.0, 0.0, &mut frames);
+        frames
+    }
+
+    fn compute(
+        &mut self,
+        tree: &mut TaffyTree<Option<Leaf>>,
+        root: NodeId,
+        texts: &[(resolve::TextStyle, bool)],
+    ) {
         tree.compute_layout_with_measure(root, Size::MAX_CONTENT, |input, _id, ctx, style| {
             let known = input.known_dimensions;
             let fixed = |d: Dimension| (!d.is_auto()).then(|| d.value());
@@ -182,76 +237,71 @@ impl Renderer {
             taffy::LayoutOutput::from_outer_size(size)
         })
         .expect("layout");
-        let mut frames = Vec::new();
-        collect(&tree, root, 0.0, 0.0, &mut frames);
-        frames
     }
 
-    /// The scene as drawing commands: laid out once, shaped once.
+    /// The scene as drawing commands — laid out once, shaped once — and the
+    /// area they cover: the design's **drawing**, its root's box plus
+    /// anything painted outside it, in whole pixels. The list is clipped to
+    /// that area, so every backend shows exactly it.
     pub fn display_list(&mut self, scene: &Scene) -> (Frame, Vec<Draw>) {
         let frames = self.layout(scene);
+        let root = frames[0];
+        let mut area = KRect::new(
+            root.x as f64,
+            root.y as f64,
+            (root.x + root.width) as f64,
+            (root.y + root.height) as f64,
+        );
         let mut list = Vec::new();
         let mut at = 0;
-        self.node(&scene.root, &frames, &mut at, &mut list);
-        (frames[0], list)
+        self.node(&scene.root, &frames, &mut at, &mut list, None, &mut area);
+        // Out to whole pixels, ignoring the slivers floating point leaves on
+        // a curve's bounds.
+        const SLIVER: f64 = 0.01;
+        let area = KRect::new(
+            (area.x0 + SLIVER).floor(),
+            (area.y0 + SLIVER).floor(),
+            (area.x1 - SLIVER).ceil(),
+            (area.y1 - SLIVER).ceil(),
+        );
+        list.insert(0, Draw::PushClip(area.to_path(0.1)));
+        list.push(Draw::Pop);
+        let area = Frame {
+            x: area.x0 as f32,
+            y: area.y0 as f32,
+            width: area.width() as f32,
+            height: area.height() as f32,
+        };
+        (area, list)
     }
 
-    /// Paints the scene with `vello_cpu` at `scale` device pixels per scene pixel.
+    /// Paints the scene's drawing with `vello_cpu` at `scale` device pixels
+    /// per scene pixel, its top-left at the drawing's. A drawing bigger than
+    /// `MAX_SIDE` a side is painted only that far.
     pub fn paint(&mut self, scene: &Scene, scale: f32) -> Pixmap {
-        let (root, list) = self.display_list(scene);
-        let w = ((root.width * scale).ceil() as u16).max(1);
-        let h = ((root.height * scale).ceil() as u16).max(1);
-        let mut ctx = RenderContext::new(w, h);
-        let mut resources = Resources::default();
-        ctx.set_transform(Affine::scale(scale as f64));
-        for draw in &list {
-            match draw {
-                Draw::Fill(path, paint) => {
-                    match paint {
-                        Paint::Solid(c) => ctx.set_paint(*c),
-                        Paint::Gradient(g) => ctx.set_paint(g.clone()),
-                        Paint::Image(data, place) => {
-                            ctx.set_paint(ImageBrush {
-                                image: vello_cpu::ImageSource::from_peniko_image_data(data),
-                                sampler: Default::default(),
-                            });
-                            ctx.set_paint_transform(*place);
-                        }
-                    }
-                    ctx.fill_path(path);
-                    ctx.reset_paint_transform();
-                }
-                Draw::Stroke(path, width, c) => {
-                    ctx.set_paint(*c);
-                    ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
-                    ctx.stroke_path(path);
-                }
-                Draw::Shadow(rect, radius, std_dev, c) => {
-                    ctx.set_paint(*c);
-                    ctx.fill_blurred_rounded_rect(rect, *radius, *std_dev, false);
-                }
-                Draw::Glyphs(font, size, c, glyphs) => {
-                    ctx.set_paint(*c);
-                    let _ = ctx
-                        .glyph_run(&mut resources, font)
-                        .font_size(*size)
-                        .hint(true)
-                        .fill_glyphs(glyphs.iter().copied());
-                }
-                Draw::PushClip(path) => ctx.push_clip_layer(path),
-                Draw::PushOpacity(o) => ctx.push_opacity_layer(*o),
-                Draw::Pop => ctx.pop_layer(),
-            }
-        }
-        ctx.flush();
-        let mut pixmap = Pixmap::new(w, h);
-        ctx.render(&mut pixmap, &mut resources);
-        pixmap
+        let (area, list) = self.display_list(scene);
+        paint_list(area, &list, scale)
     }
 
-    fn node(&mut self, node: &Node, frames: &[Frame], at: &mut usize, list: &mut Vec<Draw>) {
+    /// Adds `node`'s commands to `list`, and what they cover — inside `clip`
+    /// — to `area`.
+    fn node(
+        &mut self,
+        node: &Node,
+        frames: &[Frame],
+        at: &mut usize,
+        list: &mut Vec<Draw>,
+        clip: Option<KRect>,
+        area: &mut KRect,
+    ) {
         let f = frames[*at];
         *at += 1;
+        let mut cover = |r: KRect| {
+            let r = clip.map_or(r, |c| r.intersect(c));
+            if r.width() > 0.0 && r.height() > 0.0 {
+                *area = area.union(r);
+            }
+        };
         let opacity = node.opacity < 1.0;
         if opacity {
             list.push(Draw::PushOpacity(node.opacity));
@@ -279,6 +329,8 @@ impl Renderer {
             } else {
                 node.radius[0] + s.spread
             };
+            // A blur reaches three standard deviations past its rectangle.
+            cover(r.inflate(1.5 * s.blur as f64, 1.5 * s.blur as f64));
             list.push(Draw::Shadow(
                 r,
                 radius.max(0.0),
@@ -303,6 +355,7 @@ impl Renderer {
                 Fill::Linear { angle, stops } => Paint::Gradient(gradient(rect, *angle, stops)),
             };
             let path = vector.clone().unwrap_or_else(|| shape(0.0));
+            cover(path.bounding_box());
             list.push(Draw::Fill(path, paint));
         }
         if let Some(image) = &node.image
@@ -315,6 +368,7 @@ impl Renderer {
                 f.x as f64 + (f.width as f64 - iw * s) / 2.0,
                 f.y as f64 + (f.height as f64 - ih * s) / 2.0,
             )) * Affine::scale(s);
+            cover(rect);
             list.push(Draw::Fill(shape(0.0), Paint::Image(data, place)));
         }
         if let Some(c) = node.stroke {
@@ -322,11 +376,22 @@ impl Renderer {
                 Some(path) => path.clone(),
                 None => shape(node.stroke_width as f64 / 2.0),
             };
+            let half = node.stroke_width as f64 / 2.0;
+            cover(path.bounding_box().inflate(half, half));
             list.push(Draw::Stroke(path, node.stroke_width, color(c)));
         }
         if let Some(text) = &node.text {
             let layout = self.text_layout(text, Some(f.width + 0.5));
             for line in layout.lines() {
+                let m = line.metrics();
+                let size = text.size as f64;
+                let baseline = f.y as f64 + m.baseline as f64;
+                cover(KRect::new(
+                    f.x as f64 + m.inline_min_coord as f64,
+                    (f.y as f64 + m.block_min_coord as f64).min(baseline - INTER_ASCENT * size),
+                    f.x as f64 + m.inline_max_coord as f64,
+                    (f.y as f64 + m.block_max_coord as f64).max(baseline + INTER_DESCENT * size),
+                ));
                 for item in line.items() {
                     if let PositionedLayoutItem::GlyphRun(run) = item {
                         let glyphs = run
@@ -347,11 +412,14 @@ impl Renderer {
                 }
             }
         }
-        if node.clip {
+        let inner = if node.clip {
             list.push(Draw::PushClip(shape(0.0)));
-        }
+            Some(clip.map_or(rect, |c| rect.intersect(c)))
+        } else {
+            clip
+        };
         for child in &node.children {
-            self.node(child, frames, at, list);
+            self.node(child, frames, at, list, inner, area);
         }
         if node.clip {
             list.push(Draw::Pop);
@@ -360,6 +428,61 @@ impl Renderer {
             list.push(Draw::Pop);
         }
     }
+}
+
+/// Replays a display list with `vello_cpu` into a pixmap of its area at
+/// `scale`, as `Renderer::paint` does.
+pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
+    let side = |v: f32| ((v.min(MAX_SIDE) * scale).ceil().clamp(1.0, u16::MAX as f32)) as u16;
+    let (w, h) = (side(area.width), side(area.height));
+    let mut ctx = RenderContext::new(w, h);
+    let mut resources = Resources::default();
+    ctx.set_transform(
+        Affine::scale(scale as f64) * Affine::translate((-area.x as f64, -area.y as f64)),
+    );
+    for draw in list {
+        match draw {
+            Draw::Fill(path, paint) => {
+                match paint {
+                    Paint::Solid(c) => ctx.set_paint(*c),
+                    Paint::Gradient(g) => ctx.set_paint(g.clone()),
+                    Paint::Image(data, place) => {
+                        ctx.set_paint(ImageBrush {
+                            image: vello_cpu::ImageSource::from_peniko_image_data(data),
+                            sampler: Default::default(),
+                        });
+                        ctx.set_paint_transform(*place);
+                    }
+                }
+                ctx.fill_path(path);
+                ctx.reset_paint_transform();
+            }
+            Draw::Stroke(path, width, c) => {
+                ctx.set_paint(*c);
+                ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
+                ctx.stroke_path(path);
+            }
+            Draw::Shadow(rect, radius, std_dev, c) => {
+                ctx.set_paint(*c);
+                ctx.fill_blurred_rounded_rect(rect, *radius, *std_dev, false);
+            }
+            Draw::Glyphs(font, size, c, glyphs) => {
+                ctx.set_paint(*c);
+                let _ = ctx
+                    .glyph_run(&mut resources, font)
+                    .font_size(*size)
+                    .hint(true)
+                    .fill_glyphs(glyphs.iter().copied());
+            }
+            Draw::PushClip(path) => ctx.push_clip_layer(path),
+            Draw::PushOpacity(o) => ctx.push_opacity_layer(*o),
+            Draw::Pop => ctx.pop_layer(),
+        }
+    }
+    ctx.flush();
+    let mut pixmap = Pixmap::new(w, h);
+    ctx.render(&mut pixmap, &mut resources);
+    pixmap
 }
 
 /// What a leaf of the layout tree measures by: a text, or a vector's or an
@@ -543,6 +666,7 @@ fn build(
     node: &Node,
     parent: Option<&Node>,
     texts: &mut Vec<(resolve::TextStyle, bool)>,
+    hugs: &mut Vec<(NodeId, bool, bool)>,
     renderer: &mut Renderer,
 ) -> NodeId {
     let mut style = Style::default();
@@ -624,9 +748,14 @@ fn build(
     let children: Vec<NodeId> = node
         .children
         .iter()
-        .map(|c| build(tree, c, Some(node), texts, renderer))
+        .map(|c| build(tree, c, Some(node), texts, hugs, renderer))
         .collect();
-    tree.new_with_children(style, &children).expect("node")
+    let id = tree.new_with_children(style, &children).expect("node");
+    let (w, h) = (node.width == DSize::Hug, node.height == DSize::Hug);
+    if node.layout == Layout::None && !node.children.is_empty() && (w || h) {
+        hugs.push((id, w, h));
+    }
+    id
 }
 
 fn collect(tree: &TaffyTree<Option<Leaf>>, id: NodeId, ox: f32, oy: f32, out: &mut Vec<Frame>) {
@@ -957,6 +1086,182 @@ mod tests {
         // Some pixel of the text is lighter than the fill.
         assert!((8..40).any(|x| (8..28).any(|y| pixmap.sample(x, y).g > 128)));
     }
+
+    #[test]
+    fn a_hugging_frame_with_no_layout_takes_its_childrens_extent() {
+        let s = scene(
+            r##"<Frame fill="#ff0000"><Rect x={10} y={5} width={100} height={50} fill="#0000ff" /></Frame>"##,
+        );
+        let mut r = Renderer::new();
+        let frames = r.layout(&s);
+        assert_eq!((frames[0].width, frames[0].height), (110.0, 55.0));
+        // Nested: the inner frame settles first, then the outer one.
+        let s = scene(
+            r##"<Frame><Frame x={20} y={0}><Rect x={0} y={30} width={10} height={10} /></Frame></Frame>"##,
+        );
+        let frames = r.layout(&s);
+        assert_eq!((frames[0].width, frames[0].height), (30.0, 40.0));
+        assert_eq!((frames[1].width, frames[1].height), (10.0, 40.0));
+        // A fixed side stays fixed; only the hugging one follows the children.
+        let s = scene(r##"<Frame width={300}><Rect width={10} height={70} /></Frame>"##);
+        let frames = r.layout(&s);
+        assert_eq!((frames[0].width, frames[0].height), (300.0, 70.0));
+    }
+
+    #[test]
+    fn the_drawing_is_the_root_plus_what_is_painted_outside_it() {
+        let mut r = Renderer::new();
+        // Paint inside the root: the drawing is exactly the root.
+        let s = scene(
+            r##"<Frame width={40} height={30} radius={12} fill="#000000"><Text>Hi</Text></Frame>"##,
+        );
+        let (area, _) = r.display_list(&s);
+        assert_eq!(
+            area,
+            Frame {
+                x: 0.0,
+                y: 0.0,
+                width: 40.0,
+                height: 30.0
+            }
+        );
+        assert_eq!(r.paint(&s, 1.0).width(), 40);
+        // A shadow and a child past the edge widen it; the PNG shows them.
+        let s = scene(
+            r##"<Frame width={40} height={30} fill="#ffffff" shadow={{ y: 4, blur: 8, color: "#000000ff" }}>
+  <Rect x={30} y={-10} width={20} height={10} fill="#ff0000" />
+</Frame>"##,
+        );
+        let (area, _) = r.display_list(&s);
+        assert_eq!(
+            area,
+            Frame {
+                x: -12.0,
+                y: -10.0,
+                width: 64.0,
+                height: 56.0
+            }
+        );
+        let p = r.paint(&s, 1.0);
+        assert_eq!((p.width(), p.height()), (64, 56));
+        // The red child, at (30..50, -10..0), drawn at its place in the PNG.
+        assert!(close(rgba(&p, 12 + 45, 5), [255, 0, 0, 255]));
+        // The shadow, below the box.
+        assert!(rgba(&p, 12 + 20, 10 + 30 + 3)[3] > 100);
+        // A clipping parent cuts what its children paint, and the area too.
+        let s = scene(
+            r##"<Frame width={40} height={30} clip><Rect x={30} width={50} height={10} fill="#ff0000" /></Frame>"##,
+        );
+        assert_eq!(r.display_list(&s).0.width, 40.0);
+    }
+
+    #[test]
+    fn a_drawing_too_big_is_a_problem_not_a_picture() {
+        let mut r = Renderer::new();
+        let s = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
+        assert_eq!(
+            crate::png(&mut r, &s).unwrap_err(),
+            "the drawing is 20000×10 pixels; a design draws at most 16384 a side"
+        );
+        // Painting for the canvas stops at the limit rather than allocating more.
+        assert_eq!(r.paint(&s, 1.0).width(), 16384);
+    }
+
+    #[test]
+    fn no_input_makes_the_engine_panic() {
+        let attrs = [
+            "fill",
+            "stroke",
+            "strokeWidth",
+            "radius",
+            "shadow",
+            "clip",
+            "layout",
+            "gap",
+            "padding",
+            "align",
+            "justify",
+            "width",
+            "height",
+            "x",
+            "y",
+            "opacity",
+            "onClick",
+            "size",
+            "weight",
+            "color",
+            "lineHeight",
+            "textAlign",
+            "d",
+            "viewBox",
+            "src",
+            "name",
+        ];
+        let values = [
+            "\"#fff\u{200b}\"",
+            "\"#ffé\"",
+            "\"€\"",
+            "\"\"",
+            "\"#\"",
+            "\"#12345\"",
+            "\"linear-gradient(\"",
+            "\"linear-gradient(é)\"",
+            "\"linear-gradient(90deg, #fff é%)\"",
+            "{-1000000}",
+            "{1000000}",
+            "{0}",
+            "{-0.0001}",
+            "{[]}",
+            "{[1]}",
+            "{[1,2,3]}",
+            "{[1000000, 1000000, 1000000, 1000000]}",
+            "{{}}",
+            "{{ blur: 1000000, spread: 1000000 }}",
+            "{{ x: \"é\" }}",
+            "{true}",
+            "\"navigate \"",
+            "\"navigate ../../../x.design\"",
+            "\"M\"",
+            "\"M0 0 L1000000 1000000 Z\"",
+            "\"0 0 0 0\"",
+            "\"é é é é\"",
+            "\"hug\"",
+            "\"fill\"",
+            "\"none\"",
+            "\"🙂\"",
+        ];
+        let mut r = Renderer::new();
+        for el in ["Frame", "Text", "Rect", "Ellipse", "Vector", "Image"] {
+            for attr in attrs {
+                for value in values {
+                    let source = format!(
+                        r#"<Frame layout="row"><{el} {attr}={value}>{}</{el}></Frame>"#,
+                        if el == "Text" { "é 🙂" } else { "" }
+                    );
+                    let files: HashMap<String, String> =
+                        [("a.design".to_string(), source.clone())].into();
+                    if let Ok(s) = resolve::resolve(&files, "a.design") {
+                        r.layout(&s);
+                        let _ = crate::png(&mut r, &s);
+                    }
+                }
+            }
+        }
+        // Truncations of a real design at every character, multi-byte ones
+        // included.
+        let source = r##"import B from "./b.design"
+<Frame props={{ t: "héllo 🙂" }} layout="column" fill="#fff">
+  <Text color="#123">{t} — ok</Text><B />
+</Frame>"##;
+        for (i, _) in source.char_indices() {
+            let files: HashMap<String, String> = [
+                ("a.design".to_string(), source[..i].to_string()),
+                ("b.design".to_string(), "<Frame />".to_string()),
+            ]
+            .into();
+            let _ = resolve::resolve(&files, "a.design");
+        }
+    }
 }
 
 #[cfg(test)]
@@ -991,7 +1296,7 @@ mod examples {
         for name in ["button", "checkout", "confirmation", "details"] {
             let path = format!("examples/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
-            let png = crate::png(&mut renderer, &scene);
+            let png = crate::png(&mut renderer, &scene).unwrap();
             let reference = dir.join(format!("{name}.png"));
             if update {
                 std::fs::write(&reference, &png).unwrap();
@@ -1038,7 +1343,7 @@ mod examples {
         let mut renderer = Renderer::new();
         let mut paint = |files: &dyn Files| {
             let scene = crate::resolve(files, path).unwrap_or_else(|p| panic!("{p:?}"));
-            pixels(&crate::png(&mut renderer, &scene)).unwrap()
+            pixels(&crate::png(&mut renderer, &scene).unwrap()).unwrap()
         };
         let whole = paint(&repo());
         for (part, hidden) in [

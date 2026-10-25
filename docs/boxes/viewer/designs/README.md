@@ -71,6 +71,9 @@ designs use. A file:
   `height` are the design's size; a root sized `"hug"` takes its content's
   size.
 
+Elements, arrays and objects nest at most 256 deep, counting through the
+designs a design uses — far deeper than any real design.
+
 Using an imported design places an **instance** of it: `<Button label="Pay" />`
 draws `button.design` with `label` set to `"Pay"`. An instance takes the
 attributes [every element takes](#attributes) — `name`, `x`, `y`, `width`,
@@ -85,7 +88,8 @@ between attributes.
 ## Props
 
 A design declares the values it takes in its root's `props` attribute, each
-with a default: `props={{ label: "Button", fill: "#2563eb" }}`. Inside the
+with a default: `props={{ label: "Button", fill: "#2563eb" }}`. Only the root
+declares props; `props` on any other element is a problem. Inside the
 design, `{label}` puts a prop's value where it stands — as a whole attribute
 value (`fill={fill}`) or inside a text (`<Text>Hi, {name}</Text>`). An instance
 that leaves a prop out gets its default. Naming a prop the design doesn't
@@ -112,15 +116,23 @@ arrives when a design needs it.
 
 ## Attributes
 
-A value is a string `"…"`, or a number, array, object or prop in braces:
-`{16}`, `{[12, 20]}`, `{{ y: 4, blur: 12, color: "#0f172a33" }}`, `{label}`.
+Attributes are written as in JSX. A value is a string, or a number, boolean,
+array, object or prop in braces: `"row"`, `{16}`, `{true}`, `{[12, 20]}`,
+`{{ y: 4, blur: 12, color: "#0f172a33" }}`, `{label}`.
+
+- A string is in double or single quotes, and has no escapes: a backslash is
+  just a backslash, as in JSX.
+- An attribute written bare, with no value — `<Frame clip>` — is `{true}`.
+- A name may hold letters, digits, `_` and `-`, not first: `aria-label`.
+- A number goes from −1,000,000 to 1,000,000.
+
 Every element takes:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
 | `name` | a label for the node, shown in problems | the element's name |
 | `x`, `y` | position in pixels inside a parent with no layout | `0` |
-| `width`, `height` | pixels, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it) | `"hug"` |
+| `width`, `height` | pixels, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`) | `"hug"` |
 | `opacity` | `0` to `1` | `1` |
 | `onClick` | an [interaction](#prototypes) | none |
 
@@ -141,7 +153,7 @@ A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
 
 | Attribute | Value | Default |
 | --- | --- | --- |
-| `layout` | `"row"`, `"column"`, or `"none"` — children placed by their `x` and `y` | `"none"` |
+| `layout` | `"row"`, `"column"`, or `"none"` — children placed by their `x` and `y`, and a hugging frame as big as their furthest right and bottom edges | `"none"` |
 | `gap` | pixels between children | `0` |
 | `padding` | pixels, `[vertical, horizontal]` or `[top, right, bottom, left]` | `0` |
 | `align` | across the layout direction: `"start"`, `"center"`, `"end"` | `"start"` |
@@ -232,7 +244,8 @@ This is how an agent looks at its work: write the file, fetch the PNG, look,
 fix. devpage keeps every design it has read resolved in memory and paints the PNG
 itself on the CPU, without a browser, so the answer arrives as fast as a
 page. A design
-with problems answers `422` with the problems as plain text, one per line; an
+with problems answers `422` with the problems as plain text, one per line, as
+does a drawing bigger than 16,384 pixels a side, which is too big to paint; an
 address that isn't a design file in the served folder answers `404`, as any
 other path does.
 

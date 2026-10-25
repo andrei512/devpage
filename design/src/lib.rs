@@ -31,10 +31,19 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Paints a scene at 1× and encodes it as a PNG.
-pub fn png(renderer: &mut Renderer, scene: &Scene) -> Vec<u8> {
-    renderer
-        .paint(scene, 1.0)
+/// Paints a scene's whole drawing at 1× and encodes it as a PNG, or says why
+/// it can't: a drawing bigger than `render::MAX_SIDE` a side.
+pub fn png(renderer: &mut Renderer, scene: &Scene) -> Result<Vec<u8>, String> {
+    let (area, list) = renderer.display_list(scene);
+    if area.width > render::MAX_SIDE || area.height > render::MAX_SIDE {
+        return Err(format!(
+            "the drawing is {}×{} pixels; a design draws at most {} a side",
+            area.width,
+            area.height,
+            render::MAX_SIDE
+        ));
+    }
+    render::paint_list(area, &list, 1.0)
         .into_png()
-        .expect("encoding a PNG")
+        .map_err(|e| format!("encoding the PNG: {e}"))
 }
