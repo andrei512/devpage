@@ -59,7 +59,7 @@ Cut that branch once the shape of the change is clear, before the first blast
 radius pass.
 
 Name it `design/<name>`. CI keys on that prefix — the
-[SDLC design](../../../docs/boxes/engineering/sdlc/README.md#branches) has it run
+[SDLC design](../../../docs/boxes/engineering/sdlc/branches/README.md) has it run
 on pushes to `main`, `design/**` and `prototype/**` — and tickets merge into the
 design branch without a pull request, so a design branch named anything else
 gets no CI on push, and every ticket merged into it goes ungated until the pull
