@@ -104,7 +104,11 @@ impl Store {
             path,
             || devpage_design::resolve(&reading, path),
             |p| vec![p],
-        );
+        )
+        .and_then(|scene| {
+            drawable(&mut lock(&self.renderer), path, &scene)?;
+            Ok(scene)
+        });
         let missing = lock(&self.sources)
             .get(path)
             .is_none_or(|source| source.bytes.is_none());
@@ -232,8 +236,22 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
         || devpage_design::resolve(&Disk(served), path),
         |p| vec![p],
     )
+    .and_then(|scene| drawable(&mut Renderer::new(), path, &scene))
     .err()
     .unwrap_or_default()
+}
+
+/// Whether the design at `path` can be drawn at all: a drawing too big to
+/// paint is the design's problem everywhere — on its canvas, in its PNG and in
+/// `devpage check` — not only where a picture is asked for.
+fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
+    guarded(path, || renderer.drawing(scene).map(|_| ()), |p| p.message).map_err(|message| {
+        vec![Problem {
+            file: path.to_string(),
+            pos: devpage_design::parse::Pos { line: 1, col: 1 },
+            message,
+        }]
+    })
 }
 
 /// What `f` gives, or — should the engine ever panic on a design — a problem
@@ -267,8 +285,8 @@ fn lines(problems: &[Problem]) -> String {
 
 /// The watch stream: one per page, over every design the page shows. For
 /// each, the scene, then a patch after each change that altered it, or its
-/// problems; a deleted design's `no such file` is the last update about it,
-/// and the stream ends when no design is left.
+/// problems. A deleted design stays watched: its `no such file` is a problem
+/// like any other, and writing it again brings it back.
 pub struct Watch {
     pub designs: Designs,
 }
@@ -337,20 +355,15 @@ impl devpage_design::proto::designs_server::Designs for Watch {
                         continue;
                     };
                     let resolved = store.get(&path);
-                    let gone = resolved.missing;
                     let (_, named, sent) = &mut watched[index];
                     if let Some(body) = sent.next(resolved) {
                         let update = Update {
                             body: Some(body),
                             path: named.clone(),
-                            gone,
                         };
                         if tx.send(Ok(update)).await.is_err() {
                             return;
                         }
-                    }
-                    if gone {
-                        watched.remove(index);
                     }
                 }
                 if watched.is_empty() {
@@ -431,6 +444,25 @@ mod tests {
     fn save(designs: &Designs, file: &Path, text: &str) {
         std::fs::write(file, text).unwrap();
         designs.changed(file);
+    }
+
+    #[test]
+    fn a_drawing_too_big_to_paint_is_a_problem_everywhere() {
+        let dir = served("too-big");
+        std::fs::write(
+            dir.join("app/huge.design"),
+            r##"<Frame width={20000} height={10} fill="#000000" />"##,
+        )
+        .unwrap();
+        let expected = "app/huge.design:1:1: the drawing is 20000×10 pixels; a design draws at most 16384 a side";
+        // In the store, which the canvas's stream and the PNG read…
+        let designs = Designs::new(dir.clone());
+        let found = designs.resolve("app/huge.design").unwrap_err();
+        assert_eq!(found[0].to_string(), expected);
+        // …and in what `devpage check` reads from disk.
+        let found = problems(&dir, "/app/huge.design");
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].to_string(), expected);
     }
 
     #[test]
@@ -597,6 +629,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_real_file_named_like_a_designs_png_wins() {
+        let dir = served("png-real");
+        std::fs::write(dir.join("app/screen.design.png"), b"not a drawing").unwrap();
+        let (address, _) = start(&dir, "app/screen.design").await;
+        let real = reqwest::get(format!("{address}/app/screen.design.png"))
+            .await
+            .unwrap();
+        assert_eq!(real.status(), 200);
+        assert_eq!(real.bytes().await.unwrap().as_ref(), b"not a drawing");
+        // Without one, the address is the design's drawing.
+        let drawn = reqwest::get(format!("{address}/app/other.design.png"))
+            .await
+            .unwrap();
+        assert_eq!(drawn.headers()["content-type"], "image/png");
+    }
+
+    #[tokio::test]
+    async fn a_designs_png_is_a_link_check_accepts() {
+        let dir = served("png-link");
+        std::fs::write(
+            dir.join("app/broken.design"),
+            SCREEN.replace("<Button label", "<Button lable"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("page.md"),
+            "# Page\n\n![Screen](app/screen.design.png)\n\n![Broken](app/broken.design.png)\n\n![Nothing](app/nothing.design.png)\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir.join("page.md"), &dir).unwrap();
+        let problems: Vec<String> = crate::check::document(&document, false)
+            .await
+            .iter()
+            .map(|p| p.to_string())
+            .collect();
+        assert_eq!(problems.len(), 2, "{problems:?}");
+        assert!(
+            problems[0].starts_with(
+                "page.md:5: broken design app/broken.design.png — app/broken.design:5:"
+            ),
+            "{problems:?}"
+        );
+        assert_eq!(
+            problems[1],
+            "page.md:7: broken link app/nothing.design.png — no such file"
+        );
+    }
+
+    #[tokio::test]
     async fn a_design_is_an_entry_document() {
         let dir = served("entry");
         let (address, _) = start(&dir, "app/screen.design").await;
@@ -760,8 +841,7 @@ mod tests {
         };
         assert_eq!(patch.replace[0].id, "0.0");
 
-        // Deleted: the problem, then the end of the stream, since no design
-        // is left.
+        // Deleted: the problem, and the stream stays open for it…
         std::fs::remove_file(dir.join("app/screen.design")).unwrap();
         designs.changed(&dir.join("app/screen.design"));
         let Some(Ok(Body::Problems(problems))) = stream.next().await else {
@@ -771,9 +851,11 @@ mod tests {
             problems.problems[0].contains("no such file"),
             "{problems:?}"
         );
+        // …so writing it again brings it back.
+        save(&designs, &dir.join("app/screen.design"), SCREEN);
         assert!(
-            matches!(stream.next().await, Some(Err(_))),
-            "the trailers end it"
+            matches!(stream.next().await, Some(Ok(Body::Patch(_)))),
+            "the design back"
         );
     }
 
@@ -837,14 +919,13 @@ mod tests {
         patched.sort();
         assert_eq!(patched, ["/app/screen.design", "app/other.design"]);
 
-        // One deleted: its last update says so, and the stream goes on.
+        // One deleted: it says so, and the stream goes on for the other.
         std::fs::remove_file(dir.join("app/other.design")).unwrap();
         designs.changed(&dir.join("app/other.design"));
         let Some(Ok(update)) = stream.update().await else {
             panic!("the deleted design's problem")
         };
         assert_eq!(update.path, "app/other.design");
-        assert!(update.gone);
         let Some(Body::Problems(problems)) = update.body else {
             panic!("its problem")
         };
@@ -861,7 +942,15 @@ mod tests {
             panic!("the stream goes on for the design left")
         };
         assert_eq!(update.path, "/app/screen.design");
-        assert!(!update.gone);
+
+        // Written again — a branch switch, an agent rewriting it — it comes
+        // back on the same stream: a patch against the last scene sent.
+        save(&designs, &dir.join("app/other.design"), OTHER);
+        let Some(Ok(update)) = stream.update().await else {
+            panic!("the re-created design")
+        };
+        assert_eq!(update.path, "app/other.design");
+        assert!(matches!(update.body, Some(Body::Patch(_))), "{update:?}");
     }
 
     #[tokio::test]

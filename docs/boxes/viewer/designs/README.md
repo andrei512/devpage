@@ -29,16 +29,21 @@ else as a [problem](#problems).
 
 ## A first design
 
+The example's button, `examples/checkout/button.design`, whole:
+
 ```jsx
-// examples/checkout/button.design
+// A button: one line of text on a filled, rounded box.
 <Frame props={{ label: "Button", fill: "#2563eb" }}
-       layout="row" padding={[12, 20]} radius={8} fill={fill}>
+       layout="row" padding={[12, 20]} radius={8} fill={fill}
+       justify="center" shadow={{ y: 2, blur: 6, color: "#1e3a8a33" }}>
   <Text size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>
 ```
 
+A screen using it, cut down from the example's
+`examples/checkout/checkout.design` to its bones:
+
 ```jsx
-// examples/checkout/checkout.design
 import Button from "./button.design"
 
 <Frame name="Checkout" width={390} height={844} fill="#f8fafc"
@@ -48,7 +53,7 @@ import Button from "./button.design"
 </Frame>
 ```
 
-Here is the checkout screen, embedded in this page:
+Here is the whole checkout screen, embedded in this page:
 
 ![Checkout](../../../../examples/checkout/checkout.design)
 
@@ -64,9 +69,9 @@ designs use. A file:
 
 - starts with any number of **imports**, one per line —
   `import Button from "./button.design"` — each a name and a path relative to
-  the file. The path must lie in the
-  [served folder](../constraints/the-served-folder-is-the-boundary.md), and
-  the file must exist, whether the design uses the import or not.
+  the file. The path must name a `.design` file that exists in the
+  [served folder](../constraints/the-served-folder-is-the-boundary.md),
+  whether the design uses the import or not.
 - holds exactly one **root element**, which is a `Frame`. Its `width` and
   `height` are the design's size; a root sized `"hug"` takes its content's
   size.
@@ -125,14 +130,16 @@ array, object or prop in braces: `"row"`, `{16}`, `{true}`, `{[12, 20]}`,
 - An attribute written bare, with no value — `<Frame clip>` — is `{true}`.
 - A name may hold letters, digits, `_` and `-`, not first: `aria-label`.
 - A number goes from −1,000,000 to 1,000,000.
+- An attribute may be given once on an element or an instance; given twice,
+  it is a problem.
 
 Every element takes:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
 | `name` | a label for the node, shown in problems | the element's name |
-| `x`, `y` | position in pixels inside a parent with no layout | `0` |
-| `width`, `height` | pixels, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`) | `"hug"` |
+| `x`, `y` | position in pixels inside a parent with no layout; in a parent with `layout="row"` or `"column"`, which places its children itself, they are a problem | `0` |
+| `width`, `height` | pixels from `0` up, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`; a design's root shown on its own has no parent, and there `"fill"` hugs) | `"hug"` |
 | `opacity` | `0` to `1` | `1` |
 | `onClick` | an [interaction](#prototypes) | none |
 
@@ -219,16 +226,20 @@ shadow, a child placed past an edge — as in Figma's export. Every surface show
 the whole drawing, so nothing visible on one is missing from another; a design
 whose paint stays inside its root draws at exactly its root's size.
 
-A page **embeds** one with the image syntax — `![Checkout](checkout.design)`.
-An embedded design is shown the same way: at its own size, never enlarged,
-scaled down only as far as it needs to fit the page's width and the window's
-height, centred on a quiet stage that sets it apart from the text. It is
-clickable like the design's own address, and a link in the stage's corner
-opens it on its own canvas page. Embedded designs follow the page's live
-updates and print in a PDF as they show.
+A page **embeds** one with the image syntax — `![Checkout](checkout.design)` —
+or, in raw HTML, with an image of it — `<img src="checkout.design">`, written
+however HTML allows. An embedded design is shown the same way: at its own
+size, never enlarged, scaled down only as far as it needs to fit the page's
+width and the window's height, centred on a quiet stage that sets it apart from
+the text. It is clickable like the design's own address, and a link in the
+stage's corner opens it on its own canvas page. Embedded designs follow the
+page's live updates. In a PDF there is no window, so an embedded design prints
+at its own size, scaled down only to fit the paper's width.
 
 While a design is open, saving any file it is made of redraws it in place —
-only the parts that changed are sent to the browser.
+only the parts that changed are sent to the browser. A design deleted while
+open shows its `no such file` problem, and comes back when it is written
+again — after a branch switch, say — without a reload.
 
 ## Looking at a design as a PNG
 
@@ -241,7 +252,9 @@ curl -s http://localhost:3030/examples/checkout/checkout.design.png -o checkout.
 ```
 
 This is how an agent looks at its work: write the file, fetch the PNG, look,
-fix. devpage keeps every design it has read resolved in memory and paints the PNG
+fix. A page can link to or show the PNG too — `![Checkout](checkout.design.png)`
+— and `devpage check` treats that link as the design itself. A real file named
+`checkout.design.png` beside the design wins: it is served as it is. devpage keeps every design it has read resolved in memory and paints the PNG
 itself on the CPU, without a browser, so the answer arrives as fast as a
 page. A design
 with problems answers `422` with the problems as plain text, one per line, as

@@ -3,7 +3,7 @@
 //! `Gpu` or on the CPU by `Design::paint`, and hit-tested for clicks.
 
 use devpage_design::proto::{Update, update::Body};
-use devpage_design::render::{Draw, Frame};
+use devpage_design::render::{Drawing, Frame, paint_list};
 use devpage_design::resolve::Node;
 use devpage_design::{Renderer, Scene, wire};
 use prost::Message;
@@ -31,17 +31,9 @@ pub struct Design {
     engine: Renderer,
     scene: Option<Scene>,
     problems: Vec<String>,
-    laid_out: Option<LaidOut>,
-}
-
-/// A scene laid out and turned into its display list.
-struct LaidOut {
-    frames: Vec<Frame>,
-    /// The design's drawing: its root's box plus anything painted outside it.
+    /// The scene laid out and turned into its display list, once per change.
     /// The page sees only the drawing, with its top-left at `(0, 0)`.
-    area: Frame,
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    list: Vec<Draw>,
+    laid_out: Option<Drawing>,
 }
 
 /// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
@@ -137,15 +129,15 @@ impl Design {
         let laid_out = self.laid_out()?;
         let (x, y) = (x + laid_out.area.x, y + laid_out.area.y);
         let mut found = None;
-        hit(&root, &laid_out.frames, &mut 0, x, y, &mut found);
+        hit(&root, &laid_out.frames, &mut 0, x, y, None, &mut found);
         found
     }
 
     /// Paints the design on the CPU with `vello_cpu`, at `scale` device
     /// pixels per design pixel.
     pub fn paint(&mut self, scale: f32) -> Option<Pixels> {
-        let scene = self.scene.as_ref()?;
-        let pixmap = self.engine.paint(scene, scale);
+        let laid_out = self.laid_out()?;
+        let pixmap = paint_list(laid_out.area, &laid_out.list, scale);
         let mut rgba = pixmap.data_as_u8_slice().to_vec();
         for px in rgba.as_chunks_mut::<4>().0 {
             let a = px[3] as u32;
@@ -164,31 +156,59 @@ impl Design {
 }
 
 impl Design {
-    fn laid_out(&mut self) -> Option<&LaidOut> {
+    /// The drawing, laid out once per change. A drawing too big to paint has
+    /// none; the server reports it as the design's problem.
+    fn laid_out(&mut self) -> Option<&Drawing> {
         if self.laid_out.is_none() {
             let scene = self.scene.as_ref()?;
-            let frames = self.engine.layout(scene);
-            let (area, list) = self.engine.display_list(scene);
-            self.laid_out = Some(LaidOut { frames, area, list });
+            self.laid_out = Some(self.engine.drawing(scene).ok()?);
         }
         self.laid_out.as_ref()
     }
 }
 
-/// Walks in paint order, so the last hit is the topmost.
-fn hit(node: &Node, frames: &[Frame], at: &mut usize, x: f32, y: f32, found: &mut Option<String>) {
+/// Walks in paint order, so the last hit is the topmost. Inside a clipping
+/// frame only what it shows can be clicked, as only that is painted.
+fn hit(
+    node: &Node,
+    frames: &[Frame],
+    at: &mut usize,
+    x: f32,
+    y: f32,
+    clip: Option<Frame>,
+    found: &mut Option<String>,
+) {
     let f = frames[*at];
     *at += 1;
+    let inside = |r: Frame| x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height;
+    let shown = clip.is_none_or(inside);
     if let Some(action) = &node.on_click
-        && x >= f.x
-        && y >= f.y
-        && x < f.x + f.width
-        && y < f.y + f.height
+        && shown
+        && inside(f)
     {
         *found = Some(action.clone());
     }
+    let clip = if node.clip {
+        Some(clip.map_or(f, |c| intersect(c, f)))
+    } else {
+        clip
+    };
     for child in &node.children {
-        hit(child, frames, at, x, y, found);
+        hit(child, frames, at, x, y, clip, found);
+    }
+}
+
+fn intersect(a: Frame, b: Frame) -> Frame {
+    let (x0, y0) = (a.x.max(b.x), a.y.max(b.y));
+    let (x1, y1) = (
+        (a.x + a.width).min(b.x + b.width),
+        (a.y + a.height).min(b.y + b.height),
+    );
+    Frame {
+        x: x0,
+        y: y0,
+        width: (x1 - x0).max(0.0),
+        height: (y1 - y0).max(0.0),
     }
 }
 
@@ -290,5 +310,29 @@ mod tests {
         assert_eq!(design.apply(&patch), Applied::Nothing);
         assert_eq!(design.apply(&[0xff, 0xff, 0xff]), Applied::Nothing);
         assert!(design.paint(1.0).is_none());
+    }
+
+    #[test]
+    fn a_click_lands_only_on_what_a_clip_shows() {
+        let files = HashMap::from([(
+            "clip.design".to_string(),
+            r##"<Frame width={100} height={100}>
+  <Frame width={50} height={50} clip>
+    <Rect x={0} y={0} width={100} height={100} onClick="back" />
+  </Frame>
+</Frame>"##
+                .to_string(),
+        )]);
+        let scene = devpage_design::resolve(&files, "clip.design").unwrap();
+        let message = Update {
+            body: Some(Body::Scene(wire::encode(&scene.root))),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let mut design = Design::new();
+        design.apply(&message);
+        assert_eq!(design.action_at(10.0, 10.0).as_deref(), Some("back"));
+        // Outside the clip the rectangle isn't painted, so it isn't clicked.
+        assert_eq!(design.action_at(80.0, 80.0), None);
     }
 }

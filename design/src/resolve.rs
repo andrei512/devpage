@@ -263,6 +263,14 @@ impl Resolver<'_> {
         };
         let mut imports = HashMap::new();
         for import in &file.imports {
+            if !import.path.ends_with(".design") {
+                self.problem(
+                    path,
+                    import.pos,
+                    format!("import {} — a design is a .design file", import.path),
+                );
+                continue;
+            }
             match join(path, &import.path) {
                 Some(target) => {
                     // Every import must exist, used or not.
@@ -335,6 +343,7 @@ impl Resolver<'_> {
                 // The caller's own props are already substituted into these.
                 self.common(&caller, root, attr, attr.value.clone());
                 self.fill_needs_layout(&caller, attr, &attr.value, parent);
+                self.place_needs_no_layout(&caller, attr, parent);
             }
         }
         root
@@ -368,12 +377,23 @@ impl Resolver<'_> {
         root: bool,
         parent: Option<Layout>,
     ) -> Option<Node> {
+        // An attribute given twice is a problem, on an element or an instance
+        // alike; the first one counts.
+        let mut seen: Vec<&str> = Vec::new();
+        let mut attrs = Vec::new();
+        for attr in &el.attrs {
+            if seen.contains(&attr.name.as_str()) {
+                self.problem(path, attr.pos, format!("{} is given twice", attr.name));
+            } else {
+                seen.push(&attr.name);
+                attrs.push(attr);
+            }
+        }
         if let Some(target) = imports.get(&el.name) {
             if !el.children.is_empty() {
                 self.problem(path, el.pos, format!("{} takes no children", el.name));
             }
-            let args: Vec<parse::Attr> = el
-                .attrs
+            let args: Vec<parse::Attr> = attrs
                 .iter()
                 .map(|a| parse::Attr {
                     name: a.name.clone(),
@@ -397,7 +417,7 @@ impl Resolver<'_> {
             }
         };
         let mut node = Node::new(kind, &el.name);
-        for attr in &el.attrs {
+        for attr in attrs {
             if attr.name == "props" {
                 if !root {
                     self.problem(
@@ -419,6 +439,7 @@ impl Resolver<'_> {
                 v => v.clone(),
             };
             self.fill_needs_layout(path, attr, &value, parent);
+            self.place_needs_no_layout(path, attr, parent);
             self.attribute(path, &mut node, attr, value);
         }
         match kind {
@@ -497,6 +518,23 @@ impl Resolver<'_> {
                 attr.pos,
                 format!(
                     "{}: \"fill\" needs a parent with layout=\"row\" or \"column\"",
+                    attr.name
+                ),
+            );
+        }
+    }
+
+    /// `x` and `y` place a child inside a frame with no layout; auto layout
+    /// places its children itself, so there they would mean nothing.
+    fn place_needs_no_layout(&mut self, path: &str, attr: &parse::Attr, parent: Option<Layout>) {
+        if matches!(parent, Some(Layout::Row | Layout::Column))
+            && matches!(attr.name.as_str(), "x" | "y")
+        {
+            self.problem(
+                path,
+                attr.pos,
+                format!(
+                    "{}: places a child only in a frame with layout=\"none\"",
                     attr.name
                 ),
             );
@@ -788,7 +826,8 @@ fn nums(a: &[Value]) -> Result<Vec<f32>, String> {
 
 fn size(v: &Value) -> Result<Size, String> {
     match v {
-        Value::Num(n) => Ok(Size::Px(*n as f32)),
+        Value::Num(n) if *n >= 0.0 => Ok(Size::Px(*n as f32)),
+        Value::Num(n) => Err(format!("expected pixels of 0 or more, found {n}")),
         Value::Str(s) if s == "hug" => Ok(Size::Hug),
         Value::Str(s) if s == "fill" => Ok(Size::Fill),
         other => Err(format!(
@@ -1338,7 +1377,7 @@ mod tests {
         assert_eq!(
             problems(
                 r##"import B from "./b.design"
-<Frame layout="row" fill="linear-gradient(90deg, #ffffff 0%, #000000ff 100%)">
+<Frame fill="linear-gradient(90deg, #ffffff 0%, #000000ff 100%)">
   <B label="Go" x={4} y={5} width={80} height="hug" name="Go" onClick="back" />
   <Vector d="M0 0L24 24" viewBox="0 0 24 24" stroke="#000" />
   <Image src="./photo.png" radius={[1, 2, 3, 4]} clip />
@@ -1436,5 +1475,59 @@ mod tests {
             join("/a/b.design", "x/../y.png").as_deref(),
             Some("a/y.png")
         );
+    }
+
+    #[test]
+    fn values_that_would_be_ignored_are_problems() {
+        // x and y place a child only in a frame with no layout.
+        let found =
+            problems(r#"<Frame layout="row"><Rect width={10} height={10} x={5} /></Frame>"#);
+        assert!(
+            found
+                .iter()
+                .any(|p| p.contains("x: places a child only in a frame with layout=\"none\"")),
+            "{found:?}"
+        );
+        // The same on an instance placed in a row.
+        let found = problems(
+            r#"import B from "./b.design"
+<Frame layout="row"><B y={3} /></Frame>"#,
+        );
+        assert!(
+            found.iter().any(|p| p.contains("y: places a child only")),
+            "{found:?}"
+        );
+        // Negative sizes.
+        let found = problems(r#"<Frame width={-1} height={-2} />"#);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(
+            found[0].contains("width: expected pixels of 0 or more"),
+            "{found:?}"
+        );
+        // An attribute given twice.
+        let found = problems(r##"<Frame fill="#ff0000" fill="#00ff00" />"##);
+        assert!(
+            found.iter().any(|p| p.contains("fill is given twice")),
+            "{found:?}"
+        );
+        let found = problems(
+            r#"import B from "./b.design"
+<Frame><B label="a" label="b" /></Frame>"#,
+        );
+        assert!(
+            found.iter().any(|p| p.contains("label is given twice")),
+            "{found:?}"
+        );
+        // An import of something that isn't a design says so.
+        let found = problems(
+            r#"import P from "./photo.png"
+<Frame />"#,
+        );
+        assert_eq!(
+            found,
+            ["d/a.design:1:1: import ./photo.png — a design is a .design file"]
+        );
+        // x and y in a frame with no layout are fine.
+        assert!(problems(r#"<Frame><Rect width={1} height={1} x={5} y={5} /></Frame>"#).is_empty());
     }
 }

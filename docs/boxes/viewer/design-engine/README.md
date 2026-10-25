@@ -49,9 +49,10 @@ no longer matches the sources, naming the command, so the vendored module can
 never silently lag the engine. Only someone changing the engine needs the
 `wasm32-unknown-unknown` target, which `rust-toolchain.toml` names.
 
-`devpage-design` is published to crates.io with devpage, at the same version,
-so `cargo install devpage` builds the native engine from the registry and
-takes the module from the vendored files.
+`devpage-design` is published to crates.io when devpage is released, first
+and at the same version, so `cargo install devpage` builds the native engine
+from the registry and takes the module from the vendored files — see
+[Release](../../engineering/sdlc/README.md#release).
 
 ## Parsing
 
@@ -132,8 +133,10 @@ past an edge, a line of text — and cut by any clipping frame, rounded out to
 whole pixels. The list opens with a clip to that area and closes it, so a
 backend can't show more than the drawing or less. A PNG is the drawing; the
 canvas page and an embed fit the drawing. A drawing more than 16,384 pixels a
-side is too big for a PNG: the route reports it, and the canvas paints only
-that far on the CPU.
+side is too big to paint, and that is the design's problem everywhere: the
+store, `devpage check` and the PNG route all lay a resolved design out once
+(`Renderer::drawing`) and report it, so the canvas never receives a drawing it
+can't paint.
 
 Both backends replay the
 [same display list](../constraints/a-design-has-one-renderer.md); they differ
@@ -153,7 +156,9 @@ design is touched. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it. Painting happens when a PNG is asked for, from the scene
 already in memory. `devpage check` and a page's problems bar read designs
-straight from disk instead, as they read pages.
+straight from disk instead, as they read pages. A real file whose name ends
+in `.design.png` is served as it is; the PNG route answers only where there is
+none.
 
 | Route | Answer |
 | --- | --- |
@@ -196,10 +201,11 @@ holds one. For each design in the set:
   browser keeps the last scene it drew; once fixed, the next patch is against
   that last scene — an empty one when the fix restored it exactly — and any
   patch tells the browser the design is valid again;
-- when the design's own file is deleted, its `no such file` problem is the
-  last update about it. The stream goes on for the rest of the set, and the
-  page leaves that design out when it next opens a stream; a stream that
-  drops — devpage stopped — is reopened for the whole set.
+- when the design's own file is deleted, its `no such file` problem is an
+  update like any other: the design stays in the set, so when the file is
+  written again — a branch switch, an agent rewriting it — the next update is
+  a patch against the last scene sent, and it draws again without a reload. A
+  stream that drops — devpage stopped — is reopened for the whole set.
 
 A save that changes nothing in a design's scene sends nothing, and the same
 problems are not sent twice.
@@ -212,7 +218,8 @@ off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
 one per canvas. The module lays out and paints on the GPU into a `<canvas>`
 sized to the screen's device pixels; one WebGPU device serves every canvas on
-the page. It lays out again only when the scene changes, and paints only when
+the page. It lays out once per change of scene (`Renderer::drawing`) and
+paints from that one display list on the GPU or the CPU alike, and paints only when
 the scene or the view does — a zoom, a pan, a resize — at most once per
 animation frame.
 
@@ -241,7 +248,7 @@ only if the set of designs did.
 | What happens | What the reader sees |
 | --- | --- |
 | A file has problems | The problems over the last valid drawing; the PNG route answers `422` with them. |
-| A design is deleted | Its canvas shows the problem `no such file`, and the page stops asking for it. |
+| A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |
 | The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |
 | The browser has no WebGPU | The module paints with `vello_cpu` and puts the buffer on the canvas. |

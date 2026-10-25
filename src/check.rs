@@ -226,6 +226,19 @@ fn page_links_with(
                 .ok()
                 .filter(|resolved| resolved.starts_with(&document.served))
         };
+        // A design's PNG address is the design drawn, when no real file of
+        // that name is there: the link is as good as the design.
+        let resolved = resolved.or_else(|| {
+            let design = path
+                .strip_suffix(".png")
+                .filter(|p| p.ends_with(".design"))?;
+            page.parent()
+                .unwrap_or(Path::new("."))
+                .join(design)
+                .canonicalize()
+                .ok()
+                .filter(|resolved| resolved.starts_with(&document.served) && resolved.is_file())
+        });
         let Some(resolved) = resolved else {
             problems.push(Problem {
                 file: file.clone(),

@@ -44,7 +44,7 @@ flowchart TD
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/README.md#under-the-hood) |
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/devpage.design.v1.Designs/Watch` | a design's watch stream, as gRPC-Web — see [Design engine](../design-engine/README.md#the-watch-stream) |
-| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) |
+| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) — unless a real file of that name is in the served folder, which is served as it is |
 | `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,
