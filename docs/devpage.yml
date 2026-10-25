@@ -2,6 +2,8 @@
 kind: site
 title: devpage
 root: README.md
+widgets: widgets
 watch:
   - "**/*.md"
   - "**/*.yml"
+  - "widgets/*.tsx"
