@@ -7,7 +7,7 @@ const kinds = [
     like: "Like a docs website",
     madeOf: "A root page and the pages its Topics sections reach",
     readAs: "Many pages, with a sidebar",
-    href: "/docs/boxes/viewer/organizing-navigation/README.md",
+    href: "/docs/boxes/viewer/making-a-site/README.md",
   },
   {
     name: "Doc",

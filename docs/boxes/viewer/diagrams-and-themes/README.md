@@ -141,7 +141,7 @@ Two font tokens, `--font` and `--font-mono`, are shared by both themes. A
 theme is a set of values for these tokens. A few colors are fixed rather than
 taken from a token: the text of the current sidebar entry (white); the red
 (`#d70015`) of diagram errors, comment errors, the problems bar and broken-link
-marks; and the black behind a deck's stage.
+marks.
 
 ## Choosing a theme
 

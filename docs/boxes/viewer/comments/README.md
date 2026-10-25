@@ -14,6 +14,14 @@ comments and replies in the browser.
 
 ## Commenting
 
+Commenting is opt-in, so reading a page never sprouts buttons. **Turn comment
+mode on** with the speech-bubble button beside the theme toggle — at the right
+end of the navbar, or in the top-right corner of a page without one. It shows
+pressed while on, and the browser remembers it for the next visit. Threads
+already written, their highlights and the margin show either way.
+
+With comment mode on:
+
 - **On text** — select it, and a **Comment** button appears under the
   selection.
 - **On a paragraph** — hover over it, and a comment icon, a speech bubble,

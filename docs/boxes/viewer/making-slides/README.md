@@ -47,7 +47,8 @@ they are given.
 ## The stage
 
 Every slide is laid out on a **1920 × 1080** stage and then scaled, as a
-whole, to fit the window, with the rest of the window left dark. Text never
+whole, to fit the window; the rest of the window takes the slide's own
+background, so a slide fills the screen edge to edge. Text never
 reflows when the window changes size: what fits on the stage fits everywhere,
 and on paper. Write slides for that size; the stylesheet sets type large enough
 to read from the back of a room.

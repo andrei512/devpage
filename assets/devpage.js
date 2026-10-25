@@ -163,18 +163,19 @@ async function load(url) {
     location.assign(url);
     return "navigating";
   }
-  for (const id of ["page", "nav", "navbar"]) {
+  for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
     const fresh = next.getElementById(id);
     if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
   }
-  document.getElementById("navbar")?.classList.remove("open");
+  document.getElementById("devpage-navbar")?.classList.remove("open");
   applyTheme();
+  applyCommentMode();
   document.title = next.title;
   // The fresh page names its widgets' current versions.
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
   if (list) new Function(list.textContent)();
-  await mountWidgets(document.getElementById("page"));
-  markBroken(document.getElementById("page"));
+  await mountWidgets(document.getElementById("devpage-page"));
+  markBroken(document.getElementById("devpage-page"));
   showSlide();
   loadComments();
   return true;
@@ -296,10 +297,10 @@ function highlight(model, [start, end], id) {
 }
 
 function panel() {
-  let aside = document.getElementById("comments");
+  let aside = document.getElementById("devpage-comments");
   if (!aside) {
     aside = document.createElement("aside");
-    aside.id = "comments";
+    aside.id = "devpage-comments";
     aside.className = "comment-ui";
     document.body.append(aside);
   }
@@ -353,10 +354,10 @@ async function loadComments() {
 
 // Where the threads aren't beside the text, a button opens and closes them.
 function toggleButton() {
-  let button = document.getElementById("comments-toggle");
+  let button = document.getElementById("devpage-comments-toggle");
   if (!button) {
     button = document.createElement("button");
-    button.id = "comments-toggle";
+    button.id = "devpage-comments-toggle";
     button.className = "comment-ui";
     button.addEventListener("click", () => document.body.classList.toggle("show-comments"));
     document.body.append(button);
@@ -367,7 +368,7 @@ function toggleButton() {
 // Beside the text on a wide page: each card level with its anchor, pushed down
 // so none overlap. Elsewhere — narrow screens, decks — the panel is a list.
 function layoutComments() {
-  const aside = document.getElementById("comments");
+  const aside = document.getElementById("devpage-comments");
   if (!aside) return;
   const beside = !document.body.classList.contains("slides") && matchMedia("(min-width: 1100px)").matches;
   aside.classList.toggle("beside", beside);
@@ -391,7 +392,7 @@ window.addEventListener("resize", layoutComments);
 
 function focusThread(id) {
   document.body.classList.add("show-comments");
-  const card = document.querySelector(`#comments .thread[data-thread="${CSS.escape(id)}"]`);
+  const card = document.querySelector(`#devpage-comments .thread[data-thread="${CSS.escape(id)}"]`);
   card?.scrollIntoView({ block: "nearest" });
   card?.querySelector("textarea")?.focus();
 }
@@ -474,7 +475,7 @@ async function send(action, body, card) {
 // or cancelled.
 function compose(section, anchor, near) {
   document.querySelectorAll(".comment-button").forEach((button) => button.remove());
-  document.querySelector("#comments .composer")?.remove();
+  document.querySelector("#devpage-comments .composer")?.remove();
   const aside = panel();
   const card = document.createElement("div");
   card.className = "thread composer";
@@ -515,12 +516,46 @@ function commentButton(label, title, top, left, onClick) {
   return button;
 }
 
+// Commenting is opt-in: the comment-mode switch beside the theme toggle turns
+// on the two ways to start a comment below, and the browser remembers it.
+// Threads already written show either way.
+function commentMode() {
+  try {
+    return localStorage.getItem("devpage-comment-mode") === "on";
+  } catch {
+    return document.documentElement.dataset.commentMode === "on";
+  }
+}
+
+function applyCommentMode(on = commentMode()) {
+  document.documentElement.dataset.commentMode = on ? "on" : "off";
+  for (const button of document.querySelectorAll(".comment-mode")) {
+    button.setAttribute("aria-pressed", String(on));
+  }
+  if (!on) {
+    document.querySelectorAll(".comment-button").forEach((button) => button.remove());
+    hovered = null;
+  }
+}
+
+document.addEventListener("click", (event) => {
+  if (!event.target.closest?.(".comment-mode")) return;
+  const on = !commentMode();
+  try {
+    localStorage.setItem("devpage-comment-mode", on ? "on" : "off");
+  } catch {
+    // Storage may be blocked; the switch still holds for this page.
+  }
+  applyCommentMode(on);
+});
+
 // Hovering a paragraph — or a list item, table, code block or diagram —
 // offers a comment on the whole of it.
 const blocks = "p, li, pre, table, .diagram, blockquote, h1, h2, h3, h4";
 let hovered = null;
+applyCommentMode();
 document.addEventListener("mouseover", (event) => {
-  if (print || !getSelection().isCollapsed) return;
+  if (print || !commentMode() || !getSelection().isCollapsed) return;
   const block = event.target.closest?.(blocks);
   const section = block?.closest("[data-source]");
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
@@ -540,7 +575,7 @@ document.addEventListener("mouseover", (event) => {
 
 // Selecting text inside one source offers a comment on it.
 document.addEventListener("mouseup", (event) => {
-  if (print || event.target.closest?.(".comment-ui")) return;
+  if (print || !commentMode() || event.target.closest?.(".comment-ui")) return;
   setTimeout(() => {
     const selection = getSelection();
     if (selection.isCollapsed) return;
@@ -717,7 +752,7 @@ function openMenu(menu, focusFirst) {
 document.addEventListener("click", (event) => {
   const toggle = event.target.closest?.(".navbar-toggle");
   if (toggle) {
-    const bar = document.getElementById("navbar");
+    const bar = document.getElementById("devpage-navbar");
     const open = bar.classList.toggle("open");
     toggle.setAttribute("aria-expanded", String(open));
     return;
@@ -731,7 +766,7 @@ document.addEventListener("click", (event) => {
   }
   // Anywhere else, or a followed link, closes what is open.
   if (!event.target.closest?.(".navbar-dropdown") || event.target.closest("a")) closeMenus();
-  if (event.target.closest?.("#navbar a")) document.getElementById("navbar")?.classList.remove("open");
+  if (event.target.closest?.("#devpage-navbar a")) document.getElementById("devpage-navbar")?.classList.remove("open");
 });
 
 document.addEventListener("keydown", (event) => {

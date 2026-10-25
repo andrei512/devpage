@@ -18,7 +18,8 @@ agent. These pages are devpage's own documentation, served by devpage.
   devpage, and a project adds its own as `.tsx` files.
 - **Live updates.** A file's change refreshes every open page in place,
   without a reload.
-- **Comments.** Select text or hover a paragraph to start a thread. Threads
+- **Comments.** Turn on comment mode, then select text or hover a paragraph to
+  start a thread. Threads
   are files in a `.devpage/` folder git ignores, so an agent can read them and
   resolve them by deleting the file.
 - **Checked links.** Broken links show on the page while you write, and
