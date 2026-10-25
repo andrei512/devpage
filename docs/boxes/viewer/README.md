@@ -75,8 +75,9 @@ Each part of the diagram opens its page.
 - **PDF** — `devpage pdf` has Chrome print a doc or a deck, so the PDF is the
   page the browser shows.
 - **Designs** — `.design` files an agent writes, parsed and painted by one
-  Rust engine: in the browser as a clickable canvas, fed the changed nodes
-  over gRPC-Web, and in the server as a PNG the agent can look at.
+  Rust engine: on the GPU in the browser as a clickable canvas, fed the
+  changed nodes over gRPC-Web, and on the CPU in the server as a PNG the agent
+  can look at.
 
 ## Glossary
 
@@ -132,7 +133,7 @@ The words this box owns; the rest of the docs use them with these meanings.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
   — deployed, it trusts one header and must sit behind a proxy that sets it.
 - [A design has one renderer](constraints/a-design-has-one-renderer.md)
-  — the canvas and the PNG are painted by the same engine code.
+  — the canvas and the PNG are one layout and one vello scene.
 
 ## Topics
 
