@@ -49,7 +49,7 @@ pub fn title(source: &str, path: &Path) -> String {
 /// The whole page for one Markdown file: navigation, the rendered content and
 /// the scripts that draw diagrams and keep it live.
 pub fn page(document: &Document, file: &Path, source: &str) -> String {
-    let current = format!("/{}", relative(document, file).display());
+    let current = document.url(file);
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -232,7 +232,7 @@ fn tree(document: &Document, groups: &[nav::Group], current: &str, html: &mut St
             ));
         }
         for entry in &group.entries {
-            let href = format!("/{}", relative(document, &entry.file).display());
+            let href = document.url(&entry.file);
             let class = if href == current {
                 " class=\"current\""
             } else {
@@ -247,12 +247,6 @@ fn tree(document: &Document, groups: &[nav::Group], current: &str, html: &mut St
         }
     }
     html.push_str("</ul>");
-}
-
-fn relative(document: &Document, file: &Path) -> PathBuf {
-    file.strip_prefix(&document.base)
-        .unwrap_or(file)
-        .to_path_buf()
 }
 
 fn escape(text: &str) -> String {

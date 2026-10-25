@@ -72,8 +72,11 @@ pub struct Document {
     pub title: String,
     pub base: PathBuf,
     pub kind: Kind,
-    /// The URL path of the document itself: its file name inside `base`.
+    /// The document file's name inside `base`.
     pub file_name: String,
+    /// The repository: the git working tree holding the document, or its
+    /// folder outside git. Nothing outside it is served.
+    pub repo: PathBuf,
 }
 
 impl Document {
@@ -94,8 +97,10 @@ impl Document {
             .unwrap_or_default()
             .to_string_lossy()
             .into_owned();
+        let repo = repository(&base);
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
+                repo,
                 title: crate::render::title(&text, &file),
                 kind: Kind::Doc {
                     chapters: vec![base.join(&file_name)],
@@ -105,10 +110,10 @@ impl Document {
                 file_name,
             });
         }
-        Self::parse(&text, base, file_name).with_context(|| format!("in {}", file.display()))
+        Self::parse(&text, base, file_name, repo).with_context(|| format!("in {}", file.display()))
     }
 
-    fn parse(text: &str, base: PathBuf, file_name: String) -> Result<Self> {
+    fn parse(text: &str, base: PathBuf, file_name: String, repo: PathBuf) -> Result<Self> {
         let existing = |field: &str, path: &str| -> Result<PathBuf> {
             let file = base.join(path);
             if !file.is_file() {
@@ -151,26 +156,49 @@ impl Document {
             base,
             kind,
             file_name,
+            repo,
         })
     }
 
     /// Where `/` leads: a site's root page, or the document file itself.
     pub fn entry(&self) -> String {
         match &self.kind {
-            Kind::Site { root } => format!("/{root}"),
-            _ => format!("/{}", self.file_name),
+            Kind::Site { root } => self.url(&self.base.join(root)),
+            _ => self.url(&self.path()),
         }
     }
 
-    /// The file a URL path names, if it lies inside the document's folder.
+    /// The document file itself.
+    pub fn path(&self) -> PathBuf {
+        self.base.join(&self.file_name)
+    }
+
+    /// A file's address: its path from the top of the repository.
+    pub fn url(&self, file: &Path) -> String {
+        format!(
+            "/{}",
+            file.strip_prefix(&self.repo).unwrap_or(file).display()
+        )
+    }
+
+    /// The file a URL path names, if it lies inside the repository.
     pub fn file(&self, url_path: &str) -> Option<PathBuf> {
         let candidate = self
-            .base
+            .repo
             .join(url_path.trim_start_matches('/'))
             .canonicalize()
             .ok()?;
-        candidate.starts_with(&self.base).then_some(candidate)
+        candidate.starts_with(&self.repo).then_some(candidate)
     }
+}
+
+/// The git working tree holding `folder`, or `folder` itself outside git.
+fn repository(folder: &Path) -> PathBuf {
+    folder
+        .ancestors()
+        .find(|dir| dir.join(".git").exists())
+        .unwrap_or(folder)
+        .to_path_buf()
 }
 
 #[cfg(test)]
@@ -186,7 +214,7 @@ mod tests {
     }
 
     fn parse(text: &str, dir: PathBuf) -> Result<Document> {
-        Document::parse(text, dir, "devpage.yml".into())
+        Document::parse(text, dir.clone(), "devpage.yml".into(), dir)
     }
 
     #[test]
@@ -231,6 +259,25 @@ mod tests {
         let doc = Document::load(&dir.join("guides/start.md")).unwrap();
         assert_eq!(doc.title, "Start");
         assert!(matches!(&doc.kind, Kind::Doc { chapters, .. } if chapters.len() == 1));
+    }
+
+    #[test]
+    fn the_repository_is_the_git_working_tree_and_addresses_start_there() {
+        let repo = folder("repo");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        std::fs::write(
+            repo.join("guides/devpage.yml"),
+            "kind: site\ntitle: G\nroot: start.md\n",
+        )
+        .unwrap();
+        let doc = Document::load(&repo.join("guides")).unwrap();
+        assert_eq!(doc.repo, repo);
+        assert_eq!(doc.entry(), "/guides/start.md");
+        assert!(
+            doc.file("/README.md").is_some(),
+            "files beside the docs are served"
+        );
+        assert!(doc.file("/../x").is_none());
     }
 
     #[test]

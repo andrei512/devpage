@@ -59,20 +59,20 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
-    if path == state.document.file_name
-        && let Kind::Doc { chapters, pdf } = &state.document.kind
-    {
-        return Html(render::doc(&state.document, chapters, pdf, print)).into_response();
-    }
-    if path == state.document.file_name
-        && let Kind::Slides { slides } = &state.document.kind
-    {
-        return Html(render::slides(&state.document, slides, print)).into_response();
+    let itself = state.document.file(&path) == state.document.path().canonicalize().ok();
+    match &state.document.kind {
+        Kind::Doc { chapters, pdf } if itself => {
+            return Html(render::doc(&state.document, chapters, pdf, print)).into_response();
+        }
+        Kind::Slides { slides } if itself => {
+            return Html(render::slides(&state.document, slides, print)).into_response();
+        }
+        _ => {}
     }
     let Some(file) = state.document.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
-            format!("{path} is not part of this document"),
+            format!("{path} is not part of this repository"),
         )
             .into_response();
     };
