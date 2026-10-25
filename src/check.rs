@@ -1,9 +1,13 @@
 //! Link checking: every link, image and diagram target a page holds must
-//! reach a file in the repository — and a heading on it, when it names one.
+//! reach a file in the repository — and a heading on it, when it names one —
+//! and every external address must answer.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex, OnceLock};
+use std::time::Duration;
+
+use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind};
 use crate::render;
@@ -15,6 +19,8 @@ pub struct Problem {
     pub file: String,
     pub line: Option<usize>,
     pub message: String,
+    /// The link as written, so the page can mark it where it stands.
+    pub target: Option<String>,
 }
 
 impl std::fmt::Display for Problem {
@@ -46,27 +52,61 @@ pub async fn document(document: &Document, check_external: bool) -> Vec<Problem>
     problems
 }
 
-/// External addresses must answer below 400, following redirects, in 10 s.
-async fn external_links(links: Vec<(String, Option<usize>, String)>) -> Vec<Problem> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
+/// One external link: the page it is on, its line, and the address.
+type External = (String, Option<usize>, String);
+
+/// The client every external check uses. It asks for HTML as a browser does —
+/// some sites answer other requests with an error a reader never sees.
+static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+    reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
         .user_agent(concat!("devpage/", env!("CARGO_PKG_VERSION")))
+        .default_headers(reqwest::header::HeaderMap::from_iter([(
+            reqwest::header::ACCEPT,
+            reqwest::header::HeaderValue::from_static("text/html,*/*;q=0.8"),
+        )]))
         .build()
-        .expect("an HTTP client");
-    let checks = links.into_iter().map(|(file, line, address)| {
-        let client = client.clone();
-        async move {
-            let message = match client.get(&address).send().await {
-                Ok(response) if response.status().as_u16() < 400 => return None,
-                Ok(response) => format!("{address} — {}", response.status()),
-                Err(error) => format!("{address} — {error}"),
-            };
-            Some(Problem {
+        .expect("an HTTP client")
+});
+
+/// Why an external address is broken, or `None` when it answers below 400,
+/// following redirects, within 10 seconds.
+async fn answer(address: &str) -> Option<String> {
+    match CLIENT.get(address).send().await {
+        Ok(response) if response.status().as_u16() < 400 => None,
+        Ok(response) => Some(response.status().to_string()),
+        Err(error) if error.is_timeout() => Some("no answer in 10 seconds".into()),
+        // reqwest's own message repeats the address; the root cause says why.
+        Err(error) => {
+            let mut cause: &dyn std::error::Error = &error;
+            while let Some(source) = cause.source() {
+                cause = source;
+            }
+            Some(cause.to_string())
+        }
+    }
+}
+
+/// Checks each external address once, however many pages link to it, and
+/// reports a problem for every link to a broken one.
+async fn external_links(links: Vec<External>) -> Vec<Problem> {
+    let mut by_address: HashMap<String, Vec<(String, Option<usize>)>> = HashMap::new();
+    for (file, line, address) in links {
+        by_address.entry(address).or_default().push((file, line));
+    }
+    let checks = by_address.into_iter().map(|(address, links)| async move {
+        let Some(why) = answer(&address).await else {
+            return Vec::new();
+        };
+        links
+            .into_iter()
+            .map(|(file, line)| Problem {
                 file,
                 line,
-                message,
+                message: format!("{address} — {why}"),
+                target: Some(address.clone()),
             })
-        }
+            .collect()
     });
     futures::future::join_all(checks)
         .await
@@ -75,10 +115,7 @@ async fn external_links(links: Vec<(String, Option<usize>, String)>) -> Vec<Prob
         .collect()
 }
 
-fn internal(
-    document: &Document,
-    external: &mut Vec<(String, Option<usize>, String)>,
-) -> Vec<Problem> {
+fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut queue: VecDeque<PathBuf> = pages(document).into();
@@ -101,6 +138,7 @@ fn internal(
                         file: document.url(&target)[1..].to_string(),
                         line: None,
                         message: format!("{error:#}"),
+                        target: None,
                     }),
                 }
             }
@@ -109,18 +147,12 @@ fn internal(
     problems
 }
 
-/// One page's problems, and the files its working links reach.
-pub fn page_links(document: &Document, page: &Path) -> (Vec<Problem>, Vec<PathBuf>) {
-    let mut external = Vec::new();
-    page_links_with(document, page, &mut external)
-}
-
 /// One page's problems and reached files; its external links are collected
 /// in `external` as (file, line, address).
 fn page_links_with(
     document: &Document,
     page: &Path,
-    external: &mut Vec<(String, Option<usize>, String)>,
+    external: &mut Vec<External>,
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
     let html = render::markdown(&source);
@@ -168,7 +200,8 @@ fn page_links_with(
             problems.push(Problem {
                 file: file.clone(),
                 line,
-                message: format!("broken link {target} — no such file in the repository"),
+                message: format!("broken link {target} — no such file"),
+                target: Some(target.clone()),
             });
             continue;
         };
@@ -183,6 +216,7 @@ fn page_links_with(
                     file: file.clone(),
                     line,
                     message: format!("broken link {target} — no heading #{fragment}"),
+                    target: Some(target.clone()),
                 });
             }
         }
@@ -191,18 +225,74 @@ fn page_links_with(
     (problems, reached)
 }
 
+/// What the preview knows about each external address.
+enum Answer {
+    Pending,
+    Fine,
+    Broken(String),
+}
+
+/// Every external address the preview has asked about, for as long as
+/// devpage runs.
+static EXTERNAL: LazyLock<Mutex<HashMap<String, Answer>>> = LazyLock::new(Mutex::default);
+
+/// Where the preview announces a broken external address, so open pages
+/// fetch themselves again and show it.
+static CHANGES: OnceLock<broadcast::Sender<String>> = OnceLock::new();
+
+/// Lets the preview's background checks refresh open pages.
+pub fn announce_on(changes: broadcast::Sender<String>) {
+    let _ = CHANGES.set(changes);
+}
+
 /// The problems on the given pages, for the preview: each is printed on the
 /// terminal the first time it is found, and returned for the page to list.
+/// External addresses are checked in the background, once each; a broken one
+/// shows from the next render, which its answer triggers.
 pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
-    static REPORTED: Mutex<Option<HashSet<Problem>>> = Mutex::new(None);
-    let problems: Vec<Problem> = pages
+    static REPORTED: LazyLock<Mutex<HashSet<Problem>>> = LazyLock::new(Mutex::default);
+    let mut external = Vec::new();
+    let mut problems: Vec<Problem> = pages
         .iter()
-        .flat_map(|page| page_links(document, page).0)
+        .flat_map(|page| page_links_with(document, page, &mut external).0)
         .collect();
+    let mut answers = EXTERNAL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    for (file, line, address) in external {
+        match answers.get(&address) {
+            Some(Answer::Broken(why)) => problems.push(Problem {
+                file,
+                line,
+                message: format!("{address} — {why}"),
+                target: Some(address),
+            }),
+            Some(Answer::Pending | Answer::Fine) => {}
+            None => {
+                // Outside a runtime (a unit test rendering a page) nothing is
+                // checked in the background.
+                let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+                    continue;
+                };
+                answers.insert(address.clone(), Answer::Pending);
+                runtime.spawn(async move {
+                    let result = answer(&address).await;
+                    let broken = result.is_some();
+                    EXTERNAL
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(address, result.map_or(Answer::Fine, Answer::Broken));
+                    if broken && let Some(changes) = CHANGES.get() {
+                        let _ = changes.send("change".into());
+                    }
+                });
+            }
+        }
+    }
+    drop(answers);
     let mut reported = REPORTED
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let reported = reported.get_or_insert_with(HashSet::new);
     for problem in &problems {
         if reported.insert(problem.clone()) {
             eprintln!("{problem}");
@@ -247,9 +337,7 @@ mod tests {
             .collect();
         assert_eq!(found.len(), 5, "{found:#?}");
         assert!(
-            found.contains(
-                &"README.md:3: broken link nope.md — no such file in the repository".to_string()
-            ),
+            found.contains(&"README.md:3: broken link nope.md — no such file".to_string()),
             "{found:#?}"
         );
         assert!(found.iter().any(|p| p.contains("b.md#three — no heading")));
@@ -261,6 +349,120 @@ mod tests {
                 .any(|p| p.starts_with("b.md:5: broken link logo.png")),
             "{found:#?}"
         );
+    }
+}
+
+/// A local web server for external-link tests, so the suite needs no
+/// network: `/ok` answers 200, anything else 404, and it counts the requests
+/// for each path.
+#[cfg(test)]
+pub(crate) mod web {
+    use std::collections::HashMap;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+    use std::sync::{Arc, Mutex};
+
+    pub struct Server {
+        pub address: String,
+        pub hits: Arc<Mutex<HashMap<String, usize>>>,
+    }
+
+    pub fn start() -> Server {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let hits = Arc::new(Mutex::new(HashMap::new()));
+        let counted = hits.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut request = String::new();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let _ = reader.read_line(&mut request);
+                let path = request.split(' ').nth(1).unwrap_or("/").to_string();
+                *counted.lock().unwrap().entry(path.clone()).or_insert(0) += 1;
+                let status = if path == "/ok" {
+                    "200 OK"
+                } else {
+                    "404 Not Found"
+                };
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                );
+            }
+        });
+        Server { address, hits }
+    }
+}
+
+#[cfg(test)]
+mod external {
+    use super::*;
+
+    fn folder(name: &str, page: &str) -> Document {
+        let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), page).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        Document::load(&dir).unwrap()
+    }
+
+    #[tokio::test]
+    async fn check_asks_each_address_once_and_reports_every_link_to_it() {
+        let web = web::start();
+        let doc = folder(
+            "check-external",
+            &format!(
+                "# Home\n\n[a]({0}/gone) [b]({0}/gone)\n\n[c]({0}/ok)\n",
+                web.address
+            ),
+        );
+        let found: Vec<String> = document(&doc, true)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let gone = format!("README.md:3: {}/gone — 404 Not Found", web.address);
+        assert_eq!(found, vec![gone.clone(), gone], "{found:#?}");
+        let hits = web.hits.lock().unwrap();
+        assert_eq!(hits.get("/gone"), Some(&1));
+        assert_eq!(hits.get("/ok"), Some(&1));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_preview_checks_in_the_background_and_refreshes_open_pages() {
+        let web = web::start();
+        let doc = folder(
+            "preview-external",
+            &format!("# Home\n\n[a]({0}/missing) [b]({0}/ok)\n", web.address),
+        );
+        let (changes, mut heard) = broadcast::channel(16);
+        announce_on(changes);
+        let pages = [doc.base.join("README.md")];
+
+        // The first render holds nothing up: the answer isn't in yet.
+        assert!(preview(&doc, &pages).is_empty());
+        // A broken address, once answered, asks open pages to fetch again …
+        let message = tokio::time::timeout(Duration::from_secs(5), heard.recv())
+            .await
+            .expect("a change")
+            .unwrap();
+        assert_eq!(message, "change");
+        // … and the next render lists it, marking the link as written.
+        let found = preview(&doc, &pages);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        let missing = format!("{}/missing", web.address);
+        assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
+        assert_eq!(found[0].line, Some(3));
+        // Each address is asked once for as long as devpage runs.
+        preview(&doc, &pages);
+        let hits = web.hits.lock().unwrap();
+        assert_eq!(hits.get("/missing"), Some(&1));
+        assert_eq!(hits.get("/ok"), Some(&1));
     }
 }
 
@@ -280,5 +482,18 @@ mod examples {
             let problems = internal(&doc, &mut Vec::new());
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
+    }
+
+    /// devpage's own docs, from their root page: every internal link and
+    /// anchor must hold. External links aren't checked, so no network.
+    #[test]
+    fn devpage_docs_have_no_broken_links() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/README.md");
+        let doc = Document::load(&root).unwrap();
+        let problems: Vec<String> = internal(&doc, &mut Vec::new())
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(problems.is_empty(), "{problems:#?}");
     }
 }

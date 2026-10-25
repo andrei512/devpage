@@ -18,7 +18,10 @@ Every link a reader could follow and every file a page loads:
   `chapters` and `slides` must name existing files.
 - **Topics entries** — each must point at an existing page.
 - **External links** — `http` and `https` addresses must answer with a status
-  below 400, following redirects, within 10 seconds.
+  below 400, following redirects, within 10 seconds. devpage asks for each one
+  as a browser asks for a page, accepting HTML, since some sites answer other
+  requests with an error no reader sees. Each address is asked once per check,
+  however many links point at it.
 - **Comment threads** — each file in the comment store must parse.
 
 `mailto:` and other schemes are not checked.
@@ -26,7 +29,9 @@ Every link a reader could follow and every file a page loads:
 ## In the preview
 
 While devpage serves a document, each page lists its own problems in a bar at
-its top, and every broken link on it is marked where it stands. They update as
+its top, and every broken link on it is marked where it stands — a red wavy
+underline on a link, a dashed outline on an image, a dashed red border on a
+diagram node. They update as
 you edit, like the rest of the page: fix the link, save, and the problem goes.
 devpage also prints each problem once on its terminal, as it first finds it:
 
