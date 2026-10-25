@@ -44,8 +44,9 @@ flowchart TD
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/{*path}` | the file at `path` in the served folder |
 
-A query of `?print` on a document or page renders it in **print mode**, the
-page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).
+A query of `?print` on a doc's or deck's document file, or on a Markdown file
+in no site, renders it in **print mode**, the page `devpage pdf` has Chrome
+print; a site's pages are never printed, so they ignore it ([Printing to PDF](../pdf/README.md)).
 
 ## The URL is the file path
 
@@ -138,7 +139,8 @@ A file ending in `.md` is read as text and passed to `render::page`:
 4. **Frame.** The pieces go into one HTML page:
 
    - `<title>` is `<page title> · <document title>`;
-   - `<nav id="nav">` holds a link to `/` with the document title, then the tree;
+   - `<nav id="nav">` holds a link to the site's root page with the site's
+     title, then the tree;
    - `<main id="page"><article>` holds the rendered Markdown;
    - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
      `/__devpage/`.

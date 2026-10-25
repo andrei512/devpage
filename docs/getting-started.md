@@ -133,11 +133,12 @@ long page with an outline beside it; `devpage pdf garden/plan` writes
 `Spring plan.pdf`.
 
 **A deck.** Add `garden/talk/devpage.yml` with `kind: slides`, a `title`, and
-`slides:` listing one Markdown file per slide. Open it, use the arrow keys, press
+`slides:` listing one Markdown file per slide, and link to it from `README.md`
+as `[Spring talk](talk/devpage.yml)`. Open it, use the arrow keys, press
 **F** for fullscreen; `devpage pdf garden/talk` prints one slide per page.
 
-**Check it.** `devpage check garden` checks every link in all three and exits
-`1` if one is broken — ready for a test.
+**Check it.** `devpage check garden` checks the site and everything it links
+to — here, all three — and exits `1` if a link is broken: ready for a test.
 
 The repository's own `examples/` folder holds a finished
 [doc](../examples/sync-design/devpage.yml) and

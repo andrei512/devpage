@@ -62,7 +62,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 </head>
 <body>
 <nav id="nav">
-<a class="document-title{root_class}" href="/">{document}</a>
+<a class="document-title{root_class}" href="{home}">{document}</a>
 {nav}
 </nav>
 <main id="page">{problems}<article data-source="{current}">{content}</article></main>
@@ -73,6 +73,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
         page = escape(&title(source, file)),
         document = escape(&document.title),
         nav = navigation(document, &current),
+        home = escape(&document.entry()),
         root_class = if current == document.entry() {
             " current"
         } else {

@@ -161,7 +161,7 @@ with a relative path:
 
 By default a change to any file in the served folder refreshes the open
 pages, images included, except files a `.gitignore` excludes. A site can
-narrow that with its `watch` list ([configuration reference](../configuration-reference/README.md#site)).
+narrow that, for the files in its own folder, with its `watch` list ([configuration reference](../configuration-reference/README.md#site)).
 
 ## Documenting another repository
 
