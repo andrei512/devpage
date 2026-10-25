@@ -885,9 +885,6 @@ mod examples {
     struct Repo(PathBuf);
 
     impl Files for Repo {
-        fn read(&self, path: &str) -> Option<String> {
-            std::fs::read_to_string(self.0.join(path)).ok()
-        }
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             std::fs::read(self.0.join(path)).ok()
         }

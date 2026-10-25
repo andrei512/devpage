@@ -162,17 +162,17 @@ impl Node {
 
 /// Reads a design's files by their path from the top of the served folder.
 pub trait Files {
+    /// A file's bytes: a design's text, or an `Image`'s file.
+    fn bytes(&self, path: &str) -> Option<Vec<u8>>;
     /// A design file's text.
-    fn read(&self, path: &str) -> Option<String>;
-    /// Any file's bytes — how an `Image`'s file is read.
-    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-        self.read(path).map(String::into_bytes)
+    fn read(&self, path: &str) -> Option<String> {
+        String::from_utf8(self.bytes(path)?).ok()
     }
 }
 
 impl Files for HashMap<String, String> {
-    fn read(&self, path: &str) -> Option<String> {
-        self.get(path).cloned()
+    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+        self.get(path).map(|s| s.clone().into_bytes())
     }
 }
 
@@ -892,9 +892,6 @@ mod tests {
     struct Mem(HashMap<String, Vec<u8>>);
 
     impl Files for Mem {
-        fn read(&self, path: &str) -> Option<String> {
-            String::from_utf8(self.0.get(path)?.clone()).ok()
-        }
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             self.0.get(path).cloned()
         }

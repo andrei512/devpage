@@ -63,10 +63,6 @@ struct Reading<'a> {
 }
 
 impl Files for Reading<'_> {
-    fn read(&self, path: &str) -> Option<String> {
-        String::from_utf8(self.bytes(path)?).ok()
-    }
-
     /// Any file's bytes — a design's text, or an image's — read once and
     /// kept until the watcher reports it changed.
     fn bytes(&self, path: &str) -> Option<Vec<u8>> {
@@ -218,10 +214,10 @@ impl Designs {
 pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
     struct Disk<'a>(&'a Path);
     impl Files for Disk<'_> {
-        fn read(&self, path: &str) -> Option<String> {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             let file = self.0.join(path).canonicalize().ok()?;
             file.starts_with(self.0)
-                .then(|| std::fs::read_to_string(file).ok())
+                .then(|| std::fs::read(file).ok())
                 .flatten()
         }
     }
