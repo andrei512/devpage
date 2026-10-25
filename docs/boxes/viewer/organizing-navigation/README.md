@@ -93,6 +93,43 @@ while it is shown.
 Because the tree is read from the files on every request, editing a Topics
 list changes the sidebar of every open page as soon as the file is saved.
 
+## The navbar
+
+A site can have a bar across the top, beside its sidebar or instead of it. Its
+title sits on the left and opens the root page; the `navbar` field of the
+document file lists what sits on the right, in order:
+
+```yaml
+kind: site
+title: devpage
+root: README.md
+navbar:
+  Docs (book-open): README.md
+  Getting started (rocket): getting-started.md
+  Examples (layout-grid):
+    Sync design (file-text): ../examples/sync-design/devpage.yml
+    Launch talk (presentation): ../examples/launch-talk/devpage.yml
+  (github): https://github.com/andrei512/devpage
+```
+
+- **`Label: target`** is a link. The target is a page, a document file — a doc,
+  a deck, another site — or an address on the web; paths are relative to the
+  document file.
+- **`Label:` with a nested map** is a dropdown of the links under it, one level
+  deep.
+- **`(icon)`** after a label adds that [Lucide](https://lucide.dev/icons/)
+  icon, by name. On its own, `(github)` is a link shown as its icon only, with
+  the target's site name as its tooltip.
+- The link to the page you are on, or to the section holding it, is
+  highlighted. On a narrow screen the links fold into a menu button.
+
+A link to a missing page or an unknown icon name is a
+[problem](../checking-links/README.md), like any broken link.
+
+**Sidebar, navbar or both.** The sidebar shows unless the site sets
+`sidebar: false`; the navbar shows when `navbar` is set. A site with neither
+is just its pages, linked by their text.
+
 ## Structuring a site's reading order
 
 The Topics lists are the site's table of contents, so lay them out the way a

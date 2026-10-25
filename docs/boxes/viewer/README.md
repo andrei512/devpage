@@ -107,7 +107,8 @@ The words this box owns; the rest of the docs use them with these meanings.
 | **widget** | A React component used in Markdown as an HTML tag whose name starts with a capital letter — `<Callout>`. Its props come from the tag's attributes and its content, rendered as Markdown, is its `children`. |
 | **system widget** | A widget devpage ships, in every document: `Callout`, `Tabs`, `Tab`, `Example`, `FileTree`, `Terminal`, `Keys` and `Diagram`, through which every Mermaid fence renders. |
 | **project widget** | A widget a project writes: one `.tsx` file in the folder its document file's `widgets` field names, named by its file name. |
-| **theme** | A set of values for the color and font tokens. There are two, light and dark, chosen by the reader's system setting. |
+| **theme** | A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector lets the reader choose. |
+| **navbar** | A site's bar across the top: its title, then the links, dropdowns and icons its `navbar` field lists. |
 | **token** | A CSS custom property in `assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from. |
 
 ## Constraints

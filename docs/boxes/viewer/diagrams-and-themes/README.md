@@ -139,6 +139,17 @@ taken from a token: the text of the current sidebar entry (white); the red
 (`#d70015`) of diagram errors, comment errors, the problems bar and broken-link
 marks; and the black behind a deck's stage.
 
+## Choosing a theme
+
+Every page — a site's, a doc, a deck — has a selector in its top-right corner:
+**Auto**, which follows the reader's system setting, **Light** or **Dark**. The
+browser remembers the choice for the address it was made on, and it switches
+everything drawn from the tokens at once: the page, highlighted code,
+diagrams and widgets. On a site with a navbar the selector sits at the right
+end of the bar. It is never printed, and a deck hides it in fullscreen. A
+document file turns it off with `theme-selector: false`; the page then follows
+the system setting, as before the selector existed.
+
 ## Changing the look
 
 The themes can't be changed per document. A document file has no theme

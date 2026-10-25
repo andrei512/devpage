@@ -68,6 +68,9 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/README.md#a-projects-own-widgets), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
+| `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
+| `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
+| `theme-selector` | boolean | no | Whether the light/dark selector shows ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme)). Default: `true`. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
@@ -84,6 +87,7 @@ belongs to the nearest one.
 | `pdf.header` | string | no | none | Printed at the top of every page. |
 | `pdf.footer` | string | no | `"{page} / {pages}"` | Printed at the bottom of every page. |
 | `widgets` | path | no | none | The folder of this doc's [project widgets](../widgets/README.md#a-projects-own-widgets). |
+| `theme-selector` | boolean | no | `true` | Whether the light/dark selector shows. |
 
 In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
@@ -99,6 +103,7 @@ default.
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/README.md#a-projects-own-widgets); default none. |
+| `theme-selector` | boolean | no | Whether the light/dark selector shows; default `true`. Hidden in fullscreen. |
 
 ## Errors
 
