@@ -18,7 +18,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/server.rs`, `src/main.rs`, `src/pdf.rs`, `src/comments.rs` (tests) |
 | `tokio` (feature `full`) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channel that carries changes, background external-link checks, and reading files in handlers (`tokio::fs`). | `src/main.rs`, `src/server.rs`, `src/watch.rs`, `src/check.rs`, `src/pdf.rs`, `src/comments.rs` |
-| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends. | `src/server.rs` |
+| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends; `ReceiverStream` and the `Stream` trait, which make the design store's updates the watch stream's response. | `src/server.rs`, `src/designs.rs` |
 | `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
 | `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `src/render.rs`, `src/nav.rs`, `src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `src/highlight.rs` |
@@ -85,6 +85,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by devpage's build script.
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `devpage-design` | 0.1.0 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
 | `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: the display list replayed into a vello scene and drawn with WebGPU through `wgpu`. | `design/wasm/src/gpu.rs` |
 | `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu.rs` |
 | `wasm-bindgen-futures` | 0.4.79 | MIT or Apache-2.0 | Exporting `Gpu::open`, which awaits WebGPU's adapter and device, as an `async` function the page receives as a promise. | `design/wasm/src/gpu.rs` |

@@ -36,18 +36,30 @@ pub fn markdown(source: &str) -> String {
 
 /// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas
 /// the design script draws on. The canvas keeps the link in `src`, so links
-/// are rebased and checked as an image's are.
+/// are rebased and checked as an image's are. A raw `<img>` in the page is an
+/// image like any other, with or without a closing `/`.
 fn embed_designs(html: &str) -> String {
     let mut out = String::new();
-    let mut rest = html;
-    while let Some(at) = rest.find("<img src=\"") {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let end = rest.find("/>").map_or(rest.len(), |end| end + 2);
+    // ASCII lowercasing keeps every byte where it was, so a position found in
+    // `lower` is the same position in `html`.
+    let lower = html.to_ascii_lowercase();
+    let mut from = 0;
+    while let Some(at) = lower[from..].find("<img").map(|at| from + at) {
+        out.push_str(&html[from..at]);
+        let rest = &html[at..];
+        if !rest[4..].starts_with(|c: char| c.is_ascii_whitespace()) {
+            out.push_str(&rest[..4]);
+            from = at + 4;
+            continue;
+        }
+        let end = tag_end(rest);
         let tag = &rest[..end];
+        let attributes = attributes(&tag[4..]);
         let attribute = |name: &str| {
-            let start = tag.find(&format!(" {name}=\""))? + name.len() + 3;
-            Some(&tag[start..start + tag[start..].find('"')?])
+            attributes
+                .iter()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name))
+                .map(|(_, value)| value.as_str())
         };
         match attribute("src") {
             Some(src)
@@ -57,16 +69,89 @@ fn embed_designs(html: &str) -> String {
                     .is_some_and(|p| p.ends_with(".design")) =>
             {
                 out.push_str(&format!(
-                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"{src}\" role=\"img\" aria-label=\"{}\"></canvas></span>",
-                    attribute("alt").unwrap_or_default()
+                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"{}\" role=\"img\" aria-label=\"{}\"></canvas></span>",
+                    src.replace('"', "&quot;"),
+                    attribute("alt").unwrap_or_default().replace('"', "&quot;")
                 ));
             }
             _ => out.push_str(tag),
         }
-        rest = &rest[end..];
+        from = at + end;
     }
-    out.push_str(rest);
+    out.push_str(&html[from..]);
     out
+}
+
+/// A tag's attributes, from just after its name up to its closing `>`: each
+/// name with its value — double-quoted, single-quoted, unquoted, or empty for
+/// a bare name — separated by any whitespace.
+fn attributes(tag: &str) -> Vec<(String, String)> {
+    let mut attributes = Vec::new();
+    let mut chars = tag.char_indices().peekable();
+    loop {
+        while chars
+            .next_if(|(_, c)| c.is_ascii_whitespace() || *c == '/')
+            .is_some()
+        {}
+        let Some(&(start, c)) = chars.peek() else {
+            break;
+        };
+        if c == '>' {
+            break;
+        }
+        let mut end = start;
+        while let Some((i, c)) =
+            chars.next_if(|(_, c)| !c.is_ascii_whitespace() && !matches!(c, '=' | '>' | '/'))
+        {
+            end = i + c.len_utf8();
+        }
+        let name = tag[start..end].to_string();
+        while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
+        let mut value = String::new();
+        if chars.next_if(|(_, c)| *c == '=').is_some() {
+            while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
+            match chars.peek() {
+                Some(&(_, quote @ ('"' | '\''))) => {
+                    chars.next();
+                    for (_, c) in chars.by_ref() {
+                        if c == quote {
+                            break;
+                        }
+                        value.push(c);
+                    }
+                }
+                _ => {
+                    while let Some((_, c)) =
+                        chars.next_if(|(_, c)| !c.is_ascii_whitespace() && *c != '>')
+                    {
+                        value.push(c);
+                    }
+                }
+            }
+        }
+        if name.is_empty() {
+            // Not a name at all (a stray `=`): skip one character and go on.
+            chars.next();
+            continue;
+        }
+        attributes.push((name, value));
+    }
+    attributes
+}
+
+/// The length of the tag `html` starts with: up to and including its closing
+/// `>`, skipping any `>` inside a quoted attribute value.
+fn tag_end(html: &str) -> usize {
+    let mut quote = None;
+    for (i, c) in html.char_indices() {
+        match (quote, c) {
+            (None, '"' | '\'') => quote = Some(c),
+            (Some(q), c) if c == q => quote = None,
+            (None, '>') => return i + 1,
+            _ => {}
+        }
+    }
+    html.len()
 }
 
 /// A page's title: its first level-one heading, or its file name.
@@ -501,6 +586,73 @@ mod tests {
         assert!(html.contains("<img src=\"photo.png\" alt=\"A photo\" />"));
         // The design's script is loaded by the page script only when a page has one.
         assert!(!markdown("![A photo](photo.png)").contains("canvas"));
+    }
+
+    #[test]
+    fn a_raw_image_without_a_closing_slash_leaves_the_embed_after_it_working() {
+        let html = markdown(
+            "<img src=\"logo.png\" width=\"40\">\n\nThen:\n\n![Checkout](checkout.design)\n",
+        );
+        assert!(
+            html.contains("<img src=\"logo.png\" width=\"40\">"),
+            "{html}"
+        );
+        assert!(
+            html.contains("<canvas class=\"design\" src=\"checkout.design\""),
+            "{html}"
+        );
+        assert!(!html.contains("<img src=\"checkout.design\""), "{html}");
+    }
+
+    #[test]
+    fn a_raw_image_of_a_design_embeds_it_and_keeps_what_follows() {
+        let html = markdown(
+            "<img src=\"checkout.design\" alt=\"Raw\" width=\"300\">\n\nA paragraph.\n\n![Logo](logo.png)\n",
+        );
+        assert!(
+            html.contains(
+                "<canvas class=\"design\" src=\"checkout.design\" role=\"img\" aria-label=\"Raw\"></canvas>"
+            ),
+            "{html}"
+        );
+        assert!(html.contains("<p>A paragraph.</p>"), "{html}");
+        assert!(
+            html.contains("<img src=\"logo.png\" alt=\"Logo\" />"),
+            "{html}"
+        );
+        // A `>` inside a quoted value doesn't end the tag.
+        let html = markdown("<img alt=\"a > b\" src=\"x.design\">\n\nAfter.\n");
+        assert!(html.contains("aria-label=\"a > b\""), "{html}");
+        assert!(html.contains("<p>After.</p>"), "{html}");
+    }
+
+    #[test]
+    fn a_raw_image_of_a_design_is_found_however_its_attributes_are_written() {
+        let canvas = |alt: &str| {
+            format!(
+                "<canvas class=\"design\" src=\"checkout.design\" role=\"img\" aria-label=\"{alt}\"></canvas>"
+            )
+        };
+        for (source, alt) in [
+            ("<img src='checkout.design' alt='Single'>", "Single"),
+            (
+                "<img\n  alt=\"New line\"\n  src=\"checkout.design\">",
+                "New line",
+            ),
+            ("<img src=checkout.design alt=Bare>", "Bare"),
+            ("<IMG ALT=\"Upper\" SRC=\"checkout.design\">", "Upper"),
+            (
+                "<img\tsrc=\"checkout.design\"\talt='Say \"hi\"'>",
+                "Say &quot;hi&quot;",
+            ),
+        ] {
+            let html = markdown(&format!("Before.\n\n{source}\n\nAfter.\n"));
+            assert!(html.contains(&canvas(alt)), "{source}\n→ {html}");
+            assert!(html.contains("<p>After.</p>"), "{source}\n→ {html}");
+        }
+        // `data-src` is not `src`.
+        let html = markdown("<img data-src=\"checkout.design\" src=\"logo.png\">\n");
+        assert!(!html.contains("canvas"), "{html}");
     }
 
     #[test]
