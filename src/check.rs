@@ -3,6 +3,7 @@
 
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::document::{Document, Kind};
 use crate::render;
@@ -132,6 +133,26 @@ pub fn page_links(document: &Document, page: &Path) -> (Vec<Problem>, Vec<PathBu
         reached.push(resolved);
     }
     (problems, reached)
+}
+
+/// The problems on the given pages, for the preview: each is printed on the
+/// terminal the first time it is found, and returned for the page to list.
+pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
+    static REPORTED: Mutex<Option<HashSet<Problem>>> = Mutex::new(None);
+    let problems: Vec<Problem> = pages
+        .iter()
+        .flat_map(|page| page_links(document, page).0)
+        .collect();
+    let mut reported = REPORTED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let reported = reported.get_or_insert_with(HashSet::new);
+    for problem in &problems {
+        if reported.insert(problem.clone()) {
+            eprintln!("{problem}");
+        }
+    }
+    problems
 }
 
 /// The values of every `name="…"` attribute in rendered HTML.

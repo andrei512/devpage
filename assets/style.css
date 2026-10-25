@@ -223,3 +223,10 @@ mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); c
 body.slides #comments { position: fixed; right: 0; top: 0; bottom: 0; overflow: auto; background: var(--background); z-index: 2; display: none; }
 body.slides.show-comments #comments { display: block; }
 @media print { #comments, #comment-button { display: none; } mark.comment { background: none; } }
+
+/* Problems: broken links found while the page is previewed. */
+
+.problems { max-width: 780px; margin: 0 auto 24px; border: 1px solid #d70015; border-radius: 10px; padding: 10px 14px; font-size: 14px; color: #d70015; }
+.problems ul { margin: 4px 0 0; padding-left: 18px; }
+body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-index: 3; background: var(--background); }
+@media print { .problems { display: none; } }

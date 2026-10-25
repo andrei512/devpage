@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
+use crate::check;
 use crate::document::{Document, Paper, Pdf};
 use crate::highlight::Highlighter;
 use crate::nav;
@@ -64,7 +65,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 <a class="document-title{root_class}" href="/">{document}</a>
 {nav}
 </nav>
-<main id="page"><article data-source="{current}">{content}</article></main>
+<main id="page">{problems}<article data-source="{current}">{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"></script>
 </body>
@@ -78,6 +79,7 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
             ""
         },
         content = markdown(source),
+        problems = problems(document, &[file.to_path_buf()]),
     )
 }
 
@@ -124,7 +126,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 </head>
 <body class="doc{print_class}">
 {outline}
-<main id="page"><article>{heading}{content}</article></main>
+<main id="page">{problems}<article>{heading}{content}</article></main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
@@ -138,6 +140,28 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         },
         print_class = if print { " print" } else { "" },
         live = if print { " data-print" } else { "" },
+        problems = if print {
+            String::new()
+        } else {
+            problems(document, chapters)
+        },
+    )
+}
+
+/// The page's problems, listed above it, with each broken link marked.
+fn problems(document: &Document, pages: &[PathBuf]) -> String {
+    let found = check::preview(document, pages);
+    if found.is_empty() {
+        return String::new();
+    }
+    let items: String = found
+        .iter()
+        .map(|problem| format!("<li>{}</li>", escape(&problem.to_string())))
+        .collect();
+    format!(
+        "<div class=\"problems\"><b>{} problem{}</b><ul>{items}</ul></div>",
+        found.len(),
+        if found.len() == 1 { "" } else { "s" }
     )
 }
 
@@ -165,7 +189,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}">
-<main id="page" class="deck">{content}</main>
+{problems}<main id="page" class="deck">{content}</main>
 <script src="/__devpage/pele.js"></script>
 <script src="/__devpage/devpage.js"{live}></script>
 </body>
@@ -173,6 +197,11 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
         title = escape(&document.title),
         print_class = if print { " print" } else { "" },
         live = if print { " data-print" } else { "" },
+        problems = if print {
+            String::new()
+        } else {
+            problems(document, slides)
+        },
     )
 }
 
