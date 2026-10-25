@@ -198,15 +198,17 @@ only the parts that changed are sent to the browser.
 ## Looking at a design as a PNG
 
 `GET <path>.design.png` answers with the design drawn as a PNG, at its own
-size, by the same renderer that draws the canvas:
+size, from the same layout and the same scene as the canvas
+([one renderer](../constraints/a-design-has-one-renderer.md)):
 
 ```sh
 curl -s http://localhost:3030/examples/checkout/checkout.design.png -o checkout.png
 ```
 
 This is how an agent looks at its work: write the file, fetch the PNG, look,
-fix. devpage keeps every design it has read parsed in memory and draws the PNG
-itself, without a browser, so the answer arrives as fast as a page. A design
+fix. devpage keeps every design it has read resolved in memory and paints the PNG
+itself on the CPU, without a browser, so the answer arrives as fast as a
+page. A design
 with problems answers `422` with the problems as plain text, one per line.
 
 ## Problems
