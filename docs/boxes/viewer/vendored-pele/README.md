@@ -41,8 +41,7 @@ becomes the
 controls, mounting, registering diagram types — and devpage calls none of it.
 
 pele colors its SVG with `--pele-*` CSS variables; `assets/style.css` sets
-them from devpage's theme tokens on every `.diagram`, and fixes
-`--pele-radius` at `8px`. The mapping is in
+them from devpage's theme tokens on every `.diagram`. The mapping is in
 [How diagrams follow the theme](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams).
 
 ## Upgrading it
@@ -84,9 +83,6 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 </Steps>
 
-The bundle 1.10.0 reads these variables today: `--pele-bg`, `--pele-fg`,
-`--pele-muted`, `--pele-line`, `--pele-surface`, `--pele-surface-alt`,
-`--pele-border`, `--pele-accent`, `--pele-font`, `--pele-font-mono`,
-`--pele-radius`, plus some devpage leaves at pele's defaults — `--pele-error`,
-`--pele-critical`, the `--pele-series-*` colors and the `--pele-zoom-*`
-settings.
+Which variables the 1.10.0 bundle reads, and which devpage leaves at pele's
+defaults, is listed once, in
+[How diagrams follow the theme](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams).

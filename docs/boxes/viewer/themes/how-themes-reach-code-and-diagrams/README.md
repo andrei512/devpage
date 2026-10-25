@@ -33,8 +33,10 @@ every diagram from the theme tokens:
 
 Because the colors are variables rather than values baked into the SVG, a
 diagram changes with the page when the theme switches between light and dark.
-pele variables the stylesheet doesn't set, such as its error and series
-colors, keep pele's own defaults.
+The stylesheet also fixes `--pele-radius` at `8px`. The variables it doesn't
+set keep pele's own defaults: with the 1.10.0 bundle, `--pele-error`,
+`--pele-critical`, the `--pele-series-*` colors and the `--pele-zoom-*`
+settings.
 
 The stylesheet also styles the links in
 [clickable diagrams](../../diagrams/README.md#clickable-diagrams): `.diagram a`

@@ -39,23 +39,9 @@ can run the flow inverted, as a [hack](./stages/README.md#hack).
 
 ## Boxes and documentation
 
-A box is a component or containing subsystem. Its documentation lives under
-`docs/boxes/`, nested by subject containment. Its README is the entrance: a broad
-box summarizes its parts and links to focused child designs; a focused box can
-explain its behavior fully. Code belonging to a child remains bound by its own
-and its ancestors' applicable constraints. A dependency link is not containment.
-
-Each box's README lists its constraints in one line each, linked to one file per
-rule: the precise rule, its reason and how to check it. System-wide rules belong
-in `docs/constraints/`, read on every review.
-
-A box appears when its area is designed. Exact contracts stay beside their
-definitions in code; box docs explain them and link to them.
-
-A change updates the explanations, contracts, examples and incoming links it
-affects. A design decision lives in its owning focused design, linked from the
-box entrance; it does not force a detailed tangent into the README. The reason
-for changing the design belongs in the commit message, not an ADR.
+How box docs are organized and kept true — one home per subject, constraints
+one file per rule, docs on main describing the system as it is — is on the
+[system catalog](../../README.md#how-to-read-the-catalog).
 
 ## Constraints
 
