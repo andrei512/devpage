@@ -106,7 +106,7 @@ field, relative to that file:
 kind: site
 title: devpage
 root: README.md
-widgets: widgets          # every .tsx in docs/widgets/ is a widget
+widgets: widgets          # every capitalized .tsx in docs/widgets/ is a widget
 ```
 
 Every `.tsx` file in the folder whose name starts with a capital letter is a
@@ -127,23 +127,28 @@ const kinds = [
 ];
 
 export const css = `
-  .kind-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; }
-  .kind-cards a { border: 1px solid var(--border); border-radius: 10px; color: inherit; }
-  .kind-cards a:hover { border-color: var(--accent); }
+  .kind-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1.25rem; }
+  .kind-cards a.kind-card { border: 1px solid var(--border); border-radius: 18px; color: inherit; }
+  .kind-cards a.kind-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
 `;
 
 export default function KindCards() {
   return (
     <div className="kind-cards">
       {kinds.map((kind) => (
-        <a href={kind.href}>
-          <strong>{kind.name}</strong> <code>kind: {kind.kind}</code>
+        <a className="kind-card" href={kind.href}>
+          <div className="kind-sketch" aria-hidden="true"><Sketch kind={kind.kind} /></div>
+          <strong>{kind.name}</strong>
+          <code className="kind-field">kind: {kind.kind}</code>
         </a>
       ))}
     </div>
   );
 }
 ```
+
+`Sketch` is a second component in the same file, drawing each kind's little
+picture.
 
 Written as `<KindCards />`, it renders:
 
@@ -175,7 +180,7 @@ A widget is styled the way any React component is, in either way or both:
 
 - **Inline styles** — `style={{ borderColor: "var(--accent)" }}`.
 - **Its own CSS**, optionally, exported from the same file as a string — as
-  `KindCards` does above, under its own class (`.kind-cards`). devpage adds it
+  `KindCards` does above, under its own classes (`.kind-cards`, `.kind-card`). devpage adds it
   to the page once.
 
 The theme defines no classes for widgets to borrow; what a widget shares with
