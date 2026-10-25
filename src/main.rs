@@ -10,7 +10,7 @@ mod render;
 mod server;
 mod watch;
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,6 +31,15 @@ struct Cli {
     command: Option<Command>,
     /// A document file, a folder holding devpage.yml, or a Markdown file.
     path: Option<PathBuf>,
+    /// The address to listen on; any non-loopback address means deployed.
+    #[arg(long, default_value = "127.0.0.1")]
+    host: IpAddr,
+    /// Listen on exactly this port instead of the first free one from 3030.
+    #[arg(long)]
+    port: Option<u16>,
+    /// The header naming a comment's author when deployed.
+    #[arg(long, default_value = "X-Forwarded-Email")]
+    user_header: String,
 }
 
 #[derive(Subcommand)]
@@ -60,18 +69,32 @@ async fn main() -> Result<()> {
     let (changes, _) = broadcast::channel(16);
     let _watcher = watch::start(document.clone(), changes.clone())?;
 
-    let listener = bind(FIRST_PORT).await?;
+    let listener = match cli.port {
+        Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
+            .await
+            .with_context(|| format!("binding {}:{port}", cli.host))?,
+        None => bind(cli.host, FIRST_PORT).await?,
+    };
     let port = listener.local_addr()?.port();
-    println!("{} → http://localhost:{port}", document.title);
-    axum::serve(listener, server::router(document, changes)).await?;
+    let shown = if cli.host.is_loopback() {
+        "localhost".to_string()
+    } else {
+        cli.host.to_string()
+    };
+    println!("{} → http://{shown}:{port}", document.title);
+    let identity = if cli.host.is_loopback() {
+        server::Identity::Local(comments::local_author(&document.repo))
+    } else {
+        server::Identity::Header(cli.user_header)
+    };
+    axum::serve(listener, server::router(document, changes, identity)).await?;
     Ok(())
 }
 
 /// Binds the first free port at or above `first`.
-async fn bind(first: u16) -> Result<TcpListener> {
+async fn bind(host: IpAddr, first: u16) -> Result<TcpListener> {
     for port in first..=u16::MAX {
-        if let Ok(listener) = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port))).await
-        {
+        if let Ok(listener) = TcpListener::bind(SocketAddr::from((host, port))).await {
             return Ok(listener);
         }
     }
@@ -84,9 +107,10 @@ mod tests {
 
     #[tokio::test]
     async fn takes_the_next_port_when_the_first_is_busy() {
-        let busy = bind(41000).await.unwrap();
+        let host = IpAddr::from([127, 0, 0, 1]);
+        let busy = bind(host, 41000).await.unwrap();
         let taken = busy.local_addr().unwrap().port();
-        let next = bind(taken).await.unwrap();
+        let next = bind(host, taken).await.unwrap();
         assert!(next.local_addr().unwrap().port() > taken);
     }
 }

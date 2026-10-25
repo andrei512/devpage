@@ -9,7 +9,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::Query;
 use axum::extract::{Path, RawQuery, Request, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -19,7 +19,7 @@ use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
-use crate::comments::{self, Anchor, Store};
+use crate::comments::{Anchor, Store};
 use crate::document::{Document, Kind};
 use crate::render;
 
@@ -28,10 +28,38 @@ struct AppState {
     document: Arc<Document>,
     changes: broadcast::Sender<String>,
     store: Arc<Store>,
-    author: Arc<String>,
+    identity: Arc<Identity>,
 }
 
-pub fn router(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
+/// Who writes a comment: one local author, or — deployed — whoever the auth
+/// proxy names in a header. devpage authenticates no one itself.
+pub enum Identity {
+    Local(String),
+    Header(String),
+}
+
+impl Identity {
+    #[allow(clippy::result_large_err)]
+    fn author(&self, headers: &HeaderMap) -> Result<String, Response> {
+        match self {
+            Identity::Local(name) => Ok(name.clone()),
+            Identity::Header(name) => headers
+                .get(name.as_str())
+                .and_then(|value| value.to_str().ok())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    (StatusCode::UNAUTHORIZED, format!("no {name} header")).into_response()
+                }),
+        }
+    }
+}
+
+pub fn router(
+    document: Arc<Document>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
@@ -46,7 +74,7 @@ pub fn router(document: Arc<Document>, changes: broadcast::Sender<String>) -> Ro
         .layer(middleware::from_fn(log))
         .with_state(AppState {
             store: Arc::new(Store::new(&document.repo)),
-            author: Arc::new(comments::local_author(&document.repo)),
+            identity: Arc::new(identity),
             document,
             changes,
         })
@@ -167,29 +195,69 @@ async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQu
     }
 }
 
-async fn create_comment(State(state): State<AppState>, Json(new): Json<NewThread>) -> Response {
+async fn create_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(new): Json<NewThread>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
     match state
         .store
-        .create(&new.page, new.anchor, &state.author, &new.text)
+        .create(&new.page, new.anchor, &author, &new.text)
     {
         Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
         Err(error) => failed(error),
     }
 }
 
-async fn reply_comment(State(state): State<AppState>, Json(reply): Json<Reply>) -> Response {
+async fn reply_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    let author = match state.identity.author(&headers) {
+        Ok(author) => author,
+        Err(refused) => return refused,
+    };
     match state
         .store
-        .reply(&reply.page, &reply.id, &state.author, &reply.text)
+        .reply(&reply.page, &reply.id, &author, &reply.text)
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
 }
 
-async fn resolve_comment(State(state): State<AppState>, Json(reply): Json<Reply>) -> Response {
+async fn resolve_comment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(reply): Json<Reply>,
+) -> Response {
+    if let Err(refused) = state.identity.author(&headers) {
+        return refused;
+    }
     match state.store.resolve(&reply.page, &reply.id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deployed_authors_come_from_the_proxy_header_or_are_refused() {
+        let deployed = Identity::Header("X-Forwarded-Email".into());
+        let mut headers = HeaderMap::new();
+        let refused = deployed.author(&headers).unwrap_err();
+        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
+        headers.insert("x-forwarded-email", "ana@example.com".parse().unwrap());
+        assert_eq!(deployed.author(&headers).unwrap(), "ana@example.com");
+        let local = Identity::Local("Andrei".into());
+        assert_eq!(local.author(&headers).unwrap(), "Andrei");
     }
 }
