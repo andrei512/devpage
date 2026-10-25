@@ -26,6 +26,10 @@ Every link a reader could follow and every file a page loads:
 
 `mailto:` and other schemes are not checked.
 
+Links in a [widget](../widgets/README.md)'s content are checked like any other,
+since devpage renders that Markdown. Links a widget's own code builds in the
+browser are not: devpage never runs widget code on the server.
+
 ## In the preview
 
 While devpage serves a document, each page lists its own problems in a bar at
