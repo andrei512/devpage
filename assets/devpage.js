@@ -163,10 +163,12 @@ async function load(url) {
     location.assign(url);
     return true;
   }
-  for (const id of ["page", "nav"]) {
+  for (const id of ["page", "nav", "navbar"]) {
     const fresh = next.getElementById(id);
-    if (fresh) document.getElementById(id).replaceChildren(...fresh.childNodes);
+    if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
   }
+  document.getElementById("navbar")?.classList.remove("open");
+  applyTheme(document.documentElement.dataset.themeChoice || "auto");
   document.title = next.title;
   // The fresh page names its widgets' current versions.
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
@@ -646,3 +648,93 @@ mountWidgets(document).catch((error) => console.error(error)).finally(() => {
   document.documentElement.dataset.ready = "true";
 });
 if (!print && !document.hidden) connect();
+
+// ---- Theme ----------------------------------------------------------------
+// The selector's choice — Auto, Light or Dark — is remembered by the browser;
+// Auto follows the system setting, live. The page's head set the theme before
+// it painted; this keeps it current and the selector showing it.
+
+const themeQuery = matchMedia("(prefers-color-scheme: dark)");
+
+function applyTheme(choice) {
+  const root = document.documentElement;
+  root.dataset.themeChoice = choice;
+  root.dataset.theme = choice === "auto" ? (themeQuery.matches ? "dark" : "light") : choice;
+  for (const button of document.querySelectorAll("button[data-theme-choice]")) {
+    button.setAttribute("aria-checked", String(button.dataset.themeChoice === choice));
+  }
+}
+
+applyTheme(document.documentElement.dataset.themeChoice || "auto");
+themeQuery.addEventListener("change", () => applyTheme(document.documentElement.dataset.themeChoice || "auto"));
+
+document.addEventListener("click", (event) => {
+  const button = event.target.closest?.("button[data-theme-choice]");
+  if (!button) return;
+  const choice = button.dataset.themeChoice;
+  try {
+    if (choice === "auto") localStorage.removeItem("devpage-theme");
+    else localStorage.setItem("devpage-theme", choice);
+  } catch {
+    // Storage may be blocked; the choice still holds for this page.
+  }
+  applyTheme(choice);
+});
+
+// ---- Navbar ---------------------------------------------------------------
+// Dropdowns open on click or from the keyboard and close on Escape, on a click
+// elsewhere, or when a link in them is followed. On a narrow screen the links
+// fold into a menu the toggle opens.
+
+function closeMenus(except) {
+  for (const menu of document.querySelectorAll(".navbar-menu.open")) {
+    if (menu === except) continue;
+    menu.classList.remove("open");
+    menu.querySelector(":scope > button").setAttribute("aria-expanded", "false");
+  }
+}
+
+function openMenu(menu, focusFirst) {
+  closeMenus(menu);
+  menu.classList.add("open");
+  menu.querySelector(":scope > button").setAttribute("aria-expanded", "true");
+  if (focusFirst) menu.querySelector(".navbar-entry")?.focus();
+}
+
+document.addEventListener("click", (event) => {
+  const toggle = event.target.closest?.(".navbar-toggle");
+  if (toggle) {
+    const bar = document.getElementById("navbar");
+    const open = bar.classList.toggle("open");
+    toggle.setAttribute("aria-expanded", String(open));
+    return;
+  }
+  const button = event.target.closest?.(".navbar-menu > button");
+  if (button) {
+    const menu = button.parentElement;
+    if (menu.classList.contains("open")) closeMenus();
+    else openMenu(menu, false);
+    return;
+  }
+  // Anywhere else, or a followed link, closes what is open.
+  if (!event.target.closest?.(".navbar-dropdown") || event.target.closest("a")) closeMenus();
+  if (event.target.closest?.("#navbar a")) document.getElementById("navbar")?.classList.remove("open");
+});
+
+document.addEventListener("keydown", (event) => {
+  const menu = event.target.closest?.(".navbar-menu");
+  if (!menu) return;
+  const entries = [...menu.querySelectorAll(".navbar-entry")];
+  const at = entries.indexOf(document.activeElement);
+  if (event.key === "Escape") {
+    closeMenus();
+    menu.querySelector(":scope > button").focus();
+  } else if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (!menu.classList.contains("open")) openMenu(menu, true);
+    else entries[(at + 1) % entries.length]?.focus();
+  } else if (event.key === "ArrowUp" && menu.classList.contains("open")) {
+    event.preventDefault();
+    entries[(at - 1 + entries.length) % entries.length]?.focus();
+  }
+});

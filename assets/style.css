@@ -20,8 +20,26 @@
   color-scheme: light dark;
 }
 
+/* Dark: chosen with the theme selector (data-theme, set before the page
+   paints), or — with no choice made and no script — by the system setting. */
+:root[data-theme="dark"] {
+    --background: #000000;
+    --surface: #1d1d1f;
+    --text: #f5f5f7;
+    --muted: #a1a1a6;
+    --border: #424245;
+    --accent: #2997ff;
+    --code: #1d1d1f;
+    --syntax-keyword: #ff7ab2;
+    --syntax-string: #ff8170;
+    --syntax-number: #d9c97c;
+    --syntax-comment: #7f8c98;
+    --syntax-type: #dabaff;
+    --syntax-function: #67b7a4;
+    --syntax-attribute: #fd8f3f;
+  }
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme]) {
     --background: #000000;
     --surface: #1d1d1f;
     --text: #f5f5f7;
@@ -38,6 +56,9 @@
     --syntax-attribute: #fd8f3f;
   }
 }
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
 
 * { box-sizing: border-box; }
 
@@ -306,3 +327,89 @@ kbd { display: inline-block; min-width: 1.4em; padding: 0 0.35em; border: 1px so
 .keys kbd + kbd { margin-left: 0.2em; }
 .widget-error { color: #cf222e; white-space: pre-wrap; }
 div.widget-error { margin: 0 0 20px; }
+
+/* Navbar: a site's bar across the top — its title, then its links, dropdowns
+   and icons, then the theme selector. Translucent, like the page under it. */
+
+body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
+#navbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  flex: 0 0 100%;
+  height: 52px;
+  background: color-mix(in srgb, var(--background) 82%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+.navbar-inner { height: 100%; display: flex; align-items: center; gap: 12px; padding: 0 16px 0 24px; }
+.navbar-title { font-size: 17px; font-weight: 650; letter-spacing: -0.015em; color: var(--text); white-space: nowrap; }
+.navbar-title:hover { text-decoration: none; opacity: 0.8; }
+.navbar-links { margin-left: auto; display: flex; align-items: center; gap: 2px; }
+.navbar-link, .navbar-entry {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 8px;
+  color: var(--muted); font: 500 14px/1.2 var(--font); white-space: nowrap;
+  background: none; border: 0; cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.navbar-link:hover, .navbar-entry:hover { color: var(--text); background: var(--surface); text-decoration: none; }
+.navbar-link.current, .navbar-menu.current > .navbar-link { color: var(--text); font-weight: 600; }
+.navbar-link.icon-only { padding: 6px; }
+.icon { width: 16px; height: 16px; flex: none; }
+.navbar-link .icon:last-child:not(:first-child) { width: 13px; height: 13px; opacity: 0.6; transition: transform 0.2s; }
+.navbar-menu { position: relative; }
+.navbar-menu.open > .navbar-link .icon:last-child:not(:first-child) { transform: rotate(180deg); }
+.navbar-dropdown {
+  display: none; position: absolute; top: calc(100% + 8px); left: 0; min-width: 220px; padding: 6px;
+  background: var(--background); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 16px 40px -12px color-mix(in srgb, var(--text) 30%, transparent);
+}
+.navbar-menu.open .navbar-dropdown { display: grid; gap: 2px; }
+.navbar-entry { color: var(--text); padding: 8px 10px; }
+.navbar-entry .icon { color: var(--muted); }
+.navbar-entry.current { background: var(--surface); font-weight: 600; }
+.navbar-end { display: flex; align-items: center; gap: 8px; padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border); height: 24px; }
+.navbar-toggle { display: none; background: none; border: 0; color: var(--text); padding: 6px; border-radius: 8px; cursor: pointer; }
+.navbar-toggle:hover { background: var(--surface); }
+
+body.with-navbar #nav { top: 52px; height: calc(100vh - 52px); }
+
+@media (max-width: 760px) {
+  .navbar-inner { padding: 0 8px 0 20px; }
+  .navbar-end { margin-left: auto; border-left: 0; padding-left: 0; }
+  .navbar-toggle { display: inline-flex; }
+  .navbar-links {
+    display: none; position: absolute; top: 52px; left: 0; right: 0;
+    flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 12px 14px;
+    background: var(--background); border-bottom: 1px solid var(--border);
+    box-shadow: 0 16px 30px -20px color-mix(in srgb, var(--text) 40%, transparent);
+  }
+  #navbar.open .navbar-links { display: flex; }
+  .navbar-link, .navbar-entry { font-size: 16px; padding: 10px 12px; }
+  .navbar-link.icon-only::after { content: attr(title); }
+  .navbar-menu > .navbar-link { width: 100%; }
+  .navbar-dropdown { display: grid; position: static; box-shadow: none; border: 0; padding: 0 0 0 14px; min-width: 0; }
+  .navbar-menu > .navbar-link .icon:last-child:not(:first-child) { display: none; }
+}
+
+/* The theme selector: Auto, Light, Dark. In the navbar when a site has one,
+   else in the top-right corner. Never printed; a deck hides it in fullscreen. */
+
+.theme-selector { display: inline-flex; gap: 2px; padding: 2px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border); }
+.theme-selector button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; border: 0; border-radius: 999px;
+  background: none; color: var(--muted); cursor: pointer; transition: color 0.15s, background 0.15s;
+}
+.theme-selector button .icon { width: 14px; height: 14px; }
+.theme-selector button:hover { color: var(--text); }
+.theme-selector button[aria-checked="true"] {
+  background: var(--background); color: var(--text);
+  box-shadow: 0 1px 3px color-mix(in srgb, var(--text) 25%, transparent);
+}
+#theme-corner { position: fixed; top: 14px; right: 16px; z-index: 15; }
+:root:fullscreen #theme-corner, .print #theme-corner { display: none; }
+@media print { #navbar, #theme-corner { display: none !important; } body.with-navbar #nav { top: 0; } }

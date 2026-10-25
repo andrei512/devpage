@@ -87,12 +87,12 @@ that something changed. The stream sends a keep-alive every 15 seconds.
 
 ## The page script
 
-`assets/devpage.js` runs on every page. It does four things.
+`assets/devpage.js` runs on every page. It does the following.
 
 **Swapping a page in place.** `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML, replaces the children of `#page` and `#nav` with
-the fresh ones, sets the document title, takes the fresh page's
+otherwise it parses the HTML, replaces the children of `#page`, `#nav` and
+`#navbar` with the fresh ones — so the navbar's highlight follows the page — sets the document title, takes the fresh page's
 `window.devpageWidgets` — so widgets edited since are fetched at their new
 versions — and mounts the new content's widgets, its Mermaid diagrams included.
 The rest of the page — the scripts, the event stream, the scroll position —
@@ -131,6 +131,16 @@ Back and forward (`popstate`) load the address they land on the same way.
 Every other link — other sites, non-Markdown files such as a doc's or deck's
 document file — is left to the browser and loads a whole new page. A site's
 title links to its root page, a Markdown file, so it swaps in place too.
+
+**The theme.** It keeps the theme the page's head chose current: a click in
+the selector sets `data-theme` on `<html>`, marks the choice, and stores it in
+`localStorage` (Auto removes it); on Auto it follows the system setting as it
+changes. A blocked `localStorage` leaves the choice working for that page.
+
+**The navbar.** A click on a dropdown's button opens it; ↓ opens it and
+focuses its first link, ↑ and ↓ move between links, and Escape, a click
+elsewhere or a followed link closes it. On a narrow screen the menu button
+shows and hides the links.
 
 **Hidden tabs.** When a tab is hidden it closes its stream; when it is shown
 again it reopens the stream and loads its page once, to catch up on changes

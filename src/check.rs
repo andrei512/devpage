@@ -123,6 +123,7 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     // check started from — as the preview shows it.
     let index = crate::index::Index::build(&document.served);
     let mut widget_folders = HashSet::new();
+    let mut navbars = HashSet::new();
     while let Some(page) = queue.pop_front() {
         if !seen.insert(page.clone()) {
             continue;
@@ -141,6 +142,20 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
             && widget_folders.insert(folder.clone())
         {
             problems.extend(widget_problems(owner));
+        }
+        // A site's navbar is checked once, and what it links to is checked too.
+        if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
+            problems.extend(crate::navbar::problems(owner));
+            let (files, web) = crate::navbar::reached(owner);
+            let file = owner.url(&owner.path())[1..].to_string();
+            external.extend(web.into_iter().map(|address| (file.clone(), None, address)));
+            for target in files {
+                if target.extension().is_some_and(|ext| ext == "md") {
+                    queue.push_back(target);
+                } else if let Ok(linked) = Document::load(&target, &document.served) {
+                    queue.extend(pages(&linked));
+                }
+            }
         }
         let (found, reached) = page_links_with(owner, &page, external);
         problems.extend(found);
@@ -405,6 +420,7 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
     static REPORTED: LazyLock<Mutex<HashSet<Problem>>> = LazyLock::new(Mutex::default);
     let mut external = Vec::new();
     let mut problems = widget_problems(document);
+    problems.extend(crate::navbar::problems(document));
     problems.extend(
         pages
             .iter()
@@ -755,6 +771,29 @@ mod external {
         assert_eq!(hits.get("/missing"), Some(&1));
         assert_eq!(hits.get("/ok"), Some(&1));
     }
+    #[tokio::test]
+    async fn check_reports_the_navbar_once_and_follows_its_links() {
+        let doc = folder("navbar-check", "# Home\n\n[Two](two.md)\n");
+        std::fs::write(doc.base.join("two.md"), "# Two\n").unwrap();
+        // Reached only through the navbar, with a broken link of its own.
+        std::fs::write(doc.base.join("only.md"), "# Only\n\n[gone](gone.md)\n").unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  Only (no-such-icon): only.md\n  Missing: missing.md\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let count = |text: &str| found.iter().filter(|p| p.contains(text)).count();
+        assert_eq!(count("navbar: no icon named no-such-icon"), 1, "{found:#?}");
+        assert_eq!(count("navbar: missing.md — no such file"), 1, "{found:#?}");
+        assert_eq!(count("only.md:3: broken link gone.md"), 1, "{found:#?}");
+    }
+
     #[tokio::test]
     async fn widget_problems_are_reported_by_check() {
         let doc = folder(

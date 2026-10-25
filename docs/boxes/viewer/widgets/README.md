@@ -187,9 +187,9 @@ The theme defines no classes for widgets to borrow; what a widget shares with
 the page is the theme's **tokens**. Written with them — `var(--text)`,
 `var(--muted)`, `var(--accent)`, `var(--border)`, `var(--surface)`,
 `var(--font)`, `var(--font-mono)` — a widget follows the light and dark themes
-with nothing else to do; where it must differ beyond the tokens,
-`@media (prefers-color-scheme: dark)` works as anywhere
-([Diagrams and themes](../diagrams-and-themes/README.md#the-themes)).
+with nothing else to do; where it must differ beyond the tokens, scope the
+rule to `:root[data-theme="dark"]`, which follows the reader's choice in the
+theme selector ([Diagrams and themes](../diagrams-and-themes/README.md#the-themes)).
 
 ## On paper
 
