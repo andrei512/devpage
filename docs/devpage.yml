@@ -1,0 +1,5 @@
+# devpage's own documentation, served by devpage.
+title: devpage
+root: README.md
+watch:
+  - "**/*.md"

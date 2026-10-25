@@ -1,2 +1,4 @@
 .DS_Store
 /target/
+# Claude Code writes per-user permissions here
+.claude/settings.local.json

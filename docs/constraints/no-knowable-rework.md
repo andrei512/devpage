@@ -13,9 +13,11 @@ to change for it to need redoing or removing. One test, two failure modes:
   ships. A layout no document uses, a plugin system for imagined extensions, a
   config field nothing reads.
 
-"Needed now" is judged against the design and the vision, not the current
-ticket: the vision naming layouts per document kind makes the layout extension
-point needed now, even while docs are the only layout. And "final shape" is not
+"Needed now" is judged against the design and the vision for the shape of
+what is built, not against the current ticket alone; whether to add new
+surface at all is governed by
+[Surface area arrives with its consumer](surface-arrives-with-its-consumer.md).
+And "final shape" is not
 "every feature" — a syntax set holding only what today's documents use is
 final-shaped, because adding an extension when a document needs one is
 ordinary evolution, not scheduled rework.

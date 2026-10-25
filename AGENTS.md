@@ -32,8 +32,15 @@ Two things that hold in every stage:
 
 ## The gates
 
-None yet. They arrive with the first code, and this section names them then —
-green before any pull request opens.
+Green before any pull request opens:
+
+```sh
+cargo fmt --check
+cargo clippy --all-targets -- -D warnings
+cargo test
+```
+
+Run the docs while you work on them: `cargo run -- docs/devpage.yml`.
 
 ## Architecture
 

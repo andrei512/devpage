@@ -1,16 +1,44 @@
 # SDLC
 
-How work gets from an idea to running code. Every change to devpage goes through
-these stages, and each stage has a skill that runs it.
+How work gets from an idea to running code: the stages every change to devpage
+goes through and the skill that runs each, the branches that carry a design
+until the code catches up, the two review bars, and how the box docs are
+organized. It is the mechanism page of the [Engineering](../README.md) box;
+[Running the flow with skills](../running-the-flow/README.md) is the short
+version, from the operator's keyboard.
 
 ## Stages
 
-**Design** — a conversation that works out how the system should change. The
+```mermaid
+flowchart LR
+  design["Design"] --> prototype["Prototype"]
+  prototype --> plan["Plan"]
+  plan --> build["Build"]
+  build --> review["Review"]
+  review -->|"findings become tickets"| build
+  review --> release["Release"]
+  release --> retro["Retro"]
+  hack["Hack<br/>small changes, inverted"] --> review
+  click design href "#design" "Design"
+  click prototype href "#prototype" "Prototype"
+  click plan href "#plan" "Plan"
+  click build href "#build" "Build"
+  click review href "#review" "Review"
+  click release href "#release" "Release"
+  click retro href "#retro" "Retro"
+  click hack href "#hack" "Hack"
+```
+
+### Design
+
+A conversation that works out how the system should change. The
 operator brings an idea, the two sides debate it, the agent works out the blast
 radius, and the loop repeats until a pass turns up nothing unaccounted for. It
 produces one thing: an update to the box docs. (`/design`)
 
-**Prototype** — a fork spikes the design before anyone plans it, on a branch off
+### Prototype
+
+A fork spikes the design before anyone plans it, on a branch off
 the design branch. Its job is one end-to-end path through whatever the design
 newly brings, in real code with tests: fewer ceremonies, not worse work. It has
 **thirty minutes of measured time** — read off a clock, never estimated, because
@@ -25,13 +53,17 @@ The branch it leaves behind is the implementation branch: work is hardened in
 place, and it is thrown away only when the approach proved wrong. Its report is
 the plan's first draft. (`/prototype`)
 
-**Plan** — a separate session that turns the prototype into tickets, which is
+### Plan
+
+A separate session that turns the prototype into tickets, which is
 mostly deciding what it takes to productionise what already runs. Because the
 work has been measured rather than imagined, plans come out proportional — two
 or three tickets, not nine. The operator approves a story — one line per step —
 not a list of tickets. (`/plan`)
 
-**Build** — a coordinator hands **lanes** to forks, each in its own worktree and
+### Build
+
+A coordinator hands **lanes** to forks, each in its own worktree and
 on its own branch off the design branch, and merges them one at a time as they
 pass review. A lane is a related chain of tickets given to one fork, which
 starts working rather than reading itself in. Parallelism comes from running
@@ -43,7 +75,9 @@ in the session that had it, which the stage split makes unusual — plan is a
 separate session, so build is normally two stages downstream. Assume it doesn't:
 the brief carries what was decided.
 
-**Review** — every change is checked against the bar its target sets. A ticket
+### Review
+
+Every change is checked against the bar its target sets. A ticket
 is reviewed by the fork that built it, at the task bar, and comes back once,
 converged; the coordinator merges it. Fresh eyes come once, at the end: the
 design branch's pull request to main is reviewed at the drift bar by an agent
@@ -52,26 +86,56 @@ tickets, and the operator does the final review and merge. A finding is
 something reachable by accident — what only deliberate evasion could trigger is
 a note, not a round. (`/review`)
 
-**Deploy** — the operator's call, from main.
+### Release
 
-**Retro** — after the operator merges the design branch into main, the session
+The operator's call, from main. Release is not defined yet. devpage is at version `0.1.0` in
+`Cargo.toml`, the repository has no tags, and there is no published binary or
+crate — people [build it from source](../../../installing.md). What a release
+is, and how one is cut, is still to be designed.
+
+### Retro
+
+After the operator merges the design branch into main, the session
 that coordinated the build reports where the time went and what each stage
 caught, in chat, changing nothing. It is not part of the ready-to-merge report.
 The operator carries what repeats across runs and says when a rule changes.
 (`/retro`)
 
+### Who starts a stage
+
 The operator starts a stage; agents reach for the skills that serve one. That
 split is machine-readable: `design`, `plan`, `build` and `hack` carry
-`disable-model-invocation: true` in their frontmatter, while `prototype`,
-`implement-ticket`, `review` and `retro` — reached by a fork or the
-coordinating session — don't, and neither do the supporting `align`,
-`documentation` and `codebase-design` skills.
+`disable-model-invocation: true` in their frontmatter — as does the upstream
+`improve-codebase-architecture` skill, which the operator starts for an
+architecture review — while `prototype`, `implement-ticket`, `review` and
+`retro` — reached by a fork or the coordinating session — don't, and neither
+do the supporting `align`, `documentation` and `codebase-design` skills. Each
+skill is listed in the [skills reference](../skills-reference/README.md).
+
+### Hack
 
 A small change can run the flow inverted: `/hack` aligns on the change, builds
 it with the operator watching, and writes the docs once the operator says it's
 right. It ends at the same bar as any other branch.
 
 ## Branches
+
+```mermaid
+flowchart LR
+  main["main"] -->|"cut when the shape is clear"| designb["design/name"]
+  designb -->|"cut"| proto["prototype/name"]
+  proto -->|"merged by the prototype, deleted"| designb
+  designb -->|"one per lane"| ticket["ticket branches"]
+  ticket -->|"merge --no-ff, no PR"| designb
+  designb -->|"the one pull request, drift bar"| main
+  main -->|"no design change"| direct["direct branch"]
+  direct -->|"pull request, task bar"| main
+  click main href "#branches" "On main the docs are true"
+  click designb href "#design-branches" "Design branches"
+  click proto href "#prototype-branches" "Prototype branches"
+  click ticket href "#build" "Lanes and tickets"
+  click direct href "#changes-that-alter-no-design" "Changes that alter no design"
+```
 
 On `main`, the box docs describe the system as it actually is — see
 [docs-are-true-on-main](constraints/docs-are-true-on-main.md). That is the
@@ -82,17 +146,12 @@ main. It goes on its own branch — one branch per design update — cut as soon
 the shape of the change is clear. Tickets are branches off *that* branch, merged
 back into it once their review is clean.
 
-Those merges need no pull request: the review happens between agents rather than
-in comments, and branch protection guards main alone, so a pull request there
-would buy only a CI trigger — and CI runs on every push to a design branch.
-Exactly one pull request exists per design update, the one into main.
+### Design branches
 
-That trigger is by name. CI runs on pushes to `main`, `design/**` and
-`prototype/**`, and on pull requests. A design branch must therefore be named
-`design/<name>`: one named anything else gets no CI on push, and its tickets
-merge into it ungated until the pull request to main. Ticket branches match none
-of those patterns, so a push to one runs no CI either; the gate runs when the
-ticket merges into the design branch and that push lands.
+Those merges need no pull request: the review happens between agents rather than
+in comments, and only main is meant to be guarded. Exactly one pull request
+exists per design update, the one into main. A design branch is named
+`design/<name>`.
 
 When every ticket has landed, the design branch opens a pull request to main.
 That review asks one question: does the code now do what the docs claim? When it
@@ -117,6 +176,8 @@ or unmerged when the spike proved the approach wrong. Branches belonging to
 tooling rather than to the flow — a workflow's lanes, a worktree's ref — die
 with the run that made them.
 
+### Prototype branches
+
 The prototype gets a branch of its own, `prototype/<name>`, cut from the design
 branch — and it is short-lived. The prototype merges it back into the
 design branch itself when the spike is done and deletes it — it is the only agent
@@ -126,8 +187,9 @@ branch off the design branch as they always have, so nothing downstream changes.
 A spike that proved the approach wrong is deleted **without merging**, which is
 the only reason this is a separate branch rather than the design branch itself.
 
-CI runs on it, like the design branches, so a spike that doesn't build is known
-before anyone plans against it.
+The prototype runs the gates itself before it merges.
+
+### Changes that alter no design
 
 A change that alters no design — a typo, a dependency bump, a fix whose shape the
 docs already describe — skips all of this: branch off main, open a pull request
@@ -138,6 +200,15 @@ When building turns up something the design didn't anticipate and it has more
 than one sensible answer, the operator settles it and the amendment lands on the
 design branch already in flight. It belongs to the same change set, and that
 branch is already describing a system that doesn't exist yet.
+
+## CI
+
+There is no CI yet. The repository has no CI configuration — no `.github/`
+folder, no workflow of any kind — so nothing runs on a push or a pull request.
+The gates in `AGENTS.md` (`cargo fmt --check`, `cargo clippy --all-targets --
+-D warnings`, `cargo test`) are run by hand, by whoever is about to merge or
+open a pull request; [Developing devpage](../developing-devpage/README.md#the-gates)
+shows them. What CI should run on, and when, is not designed yet.
 
 ## Review bars
 
@@ -170,5 +241,17 @@ for changing the design belongs in the commit message, not an ADR.
 
 ## Constraints
 
+The SDLC's two rules are listed under [Topics](#topics), one line each, and
+reviewed on every change to the process or to box docs. System-wide rules are
+the [general constraints](../../../constraints/README.md).
+
+## Topics
+
+### Constraints
+
 - [On main, the box docs describe the system as it is](constraints/docs-are-true-on-main.md)
+  — anything merged to main leaves the docs an accurate description of the
+  code; a design not yet built waits on its design branch.
 - [Decisions live in box docs, not in a decision log](constraints/decisions-live-in-box-docs.md)
+  — a decision goes into the owning box's docs or constraints and its reason
+  into the commit message; there is no ADR directory.

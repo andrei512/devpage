@@ -1,0 +1,171 @@
+/* devpage's built-in light and dark themes. Every color comes from these tokens,
+   diagrams included, so a theme is a set of token values. */
+:root {
+  --background: #ffffff;
+  --surface: #f5f5f7;
+  --text: #1d1d1f;
+  --muted: #6e6e73;
+  --border: #d2d2d7;
+  --accent: #0066cc;
+  --code: #f5f5f7;
+  --syntax-keyword: #9b2393;
+  --syntax-string: #c41a16;
+  --syntax-number: #1c00cf;
+  --syntax-comment: #5d6c79;
+  --syntax-type: #0b4f79;
+  --syntax-function: #326d74;
+  --syntax-attribute: #815f03;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #000000;
+    --surface: #1d1d1f;
+    --text: #f5f5f7;
+    --muted: #a1a1a6;
+    --border: #424245;
+    --accent: #2997ff;
+    --code: #1d1d1f;
+    --syntax-keyword: #ff7ab2;
+    --syntax-string: #ff8170;
+    --syntax-number: #d9c97c;
+    --syntax-comment: #7f8c98;
+    --syntax-type: #dabaff;
+    --syntax-function: #67b7a4;
+    --syntax-attribute: #fd8f3f;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  display: flex;
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--text);
+  font: 17px/1.6 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Navigation */
+
+#nav {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  width: 280px;
+  height: 100vh;
+  overflow-y: auto;
+  flex-shrink: 0;
+  padding: 28px 16px 40px 24px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+#nav .document-title {
+  display: block;
+  margin-bottom: 18px;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text);
+  text-decoration: none;
+}
+
+#nav ul { list-style: none; margin: 0; padding: 0; }
+#nav ul ul { padding-left: 14px; border-left: 1px solid var(--border); margin: 2px 0 6px 6px; }
+#nav li { margin: 0; }
+#nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
+#nav a:hover { background: var(--border); }
+#nav a.current { background: var(--accent); color: #fff; }
+
+/* Content */
+
+main { flex: 1; min-width: 0; padding: 56px 48px 120px; }
+article { max-width: 780px; margin: 0 auto; }
+
+h1, h2, h3, h4 { line-height: 1.2; letter-spacing: -0.015em; }
+h1 { font-size: 40px; font-weight: 700; margin: 0 0 24px; }
+h2 { font-size: 28px; font-weight: 600; margin: 48px 0 16px; }
+h3 { font-size: 21px; font-weight: 600; margin: 32px 0 12px; }
+p, ul, ol, table, pre, blockquote, .diagram { margin: 0 0 20px; }
+li { margin: 4px 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { font-weight: 600; }
+hr { border: none; border-top: 1px solid var(--border); margin: 40px 0; }
+
+blockquote {
+  margin-left: 0;
+  padding: 4px 20px;
+  border-left: 4px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+  color: var(--muted);
+}
+
+code { font: 0.88em var(--font-mono); background: var(--code); padding: 2px 5px; border-radius: 5px; }
+pre { background: var(--code); padding: 16px 20px; border-radius: 10px; overflow-x: auto; line-height: 1.5; }
+pre code { background: none; padding: 0; font-size: 14px; }
+
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+th { font-weight: 600; }
+
+/* Diagrams: pele draws with its own variables, mapped to the theme tokens. */
+
+.diagram {
+  --pele-bg: var(--background);
+  --pele-fg: var(--text);
+  --pele-muted: var(--muted);
+  --pele-line: var(--muted);
+  --pele-surface: var(--surface);
+  --pele-surface-alt: var(--border);
+  --pele-border: var(--border);
+  --pele-accent: var(--accent);
+  --pele-font: var(--font);
+  --pele-font-mono: var(--font-mono);
+  --pele-radius: 8px;
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  text-align: center;
+}
+
+.diagram svg { max-width: 100%; height: auto; }
+
+.diagram-error { color: #d70015; text-align: left; white-space: pre-wrap; font: 13px var(--font-mono); }
+
+@media (max-width: 860px) {
+  body { display: block; }
+  #nav { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+  main { padding: 32px 20px 80px; }
+}
+
+/* Sidebar groups: the ### headings of a Topics section. */
+#nav li.group { margin: 14px 0 4px; padding: 0 8px; }
+#nav li.group:first-child { margin-top: 0; }
+#nav li.group span { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+
+/* Syntax highlighting: classes name syntax scopes (see src/highlight.rs); colors
+   come from the --syntax-* tokens, Xcode's default palettes. */
+pre code { color: var(--text); }
+.hl-comment { color: var(--syntax-comment); font-style: italic; }
+.hl-string { color: var(--syntax-string); }
+.hl-constant.hl-numeric, .hl-constant.hl-language { color: var(--syntax-number); }
+.hl-keyword, .hl-storage { color: var(--syntax-keyword); font-weight: 600; }
+.hl-storage.hl-type.hl-primitive, .hl-support.hl-type, .hl-entity.hl-name.hl-type, .hl-entity.hl-name.hl-class,
+.hl-entity.hl-name.hl-struct, .hl-entity.hl-name.hl-enum, .hl-entity.hl-other.hl-inherited-class { color: var(--syntax-type); font-weight: 400; }
+.hl-entity.hl-name.hl-function, .hl-support.hl-function, .hl-variable.hl-function { color: var(--syntax-function); }
+.hl-entity.hl-name.hl-tag, .hl-entity.hl-other.hl-attribute-name, .hl-meta.hl-attribute, .hl-support.hl-other.hl-macro { color: var(--syntax-attribute); }
+
+/* Diagram nodes with a `click … href` line are links: no underline; on hover the
+   node's border takes the accent color. */
+.diagram a { cursor: pointer; text-decoration: none; }
+.diagram a:hover rect, .diagram a:hover polygon, .diagram a:hover circle,
+.diagram a:hover ellipse, .diagram a:hover path { stroke: var(--accent); stroke-width: 2.5px; }
