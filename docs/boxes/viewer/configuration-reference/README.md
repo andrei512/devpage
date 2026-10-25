@@ -27,7 +27,7 @@ devpage --version
 | --- | --- |
 | a folder | the document file `devpage.yml` inside it |
 | a `.md` file | that file, as a doc of one chapter with default settings |
-| a `.design` file | that [design](../designs/README.md), titled by its file name: `/` leads to its canvas, and `devpage check` reports its problems |
+| a `.design` file | that [design](../designs/README.md), titled by its file name without `.design`: `/` leads to its canvas, and `devpage check` reports its problems |
 | any other file | a document file, whatever its name |
 | none | `.` — `devpage.yml` in the current folder |
 
@@ -145,4 +145,6 @@ watch:
   - "**/*.yml"
 ```
 
-The example doc and deck in `examples/` show the other two kinds.
+The example doc and deck in `examples/` show the other two kinds that have a
+document file; `examples/checkout/` holds example designs, which have none
+(`devpage examples/checkout/checkout.design`).
