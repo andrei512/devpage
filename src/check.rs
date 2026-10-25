@@ -119,11 +119,18 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut queue: VecDeque<PathBuf> = pages(document).into();
+    // A page is checked as its nearest site's page, whichever document the
+    // check started from — as the preview shows it.
+    let index = crate::index::Index::build(&document.served);
     while let Some(page) = queue.pop_front() {
         if !seen.insert(page.clone()) {
             continue;
         }
-        let (found, reached) = page_links_with(document, &page, external);
+        let site = index
+            .site_for(&page)
+            .and_then(|site| Document::load(&site, &document.served).ok());
+        let owner = site.as_ref().unwrap_or(document);
+        let (found, reached) = page_links_with(owner, &page, external);
         problems.extend(found);
         for target in reached {
             if target.extension().is_some_and(|ext| ext == "md") {
@@ -248,6 +255,26 @@ fn page_links_with(
                         ),
                         target: Some(target.clone()),
                     });
+                }
+                // A heading in a doc is named by the id the doc renders it with.
+                Ok(
+                    linked @ Document {
+                        kind: Kind::Doc { .. },
+                        ..
+                    },
+                ) if !fragment.is_empty() => {
+                    let Kind::Doc { chapters, pdf } = &linked.kind else {
+                        unreachable!()
+                    };
+                    let rendered = render::doc(&linked, chapters, pdf, true);
+                    if !rendered.contains(&format!("id=\"{fragment}\"")) {
+                        problems.push(Problem {
+                            file: file.clone(),
+                            line,
+                            message: format!("broken link {target} — no heading #{fragment}"),
+                            target: Some(target.clone()),
+                        });
+                    }
                 }
                 Ok(_) => {}
             }
@@ -466,6 +493,65 @@ mod external {
         )
         .unwrap();
         Document::load(&dir, &dir).unwrap()
+    }
+
+    #[tokio::test]
+    async fn topics_are_checked_against_the_pages_own_site() {
+        let doc = folder("sibling-topics", "# Home\n\n[other](o2/devpage.yml)\n");
+        let o2 = doc.base.join("o2");
+        std::fs::create_dir_all(o2.join("x")).unwrap();
+        std::fs::write(o2.join("x/p.md"), "# P").unwrap();
+        std::fs::write(doc.base.join("outside.md"), "# Outside").unwrap();
+        std::fs::write(
+            o2.join("devpage.yml"),
+            "kind: site\ntitle: O\nroot: README.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            o2.join("README.md"),
+            "# O\n\n## Topics\n\n- [P](x/p.md) — inside.\n- [Out](../outside.md) — not.\n",
+        )
+        .unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            found[0].starts_with("o2/README.md:6: Topics entry ../outside.md"),
+            "{found:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_heading_in_a_doc_is_checked_against_the_ids_it_renders() {
+        let doc = folder(
+            "doc-fragment",
+            "# Home\n\n[real](d/devpage.yml#c1--real) [chapter](d/devpage.yml#c2) [none](d/devpage.yml#nosuch) [bare](d/devpage.yml#real)\n",
+        );
+        let d = doc.base.join("d");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("c1.md"), "# One\n\n## Real\n").unwrap();
+        std::fs::write(d.join("c2.md"), "# Two\n").unwrap();
+        std::fs::write(
+            d.join("devpage.yml"),
+            "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
+        )
+        .unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            vec![
+                "README.md:3: broken link d/devpage.yml#nosuch — no heading #nosuch".to_string(),
+                "README.md:3: broken link d/devpage.yml#real — no heading #real".to_string(),
+            ],
+            "{found:#?}"
+        );
     }
 
     #[tokio::test]

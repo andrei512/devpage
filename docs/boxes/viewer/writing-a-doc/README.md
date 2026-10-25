@@ -67,6 +67,12 @@ chapters, and `#heading` links within one, are rewritten to those ids when the
 doc renders. A link from outside the doc to a chapter file opens that file on
 its own, as a page; link to the doc's document file to open the doc.
 
+To link from outside the doc to a place in it, link to its document file with
+the id the doc renders: `design/sync/devpage.yml#rollout--steps` for a heading,
+`design/sync/devpage.yml#rollout` for the start of a chapter. In a doc of one
+chapter, use the heading's own id. These fragments are
+[checked](../checking-links/README.md) like any other.
+
 ## On paper
 
 A doc prints to PDF with `devpage pdf` ([Printing to PDF](../pdf/README.md)),

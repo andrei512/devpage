@@ -29,7 +29,7 @@ agent wants.
 ## The Chrome it drives
 
 devpage does not render PDF itself. It starts its own server in the
-background, opens the document in print mode in a headless Chrome, waits until
+background, which logs nothing, opens the document in print mode in a headless Chrome, waits until
 every diagram is drawn, and has Chrome print it — the same `Page.printToPDF`
 call Playwright makes, spoken directly over the DevTools protocol by the
 `chromiumoxide` crate, with no Node and no extra process.

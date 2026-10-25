@@ -36,12 +36,9 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let (changes, _) = broadcast::channel(1);
     let url = format!("http://{address}{}?print", document.entry());
     let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            server::router(document, changes, server::Identity::Local(String::new())),
-        )
-        .await
-        .ok();
+        axum::serve(listener, server::printing(document, changes))
+            .await
+            .ok();
     });
 
     let profile = Profile::new();

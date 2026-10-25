@@ -58,6 +58,7 @@ impl Identity {
 }
 
 /// The server for one entry document, with a fresh index of its served folder.
+#[cfg(test)]
 pub fn router(
     document: Arc<Document>,
     changes: broadcast::Sender<String>,
@@ -68,8 +69,28 @@ pub fn router(
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
-/// current.
+/// current, logging every request.
 pub fn router_with_index(
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    changes: broadcast::Sender<String>,
+    identity: Identity,
+) -> Router {
+    quiet(entry, index, changes, identity).layer(middleware::from_fn(log))
+}
+
+/// The server for `devpage pdf`, which serves only Chrome and logs nothing.
+pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
+    let index = Arc::new(Index::build(&document.served));
+    quiet(
+        Arc::new(Entry::new(document)),
+        index,
+        changes,
+        Identity::Local(String::new()),
+    )
+}
+
+fn quiet(
     entry: Arc<Entry>,
     index: Arc<Index>,
     changes: broadcast::Sender<String>,
@@ -86,7 +107,6 @@ pub fn router_with_index(
         .route("/__devpage/comments/resolve", post(resolve_comment))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
-        .layer(middleware::from_fn(log))
         .with_state(AppState {
             store: Arc::new(Store::new(&entry.document().served)),
             identity: Arc::new(identity),
@@ -147,13 +167,19 @@ async fn file(
         };
     }
     if file.extension().is_some_and(|ext| ext == "md") {
-        let Ok(source) = tokio::fs::read_to_string(&file).await else {
-            return (StatusCode::INTERNAL_SERVER_ERROR, "unreadable").into_response();
+        let source = match tokio::fs::read_to_string(&file).await {
+            Ok(source) => source,
+            Err(error) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
+            }
         };
+        // A site is never printed: in print mode a Markdown file is a doc of
+        // one chapter, whatever site holds it — what `devpage pdf` prints.
         // A page of a site whose file is invalid shows why, until it is fixed.
         let site = state
             .index
             .site_for(&file)
+            .filter(|_| !print)
             .map(|site| (Document::load(&site, served), site));
         return match site {
             Some((Ok(site), _)) => Html(render::page(&site, &file, &source)).into_response(),
@@ -574,6 +600,22 @@ mod tests {
         assert_eq!(
             get(&format!("{base}/notes/ci.yml")).await,
             (200, "on: push\n".into())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_of_a_site_prints_as_a_doc_of_one_chapter() {
+        let dir = served("print-page");
+        let base = serve(&dir, "docs").await;
+        let (status, page) = get(&format!("{base}/docs/guide/step.md?print")).await;
+        assert_eq!(status, 200);
+        assert!(page.contains("<body class=\"doc print\">"), "{page}");
+        assert!(page.contains("@page { size: A4;"), "{page}");
+        assert!(!page.contains("<nav id=\"nav\">"), "{page}");
+        let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
+        assert!(
+            on_screen.contains("<nav id=\"nav\">"),
+            "still a site page on screen"
         );
     }
 
