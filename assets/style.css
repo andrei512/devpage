@@ -210,7 +210,7 @@ pre code { color: var(--text); }
 
 /* Slides: each slide a 1920 × 1080 stage, scaled whole to the window. */
 
-body.slides { display: block; background: #000; overflow: hidden; }
+body.slides { display: block; background: var(--background); overflow: hidden; }
 .deck .slide {
   position: absolute; top: 0; left: 0;
   width: 1920px; height: 1080px;
