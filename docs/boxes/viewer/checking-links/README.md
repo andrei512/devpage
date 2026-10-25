@@ -39,12 +39,18 @@ diagram node. They update as
 you edit, like the rest of the page: fix the link, save, and the problem goes.
 devpage also prints each problem once on its terminal, as it first finds it:
 
+<Terminal title="devpage's terminal">
+
 ```text
+$ devpage docs
+devpage → http://localhost:3030
 docs/boxes/viewer/README.md:42: broken link ../serving/README.md — no such file
 docs/README.md:7: broken link design/devpage.yml — in docs/design/devpage.yml: chapter rollout.md does not exist
 docs/README.md:9: broken link talk/devpage.yml#9 — the deck has 3 slides
 docs/README.md:12: https://example.com/gone — 404 Not Found
 ```
+
+</Terminal>
 
 Files are named by their path from the top of the served folder. A document
 file that can't be loaded is reported on the page that links to it.

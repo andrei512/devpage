@@ -8,11 +8,7 @@ is a task article under the [viewer](../README.md); read
 
 ## Three kinds
 
-| Kind | Like | Made of | Read as |
-| --- | --- | --- | --- |
-| `site` | a documentation website | a root page and the pages its Topics sections reach | many pages, with a sidebar |
-| `doc` | a Word document | one or more chapter files, in order | one long page, with an outline that follows you |
-| `slides` | a PowerPoint deck | one Markdown file per slide, in order | one slide at a time, 16:9 |
+<KindCards />
 
 A system's documentation is a site. A design doc, a PRD or a proposal is a
 doc. A talk is slides. All three are Markdown files on disk, render
@@ -24,11 +20,17 @@ deck also [print to PDF](../pdf/README.md).
 A document is described by one YAML file. Its `kind` says which of the three it
 is, and the rest of its fields follow from that:
 
+<Tabs>
+<Tab title="Site">
+
 ```yaml
 kind: site              # a site of pages
 title: devpage          # its name, shown in the sidebar and the tab
 root: README.md         # the page it opens on
 ```
+
+</Tab>
+<Tab title="Doc">
 
 ```yaml
 kind: doc
@@ -36,11 +38,17 @@ title: Sync design
 chapters: [context.md, design.md, rollout.md]
 ```
 
+</Tab>
+<Tab title="Slides">
+
 ```yaml
 kind: slides
 title: Launch
 slides: [intro.md, problem.md, demo.md]
 ```
+
+</Tab>
+</Tabs>
 
 The file can have any name. `devpage.yml` is the one devpage looks for when
 it is given a folder, so name it that unless a folder holds several
@@ -67,8 +75,10 @@ cd my-project && devpage docs              # serves my-project/
 devpage --root ~/code/my-project ~/code/my-project/docs
 ```
 
+<Callout kind="warning" title="The served folder is the boundary">
 Everything in the served folder can be served, and nothing outside it can: not
 through `..`, not through a symbolic link ([the rule](../constraints/the-served-folder-is-the-boundary.md)).
+</Callout>
 
 The document you start devpage with must be inside the served folder. A
 file's address is its path from the top of the served folder:
@@ -124,8 +134,25 @@ Pages are GitHub-flavoured Markdown:
 | Diagrams | a fenced block with language `mermaid` — see [Diagrams and themes](../diagrams-and-themes/README.md) |
 | Widgets | a capitalized HTML tag, `<Callout kind="tip">…</Callout>` — see [Widgets](../widgets/README.md) |
 
-Raw HTML is not filtered: whatever a page contains, including `<script>`, goes
-into the page as written.
+<Example title="A few of them, as written and as rendered">
+
+| Kind | Read as |
+| --- | --- |
+| doc | one long page |
+| slides | one slide at a time |
+
+- [x] write the design
+- [ ] build it
+
+~~Export a copy~~ — the page **is** the file.
+
+<kbd>Raw HTML</kbd> passes through.
+
+</Example>
+
+<Callout kind="warning" title="Raw HTML is not filtered">
+Whatever a page contains, including `<script>`, goes into the page as written.
+</Callout>
 
 ## Code blocks
 
@@ -133,11 +160,15 @@ A fenced code block is syntax-highlighted when its language is one devpage
 knows. Name the language after the opening fence — the first word of the info
 string counts, so ```` ```sh title ```` is shell:
 
-````markdown
+<Example>
+
 ```rust
-fn main() {}
+fn main() {
+    println!("live");
+}
 ```
-````
+
+</Example>
 
 The languages are those the `bat` tool ships: syntect's defaults plus others
 such as Swift, TypeScript, TOML and YAML. A language is found by its name or
@@ -177,9 +208,12 @@ devpage --root ~/code/my-project ~/code/my-project/docs/devpage.yml
 
 Pages can link anywhere in the served folder, so the docs can stay in `docs/`
 and still link to the top-level `README.md` or to images beside the code.
+
+<Callout kind="warning">
 Remember that everything in the served folder can be served to whoever can reach
 the address — only the local machine, unless devpage is
 [deployed](../deploying/README.md).
+</Callout>
 
 **Several at once.** Each devpage process serves one folder and takes the
 first free port from 3030 up, so a second one started while the first runs

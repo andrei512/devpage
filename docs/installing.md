@@ -21,6 +21,9 @@ browser.
 
 ## Install it
 
+<Tabs>
+<Tab title="From crates.io">
+
 ```sh
 cargo install devpage --locked
 ```
@@ -30,7 +33,8 @@ released with, and puts the binary in cargo's `bin` folder — `~/.cargo/bin`
 unless `CARGO_HOME` or `CARGO_INSTALL_ROOT` points elsewhere — which rustup puts
 on your `PATH`. Run it again to update; `cargo uninstall devpage` removes it.
 
-## Or build it from a checkout
+</Tab>
+<Tab title="From a checkout">
 
 From the root of a devpage checkout:
 
@@ -40,6 +44,9 @@ cargo build --release               # or just build: target/release/devpage
 ```
 
 Without installing, `cargo run -- <path>` runs it from the checkout.
+
+</Tab>
+</Tabs>
 
 ## Run it
 
@@ -52,11 +59,16 @@ Markdown file; with no argument it uses `devpage.yml` in the current folder.
 devpage prints one line — the document's title and the address it serves on —
 then logs each request. For these docs, whose title is `devpage`:
 
+<Terminal>
+
 ```text
+$ devpage docs
 devpage → http://localhost:3030
 ```
 
-Open that address in a browser; stop devpage with Ctrl-C. `devpage --help`
+</Terminal>
+
+Open that address in a browser; stop devpage with <Keys>Ctrl C</Keys>. `devpage --help`
 lists the commands — `check` and `pdf` beside serving — and the flags; the
 exact rules are in the
 [configuration reference](boxes/viewer/configuration-reference/README.md#command-line).
