@@ -186,11 +186,19 @@ fn expand_in(
             out.push('<');
             continue;
         }
+        let line = lines_before + source[..start].matches('\n').count() + 1;
         let Some(tag) = parse_open(&source[start..]) else {
+            // A `<Notes>` whose attributes don't parse still never reaches the
+            // slide: it is reported and taken out up to its `</Notes>`.
+            if let Some(len) = unreadable_notes(&source[start..]) {
+                problems.push(format!("{line}: {UNREADABLE_NOTES}"));
+                at = find_close(source, start + len, NOTES, &in_code)
+                    .map_or(source.len(), |(_, end)| end);
+                continue;
+            }
             out.push('<');
             continue;
         };
-        let line = lines_before + source[..start].matches('\n').count() + 1;
         let after_open = start + tag.len;
         let (inner, end, closed) = if tag.self_closing {
             ("", after_open, true)
@@ -220,6 +228,11 @@ fn expand_in(
         if tag.name == NOTES {
             if !closed {
                 problems.push(format!("{line}: a <{NOTES}> without its </{NOTES}>"));
+            }
+            if tag.has_prop("delivery") && tag.string_prop("delivery").is_none() {
+                problems.push(format!(
+                    "{line}: a <{NOTES}> delivery must be a quoted string"
+                ));
             }
             at = if closed { end } else { source.len() };
             continue;
@@ -280,11 +293,19 @@ fn expand_in(
     out
 }
 
+/// One `<Notes>` block: the line it starts on, its text, trimmed, as written,
+/// and its `delivery` attribute — how the narrator should sound saying it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Note {
+    pub line: usize,
+    pub text: String,
+    pub delivery: Option<String>,
+}
+
 /// Each `<Notes>…</Notes>` block in a page's Markdown, outside code and HTML
-/// comments, as found by [`expand`]: the line it starts on and its text,
-/// trimmed, as written. A `<Notes>` without its `</Notes>` runs to the end of
-/// the page.
-pub fn notes(source: &str) -> Vec<(usize, String)> {
+/// comments, as found by [`expand`]. A `<Notes>` without its `</Notes>` runs
+/// to the end of the page.
+pub fn notes(source: &str) -> Vec<Note> {
     let code = code_ranges(source);
     let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
     let open = format!("<{NOTES}");
@@ -296,7 +317,17 @@ pub fn notes(source: &str) -> Vec<(usize, String)> {
         if in_code(start) {
             continue;
         }
-        let Some(tag) = parse_open(&source[start..]).filter(|tag| tag.name == NOTES) else {
+        let Some(tag) = parse_open(&source[start..])
+            .filter(|tag| tag.name == NOTES)
+            .or_else(|| {
+                unreadable_notes(&source[start..]).map(|len| OpenTag {
+                    name: NOTES.to_string(),
+                    props: "{}".to_string(),
+                    len,
+                    self_closing: false,
+                })
+            })
+        else {
             continue;
         };
         let after_open = start + tag.len;
@@ -308,10 +339,11 @@ pub fn notes(source: &str) -> Vec<(usize, String)> {
                 None => (&source[after_open..], source.len()),
             }
         };
-        found.push((
-            source[..start].matches('\n').count() + 1,
-            inner.trim().to_string(),
-        ));
+        found.push(Note {
+            line: source[..start].matches('\n').count() + 1,
+            text: inner.trim().to_string(),
+            delivery: tag.string_prop("delivery"),
+        });
         at = end;
     }
     found
@@ -365,6 +397,36 @@ struct OpenTag {
     props: String,
     len: usize,
     self_closing: bool,
+}
+
+/// What is wrong with a `<Notes …>` whose attributes don't parse.
+const UNREADABLE_NOTES: &str =
+    "a <Notes> whose attributes can't be read: write delivery=\"…\" with no double quotes inside";
+
+/// The length of a `<Notes …>` open tag that [`parse_open`] can't read — an
+/// attribute with a stray quote — up to its first `>`; `None` for anything
+/// else.
+fn unreadable_notes(text: &str) -> Option<usize> {
+    let rest = text.strip_prefix(&format!("<{NOTES}"))?;
+    if !rest.starts_with(char::is_whitespace) || parse_open(text).is_some() {
+        return None;
+    }
+    text.find('>').map(|end| end + 1)
+}
+
+impl OpenTag {
+    /// Whether the tag has a `key` attribute, of any form.
+    fn has_prop(&self, key: &str) -> bool {
+        self.props.contains(&format!("\"{key}\": "))
+    }
+
+    /// The string a `key="…"` attribute holds, if the tag has one.
+    fn string_prop(&self, key: &str) -> Option<String> {
+        let at = self.props.find(&format!("\"{key}\": \""))? + key.len() + 4;
+        let mut strings =
+            serde_json::Deserializer::from_str(&self.props[at..]).into_iter::<String>();
+        strings.next()?.ok()
+    }
 }
 
 /// Parses `<Name a="x" b={expr} c>` or `<Name … />` at the start of `text`.
@@ -1058,7 +1120,11 @@ mod tests {
         let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
         assert_eq!(
             notes(source),
-            vec![(3, "Say **this**, word for word.".to_string())]
+            vec![Note {
+                line: 3,
+                text: "Say **this**, word for word.".to_string(),
+                delivery: None
+            }]
         );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&["Callout"]), &mut problems));
@@ -1072,8 +1138,8 @@ mod tests {
     fn unclosed_notes_are_a_problem_and_never_shown() {
         let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
         assert_eq!(
-            notes(source),
-            vec![(5, "Say this.\n</Note>\n\nAfter.".to_string())]
+            notes(source)[0].text,
+            "Say this.\n</Note>\n\nAfter.".to_string()
         );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
@@ -1084,6 +1150,49 @@ mod tests {
             problems,
             vec!["5: a <Notes> without its </Notes>".to_string()]
         );
+    }
+
+    #[test]
+    fn a_notes_delivery_is_kept_and_never_shown() {
+        let source = "<Notes delivery=\"Honest and a little teasing: you caught them.\">\nSay this.\n</Notes>\n";
+        assert_eq!(
+            notes(source)[0].delivery.as_deref(),
+            Some("Honest and a little teasing: you caught them.")
+        );
+        let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
+        assert!(!html.contains("teasing"), "{html}");
+    }
+
+    #[test]
+    fn a_notes_with_unreadable_attributes_is_a_problem_and_never_shown() {
+        for source in [
+            "<Notes delivery=\"the \"aha\" moment\">\nSAYTHIS\n</Notes>\n\nAfter.\n",
+            "<Notes delivery=\"say \\\"wow\\\" now\">\nSAYTHIS\n</Notes>\n\nAfter.\n",
+        ] {
+            let mut problems = Vec::new();
+            let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+            assert!(
+                !html.contains("SAYTHIS") && !html.contains("Notes"),
+                "{html}"
+            );
+            assert!(html.contains("<p>After.</p>"), "{html}");
+            assert_eq!(problems, vec![format!("1: {UNREADABLE_NOTES}")]);
+            assert_eq!(notes(source)[0].text, "SAYTHIS");
+            assert_eq!(notes(source)[0].delivery, None);
+        }
+    }
+
+    #[test]
+    fn a_notes_delivery_that_is_not_a_quoted_string_is_a_problem() {
+        let source = "<Notes delivery={\"warm\"}>\nSay this.\n</Notes>\n";
+        let mut problems = Vec::new();
+        let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+        assert!(!html.contains("Say this"), "{html}");
+        assert_eq!(
+            problems,
+            vec!["1: a <Notes> delivery must be a quoted string".to_string()]
+        );
+        assert_eq!(notes(source)[0].delivery, None);
     }
 
     #[test]
@@ -1100,6 +1209,7 @@ mod tests {
     #[test]
     fn every_notes_block_is_found_with_its_line() {
         let found = notes("<Notes>one</Notes>\n\ntext\n\n<Notes>\ntwo\n</Notes>\n<Notes/>\n");
+        let found: Vec<(usize, String)> = found.into_iter().map(|n| (n.line, n.text)).collect();
         assert_eq!(
             found,
             vec![

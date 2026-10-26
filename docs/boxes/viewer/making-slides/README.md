@@ -114,15 +114,22 @@ showing its notes on it. A file counts
 as a slide when it is shown in a deck, so the same file opened on its own is
 a page and lists its `<Notes>` as a problem.
 
-A deck's **context** is what its notes are read against: what the talk is,
-who it is for, and its tone, in the deck's own document file.
-`devpage video` records the deck with its notes read aloud
-([Making a video](../making-a-video/README.md)).
+A `<Notes>` can carry a **delivery** — how the slide should feel when it is
+said, as in `<Notes delivery="Curious, a little playful.">` — a direction for
+the narrator, never said and never shown. It is a quoted string with no double
+quotes inside; one that can't be read, or isn't a string, is a problem, and the
+notes still never reach the slide. A deck says who it is for and how it
+should sound in its own document file: its **audience**, its **goal** and its
+**tone**, and `pronounce` lines for words a voice gets wrong. `devpage video`
+records the deck with its notes read aloud
+([Making a video](../making-a-video/README.md#what-the-narrator-is-told)).
 
 ```yaml
 kind: slides
 title: Launch
-context: A five-minute launch talk for engineers who have never seen devpage. Warm, plain, no hype.
+audience: Engineers who have never seen devpage.
+goal: They see what devpage does and try it.
+tone: Warm and plain, no hype.
 slides: [intro.md, problem.md, demo.md]
 ```
 

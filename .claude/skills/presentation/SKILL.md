@@ -87,8 +87,13 @@ Every slide gets `<Notes>` — the exact script, for a human presenter or for
 - Talk to the listener ("your agent", "you"), like a person, not a manual.
 - Lead into the next slide when it helps the story flow.
 
-Put the deck's purpose, audience and tone in `context:` in its yml; it is
-also the narrator's instructions.
+- Give each `<Notes>` a `delivery`: how the slide should feel ("honest and a
+  little teasing", "relief and quiet confidence"). Across the deck the
+  deliveries are the talk's emotional arc.
+
+Put `audience`, `goal` and `tone` in the deck's yml, and `pronounce` lines for
+words a voice gets wrong. They brief the narrator of `devpage video`; see
+[what the narrator is told](../../../docs/boxes/viewer/making-a-video/README.md#what-the-narrator-is-told).
 
 ## 5. Iterate by looking
 

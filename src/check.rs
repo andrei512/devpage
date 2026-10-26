@@ -277,9 +277,9 @@ fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem>
     crate::widgets::notes(&source)
         .iter()
         .skip(usize::from(slide))
-        .map(|(line, _)| Problem {
+        .map(|note| Problem {
             file: file.clone(),
-            line: Some(*line),
+            line: Some(note.line),
             message: if slide {
                 "a second <Notes> on one slide".to_string()
             } else {

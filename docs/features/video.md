@@ -1,7 +1,7 @@
 # Video
 
 `devpage video` records a deck to mp4: GPT-Live reads each slide's notes word
-for word, in the deck's context, while Chrome shows the slides — 1920 × 1080,
+for word, for the deck's audience and in its tone, while Chrome shows the slides — 1920 × 1080,
 no silence longer than a second.
 
 <Terminal>

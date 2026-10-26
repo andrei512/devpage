@@ -1,8 +1,8 @@
 # Notes and slide images
 
 A slide carries its script in a `<Notes>` tag — the words said while it is up,
-never shown on it — and a deck its `context`: what the talk is, for whom, in
-what tone. Every slide is also a PNG at `<deck file>/<n>.png`, so an agent
+never shown on it — with a `delivery`, how the slide should feel; a deck says
+who its `audience` is, its `goal` and its `tone`. Every slide is also a PNG at `<deck file>/<n>.png`, so an agent
 writing the notes can look at the slide it is writing for.
 
 ```markdown

@@ -67,16 +67,82 @@ talk plus a few seconds per slide: a ten-minute talk costs about ten minutes.
 
 A slide's [notes](../making-slides/README.md#speaker-notes) are said exactly
 as written, word for word, so write them as speech: whole sentences, numbers
-and names as they should sound, nothing meant only for the eye. The deck's
-`context` is what the narrator is told before any slide — what the talk is,
-who it is for, its tone:
+and names as they should sound, nothing meant only for the eye. Write for
+the ear: short sentences, questions to the listener, a full stop where a pause
+belongs. Give each slide a `delivery` for how it should feel, and the deck its
+`audience`, `goal` and `tone` — [what the narrator is told](#what-the-narrator-is-told)
+shows where each one goes.
+
+### What the narrator is told
+
+Two kinds of message, and nothing else: the narrator never sees a slide's
+picture or title. Everything outside `{…}` is fixed in devpage; the deck fills
+in the rest. The shape follows OpenAI's GPT-Live prompt template: who the
+narrator is, the talk, how to speak, its task, then the backchannel,
+interruption and delegation policies.
+
+**Once, when the session starts:**
+
+```text
+You are the narrator of "{title}", a recorded talk of {count} slides.
+
+Audience: {audience}
+Goal: {goal}
+Tone: {tone}
+
+Read like a speaker who enjoys giving this talk, in the tone above, for this audience. Speak clearly at an unhurried pace. Lean into the words that carry each slide's point.
+{pronounce, one line each}
+
+Each slide arrives as a passage with its delivery. Read the passage word for word once, with natural phrasing and complete word endings, in that delivery. Say only the passage, without an introduction, closing remark, transition, comment, or delegation. Then stay silent until the next passage arrives.
+
+Backchannel policy: Never backchannel.
+Interruption policy: There is no live listener. Input audio is only silence or noise. Do not treat a cough, music, or any sound as speech or a new request.
+Delegation policy: NEVER GENERATE <|SpawnThinking|>, CHECK, ANSWER, SEARCH, OR USE TOOLS.
+```
+
+**Then once per slide, as it comes up:**
+
+```text
+Slide {n} of {count}. Delivery: {delivery}
+Immediately read this passage aloud, word for word, then stop:
+
+{notes}
+```
+
+Where each part comes from:
+
+| Part | From | If missing |
+| --- | --- | --- |
+| `title` | the deck's `title` | — |
+| `audience` | the deck's `audience`: who watches | `devpage video` stops and names it |
+| `goal` | the deck's `goal`: what the talk should achieve | `devpage video` stops and names it |
+| `tone` | the deck's `tone`: the energy of the whole talk | "Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never flat and never salesy." |
+| `pronounce` | the deck's `pronounce`: one line per word a voice gets wrong | no lines |
+| `delivery` | the slide's `<Notes delivery="…">`: how this slide should feel | "in the talk's tone." |
+| `notes` | the slide's `<Notes>` | `devpage video` stops and names the slide |
 
 ```yaml
 kind: slides
-title: Launch
-context: A five-minute launch talk for engineers who have never seen devpage. Warm, plain, no hype.
-slides: [intro.md, problem.md, demo.md]
+title: devpage
+audience: Software developers who use AI coding agents. Many are not native English speakers.
+goal: They understand what devpage is, why it helps them, and try it today.
+tone: Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never salesy.
+pronounce:
+  - Say "devpage" as "dev page".
+slides: [title.md, agents-write.md, hard-to-read.md]
 ```
+
+```markdown
+<Notes delivery="Honest and a little teasing: you have caught them.">
+But be honest. Do you read them? …
+</Notes>
+```
+
+A delivery is a direction, never said: "curious", "relief and quiet
+confidence", "a small smile — a surprise saved for the end". Across a deck
+they give the talk its arc. Exact wording is still not guaranteed by the
+model, so listen to the result, or transcribe it and compare it with the
+notes. A test keeps this page and the code the same text.
 
 An agent writing the notes should look at each slide while it writes: every
 slide is a [PNG](../making-slides/README.md#a-slide-as-an-image) at
@@ -92,9 +158,9 @@ sequenceDiagram
   participant live as GPT-Live
   video->>chrome: open the deck, served on a loopback port
   chrome->>chrome: capture its own tab, arm the recorder
-  video->>live: start a session: the context and how to read the notes
+  video->>live: start a session: the talk (audience, goal, tone) and how to read
   loop each slide
-    video->>live: say this slide's notes
+    video->>live: ask for this slide: its delivery and notes
     live-->>video: the voice, streamed
     video->>chrome: the voice, silences trimmed; resume recording
     video->>chrome: next slide, then pause
