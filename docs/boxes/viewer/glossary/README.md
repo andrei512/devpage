@@ -37,6 +37,10 @@ What is said over a slide: the text of the `<Notes>` tag in its file, read aloud
 
 A deck's fields for its narrator: who watches the talk, what it should achieve, and the energy of the whole talk. `audience` and `goal` are required by `devpage video`; `tone` has a default. See [What the narrator is told](../making-a-video/README.md#what-the-narrator-is-told).
 
+## pronounce
+
+A deck's list of lines telling the narrator how to say words a voice gets wrong, such as `Say "devpage" as "dev page".` See [What the narrator is told](../making-a-video/README.md#what-the-narrator-is-told).
+
 ## delivery
 
 The `delivery` attribute of a slide's `<Notes>`: how that slide should feel when it is said — a direction for the narrator, never said or shown.
