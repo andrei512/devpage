@@ -1171,7 +1171,7 @@ mod tests {
                 .collect();
         let module = |file: &str| {
             address(Owned::Module {
-                served: &dir,
+                snapshot: &crate::widgets::Snapshot::of(&dir, &dir.join(file)),
                 file: &dir.join(file),
                 known: &known,
             })

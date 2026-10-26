@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 242 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 69 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 244 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 168 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 170 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 69 tests marked `#[ignore]`, 68 drive Chrome, and one of them also
+Of the 70 tests marked `#[ignore]`, 69 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 26 in Chrome, 1 on the network.*
+*4 tests, 27 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -245,7 +245,7 @@ In Chrome:
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
 - A plain page fetching neither pele nor React nor any widget; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
-- Widgets mounting again after a live update and an edited widget or helper reaching open pages.
+- Widgets mounting again after a live update and an edited widget or helper reaching open pages, a widget rendered by name inside an unchanged one too.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
 - A live update keeping an unchanged widget's node and state and the scroll, with no frame showing an unmounted placeholder; an edited widget mounting afresh and its old root unmounted.
@@ -365,7 +365,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `widgets`
 
-*25 tests.*
+*27 tests.*
 
 - `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
@@ -376,7 +376,8 @@ Without waiting on file-system events, fed made-up `notify` events:
 - TSX compiled with the automatic runtime, widget shims, `__devpageUses` and relative imports rewritten to the addresses given.
 - A compile error's line.
 - Compiles remembered until the source or an import's address changes.
-- An edited helper changing its own version and its importers' — through another widget too — and no other widget's; the names a widget can render part of its version.
+- A version and compiled bytes made from one reading of the files, whatever is saved in between.
+- An edited helper changing its own version and its importers' — through another widget too — and no other widget's; a helper created, edited and removed after its importer was read moving the importer's version; the names a widget can render part of its version.
 - Lowercase files as helpers and a system widget's name as a problem.
 - A `Cards` icon drawn on the server and an unknown icon name as a problem.
 

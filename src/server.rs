@@ -499,20 +499,18 @@ async fn project_widget(
     };
     let folder = file.parent().unwrap_or(&file).to_path_buf();
     let known = known(&state, &folder);
-    let served = &document.served;
-    let current = asked_version(query.as_deref())
-        == Some(crate::widgets::module_hash(served, &file, &known).as_str());
+    // The version asked about and the bytes sent come from one reading of
+    // the files: a save between the two can't be served as `immutable` under
+    // the version before it.
+    let snapshot = crate::widgets::Snapshot::of(&document.served, &file);
+    let current = asked_version(query.as_deref()) == Some(snapshot.hash(&file, &known).as_str());
     // A helper this file imports that doesn't compile: the browser would only
     // say the import failed, so say why, here.
-    if let Some(error) = broken_import(&document, &file, &known) {
+    if let Some(error) = broken_import(&document, &snapshot, &file, &known) {
         return module_error(&error);
     }
     let label = document.url(&file)[1..].to_string();
-    compiled(
-        &label,
-        crate::widgets::compile_module(served, &file, &known),
-        current,
-    )
+    compiled(&label, snapshot.compile(&file, &known), current)
 }
 
 /// The names a widget in `folder` can render by name: the system widgets and
@@ -540,14 +538,17 @@ fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
 /// compile: its name and the compiler's message.
 fn broken_import(
     document: &crate::document::Document,
+    snapshot: &crate::widgets::Snapshot,
     file: &std::path::Path,
     known: &[String],
 ) -> Option<String> {
-    crate::widgets::closure(&document.served, file)
+    snapshot
+        .closure(file)
         .into_iter()
         .skip(1)
         .find_map(|(helper, _)| {
-            crate::widgets::compile_module(&document.served, &helper, known)
+            snapshot
+                .compile(&helper, known)
                 .err()
                 .map(|error| format!("{} does not compile: {error}", &document.url(&helper)[1..]))
         })
@@ -1279,7 +1280,7 @@ mod tests {
             .collect();
         let address = |file: &str| {
             crate::addresses::address(crate::addresses::Owned::Module {
-                served: &served,
+                snapshot: &crate::widgets::Snapshot::of(&served, &served.join(file)),
                 file: &served.join(file),
                 known: &known,
             })

@@ -48,10 +48,11 @@ pub enum Owned<'a> {
     /// A system widget, by name: `"Callout"`.
     SystemWidget(&'a str),
     /// A project widget, or a helper a widget imports: its file in the served
-    /// folder, and the widget names it can render — those of the document
+    /// folder, the [snapshot](crate::widgets::Snapshot) of the files it is
+    /// made from, and the widget names it can render — those of the document
     /// whose widgets folder holds it.
     Module {
-        served: &'a Path,
+        snapshot: &'a crate::widgets::Snapshot,
         file: &'a Path,
         known: &'a [String],
     },
@@ -76,13 +77,15 @@ pub fn address(owned: Owned) -> String {
             system_widget_hash(name).unwrap_or_default()
         ),
         Owned::Module {
-            served,
+            snapshot,
             file,
             known,
         } => format!(
             "/__devpage/widgets/{}?v={}",
-            file.strip_prefix(served).unwrap_or(file).display(),
-            crate::widgets::module_hash(served, file, known)
+            file.strip_prefix(snapshot.served())
+                .unwrap_or(file)
+                .display(),
+            snapshot.hash(file, known)
         ),
     }
 }

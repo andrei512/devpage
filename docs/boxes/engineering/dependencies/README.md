@@ -77,7 +77,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server`) | 0.2.0 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
+| `devpage-design` (feature `server`) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/designs.rs`, `src/server.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/server.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/server.rs` |
@@ -95,8 +95,8 @@ except where a code comment says so, and this page doesn't guess.
 [built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
-content's hash, so it is made again only when the asset changes — and
-devpage's build id, a hash of everything the binary is built from.
+content's hash, so it is made again only when the asset changes, and the
+files of an asset's earlier versions are removed — and devpage's build id, a hash of everything the binary is built from.
 `src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
 binary embeds the vendored `assets/vendor/design-engine.wasm` and
 `assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
@@ -138,7 +138,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` | 0.2.0 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `devpage-design` | 0.2.1 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
 | `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: the display list replayed into a vello scene and drawn with WebGPU through `wgpu`. | `design/wasm/src/gpu.rs` |
 | `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu.rs` |

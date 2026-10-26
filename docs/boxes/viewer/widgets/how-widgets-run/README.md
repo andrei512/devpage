@@ -58,9 +58,15 @@ page preloading its helper name the same address. A module asked for at its
 current version is served `immutable`, and the browser never asks for it
 again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
-comes from one function, `address` in `src/addresses.rs`. The files a version
+comes from one function, `address` in `src/addresses.rs`. A module's version
+and its compiled bytes come from one reading of the files they are made from
+(a `Snapshot`), so a save landing while a request is answered can't send the
+new bytes as `immutable` under the old version. The files a version
 is made from are read once and remembered until their change time or size
-moves, or the watcher reports them changed. Compiled modules are remembered
+moves, or the watcher reports them changed — or reports a file created,
+edited or removed where one of their relative imports could find it, so a
+helper created after the widget importing it was read gives that widget a
+new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
 per request. A file that doesn't compile is served as
@@ -79,8 +85,10 @@ failed.
 
 In `assets/devpage.js`, each `pre[lang="mermaid"]` first
 becomes a `Diagram` placeholder. Then the page script loads only the widgets the
-content names, nested ones included, and those each lists in `__devpageUses`,
-importing them alongside React rather than after it;
+content names, nested ones included, and those each lists in `__devpageUses`
+and theirs in turn, importing them alongside React rather than after it — and
+importing again each one whose address changed, even when the widget
+rendering it by name kept its own;
 adds a widget's exported `css` to the page once; and mounts each outermost
 placeholder with React. Nested widgets become React elements their parent can
 read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped
