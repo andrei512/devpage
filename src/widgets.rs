@@ -229,7 +229,7 @@ impl Widgets {
 
 /// A module file as last read: its source and the files its relative imports
 /// name, remembered until its change time or size moves or the watcher says
-/// it changed.
+/// it — or a file one of its imports could name — changed.
 #[derive(Clone)]
 struct Read {
     changed: Option<std::time::SystemTime>,
@@ -237,7 +237,14 @@ struct Read {
     source: Arc<str>,
     /// Each relative specifier and the file it names, when there is one.
     imports: Vec<(String, PathBuf)>,
+    /// Each relative specifier's path, resolved or not: a file created or
+    /// removed at one of them, with or without an extension [`read`] tries,
+    /// changes what the module imports.
+    specified: Vec<PathBuf>,
 }
+
+/// The extensions a relative specifier is tried with, in order.
+const IMPORT_EXTENSIONS: [&str; 3] = ["", ".tsx", ".ts"];
 
 type ReadCache = Option<HashMap<PathBuf, Read>>;
 static READ: Mutex<ReadCache> = Mutex::new(None);
@@ -257,11 +264,16 @@ fn read(file: &Path) -> Option<Read> {
     }
     let source: Arc<str> = std::fs::read_to_string(file).ok()?.into();
     let folder = file.parent().unwrap_or(file);
-    let imports = relative_imports(file, &source)
+    let specifiers = relative_imports(file, &source);
+    let specified = specifiers
+        .iter()
+        .map(|specifier| lexical(&folder.join(specifier)))
+        .collect();
+    let imports = specifiers
         .into_iter()
         .filter_map(|specifier| {
             let base = folder.join(&specifier);
-            ["", ".tsx", ".ts"]
+            IMPORT_EXTENSIONS
                 .iter()
                 .map(|ext| PathBuf::from(format!("{}{ext}", base.display())))
                 .find(|path| path.is_file())
@@ -274,6 +286,7 @@ fn read(file: &Path) -> Option<Read> {
         len,
         source,
         imports,
+        specified,
     };
     if let Ok(mut cache) = READ.lock() {
         let cache = cache.get_or_insert_with(HashMap::new);
@@ -286,14 +299,42 @@ fn read(file: &Path) -> Option<Read> {
 }
 
 /// Forgets what was read of `file`, so the next address or compile reads it
-/// again. The watcher calls it for every changed file: a change time can miss
-/// an edit made within its resolution that keeps the size.
+/// again, and what was read of every module with an import that could name
+/// it, so a helper created or removed after its importer was read changes
+/// what the importer imports. The watcher calls it for every changed file: a
+/// change time can miss an edit made within its resolution that keeps the
+/// size.
 pub fn forget(file: &Path) {
+    let file = lexical(file);
     if let Ok(mut cache) = READ.lock()
         && let Some(cache) = cache.as_mut()
     {
-        cache.remove(file);
+        cache.remove(&file);
+        cache.retain(|_, read| {
+            !read.specified.iter().any(|base| {
+                IMPORT_EXTENSIONS
+                    .iter()
+                    .any(|ext| file.as_os_str() == format!("{}{ext}", base.display()).as_str())
+            })
+        });
     }
+}
+
+/// `path` with its `.` and `..` components resolved by name, not on disk: a
+/// specifier's path when the file it names may not exist.
+fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// The relative specifiers (`./x`, `../x`) a module imports or re-exports
@@ -1352,6 +1393,48 @@ mod tests {
         );
         assert!(is_widget_file(&w.join("label.ts"), &w));
         assert!(!is_widget_file(&w.join("notes.md"), &w));
+    }
+
+    #[test]
+    fn a_helper_created_after_its_importer_moves_the_importers_address() {
+        let dir = std::env::temp_dir().join(format!("devpage-wlate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("w")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let w = dir.join("w");
+        let other = w.join("Other.tsx");
+        std::fs::write(
+            &other,
+            "import { label } from \"./label\";\nexport default () => label;",
+        )
+        .unwrap();
+        let known = vec!["Other".to_string()];
+        // Read while `./label` names nothing.
+        let missing = module_hash(&dir, &other, &known);
+        // The watcher reports the created file, then each edit to it.
+        std::fs::write(w.join("label.ts"), "export const label = 1;").unwrap();
+        forget(&w.join("label.ts"));
+        let created = module_hash(&dir, &other, &known);
+        assert_ne!(missing, created, "creating the helper");
+        let label = address(Owned::Module {
+            served: &dir,
+            file: &w.join("label.ts"),
+            known: &known,
+        });
+        let compiled = compile_module(&dir, &other, &known).unwrap();
+        assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
+        std::fs::write(w.join("label.ts"), "export const label = 2;").unwrap();
+        forget(&w.join("label.ts"));
+        assert_ne!(
+            created,
+            module_hash(&dir, &other, &known),
+            "editing the helper"
+        );
+        // Removing it moves the address again.
+        let edited = module_hash(&dir, &other, &known);
+        std::fs::remove_file(w.join("label.ts")).unwrap();
+        forget(&w.join("label.ts"));
+        assert_ne!(edited, module_hash(&dir, &other, &known), "removing it");
     }
 
     #[test]

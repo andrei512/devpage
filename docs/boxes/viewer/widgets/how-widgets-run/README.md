@@ -60,7 +60,10 @@ again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
 comes from one function, `address` in `src/addresses.rs`. The files a version
 is made from are read once and remembered until their change time or size
-moves, or the watcher reports them changed. Compiled modules are remembered
+moves, or the watcher reports them changed — or reports a file created,
+edited or removed where one of their relative imports could find it, so a
+helper created after the widget importing it was read gives that widget a
+new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
 per request. A file that doesn't compile is served as
