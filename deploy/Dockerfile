@@ -1,13 +1,25 @@
 # An example image serving devpage's own docs, deployed: installed from
 # crates.io like anyone would, behind an auth proxy that names each reader.
-# Build from the repository root: docker build -f deploy/Dockerfile .
+# It reads nothing from the build context: docker build deploy
 FROM rust:1.97-slim-bookworm AS build
-RUN cargo install devpage --version 0.2.0 --locked
+# devpage 0.2.0 links fontconfig through its font library; later releases don't.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config libfontconfig1-dev \
+ && rm -rf /var/lib/apt/lists/*
+ARG DEVPAGE_VERSION=0.2.0
+# The docs and licence come from the published crate's own source, so they
+# always match the binary.
+RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
+ && cp -r "$CARGO_HOME"/registry/src/*/devpage-"$DEVPAGE_VERSION" /devpage-src
 
 FROM debian:bookworm-slim
+# ca-certificates: the link checker fetches https links.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libfontconfig1 \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
-COPY docs /srv/docs
-COPY LICENSE /srv/LICENSE
+COPY --from=build /devpage-src/docs /srv/docs
+COPY --from=build /devpage-src/LICENSE /srv/LICENSE
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
