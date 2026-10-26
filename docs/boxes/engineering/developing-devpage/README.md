@@ -82,7 +82,8 @@ $ cargo test -- --ignored     # the tests that drive Chrome
 </Terminal>
 
 Run the Chrome tests after changing the page script, the design script, the
-module, the stylesheet, a widget, print mode, `devpage pdf` or `devpage video`.
+module, the stylesheet, a widget, print mode, `devpage pdf`, a slide's PNG, or
+`devpage video` and its recorder (`assets/video.js`).
 They drive chrome-headless-shell — `devpage video`'s, Chrome for Testing —
 never a Chrome installed on the machine. What each module's tests pin, the watcher tests
 that need file-system events, and what has no test, is on

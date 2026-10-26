@@ -86,8 +86,8 @@ A deck has no header or footer settings: a slide is its whole page.
 
 ## Speaker notes
 
-A slide's **notes** are its script: the words a human presenter, or the
-narrator of a recorded deck, says while the slide is up. They live in the
+A slide's **notes** are the words a human presenter, or the narrator of a
+recorded deck, says while the slide is up. They live in the
 slide's own file, in a `<Notes>` tag, and are never shown on the slide — not on
 screen, not on paper.
 
@@ -103,8 +103,11 @@ devpage keeps them next to it.
 `Notes` looks like a widget tag and is found by the same rules — inside code
 and HTML comments it is just text — but it is devpage's own: a project widget
 can't be named `Notes`. Its text is kept trimmed and as written, Markdown and
-all. A slide has at most one `<Notes>`; a second one, or `<Notes>` on a page
-that isn't a slide, is a [problem](../checking-links/README.md). A file counts
+all. A slide has at most one `<Notes>`; a second one, `<Notes>` on a page
+that isn't a slide, or a `<Notes>` without its `</Notes>` is a
+[problem](../checking-links/README.md). An unclosed `<Notes>` runs to the end
+of the file, so a typo like `</Note>` hides the rest of the slide rather than
+showing its notes on it. A file counts
 as a slide when it is shown in a deck, so the same file opened on its own is
 a page and lists its `<Notes>` as a problem.
 

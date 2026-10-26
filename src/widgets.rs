@@ -192,12 +192,14 @@ fn expand_in(
         };
         let line = lines_before + source[..start].matches('\n').count() + 1;
         let after_open = start + tag.len;
-        let (inner, end) = if tag.self_closing {
-            ("", after_open)
+        let (inner, end, closed) = if tag.self_closing {
+            ("", after_open, true)
         } else {
             match find_close(source, after_open, &tag.name, &in_code) {
-                Some((close_start, close_end)) => (&source[after_open..close_start], close_end),
-                None => ("", after_open),
+                Some((close_start, close_end)) => {
+                    (&source[after_open..close_start], close_end, true)
+                }
+                None => ("", after_open, false),
             }
         };
         // A widget is a block when it has its lines to itself: nothing before
@@ -213,9 +215,13 @@ fn expand_in(
             .is_some_and(|after| after.trim().is_empty());
         let block = starts_line && ends_line;
         let element = if block { "div" } else { "span" };
-        // A slide's notes are never shown: [`notes`] reads them.
+        // A slide's notes are never shown: [`notes`] reads them. Unclosed,
+        // they run to the end, so none of their text reaches the slide.
         if tag.name == NOTES {
-            at = end;
+            if !closed {
+                problems.push(format!("{line}: a <{NOTES}> without its </{NOTES}>"));
+            }
+            at = if closed { end } else { source.len() };
             continue;
         }
         if !widgets.modules.contains_key(&tag.name) {
@@ -276,7 +282,8 @@ fn expand_in(
 
 /// Each `<Notes>…</Notes>` block in a page's Markdown, outside code and HTML
 /// comments, as found by [`expand`]: the line it starts on and its text,
-/// trimmed, as written.
+/// trimmed, as written. A `<Notes>` without its `</Notes>` runs to the end of
+/// the page.
 pub fn notes(source: &str) -> Vec<(usize, String)> {
     let code = code_ranges(source);
     let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
@@ -298,7 +305,7 @@ pub fn notes(source: &str) -> Vec<(usize, String)> {
         } else {
             match find_close(source, after_open, NOTES, &in_code) {
                 Some((close_start, close_end)) => (&source[after_open..close_start], close_end),
-                None => ("", after_open),
+                None => (&source[after_open..], source.len()),
             }
         };
         found.push((
@@ -1059,6 +1066,24 @@ mod tests {
         assert!(!html.contains("widget-error"), "{html}");
         assert!(html.contains("<p>After.</p>"), "{html}");
         assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn unclosed_notes_are_a_problem_and_never_shown() {
+        let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
+        assert_eq!(
+            notes(source),
+            vec![(5, "Say this.\n</Note>\n\nAfter.".to_string())]
+        );
+        let mut problems = Vec::new();
+        let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+        assert!(html.contains("<p>Shown.</p>"), "{html}");
+        assert!(!html.contains("Say this"), "{html}");
+        assert!(!html.contains("After."), "{html}");
+        assert_eq!(
+            problems,
+            vec!["5: a <Notes> without its </Notes>".to_string()]
+        );
     }
 
     #[test]
