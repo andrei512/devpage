@@ -1438,6 +1438,47 @@ mod tests {
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
+    async fn an_edited_widget_rendered_by_name_reaches_open_pages() {
+        let dir = widget_folder(
+            "by-name",
+            "# W\n\n<Card />\n",
+            &[
+                (
+                    "docs/widgets/Card.tsx",
+                    "export default () => <div className=\"card\"><Badge /></div>;",
+                ),
+                (
+                    "docs/widgets/Badge.tsx",
+                    "export default () => <span className=\"badge\">before</span>;",
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(&page, "document.querySelector('.card .badge').textContent").await,
+            "before"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        // Badge's address moves; Card's, which names Badge only by name, doesn't.
+        std::fs::write(
+            dir.join("docs/widgets/Badge.tsx"),
+            "export default () => <span className=\"badge\">after</span>;",
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            text(&page, "document.querySelector('.card .badge').textContent").await,
+            "after"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
     async fn a_reload_downloads_nothing_again() {
         let dir = widget_folder(
             "reload",

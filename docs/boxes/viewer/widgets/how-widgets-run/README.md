@@ -82,8 +82,10 @@ failed.
 
 In `assets/devpage.js`, each `pre[lang="mermaid"]` first
 becomes a `Diagram` placeholder. Then the page script loads only the widgets the
-content names, nested ones included, and those each lists in `__devpageUses`,
-importing them alongside React rather than after it;
+content names, nested ones included, and those each lists in `__devpageUses`
+and theirs in turn, importing them alongside React rather than after it — and
+importing again each one whose address changed, even when the widget
+rendering it by name kept its own;
 adds a widget's exported `css` to the page once; and mounts each outermost
 placeholder with React. Nested widgets become React elements their parent can
 read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped

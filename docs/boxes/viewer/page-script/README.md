@@ -43,7 +43,9 @@ loaded whole.
 head the fresh page's preload links it lacks (`adoptPreloads`), so the modules
 the fresh page needs download together before mounting asks for them, and
 takes the fresh page's `window.devpageWidgets`, so widgets edited since are
-fetched at their new addresses. It puts the fresh content of `#devpage-page`
+fetched at their new addresses — those the content names, and those they
+render by name, transitively, whose addresses moved while the widget naming
+them kept its own (`loadWidget`). It puts the fresh content of `#devpage-page`
 into a hidden copy of it in the same document — absolutely placed,
 `visibility: hidden`, as wide as the page, so a widget that measures itself
 gets real sizes — shows the slide the address names in it, and mounts the

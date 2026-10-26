@@ -31,9 +31,13 @@ const widgetUrls = {};
 const widgetLoadErrors = {};
 
 // Loads a widget's module, again when its address changed — an edited widget
-// or helper gives the folder a new version — puts its exported CSS in the page
-// once, and loads the widgets it renders by name, which it lists.
-async function loadWidget(name) {
+// or helper gives the folder a new version — and puts its exported CSS in the
+// page once. Then does the same for the widgets it renders by name, which it
+// lists, and theirs in turn, whether or not its own address changed: an edited
+// widget rendered by name inside an unchanged one has a new address while the
+// outer one keeps its own. `seen` stops a cycle of widgets rendering each other.
+async function loadWidget(name, seen = new Set()) {
+  seen.add(name);
   const url = (window.devpageWidgets || {})[name];
   if (!url) throw new Error(`<${name}> is not a widget`);
   if (widgetUrls[name] !== url) {
@@ -46,9 +50,6 @@ async function loadWidget(name) {
       throw error;
     }
     widgetUrls[name] = url;
-    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used)
-      .then(() => { delete widgetLoadErrors[used]; })
-      .catch((error) => { widgetLoadErrors[used] = error; })));
     document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
     const css = widgetModules[name].css;
     if (css) {
@@ -58,7 +59,11 @@ async function loadWidget(name) {
       document.head.append(style);
     }
   }
-  return widgetModules[name];
+  const module = widgetModules[name];
+  await Promise.all((module.__devpageUses || []).filter((used) => !seen.has(used)).map((used) => loadWidget(used, seen)
+    .then(() => { delete widgetLoadErrors[used]; })
+    .catch((error) => { widgetLoadErrors[used] = error; })));
+  return module;
 }
 
 // Every React root mounted, by the element it renders into; and for each
@@ -109,7 +114,8 @@ async function mountWidgets(root) {
   const placeholders = placeholdersIn(root);
   if (!placeholders.length) return;
   // Only the widgets this content names, nested ones included, and those they
-  // render by name — loaded alongside React, not after it.
+  // render by name, transitively (`loadWidget`) — loaded alongside React, not
+  // after it.
   const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
   const [React, { createRoot }] = await Promise.all([
     import("react"),

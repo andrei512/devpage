@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 243 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 69 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 69 tests marked `#[ignore]`, 68 drive Chrome, and one of them also
+Of the 70 tests marked `#[ignore]`, 69 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 26 in Chrome, 1 on the network.*
+*4 tests, 27 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -245,7 +245,7 @@ In Chrome:
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
 - A plain page fetching neither pele nor React nor any widget; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
-- Widgets mounting again after a live update and an edited widget or helper reaching open pages.
+- Widgets mounting again after a live update and an edited widget or helper reaching open pages, a widget rendered by name inside an unchanged one too.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
 - A live update keeping an unchanged widget's node and state and the scroll, with no frame showing an unmounted placeholder; an edited widget mounting afresh and its old root unmounted.
