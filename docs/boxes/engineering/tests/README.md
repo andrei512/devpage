@@ -157,7 +157,7 @@ In Chrome:
 *9 tests.*
 
 - Each kind parsed.
-- A deck's `context` and each slide's notes, `context` refused on the other kinds.
+- A deck's audience, goal, tone and pronounce, each slide's notes and delivery; those fields refused on the other kinds, and `context` refused.
 - A navbar read in order with its icons and dropdowns, `sidebar` and `theme-selector`, and its bad shapes refused.
 - Bad kinds, fields and missing files rejected.
 - A Markdown file as a one-chapter doc.

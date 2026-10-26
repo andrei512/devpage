@@ -67,16 +67,11 @@ talk plus a few seconds per slide: a ten-minute talk costs about ten minutes.
 
 A slide's [notes](../making-slides/README.md#speaker-notes) are said exactly
 as written, word for word, so write them as speech: whole sentences, numbers
-and names as they should sound, nothing meant only for the eye. The deck's
-`context` is what the narrator is told before any slide — what the talk is,
-who it is for, its tone:
-
-```yaml
-kind: slides
-title: Launch
-context: A five-minute launch talk for engineers who have never seen devpage. Warm, plain, no hype.
-slides: [intro.md, problem.md, demo.md]
-```
+and names as they should sound, nothing meant only for the eye. Write for
+the ear: short sentences, questions to the listener, a full stop where a pause
+belongs. Give each slide a `delivery` for how it should feel, and the deck its
+`audience`, `goal` and `tone` — [what the narrator is told](#what-the-narrator-is-told)
+shows where each one goes.
 
 ### What the narrator is told
 

@@ -33,13 +33,17 @@ A document that is a deck: one Markdown file per slide, in the order its `slides
 
 What is said over a slide: the text of the `<Notes>` tag in its file, read aloud by a presenter or a narrator and never shown on the slide. See [Speaker notes](../making-slides/README.md#speaker-notes).
 
-## context
+## audience, goal, tone
 
-A deck's `context` field: what the talk is, who it is for and its tone — what its slides' notes are read against.
+A deck's fields for its narrator: who watches the talk, what it should achieve, and the energy of the whole talk. `audience` and `goal` are required by `devpage video`; `tone` has a default. See [What the narrator is told](../making-a-video/README.md#what-the-narrator-is-told).
+
+## delivery
+
+The `delivery` attribute of a slide's `<Notes>`: how that slide should feel when it is said — a direction for the narrator, never said or shown.
 
 ## narrator
 
-GPT-Live, as `devpage video` uses it: told the deck's context, it says each slide's notes word for word into the recording. See [The narrator](../making-a-video/README.md#the-narrator).
+GPT-Live, as `devpage video` uses it: told the deck's audience, goal and tone and each slide's delivery, it says each slide's notes word for word into the recording. See [The narrator](../making-a-video/README.md#the-narrator).
 
 ## document file
 

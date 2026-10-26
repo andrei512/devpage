@@ -122,7 +122,10 @@ default.
 | `kind` | `slides` | yes | Makes this file a deck. |
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
-| `context` | string | no | What the talk is, who it is for and its tone — what the slides' [notes](../making-slides/README.md#speaker-notes) are read against; default none. |
+| `audience` | string | for `video` | Who watches the talk; [told to the narrator](../making-a-video/README.md#what-the-narrator-is-told). `devpage video` refuses a deck without it. |
+| `goal` | string | for `video` | What the talk should achieve; told to the narrator. `devpage video` refuses a deck without it. |
+| `tone` | string | no | The energy of the whole talk; default "Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never flat and never salesy." |
+| `pronounce` | list of strings | no | One line per word a voice gets wrong, such as `Say "devpage" as "dev page".`; default none. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |

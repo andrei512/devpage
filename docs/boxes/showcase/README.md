@@ -63,7 +63,8 @@ action. Each row is one slide.
 - **The speaker talks, the slide shows.** Every slide has `<Notes>` with the
   exact words the speaker (or the narrator of `devpage video`) says, in
   different words from the slide: two to four short sentences in plain
-  English, no idioms. The deck's `context` sets the tone.
+  English, no idioms, and a `delivery` for how the slide should feel. The deck's
+  `audience`, `goal` and `tone` brief the narrator.
 - **Show the moment, not the machine.** Pictures are what the user sees — a
   window, a page, a comment — drawn by the project widgets in
   `docs/widgets/` (`Slide` lays every slide out). A diagram has two or three
