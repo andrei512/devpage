@@ -30,9 +30,31 @@ struct AppState {
     entry: Arc<Entry>,
     index: Arc<Index>,
     changes: broadcast::Sender<String>,
-    store: Arc<Store>,
-    identity: Arc<Identity>,
+    /// `None` when comments are off: the pages show none and every comment
+    /// route answers 404.
+    comments: Option<Arc<Comments>>,
     designs: Designs,
+}
+
+/// Comments on: where threads are kept, and who writes them.
+struct Comments {
+    store: Store,
+    identity: Identity,
+}
+
+impl AppState {
+    /// The comments, or — when they are off — the 404 every comment route
+    /// answers, as if it weren't there.
+    #[allow(clippy::result_large_err)]
+    fn comments(&self) -> Result<&Comments, Response> {
+        self.comments
+            .as_deref()
+            .ok_or_else(|| (StatusCode::NOT_FOUND, "comments are off").into_response())
+    }
+
+    fn comments_on(&self) -> bool {
+        self.comments.is_some()
+    }
 }
 
 /// Who writes a comment: one local author, or — deployed — whoever the auth
@@ -60,11 +82,12 @@ impl Identity {
 }
 
 /// The server for one entry document, with a fresh index of its served folder.
+/// `comments` names who writes them, or is `None` when comments are off.
 #[cfg(test)]
 pub fn router(
     document: Arc<Document>,
     changes: broadcast::Sender<String>,
-    identity: Identity,
+    comments: Option<Identity>,
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
@@ -73,20 +96,21 @@ pub fn router(
         index,
         designs,
         changes,
-        identity,
+        comments,
     )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
-/// current, logging every request.
+/// current, logging every request. `comments` names who writes them, or is
+/// `None` when comments are off (`--no-comments`).
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
     changes: broadcast::Sender<String>,
-    identity: Identity,
+    comments: Option<Identity>,
 ) -> Router {
-    quiet(entry, index, designs, changes, identity).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, comments).layer(middleware::from_fn(log))
 }
 
 /// The server for `devpage pdf` and a slide's PNG, which serves only Chrome
@@ -99,7 +123,7 @@ pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> 
         index,
         designs,
         changes,
-        Identity::Local(String::new()),
+        Some(Identity::Local(String::new())),
     )
 }
 
@@ -108,7 +132,7 @@ fn quiet(
     index: Arc<Index>,
     designs: Designs,
     changes: broadcast::Sender<String>,
-    identity: Identity,
+    comments: Option<Identity>,
 ) -> Router {
     Router::new()
         .route("/", get(home))
@@ -135,8 +159,12 @@ fn quiet(
         )
         .with_state(AppState {
             designs,
-            store: Arc::new(Store::new(&entry.document().served)),
-            identity: Arc::new(identity),
+            comments: comments.map(|identity| {
+                Arc::new(Comments {
+                    store: Store::new(&entry.document().served),
+                    identity,
+                })
+            }),
             entry,
             index,
             changes,
@@ -229,7 +257,7 @@ async fn file(
     let served = &entry.served;
     if document::kind_of(&file).is_some() {
         return match Document::load(&file, served) {
-            Ok(document) => show(&document, print),
+            Ok(document) => show(&document, print, state.comments_on()),
             Err(error) => {
                 Html(render::invalid(&entry, &file, &format!("{error:#}"))).into_response()
             }
@@ -251,7 +279,9 @@ async fn file(
             .filter(|_| !print)
             .map(|site| (Document::load(&site, served), site));
         return match site {
-            Some((Ok(site), _)) => Html(render::page(&site, &file, &source)).into_response(),
+            Some((Ok(site), _)) => {
+                Html(render::page(&site, &file, &source, state.comments_on())).into_response()
+            }
             Some((Err(error), site)) => {
                 Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
             }
@@ -265,7 +295,7 @@ async fn file(
                     {
                         doc.widgets = site.widgets;
                     }
-                    show(&doc, print)
+                    show(&doc, print, state.comments_on())
                 }
                 Err(error) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
@@ -312,14 +342,14 @@ async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str
 }
 
 /// A document as its kind: a site opens on its root page.
-fn show(document: &Document, print: bool) -> Response {
+fn show(document: &Document, print: bool, comments: bool) -> Response {
     match &document.kind {
         Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
         Kind::Doc { chapters, pdf } => {
-            Html(render::doc(document, chapters, pdf, print)).into_response()
+            Html(render::doc(document, chapters, pdf, print, comments)).into_response()
         }
         Kind::Slides { slides, .. } => {
-            Html(render::slides(document, slides, print)).into_response()
+            Html(render::slides(document, slides, print, comments)).into_response()
         }
         Kind::Design => Redirect::temporary(&document.entry()).into_response(),
     }
@@ -548,7 +578,11 @@ fn failed(error: anyhow::Error) -> Response {
 }
 
 async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
-    match state.store.list(&query.page) {
+    let comments = match state.comments() {
+        Ok(comments) => comments,
+        Err(off) => return off,
+    };
+    match comments.store.list(&query.page) {
         Ok(threads) => Json(threads).into_response(),
         Err(error) => failed(error),
     }
@@ -559,7 +593,11 @@ async fn create_comment(
     headers: HeaderMap,
     Json(new): Json<NewThread>,
 ) -> Response {
-    let author = match state.identity.author(&headers) {
+    let comments = match state.comments() {
+        Ok(comments) => comments,
+        Err(off) => return off,
+    };
+    let author = match comments.identity.author(&headers) {
         Ok(author) => author,
         Err(refused) => return refused,
     };
@@ -576,7 +614,7 @@ async fn create_comment(
         )
             .into_response();
     }
-    match state
+    match comments
         .store
         .create(&new.page, new.anchor, &author, &new.text)
     {
@@ -590,11 +628,15 @@ async fn reply_comment(
     headers: HeaderMap,
     Json(reply): Json<Reply>,
 ) -> Response {
-    let author = match state.identity.author(&headers) {
+    let comments = match state.comments() {
+        Ok(comments) => comments,
+        Err(off) => return off,
+    };
+    let author = match comments.identity.author(&headers) {
         Ok(author) => author,
         Err(refused) => return refused,
     };
-    match state
+    match comments
         .store
         .reply(&reply.page, &reply.id, &author, &reply.text)
     {
@@ -608,10 +650,14 @@ async fn resolve_comment(
     headers: HeaderMap,
     Json(reply): Json<Reply>,
 ) -> Response {
-    if let Err(refused) = state.identity.author(&headers) {
+    let comments = match state.comments() {
+        Ok(comments) => comments,
+        Err(off) => return off,
+    };
+    if let Err(refused) = comments.identity.author(&headers) {
         return refused;
     }
-    match state.store.resolve(&reply.page, &reply.id) {
+    match comments.store.resolve(&reply.page, &reply.id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -623,8 +669,11 @@ mod tests {
     use serde_json::{Value, json};
 
     /// A served folder holding one page, served by the real router on a free
-    /// port, with the given identity.
-    async fn serve_comments(name: &str, identity: Identity) -> (String, std::path::PathBuf) {
+    /// port, with the given comment author — or `None`, comments off.
+    async fn serve_comments(
+        name: &str,
+        comments: Option<Identity>,
+    ) -> (String, std::path::PathBuf) {
         let root =
             std::env::temp_dir().join(format!("devpage-routes-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -639,7 +688,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move {
-            axum::serve(listener, router(document, changes, identity))
+            axum::serve(listener, router(document, changes, comments))
                 .await
                 .unwrap()
         });
@@ -656,7 +705,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_thread_is_created_replied_to_and_resolved_over_http() {
-        let (address, root) = serve_comments("life", Identity::Local("Ana".into())).await;
+        let (address, root) = serve_comments("life", Some(Identity::Local("Ana".into()))).await;
         let client = reqwest::Client::new();
         let created: Value = client
             .post(format!("{address}/__devpage/comments"))
@@ -713,7 +762,7 @@ mod tests {
     #[tokio::test]
     async fn deployed_writes_need_the_header_and_are_stamped_with_it() {
         let identity = Identity::Header("X-Forwarded-Email".into());
-        let (address, _) = serve_comments("deployed", identity).await;
+        let (address, _) = serve_comments("deployed", Some(identity)).await;
         let client = reqwest::Client::new();
         let refused = client
             .post(format!("{address}/__devpage/comments"))
@@ -756,7 +805,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_thread_on_a_page_that_isnt_in_the_served_folder_is_refused() {
-        let (address, _) = serve_comments("outside", Identity::Local("Ana".into())).await;
+        let (address, _) = serve_comments("outside", Some(Identity::Local("Ana".into()))).await;
         let mut thread = new_thread();
         for page in ["/../escape.md", "/missing.md"] {
             thread["page"] = json!(page);
@@ -768,6 +817,46 @@ mod tests {
                 .unwrap();
             assert_eq!(refused.status(), 400, "{page}");
         }
+    }
+
+    #[tokio::test]
+    async fn with_comments_off_every_comment_route_is_404_and_nothing_is_written() {
+        let (address, root) = serve_comments("off", None).await;
+        let client = reqwest::Client::new();
+        let listed = client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(listed.status(), 404);
+        let created = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(created.status(), 404);
+        for action in ["reply", "resolve"] {
+            let refused = client
+                .post(format!("{address}/__devpage/comments/{action}"))
+                .json(&json!({ "page": "/a.md", "id": "x", "text": "hi" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(refused.status(), 404, "{action}");
+        }
+        assert!(!root.join(".devpage").exists());
+        // The page itself is served, and carries the setting.
+        let page = client
+            .get(format!("{address}/a.md"))
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(page.contains("data-no-comments"), "{page}");
+        assert!(!page.contains("comment-mode"), "{page}");
     }
 
     #[test]
@@ -787,7 +876,7 @@ mod tests {
     async fn serve(dir: &std::path::Path, entry: &str) -> String {
         let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
         let (changes, _) = broadcast::channel(1);
-        let router = router(document, changes, Identity::Local("T".into()));
+        let router = router(document, changes, Some(Identity::Local("T".into())));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1009,7 +1098,13 @@ mod tests {
             changes.clone(),
         )
         .unwrap();
-        let router = router_with_index(entry, index, designs, changes, Identity::Local("T".into()));
+        let router = router_with_index(
+            entry,
+            index,
+            designs,
+            changes,
+            Some(Identity::Local("T".into())),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });

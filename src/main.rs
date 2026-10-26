@@ -52,6 +52,9 @@ struct Cli {
     /// The header naming a comment's author when deployed.
     #[arg(long, default_value = "X-Forwarded-Email")]
     user_header: String,
+    /// Turn comments off: the pages show none, and the comment routes answer 404.
+    #[arg(long)]
+    no_comments: bool,
 }
 
 #[derive(Subcommand)]
@@ -141,14 +144,19 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    let identity = if cli.host.is_loopback() {
-        server::Identity::Local(comments::local_author(&document.served))
+    // Who writes a comment — or no one: comments are off.
+    let comments = if cli.no_comments {
+        None
+    } else if cli.host.is_loopback() {
+        Some(server::Identity::Local(comments::local_author(
+            &document.served,
+        )))
     } else {
-        server::Identity::Header(cli.user_header)
+        Some(server::Identity::Header(cli.user_header))
     };
     axum::serve(
         listener,
-        server::router_with_index(entry, index, designs, changes, identity),
+        server::router_with_index(entry, index, designs, changes, comments),
     )
     .await?;
     Ok(())

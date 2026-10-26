@@ -157,6 +157,10 @@ An open page fetching itself again and swapping in its content and navigation, i
 
 The switch beside the theme toggle that turns commenting on: while it is on, selecting text or hovering a paragraph offers a comment. Off until the reader turns it on; the browser remembers it.
 
+## comments off
+
+devpage serving with `--no-comments`: its pages show no comment UI and every comment request answers `404`. For a public site. Comment mode is the reader's switch; comments off is the server's setting.
+
 ## comment
 
 A thread a reader starts, in comment mode, on selected text or on a paragraph: the first message and its replies, one level deep. Stored in the comment store; resolving deletes it.

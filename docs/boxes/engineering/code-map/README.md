@@ -99,7 +99,8 @@ with an error before anything is served.
    Exactly `--port`, or the first free port from 3030 up, on `--host` —
    `127.0.0.1` by default ([the address](../../viewer/serving-pages/README.md#the-address)).
    The identity is local — `git config user.name` — on a loopback address, and
-   the `--user-header` header otherwise.
+   the `--user-header` header otherwise; with `--no-comments` there is none,
+   and the server has comments off.
 
 6. Print the address and serve
    `<title> → http://<host>:<port>` — `localhost` for a loopback address — then

@@ -219,8 +219,9 @@ fn link(document: &Document, link: &NavLink, active: Option<&str>, class: &str) 
 }
 
 /// The bar across the top of a site's pages, when its document file sets
-/// `navbar`; `current` is the page's address.
-pub fn render(document: &Document, current: &str) -> String {
+/// `navbar`; `current` is the page's address, and `comments` whether
+/// comments are on.
+pub fn render(document: &Document, current: &str, comments: bool) -> String {
     if document.navbar.is_empty() {
         return String::new();
     }
@@ -262,7 +263,7 @@ pub fn render(document: &Document, current: &str) -> String {
         home = escape(&document.entry()),
         logo = logo(document),
         title = escape(&document.title),
-        selector = controls(document),
+        selector = controls(document, comments),
         menu = icons::svg("menu").unwrap_or_default(),
     )
 }
@@ -319,14 +320,23 @@ pub fn comment_mode() -> String {
 }
 
 /// The page's own controls, in the navbar's end or the corner: the
-/// comment-mode switch, then the theme selector when the document shows one.
-pub fn controls(document: &Document) -> String {
-    format!("{}{}", comment_mode(), selector(document))
+/// comment-mode switch while comments are on, then the theme selector when
+/// the document shows one.
+pub fn controls(document: &Document, comments: bool) -> String {
+    let mode = if comments {
+        comment_mode()
+    } else {
+        String::new()
+    };
+    format!("{mode}{}", selector(document))
 }
 
 /// The controls for a page with no navbar to hold them: the top-right corner.
-pub fn corner(document: &Document) -> String {
-    format!("<div id=\"devpage-corner\">{}</div>", controls(document))
+pub fn corner(document: &Document, comments: bool) -> String {
+    format!(
+        "<div id=\"devpage-corner\">{}</div>",
+        controls(document, comments)
+    )
 }
 
 /// What every page of a document puts in its head: the logo as the browser
@@ -394,7 +404,7 @@ mod tests {
     fn renders_links_dropdowns_icons_and_icon_only_links_in_order() {
         let dir = folder("render");
         let document = site(&dir, NAVBAR);
-        let html = render(&document, "/guide/deep.md");
+        let html = render(&document, "/guide/deep.md", true);
         let order: Vec<usize> = ["Home", "Guide", "More", "Talk", "github.com"]
             .iter()
             .map(|text| {
@@ -416,7 +426,7 @@ mod tests {
         let dir = folder("current");
         let document = site(&dir, NAVBAR);
         // A page deep under the guide lights the guide, not home.
-        let deep = render(&document, "/guide/deep.md");
+        let deep = render(&document, "/guide/deep.md", true);
         assert!(
             deep.contains("class=\"navbar-link current\" href=\"/guide/README.md\""),
             "{deep}"
@@ -426,13 +436,13 @@ mod tests {
             "{deep}"
         );
         // The root page lights home.
-        let home = render(&document, "/README.md");
+        let home = render(&document, "/README.md", true);
         assert!(
             home.contains("class=\"navbar-link current\" href=\"/README.md\""),
             "{home}"
         );
         // A deck in a dropdown lights its dropdown.
-        let talk = render(&document, "/talk.yml");
+        let talk = render(&document, "/talk.yml", true);
         assert!(talk.contains("class=\"navbar-menu current\""), "{talk}");
     }
 
@@ -459,8 +469,8 @@ mod tests {
     fn no_navbar_renders_nothing_and_the_selector_can_be_turned_off() {
         let dir = folder("off");
         let plain = site(&dir, "kind: site\ntitle: T\nroot: README.md\n");
-        assert_eq!(render(&plain, "/README.md"), "");
-        assert!(corner(&plain).contains("class=\"theme-toggle\""));
+        assert_eq!(render(&plain, "/README.md", true), "");
+        assert!(corner(&plain, true).contains("class=\"theme-toggle\""));
         assert!(head(&plain).contains("localStorage"));
         let off = site(
             &dir,
@@ -468,9 +478,12 @@ mod tests {
         );
         // Commenting is opt-in on every page, so its switch stays when the
         // theme selector is turned off.
-        assert!(corner(&plain).contains("class=\"comment-mode\""));
-        assert!(corner(&off).contains("class=\"comment-mode\""));
-        assert!(!corner(&off).contains("theme-toggle"));
+        assert!(corner(&plain, true).contains("class=\"comment-mode\""));
+        assert!(corner(&off, true).contains("class=\"comment-mode\""));
+        assert!(!corner(&off, true).contains("theme-toggle"));
+        // With comments off there is no switch, in the corner or the navbar.
+        assert!(!corner(&plain, false).contains("comment-mode"));
+        assert!(corner(&plain, false).contains("theme-toggle"));
         assert!(
             !head(&off).contains("localStorage"),
             "the system decides when there is no selector"
@@ -486,7 +499,7 @@ mod tests {
         )
         .unwrap();
         let with = site(&dir, &format!("{NAVBAR}logo: logo.svg\n"));
-        let bar = render(&with, "/README.md");
+        let bar = render(&with, "/README.md", true);
         let img = bar
             .find("<img class=\"logo\" src=\"/logo.svg\" alt=\"\">")
             .expect(&bar);
@@ -506,7 +519,7 @@ mod tests {
         assert!(head(&deck).contains("rel=\"icon\" href=\"/logo.svg\""));
         // None, no image and no icon.
         let without = site(&dir, NAVBAR);
-        assert!(!render(&without, "/README.md").contains("<img"));
+        assert!(!render(&without, "/README.md", true).contains("<img"));
         assert!(!head(&without).contains("rel=\"icon\""));
     }
 
@@ -517,7 +530,7 @@ mod tests {
         let problem = logo_problem(&document).expect("a problem");
         assert_eq!(problem.message, "logo: gone.svg — no such file");
         assert_eq!(problem.file, "devpage.yml");
-        assert!(!render(&document, "/README.md").contains("<img"));
+        assert!(!render(&document, "/README.md", true).contains("<img"));
         assert!(!head(&document).contains("rel=\"icon\""));
         // Outside the served folder is no logo either.
         let outside = site(&dir, &format!("{NAVBAR}logo: ../../etc/hosts\n"));

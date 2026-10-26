@@ -1,7 +1,8 @@
 # Deploying
 
 Run devpage for a team behind the auth proxy you already have: it names each
-reader in a header, and comments are kept on a volume.
+reader in a header, and comments are kept on a volume. A public site runs with
+`--no-comments`.
 
 <Terminal>
 

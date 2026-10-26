@@ -449,7 +449,7 @@ fn page_links_with(
                     let Kind::Doc { chapters, pdf } = &linked.kind else {
                         unreachable!()
                     };
-                    let rendered = render::doc(&linked, chapters, pdf, true);
+                    let rendered = render::doc(&linked, chapters, pdf, true, true);
                     if !rendered.contains(&format!("id=\"{fragment}\"")) {
                         problems.push(Problem {
                             file: file.clone(),

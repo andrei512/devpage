@@ -413,7 +413,7 @@ mod browser {
             index,
             designs,
             changes,
-            server::Identity::Local("Ana".into()),
+            Some(server::Identity::Local("Ana".into())),
         );
         tokio::spawn(async move {
             let _watcher = _watcher;

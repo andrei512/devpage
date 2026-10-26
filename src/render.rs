@@ -203,9 +203,24 @@ pub fn title(source: &str, path: &Path) -> String {
         })
 }
 
+/// The page script's tag. In print mode it keeps no live connection and shows
+/// no controls; with comments off (`devpage --no-comments`) it shows no
+/// comment threads and offers no way to start one.
+fn page_script(print: bool, comments: bool) -> String {
+    let setting = if print {
+        " data-print"
+    } else if !comments {
+        " data-no-comments"
+    } else {
+        ""
+    };
+    format!("<script src=\"/__devpage/devpage.js\"{setting}></script>")
+}
+
 /// The whole page for one Markdown file: navigation, the rendered content and
-/// the scripts that draw diagrams and keep it live.
-pub fn page(document: &Document, file: &Path, source: &str) -> String {
+/// the scripts that draw diagrams and keep it live. `comments` is whether
+/// comments are on.
+pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> String {
     let current = document.url(file);
     format!(
         r#"<!doctype html>
@@ -222,17 +237,18 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 {navbar}{sidebar}{corner}
 <main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
 <script src="/__devpage/pele.js"></script>
-<script src="/__devpage/devpage.js"></script>
+{script}
 </body>
 </html>"#,
         page = escape(&title(source, file)),
         document = escape(&document.title),
         theme = crate::navbar::head(document),
         body_class = site_class(document),
-        navbar = crate::navbar::render(document, &current),
+        navbar = crate::navbar::render(document, &current, comments),
         sidebar = sidebar(document, &current),
+        script = page_script(false, comments),
         corner = if document.navbar.is_empty() {
-            crate::navbar::corner(document)
+            crate::navbar::corner(document, comments)
         } else {
             String::new()
         },
@@ -245,7 +261,13 @@ pub fn page(document: &Document, file: &Path, source: &str) -> String {
 /// A doc: every chapter on one page, in order, with an outline of the
 /// chapters' headings beside them. In print mode the outline and the live
 /// connection are left out and the page size is the doc's paper.
-pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) -> String {
+pub fn doc(
+    document: &Document,
+    chapters: &[PathBuf],
+    pdf: &Pdf,
+    print: bool,
+    comments: bool,
+) -> String {
     let mut content = String::new();
     let mut outline = String::new();
     // Several chapters share one page, so each one's ids are prefixed with its
@@ -316,7 +338,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
 {corner}{outline}
 <main id="devpage-page">{problems}<article>{heading}{content}</article></main>
 <script src="/__devpage/pele.js"></script>
-<script src="/__devpage/devpage.js"{live}></script>
+{script}
 </body>
 </html>"#,
         title = escape(&document.title),
@@ -324,7 +346,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
         corner = if print {
             String::new()
         } else {
-            crate::navbar::corner(document)
+            crate::navbar::corner(document, comments)
         },
         widgets = crate::widgets::Widgets::of(document).head(),
         // A lone Markdown file's title is its own first heading; don't repeat it.
@@ -334,7 +356,7 @@ pub fn doc(document: &Document, chapters: &[PathBuf], pdf: &Pdf, print: bool) ->
             format!("<p class=\"doc-title\">{}</p>", escape(&document.title))
         },
         print_class = if print { " print" } else { "" },
-        live = if print { " data-print" } else { "" },
+        script = page_script(print, comments),
         problems = if print {
             String::new()
         } else {
@@ -496,7 +518,7 @@ fn problems(document: &Document, pages: &[PathBuf]) -> String {
 
 /// A deck: every slide on its own 1920 × 1080 stage, scaled to the window as a
 /// whole, one shown at a time. In print mode each slide is one 16:9 page.
-pub fn slides(document: &Document, slides: &[Slide], print: bool) -> String {
+pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool) -> String {
     let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
     let mut content = String::new();
     for (index, slide) in files.iter().enumerate() {
@@ -523,7 +545,7 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool) -> String {
 <body class="slides{print_class}">
 {corner}<main id="devpage-page" class="deck">{problems}{content}</main>
 <script src="/__devpage/pele.js"></script>
-<script src="/__devpage/devpage.js"{live}></script>
+{script}
 </body>
 </html>"#,
         title = escape(&document.title),
@@ -531,11 +553,11 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool) -> String {
         corner = if print {
             String::new()
         } else {
-            crate::navbar::corner(document)
+            crate::navbar::corner(document, comments)
         },
         widgets = crate::widgets::Widgets::of(document).head(),
         print_class = if print { " print" } else { "" },
-        live = if print { " data-print" } else { "" },
+        script = page_script(print, comments),
         problems = if print {
             String::new()
         } else {
@@ -835,7 +857,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false);
+        let html = doc(&document, chapters, pdf, false, true);
         let (context, rollout) = (
             html.find(">Context<").unwrap(),
             html.find(">Rollout<").unwrap(),
@@ -846,7 +868,7 @@ mod tests {
         assert!(html.contains("href=\"#b--rollout\""), "{html}");
         assert!(html.contains("href=\"https://x.y/a.md\""), "{html}");
         assert!(html.contains("size: A4"));
-        let print = doc(&document, chapters, pdf, true);
+        let print = doc(&document, chapters, pdf, true, true);
         assert!(!print.contains("class=\"outline\""));
         assert!(print.contains("data-print"));
     }
@@ -866,7 +888,7 @@ mod tests {
         let crate::document::Kind::Slides { slides: files, .. } = &document.kind else {
             panic!()
         };
-        let html = slides(&document, files, false);
+        let html = slides(&document, files, false, true);
         assert_eq!(html.matches("class=\"slide\"").count(), 2);
         assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
         assert!(html.contains("size: 1920px 1080px"));
@@ -893,7 +915,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false);
+        let html = doc(&document, chapters, pdf, false, true);
         // Served from `dir`, so addresses start at its top.
         let base = "";
         assert!(
@@ -921,7 +943,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false);
+        let html = doc(&document, chapters, pdf, false, true);
         assert!(!html.contains("doc-title\">"), "{html}");
         assert_eq!(html.matches("<h1").count(), 1, "{html}");
         assert_eq!(
@@ -961,7 +983,7 @@ mod tests {
         let img = "<img class=\"logo\" src=\"/art/logo.svg\" alt=\"\">";
         // A site with no navbar: the logo heads the sidebar, on every page.
         let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-        let html = page(&site, &dir.join("page.md"), "# Page\n");
+        let html = page(&site, &dir.join("page.md"), "# Page\n", true);
         assert!(html.contains(icon), "{html}");
         assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
         // A doc: before its title in the outline.
@@ -969,9 +991,61 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
             panic!()
         };
-        let html = doc(&plan, chapters, pdf, false);
+        let html = doc(&plan, chapters, pdf, false, true);
         assert!(html.contains(icon), "{html}");
         assert!(html.contains(&format!("{img}Plan</a>")), "{html}");
+    }
+
+    #[test]
+    fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-render-no-comments-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: S\nroot: README.md\nnavbar:\n  Home: README.md\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("d.yml"),
+            "kind: doc\ntitle: D\nchapters: [README.md]\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("s.yml"),
+            "kind: slides\ntitle: T\nslides: [README.md]\n",
+        )
+        .unwrap();
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let doc_file = Document::load(&dir.join("d.yml"), &dir).unwrap();
+        let deck = Document::load(&dir.join("s.yml"), &dir).unwrap();
+        let (
+            crate::document::Kind::Doc { chapters, pdf },
+            crate::document::Kind::Slides { slides: files, .. },
+        ) = (&doc_file.kind, &deck.kind)
+        else {
+            panic!()
+        };
+        let frames = |comments| {
+            [
+                page(&site, &dir.join("README.md"), "# Home\n", comments),
+                doc(&doc_file, chapters, pdf, false, comments),
+                slides(&deck, files, false, comments),
+            ]
+        };
+        let script = "<script src=\"/__devpage/devpage.js\" data-no-comments>";
+        for html in frames(true) {
+            assert!(html.contains("class=\"comment-mode\""), "{html}");
+            assert!(!html.contains("data-no-comments"), "{html}");
+        }
+        for html in frames(false) {
+            assert!(html.contains(script), "{html}");
+            assert!(!html.contains("comment-mode"), "{html}");
+        }
+        // Print mode shows no controls either way, and stays print mode.
+        let print = slides(&deck, files, true, false);
+        assert!(print.contains("data-print") && !print.contains("data-no-comments"));
     }
 
     #[test]
