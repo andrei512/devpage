@@ -8,6 +8,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
+use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
@@ -79,7 +80,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
 
 /// True once the page is ready to print: its diagrams drawn and every
 /// embedded design painted.
-const READY: &str = "document.documentElement.dataset.ready === 'true' \
+pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true' \
     && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
@@ -120,6 +121,15 @@ impl Profile {
             .chrome_executable(headless_shell().await?)
             .user_data_dir(&self.0))
     }
+
+    /// [`chrome_for_testing`] using this profile.
+    pub(crate) async fn chrome_for_testing(
+        &self,
+    ) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
+        Ok(BrowserConfig::builder()
+            .chrome_executable(chrome_for_testing().await?)
+            .user_data_dir(&self.0))
+    }
 }
 
 impl Drop for Profile {
@@ -129,36 +139,50 @@ impl Drop for Profile {
 }
 
 /// chrome-headless-shell, downloaded once into devpage's cache folder: the
-/// one browser devpage drives, for `devpage pdf` and for every Chrome test. It
-/// is a bare program with no app bundle, so nothing devpage launches ever shows
-/// in the macOS Dock, and every machine prints with the same browser. Prints
-/// running at once share one download.
+/// browser devpage drives for `devpage pdf`, a slide's PNG and every Chrome
+/// test. It is a bare program with no app bundle, so nothing devpage launches
+/// for them shows in the macOS Dock, and every machine prints with the same
+/// browser. Prints running at once share one download.
 pub(crate) async fn headless_shell() -> Result<std::path::PathBuf> {
-    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
     static SHELL: tokio::sync::OnceCell<std::path::PathBuf> = tokio::sync::OnceCell::const_new();
     SHELL
-        .get_or_try_init(|| async {
-            let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
-            let cache = if cfg!(target_os = "macos") {
-                Path::new(&home).join("Library/Caches/devpage/chrome-headless-shell")
-            } else {
-                Path::new(&home).join(".cache/devpage/chrome-headless-shell")
-            };
-            std::fs::create_dir_all(&cache)?;
-            let fetcher = BrowserFetcher::new(
-                BrowserFetcherOptions::builder()
-                    .with_path(&cache)
-                    .with_kind(BrowserKind::ChromeHeadlessShell)
-                    .build()
-                    .map_err(anyhow::Error::msg)?,
-            );
-            let info = fetcher.fetch().await.with_context(|| {
-                format!("downloading chrome-headless-shell into {}", cache.display())
-            })?;
-            anyhow::Ok(info.executable_path)
-        })
+        .get_or_try_init(|| fetch(BrowserKind::ChromeHeadlessShell, "chrome-headless-shell"))
         .await
         .cloned()
+}
+
+/// Chrome for Testing, downloaded once into devpage's cache folder beside the
+/// shell: `devpage video` needs it, because the shell can't capture a tab.
+pub(crate) async fn chrome_for_testing() -> Result<std::path::PathBuf> {
+    static CHROME: tokio::sync::OnceCell<std::path::PathBuf> = tokio::sync::OnceCell::const_new();
+    CHROME
+        .get_or_try_init(|| fetch(BrowserKind::Chrome, "chrome-for-testing"))
+        .await
+        .cloned()
+}
+
+/// Downloads `kind` into `<devpage's cache folder>/<name>` unless it is
+/// there already, and returns the program.
+async fn fetch(kind: BrowserKind, name: &str) -> Result<std::path::PathBuf> {
+    let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
+    let cache = if cfg!(target_os = "macos") {
+        Path::new(&home).join("Library/Caches/devpage").join(name)
+    } else {
+        Path::new(&home).join(".cache/devpage").join(name)
+    };
+    std::fs::create_dir_all(&cache)?;
+    let fetcher = BrowserFetcher::new(
+        BrowserFetcherOptions::builder()
+            .with_path(&cache)
+            .with_kind(kind)
+            .build()
+            .map_err(anyhow::Error::msg)?,
+    );
+    let info = fetcher
+        .fetch()
+        .await
+        .with_context(|| format!("downloading {name} into {}", cache.display()))?;
+    Ok(info.executable_path)
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -281,7 +305,7 @@ mod tests {
     async fn the_talk_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
-        let Kind::Slides { slides } = &document.kind else {
+        let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
         let count = slides.len();
@@ -375,7 +399,7 @@ mod tests {
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
-        let Kind::Slides { slides } = &document.kind else {
+        let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
         let last = format!("{0}#{0}", slides.len());

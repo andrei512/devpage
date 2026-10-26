@@ -12,6 +12,7 @@ devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>]
 devpage check [path] [--root <folder>]
 devpage pdf <path> [--root <folder>] [-o <file>]
+devpage video <path> [--root <folder>] [-o <file>]
 devpage --help
 devpage --version
 ```
@@ -21,6 +22,7 @@ devpage --version
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
 | `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
+| `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
 
 `path` is read the same way by every command:
 
@@ -41,6 +43,20 @@ devpage --version
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
+| `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
+
+### Environment variables
+
+Only `devpage video` reads any, and only these — never `OPENAI_API_KEY`
+([the narrator](../making-a-video/README.md#the-narrator)). A variable set to
+an empty string counts as not set.
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `DEVPAGE_OPENAI_API_KEY` | none | Narrate with GPT-Live on OpenAI, with this key. |
+| `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI. |
+| `DEVPAGE_AZURE_OPENAI_API_KEY` | none | The Azure resource's key; required with the endpoint. |
+| `DEVPAGE_VIDEO_MODEL` | `gpt-live-1` | The model; on Azure, the deployment's name. |
 
 On start, `devpage` checks the document is inside the
 [served folder](../writing-a-document/README.md#the-served-folder), watches it, binds its address and prints one line on standard output — the entry
@@ -106,6 +122,7 @@ default.
 | `kind` | `slides` | yes | Makes this file a deck. |
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
+| `context` | string | no | What the talk is, who it is for and its tone — what the slides' [notes](../making-slides/README.md#speaker-notes) are read against; default none. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
@@ -153,6 +170,20 @@ with `pdf prints a doc or slides, not a site` when given a site, and with the
 error `downloading chrome-headless-shell into <cache folder>` when the first
 download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
 and with `pdf prints a doc or slides, not a design` when given a design.
+
+`devpage video` stops, before it starts Chrome, with
+`video needs GPT-Live: set DEVPAGE_OPENAI_API_KEY, or DEVPAGE_AZURE_OPENAI_ENDPOINT and DEVPAGE_AZURE_OPENAI_API_KEY`
+when no narrator is set, `DEVPAGE_AZURE_OPENAI_ENDPOINT is set but DEVPAGE_AZURE_OPENAI_API_KEY is not`,
+`DEVPAGE_AZURE_OPENAI_ENDPOINT is not an address: <endpoint>`,
+`video records slides, not a site` (or `a doc`, `a design`), and
+`every slide needs <Notes> to be narrated; these have none: <n> (<file>), …`.
+Once running it stops with `downloading chrome-for-testing into <cache folder>`
+when the first download of [its Chrome](../making-a-video/README.md#the-chrome-it-drives)
+fails, `connecting to GPT-Live at <address>` when the session can't open (a
+wrong key is `HTTP error: 401 Unauthorized`), with the error GPT-Live sends as
+`GPT-Live: <message>`, and with
+`the narrator said nothing for slide <n> within 60 seconds`. It writes no
+file unless the whole deck was recorded.
 
 A design's problems never stop devpage, even when the design is the entry:
 its canvas shows them over the last valid drawing, and `devpage check` prints

@@ -13,6 +13,8 @@ mod navbar;
 mod pdf;
 mod render;
 mod server;
+mod slide_png;
+mod video;
 mod watch;
 mod widgets;
 
@@ -63,6 +65,13 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
+    Video {
+        path: PathBuf,
+        /// Where to write the video; `<title>.mp4` by default.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
 }
 
 #[tokio::main]
@@ -80,12 +89,28 @@ async fn main() -> Result<()> {
         }
         std::process::exit(i32::from(!problems.is_empty()));
     }
-    if let Some(Command::Pdf { path, output }) = cli.command.take() {
-        let document = Arc::new(Document::load(&path, &served)?);
-        let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
-        pdf::print(document, &output).await?;
-        println!("{}", output.display());
-        return Ok(());
+    match cli.command.take() {
+        Some(Command::Pdf { path, output }) => {
+            let document = Arc::new(Document::load(&path, &served)?);
+            let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
+            pdf::print(document, &output).await?;
+            println!("{}", output.display());
+            return Ok(());
+        }
+        Some(Command::Video { path, output }) => {
+            let config = video::live::Config::from_env()?;
+            let document = Arc::new(Document::load(&path, &served)?);
+            let output = output.unwrap_or_else(|| video::default_output(&document.title));
+            // However the run ends — done, failed or interrupted — the
+            // recording future is dropped, and its Chrome with it.
+            tokio::select! {
+                recorded = video::record(document, &output, &config) => recorded?,
+                signal = interrupted() => anyhow::bail!("stopped by {signal}"),
+            }
+            println!("{}", output.display());
+            return Ok(());
+        }
+        Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served)?);
@@ -127,6 +152,23 @@ async fn main() -> Result<()> {
     )
     .await?;
     Ok(())
+}
+
+/// Waits for Ctrl-C, SIGTERM or SIGHUP, and names it.
+async fn interrupted() -> &'static str {
+    use tokio::signal::unix::{SignalKind, signal};
+    let (Ok(mut term), Ok(mut hangup)) = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::hangup()),
+    ) else {
+        tokio::signal::ctrl_c().await.ok();
+        return "Ctrl-C";
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => "Ctrl-C",
+        _ = term.recv() => "SIGTERM",
+        _ = hangup.recv() => "SIGHUP",
+    }
 }
 
 /// Binds the first free port at or above `first`.

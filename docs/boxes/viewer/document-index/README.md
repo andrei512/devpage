@@ -80,7 +80,8 @@ Finding the nearest site never scans folders. `src/index.rs` keeps an
 </Steps>
 
 `devpage` shares one index between the server and the watcher
-(`server::router_with_index`). `devpage pdf` serves through
+(`server::router_with_index`). `devpage pdf`, a slide's PNG and
+`devpage video` serve through
 `server::printing`, which builds its own index, has no watcher and logs
 nothing; `server::router`, which also builds its own index, exists only for
 the tests.

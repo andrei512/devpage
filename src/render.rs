@@ -6,7 +6,7 @@ use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
 use crate::check;
-use crate::document::{Document, Paper, Pdf};
+use crate::document::{Document, Paper, Pdf, Slide};
 use crate::highlight::Highlighter;
 use crate::nav;
 
@@ -496,9 +496,10 @@ fn problems(document: &Document, pages: &[PathBuf]) -> String {
 
 /// A deck: every slide on its own 1920 × 1080 stage, scaled to the window as a
 /// whole, one shown at a time. In print mode each slide is one 16:9 page.
-pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
+pub fn slides(document: &Document, slides: &[Slide], print: bool) -> String {
+    let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
     let mut content = String::new();
-    for (index, slide) in slides.iter().enumerate() {
+    for (index, slide) in files.iter().enumerate() {
         let source = std::fs::read_to_string(slide).unwrap_or_default();
         content.push_str(&format!(
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
@@ -538,7 +539,7 @@ pub fn slides(document: &Document, slides: &[PathBuf], print: bool) -> String {
         problems = if print {
             String::new()
         } else {
-            problems(document, slides)
+            problems(document, &files)
         },
     )
 }
@@ -854,7 +855,7 @@ mod tests {
     fn a_deck_renders_one_section_per_slide_in_order() {
         let dir = std::env::temp_dir().join(format!("devpage-render-deck-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("one.md"), "# One").unwrap();
+        std::fs::write(dir.join("one.md"), "# One\n\n<Notes>Say one.</Notes>\n").unwrap();
         std::fs::write(dir.join("two.md"), "# Two").unwrap();
         std::fs::write(
             dir.join("d.yml"),
@@ -862,13 +863,14 @@ mod tests {
         )
         .unwrap();
         let document = Document::load(&dir.join("d.yml"), &dir).unwrap();
-        let crate::document::Kind::Slides { slides: files } = &document.kind else {
+        let crate::document::Kind::Slides { slides: files, .. } = &document.kind else {
             panic!()
         };
         let html = slides(&document, files, false);
         assert_eq!(html.matches("class=\"slide\"").count(), 2);
         assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
         assert!(html.contains("size: 1920px 1080px"));
+        assert!(!html.contains("Say one."), "notes are never on the slide");
     }
 
     #[test]

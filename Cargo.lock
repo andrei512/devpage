@@ -127,7 +127,10 @@ dependencies = [
  "futures-util",
  "log",
  "pin-project-lite",
+ "rustls-native-certs",
+ "rustls-pki-types",
  "tokio",
+ "tokio-rustls",
  "tungstenite",
 ]
 
@@ -802,7 +805,9 @@ name = "devpage"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "async-tungstenite",
  "axum",
+ "base64 0.22.1",
  "chromiumoxide",
  "clap",
  "comrak",
@@ -4595,6 +4600,8 @@ dependencies = [
  "httparse",
  "log",
  "rand 0.9.5",
+ "rustls",
+ "rustls-pki-types",
  "sha1",
  "thiserror",
  "utf-8",

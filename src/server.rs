@@ -89,7 +89,8 @@ pub fn router_with_index(
     quiet(entry, index, designs, changes, identity).layer(middleware::from_fn(log))
 }
 
-/// The server for `devpage pdf`, which serves only Chrome and logs nothing.
+/// The server for `devpage pdf` and a slide's PNG, which serves only Chrome
+/// and logs nothing.
 pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
@@ -206,6 +207,15 @@ async fn file(
         };
     }
     let entry = state.entry.document();
+    if let Some((deck, n)) = path.strip_suffix(".png").and_then(|p| p.rsplit_once('/'))
+        && !real
+        && let Some(file) = entry.file(deck).filter(|file| file.is_file())
+        && file
+            .extension()
+            .is_some_and(|ext| ext == "yml" || ext == "yaml")
+    {
+        return slide_png(&entry, deck, &file, n).await;
+    }
     if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
         return Html(crate::designs::page(&path)).into_response();
     }
@@ -272,6 +282,35 @@ async fn file(
     }
 }
 
+/// `<deck>.yml/<n>.png`: slide `n` of the deck at `file`, drawn by Chrome —
+/// or 404 when the file isn't a deck or has no slide `n`.
+async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str) -> Response {
+    let not_found = |reason: String| (StatusCode::NOT_FOUND, reason).into_response();
+    let document = match Document::load(file, &entry.served) {
+        Ok(document) if matches!(document.kind, Kind::Slides { .. }) => document,
+        _ => return not_found(format!("{deck} is not a deck")),
+    };
+    let Kind::Slides { slides, .. } = &document.kind else {
+        unreachable!()
+    };
+    let count = slides.len();
+    // One address per slide: `2`, never `02`.
+    let Some(n) = n
+        .parse::<usize>()
+        .ok()
+        .filter(|i| (1..=count).contains(i) && i.to_string() == n)
+    else {
+        return not_found(format!(
+            "{deck} has {count} slide{}",
+            if count == 1 { "" } else { "s" }
+        ));
+    };
+    match crate::slide_png::png(Arc::new(document), n).await {
+        Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
+        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response(),
+    }
+}
+
 /// A document as its kind: a site opens on its root page.
 fn show(document: &Document, print: bool) -> Response {
     match &document.kind {
@@ -279,7 +318,9 @@ fn show(document: &Document, print: bool) -> Response {
         Kind::Doc { chapters, pdf } => {
             Html(render::doc(document, chapters, pdf, print)).into_response()
         }
-        Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
+        Kind::Slides { slides, .. } => {
+            Html(render::slides(document, slides, print)).into_response()
+        }
         Kind::Design => Redirect::temporary(&document.entry()).into_response(),
     }
 }
@@ -797,6 +838,27 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("notes/ci.yml"), "on: push\n").unwrap();
         dir.canonicalize().unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_slide_png_names_a_slide_of_a_deck_or_is_not_found() {
+        let dir = served("slide-png");
+        let base = serve(&dir, "docs").await;
+        for (path, reason) in [
+            ("notes/talk.yml/2.png", "notes/talk.yml has 1 slide"),
+            ("notes/talk.yml/0.png", "notes/talk.yml has 1 slide"),
+            ("notes/talk.yml/01.png", "notes/talk.yml has 1 slide"),
+            ("notes/talk.yml/one.png", "notes/talk.yml has 1 slide"),
+            ("docs/devpage.yml/1.png", "docs/devpage.yml is not a deck"),
+            ("notes/ci.yml/1.png", "notes/ci.yml is not a deck"),
+            ("notes/broken.yml/1.png", "notes/broken.yml is not a deck"),
+            ("notes/gone.yml/1.png", "is not part of the served folder"),
+            ("../secret.md/1.png", "is not part of the served folder"),
+        ] {
+            let (status, body) = get(&format!("{base}/{path}")).await;
+            assert_eq!(status, 404, "{path}: {body}");
+            assert!(body.contains(reason), "{path}: {body}");
+        }
     }
 
     #[tokio::test]

@@ -71,7 +71,9 @@ the machine. devpage downloads it the first time it needs one — into
 `~/.cache/devpage/chrome-headless-shell` elsewhere — and uses that copy from
 then on. It is a bare program with no app bundle, so nothing devpage launches
 appears in the macOS Dock, and every machine prints with the same browser.
-The Chrome tests drive the same copy.
+A [slide's PNG](../making-slides/README.md#a-slide-as-an-image) and the
+Chrome tests drive the same copy. Only [`devpage video`](../making-a-video/README.md#the-chrome-it-drives)
+drives another, Chrome for Testing, because the shell can't capture a tab.
 
 ## Why the PDF matches the screen
 

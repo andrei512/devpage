@@ -8,33 +8,41 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 189 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 49 tests that drive chrome-headless-shell
+$ cargo test                  # 215 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 115 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 141 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
 in `src/designs/canvas_tests.rs`, a child module of `designs`; the `tests/`
 folder holds only fixtures — `tests/fixtures/sync-design`, a doc of three
-chapters that the doc and PDF tests load. Route tests start the real router on
+chapters that the doc and PDF tests load, and `tests/fixtures/narrated-talk`,
+a deck of three slides with notes that the live video test records. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-The 49 tests marked `#[ignore]` drive chrome-headless-shell through
+Of the 52 tests marked `#[ignore]`, all drive Chrome, and one of them also
+calls GPT-Live.
+All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
 They run in parallel. Run them with `--ignored` after changing the page
-script, the design script, the module, the stylesheet, a widget, print mode
-or `devpage pdf`. The canvas tests start it with `--enable-unsafe-webgpu` and
-`--enable-gpu`: the shell keeps its GPU process off without the second, and
+script, the design script, the module, the stylesheet, a widget, print mode,
+`devpage pdf` or a slide's PNG. The two `video` tests drive Chrome for
+Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
+fetched the same way; run them after changing `devpage video` or its
+recorder, `assets/video.js`. The live one records
+`tests/fixtures/narrated-talk` with GPT-Live, which bills per minute, and
+passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The canvas tests and a slide's PNG start it
+with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
 it.
@@ -70,8 +78,9 @@ the suite green.
 
 ### `check`
 
-*15 tests.*
+*17 tests.*
 
+- `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
 - A missing logo reported once.
 - Widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages.
@@ -145,9 +154,10 @@ In Chrome:
 
 ### `document`
 
-*8 tests.*
+*9 tests.*
 
 - Each kind parsed.
+- A deck's `context` and each slide's notes, `context` refused on the other kinds.
 - A navbar read in order with its icons and dropdowns, `sidebar` and `theme-selector`, and its bad shapes refused.
 - Bad kinds, fields and missing files rejected.
 - A Markdown file as a one-chapter doc.
@@ -233,15 +243,16 @@ In Chrome:
 - Unknown languages left plain.
 - Tables and heading ids.
 - A doc's chapters with its outline.
-- A deck's slides.
+- A deck's slides, never showing their notes.
 - Links kept for chapters and slides from other folders.
 - A one-file doc's title.
 - A page's title.
 
 ### `server`
 
-*12 tests.*
+*13 tests.*
 
+- A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
 - Widgets served compiled, for the document they belong to, with versioned helper imports.
 - A page naming its widgets and carrying their placeholders, code left alone.
 - A site's page printing as a doc of one chapter.
@@ -253,6 +264,38 @@ In Chrome:
 - Nothing outside the served folder served.
 - A served folder reached through a symbolic link.
 - Each site's title linking to its own root page.
+
+### `slide_png`
+
+*1 test in Chrome.*
+
+- A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
+
+### `video`
+
+*17 tests, 2 in Chrome.*
+
+- The silence rules: a pause inside a slide capped at a second and one under
+  it kept whole; silence held until what follows is known; a slide's end
+  keeping its share of the gap and the next slide starting on speech; leading
+  silence dropped; whatever arrived before a slide was asked for left out; a
+  fade at every cut.
+- The narrator's settings: none set naming the variables, blank counting as
+  unset and `OPENAI_API_KEY` never read; OpenAI's address and bearer header
+  with the default model; the Azure endpoint selecting Azure over an OpenAI
+  key, with its address, `api-key` header and deployment name; an endpoint
+  with a path or as a bare host; Azure without its key; the context in the
+  narrator's instructions.
+- The default file name; every slide needing notes, the error naming the ones
+  without; a site and a doc refused.
+
+In Chrome:
+
+- A two-slide deck recorded in Chrome for Testing with a synthetic voice fed
+  through the same player — no GPT-Live — to an mp4 with a 1920 × 1080 video
+  track and a sound track, the deck moving to slide 2 on the way.
+- `tests/fixtures/narrated-talk` recorded end to end with GPT-Live on OpenAI,
+  when `DEVPAGE_OPENAI_API_KEY` is set. The Azure path has no live test.
 
 ### `watch`
 
@@ -268,8 +311,9 @@ In Chrome:
 
 ### `widgets`
 
-*17 tests.*
+*22 tests.*
 
+- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.
 - A `Tab` outside a `Tabs` reported at its page line.
@@ -319,8 +363,9 @@ In Chrome:
 
 syntax highlighting except through the `render` tests; a canvas reopening
 its stream after devpage restarts, closing streams in a hidden tab, and
-drag-to-pan and pinch on the canvas; chrome-headless-shell's first download
-(it needs an empty cache folder); fullscreen on a deck (headless Chrome refuses it without a real user
+drag-to-pan and pinch on the canvas; chrome-headless-shell's and Chrome for
+Testing's first download (it needs an empty cache folder); GPT-Live on Azure;
+`devpage video` stopping on a signal; fullscreen on a deck (headless Chrome refuses it without a real user
 gesture); and how the light and dark themes look, which is checked by eye.
 
 </Callout>

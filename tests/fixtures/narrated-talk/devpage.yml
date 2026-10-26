@@ -1,0 +1,5 @@
+# A three-slide deck with notes on every slide, for `devpage video`'s tests.
+kind: slides
+title: Narrated talk
+context: A one-minute talk for developers about keeping docs next to the code. Warm and plain.
+slides: [problem.md, answer.md, close.md]

@@ -20,6 +20,7 @@ agent. These pages are devpage's own documentation, served by devpage.
 - (message-square) [Comments](boxes/viewer/comments/README.md) — Turn on comment mode, then select text or hover a paragraph; threads are files in a `.devpage/` folder git ignores, so an agent can read and resolve them.
 - (link) [Checked links](boxes/viewer/checking-links/README.md) — Broken links show on the page while you write, and `devpage check` fails a test on them.
 - (printer) [PDF](boxes/viewer/pdf/README.md) — `devpage pdf` prints a doc or a deck exactly as the browser shows it.
+- (video) [Video](boxes/viewer/making-a-video/README.md) — `devpage video` records a deck to mp4, each slide's notes read aloud by GPT-Live.
 - (server) [Local or deployed](boxes/viewer/deploying/README.md) — On your machine, or for a team behind the auth proxy you already have.
 
 </Cards>
