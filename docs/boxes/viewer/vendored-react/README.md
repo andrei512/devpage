@@ -26,8 +26,8 @@ export { createRoot } from "react-dom/client";
 
 ## How devpage uses it
 
-`src/server.rs` compiles the file into the binary with `include_str!` and
-serves it at `/__devpage/react.js` — see
+`build.rs` builds the file into the binary, and devpage serves it at its
+content address, `/__devpage/react.<hash>.js` — see
 [built-in assets](../serving-pages/README.md#built-in-assets). Every page's
 import map points `react`, `react/jsx-runtime` and `react-dom/client` at it,
 so compiled widgets — whose JSX becomes `react/jsx-runtime` calls — and the page

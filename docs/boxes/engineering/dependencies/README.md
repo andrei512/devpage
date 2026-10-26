@@ -1,7 +1,7 @@
 # Dependencies
 
 Every crate devpage depends on, with the version `Cargo.lock` resolves and
-what devpage uses it for, and the build script and builder that make what it
+what devpage uses it for, and the build scripts and builder that make what it
 embeds. It is a reference page under
 [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
@@ -14,7 +14,7 @@ in `design/`; `devpage-design-wasm`, the engine built for the browser, in
 two that are published, together, at a release
 ([Release](../sdlc/stages/README.md#release)); the other two never are. Each
 crate's list is its `[dependencies]` and `[build-dependencies]`, and
-`devpage`'s one `[dev-dependencies]` entry, marked below. The roles below say
+`devpage`'s `[dev-dependencies]`, marked below. The roles below say
 what each crate does in devpage. Why a crate was chosen over another is recorded nowhere,
 except where a code comment says so, and this page doesn't guess.
 
@@ -83,11 +83,24 @@ except where a code comment says so, and this page doesn't guess.
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/server.rs` |
 | `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/designs.rs` (tests) |
 
-`devpage` has no build script and builds no WebAssembly: the binary embeds
-the vendored `assets/vendor/design-engine.wasm` and
-`assets/vendor/design-engine.js` as the
-[built-in assets](../../viewer/serving-pages/README.md#built-in-assets)
-`/__devpage/design-engine.wasm` and `/__devpage/design-engine.js`.
+## Caching
+
+| Crate | Locked version | Licence | What devpage uses it for | Where |
+| --- | --- | --- | --- | --- |
+| `sha2` | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `build.rs`, `src/addresses.rs`, `src/widgets.rs`, `src/validators.rs` |
+| `brotli` (build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `build.rs`, `src/server.rs` (tests) |
+| `flate2` (build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `build.rs`, `src/server.rs` (tests) |
+
+`devpage`'s build script, `build.rs`, makes the asset manifest: each
+[built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
+references to other assets rewritten to their content addresses, hashed,
+and compressed once into `OUT_DIR` — a compressed file is named by its
+content's hash, so it is made again only when the asset changes — and
+devpage's build id, a hash of everything the binary is built from.
+`src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
+binary embeds the vendored `assets/vendor/design-engine.wasm` and
+`assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
+and `design-engine.js`.
 
 ## Errors
 

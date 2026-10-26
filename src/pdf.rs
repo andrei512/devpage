@@ -813,11 +813,42 @@ mod tests {
         tokio::task::JoinHandle<()>,
         Profile,
     ) {
+        let (browser, page, events, profile, _) = open_logged(dir, path).await;
+        (browser, page, events, profile)
+    }
+
+    /// Every request the server answered, as `(path, status)`, in order.
+    type Answered = Arc<std::sync::Mutex<Vec<(String, u16)>>>;
+
+    /// [`open`], also keeping every request the server answers.
+    async fn open_logged(
+        dir: &Path,
+        path: &str,
+    ) -> (
+        Browser,
+        chromiumoxide::Page,
+        tokio::task::JoinHandle<()>,
+        Profile,
+        Answered,
+    ) {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let answered = Answered::default();
+        let log = answered.clone();
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())))
+            .layer(axum::middleware::from_fn(
+                move |request: axum::extract::Request, next: axum::middleware::Next| {
+                    let log = log.clone();
+                    async move {
+                        let path = request.uri().path().to_string();
+                        let response = next.run(request).await;
+                        log.lock().unwrap().push((path, response.status().as_u16()));
+                        response
+                    }
+                },
+            ));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (browser, mut handler) =
@@ -840,7 +871,7 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        (browser, page, events, profile)
+        (browser, page, events, profile, answered)
     }
 
     async fn text(page: &chromiumoxide::Page, script: &str) -> String {
@@ -1273,6 +1304,109 @@ mod tests {
         assert_eq!(
             text(&page, "document.querySelector('.label').textContent").await,
             "after"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_reload_downloads_nothing_again() {
+        let dir = widget_folder(
+            "reload",
+            "# W\n\n<Label />\n\n<Callout>c</Callout>\n\n```mermaid\nflowchart LR\n  a --> b\n```\n",
+            &[
+                (
+                    "docs/widgets/Label.tsx",
+                    "import { word } from \"./word\";\nexport default () => <span className=\"label\">{word}</span>;",
+                ),
+                ("docs/widgets/word.ts", "export const word = \"w\";"),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "w"
+        );
+        let first = answered.lock().unwrap().len();
+        page.reload().await.unwrap();
+        for _ in 0..50 {
+            let ready: Option<String> = page
+                .evaluate("document.documentElement.dataset.ready ?? null")
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok());
+            if ready.as_deref() == Some("true") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "w"
+        );
+        // After the reload: the page and what may change revalidated (304),
+        // everything content-addressed taken from the cache unasked. The event
+        // stream reopens, as it must.
+        let again: Vec<(String, u16)> = answered.lock().unwrap()[first..]
+            .iter()
+            .filter(|(path, _)| path != "/__devpage/events" && path != "/favicon.ico")
+            .cloned()
+            .collect();
+        assert!(again.iter().all(|(_, status)| *status == 304), "{again:?}");
+        assert!(
+            again.iter().any(|(path, _)| path == "/docs/README.md"),
+            "the page itself is revalidated: {again:?}"
+        );
+        assert!(
+            !again
+                .iter()
+                .any(|(path, _)| path.starts_with("/__devpage/widgets/")
+                    || path.ends_with(".js")
+                    || path.ends_with(".css")),
+            "content-addressed files are never asked for again: {again:?}"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
+        let dir = widget_folder("untouched", "# W\n\n<Callout>c</Callout>\n", &[]);
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("window.kept = document.querySelector('#devpage-page article'); window.keptWidget = document.querySelector('.callout'); 0")
+            .await
+            .unwrap();
+        // Another file of the site changes; this page renders as it did.
+        std::fs::write(dir.join("docs/other.md"), "# Other\n").unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(
+                &page,
+                "String(window.kept === document.querySelector('#devpage-page article') && window.keptWidget === document.querySelector('.callout'))"
+            )
+            .await,
+            "true"
+        );
+        // Its own file changes: the content is swapped.
+        std::fs::write(dir.join("docs/README.md"), "# W\n\n<Callout>d</Callout>\n").unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            text(
+                &page,
+                "String(window.kept === document.querySelector('#devpage-page article')) + ':' + document.querySelector('.callout').textContent.endsWith('d')"
+            )
+            .await,
+            "false:true"
         );
         browser.close().await.ok();
         events.abort();

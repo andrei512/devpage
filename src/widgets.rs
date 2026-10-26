@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use oxc::allocator::Allocator;
@@ -17,7 +17,9 @@ use oxc::parser::Parser;
 use oxc::semantic::SemanticBuilder;
 use oxc::span::SourceType;
 use oxc::transformer::{JsxRuntime, TransformOptions, Transformer};
+use sha2::{Digest, Sha256};
 
+use crate::addresses::{Owned, address};
 use crate::document::Document;
 
 /// The widgets devpage ships, compiled into the binary.
@@ -53,14 +55,14 @@ pub struct Widgets {
 }
 
 impl Widgets {
-    /// The system widgets plus the document's own, from its `widgets` folder.
+    /// The system widgets plus the document's own, from its `widgets` folder,
+    /// each at its [content address](crate::addresses).
     pub fn of(document: &Document) -> Self {
         let mut widgets = Self::default();
         for (name, _) in SYSTEM {
-            widgets.modules.insert(
-                name.to_string(),
-                format!("/__devpage/system-widgets/{name}.tsx"),
-            );
+            widgets
+                .modules
+                .insert(name.to_string(), address(Owned::SystemWidget(name)));
         }
         let Some(folder) = &document.widgets else {
             return widgets;
@@ -68,12 +70,9 @@ impl Widgets {
         let Ok(entries) = std::fs::read_dir(folder) else {
             return widgets;
         };
-        // One version for the whole folder, in every widget's address: an
-        // edited widget or helper is fetched again rather than taken from the
-        // browser's module cache, and so is every widget that imports it.
-        let version = version(folder);
         let mut files: Vec<PathBuf> = entries.flatten().map(|e| e.path()).collect();
         files.sort();
+        let mut own = Vec::new();
         for file in files {
             if file.extension().is_none_or(|ext| ext != "tsx") {
                 continue;
@@ -102,9 +101,25 @@ impl Widgets {
                 ));
                 continue;
             }
-            widgets
-                .modules
-                .insert(name, format!("/__devpage/widgets{url}?v={version}"));
+            own.push((name, file));
+        }
+        // A widget's address covers the names it can render, so every name is
+        // known before any address is made.
+        let known: Vec<String> = widgets
+            .modules
+            .keys()
+            .cloned()
+            .chain(own.iter().map(|(name, _)| name.clone()))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        for (name, file) in own {
+            let url = address(Owned::Module {
+                served: &document.served,
+                file: &file,
+                known: &known,
+            });
+            widgets.modules.insert(name, url);
         }
         widgets
     }
@@ -113,37 +128,167 @@ impl Widgets {
     /// widgets the page script loads.
     pub fn head(&self) -> String {
         let modules = serde_json::to_string(&self.modules).unwrap_or_default();
+        let react = address(Owned::Asset("react.js"));
         format!(
-            r#"<script type="importmap">{{"imports":{{"react":"/__devpage/react.js","react/jsx-runtime":"/__devpage/react.js","react-dom/client":"/__devpage/react.js"}}}}</script>
+            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}"}}}}</script>
 <script>window.devpageWidgets = {modules};</script>"#
         )
     }
 }
 
-/// A widgets folder's version: the latest change time of the folder and of the
-/// `.ts` and `.tsx` files in it, in milliseconds.
-pub fn version(folder: &Path) -> u128 {
-    let changed = |path: &Path| {
-        std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map_or(0, |d| d.as_millis())
-    };
-    let files = std::fs::read_dir(folder)
+/// A module file as last read: its source and the files its relative imports
+/// name, remembered until its change time or size moves or the watcher says
+/// it changed.
+#[derive(Clone)]
+struct Read {
+    changed: Option<std::time::SystemTime>,
+    len: u64,
+    source: Arc<str>,
+    /// Each relative specifier and the file it names, when there is one.
+    imports: Vec<(String, PathBuf)>,
+}
+
+type ReadCache = Option<HashMap<PathBuf, Read>>;
+static READ: Mutex<ReadCache> = Mutex::new(None);
+
+/// `file`'s source and resolved imports, read again only when it changed.
+fn read(file: &Path) -> Option<Read> {
+    let meta = std::fs::metadata(file).ok().filter(|m| m.is_file())?;
+    let (changed, len) = (meta.modified().ok(), meta.len());
+    if let Some(found) = READ.lock().ok().and_then(|cache| {
+        cache
+            .as_ref()?
+            .get(file)
+            .filter(|r| r.changed == changed && r.len == len)
+            .cloned()
+    }) {
+        return Some(found);
+    }
+    let source: Arc<str> = std::fs::read_to_string(file).ok()?.into();
+    let folder = file.parent().unwrap_or(file);
+    let imports = relative_imports(file, &source)
         .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|ext| ext == "ts" || ext == "tsx")
-        });
-    files
-        .map(|path| changed(&path))
-        .chain([changed(folder)])
-        .max()
-        .unwrap_or(0)
+        .filter_map(|specifier| {
+            let base = folder.join(&specifier);
+            ["", ".tsx", ".ts"]
+                .iter()
+                .map(|ext| PathBuf::from(format!("{}{ext}", base.display())))
+                .find(|path| path.is_file())
+                .and_then(|path| path.canonicalize().ok())
+                .map(|path| (specifier, path))
+        })
+        .collect();
+    let read = Read {
+        changed,
+        len,
+        source,
+        imports,
+    };
+    if let Ok(mut cache) = READ.lock() {
+        let cache = cache.get_or_insert_with(HashMap::new);
+        if cache.len() > 4096 {
+            cache.clear();
+        }
+        cache.insert(file.to_path_buf(), read.clone());
+    }
+    Some(read)
+}
+
+/// Forgets what was read of `file`, so the next address or compile reads it
+/// again. The watcher calls it for every changed file: a change time can miss
+/// an edit made within its resolution that keeps the size.
+pub fn forget(file: &Path) {
+    if let Ok(mut cache) = READ.lock()
+        && let Some(cache) = cache.as_mut()
+    {
+        cache.remove(file);
+    }
+}
+
+/// The relative specifiers (`./x`, `../x`) a module imports or re-exports
+/// from, as the parser sees them — the same statements [`compile`] rewrites.
+fn relative_imports(path: &Path, source: &str) -> Vec<String> {
+    use oxc::ast::ast::Statement;
+    let allocator = Allocator::default();
+    let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::tsx());
+    let parsed = Parser::new(&allocator, source, source_type).parse();
+    parsed
+        .program
+        .body
+        .iter()
+        .filter_map(|statement| match statement {
+            Statement::ImportDeclaration(decl) => Some(decl.source.value.as_str()),
+            Statement::ExportAllDeclaration(decl) => Some(decl.source.value.as_str()),
+            Statement::ExportFromDeclaration(decl) => Some(decl.source.value.as_str()),
+            _ => None,
+        })
+        .filter(|value| value.starts_with("./") || value.starts_with("../"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// `file` and every module its relative imports reach inside the served
+/// folder: `file` first, then the rest in path order, each with its source.
+pub fn closure(served: &Path, file: &Path) -> Vec<(PathBuf, Arc<str>)> {
+    let Some(root) = read(file) else {
+        return Vec::new();
+    };
+    let mut found: BTreeMap<PathBuf, Arc<str>> = BTreeMap::new();
+    let mut queue: Vec<PathBuf> = root.imports.iter().map(|(_, p)| p.clone()).collect();
+    while let Some(next) = queue.pop() {
+        if next == file || found.contains_key(&next) || !next.starts_with(served) {
+            continue;
+        }
+        let Some(read) = read(&next) else { continue };
+        queue.extend(read.imports.iter().map(|(_, p)| p.clone()));
+        found.insert(next, read.source);
+    }
+    std::iter::once((file.to_path_buf(), root.source))
+        .chain(found)
+        .collect()
+}
+
+/// A module's version: a hash of its source, the sources of every module its
+/// relative imports reach (each with its path), the widget names it can
+/// render and devpage's build — everything its compiled bytes are made from.
+/// [`address`] is the address that carries it.
+pub fn module_hash(served: &Path, file: &Path, known: &[String]) -> String {
+    let mut hash = Sha256::new();
+    hash.update(crate::addresses::BUILD);
+    hash.update(known.join("\0"));
+    for (path, source) in closure(served, file) {
+        hash.update([0]);
+        hash.update(
+            path.strip_prefix(served)
+                .unwrap_or(&path)
+                .to_string_lossy()
+                .as_bytes(),
+        );
+        hash.update([0]);
+        hash.update(source.as_bytes());
+    }
+    crate::addresses::short(&hash.finalize())
+}
+
+/// A project widget or helper in the served folder, compiled as its address
+/// serves it: each relative import rewritten to the imported module's
+/// address.
+pub fn compile_module(served: &Path, file: &Path, known: &[String]) -> Result<String> {
+    let read = read(file).ok_or_else(|| anyhow!("{} can't be read", file.display()))?;
+    let imports = read
+        .imports
+        .into_iter()
+        .filter(|(_, path)| path.starts_with(served))
+        .map(|(specifier, path)| {
+            let url = address(Owned::Module {
+                served,
+                file: &path,
+                known,
+            });
+            (specifier, url)
+        })
+        .collect();
+    compile_cached(file, &read.source, known, &imports)
 }
 
 /// Whether `path` is a widget or helper file: a `.ts` or `.tsx` directly in a
@@ -678,16 +823,16 @@ fn escape(text: &str) -> String {
 /// once per change rather than once per request.
 static COMPILED: Mutex<Option<HashMap<u64, Result<String, String>>>> = Mutex::new(None);
 
-/// [`compile`], remembered: the same file, source, widget names and version
-/// compile once.
+/// [`compile`], remembered: the same file, source, widget names and import
+/// addresses compile once.
 pub fn compile_cached(
     path: &Path,
     source: &str,
     known: &[String],
-    version: Option<u128>,
+    imports: &BTreeMap<String, String>,
 ) -> Result<String> {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    (path, source, known, version).hash(&mut hasher);
+    (path, source, known, imports).hash(&mut hasher);
     let key = hasher.finish();
     if let Some(found) = COMPILED
         .lock()
@@ -696,7 +841,7 @@ pub fn compile_cached(
     {
         return found.map_err(|e| anyhow!(e));
     }
-    let result = compile(path, source, known, version).map_err(|e| e.to_string());
+    let result = compile(path, source, known, imports).map_err(|e| e.to_string());
     if let Ok(mut cache) = COMPILED.lock() {
         let cache = cache.get_or_insert_with(HashMap::new);
         // A long session edits many versions; start over rather than grow.
@@ -711,13 +856,13 @@ pub fn compile_cached(
 /// Compiles a widget or helper from TSX to a browser module. Capitalized names
 /// the file uses but doesn't declare are other widgets, looked up by name when
 /// rendered; the module lists them in `__devpageUses`, so the page loads them
-/// first. A relative import carries `version`, so an edited helper is fetched
-/// again.
+/// first. A relative import named in `imports` is rewritten to the address
+/// given there — the imported module's own content address.
 pub fn compile(
     path: &Path,
     source: &str,
     known: &[String],
-    version: Option<u128>,
+    imports: &BTreeMap<String, String>,
 ) -> Result<String> {
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::tsx());
@@ -738,9 +883,7 @@ pub fn compile(
         ));
     }
     let mut program = parsed.program;
-    if let Some(version) = version {
-        version_imports(&allocator, &mut program, version);
-    }
+    rewrite_imports(&allocator, &mut program, imports);
     let semantic = SemanticBuilder::new().build(&program).semantic;
     let scoping = semantic.into_scoping();
     let mut used: Vec<String> = scoping
@@ -778,16 +921,18 @@ pub fn compile(
     ))
 }
 
-/// Adds `?v=<version>` to every relative import and re-export.
-fn version_imports<'a>(
+/// Rewrites every import and re-export whose specifier `imports` names to
+/// the address it gives.
+fn rewrite_imports<'a>(
     allocator: &'a Allocator,
     program: &mut oxc::ast::ast::Program<'a>,
-    version: u128,
+    imports: &BTreeMap<String, String>,
 ) {
     use oxc::ast::ast::Statement;
     let versioned = |value: &str| -> Option<&'a str> {
-        (value.starts_with("./") || value.starts_with("../"))
-            .then(|| allocator.alloc_str(&format!("{value}?v={version}")) as &str)
+        imports
+            .get(value)
+            .map(|address| allocator.alloc_str(address) as &str)
     };
     for statement in program.body.iter_mut() {
         let source = match statement {
@@ -968,7 +1113,7 @@ mod tests {
             Path::new("Card.tsx"),
             "export default function Card({ n }: { n: number }) { new DOMParser(); return <Badge n={n}><b>{n}</b></Badge>; }",
             &["Badge".to_string()],
-            None,
+            &BTreeMap::new(),
         )
         .unwrap();
         assert!(js.contains("react/jsx-runtime"), "{js}");
@@ -983,23 +1128,33 @@ mod tests {
             Path::new("Bad.tsx"),
             "export default 1;\nconst = ;\n",
             &[],
-            None,
+            &BTreeMap::new(),
         )
         .unwrap_err();
         assert!(error.to_string().starts_with("line 2:"), "{error}");
     }
 
     #[test]
-    fn a_module_lists_the_widgets_it_renders_and_versions_its_relative_imports() {
+    fn a_module_lists_the_widgets_it_renders_and_imports_its_helpers_by_their_addresses() {
+        let imports = BTreeMap::from([
+            (
+                "./label".to_string(),
+                "/__devpage/widgets/w/label.ts?v=1".to_string(),
+            ),
+            (
+                "./tone".to_string(),
+                "/__devpage/widgets/w/tone.ts?v=2".to_string(),
+            ),
+        ]);
         let js = compile(
             Path::new("Card.tsx"),
             "import { label } from \"./label\";\nexport { tone } from \"./tone\";\nimport React from \"react\";\nexport default function Card() { return <Badge>{label}</Badge>; }",
             &["Badge".to_string()],
-            Some(42),
+            &imports,
         )
         .unwrap();
-        assert!(js.contains("\"./label?v=42\""), "{js}");
-        assert!(js.contains("\"./tone?v=42\""), "{js}");
+        assert!(js.contains("\"/__devpage/widgets/w/label.ts?v=1\""), "{js}");
+        assert!(js.contains("\"/__devpage/widgets/w/tone.ts?v=2\""), "{js}");
         assert!(
             js.contains("from \"react\""),
             "a package import is left alone: {js}"
@@ -1011,30 +1166,76 @@ mod tests {
     }
 
     #[test]
-    fn compiling_is_remembered_until_the_source_or_version_changes() {
+    fn compiling_is_remembered_until_the_source_or_an_import_changes() {
         let path = Path::new("Same.tsx");
-        let first = compile_cached(path, "export default () => <b>1</b>;", &[], Some(1)).unwrap();
-        let again = compile_cached(path, "export default () => <b>1</b>;", &[], Some(1)).unwrap();
+        let none = BTreeMap::new();
+        let first = compile_cached(path, "export default () => <b>1</b>;", &[], &none).unwrap();
+        let again = compile_cached(path, "export default () => <b>1</b>;", &[], &none).unwrap();
         assert_eq!(first, again);
-        let edited = compile_cached(path, "export default () => <b>2</b>;", &[], Some(1)).unwrap();
+        let edited = compile_cached(path, "export default () => <b>2</b>;", &[], &none).unwrap();
         assert!(edited.contains('2'), "{edited}");
-        let error = compile_cached(path, "export default (", &[], Some(2)).unwrap_err();
+        let source = "export { x } from \"./x\";";
+        let imports = |v: &str| BTreeMap::from([("./x".to_string(), format!("/x.ts?v={v}"))]);
+        let one = compile_cached(path, source, &[], &imports("1")).unwrap();
+        let two = compile_cached(path, source, &[], &imports("2")).unwrap();
+        assert!(
+            one.contains("/x.ts?v=1") && two.contains("/x.ts?v=2"),
+            "{two}"
+        );
+        let error = compile_cached(path, "export default (", &[], &none).unwrap_err();
         assert!(!error.to_string().is_empty());
     }
 
     #[test]
-    fn a_folders_version_moves_when_a_helper_changes() {
+    fn editing_a_helper_changes_its_importers_addresses_only() {
         let dir = std::env::temp_dir().join(format!("devpage-wversion-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("Card.tsx"), "export default () => null;").unwrap();
-        std::fs::write(dir.join("label.ts"), "export const label = 1;").unwrap();
-        let before = version(&dir);
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        std::fs::write(dir.join("label.ts"), "export const label = 2;").unwrap();
-        assert!(version(&dir) > before);
-        assert!(is_widget_file(&dir.join("label.ts"), &dir));
-        assert!(!is_widget_file(&dir.join("notes.md"), &dir));
+        std::fs::create_dir_all(dir.join("w")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let w = dir.join("w");
+        std::fs::write(
+            w.join("Card.tsx"),
+            "import { label } from \"./label\";\nexport default () => label;",
+        )
+        .unwrap();
+        std::fs::write(
+            w.join("Deep.tsx"),
+            "export * from \"./Card\";\nexport default () => null;",
+        )
+        .unwrap();
+        std::fs::write(w.join("Other.tsx"), "export default () => null;").unwrap();
+        std::fs::write(w.join("label.ts"), "export const label = 1;").unwrap();
+        let known = vec!["Card".to_string(), "Deep".to_string(), "Other".to_string()];
+        let hashes = || {
+            ["Card.tsx", "Deep.tsx", "Other.tsx", "label.ts"]
+                .map(|name| module_hash(&dir, &w.join(name), &known))
+        };
+        let before = hashes();
+        // Same size, and possibly the same change time: the watcher's word is
+        // what makes it read again.
+        std::fs::write(w.join("label.ts"), "export const label = 2;").unwrap();
+        forget(&w.join("label.ts"));
+        let after = hashes();
+        assert_ne!(before[0], after[0], "the widget importing it");
+        assert_ne!(before[1], after[1], "a widget importing that widget");
+        assert_eq!(before[2], after[2], "a widget that doesn't import it");
+        assert_ne!(before[3], after[3], "the helper itself");
+        // The importer names the helper by the helper's own address.
+        let card = compile_module(&dir, &w.join("Card.tsx"), &known).unwrap();
+        let label = address(Owned::Module {
+            served: &dir,
+            file: &w.join("label.ts"),
+            known: &known,
+        });
+        assert!(card.contains(&format!("\"{label}\"")), "{card}");
+        assert!(label.ends_with(&format!("?v={}", after[3])), "{label}");
+        // The names a widget can render are part of what it is compiled from.
+        assert_ne!(
+            module_hash(&dir, &w.join("Other.tsx"), &known[..2]),
+            after[2]
+        );
+        assert!(is_widget_file(&w.join("label.ts"), &w));
+        assert!(!is_widget_file(&w.join("notes.md"), &w));
     }
 
     #[test]
@@ -1065,11 +1266,14 @@ mod tests {
             widgets.problems,
             vec!["widgets/Callout.tsx — Callout is a system widget's name".to_string()]
         );
-        let v = version(&dir.join("widgets"));
-        assert!(
-            widgets.modules["Card"].ends_with(&format!("?v={v}")),
-            "{:?}",
-            widgets.modules
+        let known: Vec<String> = widgets.modules.keys().cloned().collect();
+        assert_eq!(
+            widgets.modules["Card"],
+            address(Owned::Module {
+                served: &dir,
+                file: &dir.join("widgets/Card.tsx"),
+                known: &known
+            })
         );
     }
 

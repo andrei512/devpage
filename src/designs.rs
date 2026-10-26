@@ -273,6 +273,25 @@ impl Designs {
         }
     }
 
+    /// The validator of the design at `path`'s PNG, known before painting: a
+    /// hash of its resolved scene — every node and the image files it shows —
+    /// and devpage's build, which paints it. `None` when it doesn't resolve.
+    pub async fn etag(&self, path: &str) -> Option<String> {
+        let designs = self.clone();
+        let path = path.to_string();
+        tokio::task::spawn_blocking(move || {
+            let scene = designs.resolve(&path).ok()?;
+            let mut text = format!("{}\0{:?}", crate::addresses::BUILD, scene.root);
+            for id in scene.images.keys() {
+                text.push_str(&format!("\0{id:?}"));
+            }
+            Some(crate::addresses::hash(text.as_bytes()))
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
     /// The design at `path` painted as a PNG, or its problems one per line.
     pub async fn png(&self, path: String) -> Result<Vec<u8>, String> {
         let designs = self.clone();
@@ -510,13 +529,15 @@ pub fn page(path: &str) -> String {
         r#"<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>{name}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="/__devpage/style.css">
+<link rel="stylesheet" href="{stylesheet}">
 {theme}
 </head><body class="design-page">
 <canvas class="design" src="/{path}" role="img" aria-label="{name}"></canvas>
 <div id="devpage-corner">{toggle}</div>
-<script type="module" src="/__devpage/design.js"></script>
+<script type="module" src="{design_script}"></script>
 </body></html>"#,
+        stylesheet = crate::addresses::address(crate::addresses::Owned::Asset("style.css")),
+        design_script = crate::addresses::address(crate::addresses::Owned::Asset("design.js")),
         name = crate::render::escape(name),
         path = crate::render::escape(path),
         theme = crate::navbar::theme_script(true),
@@ -814,6 +835,41 @@ mod tests {
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         (address, designs)
+    }
+
+    #[tokio::test]
+    async fn a_png_answers_304_from_its_scene_without_painting() {
+        let dir = served("png-etag");
+        let (address, designs) = start(&dir, "app/screen.design").await;
+        let url = format!("{address}/app/screen.design.png");
+        let client = reqwest::Client::new();
+        let first = client.get(&url).send().await.unwrap();
+        assert_eq!(first.status(), 200);
+        assert_eq!(first.headers()["cache-control"], "no-cache");
+        let tag = first.headers()["etag"].to_str().unwrap().to_string();
+        let again = client
+            .get(&url)
+            .header("if-none-match", &tag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(again.status(), 304);
+        assert_eq!(again.headers()["etag"], tag.as_str());
+        // A change to a design it uses is a new scene, and a new PNG.
+        let button = std::fs::read_to_string(dir.join("app/button.design")).unwrap();
+        save(
+            &designs,
+            &dir.join("app/button.design"),
+            &button.replace("#2563eb", "#16a34a"),
+        );
+        let changed = client
+            .get(&url)
+            .header("if-none-match", &tag)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(changed.status(), 200);
+        assert_ne!(changed.headers()["etag"], tag.as_str());
     }
 
     #[tokio::test]

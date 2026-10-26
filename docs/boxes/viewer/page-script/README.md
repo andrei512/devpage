@@ -21,16 +21,25 @@ flowchart LR
 ## Swapping a page in place
 
 `load(url)` fetches the URL with
-`cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML and compares its frame — the classes the server
-put on its `<body>`, less `show-comments`, which the script itself adds while
-the comments are shown — with the open page's. A different frame, as when a
-document changed kind, is loaded whole. The same frame is swapped in: the
+`cache: "no-cache"`: the browser asks the server with the ETag it has, and a
+page that hasn't changed comes back from the cache after a `304`
+([Caching](../serving-pages/README.md#caching)). If the response isn't OK or
+isn't HTML it returns `false`. If it is the page shown, at the same address
+with the same ETag, nothing has changed: `load` returns without swapping or
+mounting anything, and the page's DOM is untouched. The script knows the ETag
+of the page it was loaded with by asking the browser's cache for it
+(`cache: "only-if-cached"`) — never the server — and of every page it swaps in
+from that page's response. Otherwise it parses the HTML and compares its
+frame — the classes the server put on its `<body>`, less `show-comments`,
+which the script itself adds while the comments are shown, and the devpage
+build in its `data-build` — with the open page's. A different frame, as when
+a document changed kind or devpage was redeployed with a new page script, is
+loaded whole. The same frame is swapped in: the
 script replaces the children of `#devpage-page`, `#devpage-nav` and
 `#devpage-navbar` with the fresh ones — so the navbar's highlight follows the
 page — sets the document title, takes the fresh page's
 `window.devpageWidgets` — so widgets edited since are fetched at their new
-versions — mounts the new content's widgets, its Mermaid diagrams included,
+addresses — mounts the new content's widgets, its Mermaid diagrams included,
 and starts any design it newly embeds. The rest of the page — the scripts, the
 event stream, the scroll position — stays as it was.
 
@@ -58,7 +67,8 @@ stops those gone.
 
 `connect()` opens an `EventSource` on
 `/__devpage/events`. Each `change` message calls `load(location.href)`, so the
-page the tab shows is fetched again and swapped in; a `comments` message for a
+page the tab shows is fetched again and swapped in — unless it renders as it
+did, which a change to another page usually leaves it; a `comments` message for a
 file the tab shows fetches that file's threads again. A tab holds at most one stream.
 
 ## Links and history

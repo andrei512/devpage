@@ -179,6 +179,7 @@ impl Listeners {
                 continue;
             }
             designs.changed(&path);
+            crate::widgets::forget(&path);
             index.changed(&path);
             // The entry's own file: re-read it, so `/` and `watch` follow it,
             // and refresh open pages whatever `watch` says.

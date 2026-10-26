@@ -29,8 +29,8 @@ taken from.
 
 ## How devpage uses it
 
-`src/server.rs` compiles the bundle into the binary with `include_str!` and
-serves it at `/__devpage/pele.js` — see
+`build.rs` builds the bundle into the binary, and devpage serves it at its
+content address, `/__devpage/pele.<hash>.js` — see
 [built-in assets](../serving-pages/README.md#built-in-assets). Every page loads
 it before `devpage.js`. One function of it is used, by the `Diagram`
 [system widget](../widgets/system-widgets/README.md) (`assets/widgets/Diagram.tsx`)
@@ -56,7 +56,7 @@ There is no package manager step and no script; an upgrade is done by hand:
    the version and for any newly bundled third-party notices.
 
 2. Rebuild and restart
-   The bundle is embedded with `include_str!`, so a running devpage keeps
+   The bundle is embedded in the binary, so a running devpage keeps
    serving the old one until it is rebuilt and restarted (`cargo run -- docs`,
    or `cargo install --path .` again for an installed copy).
 

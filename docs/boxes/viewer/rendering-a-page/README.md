@@ -89,7 +89,7 @@ has this shape:
 ```html
 <html data-theme="light">
   <head>  <!-- icon, theme script, import map, stylesheet, pele, devpage.js -->
-  <body class="site with-navbar">
+  <body class="site with-navbar" data-build="…">
     <header id="devpage-navbar">  <!-- logo, title, links, switches -->
     <nav id="devpage-nav">        <!-- the sidebar tree -->
     <main id="devpage-page">
@@ -104,7 +104,9 @@ In detail:
   reader's stored choice, or the system's — before anything paints
   ([choosing a theme](../themes/README.md#choosing-a-theme));
 - `<body>`'s class names the frame: `site`, plus `with-navbar` and
-  `no-sidebar` as the document file says;
+  `no-sidebar` as the document file says; its `data-build` is devpage's
+  build id, so the page script loads a page from a new build whole
+  ([The page script](../page-script/README.md#swapping-a-page-in-place));
 - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
   title, its links and dropdowns with their icons drawn as inline SVG, then
   the comment-mode switch (unless comments are off) and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
@@ -116,10 +118,12 @@ In detail:
   `<div id="devpage-corner">`, top right;
 - `<main id="devpage-page"><article>` holds the rendered Markdown;
 - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
-  `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
-  the document's widgets with the address of each
+  `react-dom/client` → React's content address,
+  `/__devpage/react.<hash>.js`) and `window.devpageWidgets`, the document's
+  widgets with the address of each
   ([Widgets](../widgets/how-widgets-run/README.md));
 - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
+  their [content addresses](../serving-pages/README.md#built-in-assets) under
   `/__devpage/`; with comments off `devpage.js` carries `data-no-comments`,
   and the script shows no threads and offers no comment
   ([Turning comments off](../comments/README.md#turning-comments-off)).
@@ -139,4 +143,6 @@ is not, since raw HTML is allowed.
 
 Beyond the index, nothing is cached between requests: each page request
 re-reads the page, its site's document file and, to build the sidebar, every
-page the tree reaches.
+page the tree reaches. The browser keeps the page, but asks again each time:
+it is served `no-cache` with an ETag, the hash of its HTML, and answered
+`304` when it hasn't changed ([Caching](../serving-pages/README.md#caching)).
