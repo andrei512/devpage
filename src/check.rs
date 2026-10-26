@@ -38,7 +38,7 @@ fn pages(document: &Document) -> Vec<PathBuf> {
     match &document.kind {
         Kind::Site { root } => vec![document.base.join(root)],
         Kind::Doc { chapters, .. } => chapters.clone(),
-        Kind::Slides { slides } => slides.clone(),
+        Kind::Slides { slides, .. } => slides.iter().map(|slide| slide.file.clone()).collect(),
         Kind::Design => Vec::new(),
     }
 }
@@ -188,7 +188,18 @@ async fn external_links(links: Vec<External>) -> Vec<Problem> {
 fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
-    let mut queue: VecDeque<PathBuf> = pages(document).into();
+    let mut checked = Vec::new();
+    // Every page of a deck the check reaches is a slide, however else it is
+    // reached: its notes are judged once the whole walk is done.
+    let mut slides = HashSet::new();
+    let deck_pages = |linked: &Document, slides: &mut HashSet<PathBuf>| {
+        let found = pages(linked);
+        if matches!(linked.kind, Kind::Slides { .. }) {
+            slides.extend(found.iter().cloned());
+        }
+        found
+    };
+    let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides).into();
     // A page is checked as its nearest site's page, whichever document the
     // check started from — as the preview shows it.
     let index = crate::index::Index::build(&document.served);
@@ -199,6 +210,7 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
         if !seen.insert(page.clone()) {
             continue;
         }
+        checked.push(page.clone());
         let owner = match index.site_for(&page) {
             Some(site) => Document::load(&site, &document.served).ok(),
             // In no site, a page is shown as a doc of one chapter — unless it
@@ -230,7 +242,7 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
                 if target.extension().is_some_and(|ext| ext == "md") {
                     queue.push_back(target);
                 } else if let Ok(linked) = Document::load(&target, &document.served) {
-                    queue.extend(pages(&linked));
+                    queue.extend(deck_pages(&linked, &mut slides));
                 }
             }
         }
@@ -245,12 +257,37 @@ fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
             {
                 // An invalid one is a problem on the page linking to it.
                 if let Ok(linked) = Document::load(&target, &document.served) {
-                    queue.extend(pages(&linked));
+                    queue.extend(deck_pages(&linked, &mut slides));
                 }
             }
         }
     }
+    for page in &checked {
+        problems.extend(notes_problems(document, page, slides.contains(page)));
+    }
     problems
+}
+
+/// A page's `<Notes>` that are out of place: any on a page that isn't a
+/// slide, and every one after the first on a slide.
+fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem> {
+    let source = std::fs::read_to_string(page).unwrap_or_default();
+    let file = document.url(page)[1..].to_string();
+    // A slide's first `<Notes>` is its notes; a page has none.
+    crate::widgets::notes(&source)
+        .iter()
+        .skip(usize::from(slide))
+        .map(|(line, _)| Problem {
+            file: file.clone(),
+            line: Some(*line),
+            message: if slide {
+                "a second <Notes> on one slide".to_string()
+            } else {
+                "<Notes> is only for a slide".to_string()
+            },
+            target: None,
+        })
+        .collect()
 }
 
 /// One page's problems and reached files; its external links are collected
@@ -384,7 +421,7 @@ fn page_links_with(
                 }
                 // `#n` on a deck must name one of its slides.
                 Ok(Document {
-                    kind: Kind::Slides { slides },
+                    kind: Kind::Slides { slides, .. },
                     ..
                 }) if !fragment.is_empty()
                     && !fragment
@@ -557,6 +594,13 @@ pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
         pages
             .iter()
             .flat_map(|page| page_links_with(document, page, &mut external).0),
+    );
+    // The pages of a deck are its slides; any other page is not one.
+    let slide = matches!(document.kind, Kind::Slides { .. });
+    problems.extend(
+        pages
+            .iter()
+            .flat_map(|page| notes_problems(document, page, slide)),
     );
     let mut answers = EXTERNAL
         .lock()
@@ -883,6 +927,53 @@ mod external {
             ],
             "{found:#?}"
         );
+    }
+
+    #[tokio::test]
+    async fn notes_belong_on_a_slide_once() {
+        let doc = folder(
+            "notes",
+            "# Home\n\n[deck](deck/devpage.yml) [page](page.md) [slide](deck/a.md)\n",
+        );
+        std::fs::create_dir_all(doc.base.join("deck")).unwrap();
+        std::fs::write(
+            doc.base.join("deck/a.md"),
+            "# A\n\n<Notes>one</Notes>\n\n<Notes>two</Notes>\n",
+        )
+        .unwrap();
+        std::fs::write(doc.base.join("deck/b.md"), "# B\n\n<Notes>fine</Notes>\n").unwrap();
+        std::fs::write(
+            doc.base.join("deck/devpage.yml"),
+            "kind: slides\ntitle: D\nslides: [a.md, b.md]\n",
+        )
+        .unwrap();
+        std::fs::write(doc.base.join("page.md"), "# Page\n\n<Notes>lost</Notes>\n").unwrap();
+        let mut found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        found.sort();
+        assert_eq!(
+            found,
+            vec![
+                "deck/a.md:5: a second <Notes> on one slide".to_string(),
+                "page.md:3: <Notes> is only for a slide".to_string(),
+            ],
+            "{found:#?}"
+        );
+        // The preview: a deck's slides, and a page of the site.
+        let deck = Document::load(&doc.base.join("deck/devpage.yml"), &doc.base).unwrap();
+        let shown: Vec<String> = preview(&deck, &pages(&deck))
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(shown, vec!["deck/a.md:5: a second <Notes> on one slide"]);
+        let shown: Vec<String> = preview(&doc, &[doc.base.join("page.md")])
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(shown, vec!["page.md:3: <Notes> is only for a slide"]);
     }
 
     #[tokio::test]

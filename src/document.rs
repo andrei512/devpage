@@ -36,6 +36,7 @@ enum Config {
     Slides {
         title: String,
         slides: Vec<String>,
+        context: Option<String>,
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
@@ -178,10 +179,32 @@ pub enum Kind {
         pdf: Pdf,
     },
     Slides {
-        slides: Vec<PathBuf>,
+        slides: Vec<Slide>,
+        /// What the talk is, who it is for and its tone, as written.
+        context: Option<String>,
     },
     /// A `.design` file, which is the whole document.
     Design,
+}
+
+/// One slide of a deck: its Markdown file and its notes — the text of its
+/// first `<Notes>`, if it has one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Slide {
+    pub file: PathBuf,
+    pub notes: Option<String>,
+}
+
+impl Slide {
+    /// Reads a slide's notes from its file.
+    fn read(file: PathBuf) -> Self {
+        let source = std::fs::read_to_string(&file).unwrap_or_default();
+        let notes = crate::widgets::notes(&source)
+            .into_iter()
+            .next()
+            .map(|(_, text)| text);
+        Self { file, notes }
+    }
 }
 
 /// Which kind a document file names, read without loading the document.
@@ -356,6 +379,7 @@ impl Document {
             Config::Slides {
                 title,
                 slides,
+                context,
                 widgets,
                 theme_selector,
                 logo,
@@ -368,9 +392,9 @@ impl Document {
                 }
                 let slides = slides
                     .iter()
-                    .map(|slide| existing("slide", slide))
+                    .map(|slide| existing("slide", slide).map(Slide::read))
                     .collect::<Result<_>>()?;
-                (title, Kind::Slides { slides })
+                (title, Kind::Slides { slides, context })
             }
         };
         let widgets = match widget_folder {
@@ -683,5 +707,41 @@ mod tests {
         assert_eq!(kind_of(&dir.join("deploy.yaml")), None);
         assert_eq!(kind_of(&dir.join("ci.yml")), None);
         assert_eq!(kind_of(&dir.join("README.md")), None);
+    }
+
+    #[test]
+    fn a_deck_keeps_its_context_and_each_slides_notes() {
+        let dir = folder("notes");
+        std::fs::write(
+            dir.join("one.md"),
+            "# One\n\n<Notes>\n  Hello, everyone.\n</Notes>\n\n<Notes>second</Notes>\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("two.md"), "# Two\n\n`<Notes>not these</Notes>`\n").unwrap();
+        let deck = parse(
+            "kind: slides\ntitle: Talk\ncontext: A talk for engineers, warm and brief.\nslides: [one.md, two.md]\n",
+            dir.clone(),
+        )
+        .unwrap();
+        let Kind::Slides { slides, context } = &deck.kind else {
+            panic!("{deck:?}")
+        };
+        assert_eq!(
+            context.as_deref(),
+            Some("A talk for engineers, warm and brief.")
+        );
+        assert_eq!(slides[0].file, dir.join("one.md"));
+        assert_eq!(slides[0].notes.as_deref(), Some("Hello, everyone."));
+        assert_eq!(slides[1].notes, None);
+        let plain = parse("kind: slides\ntitle: T\nslides: [one.md]\n", dir.clone()).unwrap();
+        assert!(matches!(plain.kind, Kind::Slides { context: None, .. }));
+        // `context` belongs to slides.
+        for text in [
+            "kind: doc\ntitle: T\nchapters: [README.md]\ncontext: x\n",
+            "kind: site\ntitle: T\nroot: README.md\ncontext: x\n",
+            "kind: slides\ntitle: T\nslides: [one.md]\ncontext: [a, b]\n",
+        ] {
+            assert!(parse(text, dir.clone()).is_err(), "{text}");
+        }
     }
 }

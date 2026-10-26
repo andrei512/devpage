@@ -106,6 +106,7 @@ default.
 | `kind` | `slides` | yes | Makes this file a deck. |
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
+| `context` | string | no | What the talk is, who it is for and its tone — what the slides' [notes](../making-slides/README.md#speaker-notes) are read against; default none. |
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |

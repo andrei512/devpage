@@ -29,6 +29,14 @@ One Markdown file of a doc, listed in its `chapters` field.
 
 A document that is a deck: one Markdown file per slide, in the order its `slides` field lists them, each laid out at 1920 × 1080. The kind is *slides*; one deck is a **deck**, one file a **slide**.
 
+## notes
+
+A slide's script: the text of the `<Notes>` tag in its file, read aloud by a presenter or a narrator and never shown on the slide. See [Speaker notes](../making-slides/README.md#speaker-notes).
+
+## context
+
+A deck's `context` field: what the talk is, who it is for and its tone — what its slides' notes are read against.
+
 ## document file
 
 The YAML file describing a document — any name, `devpage.yml` by default.

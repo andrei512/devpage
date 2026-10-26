@@ -17,6 +17,9 @@ how to write props and content is on [Using widgets](../using-widgets/README.md)
 | [`Cards`](#cards) | `columns` (optional, 2–4; default fits the width) | A Markdown list of links |
 | [`Diagram`](#diagram) | — | Mermaid text |
 
+`Notes` is taken too, though it is not a widget: it holds a slide's
+[notes](../../making-slides/README.md#speaker-notes) and is never shown.
+
 ## Callout
 
 A highlighted box with a colored edge, an icon for its kind and an optional

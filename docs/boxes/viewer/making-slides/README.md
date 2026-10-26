@@ -84,6 +84,49 @@ change to a slide's file swaps it in place, on the slide you are on.
 stage's 16:9 shape, exactly as it shows ([Printing to PDF](../pdf/README.md)).
 A deck has no header or footer settings: a slide is its whole page.
 
+## Speaker notes
+
+A slide's **notes** are its script: the words a human presenter, or the
+narrator of a recorded deck, says while the slide is up. They live in the
+slide's own file, in a `<Notes>` tag, and are never shown on the slide — not on
+screen, not on paper.
+
+```markdown
+# Why devpage
+
+<Notes>
+Every team writes docs, and every team's docs drift from the code.
+devpage keeps them next to it.
+</Notes>
+```
+
+`Notes` looks like a widget tag and is found by the same rules — inside code
+and HTML comments it is just text — but it is devpage's own: a project widget
+can't be named `Notes`. Its text is kept trimmed and as written, Markdown and
+all. A slide has at most one `<Notes>`; a second one, or `<Notes>` on a page
+that isn't a slide, is a [problem](../checking-links/README.md). A file counts
+as a slide when it is shown in a deck, so the same file opened on its own is
+a page and lists its `<Notes>` as a problem.
+
+A deck's **context** is what its notes are read against: what the talk is,
+who it is for, and its tone, in the deck's own document file.
+
+```yaml
+kind: slides
+title: Launch
+context: A five-minute launch talk for engineers who have never seen devpage. Warm, plain, no hype.
+slides: [intro.md, problem.md, demo.md]
+```
+
+## A slide as an image
+
+Every slide is also a PNG: `<deck file>/<n>.png` — `/talks/launch/devpage.yml/3.png`
+is the third slide, numbered from 1 as in `#3`. It is the slide as the browser
+shows it on a 1920 × 1080 screen, once its diagrams and designs are drawn, with
+devpage's controls hidden. It is there so whoever writes a slide's notes — an
+agent, usually — can look at the slide they are writing for. A number the deck
+doesn't have, or a file that isn't a deck, answers 404 with the reason.
+
 ## Comments and problems
 
 Comments attach to the slide's file and show in a panel beside the stage when

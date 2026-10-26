@@ -64,7 +64,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
-| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`) and the Chrome tests; `fetcher` downloads chrome-headless-shell, the only Chrome devpage drives, into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
+| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`) and the Chrome tests; `fetcher` downloads chrome-headless-shell, the only Chrome devpage drives, into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/slide_png.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
 
 ## Designs
 
