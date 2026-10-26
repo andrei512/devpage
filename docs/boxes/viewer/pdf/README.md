@@ -55,12 +55,17 @@ background, which logs nothing, opens the document in print mode in a headless C
 as paper from the start, with the print media type, so every slide of a deck
 is shown and a design embedded on any of them is fitted where it will print —
 waits until
-every diagram is drawn and every embedded design is painted — for at most 20
-seconds, after which it prints whatever the page shows, so a design that never
-paints (one with problems, say) costs that wait but doesn't stop the PDF; `devpage check`
-is what reports it — and has Chrome print it — the same `Page.printToPDF`
+every diagram is drawn and every embedded design is painted — a design with
+problems and nothing valid to draw counts as soon as its problems show, so it
+doesn't hold the PDF up; `devpage check` is what reports it. It waits for at
+most 20 seconds, after which it logs what the page still waited for and
+prints whatever the page shows — and has Chrome print it — the same `Page.printToPDF`
 call Playwright makes, spoken directly over the DevTools protocol by the
 `chromiumoxide` crate, with no Node and no extra process.
+
+Every request the page makes carries `X-Devpage-Shot: 1`, so a slide's PNG
+it shows is never drawn by another Chrome inside the print — see
+[A slide as an image](../making-slides/README.md#a-slide-as-an-image).
 
 Each run gives Chrome a profile folder of its own in the system's temporary
 folder, so several prints can run at once, and deletes it when the run ends.

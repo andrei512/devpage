@@ -137,10 +137,33 @@ slides: [intro.md, problem.md, demo.md]
 
 Every slide is also a PNG: `<deck file>/<n>.png` — `/talks/launch/devpage.yml/3.png`
 is the third slide, numbered from 1 as in `#3`. It is the slide as the browser
-shows it on a 1920 × 1080 screen, once its diagrams and designs are drawn, with
-devpage's controls hidden. It is there so whoever writes a slide's notes — an
-agent, usually — can look at the slide they are writing for. A number the deck
-doesn't have, or a file that isn't a deck, answers 404 with the reason.
+shows it on a 1920 × 1080 screen, with devpage's controls hidden. It is there
+so whoever writes a slide's notes — an agent, usually — can look at the slide
+they are writing for. A number the deck doesn't have, or a file that isn't a
+deck, answers 404 with the reason.
+
+**When it is taken.** Once the slide's diagrams are drawn and every design on
+the slide is painted — a design on another slide isn't shown, so it isn't
+waited for, and a design with problems and nothing valid to draw counts once
+its problems show. A slide that still isn't ready after 20 seconds is taken as
+it is: the server logs what it waited for, and the PNG comes with
+`X-Devpage-Ready: timeout`.
+
+**One Chrome.** A running devpage starts one chrome-headless-shell for its
+slides' PNGs, on the first one asked for. Each slide is shot in a tab of its
+own, closed after, two at a time. Chrome is closed once it has drawn nothing
+for a minute, and when devpage stops; the next PNG starts it again.
+
+**Kept until a file changes.** A slide drawn once is kept, and asking again
+answers at once; the PNG carries an `ETag`, so a request already holding it
+gets `304 Not Modified`. Any change to a watched file forgets every kept
+slide. At most 64 MB of PNGs are kept; the oldest go first.
+
+**A slide showing a slide's PNG.** The tab Chrome shoots a slide in marks its
+requests with `X-Devpage-Shot: 1`, and a slide's PNG asked for that way is
+never drawn — it is the kept picture, or `508 Loop Detected` — so a slide
+showing its own PNG, or one of another deck's, can't start shots without end.
+`devpage pdf` marks its requests the same way.
 
 ## Comments and problems
 
