@@ -205,7 +205,9 @@ are fixed; there is nothing to configure.
 ## The Chrome it drives
 
 `devpage video` drives **Chrome for Testing**, not the chrome-headless-shell
-everything else uses: the shell can't capture a tab. devpage downloads it the
+everything else uses: the shell can't capture a tab. It is pinned to the
+shell's version ([The Chrome it drives](../pdf/README.md#the-chrome-it-drives)
+in Printing to PDF). devpage downloads it the
 first time a video is made — about 370 MB once unpacked, into
 `~/Library/Caches/devpage/chrome-for-testing` on macOS,
 `~/.cache/devpage/chrome-for-testing` elsewhere, beside the shell — and uses

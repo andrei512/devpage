@@ -66,10 +66,18 @@ Each run gives Chrome a profile folder of its own in the system's temporary
 folder, so several prints can run at once, and deletes it when the run ends.
 
 The Chrome is always **chrome-headless-shell**, never a Chrome installed on
-the machine. devpage downloads it the first time it needs one — into
-`~/Library/Caches/devpage/chrome-headless-shell` on macOS,
-`~/.cache/devpage/chrome-headless-shell` elsewhere — and uses that copy from
-then on. It is a bare program with no app bundle, so nothing devpage launches
+the machine, and always one version, pinned in devpage — 156.0.8078.47,
+`CHROME_VERSION` in `src/pdf.rs`. devpage downloads it the first time it
+needs one — into `~/Library/Caches/devpage/chrome-headless-shell` on macOS,
+`~/.cache/devpage/chrome-headless-shell` elsewhere, in a folder named for the
+platform and version, such as `mac_arm-156.0.8078.47` — and uses that copy
+from then on. Because the version is pinned, finding the copy makes no
+network call; only a missing copy is downloaded, as that version's zip from
+`https://storage.googleapis.com/chrome-for-testing-public/<version>/<platform>/`.
+There are builds for macOS (Apple silicon and Intel), Linux on x86-64 and
+Windows; on any other platform, such as Linux on Arm, `devpage pdf` stops
+with `chrome-headless-shell <version> has no build for <os> on <arch>`.
+It is a bare program with no app bundle, so nothing devpage launches
 appears in the macOS Dock, and every machine prints with the same browser.
 A [slide's PNG](../making-slides/README.md#a-slide-as-an-image) and the
 Chrome tests drive the same copy. Only [`devpage video`](../making-a-video/README.md#the-chrome-it-drives)

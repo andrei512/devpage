@@ -8,12 +8,21 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
+use chromiumoxide::fetcher::{
+    BrowserFetcher, BrowserFetcherOptions, BrowserHost, BrowserKind, BrowserVersion, BuildInfo,
+    Platform, Version,
+};
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind, Paper, Pdf};
 use crate::server;
+
+/// The version of chrome-headless-shell and Chrome for Testing devpage
+/// drives. Pinned, so finding the browser makes no network call: the cached
+/// copy is used, and only a missing one is downloaded, as that version's zip.
+/// It moves with chromiumoxide, whose DevTools protocol it must speak.
+pub(crate) const CHROME_VERSION: (u32, u32, u32, u32) = (156, 0, 8078, 47);
 
 /// Prints `document` to `output`.
 pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
@@ -170,19 +179,64 @@ async fn fetch(kind: BrowserKind, name: &str) -> Result<std::path::PathBuf> {
     } else {
         Path::new(&home).join(".cache/devpage").join(name)
     };
-    std::fs::create_dir_all(&cache)?;
+    install(kind, name, &cache, BrowserHost::current(kind)).await
+}
+
+/// Downloads `kind` at [`CHROME_VERSION`] from `host` into `cache` unless it
+/// is there already, and returns the program.
+async fn install(
+    kind: BrowserKind,
+    name: &str,
+    cache: &Path,
+    host: BrowserHost,
+) -> Result<std::path::PathBuf> {
+    let (major, minor, build, patch) = CHROME_VERSION;
+    let version = Version::exact(major, minor, build, patch);
+    let Some(platform) = platform() else {
+        bail!(
+            "{name} {version} has no build for {} on {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+    };
+    let url = kind.download_url(platform, &BuildInfo::version(version.to_string()), &host);
+    std::fs::create_dir_all(cache)?;
     let fetcher = BrowserFetcher::new(
         BrowserFetcherOptions::builder()
-            .with_path(&cache)
+            .with_host(host)
+            .with_path(cache)
             .with_kind(kind)
+            .with_platform(platform)
+            .with_version(BrowserVersion::Version(version))
             .build()
             .map_err(anyhow::Error::msg)?,
     );
-    let info = fetcher
-        .fetch()
-        .await
-        .with_context(|| format!("downloading {name} into {}", cache.display()))?;
+    let info = fetcher.fetch().await.with_context(|| {
+        format!(
+            "downloading {name} {version} for {} from {url} into {}",
+            kind.folder(platform),
+            cache.display()
+        )
+    })?;
     Ok(info.executable_path)
+}
+
+/// The platform whose build of Chrome this machine runs, if Chrome for
+/// Testing has one the fetcher knows. There is none for Linux on Arm.
+fn platform() -> Option<Platform> {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(Platform::Linux)
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some(Platform::Mac)
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some(Platform::MacArm)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86")) {
+        Some(Platform::Win32)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some(Platform::Win64)
+    } else {
+        None
+    }
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -217,6 +271,118 @@ fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where the pinned Chrome's programs sit in a cache folder, on the
+    /// platforms the tests run on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn pinned_programs() -> [(BrowserKind, &'static str, std::path::PathBuf); 2] {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = format!("{major}.{minor}.{build}.{patch}");
+        let platform = cft_platform();
+        let folder = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac_arm"
+        } else {
+            "mac"
+        };
+        let folder = Path::new(&format!("{folder}-{version}")).to_path_buf();
+        let chrome = if cfg!(target_os = "linux") {
+            Path::new("chrome").to_path_buf()
+        } else {
+            Path::new("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+                .to_path_buf()
+        };
+        [
+            (
+                BrowserKind::ChromeHeadlessShell,
+                "chrome-headless-shell",
+                folder
+                    .join(format!("chrome-headless-shell-{platform}"))
+                    .join("chrome-headless-shell"),
+            ),
+            (
+                BrowserKind::Chrome,
+                "chrome-for-testing",
+                folder.join(format!("chrome-{platform}")).join(chrome),
+            ),
+        ]
+    }
+
+    /// The cached copy is used with no network call: the host is an address
+    /// nothing listens on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn the_pinned_chrome_already_in_the_cache_is_used_as_it_is() {
+        let caches = std::env::temp_dir().join(format!("devpage-pinned-{}", std::process::id()));
+        for (kind, name, program) in pinned_programs() {
+            let cache = caches.join(name);
+            let program = cache.join(program);
+            std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+            std::fs::write(&program, "").unwrap();
+            let nowhere = BrowserHost::single("http://127.0.0.1:9");
+            assert_eq!(install(kind, name, &cache, nowhere).await.unwrap(), program);
+        }
+        std::fs::remove_dir_all(&caches).ok();
+    }
+
+    /// A failed download says which browser, version, platform and address.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn a_failed_download_names_the_browser_version_platform_and_address() {
+        let cache =
+            std::env::temp_dir().join(format!("devpage-unreachable-{}", std::process::id()));
+        let nowhere = BrowserHost::single("http://127.0.0.1:9");
+        let error = install(
+            BrowserKind::ChromeHeadlessShell,
+            "chrome-headless-shell",
+            &cache,
+            nowhere,
+        )
+        .await
+        .unwrap_err();
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let platform = cft_platform();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "downloading chrome-headless-shell {major}.{minor}.{build}.{patch} for {platform} \
+                 from http://127.0.0.1:9/chrome-for-testing-public/{major}.{minor}.{build}.{patch}/{platform}/chrome-headless-shell-{platform}.zip \
+                 into {}",
+                cache.display()
+            )
+        );
+        std::fs::remove_dir_all(&cache).ok();
+    }
+
+    /// Chrome for Testing's name for this machine's platform.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn cft_platform() -> &'static str {
+        if cfg!(target_os = "linux") {
+            "linux64"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac-arm64"
+        } else {
+            "mac-x64"
+        }
+    }
+
+    /// Both browsers' zips exist at [`CHROME_VERSION`] for every platform.
+    /// Needs the network; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_pinned_chrome_can_be_downloaded_for_every_platform() {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = BuildInfo::version(format!("{major}.{minor}.{build}.{patch}"));
+        let client = reqwest::Client::new();
+        for kind in [BrowserKind::ChromeHeadlessShell, BrowserKind::Chrome] {
+            for &platform in Platform::all() {
+                let url = kind.download_url(platform, &version, &BrowserHost::current(kind));
+                let response = client.head(&url).send().await.unwrap();
+                assert_eq!(response.status(), reqwest::StatusCode::OK, "{url}");
+            }
+        }
+    }
 
     #[test]
     fn the_default_file_name_is_the_title_made_safe() {
