@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 148 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 150 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,8 +27,9 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 53 tests marked `#[ignore]`, all drive Chrome, and one of them also
-calls GPT-Live.
+Of the 54 tests marked `#[ignore]`, 53 drive Chrome, and one of them also
+calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
+so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
@@ -209,10 +210,16 @@ In Chrome:
 
 ### `pdf`
 
-*2 tests, 16 in Chrome.*
+*4 tests, 16 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
+- The pinned Chrome and Chrome for Testing already in a cache folder used as they are, with no network call.
+- A failed download naming the browser, its version, the platform and the address.
+
+On the network:
+
+- Both browsers' zips at the pinned version answering `200` for every platform.
 
 In Chrome:
 

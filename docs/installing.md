@@ -11,13 +11,14 @@ starting it. It is a task page under the [devpage landing page](README.md);
   Check what you have with `cargo --version`; install or update Rust with
   [rustup](https://rustup.rs) (`rustup update`).
 - **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
-  machine: the first time it prints, it downloads chrome-headless-shell once
-  into devpage's cache folder and uses that from then on
+  machine: the first time it prints, it downloads chrome-headless-shell, at
+  the version devpage pins, once into devpage's cache folder and uses that
+  from then on, with no network
   ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
 - **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
   OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
-  time it records it downloads Chrome for Testing once into the same cache
-  folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
+  time it records it downloads Chrome for Testing, at the same pinned
+  version, once into the same cache folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
 
 <Callout kind="note" title="Why 1.97">
 The locked `oxc 0.153.0`, which compiles widgets, declares
