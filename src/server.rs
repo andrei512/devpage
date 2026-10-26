@@ -24,6 +24,7 @@ use crate::designs::Designs;
 use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
+use crate::slide_png::Shots;
 
 #[derive(Clone)]
 struct AppState {
@@ -34,6 +35,8 @@ struct AppState {
     /// route answers 404.
     comments: Option<Arc<Comments>>,
     designs: Designs,
+    /// Slides as images: the Chrome that draws them and what it drew.
+    shots: Shots,
 }
 
 /// Comments on: where threads are kept, and who writes them.
@@ -91,39 +94,45 @@ pub fn router(
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
+    let shots = Shots::new(&changes);
     router_with_index(
         Arc::new(Entry::new(document)),
         index,
         designs,
         changes,
         comments,
+        shots,
     )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
 /// current, logging every request. `comments` names who writes them, or is
-/// `None` when comments are off (`--no-comments`).
+/// `None` when comments are off (`--no-comments`); `shots` draws its slides'
+/// PNGs.
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
+    shots: Shots,
 ) -> Router {
-    quiet(entry, index, designs, changes, comments).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, comments, shots).layer(middleware::from_fn(log))
 }
 
-/// The server for `devpage pdf` and a slide's PNG, which serves only Chrome
+/// The server for `devpage pdf` and `devpage video`, which serves only Chrome
 /// and logs nothing.
 pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
+    let shots = Shots::new(&changes);
     quiet(
         Arc::new(Entry::new(document)),
         index,
         designs,
         changes,
         Some(Identity::Local(String::new())),
+        shots,
     )
 }
 
@@ -133,7 +142,26 @@ fn quiet(
     designs: Designs,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
+    shots: Shots,
 ) -> Router {
+    routes(AppState {
+        comments: comments.map(|identity| {
+            Arc::new(Comments {
+                store: Store::new(&entry.document().served),
+                identity,
+            })
+        }),
+        designs,
+        entry,
+        index,
+        changes,
+        shots,
+    })
+}
+
+/// Every route, on `state`, logging nothing.
+fn routes(state: AppState) -> Router {
+    let designs = state.designs.clone();
     Router::new()
         .route("/", get(home))
         .route("/__devpage/events", get(events))
@@ -157,18 +185,7 @@ fn quiet(
                     },
                 )),
         )
-        .with_state(AppState {
-            designs,
-            comments: comments.map(|identity| {
-                Arc::new(Comments {
-                    store: Store::new(&entry.document().served),
-                    identity,
-                })
-            }),
-            entry,
-            index,
-            changes,
-        })
+        .with_state(state)
 }
 
 /// Logs each request with its status and how long the response took to start.
@@ -202,6 +219,7 @@ async fn file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
     // A design's PNG — unless a real file of that name is there, which is
@@ -242,7 +260,7 @@ async fn file(
             .extension()
             .is_some_and(|ext| ext == "yml" || ext == "yaml")
     {
-        return slide_png(&entry, deck, &file, n).await;
+        return slide_png(&state, &headers, deck, &file, n).await;
     }
     if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
         return Html(crate::designs::page(&path)).into_response();
@@ -313,10 +331,19 @@ async fn file(
 }
 
 /// `<deck>.yml/<n>.png`: slide `n` of the deck at `file`, drawn by Chrome —
-/// or 404 when the file isn't a deck or has no slide `n`.
-async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str) -> Response {
+/// or 404 when the file isn't a deck or has no slide `n`. A slide drawn since
+/// the last change comes from the cache, and is a 304 for a request that
+/// already holds it. Asked for by a page devpage's own Chrome is shooting, it
+/// is never drawn: the cache's copy, or 508.
+async fn slide_png(
+    state: &AppState,
+    headers: &HeaderMap,
+    deck: &str,
+    file: &std::path::Path,
+    n: &str,
+) -> Response {
     let not_found = |reason: String| (StatusCode::NOT_FOUND, reason).into_response();
-    let document = match Document::load(file, &entry.served) {
+    let document = match Document::load(file, &state.entry.document().served) {
         Ok(document) if matches!(document.kind, Kind::Slides { .. }) => document,
         _ => return not_found(format!("{deck} is not a deck")),
     };
@@ -335,10 +362,48 @@ async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str
             if count == 1 { "" } else { "s" }
         ));
     };
-    match crate::slide_png::png(Arc::new(document), n).await {
-        Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response(),
+    let url = document.entry();
+    let shot = if headers.contains_key(crate::pdf::SHOT_HEADER) {
+        match state.shots.cached(&url, n) {
+            Some(shot) => shot,
+            None => {
+                return (
+                    StatusCode::LOOP_DETECTED,
+                    format!("{deck}/{n}.png isn't drawn inside another shot"),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        let serving = state.clone();
+        match state.shots.png(&url, n, move || routes(serving)).await {
+            Ok(shot) => shot,
+            Err(error) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
+            }
+        }
+    };
+    let held = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|tags| tags.split(',').any(|tag| tag.trim() == shot.etag));
+    let mut response = if held {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        ([(header::CONTENT_TYPE, "image/png")], shot.png).into_response()
+    };
+    let answer = response.headers_mut();
+    if let Ok(etag) = shot.etag.parse() {
+        answer.insert(header::ETAG, etag);
     }
+    // Drawn as it was after 20 s, not ready: the log says what it waited for.
+    if !shot.ready {
+        answer.insert(
+            "x-devpage-ready",
+            header::HeaderValue::from_static("timeout"),
+        );
+    }
+    response
 }
 
 /// A document as its kind: a site opens on its root page.
@@ -1102,8 +1167,9 @@ mod tests {
             entry,
             index,
             designs,
-            changes,
+            changes.clone(),
             Some(Identity::Local("T".into())),
+            Shots::new(&changes),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());

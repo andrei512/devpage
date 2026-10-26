@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 223 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 58 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 54 tests marked `#[ignore]`, 53 drive Chrome, and one of them also
+Of the 59 tests marked `#[ignore]`, 58 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -210,7 +210,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 16 in Chrome, 1 on the network.*
+*4 tests, 17 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -228,6 +228,7 @@ In Chrome:
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
 - The navbar folding into a menu on a narrow screen.
 - The fixture doc on A4 with its header and footer.
+- A doc embedding a design with problems printed without waiting for it.
 - The devpage talk one 16:9 page per slide.
 - A deck's keys.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
@@ -278,9 +279,13 @@ In Chrome:
 
 ### `slide_png`
 
-*1 test in Chrome.*
+*5 tests in Chrome.*
 
 - A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
+- A slide beside one with a design drawn in under 3 seconds, without waiting for the design; the design's own slide drawn with it painted.
+- A slide showing its own PNG answered promptly.
+- A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot, `508` there for one not drawn — until a change, after which the slide is drawn again.
+- Chrome closed when told, and started again for the next shot.
 
 ### `video`
 

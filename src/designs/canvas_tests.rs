@@ -87,12 +87,14 @@ async fn serve(dir: &Path, entry: &str) -> String {
 async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
     let designs = super::Designs::new(dir.to_path_buf());
+    let changes = broadcast::channel(16).0;
     let router = server::router_with_index(
         Arc::new(crate::document::Entry::new(document)),
         Arc::new(crate::index::Index::build(dir)),
         designs.clone(),
-        broadcast::channel(16).0,
+        changes.clone(),
         Some(server::Identity::Local("T".into())),
+        crate::slide_png::Shots::new(&changes),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

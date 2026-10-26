@@ -65,18 +65,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     // prints it: every slide of a deck is shown in print, so an embedded
     // design on any slide is fitted and painted where it will print.
     let page = browser.new_page("about:blank").await?;
+    shot(&page).await?;
     page.emulate_media_type(chromiumoxide::page::MediaTypeParams::Print)
         .await?;
     page.goto(url.as_str()).await?;
-    // devpage.js marks the page ready once its diagrams are drawn; each
-    // embedded design marks its canvas once it is painted.
-    for _ in 0..400 {
-        let ready: bool = page.evaluate(READY).await?.into_value()?;
-        if ready {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_ready(&page, &url).await?;
     let bytes = page.pdf(params).await.context("printing")?;
     std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))?;
 
@@ -88,9 +81,50 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
 }
 
 /// True once the page is ready to print: its diagrams drawn and every
-/// embedded design painted.
+/// embedded design that is laid out — on a slide being shown, or anywhere in
+/// print — painted, or settled showing its problems. A design on a hidden
+/// slide has no layout and never paints, so it doesn't count.
 pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true' \
-    && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
+    && [...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility()).every((c) => c.dataset.painted)";
+
+/// What a page that isn't ready still waits for, for the log.
+const MISSING: &str = "[document.documentElement.dataset.ready === 'true' ? null : 'its diagrams', \
+    ...[...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility() && !c.dataset.painted) \
+        .map((c) => `the design ${c.getAttribute('src')}`)] \
+    .filter(Boolean).join(', ')";
+
+/// Waits up to 20 s for `page`, showing `url`, to be [`READY`]. False when it
+/// never was: what it still waited for is logged, and the caller goes on with
+/// the page as it is.
+pub(crate) async fn wait_ready(page: &chromiumoxide::Page, url: &str) -> Result<bool> {
+    for _ in 0..400 {
+        if page.evaluate(READY).await?.into_value::<bool>()? {
+            return Ok(true);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let missing: String = page.evaluate(MISSING).await?.into_value()?;
+    eprintln!("{url} wasn't ready after 20 s, still waiting for {missing}");
+    Ok(false)
+}
+
+/// The header a page devpage's own Chrome shoots — a slide's PNG, or
+/// `devpage pdf` — sends with every request it makes. A slide's PNG asked for
+/// with it is never drawn, only answered from the cache, so a slide showing
+/// its own PNG can't shoot itself without end.
+pub(crate) const SHOT_HEADER: &str = "X-Devpage-Shot";
+
+/// Marks every request `page` makes with [`SHOT_HEADER`].
+pub(crate) async fn shot(page: &chromiumoxide::Page) -> Result<()> {
+    use chromiumoxide::cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams};
+    page.execute(SetExtraHttpHeadersParams::new(Headers::new(
+        serde_json::json!({ SHOT_HEADER: "1" }),
+    )))
+    .await?;
+    Ok(())
+}
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
 /// with the characters a file name can't hold replaced by `-`.
@@ -425,6 +459,28 @@ mod tests {
                 (numbers[2] - numbers[0], numbers[3] - numbers[1])
             })
             .collect()
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_design_with_problems_does_not_delay_a_pdf() {
+        let dir = std::env::temp_dir().join(format!("devpage-pdf-problems-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.design"), "<Frame width={400} height={300}").unwrap();
+        std::fs::write(dir.join("doc.md"), "# Doc\n\n![Broken](broken.design)\n").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let document = Arc::new(Document::load(&dir.join("doc.md"), &dir).unwrap());
+        let output = dir.join("doc.pdf");
+        let started = std::time::Instant::now();
+        print(document, &output).await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!pages(&std::fs::read(&output).unwrap()).is_empty());
     }
 
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
