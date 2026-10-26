@@ -122,7 +122,7 @@ takes one:
 | --- | --- |
 | `"navigate <path>"` | shows the design at `path` in place of this one |
 | `"back"` | returns to the design shown before |
-| `"overlay <path>"` | shows the design at `path` centered over this one, on a dimmed backdrop |
+| `"overlay <path>"` | shows the design at `path` centered over this one, which it dims |
 | `"close"` | closes the overlay this element is in |
 
 A path is relative to the file the `onClick` is written in, like every path in
@@ -154,8 +154,8 @@ or, in raw HTML, with an image of it — `<img src="checkout.design">`, written
 however HTML allows. An embedded design is shown the same way: at its own
 size, never enlarged, scaled down only as far as it needs to fit the page's
 width and the window's height — on a slide, the room the slide leaves it —
-centred on a quiet stage that sets it apart from the text. It is clickable like the design's own address, and a link in the
-stage's corner opens it on its own canvas page. Embedded designs follow the
+centred on a quiet **backdrop** that sets it apart from the text. It is clickable like the design's own address, and a link in the
+backdrop's corner opens it on its own canvas page. Embedded designs follow the
 page's live updates and its light/dark switch: a design's own colours never
 change, but the page behind any part it leaves transparent does. In a PDF there is no window, so an embedded design prints
 at its own size, scaled down only to fit the paper's width — or, on a slide,
@@ -177,15 +177,20 @@ curl -s http://localhost:3030/docs/designs/checkout/checkout.design.png -o check
 ```
 
 This is how an agent looks at its work: write the file, fetch the PNG, look,
-fix. A page can link to or show the PNG too — `![Checkout](checkout.design.png)`
-— and `devpage check` treats that link as the design itself. A real file named
-`checkout.design.png` beside the design wins: it is served as it is. devpage keeps every design it has read resolved in memory and paints the PNG
-itself on the CPU, without a browser, so the answer arrives as fast as a
-page. A design
-with problems answers `422` with the problems as plain text, one per line, as
-does a drawing bigger than 16,384 pixels a side, which is too big to paint; an
-address that isn't a design file in the served folder answers `404`, as any
-other path does.
+fix. devpage keeps every design it has read resolved in memory and paints the
+PNG itself on the CPU, without a browser, so the answer arrives as fast as a
+page. A page can link to or show the PNG too —
+`![Checkout](checkout.design.png)` — and `devpage check` treats that link as
+the design itself.
+
+| Answer | When |
+| --- | --- |
+| `200`, `image/png` | the design is valid: its whole drawing at 1× |
+| `422`, the problems as `text/plain`, one per line | the design has problems, or its drawing is bigger than 16,384 pixels a side, which is too big to paint |
+| `404`, `<address> is not part of the served folder` | `<path>.design` isn't a file in the served folder, as for any other path |
+
+A real file named `checkout.design.png` beside the design wins: it is served
+as it is, and a link to it is checked as that file.
 
 ## Problems
 

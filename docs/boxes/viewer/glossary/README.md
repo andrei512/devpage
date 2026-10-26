@@ -73,6 +73,30 @@ Designs linked by interactions, clicked through on the canvas.
 
 The `devpage-design` crate: parses, resolves, lays out and paints designs, natively and in WebAssembly.
 
+## drawing
+
+What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## canvas page
+
+The page a design's own address answers: one canvas filling the window, which the reader zooms and pans, with the light/dark switch in its corner; a navigation in the prototype changes the address. See [The canvas page](../serving-pages/README.md#the-canvas-page).
+
+## embed
+
+A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## backdrop
+
+The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## watch stream
+
+A page's one gRPC-Web call, `Watch`, naming every design the page shows and carrying their updates — each whole scene first, then patches or problems — for as long as the page is open. See [The watch stream](../design-engine/README.md#the-watch-stream).
+
+## patch
+
+An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id. See [The watch stream](../design-engine/README.md#the-watch-stream).
+
 ## page
 
 A Markdown (`.md`) file in the served folder, rendered into a frame when requested. Any other file is served as it is.

@@ -6,7 +6,7 @@
 //
 // A canvas is `<canvas class="design" src="…">`. On the canvas page
 // (`body.design-page`) it fills the window and can be zoomed and panned, and a
-// navigation changes the address; embedded in a page it sits on a stage with a
+// navigation changes the address; embedded in a page it sits on a backdrop with a
 // link to its canvas page, and a navigation stays inside it. Either way a
 // design is drawn at its own size, scaled down only to fit, never enlarged.
 // The engine, or why it couldn't load: then every canvas says so instead of
@@ -93,17 +93,17 @@ function addressed(message) {
   return path;
 }
 
-// The height an embed's stage may take: the window's — or on a slide, a fixed
-// 1920 × 1080 stage scaled to the window, what the slide has left below the
-// stage, down to its bottom padding, in the slide's own pixels.
-function room(stage) {
-  const slide = stage.closest(".slide");
+// The height an embed's backdrop may take: the window's — or on a slide, a
+// fixed 1920 × 1080 stage scaled to the window, what the slide has left below
+// the backdrop, down to its bottom padding, in the slide's own pixels.
+function room(backdrop) {
+  const slide = backdrop.closest(".slide");
   if (!slide) return innerHeight;
-  // Where the room starts: the top of a grid or flex box the stage sits in,
-  // which centres it there — measuring from the stage's own top would chase
-  // its own size — else the stage's top.
-  let from = stage;
-  for (let at = stage.parentElement; at && at !== slide; at = at.parentElement) {
+  // Where the room starts: the top of a grid or flex box the backdrop sits
+  // in, which centres it there — measuring from the backdrop's own top would
+  // chase its own size — else the backdrop's top.
+  let from = backdrop;
+  for (let at = backdrop.parentElement; at && at !== slide; at = at.parentElement) {
     if (/^(inline-)?(grid|flex)$/.test(getComputedStyle(at).display)) {
       from = at;
       break;
@@ -113,7 +113,7 @@ function room(stage) {
   const scale = box.height / slide.offsetHeight || 1;
   const top = (from.getBoundingClientRect().top - box.top) / scale;
   let padding = 0;
-  for (let at = stage.parentElement; at && !padding; at = at === slide ? null : at.parentElement) {
+  for (let at = backdrop.parentElement; at && !padding; at = at === slide ? null : at.parentElement) {
     padding = parseFloat(getComputedStyle(at).paddingBottom) || 0;
   }
   return Math.max(0, slide.offsetHeight - top - padding);
@@ -161,7 +161,7 @@ class Host {
       this.link.textContent = "Open";
       this.link.title = "Open this design on its own page";
       canvas.parentElement.append(this.link);
-      // The stage's room can change after the design arrives — a widget
+      // The backdrop's room can change after the design arrives — a widget
       // mounting around it, a slide being shown: fit it again then.
       this.resized = new ResizeObserver(() => this.paint());
       this.resized.observe(canvas.parentElement);
@@ -259,17 +259,17 @@ class Host {
     if (!w) return false;
     const box = this.canvas.getBoundingClientRect();
     if (this.mode === "embed") {
-      // Its own size, scaled down to fit the stage's width and — on screen —
+      // Its own size, scaled down to fit the backdrop's width and — on screen —
       // the window's height, or on a slide the room left above the slide's
-      // bottom padding; the stage centres it.
-      const stage = this.canvas.parentElement;
-      const style = getComputedStyle(stage);
-      const across = stage.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
-      const down = room(stage) - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      // bottom padding; the backdrop centres it.
+      const backdrop = this.canvas.parentElement;
+      const style = getComputedStyle(backdrop);
+      const across = backdrop.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const down = room(backdrop) - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
       // Not laid out yet — hidden, or its widget still mounting.
       if (across <= 0 || down <= 0) return false;
       // Paper has no window, but a slide is the same stage in print.
-      const tall = print && !stage.closest(".slide") ? Infinity : down / h;
+      const tall = print && !backdrop.closest(".slide") ? Infinity : down / h;
       const zoom = Math.min(1, across / w, tall);
       this.canvas.style.width = `${w * zoom}px`;
       this.canvas.style.height = `${h * zoom}px`;
@@ -476,8 +476,8 @@ class Host {
     }
   }
 
-  // An overlay: the design at `path`, centered over this one on a dimmed
-  // backdrop, added to the page's stream.
+  // An overlay: the design at `path`, centered over this one, which it
+  // dims, added to the page's stream.
   showOverlay(path) {
     this.closeOverlay();
     const layer = document.createElement("div");

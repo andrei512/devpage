@@ -46,8 +46,8 @@ read from the page's Markdown — an image or a link whose target ends in
 reported on the page as
 `broken design <target> — <file>:<line>:<column>: <message>`. A design whose
 drawing is too big to paint is a problem too. A link to a design's PNG
-address, `x.design.png`, is checked as the design `x.design` when no real file
-of that name exists.
+address, `x.design.png`, is checked as the design `x.design`
+([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
 
 ## In the preview
 

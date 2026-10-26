@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 173 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 174 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 46 tests that drive chrome-headless-shell
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 46 tests that drive chrome-headless-shell
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 110 in `devpage`, 57 in the
+`cargo test` runs every crate in the workspace: 111 in `devpage`, 57 in the
 engine `devpage-design`, 4 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -51,9 +51,10 @@ Nine tests save a file and wait for devpage to hear of it through `notify`:
   `the_watch_list_follows_the_entry_file`,
   `a_sites_watch_list_narrows_only_its_own_folder`,
   `the_entrys_watch_list_does_not_quiet_another_folder` and
-  `widget_files_refresh_whatever_watch_says` (the seventh,
-  `ignored_files_and_files_outside_watch_do_not_refresh`, expects no event and
-  passes either way);
+  `widget_files_refresh_whatever_watch_says` (of the other two,
+  `ignored_files_and_files_outside_watch_do_not_refresh` expects no event and
+  `a_changed_file_reaches_the_design_store` waits for none, so both pass
+  either way);
 - `server::the_entry_document_follows_its_file_without_a_restart`;
 - two Chrome tests in `comments::browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
@@ -129,7 +130,7 @@ In Chrome:
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
 - A canvas saying so when the engine doesn't load.
 - An embedded design drawing at its own size and surviving a page edit; centred at its own size and only ever scaled down, to the page's width or the window's height.
-- The stage's link opening the design it shows on its canvas page; a small design not enlarged on its canvas page.
+- The backdrop's link opening the design it shows on its canvas page; a small design not enlarged on its canvas page.
 - A doc printing its embedded design; a doc with eight embeds printing as fast as one with one.
 - Eight embedded designs painting through one stream while the page still loads; leaving the last design in place closing the stream.
 - An embed with problems surviving a page refetch.
@@ -251,7 +252,7 @@ In Chrome:
 
 ### `watch`
 
-*7 tests.*
+*8 tests.*
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
@@ -259,6 +260,7 @@ In Chrome:
 - The `watch` list following the entry file.
 - A site's `watch` narrowing only its own folder, whichever document devpage was started with.
 - Widget files refreshing whatever `watch` says.
+- A changed file reaching the design store, and none under `.devpage/`, handed over directly, without waiting on file-system events.
 
 ### `widgets`
 

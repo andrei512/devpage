@@ -296,8 +296,8 @@ body.slides .problems { position: fixed; top: 8px; left: 8px; right: 8px; z-inde
 @media print { h1, h2, h3 { break-after: avoid; } pre, .diagram, table { break-inside: avoid; } }
 
 /* Designs: the canvas page fills the window; an embedded design sits at its
-   own size, centred on a stage, with a link to its canvas page; an overlay
-   sits over a dimmed backdrop; problems sit over the last valid drawing. */
+   own size, centred on a backdrop, with a link to its canvas page; an overlay
+   sits over the design it dims; problems sit over the last valid drawing. */
 body.design-page { margin: 0; height: 100vh; overflow: hidden; background: var(--surface); }
 body.design-page > canvas.design { position: fixed; inset: 0; width: 100vw; height: 100vh; touch-action: none; }
 .design-embed { display: flex; justify-content: center; align-items: center; position: relative; margin: 24px 0; padding: 40px 24px; min-height: 120px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden; }

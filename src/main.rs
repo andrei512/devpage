@@ -32,7 +32,7 @@ use crate::index::Index;
 const FIRST_PORT: u16 = 3030;
 
 #[derive(Parser)]
-#[command(version, about = "Live documents from Markdown in a repository")]
+#[command(version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

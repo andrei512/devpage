@@ -695,7 +695,7 @@ async fn a_canvas_says_so_when_the_engine_does_not_load() {
     events.abort();
 }
 
-/// The canvas's CSS size and its gaps to the stage's content box, left and
+/// The canvas's CSS size and its gaps to the backdrop's content box, left and
 /// right: `[width, height, left gap, right gap]`.
 const EMBED_BOX: &str = "(() => { const c = document.querySelector('canvas.design'); \
     const s = c.parentElement; const st = getComputedStyle(s); \
@@ -740,7 +740,7 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
     let address = serve(&dir, "page.md").await;
     let (mut browser, events, _profile) = chrome().await;
 
-    // A wide window: 400 × 300, as the design is, centred on its stage.
+    // A wide window: 400 × 300, as the design is, centred on its backdrop.
     let page = embedded(&mut browser, &address, "/page.md", 1280, 1000).await;
     let [w, h, left, right]: [f64; 4] = eval(&page, EMBED_BOX).await;
     assert_eq!([w, h], [400.0, 300.0]);
@@ -757,7 +757,7 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
         .starts_with("1,")
     );
 
-    // A narrow window: scaled down to the stage's width, keeping its shape.
+    // A narrow window: scaled down to the backdrop's width, keeping its shape.
     let page = embedded(&mut browser, &address, "/page.md", 300, 1000).await;
     let [w, h, left, right]: [f64; 4] = eval(&page, EMBED_BOX).await;
     assert!(
@@ -790,7 +790,7 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
 
 #[tokio::test]
 #[ignore]
-async fn the_stages_link_opens_the_design_it_shows_on_its_canvas_page() {
+async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     let dir = folder("open-link");
     std::fs::create_dir_all(dir.join("notes")).unwrap();
     std::fs::write(
@@ -1122,8 +1122,8 @@ async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
         "document.querySelector('canvas.design')?.dataset.painted === 'true'",
     )
     .await;
-    // Inside the design, and on the stage beside it, clear of the shadow the
-    // stage puts under a design.
+    // Inside the design, and on the backdrop beside it, clear of the shadow the
+    // backdrop puts under a design.
     let inside = on_screen(&page, "canvas.design", 60.0, 40.0).await;
     let outside = on_screen(&page, "canvas.design", -120.0, 40.0).await;
     let first = until_same(&page, inside, outside).await;
@@ -1137,7 +1137,7 @@ async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
     let after: String = eval(&page, "document.documentElement.dataset.theme").await;
     assert_ne!(before, after);
     let second = until_same(&page, inside, outside).await;
-    assert_ne!(first, second, "the stage didn't change with the theme");
+    assert_ne!(first, second, "the backdrop didn't change with the theme");
     browser.close().await.ok();
     events.abort();
 }

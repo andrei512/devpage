@@ -33,7 +33,7 @@ flowchart LR
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the built-in assets |
 | `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
-| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Design engine](../design-engine/README.md#in-the-server) — unless a real file of that name is in the served folder, which is served as it is |
+| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
 | `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,

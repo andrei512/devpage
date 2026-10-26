@@ -156,15 +156,8 @@ design is touched. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it. Painting happens when a PNG is asked for, from the scene
 already in memory. `devpage check` and a page's problems bar read designs
-straight from disk instead, as they read pages. A real file whose name ends
-in `.design.png` is served as it is; the PNG route answers only where there is
-none.
-
-| Route | Answer |
-| --- | --- |
-| `GET /{path}.design` | the canvas page for the design |
-| `GET /{path}.design.png` | the design painted at 1×, `image/png`; `422` and the problems as `text/plain` when it has any; `404` and `<path> is not part of the served folder` when the design isn't a file in the served folder |
-| `POST /devpage.design.v1.Designs/Watch` | a page's [watch stream](#the-watch-stream), as gRPC-Web |
+straight from disk instead, as they read pages. The routes are on
+[Serving pages](../serving-pages/README.md#routes).
 
 ## The watch stream
 
@@ -240,7 +233,7 @@ Clicks are hit-tested by the module against the laid-out scene, and an
 interaction runs in the page: a navigation pushes the new address onto the
 browser's history and watches that design instead, an overlay adds its design
 to the stream's set and paints its scene on a canvas of its own, centered over
-the first behind a dimmed backdrop.
+the first, which it dims.
 
 A page that embeds designs does the same for each `<canvas>` it holds, all
 through the page's one stream, closed while the tab is hidden like the
@@ -259,7 +252,7 @@ gets its whole scene.
 
 | What happens | What the reader sees |
 | --- | --- |
-| A file has problems | The problems over the last valid drawing; the PNG route answers `422` with them. |
+| A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)). |
 | A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |
 | The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |

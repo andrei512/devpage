@@ -41,8 +41,9 @@ cargo test
 ```
 
 `cargo test` checks devpage's own docs for broken internal links too. After
-changing the page script, the stylesheet, print mode or `devpage pdf`, also run
-the tests that drive Chrome: `cargo test -- --ignored`.
+changing the page script, the design script (`assets/design.js`), the design
+engine's module, the stylesheet, print mode or `devpage pdf`, also run the
+tests that drive Chrome: `cargo test -- --ignored`.
 
 Run the docs while you work on them, from the repository root:
 `cargo run -- docs`.
