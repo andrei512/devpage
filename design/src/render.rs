@@ -6,20 +6,22 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout as Text,
     LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
-use std::sync::Arc;
+use std::collections::HashMap;
 use taffy::prelude::*;
 
 use vello_cpu::kurbo::{
     Affine, BezPath, Ellipse as KEllipse, Rect as KRect, RoundedRect, Shape, Vec2,
 };
 use vello_cpu::peniko::{
-    Blob, Color as PColor, FontData, Gradient, ImageAlphaType, ImageBrush, ImageData, ImageFormat,
+    BlendMode, Color as PColor, Compose, FontData, Gradient, ImageBrush, ImageData, Mix,
 };
 use vello_cpu::{Glyph, Pixmap, RenderContext, Resources};
 
 use crate::resolve::{
-    self, Align, Color, Fill, Kind, Layout, Node, Scene, Size as DSize, TextAlign,
+    self, Align, Color, Fill, ImageFiles, ImageId, Kind, Layout, Node, Origin, Scene,
+    Size as DSize, TextAlign,
 };
+use crate::shadow::{self, Outline};
 
 /// Inter's ascender and descender, as fractions of the font size: how far a
 /// line's glyphs can reach above and below its baseline.
@@ -41,6 +43,11 @@ const FONTS: [&[u8]; 4] = [
 pub struct Renderer {
     fonts: FontContext,
     layouts: LayoutContext<()>,
+    /// While a display list is made: the image each image file is painted
+    /// from in it, and every image it paints, in the order it first does,
+    /// with the attribute that asked for it.
+    blobs: HashMap<ImageId, ImageData>,
+    painted: Vec<(ImageData, Origin)>,
 }
 
 impl Default for Renderer {
@@ -75,8 +82,28 @@ pub enum Draw {
     Stroke(BezPath, f32, PColor),
     Glyphs(FontData, f32, PColor, Vec<Glyph>),
     PushClip(BezPath),
-    PushOpacity(f32),
+    /// A layer drawn at an opacity, cut to the path — or to the whole drawing.
+    PushOpacity(f32, Option<BezPath>),
+    /// A layer added to what is under it, color and alpha alike, so two
+    /// fills in such layers that meet edge to edge sum to exactly what is in
+    /// them, with no seam where an edge pixel is partly each. Nothing in it
+    /// reaches the path, which bounds it.
+    PushAdd(BezPath),
     Pop,
+}
+
+/// Why a scene can't be drawn: too big a drawing, or images and shadows that
+/// don't fit the GPU's atlas — `at` the attribute that broke it, when one did.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Undrawable {
+    pub message: String,
+    pub at: Option<Origin>,
+}
+
+impl std::fmt::Display for Undrawable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
 }
 
 /// A scene laid out and ready to paint: every node's box in tree order, the
@@ -104,6 +131,8 @@ impl Renderer {
         Renderer {
             fonts,
             layouts: LayoutContext::new(),
+            blobs: HashMap::new(),
+            painted: Vec::new(),
         }
     }
 
@@ -135,7 +164,14 @@ impl Renderer {
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
         let mut texts = Vec::new();
         let mut hugs = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut texts, &mut hugs);
+        let root = build(
+            &mut tree,
+            &scene.root,
+            None,
+            &mut texts,
+            &mut hugs,
+            &scene.images,
+        );
         // A frame with no layout places its children absolutely, so flexbox
         // gives a hugging one no size; it takes its children's extent
         // instead. `hugs` is in post-order, so a pass settles every frame
@@ -239,16 +275,42 @@ impl Renderer {
     }
 
     /// The scene laid out once and turned into its display list, or why it
-    /// can't be drawn: a drawing bigger than `MAX_SIDE` a side. What the PNG,
-    /// the canvas and `devpage check` all start from.
-    pub fn drawing(&mut self, scene: &Scene) -> Result<Drawing, String> {
+    /// can't be drawn: a drawing bigger than `MAX_SIDE` a side, or images and
+    /// shadows that don't fit the GPU's atlas together. What the PNG, the
+    /// canvas and `devpage check` all start from.
+    pub fn drawing(&mut self, scene: &Scene) -> Result<Drawing, Undrawable> {
         let frames = self.layout(scene);
         let (area, list) = self.list_for(scene, &frames);
+        let painted = std::mem::take(&mut self.painted);
         if area.width > MAX_SIDE || area.height > MAX_SIDE {
-            return Err(format!(
-                "the drawing is {}×{} pixels; a design draws at most {} a side",
-                area.width, area.height, MAX_SIDE
-            ));
+            return Err(Undrawable {
+                message: format!(
+                    "the drawing is {}×{} pixels; a design draws at most {} a side",
+                    area.width, area.height, MAX_SIDE
+                ),
+                at: None,
+            });
+        }
+        let sizes: Vec<(u32, u32)> = painted.iter().map(|(d, _)| (d.width, d.height)).collect();
+        if let Err(n) = crate::atlas::fits(&sizes) {
+            let (data, at) = &painted[n];
+            let what = if at.file.is_empty() {
+                "an image"
+            } else {
+                "this"
+            };
+            return Err(Undrawable {
+                message: format!(
+                    "{what} doesn't fit: the images a drawing paints — its image files, \
+                     at most {side} pixels a side, and its shadows — share the GPU's one \
+                     {atlas}×{atlas} atlas, and the {n} before this {w}×{h} fill it",
+                    side = resolve::MAX_IMAGE_SIDE,
+                    atlas = crate::atlas::SIDE,
+                    w = data.width,
+                    h = data.height,
+                ),
+                at: Some(at.clone()),
+            });
         }
         Ok(Drawing { frames, area, list })
     }
@@ -264,7 +326,21 @@ impl Renderer {
         );
         let mut list = Vec::new();
         let mut at = 0;
-        self.node(&scene.root, frames, &mut at, &mut list, None, &mut area);
+        // Each drawing paints its images under blobs of its own, made in the
+        // order it first paints them: the order `atlas::fits` places them in,
+        // on every machine.
+        self.blobs.clear();
+        self.painted.clear();
+        self.node(
+            scene,
+            &scene.root,
+            frames,
+            &mut at,
+            &mut list,
+            None,
+            &mut area,
+        );
+        self.blobs.clear();
         // Out to whole pixels, ignoring the slivers floating point leaves on
         // a curve's bounds.
         const SLIVER: f64 = 0.01;
@@ -295,8 +371,10 @@ impl Renderer {
 
     /// Adds `node`'s commands to `list`, and what they cover — inside `clip`
     /// — to `area`.
+    #[allow(clippy::too_many_arguments)]
     fn node(
         &mut self,
+        scene: &Scene,
         node: &Node,
         frames: &[Frame],
         at: &mut usize,
@@ -314,7 +392,7 @@ impl Renderer {
         };
         let opacity = node.opacity < 1.0;
         if opacity {
-            list.push(Draw::PushOpacity(node.opacity));
+            list.push(Draw::PushOpacity(node.opacity, None));
         }
         let rect = KRect::new(
             f.x as f64,
@@ -335,18 +413,23 @@ impl Renderer {
             // The box's own shape, widened by the spread — every corner's
             // radius by it too — and moved by the offset.
             let spread = s.spread as f64;
-            let r = rect.inflate(spread, spread);
-            let mut path = if node.kind == Kind::Ellipse {
-                KEllipse::from_rect(r).to_path(0.1)
+            let r = rect
+                .inflate(spread, spread)
+                .with_origin((rect.x0 - spread + s.x as f64, rect.y0 - spread + s.y as f64));
+            let outline = if node.kind == Kind::Ellipse {
+                Outline::ellipse(r)
             } else {
-                let [tl, tr, br, bl] = node.radius.map(|v| (v as f64 + spread).max(0.0));
-                RoundedRect::from_rect(r, (tl, tr, br, bl)).to_path(0.1)
+                Outline::rounded(r, node.radius.map(|v| (v as f64 + spread).max(0.0)))
             };
-            path.apply_affine(Affine::translate((s.x as f64, s.y as f64)));
             let std_dev = (s.blur as f64 / 2.0).max(0.0);
-            // A blur reaches three standard deviations past its shape.
-            cover(path.bounding_box().inflate(3.0 * std_dev, 3.0 * std_dev));
-            list.push(shadow(&path, std_dev, s.color));
+            if r.width() > 0.0 && r.height() > 0.0 {
+                // A blur reaches three standard deviations past its shape.
+                cover(r.inflate(3.0 * std_dev, 3.0 * std_dev));
+            }
+            let mut images = Vec::new();
+            shadow::shadow(outline, std_dev, s.color, list, &mut images);
+            self.painted
+                .extend(images.into_iter().map(|d| (d, s.at.clone())));
         }
         // A vector's fill and stroke follow its path; every other box's
         // follow the box.
@@ -369,14 +452,29 @@ impl Renderer {
             list.push(Draw::Fill(path, paint));
         }
         if let Some(image) = &node.image {
-            let data = image.pixels.clone();
-            // Covering the box: scaled to fill it, centered, cut to its shape.
-            let (iw, ih) = (data.width as f64, data.height as f64);
+            let file = &scene.images[&image.id];
+            let data = match self.blobs.get(&image.id) {
+                Some(data) => data.clone(),
+                None => {
+                    let data = file.image_data();
+                    self.blobs.insert(image.id, data.clone());
+                    self.painted.push((data.clone(), image.at.clone()));
+                    data
+                }
+            };
+            // Covering the box: the file at its own size scaled to fill it,
+            // centered, cut to its shape — drawn from its pixels, which may
+            // be fewer.
+            let (iw, ih) = (file.width as f64, file.height as f64);
             let s = (f.width as f64 / iw).max(f.height as f64 / ih);
             let place = Affine::translate((
                 f.x as f64 + (f.width as f64 - iw * s) / 2.0,
                 f.y as f64 + (f.height as f64 - ih * s) / 2.0,
-            )) * Affine::scale(s);
+            )) * Affine::scale(s)
+                * Affine::scale_non_uniform(
+                    iw / file.pixels_width as f64,
+                    ih / file.pixels_height as f64,
+                );
             cover(rect);
             list.push(Draw::Fill(shape(0.0), Paint::Image(data, place)));
         }
@@ -428,7 +526,7 @@ impl Renderer {
             clip
         };
         for child in &node.children {
-            self.node(child, frames, at, list, inner, area);
+            self.node(scene, child, frames, at, list, inner, area);
         }
         if node.clip {
             list.push(Draw::Pop);
@@ -439,98 +537,6 @@ impl Renderer {
     }
 }
 
-/// The most samples a blurred shadow is drawn from.
-const SHADOW_SAMPLES: f64 = (1 << 20) as f64;
-
-/// A shadow: `path` filled with `c`, blurred by a Gaussian of `std_dev`
-/// pixels. Neither vello's blurred rounded rectangle, which takes one radius
-/// for all four corners, nor any filter both backends share draws that, so
-/// the engine blurs the shape itself: it samples the shape's coverage every
-/// half standard deviation — coarser only past [`SHADOW_SAMPLES`] samples —
-/// blurs that with a true Gaussian, and paints the result as an image over
-/// the shadow's extent. A blur that wide has nothing finer than its samples,
-/// so the image, sampled smoothly, is as sharp as the shadow at any zoom.
-fn shadow(path: &BezPath, std_dev: f64, c: Color) -> Draw {
-    if std_dev == 0.0 {
-        return Draw::Fill(path.clone(), Paint::Solid(color(c)));
-    }
-    let bounds = path.bounding_box().inflate(3.0 * std_dev, 3.0 * std_dev);
-    let step = (std_dev / 2.0)
-        .max((bounds.area() / SHADOW_SAMPLES).sqrt())
-        .max(bounds.width().max(bounds.height()) / 4096.0);
-    let (w, h) = (
-        (bounds.width() / step).ceil().max(1.0) as usize,
-        (bounds.height() / step).ceil().max(1.0) as usize,
-    );
-    // The shape's coverage of each sample.
-    let mut ctx = RenderContext::new(w as u16, h as u16);
-    ctx.set_transform(Affine::scale(1.0 / step) * Affine::translate((-bounds.x0, -bounds.y0)));
-    ctx.set_paint(PColor::from_rgba8(0, 0, 0, 255));
-    ctx.fill_path(path);
-    ctx.flush();
-    let mut coverage = Pixmap::new(w as u16, h as u16);
-    ctx.render(&mut coverage, &mut Resources::default());
-    let mut alpha: Vec<f32> = coverage
-        .data_as_u8_slice()
-        .iter()
-        .skip(3)
-        .step_by(4)
-        .map(|&a| a as f32 / 255.0)
-        .collect();
-    // A Gaussian is separable: across each row, then down each column.
-    let sigma = std_dev / step;
-    let reach = (3.0 * sigma).ceil() as isize;
-    let kernel: Vec<f32> = (-reach..=reach)
-        .map(|i| (-(i as f64).powi(2) / (2.0 * sigma * sigma)).exp() as f32)
-        .collect();
-    let total: f32 = kernel.iter().sum();
-    let kernel: Vec<f32> = kernel.iter().map(|k| k / total).collect();
-    let blur = |alpha: &[f32], at: &dyn Fn(usize, usize) -> usize, lines: usize, len: usize| {
-        let mut out = vec![0.0f32; alpha.len()];
-        for line in 0..lines {
-            for i in 0..len {
-                let mut sum = 0.0;
-                for (k, weight) in kernel.iter().enumerate() {
-                    let j = i as isize + k as isize - reach;
-                    if (0..len as isize).contains(&j) {
-                        sum += weight * alpha[at(line, j as usize)];
-                    }
-                }
-                out[at(line, i)] = sum;
-            }
-        }
-        out
-    };
-    alpha = blur(&alpha, &|y, x| y * w + x, h, w);
-    alpha = blur(&alpha, &|x, y| y * w + x, w, h);
-    let pixels: Vec<u8> = alpha
-        .iter()
-        .flat_map(|a| {
-            [
-                c.r,
-                c.g,
-                c.b,
-                (a.clamp(0.0, 1.0) * c.a as f32).round() as u8,
-            ]
-        })
-        .collect();
-    let image = ImageData {
-        data: Blob::new(Arc::new(pixels)),
-        format: ImageFormat::Rgba8,
-        alpha_type: ImageAlphaType::Alpha,
-        width: w as u32,
-        height: h as u32,
-    };
-    let extent = KRect::new(
-        bounds.x0,
-        bounds.y0,
-        bounds.x0 + w as f64 * step,
-        bounds.y0 + h as f64 * step,
-    );
-    let place = Affine::translate((bounds.x0, bounds.y0)) * Affine::scale(step);
-    Draw::Fill(extent.to_path(0.1), Paint::Image(image, place))
-}
-
 /// Replays a display list with `vello_cpu` into a pixmap of its area at
 /// `scale`, as `Renderer::paint` does.
 pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
@@ -538,6 +544,8 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
     let (w, h) = (side(area.width), side(area.height));
     let mut ctx = RenderContext::new(w, h);
     let mut resources = Resources::default();
+    // Each image once, however many times it is painted.
+    let mut sources: HashMap<u64, vello_cpu::ImageSource> = HashMap::new();
     ctx.set_transform(
         Affine::scale(scale as f64) * Affine::translate((-area.x as f64, -area.y as f64)),
     );
@@ -548,8 +556,12 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
                     Paint::Solid(c) => ctx.set_paint(*c),
                     Paint::Gradient(g) => ctx.set_paint(g.clone()),
                     Paint::Image(data, place) => {
+                        let image = sources
+                            .entry(data.data.id())
+                            .or_insert_with(|| vello_cpu::ImageSource::from_peniko_image_data(data))
+                            .clone();
                         ctx.set_paint(ImageBrush {
-                            image: vello_cpu::ImageSource::from_peniko_image_data(data),
+                            image,
                             sampler: Default::default(),
                         });
                         ctx.set_paint_transform(*place);
@@ -572,7 +584,14 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
                     .fill_glyphs(glyphs.iter().copied());
             }
             Draw::PushClip(path) => ctx.push_clip_layer(path),
-            Draw::PushOpacity(o) => ctx.push_opacity_layer(*o),
+            Draw::PushOpacity(o, clip) => ctx.push_layer(clip.as_ref(), None, Some(*o), None, None),
+            Draw::PushAdd(clip) => ctx.push_layer(
+                Some(clip),
+                Some(BlendMode::new(Mix::Normal, Compose::Plus)),
+                None,
+                None,
+                None,
+            ),
             Draw::Pop => ctx.pop_layer(),
         }
     }
@@ -723,6 +742,7 @@ fn build(
     parent: Option<&Node>,
     texts: &mut Vec<(resolve::TextStyle, bool)>,
     hugs: &mut Vec<(NodeId, bool, bool)>,
+    images: &ImageFiles,
 ) -> NodeId {
     let mut style = Style::default();
     let dir = parent.map(|p| p.layout);
@@ -792,7 +812,7 @@ fn build(
     }
     let intrinsic = match (&node.vector, &node.image) {
         (Some(v), _) => Some((v.view_box[2], v.view_box[3])),
-        (_, Some(i)) => Some((i.pixels.width as f32, i.pixels.height as f32)),
+        (_, Some(i)) => images.get(&i.id).map(|f| (f.width as f32, f.height as f32)),
         _ => None,
     };
     if let Some((w, h)) = intrinsic {
@@ -803,7 +823,7 @@ fn build(
     let children: Vec<NodeId> = node
         .children
         .iter()
-        .map(|c| build(tree, c, Some(node), texts, hugs))
+        .map(|c| build(tree, c, Some(node), texts, hugs, images))
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
     // A root has no parent space to fill: on its own, `"fill"` hugs.
@@ -1064,6 +1084,71 @@ mod tests {
         );
     }
 
+    /// The alpha across a box's left edge, a pixel at a time, through the
+    /// middle of a `size` square box with a black shadow blurred by `blur`.
+    /// Only a strip around the edge is painted, so even the largest box is
+    /// cheap to look at.
+    fn shadow_edge(size: u32, blur: f32) -> Vec<u8> {
+        let s = scene(&format!(
+            r##"<Frame width={{{}}} height={{{}}}><Rect x={{40}} y={{40}} width={{{size}}} height={{{size}}} shadow={{{{ blur: {blur}, color: "#000000" }}}} /></Frame>"##,
+            size + 80,
+            size + 80
+        ));
+        let mut r = Renderer::new();
+        let d = r.drawing(&s).unwrap();
+        let middle = 40.0 + size as f32 / 2.0;
+        let strip = Frame {
+            x: 0.0,
+            y: middle.floor(),
+            width: 80.0,
+            height: 1.0,
+        };
+        let p = paint_list(strip, &d.list, 1.0);
+        (0..80).map(|x| p.sample(x, 0).a).collect()
+    }
+
+    /// Where a rising run of alphas crosses `level`, in pixels, between pixel
+    /// centers.
+    fn crossing(alpha: &[u8], level: f32) -> f32 {
+        let i = alpha.iter().position(|&a| a as f32 >= level).unwrap();
+        let (a, b) = (alpha[i - 1] as f32, alpha[i] as f32);
+        i as f32 - 1.0 + (level - a) / (b - a) + 0.5
+    }
+
+    /// A shadow is a true Gaussian at every allowed size: it fades to nothing
+    /// three standard deviations out, and its edge rises from 10% to 90% over
+    /// 2.563 standard deviations — however large the box, however slight the
+    /// blur.
+    #[test]
+    fn a_shadow_edge_is_the_gaussian_at_every_size() {
+        for size in [100, 2000, 8000, 16000] {
+            for blur in [2.0f32, 8.0] {
+                let sigma = blur / 2.0;
+                let alpha = shadow_edge(size, blur);
+                // The box's edge is at x = 40. Two and a half standard
+                // deviations out a Gaussian edge is 0.6% (1.6 of 255), and
+                // past that less: no step where the shadow's image ends.
+                let reach = (39.5 - 2.5 * sigma).floor() as usize + 1;
+                assert!(
+                    alpha[..reach].iter().all(|&a| a <= 2),
+                    "box {size} blur {blur}: {:?}",
+                    &alpha[..48]
+                );
+                let ramp = crossing(&alpha, 0.9 * 255.0) - crossing(&alpha, 0.1 * 255.0);
+                assert!(
+                    (ramp / sigma - 2.563).abs() < 0.2,
+                    "box {size} blur {blur}: 10–90% over {ramp} px, σ {sigma}: {:?}",
+                    &alpha[..48]
+                );
+                let half = crossing(&alpha, 0.5 * 255.0);
+                assert!(
+                    (half - 40.0).abs() < 0.25,
+                    "box {size} blur {blur}: half way at {half}"
+                );
+            }
+        }
+    }
+
     #[test]
     fn opacity_applies_to_the_subtree_as_one() {
         // Two overlapping opaque squares at half opacity: where they overlap
@@ -1132,7 +1217,13 @@ mod tests {
         });
         let mut s = scene(r#"<Frame width={20} height={20} />"#);
         s.root.kind = Kind::Image;
-        s.root.image = Some(resolve::Image::new("i.png".into(), image).unwrap());
+        let file = std::sync::Arc::new(resolve::ImageFile::new(image).unwrap());
+        s.root.image = Some(resolve::Image {
+            src: "i.png".into(),
+            id: file.id,
+            at: Default::default(),
+        });
+        s.images.insert(file.id, file);
         // The image is sampled smoothly, so each side is mostly its color.
         let p = Renderer::new().paint(&s, 1.0);
         let (left, right) = (rgba(&p, 1, 10), rgba(&p, 18, 10));
@@ -1250,6 +1341,96 @@ mod tests {
         assert_eq!(r.paint(&s, 1.0).width(), 16384);
     }
 
+    /// Files whose `.png`s are image files of the size their name says,
+    /// `w`x`h`.png — made without decoding, their pixels never touched.
+    struct Sized(HashMap<String, String>);
+
+    impl crate::Files for Sized {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).map(|s| s.clone().into_bytes())
+        }
+        fn image(&self, path: &str) -> Option<Result<std::sync::Arc<resolve::ImageFile>, String>> {
+            let name = path.strip_suffix(".png")?;
+            let (size, n) = name.split_once('-')?;
+            let (w, h) = size.split_once('x')?;
+            let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
+            Some(Ok(std::sync::Arc::new(resolve::ImageFile {
+                id: resolve::ImageId::of(path.as_bytes()),
+                bytes: n.as_bytes().to_vec(),
+                width: w,
+                height: h,
+                // Zeroed pages the system hands out only once written.
+                pixels: std::sync::Arc::new(vec![0; 4 * w as usize * h as usize]),
+                pixels_width: w,
+                pixels_height: h,
+            })))
+        }
+    }
+
+    /// Every image a drawing paints shares the GPU's one atlas. Images that
+    /// don't fit together are the design's problem, at the `src` of the first
+    /// that doesn't — never a hole in the canvas. One file shown many times
+    /// takes its room once.
+    #[test]
+    fn images_that_do_not_fit_the_atlas_are_a_problem_where_written() {
+        let design = |files: &[&str]| {
+            let images: String = files
+                .iter()
+                .map(|f| format!("\n  <Image src=\"{f}\" width={{40}} height={{40}} />"))
+                .collect();
+            Sized(
+                [(
+                    "a.design".to_string(),
+                    format!(r#"<Frame layout="row">{images}</Frame>"#),
+                )]
+                .into(),
+            )
+        };
+        let mut r = Renderer::new();
+        let four = design(&[
+            "4096x4096-a.png",
+            "4096x4096-b.png",
+            "4096x4096-c.png",
+            "4096x4096-d.png",
+        ]);
+        let scene = resolve::resolve(&four, "a.design").unwrap();
+        assert!(r.drawing(&scene).is_ok());
+        // The same four again, and again: still four images.
+        let again = design(&[
+            "4096x4096-a.png",
+            "4096x4096-b.png",
+            "4096x4096-a.png",
+            "4096x4096-c.png",
+            "4096x4096-d.png",
+            "4096x4096-b.png",
+        ]);
+        let scene = resolve::resolve(&again, "a.design").unwrap();
+        assert!(r.drawing(&scene).is_ok());
+        let six = design(&[
+            "4096x4096-a.png",
+            "4096x4096-b.png",
+            "4096x4096-c.png",
+            "4096x4096-d.png",
+            "4096x4096-e.png",
+            "4096x4096-f.png",
+        ]);
+        let scene = resolve::resolve(&six, "a.design").unwrap();
+        let Err(e) = r.drawing(&scene) else {
+            panic!("six 4096-pixel squares fit")
+        };
+        let at = e.at.unwrap();
+        assert_eq!(
+            (at.file.as_str(), at.pos.line, at.pos.col),
+            ("a.design", 6, 10)
+        );
+        assert_eq!(
+            e.message,
+            "this doesn't fit: the images a drawing paints — its image files, at most 4096 \
+             pixels a side, and its shadows — share the GPU's one 8192×8192 atlas, and the 4 \
+             before this 4096×4096 fill it"
+        );
+    }
+
     #[test]
     fn a_root_that_fills_on_its_own_hugs() {
         let mut r = Renderer::new();
@@ -1275,6 +1456,7 @@ mod tests {
             r.drawing(&big)
                 .err()
                 .unwrap()
+                .message
                 .contains("at most 16384 a side")
         );
     }

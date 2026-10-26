@@ -16,7 +16,7 @@ message WatchRequest {
 
 message Update {
   oneof body {
-    Node scene = 1;
+    Scene scene = 1;
     Patch patch = 2;
     Problems problems = 3;
   }
@@ -24,8 +24,24 @@ message Update {
   string path = 4;
 }
 
+// A whole scene: its tree, and each distinct image file the tree shows,
+// once, however many nodes show it.
+message Scene {
+  Node root = 1;
+  repeated ImageFile images = 2;
+}
+
+// The nodes that changed, and the image files they show that the scene last
+// sent didn't have — only those.
 message Patch {
   repeated Replace replace = 1;
+  repeated ImageFile images = 2;
+}
+
+// An image file's bytes, PNG or JPEG, and its id: the SHA-256 of the bytes.
+message ImageFile {
+  bytes id = 1;
+  bytes data = 2;
 }
 
 // The node at `id` — its path of child positions, like "0.2.1" — replaced
@@ -87,10 +103,11 @@ message Vector {
   repeated float view_box = 2;
 }
 
-// An image's address in the served folder and the file's bytes, PNG or JPEG.
+// An image's address in the served folder and the id of the image file it
+// shows, which the scene or a patch carries.
 message Image {
   string src = 1;
-  bytes data = 2;
+  bytes id = 2;
 }
 
 enum Kind {

@@ -1,10 +1,13 @@
 //! The canvas on the GPU: the engine's display list replayed into a `vello`
 //! scene and drawn with WebGPU. One `Gpu` — one device — serves every canvas
-//! on the page; each canvas is a `Target`.
+//! on the page; each canvas is a `Target`, and each drawing a canvas shows is
+//! rendered by a `vello` renderer of its own: its image atlas then holds that
+//! drawing's images and nothing else, placed as `devpage_design::atlas`
+//! places them — which is how the engine knows they fit.
 
 use devpage_design::render::{Draw, Frame, Paint};
 use vello::kurbo::Affine;
-use vello::peniko::{Fill, ImageBrush};
+use vello::peniko::{BlendMode, Compose, Fill, ImageBrush, Mix};
 use vello::wgpu;
 use wasm_bindgen::prelude::*;
 
@@ -16,7 +19,6 @@ pub struct Gpu {
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    vello: vello::Renderer,
 }
 
 /// One canvas the GPU draws into.
@@ -26,6 +28,8 @@ pub struct Target {
     format: wgpu::TextureFormat,
     blitter: wgpu::util::TextureBlitter,
     texture: Option<(u32, u32, wgpu::Texture)>,
+    /// The renderer for the drawing the canvas shows, by its number.
+    vello: Option<(u64, vello::Renderer)>,
 }
 
 fn error(e: impl std::fmt::Display) -> JsValue {
@@ -46,14 +50,11 @@ impl Gpu {
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
             .map_err(error)?;
-        let vello =
-            vello::Renderer::new(&device, vello::RendererOptions::default()).map_err(error)?;
         Ok(Gpu {
             instance,
             adapter,
             device,
             queue,
-            vello,
         })
     }
 
@@ -74,6 +75,7 @@ impl Gpu {
             format,
             blitter,
             texture: None,
+            vello: None,
         })
     }
 
@@ -100,11 +102,24 @@ impl Gpu {
             return false;
         };
         let area = laid_out.area;
-        // The page places the drawing's top-left at `(x, y)`.
-        let t = Affine::translate((x as f64, y as f64))
-            * Affine::scale(zoom as f64)
-            * Affine::translate((-area.x as f64, -area.y as f64));
-        let scene = scene(&laid_out.list, t, area);
+        let scene = {
+            // The page places the drawing's top-left at `(x, y)`.
+            let t = Affine::translate((x as f64, y as f64))
+                * Affine::scale(zoom as f64)
+                * Affine::translate((-area.x as f64, -area.y as f64));
+            scene(&laid_out.list, t, area)
+        };
+        let number = design.drawing_number();
+        if !matches!(&target.vello, Some((n, _)) if *n == number) {
+            // A fresh atlas for a new drawing.
+            match vello::Renderer::new(&self.device, vello::RendererOptions::default()) {
+                Ok(renderer) => target.vello = Some((number, renderer)),
+                Err(_) => return false,
+            }
+        }
+        let Some((_, renderer)) = target.vello.as_mut() else {
+            return false;
+        };
         target.surface.configure(
             &self.device,
             &wgpu::SurfaceConfiguration {
@@ -151,8 +166,7 @@ impl Gpu {
             height,
             antialiasing_method: vello::AaConfig::Area,
         };
-        if self
-            .vello
+        if renderer
             .render_to_texture(&self.device, &self.queue, &scene, &view, &params)
             .is_err()
         {
@@ -180,10 +194,15 @@ impl Gpu {
 /// translated into vello's call, nothing decided here.
 fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
     let mut v = vello::Scene::new();
+    // vello's GPU shader samples an image at each pixel's center but a
+    // gradient at its corner (`fine.wgsl`), where vello_cpu takes the center
+    // for both; so a gradient goes to the GPU moved half a device pixel up
+    // and left, to be sampled where the display list means.
+    let centered = Some(t.inverse() * Affine::translate((-0.5, -0.5)) * t);
     for draw in list {
         match draw {
             Draw::Fill(path, Paint::Solid(c)) => v.fill(Fill::NonZero, t, *c, None, path),
-            Draw::Fill(path, Paint::Gradient(g)) => v.fill(Fill::NonZero, t, g, None, path),
+            Draw::Fill(path, Paint::Gradient(g)) => v.fill(Fill::NonZero, t, g, centered, path),
             Draw::Fill(path, Paint::Image(data, place)) => v.fill(
                 Fill::NonZero,
                 t,
@@ -209,9 +228,12 @@ fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
                     }),
                 ),
             Draw::PushClip(path) => v.push_clip_layer(Fill::NonZero, t, path),
-            Draw::PushOpacity(o) => v.push_layer(
+            Draw::PushOpacity(o, Some(clip)) => {
+                v.push_layer(Fill::NonZero, Mix::Normal, *o, t, clip)
+            }
+            Draw::PushOpacity(o, None) => v.push_layer(
                 Fill::NonZero,
-                vello::peniko::Mix::Normal,
+                Mix::Normal,
                 *o,
                 t,
                 &vello::kurbo::Rect::new(
@@ -220,6 +242,13 @@ fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
                     (area.x + area.width) as f64,
                     (area.y + area.height) as f64,
                 ),
+            ),
+            Draw::PushAdd(bounds) => v.push_layer(
+                Fill::NonZero,
+                BlendMode::new(Mix::Normal, Compose::Plus),
+                1.0,
+                t,
+                bounds,
             ),
             Draw::Pop => v.pop_layer(),
         }

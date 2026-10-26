@@ -1479,3 +1479,187 @@ async fn a_design_on_a_scaled_slide_is_painted_whole_on_the_gpu() {
 async fn a_design_on_a_scaled_slide_is_painted_whole_on_the_cpu() {
     a_design_on_a_scaled_slide_is_painted_whole(false).await;
 }
+
+/// A PNG of `w` × `h` pixels filled with `fill`, painted by the engine.
+fn painted_png(w: u32, h: u32, fill: &str) -> Vec<u8> {
+    let files: std::collections::HashMap<String, String> = [(
+        "p.design".to_string(),
+        format!(r##"<Frame width={{{w}}} height={{{h}}} fill="{fill}" />"##),
+    )]
+    .into();
+    let scene = devpage_design::resolve(&files, "p.design").unwrap();
+    devpage_design::png(&mut devpage_design::Renderer::new(), &scene).unwrap()
+}
+
+/// How the GPU canvas of the design `name`, open on `page` at 100%, differs
+/// from the server's PNG of it — by the engine's one rule, as
+/// `the_examples_match_their_pngs` compares the examples. On a failure the
+/// screen is kept in the temporary folder for a look.
+async fn gpu_against_png(page: &Page, address: &str, name: &str) -> Result<(), String> {
+    until(
+        page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let backend: String = eval(
+        page,
+        "document.querySelector('canvas.design').dataset.backend",
+    )
+    .await;
+    assert_eq!(backend, "gpu");
+    let [zoom, width, height]: [f64; 3] = eval(
+        page,
+        "(() => { const c = document.querySelector('canvas.design'); return [Number(c.dataset.view.split(',')[0]), ...c.dataset.size.split(',').map(Number)]; })()",
+    )
+    .await;
+    assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    const MARGIN: usize = 24;
+    let shot = screenshot(page, width, height, MARGIN as f64).await;
+    let d = difference(page, address, &shot, &format!("/{name}.design.png"), MARGIN).await;
+    eprintln!("gpu {name}: {d:?}");
+    if d.is_some_and(|d| d.within_tolerance()) {
+        return Ok(());
+    }
+    let at = std::env::temp_dir().join(format!("devpage-gpu-{name}.png"));
+    std::fs::write(&at, &shot).ok();
+    Err(format!("gpu {name}: {d:?}; the screen is {}", at.display()))
+}
+
+/// Opens each design in `dir` on its canvas page, on the GPU, and compares
+/// it with its PNG.
+async fn the_gpu_matches_the_png(dir: &Path, names: &[&str]) {
+    let address = serve(dir, &format!("{}.design", names[0])).await;
+    let (mut browser, events, _profile) = chrome().await;
+    let mut failures = Vec::new();
+    for name in names {
+        let page = browser.new_page("about:blank").await.unwrap();
+        page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
+            .await
+            .unwrap();
+        page.goto(format!("{address}/{name}.design")).await.unwrap();
+        if let Err(e) = gpu_against_png(&page, &address, name).await {
+            failures.push(e);
+        }
+        page.close().await.ok();
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// Images past what the GPU's atlas holds draw on the GPU as in the PNG: a
+/// file wider than the atlas, resampled once to fit, and twelve distinct
+/// 2000-pixel files together — vello leaves out, silently, any image its
+/// atlas has no room for, and the canvas shows no hole.
+#[tokio::test]
+#[ignore]
+async fn images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png() {
+    let dir = folder("big-images");
+    // Smooth, so sampling it smaller differs between rasterizers only as an
+    // edge does.
+    std::fs::write(
+        dir.join("wide.png"),
+        painted_png(
+            9000,
+            300,
+            "linear-gradient(90deg, #ff0000 0%, #00ff00 25%, #0000ff 50%, #ffff00 75%, #ff00ff 100%)",
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("wide.design"),
+        r##"<Frame width={980} height={52} fill="#ffffff" padding={10}><Image src="wide.png" width={960} height={32} /></Frame>"##,
+    )
+    .unwrap();
+    let colors = [
+        "#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899",
+        "#14b8a6", "#84cc16", "#a855f7", "#64748b",
+    ];
+    let mut rows = [String::new(), String::new()];
+    for (i, c) in colors.iter().enumerate() {
+        std::fs::write(
+            dir.join(format!("big{i}.png")),
+            painted_png(
+                2000,
+                2000,
+                &format!("linear-gradient({}deg, {c} 0%, #ffffff 100%)", 30 * i),
+            ),
+        )
+        .unwrap();
+        rows[i / 6].push_str(&format!(
+            r#"<Image src="big{i}.png" width={{90}} height={{90}} />"#
+        ));
+    }
+    let many = |rows: &[String; 2]| {
+        format!(
+            r##"<Frame layout="column" gap={{6}} padding={{10}} fill="#ffffff">
+  <Frame layout="row" gap={{6}}>{}</Frame>
+  <Frame layout="row" gap={{6}}>{}</Frame>
+</Frame>"##,
+            rows[0], rows[1]
+        )
+    };
+    std::fs::write(dir.join("many.design"), many(&rows)).unwrap();
+    the_gpu_matches_the_png(&dir, &["wide", "many"]).await;
+
+    // A save that swaps six of them for six new ones: drawn with an atlas
+    // of its own, the new drawing's images don't compete with the last's.
+    let (address, designs) = serve_designs(&dir, "many.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
+        .await
+        .unwrap();
+    page.goto(format!("{address}/many.design")).await.unwrap();
+    gpu_against_png(&page, &address, "many").await.unwrap();
+    let mut swapped = String::new();
+    for (i, color) in colors.iter().take(6).enumerate() {
+        std::fs::write(
+            dir.join(format!("new{i}.png")),
+            painted_png(
+                2000,
+                2000,
+                &format!(
+                    "linear-gradient({}deg, #0f172a 0%, {color} 100%)",
+                    45 + 20 * i
+                ),
+            ),
+        )
+        .unwrap();
+        swapped.push_str(&format!(
+            r#"<Image src="new{i}.png" width={{90}} height={{90}} />"#
+        ));
+    }
+    eval::<bool>(
+        &page,
+        "(document.querySelector('canvas.design').dataset.painted = 'false', true)",
+    )
+    .await;
+    std::fs::write(dir.join("many.design"), many(&[rows[0].clone(), swapped])).unwrap();
+    designs.changed(&dir.join("many.design"));
+    gpu_against_png(&page, &address, "many").await.unwrap();
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// Shadows drawn in pieces — a box far larger than its blur, round corners
+/// as discs' edges, an ellipse in wedges — draw on the GPU as in the PNG:
+/// the pieces add up there too, with no seam.
+#[tokio::test]
+#[ignore]
+async fn shadows_in_pieces_draw_on_the_gpu_as_in_the_png() {
+    let dir = folder("shadow-pieces");
+    std::fs::write(
+        dir.join("shadows.design"),
+        r##"<Frame width={1100} height={760} fill="#f8fafc" layout="none">
+  <Rect x={40} y={40} width={600} height={400} radius={[2, 60, 12, 120]} fill="#ffffff" shadow={{ y: 6, blur: 4, color: "#0f172a66" }} />
+  <Ellipse x={700} y={60} width={360} height={200} fill="#ffffff" shadow={{ x: 4, blur: 3, color: "#1e3a8a80" }} />
+  <Ellipse x={700} y={320} width={360} height={360} fill="#ffffff" shadow={{ blur: 2, spread: 6, color: "#000000" }} />
+  <Rect x={40} y={500} width={600} height={6} fill="#ffffff" shadow={{ blur: 5, color: "#7c3aed" }} />
+  <Rect x={40} y={560} width={620} height={160} radius={80} fill="#ffffff" shadow={{ blur: 2, color: "#000000aa" }} />
+</Frame>"##,
+    )
+    .unwrap();
+    the_gpu_matches_the_png(&dir, &["shadows"]).await;
+}

@@ -90,9 +90,13 @@ same on every machine and in every PNG.
 height"`, the path's own bounds when left out). The path is scaled into the
 vector's box keeping its proportions, and its `fill` and `stroke` paint the
 path rather than the box. `Image` takes `src`, a PNG or JPEG file that
-decodes whole; a broken or truncated one is a problem at `src`. Hugging, a
-vector takes its view box's size and an image its own size in pixels; given
-only one of `width` and `height`, either keeps its proportions.
+decodes whole; a broken or truncated one is a problem at `src`. A file larger
+than 4,096 pixels a side is drawn from its pixels resampled to fit that, and
+the images one design shows must fit the GPU together — a problem at the
+`src` of the first that doesn't; see
+[the GPU's image atlas](../../design-engine/README.md#the-gpus-image-atlas).
+Hugging, a vector takes its view box's size and an image its own size in
+pixels; given only one of `width` and `height`, either keeps its proportions.
 
 An attribute an element doesn't take, a value of the wrong type, or an unknown
 element is a problem — never ignored — so an agent learns about a typo from

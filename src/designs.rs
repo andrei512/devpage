@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use devpage_design::proto::{Patch, Problems, Update, WatchRequest, update::Body};
-use devpage_design::resolve::Node;
+use devpage_design::proto::{Problems, Update, WatchRequest, update::Body};
+use devpage_design::resolve::ImageFile;
 use devpage_design::{Files, Problem, Renderer, Scene, wire};
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
@@ -35,6 +35,9 @@ struct Source {
     /// Its canonical path from the top of the served folder, which is what the
     /// watcher reports.
     canonical: Option<String>,
+    /// The file decoded as an image, once a design shows it: forgotten with
+    /// the file, so a save decodes only the image that changed.
+    image: Option<Result<Arc<ImageFile>, String>>,
 }
 
 struct Store {
@@ -97,6 +100,7 @@ impl Files for Reading<'_> {
                 .store
                 .reads
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            image: None,
         };
         self.seen.borrow_mut().push((path.to_string(), source.read));
         let bytes = source.bytes.clone();
@@ -107,6 +111,26 @@ impl Files for Reading<'_> {
             after(path);
         }
         bytes
+    }
+
+    /// An image file decoded, once per read of it.
+    fn image(&self, path: &str) -> Option<Result<Arc<ImageFile>, String>> {
+        if let Some(source) = lock(&self.store.sources).get(path)
+            && let Some(image) = &source.image
+        {
+            self.asked.borrow_mut().push(path.to_string());
+            self.seen.borrow_mut().push((path.to_string(), source.read));
+            return Some(image.clone());
+        }
+        let bytes = self.bytes(path)?;
+        let read = self.seen.borrow().last().map(|(_, read)| *read);
+        let image = ImageFile::new(bytes).map(Arc::new);
+        if let Some(source) = lock(&self.store.sources).get_mut(path)
+            && Some(source.read) == read
+        {
+            source.image = Some(image.clone());
+        }
+        Some(image)
     }
 }
 
@@ -296,11 +320,27 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
 /// paint is the design's problem everywhere — on its canvas, in its PNG and in
 /// `devpage check` — not only where a picture is asked for.
 fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
-    guarded(path, || renderer.drawing(scene).map(|_| ()), |p| p.message).map_err(|message| {
+    guarded(
+        path,
+        || renderer.drawing(scene).map(|_| ()),
+        |p| devpage_design::render::Undrawable {
+            message: p.message,
+            at: None,
+        },
+    )
+    .map_err(|undrawable| {
+        // At the attribute that broke it, or else the design's start.
+        let (file, pos) = match undrawable.at {
+            Some(at) => (at.file, at.pos),
+            None => (
+                path.to_string(),
+                devpage_design::parse::Pos { line: 1, col: 1 },
+            ),
+        };
         vec![Problem {
-            file: path.to_string(),
-            pos: devpage_design::parse::Pos { line: 1, col: 1 },
-            message,
+            file,
+            pos,
+            message: undrawable.message,
         }]
     })
 }
@@ -345,14 +385,15 @@ pub struct Watch {
 /// A scene encoded for the stream: whole, the first time, then as the
 /// subtrees that changed since.
 enum Encoded {
-    Whole(Box<devpage_design::proto::Node>),
-    Changed(Vec<devpage_design::proto::Replace>),
+    Whole(Box<devpage_design::proto::Scene>),
+    Changed(devpage_design::proto::Patch),
 }
 
 /// What one design's watcher last sent.
 #[derive(Default)]
 struct Sent {
-    scene: Option<Node>,
+    /// The scene the browser holds — and so the image files it has.
+    scene: Option<Scene>,
     problems: Option<Vec<Problem>>,
 }
 
@@ -367,8 +408,8 @@ impl Sent {
                 path,
                 || {
                     Ok(match old {
-                        None => Encoded::Whole(Box::new(wire::encode(&scene.root))),
-                        Some(old) => Encoded::Changed(wire::diff(old, &scene.root)),
+                        None => Encoded::Whole(Box::new(wire::scene(&scene))),
+                        Some(old) => Encoded::Changed(wire::patch(old, &scene)),
                     })
                 },
                 |problem| vec![problem],
@@ -382,11 +423,11 @@ impl Sent {
                 let fixed = self.problems.take().is_some();
                 let body = match body {
                     Encoded::Whole(whole) => Some(Body::Scene(*whole)),
-                    Encoded::Changed(replace) => {
-                        (fixed || !replace.is_empty()).then_some(Body::Patch(Patch { replace }))
+                    Encoded::Changed(patch) => {
+                        (fixed || !patch.replace.is_empty()).then_some(Body::Patch(patch))
                     }
                 };
-                self.scene = Some(scene.root);
+                self.scene = Some(scene);
                 body
             }
             Err(problems) if self.problems.as_ref() != Some(&problems) => {
@@ -540,6 +581,78 @@ mod tests {
         let found = problems(&dir, "/app/huge.design");
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].to_string(), expected);
+    }
+
+    /// Images that don't fit the GPU's atlas together are a problem at the
+    /// `src` of the first that doesn't, wherever the design is looked at.
+    #[test]
+    fn images_too_many_for_the_gpu_are_a_problem_at_their_src() {
+        /// `w`x`h`-name.png is an image file that size, never decoded.
+        struct Sized(String);
+        impl Files for Sized {
+            fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+                (path == "app/a.design").then(|| self.0.clone().into_bytes())
+            }
+            fn image(&self, path: &str) -> Option<Result<Arc<ImageFile>, String>> {
+                let (size, _) = path.strip_prefix("app/")?.split_once('-')?;
+                let (w, h) = size.split_once('x')?;
+                let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
+                Some(Ok(Arc::new(ImageFile {
+                    id: devpage_design::resolve::ImageId::of(path.as_bytes()),
+                    bytes: Vec::new(),
+                    width: w,
+                    height: h,
+                    pixels: Arc::new(vec![0; 4 * w as usize * h as usize]),
+                    pixels_width: w,
+                    pixels_height: h,
+                })))
+            }
+        }
+        let images: String = "abcde"
+            .chars()
+            .map(|c| format!("\n  <Image src=\"4096x4096-{c}.png\" width={{40}} height={{40}} />"))
+            .collect();
+        let design = Sized(format!(r#"<Frame layout="row">{images}</Frame>"#));
+        let scene = devpage_design::resolve(&design, "app/a.design").unwrap();
+        let found = drawable(&mut Renderer::new(), "app/a.design", &scene).unwrap_err();
+        assert_eq!(found.len(), 1);
+        assert!(
+            found[0]
+                .to_string()
+                .starts_with("app/a.design:6:10: this doesn't fit: "),
+            "{found:?}"
+        );
+    }
+
+    /// An image file is decoded once per read of it: a save of the design
+    /// showing it, or of another file, doesn't decode it again.
+    #[test]
+    fn a_save_decodes_only_the_image_that_changed() {
+        let dir = served("decode-once");
+        let shirt = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/designs/checkout/shirt.jpg"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("app/p.jpg"), &shirt).unwrap();
+        let photo = "<Frame>\n  <Image src=\"./p.jpg\" />\n  <Image src=\"./p.jpg\" />\n</Frame>\n";
+        std::fs::write(dir.join("app/photo.design"), photo).unwrap();
+        let designs = Designs::new(dir.clone());
+        let first = designs.resolve("app/photo.design").unwrap();
+        assert_eq!(first.images.len(), 1, "one file shown twice");
+        save(
+            &designs,
+            &dir.join("app/photo.design"),
+            &photo.replace("<Frame>", "<Frame fill=\"#ffffff\">"),
+        );
+        let second = designs.resolve("app/photo.design").unwrap();
+        assert_ne!(first.root, second.root);
+        let file = |s: &Scene| s.images.values().next().unwrap().clone();
+        assert!(Arc::ptr_eq(&file(&first), &file(&second)));
+        // A saved image file is decoded anew.
+        std::fs::write(dir.join("app/p.jpg"), &shirt).unwrap();
+        designs.changed(&dir.join("app/p.jpg"));
+        let third = designs.resolve("app/photo.design").unwrap();
+        assert!(!Arc::ptr_eq(&file(&second), &file(&third)));
     }
 
     #[tokio::test]
@@ -916,7 +1029,7 @@ mod tests {
         let Some(Ok(Body::Scene(scene))) = stream.next().await else {
             panic!("the first update is the scene")
         };
-        assert_eq!(scene.children.len(), 2);
+        assert_eq!(scene.root.unwrap().children.len(), 2);
 
         // A save of the imported button: a patch of the button's instance only.
         save(

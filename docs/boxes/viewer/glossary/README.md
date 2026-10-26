@@ -95,7 +95,11 @@ A page's one gRPC-Web call, `Watch`, naming every design the page shows and carr
 
 ## patch
 
-An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id. See [The watch stream](../design-engine/README.md#the-watch-stream).
+An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
+
+## image file
+
+A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its bytes — so a scene holds, decodes and sends it once however many nodes show it. See [Resolving](../design-engine/README.md#resolving).
 
 ## page
 

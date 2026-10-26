@@ -2,10 +2,12 @@
 //! them out and paints them. It does no I/O, so the same code runs natively
 //! in devpage and compiled to WebAssembly in the browser.
 
+pub mod atlas;
 pub mod parse;
 pub mod proto;
 pub mod render;
 pub mod resolve;
+pub mod shadow;
 pub mod wire;
 
 use std::fmt;
@@ -32,9 +34,9 @@ impl fmt::Display for Problem {
 }
 
 /// Paints a scene's whole drawing at 1× and encodes it as a PNG, or says why
-/// it can't: a drawing bigger than `render::MAX_SIDE` a side.
+/// it can't: see [`Renderer::drawing`].
 pub fn png(renderer: &mut Renderer, scene: &Scene) -> Result<Vec<u8>, String> {
-    let drawing = renderer.drawing(scene)?;
+    let drawing = renderer.drawing(scene).map_err(|e| e.message)?;
     render::paint_list(drawing.area, &drawing.list, 1.0)
         .into_png()
         .map_err(|e| format!("encoding the PNG: {e}"))

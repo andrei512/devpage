@@ -1,9 +1,14 @@
-//! Scenes on the wire: a scene node to its `proto::Node` and back, and the
-//! patch between two scenes.
+//! Scenes on the wire: a scene to its `proto::Scene` and back, and the patch
+//! between two scenes. Each image file travels once: a scene carries every
+//! one its nodes show, a patch only those the scene before it didn't have.
+
+use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use crate::proto;
 use crate::resolve::{
-    Align, Color, Fill, Image, Kind, Layout, Node, Shadow, Size, TextAlign, TextStyle, Vector,
+    Align, Color, Fill, Image, ImageFile, ImageFiles, ImageId, Kind, Layout, Node, Origin, Scene,
+    Shadow, Size, TextAlign, TextStyle, Vector,
 };
 
 fn rgba(c: Color) -> u32 {
@@ -91,7 +96,7 @@ pub fn encode(n: &Node) -> proto::Node {
         }),
         image: n.image.as_ref().map(|i| proto::Image {
             src: i.src.clone(),
-            data: i.data.clone(),
+            id: i.id.0.to_vec(),
         }),
         stroke: n.stroke.map(rgba),
         stroke_width: n.stroke_width,
@@ -129,9 +134,17 @@ pub fn encode(n: &Node) -> proto::Node {
     }
 }
 
-pub fn decode(n: &proto::Node) -> Node {
+fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
+    bytes
+        .try_into()
+        .map(ImageId)
+        .map_err(|_| format!("an image file id of {} bytes, not 32", bytes.len()))
+}
+
+/// A node from the wire, or why it isn't one.
+pub fn decode(n: &proto::Node) -> Result<Node, String> {
     let four = |v: &[f32]| [0, 1, 2, 3].map(|i| v.get(i).copied().unwrap_or(0.0));
-    Node {
+    Ok(Node {
         kind: match proto::Kind::try_from(n.kind).unwrap_or(proto::Kind::Frame) {
             proto::Kind::Frame => Kind::Frame,
             proto::Kind::Text => Kind::Text,
@@ -164,6 +177,7 @@ pub fn decode(n: &proto::Node) -> Node {
             blur: s.blur,
             spread: s.spread,
             color: color(s.color),
+            at: Origin::default(),
         }),
         clip: n.clip,
         layout: match proto::Layout::try_from(n.layout).unwrap_or(proto::Layout::None) {
@@ -191,13 +205,95 @@ pub fn decode(n: &proto::Node) -> Node {
             d: v.d.clone(),
             view_box: four(&v.view_box),
         }),
-        // The server resolved the same bytes, so they decode here too.
-        image: n
-            .image
-            .as_ref()
-            .and_then(|i| Image::new(i.src.clone(), i.data.clone()).ok()),
-        children: n.children.iter().map(decode).collect(),
+        image: match &n.image {
+            Some(i) => Some(Image {
+                src: i.src.clone(),
+                id: image_id(&i.id)?,
+                at: Origin::default(),
+            }),
+            None => None,
+        },
+        children: n.children.iter().map(decode).collect::<Result<_, _>>()?,
+    })
+}
+
+/// A whole scene for the wire: its tree and every image file it shows.
+pub fn scene(scene: &Scene) -> proto::Scene {
+    proto::Scene {
+        root: Some(encode(&scene.root)),
+        images: scene.images.values().map(|f| file(f)).collect(),
     }
+}
+
+fn file(f: &ImageFile) -> proto::ImageFile {
+    proto::ImageFile {
+        id: f.id.0.to_vec(),
+        data: f.bytes.clone(),
+    }
+}
+
+/// The patch that turns `old`, as last sent, into `new`: the nodes that
+/// changed and the image files `old` didn't have.
+pub fn patch(old: &Scene, new: &Scene) -> proto::Patch {
+    proto::Patch {
+        replace: diff(&old.root, &new.root),
+        images: new
+            .images
+            .values()
+            .filter(|f| !old.images.contains_key(&f.id))
+            .map(|f| file(f))
+            .collect(),
+    }
+}
+
+/// The image files `files` carries, decoded — each taken from `held` instead
+/// when it is already there, so a file is decoded once however often it is
+/// sent.
+fn files(files: &[proto::ImageFile], held: &ImageFiles) -> Result<ImageFiles, String> {
+    let mut out = ImageFiles::new();
+    for f in files {
+        let id = image_id(&f.id)?;
+        let decoded = match held.get(&id) {
+            Some(known) => known.clone(),
+            // The server decoded the same bytes, so they decode here too.
+            None => Arc::new(ImageFile::with_id(id, f.data.clone())?),
+        };
+        out.insert(id, decoded);
+    }
+    Ok(out)
+}
+
+/// Keeps only the image files `root` shows, and says if it shows one that
+/// isn't there.
+fn settle(root: &Node, images: &mut ImageFiles) -> Result<(), String> {
+    fn shown(n: &Node, out: &mut BTreeSet<ImageId>) {
+        if let Some(i) = &n.image {
+            out.insert(i.id);
+        }
+        for c in &n.children {
+            shown(c, out);
+        }
+    }
+    let mut ids = BTreeSet::new();
+    shown(root, &mut ids);
+    if let Some(missing) = ids.iter().find(|id| !images.contains_key(id)) {
+        return Err(format!("the stream never sent the image file {missing:?}"));
+    }
+    images.retain(|id, _| ids.contains(id));
+    Ok(())
+}
+
+/// The scene a stream message carries; image files in `held` aren't decoded
+/// again.
+pub fn decode_scene(message: &proto::Scene, held: &ImageFiles) -> Result<Scene, String> {
+    let root = decode(message.root.as_ref().ok_or("a scene with no root")?)?;
+    let mut images = files(&message.images, held)?;
+    settle(&root, &mut images)?;
+    Ok(Scene {
+        root,
+        images,
+        files: Vec::new(),
+    })
 }
 
 /// The replacements that turn `old` into `new`: the highest nodes whose own
@@ -230,14 +326,20 @@ fn walk(old: &Node, new: &Node, id: &str, out: &mut Vec<proto::Replace>) {
     }
 }
 
-/// Applies replacements to a scene's root.
-pub fn apply(root: &mut Node, patch: &[proto::Replace]) {
-    for r in patch {
-        let Some(node) = &r.node else { continue };
-        if let Some(at) = find(root, &r.id) {
-            *at = decode(node);
-        }
+/// Applies a patch to `scene`, or says why it can't — leaving the scene as it
+/// was.
+pub fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<(), String> {
+    let mut next = scene.clone();
+    let added = files(&patch.images, &scene.images)?;
+    next.images.extend(added);
+    for r in &patch.replace {
+        let node = r.node.as_ref().ok_or("a replacement with no node")?;
+        let at = find(&mut next.root, &r.id).ok_or_else(|| format!("no node {}", r.id))?;
+        *at = decode(node)?;
     }
+    settle(&next.root, &mut next.images)?;
+    *scene = next;
+    Ok(())
 }
 
 fn find<'a>(root: &'a mut Node, id: &str) -> Option<&'a mut Node> {
@@ -252,11 +354,14 @@ fn find<'a>(root: &'a mut Node, id: &str) -> Option<&'a mut Node> {
 mod tests {
     use std::collections::HashMap;
 
-    use super::*;
+    use prost::Message;
 
-    fn scene(src: &str) -> Node {
+    use super::*;
+    use crate::Files;
+
+    fn scene(src: &str) -> Scene {
         let files: HashMap<String, String> = [("a.design".to_string(), src.to_string())].into();
-        crate::resolve(&files, "a.design").unwrap().root
+        crate::resolve(&files, "a.design").unwrap()
     }
 
     #[test]
@@ -267,14 +372,115 @@ mod tests {
         let new = scene(
             r##"<Frame layout="column"><Text>One</Text><Frame><Text>Three</Text></Frame></Frame>"##,
         );
-        assert_eq!(decode(&encode(&old)), old);
-        let patch = diff(&old, &new);
+        assert_eq!(decode(&encode(&old.root)).unwrap(), old.root);
+        let patch = patch(&old, &new);
         assert_eq!(
-            patch.iter().map(|r| r.id.as_str()).collect::<Vec<_>>(),
+            patch
+                .replace
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
             vec!["0.1.0"]
         );
-        let mut applied = old.clone();
-        apply(&mut applied, &patch);
-        assert_eq!(applied, new);
+        let mut applied = decode_scene(&super::scene(&old), &ImageFiles::new()).unwrap();
+        apply(&mut applied, &patch).unwrap();
+        assert_eq!(applied.root, new.root);
+    }
+
+    /// Files as bytes, so a test can hold an image.
+    struct Mem(HashMap<String, Vec<u8>>);
+
+    impl Files for Mem {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+    }
+
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut e = ::png::Encoder::new(&mut out, w, h);
+        e.set_color(::png::ColorType::Rgba);
+        let mut writer = e.write_header().unwrap();
+        writer
+            .write_image_data(&vec![200; (4 * w * h) as usize])
+            .unwrap();
+        drop(writer);
+        out
+    }
+
+    fn shirt() -> Vec<u8> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/designs/checkout/shirt.jpg"
+        ))
+        .unwrap()
+    }
+
+    fn cards(n: usize, extra: &str) -> Mem {
+        let mut page = String::from("import Card from \"./card.design\"\n<Frame layout=\"row\">");
+        for _ in 0..n {
+            page.push_str("<Card />");
+        }
+        page.push_str(extra);
+        page.push_str("</Frame>");
+        Mem([
+            (
+                "card.design".to_string(),
+                br#"<Frame><Image src="shirt.jpg" width={100} height={100} /></Frame>"#.to_vec(),
+            ),
+            ("page.design".to_string(), page.into_bytes()),
+            ("shirt.jpg".to_string(), shirt()),
+            ("copy.jpg".to_string(), shirt()),
+        ]
+        .into())
+    }
+
+    /// One photo shown fifty times is one image file: decoded once and sent
+    /// once, and a patch sends an image file only when the browser doesn't
+    /// have it yet.
+    #[test]
+    fn an_image_file_travels_once() {
+        let fifty = crate::resolve(&cards(50, ""), "page.design").unwrap();
+        assert_eq!(fifty.images.len(), 1);
+        let message = super::scene(&fifty).encode_to_vec().len();
+        let jpeg = shirt().len();
+        assert!(
+            message < jpeg + 50 * 200,
+            "a scene of fifty uses of a {jpeg}-byte file is {message} bytes"
+        );
+        // Another use of the same file, under another name too: nothing new
+        // to send.
+        let more = crate::resolve(
+            &cards(51, r#"<Image src="copy.jpg" width={10} height={10} />"#),
+            "page.design",
+        )
+        .unwrap();
+        assert_eq!(more.images.len(), 1, "copy.jpg is shirt.jpg's bytes");
+        let p = patch(&fifty, &more);
+        assert!(p.images.is_empty());
+        let mut browser = decode_scene(&super::scene(&fifty), &ImageFiles::new()).unwrap();
+        let held = browser.images.values().next().unwrap().clone();
+        apply(&mut browser, &p).unwrap();
+        assert_eq!(browser.root, more.root);
+        // The browser kept the image file it had decoded.
+        assert!(Arc::ptr_eq(browser.images.values().next().unwrap(), &held));
+        // A patch whose nodes show a file the browser lacks carries it.
+        let mut fs = cards(1, r#"<Image src="other.png" width={10} height={10} />"#);
+        fs.0.insert("other.png".into(), png(2, 2));
+        let other = crate::resolve(&fs, "page.design").unwrap();
+        let p = patch(&more, &other);
+        assert_eq!(p.images.len(), 1);
+        apply(&mut browser, &p).unwrap();
+        assert_eq!(browser.images.len(), 2);
+        // A patch whose nodes show a file never sent is refused.
+        let mut lacking = p.clone();
+        lacking.images.clear();
+        let mut kept = decode_scene(&super::scene(&more), &ImageFiles::new()).unwrap();
+        assert!(
+            apply(&mut kept, &lacking)
+                .unwrap_err()
+                .contains("never sent")
+        );
+        assert_eq!(kept.root, more.root, "a refused patch leaves the scene");
     }
 }

@@ -76,30 +76,185 @@ pub struct Vector {
     pub view_box: [f32; 4],
 }
 
-/// An `Image`'s file: its address in the served folder, its bytes, and its
-/// pixels — decoded once, when the scene is made, so a file that doesn't
-/// decode is a problem rather than a blank box.
+/// An image file's identity: the SHA-256 of its bytes. Two `Image`s showing
+/// the same bytes — the same file used twice, or two copies of it — share one
+/// [`ImageFile`], decoded once and sent once.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ImageId(pub [u8; 32]);
+
+impl ImageId {
+    pub fn of(bytes: &[u8]) -> ImageId {
+        use sha2::Digest;
+        ImageId(sha2::Sha256::digest(bytes).into())
+    }
+}
+
+impl std::fmt::Debug for ImageId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for b in &self.0[..6] {
+            write!(f, "{b:02x}")?;
+        }
+        Ok(())
+    }
+}
+
+/// The most pixels a side an image is drawn from. The GPU keeps every image a
+/// drawing paints in one atlas of [`crate::atlas::SIDE`] pixels a side, so a
+/// larger file is resampled to fit this, keeping its aspect, when it is
+/// decoded — and both backends draw those same pixels.
+pub const MAX_IMAGE_SIDE: u32 = 4096;
+
+/// A decoded image file: its bytes, its own size, and the pixels it is drawn
+/// from — the file's own, or resampled to at most [`MAX_IMAGE_SIDE`] a side.
+#[derive(Debug)]
+pub struct ImageFile {
+    pub id: ImageId,
+    pub bytes: Vec<u8>,
+    /// The file's size in pixels: what an `Image` hugs by.
+    pub width: u32,
+    pub height: u32,
+    /// Straight-alpha RGBA, `pixels_width` × `pixels_height`.
+    pub pixels: Arc<Vec<u8>>,
+    pub pixels_width: u32,
+    pub pixels_height: u32,
+}
+
+impl ImageFile {
+    /// Decodes `bytes`, a PNG or JPEG file, or says why it can't.
+    pub fn new(bytes: Vec<u8>) -> Result<ImageFile, String> {
+        ImageFile::with_id(ImageId::of(&bytes), bytes)
+    }
+
+    /// Decodes `bytes`, already known to be the file `id`.
+    pub fn with_id(id: ImageId, bytes: Vec<u8>) -> Result<ImageFile, String> {
+        let decoded = decode(&bytes)?;
+        let (width, height) = (decoded.width, decoded.height);
+        let (pixels, pixels_width, pixels_height) =
+            fit(decoded.data.data(), width, height, MAX_IMAGE_SIDE);
+        Ok(ImageFile {
+            id,
+            bytes,
+            width,
+            height,
+            pixels: Arc::new(pixels),
+            pixels_width,
+            pixels_height,
+        })
+    }
+
+    /// The pixels as an image for one drawing to paint, under a blob of its
+    /// own that shares the pixels: see `render::Renderer::drawing`.
+    pub fn image_data(&self) -> ImageData {
+        ImageData {
+            data: Blob::new(self.pixels.clone()),
+            format: ImageFormat::Rgba8,
+            alpha_type: ImageAlphaType::Alpha,
+            width: self.pixels_width,
+            height: self.pixels_height,
+        }
+    }
+}
+
+/// `rgba`, `width` × `height`, resampled to at most `max` pixels a side with
+/// its aspect kept, or as it is when it already fits. Each new pixel is the
+/// area-weighted average of the pixels under it, in premultiplied alpha so a
+/// transparent pixel lends no color.
+pub fn fit(rgba: &[u8], width: u32, height: u32, max: u32) -> (Vec<u8>, u32, u32) {
+    if width <= max && height <= max {
+        return (rgba.to_vec(), width, height);
+    }
+    let scale = max as f64 / width.max(height) as f64;
+    let w = ((width as f64 * scale).round() as u32).clamp(1, max);
+    let h = ((height as f64 * scale).round() as u32).clamp(1, max);
+    // For each output index along one axis, the input indices it covers and
+    // how much of each.
+    let weights = |from: u32, to: u32| -> Vec<Vec<(usize, f32)>> {
+        let ratio = from as f64 / to as f64;
+        (0..to)
+            .map(|o| {
+                let (a, b) = (o as f64 * ratio, (o + 1) as f64 * ratio);
+                (a.floor() as usize..(b.ceil() as usize).min(from as usize))
+                    .map(|i| {
+                        let cover = (b.min(i as f64 + 1.0) - a.max(i as f64)) / ratio;
+                        (i, cover as f32)
+                    })
+                    .filter(|&(_, c)| c > 0.0)
+                    .collect()
+            })
+            .collect()
+    };
+    let (across, down) = (weights(width, w), weights(height, h));
+    // Across each row first, premultiplied, then down each column.
+    let mut rows = vec![0f32; 4 * w as usize * height as usize];
+    for y in 0..height as usize {
+        let line = &rgba[4 * y * width as usize..][..4 * width as usize];
+        for (x, ws) in across.iter().enumerate() {
+            let mut sum = [0f32; 4];
+            for &(i, c) in ws {
+                let p = &line[4 * i..][..4];
+                let a = p[3] as f32 * c;
+                sum[0] += p[0] as f32 * a;
+                sum[1] += p[1] as f32 * a;
+                sum[2] += p[2] as f32 * a;
+                sum[3] += a;
+            }
+            rows[4 * (y * w as usize + x)..][..4].copy_from_slice(&sum);
+        }
+    }
+    let mut out = vec![0u8; 4 * w as usize * h as usize];
+    for (y, ws) in down.iter().enumerate() {
+        for x in 0..w as usize {
+            let mut sum = [0f32; 4];
+            for &(i, c) in ws {
+                let p = &rows[4 * (i * w as usize + x)..][..4];
+                for k in 0..4 {
+                    sum[k] += p[k] * c;
+                }
+            }
+            let px = &mut out[4 * (y * w as usize + x)..][..4];
+            if sum[3] > 0.0 {
+                for k in 0..3 {
+                    px[k] = (sum[k] / sum[3]).round().clamp(0.0, 255.0) as u8;
+                }
+                px[3] = sum[3].round().clamp(0.0, 255.0) as u8;
+            }
+        }
+    }
+    (out, w, h)
+}
+
+/// Where an attribute was written, for a problem found only once the design
+/// is laid out and painted. It is never part of what a node draws: two nodes
+/// that differ only in it are equal, and it doesn't travel on the wire.
 #[derive(Debug, Clone)]
+pub struct Origin {
+    pub file: String,
+    pub pos: Pos,
+}
+
+impl Default for Origin {
+    fn default() -> Origin {
+        Origin {
+            file: String::new(),
+            pos: Pos { line: 1, col: 1 },
+        }
+    }
+}
+
+impl PartialEq for Origin {
+    fn eq(&self, _: &Origin) -> bool {
+        true
+    }
+}
+
+/// An `Image`'s file: its address in the served folder and which
+/// [`ImageFile`] in the scene it shows.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Image {
     pub src: String,
-    pub data: Vec<u8>,
-    pub pixels: ImageData,
-}
-
-impl Image {
-    /// The image file `data` at `src`, decoded, or why it can't be.
-    pub fn new(src: String, data: Vec<u8>) -> Result<Image, String> {
-        let pixels = decode(&data)?;
-        Ok(Image { src, data, pixels })
-    }
-}
-
-/// Two images are the same when their files are: the pixels follow from the
-/// bytes.
-impl PartialEq for Image {
-    fn eq(&self, other: &Image) -> bool {
-        self.src == other.src && self.data == other.data
-    }
+    pub id: ImageId,
+    /// Where `src` was written.
+    pub at: Origin,
 }
 
 /// A PNG or JPEG file's pixels, as straight-alpha RGBA, or why it has none.
@@ -166,6 +321,8 @@ pub struct Shadow {
     pub blur: f32,
     pub spread: f32,
     pub color: Color,
+    /// Where `shadow` was written.
+    pub at: Origin,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -244,6 +401,13 @@ pub trait Files {
     fn read(&self, path: &str) -> Option<String> {
         String::from_utf8(self.bytes(path)?).ok()
     }
+    /// The image file at `path`, decoded, or why it doesn't decode; `None`
+    /// when there is no such file. A store that keeps files between resolves
+    /// keeps their decoded images too, so a save doesn't decode them again.
+    fn image(&self, path: &str) -> Option<Result<Arc<ImageFile>, String>> {
+        self.bytes(path)
+            .map(|bytes| ImageFile::new(bytes).map(Arc::new))
+    }
 }
 
 impl Files for HashMap<String, String> {
@@ -252,11 +416,24 @@ impl Files for HashMap<String, String> {
     }
 }
 
-/// A resolved design and the files it was made from.
+/// A resolved design: its tree, each distinct image file its `Image`s show,
+/// and the files it was made from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     pub root: Node,
+    pub images: ImageFiles,
     pub files: Vec<String>,
+}
+
+/// A scene's image files by id, each decoded once however many `Image`s
+/// show it.
+pub type ImageFiles = std::collections::BTreeMap<ImageId, Arc<ImageFile>>;
+
+/// Image files compare by their identity, which is their bytes.
+impl PartialEq for ImageFile {
+    fn eq(&self, other: &ImageFile) -> bool {
+        self.id == other.id
+    }
 }
 
 /// Resolves the design at `path`, reporting every problem found.
@@ -268,11 +445,14 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         stack: Vec::new(),
         missing: Vec::new(),
         depth: 0,
+        images: ImageFiles::new(),
+        by_path: HashMap::new(),
     };
     let root = r.design(path, &[], None, "", None);
     if r.problems.is_empty() {
         Ok(Scene {
             root: root.expect("no problems means a root"),
+            images: r.images,
             files: r.read,
         })
     } else {
@@ -290,6 +470,10 @@ struct Resolver<'a> {
     missing: Vec<String>,
     /// How many elements enclose the current one, across instances.
     depth: usize,
+    /// Every image file the design shows, by id.
+    images: ImageFiles,
+    /// Each image file read so far, by its path.
+    by_path: HashMap<String, Result<ImageId, String>>,
 }
 
 /// How deep a resolved design's tree may nest, counting through instances:
@@ -669,7 +853,13 @@ impl Resolver<'_> {
                 }
                 _ => Err("expected pixels or an array of 4".into()),
             },
-            ("shadow", k) if k != Kind::Text => shadow(&value).map(|s| node.shadow = Some(s)),
+            ("shadow", k) if k != Kind::Text => shadow(&value).map(|mut s| {
+                s.at = Origin {
+                    file: path.to_string(),
+                    pos: attr.pos,
+                };
+                node.shadow = Some(s)
+            }),
             // Only a frame has children to clip.
             ("clip", Kind::Frame) => match value {
                 Value::Bool(b) => Ok(node.clip = b),
@@ -752,15 +942,19 @@ impl Resolver<'_> {
             ("src", Kind::Image) => match str_of(&value) {
                 Some(src) => match join(path, &src) {
                     None => Err(format!("{src} — outside the served folder")),
-                    Some(at) => match self.files.bytes(&at) {
+                    Some(at) => match self.image_file(&at) {
                         None => Err(format!("{src} — no such file")),
-                        Some(data) => {
-                            if !self.read.iter().any(|p| p == &at) {
-                                self.read.push(at.clone());
-                            }
-                            Image::new(at, data)
-                                .map(|image| node.image = Some(image))
-                                .map_err(|e| format!("{src} {e}"))
+                        Some(Err(e)) => Err(format!("{src} {e}")),
+                        Some(Ok(id)) => {
+                            node.image = Some(Image {
+                                src: at,
+                                id,
+                                at: Origin {
+                                    file: path.to_string(),
+                                    pos: attr.pos,
+                                },
+                            });
+                            Ok(())
                         }
                     },
                 },
@@ -778,6 +972,26 @@ impl Resolver<'_> {
         if let Err(e) = ok {
             self.problem(path, attr.pos, format!("{}: {e}", attr.name));
         }
+    }
+
+    /// The image file at `at`, by its content — read and decoded once per
+    /// resolve however many `Image`s show it — or why it doesn't decode;
+    /// `None` when there is no such file.
+    fn image_file(&mut self, at: &str) -> Option<Result<ImageId, String>> {
+        if let Some(known) = self.by_path.get(at) {
+            return Some(known.clone());
+        }
+        let file = self.files.image(at)?;
+        if !self.read.iter().any(|p| p == at) {
+            self.read.push(at.to_string());
+        }
+        let id = file.map(|file| {
+            let id = file.id;
+            self.images.entry(id).or_insert(file);
+            id
+        });
+        self.by_path.insert(at.to_string(), id.clone());
+        Some(id)
     }
 
     /// An interaction with its path, if it has one, made relative to the top of
@@ -1120,6 +1334,7 @@ fn shadow(v: &Value) -> Result<Shadow, String> {
             b: 0,
             a: 64,
         },
+        at: Origin::default(),
     };
     for (k, v) in fields {
         match k.as_str() {
@@ -1646,7 +1861,46 @@ mod tests {
         .into());
         let scene = resolve(&fs, "a.design").unwrap();
         let image = scene.root.children[0].image.as_ref().unwrap();
-        assert_eq!((image.pixels.width, image.pixels.height), (160, 160));
+        let file = &scene.images[&image.id];
+        assert_eq!((file.width, file.height), (160, 160));
+        assert_eq!((file.pixels_width, file.pixels_height), (160, 160));
+    }
+
+    /// A file larger than [`MAX_IMAGE_SIDE`] is drawn from its pixels
+    /// resampled to fit it, keeping its aspect; an `Image` still hugs the
+    /// file's own size.
+    #[test]
+    fn a_large_image_file_is_resampled_once_to_fit() {
+        let mut data = Vec::new();
+        let mut e = png::Encoder::new(&mut data, 9000, 10);
+        e.set_color(png::ColorType::Rgba);
+        let mut w = e.write_header().unwrap();
+        // Red to x = 4500, blue past it.
+        let row: Vec<u8> = (0..9000)
+            .flat_map(|x| {
+                if x <= 4500 {
+                    [255, 0, 0, 255]
+                } else {
+                    [0, 0, 255, 255]
+                }
+            })
+            .collect();
+        w.write_image_data(&row.repeat(10)).unwrap();
+        drop(w);
+        let file = ImageFile::new(data).unwrap();
+        assert_eq!((file.width, file.height), (9000, 10));
+        assert_eq!((file.pixels_width, file.pixels_height), (4096, 5));
+        let px = |x: usize| &file.pixels[4 * x..][..4];
+        assert_eq!(px(0), [255, 0, 0, 255]);
+        assert_eq!(px(4095), [0, 0, 255, 255]);
+        // Column 2048 covers x = 4500 to 4502.2: one part red, 1.2 blue.
+        assert_eq!(px(2048), [116, 0, 139, 255]);
+        // A fitting file is drawn from its own pixels.
+        let (same, w, h) = fit(&[1, 2, 3, 4], 1, 1, MAX_IMAGE_SIDE);
+        assert_eq!((same, w, h), (vec![1, 2, 3, 4], 1, 1));
+        // A transparent pixel lends no color to its neighbour.
+        let (mixed, _, _) = fit(&[255, 255, 255, 0, 0, 0, 255, 255], 2, 1, 1);
+        assert_eq!(mixed, [0, 0, 255, 128]);
     }
 
     #[test]

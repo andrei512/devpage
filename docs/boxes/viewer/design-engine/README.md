@@ -85,10 +85,20 @@ it finds, not just the first: unknown elements, attributes and props, values
 of the wrong type, missing or out-of-folder imports, images and interaction
 targets, images that don't decode, and designs that use themselves.
 
-An image's file is decoded whole while resolving — a PNG or JPEG that starts
-right but is broken or cut short is a problem at its `src` — and its pixels go
-with the scene, so painting never decodes. In the browser the module decodes
-an image's bytes once, when the scene or patch carrying it arrives.
+An `Image`'s file is decoded whole while resolving — a PNG or JPEG that starts
+right but is broken or cut short is a problem at its `src` — and goes with the
+scene as an **image file**, known by its content: the SHA-256 of its bytes.
+However many `Image`s show a file, under whatever names, the scene holds it
+once, decoded once, so painting never decodes. The server keeps a file decoded
+until the file changes, so a save of the design doesn't decode its images
+again; the browser decodes a file once, when the first scene or patch
+carrying it arrives, and keeps it while the scene shows it.
+
+A file larger than 4,096 pixels a side is resampled once, as it is decoded, to
+fit 4,096 with its aspect kept — each new pixel the area-weighted average of
+the pixels under it, in premultiplied alpha — and both backends draw those
+pixels; an `Image` still hugs the file's own size. Why 4,096 is
+[the GPU's image atlas](#the-gpus-image-atlas).
 
 Every path a node carries — an image's file, an interaction's target — is
 stored as an address in the served folder, worked out from the file it was
@@ -123,7 +133,8 @@ the same natively and in WebAssembly. No system font is ever consulted.
 The painter walks the laid-out scene once and turns it into the engine's
 **display list**: an ordered list of drawing commands in canvas pixels —
 fills and gradients, strokes, rounded corners, blurred shadows, clip and
-opacity layers, vector paths, images and parley's glyph runs. Everything a
+opacity layers, layers that add what is in them to what is under them, vector
+paths, images and parley's glyph runs. Everything a
 drawing depends on is decided there. Two thin backends replay that one list,
 each translating a command into its library's call and nothing more:
 
@@ -133,18 +144,6 @@ each translating a command into its library's call and nothing more:
 - **In the server, on the CPU**: `vello_cpu`, into an RGBA buffer that is
   encoded as the PNG — a server, a CI runner or a container has no GPU to
   count on. A browser without WebGPU paints the canvas with `vello_cpu` too.
-
-A shadow is its box's own shape — each corner's radius plus the spread — blurred
-by a true Gaussian, with a standard deviation of half the `blur`. Vello's
-blurred rounded rectangle takes one radius for all four corners, and the two
-backends share no blur filter, so the painter makes the shadow itself: it
-samples the shape's coverage every half standard deviation, blurs the samples,
-and puts the result in the list as an image filling the shadow's extent. A
-Gaussian that wide has no detail finer than its samples, so, sampled smoothly,
-the image is as sharp as the shadow at any zoom. A shadow that would need more
-than about a million samples — a huge box with a slight blur — is sampled
-more coarsely, and comes out slightly softer than asked for. A shadow with no
-blur is the shape filled.
 
 The list covers the design's **drawing**: the root's box, widened by
 everything painted outside it — a shadow's blur, a stroke, a child placed
@@ -161,7 +160,69 @@ Both backends replay the
 [same display list](../constraints/a-design-has-one-renderer.md); they differ
 only where two rasterizers can — the last bit of anti-aliasing at an edge.
 `vello_cpu` has its own API rather than replaying a `vello` scene, which is why
-the shared form is the engine's list and not a vello type.
+the shared form is the engine's list and not a vello type. Where the two
+libraries mean different things by the same call, the GPU backend's
+translation evens it out: vello's GPU shader samples a gradient at each
+pixel's corner, where vello_cpu — and both, for an image — take its center, so
+each gradient goes to the GPU moved half a device pixel.
+
+### Shadows
+
+A shadow is its box's own shape — each corner's radius plus the spread — blurred
+by a true Gaussian with a standard deviation σ of half the `blur`, reaching
+three σ, past which it is under 0.15%. Vello's blurred rounded rectangle takes
+one radius for all four corners, and the two backends share no blur filter,
+so the painter computes the blur itself (`design/src/shadow.rs`): it samples
+the shape's coverage every half σ — the shape flattened to lines within a
+hundredth of a sample, as the rasterizer's own flattening would pull a curve
+in — and blurs the samples. A Gaussian that wide has no detail finer than its
+samples, so, drawn smoothly, they are the shadow at any zoom. A shadow with no
+blur is the shape filled.
+
+A shadow of up to 65,536 samples is one image of them. A larger one — a big
+box, or a slight blur, down to a 16,384-pixel box blurred by 2 — is never
+sampled more coarsely: it is drawn in pieces, each in a layer that adds it to
+what is under it, inside one layer at the shadow color's opacity, so where two
+pieces meet edge to edge they add up to the shadow with no seam at any zoom:
+
+- solid where the blur can't reach the edge;
+- along a straight edge, where it varies only across the edge, the edge's
+  one-dimensional profile stretched along it;
+- a corner rounded by less than 16 σ, sampled in two dimensions;
+- a rounder corner, the blurred edge of a disc as a radial gradient: across a
+  disc of radius r, the straight edge's profile less φ(d)·σ/2r, within 0.1 of
+  255 of the exact blur;
+- an ellipse that isn't a circle, in wedges, each within a hundredth of σ of
+  its circle of curvature and drawn as that circle's blurred edge, or sampled
+  where the ellipse curves tighter than 16 σ; one too thin to be solid
+  anywhere, in tiles that skip where the blur can't reach.
+
+What holds at every allowed size, from a 100-pixel box to a 16,000-pixel one,
+and the tests pin: two and a half σ out the shadow is at most 2 of 255 and
+fades on from there, with no step where it ends; a straight edge rises from
+10% to 90% over 2.563 σ, give or take 0.2 σ, its middle on the box's edge to a
+quarter of a pixel; and a shadow in pieces is within 4 of 255 of the same
+shadow as one image, at 1× and at scales that put each meeting edge part way
+across a pixel. A 16,000-pixel box's shadow is 32 commands and builds in about
+40 µs; an ellipse 16,000 by 8,000 blurred by 2, in about 0.3 ms.
+
+### The GPU's image atlas
+
+vello copies every image a frame paints — image files and a shadow's images
+alike — into one atlas texture at most 8,192 pixels a side, and an image that
+finds no room there is left out of the frame without a word. So the engine
+decides it first. `Renderer::drawing` gives each image a drawing paints a blob
+of its own, made in the order the drawing first paints it, and places them as
+`vello_encoding`'s own image cache places them in a fresh atlas
+(`design/src/atlas.rs`): the same `guillotiere` allocator, in that order, the
+atlas starting at 1,024 a side and doubling, everything placed so far repacked
+at each size. A drawing whose images don't all fit is the design's problem, at
+the `src` — or the `shadow` — of the first that doesn't, in the store,
+`devpage check` and the PNG route alike, so the canvas never draws one with a
+hole. An image file takes its room once however many `Image`s show it, and is
+at most 4,096 pixels a side, so four of the largest fill the atlas. The canvas
+renders each drawing with a vello renderer of its own, so its atlas holds that
+drawing's images and nothing else, placed as the engine placed them.
 
 ## In the server
 
@@ -208,10 +269,11 @@ unless it sits behind a proxy that offers more, and the page's
 [event stream](../live-updates/README.md#the-channel-and-the-stream) already
 holds one. For each design in the set:
 
-- the first update is the whole scene;
+- the first update is the whole scene, with each image file it shows once;
 - after a save, the server resolves the design again, compares the new scene
   with the one it last sent, and sends a **patch**: the nodes whose subtree
-  changed, each replaced by its id;
+  changed, each replaced by its id, and only the image files the scene it
+  last sent didn't have — a node shows a file by its id;
 - when the design has problems, an update carries them instead, and the
   browser keeps the last scene it drew; once fixed, the next patch is against
   that last scene — an empty one when the fix restored it exactly — and any
@@ -233,7 +295,8 @@ off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
 one per canvas. The module lays out and paints on the GPU into a `<canvas>`
 sized to the screen's device pixels; one WebGPU device serves every canvas on
-the page. On a slide, the 1920 × 1080 stage is scaled to the window by a
+the page, and each drawing a canvas shows gets a vello renderer of its own —
+its own [image atlas](#the-gpus-image-atlas). On a slide, the 1920 × 1080 stage is scaled to the window by a
 transform the canvas's CSS size doesn't see, so the bitmap follows the
 canvas's box on the screen and the module paints at the view's zoom times that
 transform — the whole drawing shows, crisp, at any window size — and a click
@@ -275,6 +338,7 @@ gets its whole scene.
 | What happens | What the reader sees |
 | --- | --- |
 | A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)). |
+| A design's images don't fit the GPU together | The problem at the `src` of the first that doesn't fit, over the last valid drawing — never a drawing with a hole; the PNG route answers with it too. |
 | A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |
 | The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |

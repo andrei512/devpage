@@ -831,10 +831,12 @@ dependencies = [
 name = "devpage-design"
 version = "0.2.0"
 dependencies = [
+ "guillotiere",
  "parley",
  "png",
  "prost",
  "protox",
+ "sha2",
  "taffy",
  "tonic",
  "tonic-prost",

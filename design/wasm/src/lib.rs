@@ -34,6 +34,10 @@ pub struct Design {
     /// The scene laid out and turned into its display list, once per change.
     /// The page sees only the drawing, with its top-left at `(0, 0)`.
     laid_out: Option<Drawing>,
+    /// Which drawing `laid_out` is, counting from one: each is painted on
+    /// the GPU by a renderer of its own, whose image atlas holds just its
+    /// images.
+    drawings: u64,
 }
 
 /// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
@@ -77,6 +81,7 @@ impl Design {
             scene: None,
             problems: Vec::new(),
             laid_out: None,
+            drawings: 0,
         }
     }
 
@@ -85,15 +90,14 @@ impl Design {
         let Ok(update) = Update::decode(bytes) else {
             return Applied::Nothing;
         };
-        match update.body {
-            Some(Body::Scene(root)) => {
-                self.scene = Some(Scene {
-                    root: wire::decode(&root),
-                    files: Vec::new(),
-                });
+        let applied = match update.body {
+            Some(Body::Scene(whole)) => {
+                // Image files the canvas already holds aren't decoded again.
+                let held = self.scene.take().map(|s| s.images).unwrap_or_default();
+                wire::decode_scene(&whole, &held).map(|scene| self.scene = Some(scene))
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
-                Some(scene) => wire::apply(&mut scene.root, &patch.replace),
+                Some(scene) => wire::apply(scene, &patch),
                 None => return Applied::Nothing,
             },
             Some(Body::Problems(problems)) => {
@@ -101,6 +105,12 @@ impl Design {
                 return Applied::Problems;
             }
             None => return Applied::Nothing,
+        };
+        if let Err(e) = applied {
+            self.problems = vec![format!(
+                "the watch stream sent what the engine can't use: {e}"
+            )];
+            return Applied::Problems;
         }
         self.problems.clear();
         self.laid_out = None;
@@ -156,12 +166,20 @@ impl Design {
 }
 
 impl Design {
-    /// The drawing, laid out once per change. A drawing too big to paint has
-    /// none; the server reports it as the design's problem.
+    /// Which drawing [`Design::laid_out`] last made, counting from one.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn drawing_number(&self) -> u64 {
+        self.drawings
+    }
+
+    /// The drawing, laid out once per change. A drawing that can't be
+    /// painted — too big, or its images too many for the GPU — has none; the
+    /// server reports it as the design's problem.
     fn laid_out(&mut self) -> Option<&Drawing> {
         if self.laid_out.is_none() {
             let scene = self.scene.as_ref()?;
             self.laid_out = Some(self.engine.drawing(scene).ok()?);
+            self.drawings += 1;
         }
         self.laid_out.as_ref()
     }
@@ -242,7 +260,7 @@ mod tests {
     fn scene_message() -> Vec<u8> {
         let scene = devpage_design::resolve(&files(), "screen.design").unwrap();
         Update {
-            body: Some(Body::Scene(wire::encode(&scene.root))),
+            body: Some(Body::Scene(wire::scene(&scene))),
             ..Default::default()
         }
         .encode_to_vec()
@@ -290,6 +308,7 @@ mod tests {
                     id: "0".to_string(),
                     node: Some(wire::encode(&wider.root)),
                 }],
+                images: vec![],
             })),
             ..Default::default()
         }
@@ -303,7 +322,10 @@ mod tests {
     fn a_patch_before_any_scene_or_garbage_does_nothing() {
         let mut design = Design::new();
         let patch = Update {
-            body: Some(Body::Patch(Patch { replace: vec![] })),
+            body: Some(Body::Patch(Patch {
+                replace: vec![],
+                images: vec![],
+            })),
             ..Default::default()
         }
         .encode_to_vec();
@@ -325,7 +347,7 @@ mod tests {
         )]);
         let scene = devpage_design::resolve(&files, "clip.design").unwrap();
         let message = Update {
-            body: Some(Body::Scene(wire::encode(&scene.root))),
+            body: Some(Body::Scene(wire::scene(&scene))),
             ..Default::default()
         }
         .encode_to_vec();
