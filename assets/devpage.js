@@ -70,14 +70,16 @@ async function mountWidgets(root) {
   }
   const placeholders = [...root.querySelectorAll("[data-widget]")].filter((el) => !el.parentElement.closest("[data-widget]"));
   if (!placeholders.length) return;
-  const React = await import("react");
-  const { createRoot } = await import("react-dom/client");
   // Only the widgets this content names, nested ones included, and those they
-  // render by name.
+  // render by name — loaded alongside React, not after it.
   const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
-  await Promise.all([...names].map((name) => loadWidget(name)
-    .then(() => { delete widgetLoadErrors[name]; })
-    .catch((error) => { widgetLoadErrors[name] = error; })));
+  const [React, { createRoot }] = await Promise.all([
+    import("react"),
+    import("react-dom/client"),
+    ...[...names].map((name) => loadWidget(name)
+      .then(() => { delete widgetLoadErrors[name]; })
+      .catch((error) => { widgetLoadErrors[name] = error; })),
+  ]);
 
   class Boundary extends React.Component {
     constructor(props) { super(props); this.state = { error: null }; }
@@ -226,6 +228,17 @@ const seeded = print ? Promise.resolve() : fetch(location.href, { cache: "only-i
   .then((response) => { if (response.ok && shown.etag === null) shown.etag = response.headers.get("etag"); })
   .catch(() => {});
 
+// Starts what a fetched page names in its head — its modules and the design
+// engine's wasm — here, so they download together before mounting asks for
+// them. A link this page has already is not added twice.
+function adoptPreloads(next) {
+  for (const link of next.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]')) {
+    const href = link.getAttribute("href");
+    const known = [...document.head.querySelectorAll(`link[rel="${link.rel}"]`)].some((have) => have.getAttribute("href") === href);
+    if (!known) document.head.append(document.importNode(link, true));
+  }
+}
+
 // Fetches a page of this document and swaps its content and sidebar in —
 // unless it is the page shown, unchanged.
 async function load(url) {
@@ -242,6 +255,7 @@ async function load(url) {
     return "navigating";
   }
   shown = { url: pageKey(url), etag };
+  adoptPreloads(next);
   keepDesigns(() => {
     for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
       const fresh = next.getElementById(id);

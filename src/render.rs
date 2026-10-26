@@ -215,7 +215,8 @@ pub fn title(source: &str, path: &Path) -> String {
         })
 }
 
-/// The page script's tag. In print mode it keeps no live connection and shows
+/// The page script's tag, for the head: deferred, so it is fetched with
+/// everything else the head names and runs once the page is parsed. In print mode it keeps no live connection and shows
 /// no controls; with comments off (`devpage --no-comments`) it shows no
 /// comment threads and offers no way to start one.
 fn page_script(print: bool, comments: bool) -> String {
@@ -227,7 +228,7 @@ fn page_script(print: bool, comments: bool) -> String {
         ""
     };
     format!(
-        "<script src=\"{}\"{setting}></script>",
+        "<script defer fetchpriority=\"high\" src=\"{}\"{setting}></script>",
         address(Owned::Asset("devpage.js"))
     )
 }
@@ -237,6 +238,7 @@ fn page_script(print: bool, comments: bool) -> String {
 /// comments are on.
 pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> String {
     let current = document.url(file);
+    let content = markdown_in(document, source);
     format!(
         r#"<!doctype html>
 <html lang="en">
@@ -246,17 +248,15 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
 <title>{tab}</title>
 {theme}
 <link rel="stylesheet" href="{stylesheet}">
+{script}
 {widgets}
 </head>
 <body class="{body_class}" data-build="{build}">
 {navbar}{sidebar}{corner}
 <main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
-<script src="{pele}"></script>
-{script}
 </body>
 </html>"#,
         stylesheet = address(Owned::Asset("style.css")),
-        pele = address(Owned::Asset("pele.js")),
         build = crate::addresses::BUILD,
         tab = escape(&tab_title(&title(source, file), &document.title)),
         theme = crate::navbar::head(document),
@@ -269,9 +269,8 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
         } else {
             String::new()
         },
-        content = markdown_in(document, source),
         problems = problems(document, &[file.to_path_buf()]),
-        widgets = crate::widgets::Widgets::of(document).head(),
+        widgets = crate::widgets::Widgets::of(document).head(&content),
     )
 }
 
@@ -348,18 +347,16 @@ pub fn doc(
 <title>{title}</title>
 {theme}
 <link rel="stylesheet" href="{stylesheet}">
+{script}
 {widgets}
 <style>@page {{ size: {paper}; margin: 22mm 18mm; }}</style>
 </head>
 <body class="doc{print_class}" data-build="{build}">
 {corner}{outline}
 <main id="devpage-page">{problems}<article>{heading}{content}</article></main>
-<script src="{pele}"></script>
-{script}
 </body>
 </html>"#,
         stylesheet = address(Owned::Asset("style.css")),
-        pele = address(Owned::Asset("pele.js")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),
         theme = crate::navbar::head(document),
@@ -368,7 +365,7 @@ pub fn doc(
         } else {
             crate::navbar::corner(document, comments)
         },
-        widgets = crate::widgets::Widgets::of(document).head(),
+        widgets = crate::widgets::Widgets::of(document).head(&content),
         // A lone Markdown file's title is its own first heading; don't repeat it.
         heading = if document.file_name.ends_with(".md") {
             String::new()
@@ -502,17 +499,15 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 <title>{address} · {document}</title>
 {theme}
 <link rel="stylesheet" href="{stylesheet}">
+{page_script}
 </head>
 <body class="invalid" data-build="{build}">
 <main id="devpage-page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
-<script src="{pele}"></script>
-<script src="{page_script}"></script>
 </body>
 </html>"#,
         stylesheet = crate::addresses::address(Owned::Asset("style.css")),
-        pele = crate::addresses::address(Owned::Asset("pele.js")),
         build = crate::addresses::BUILD,
-        page_script = crate::addresses::address(Owned::Asset("devpage.js")),
+        page_script = page_script(false, true),
         address = escape(&address),
         document = escape(&entry.title),
         theme = crate::navbar::head(entry),
@@ -563,17 +558,15 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool
 <title>{title}</title>
 {theme}
 <link rel="stylesheet" href="{stylesheet}">
+{script}
 {widgets}
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
 <body class="slides{print_class}" data-build="{build}">
 {corner}<main id="devpage-page" class="deck">{problems}{content}</main>
-<script src="{pele}"></script>
-{script}
 </body>
 </html>"#,
         stylesheet = address(Owned::Asset("style.css")),
-        pele = address(Owned::Asset("pele.js")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),
         theme = crate::navbar::head(document),
@@ -582,7 +575,7 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool
         } else {
             crate::navbar::corner(document, comments)
         },
-        widgets = crate::widgets::Widgets::of(document).head(),
+        widgets = crate::widgets::Widgets::of(document).head(&content),
         print_class = if print { " print" } else { "" },
         script = page_script(print, comments),
         problems = if print {
@@ -1062,7 +1055,7 @@ mod tests {
             ]
         };
         let script = format!(
-            "<script src=\"{}\" data-no-comments>",
+            "<script defer fetchpriority=\"high\" src=\"{}\" data-no-comments>",
             address(Owned::Asset("devpage.js"))
         );
         for html in frames(true) {
@@ -1076,6 +1069,144 @@ mod tests {
         // Print mode shows no controls either way, and stays print mode.
         let print = slides(&deck, files, true, false);
         assert!(print.contains("data-print") && !print.contains("data-no-comments"));
+    }
+
+    /// The `href` of every `<link rel="{rel}">` in a page's head.
+    fn linked(html: &str, rel: &str) -> Vec<String> {
+        let head = &html[..html.find("</head>").unwrap()];
+        head.split("<link ")
+            .skip(1)
+            .filter(|tag| tag.starts_with(&format!("rel=\"{rel}\"")))
+            .map(|tag| {
+                tag.split("href=\"")
+                    .nth(1)
+                    .unwrap()
+                    .split('"')
+                    .next()
+                    .unwrap()
+                    .to_string()
+            })
+            .collect()
+    }
+
+    /// A site of `files` (path, text) in a fresh folder, with a `widgets`
+    /// folder, and its `README.md` rendered as a page.
+    fn site_page(name: &str, readme: &str, files: &[(&str, &str)]) -> (PathBuf, String) {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-render-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: S\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), readme).unwrap();
+        for (file, text) in files {
+            std::fs::write(dir.join(file), text).unwrap();
+        }
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let html = page(&site, &dir.join("README.md"), readme, true);
+        (dir, html)
+    }
+
+    #[test]
+    fn a_diagram_page_preloads_the_diagram_widget_pele_and_react() {
+        let (_, html) = site_page(
+            "diagram",
+            "# D\n\n```mermaid\nflowchart LR\n  A --> B\n```\n",
+            &[],
+        );
+        let modules = linked(&html, "modulepreload");
+        for owned in [
+            Owned::Asset("react.js"),
+            Owned::Asset("pele.js"),
+            Owned::SystemWidget("Diagram"),
+        ] {
+            assert!(
+                modules.contains(&address(owned)),
+                "{owned:?} in {modules:?}"
+            );
+        }
+        assert!(!html.contains("<script src=\"/__devpage/pele."), "{html}");
+    }
+
+    #[test]
+    fn a_plain_page_loads_neither_pele_nor_react_nor_any_widget() {
+        let (_, html) = site_page("plain", "# Plain\n\nJust text.\n", &[]);
+        assert!(linked(&html, "modulepreload").is_empty(), "{html}");
+        assert!(linked(&html, "preload").is_empty(), "{html}");
+        assert!(!html.contains("<script src=\"/__devpage/pele."), "{html}");
+        // The page script is in the head, deferred: fetched with the rest.
+        let head = &html[..html.find("</head>").unwrap()];
+        assert!(
+            head.contains(&format!(
+                "<script defer fetchpriority=\"high\" src=\"{}\"></script>",
+                address(Owned::Asset("devpage.js"))
+            )),
+            "{head}"
+        );
+    }
+
+    #[test]
+    fn a_widget_page_preloads_its_widgets_what_they_render_and_their_helpers() {
+        let (dir, html) = site_page(
+            "helpers",
+            "# Deck\n\n<Card />\n",
+            &[
+                (
+                    "widgets/Card.tsx",
+                    "import { frame } from \"./frames\";\nexport default function Card() { return <Callout>{frame}</Callout>; }\n",
+                ),
+                ("widgets/frames.tsx", "export const frame = 'f';\n"),
+                ("widgets/Unused.tsx", "export default () => <i />;\n"),
+            ],
+        );
+        let modules = linked(&html, "modulepreload");
+        let known: Vec<String> =
+            crate::widgets::Widgets::of(&Document::load(&dir.join("devpage.yml"), &dir).unwrap())
+                .modules
+                .into_keys()
+                .collect();
+        let module = |file: &str| {
+            address(Owned::Module {
+                served: &dir,
+                file: &dir.join(file),
+                known: &known,
+            })
+        };
+        let frames = module("widgets/frames.tsx");
+        assert!(frames.contains("frames.tsx?v="), "{frames}");
+        for expected in [
+            address(Owned::Asset("react.js")),
+            module("widgets/Card.tsx"),
+            frames,
+            address(Owned::SystemWidget("Callout")),
+        ] {
+            assert!(modules.contains(&expected), "{expected} in {modules:?}");
+        }
+        assert!(!modules.iter().any(|m| m.contains("Unused")), "{modules:?}");
+        assert!(!modules.contains(&address(Owned::Asset("pele.js"))));
+        assert_eq!(modules.len(), 4, "{modules:?}");
+    }
+
+    #[test]
+    fn a_design_page_preloads_the_design_chain_and_its_wasm_last() {
+        let (_, html) = site_page("design", "# D\n\n![Checkout](checkout.design)\n", &[]);
+        let modules = linked(&html, "modulepreload");
+        assert_eq!(
+            modules,
+            [
+                address(Owned::Asset("design.js")),
+                address(Owned::Asset("design-engine.js"))
+            ]
+        );
+        let wasm = format!(
+            "<link rel=\"preload\" href=\"{}\" as=\"fetch\" crossorigin fetchpriority=\"low\">",
+            address(Owned::Asset("design-engine.wasm"))
+        );
+        assert!(html.contains(&wasm), "{html}");
     }
 
     #[test]

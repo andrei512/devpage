@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 238 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 61 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 242 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 62 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 150 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 168 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 61 tests marked `#[ignore]`, 60 drive Chrome, and one of them also
+Of the 62 tests marked `#[ignore]`, 61 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 19 in Chrome, 1 on the network.*
+*4 tests, 20 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -243,6 +243,7 @@ In Chrome:
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
+- A plain page fetching neither pele nor React nor any widget; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
 - Widgets mounting again after a live update and an edited widget or helper reaching open pages.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
@@ -252,7 +253,7 @@ In Chrome:
 
 ### `render`
 
-*17 tests.*
+*21 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -268,6 +269,7 @@ In Chrome:
 - A page's title.
 - A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
+- The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading nothing, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
 
 ### `server`
 

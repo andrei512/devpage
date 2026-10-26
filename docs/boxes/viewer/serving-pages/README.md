@@ -120,7 +120,7 @@ addresses.
 | --- | --- | --- |
 | `style.css` | `assets/style.css` | `text/css` |
 | `devpage.js` | `assets/devpage.js` | `text/javascript` |
-| `pele.js` | `assets/vendor/pele.js` | `text/javascript` |
+| `pele.js` | `assets/vendor/pele.js`, served as a module: `build.rs` appends `export default pele;` | `text/javascript` |
 | `react.js` | `assets/vendor/react.js` | `text/javascript` |
 | `design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
 | `design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
@@ -129,7 +129,8 @@ addresses.
 Every address a page loads from devpage — these, and the
 [widgets'](../widgets/how-widgets-run/README.md#compiling) — is made by one
 function, `address` in `src/addresses.rs`, so the page's tags, its import map,
-its widget list and the imports inside a compiled widget never name the same
+its widget list, its [preloads](../rendering-a-page/README.md#the-load-set) and
+the imports inside a compiled widget never name the same
 file two ways. An asset is also asked for by its bare name (`devpage.js`) or
 by an older hash, as a page from an older build does; it answers with the
 current bytes. Any other name under `/__devpage/` is `404`. Changing an asset

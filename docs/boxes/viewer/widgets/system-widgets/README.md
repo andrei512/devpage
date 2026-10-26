@@ -156,7 +156,8 @@ Lucide doesn't have is a [problem](../../checking-links/README.md).
 
 ## Diagram
 
-The diagram, drawn by pele. Every `mermaid` fence renders through it, so the
+The diagram, drawn by pele, which it imports — so a page loads pele only when
+it has a diagram. Every `mermaid` fence renders through it, so the
 tag itself is rarely written — see [Diagrams](../../diagrams/README.md).
 
 <Example>
