@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 223 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 229 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
 ```
 
@@ -60,10 +60,9 @@ Nine tests save a file and wait for devpage to hear of it through `notify`:
   `the_watch_list_follows_the_entry_file`,
   `a_sites_watch_list_narrows_only_its_own_folder`,
   `the_entrys_watch_list_does_not_quiet_another_folder` and
-  `widget_files_refresh_whatever_watch_says` (of the other two,
-  `ignored_files_and_files_outside_watch_do_not_refresh` expects no event and
-  `a_changed_file_reaches_the_design_store` waits for none, so both pass
-  either way);
+  `widget_files_refresh_whatever_watch_says` (of the others,
+  `ignored_files_and_files_outside_watch_do_not_refresh` expects no event,
+  and the rest feed made-up events, so they pass either way);
 - `server::the_entry_document_follows_its_file_without_a_restart`;
 - two Chrome tests in `comments::browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
@@ -314,7 +313,7 @@ In Chrome:
 
 ### `watch`
 
-*8 tests.*
+*12 tests.*
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
@@ -323,6 +322,13 @@ In Chrome:
 - A site's `watch` narrowing only its own folder, whichever document devpage was started with.
 - Widget files refreshing whatever `watch` says.
 - A changed file reaching the design store, and none under `.devpage/`, handed over directly, without waiting on file-system events.
+
+Without waiting on file-system events, fed made-up `notify` events:
+
+- Paths under `target/`, `.git/`, a `.gitignore`d folder and `.devpage/` dropped before any listener hears of them or any is canonicalized.
+- A comment thread and a `.gitignore`d file a site's `watch` names still arriving.
+- A new `.gitignore` rule taking effect without a restart.
+- A burst of saves to one file sending one `change`.
 
 ### `widgets`
 

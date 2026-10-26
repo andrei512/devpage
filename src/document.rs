@@ -497,6 +497,12 @@ impl Document {
         file.strip_prefix(&self.base)
             .is_ok_and(|relative| watch.is_match(relative))
     }
+
+    /// Whether this is a site whose `watch` list names `file`, relative to
+    /// its folder.
+    pub fn names(&self, file: &Path) -> bool {
+        self.watch.is_some() && self.watches(file)
+    }
 }
 
 /// The document devpage was started with, re-read whenever its file changes,
