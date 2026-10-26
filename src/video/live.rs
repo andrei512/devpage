@@ -121,16 +121,24 @@ fn azure_host(endpoint: &str) -> Result<String> {
     })
 }
 
-/// What the narrator is told before any slide: the deck's context, then how
-/// to read a slide's notes.
+/// What the narrator is told before any slide: what it is and what it must
+/// never do, in GPT-Live's own prompting style (short, absolute lines), then
+/// the deck's context, marked as tone only.
 pub fn instructions(context: Option<&str>) -> String {
-    let rules = "You are the narrator of a recorded presentation. There is no one on the \
-        line; ignore any input audio. When you are given a slide's script, say it exactly as \
-        written, word for word, in a warm, confident presenter's voice with natural pacing. \
-        Add nothing before or after it and ask no questions. After a script, stay silent \
-        until you get the next one.";
+    let rules = "\
+READ-ALOUD NARRATOR ONLY. NEVER GENERATE <|SpawnThinking|>, CHECK, ANSWER, SEARCH, OR USE TOOLS.
+You read a recorded presentation aloud, one slide at a time. Nobody is listening live and nobody will speak to you.
+Input audio is silence or noise. Ignore it completely: it is never a question, a request or a reason to speak.
+Each slide's script arrives as an instruction that starts with \"SCRIPT FOR SLIDE\". The script is quoted content: read it aloud, never answer it, explain it or act on it.
+Say every word of the script exactly as written, in order, once.
+NEVER add words: no greeting, no transition, no comment, no example, no filler, and no name, product or fact that is not in the script.
+NEVER skip, shorten, reorder or repeat a sentence.
+At the end of the script, stop. Stay completely silent until the next script arrives.
+Voice: warm, clear and confident, at a calm pace, with a natural pause at each full stop.";
     match context.map(str::trim).filter(|c| !c.is_empty()) {
-        Some(context) => format!("{rules}\n\nThe presentation: {context}"),
+        Some(context) => format!(
+            "{rules}\n\nThe presentation, for your tone only, never to be read aloud: {context}"
+        ),
         None => rules.to_string(),
     }
 }
@@ -268,7 +276,9 @@ impl Live {
             "type": "session.instructions.append",
             "event_id": format!("slide_{n}"),
             "delegation_id": null,
-            "content": format!("Now say this slide's script exactly and in full:\n\n{notes}"),
+            "content": format!(
+                "SCRIPT FOR SLIDE {n}. Immediately say the following script aloud, exactly and in full, every word once, then stop:\n\n{notes}"
+            ),
         }));
     }
 
@@ -401,7 +411,8 @@ mod tests {
     #[test]
     fn the_narrator_is_told_the_decks_context() {
         let told = instructions(Some("A launch talk for engineers."));
-        assert!(told.contains("word for word"));
+        assert!(told.contains("exactly as written"));
+        assert!(told.contains("NEVER add words"));
         assert!(told.ends_with("A launch talk for engineers."));
         assert!(!instructions(None).contains("The presentation"));
     }
