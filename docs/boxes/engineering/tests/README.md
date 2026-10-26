@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 243 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 244 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 169 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 170 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -365,7 +365,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `widgets`
 
-*26 tests.*
+*27 tests.*
 
 - `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
@@ -376,6 +376,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 - TSX compiled with the automatic runtime, widget shims, `__devpageUses` and relative imports rewritten to the addresses given.
 - A compile error's line.
 - Compiles remembered until the source or an import's address changes.
+- A version and compiled bytes made from one reading of the files, whatever is saved in between.
 - An edited helper changing its own version and its importers' — through another widget too — and no other widget's; a helper created, edited and removed after its importer was read moving the importer's version; the names a widget can render part of its version.
 - Lowercase files as helpers and a system widget's name as a problem.
 - A `Cards` icon drawn on the server and an unknown icon name as a problem.

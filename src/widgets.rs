@@ -122,7 +122,7 @@ impl Widgets {
             .collect();
         for (name, file) in own {
             let url = address(Owned::Module {
-                served: &document.served,
+                snapshot: &Snapshot::of(&document.served, &file),
                 file: &file,
                 known: &known,
             });
@@ -191,14 +191,15 @@ impl Widgets {
             widgets.push(self.modules[&name].clone());
             let compiled = match self.files.get(&name) {
                 Some(file) => {
-                    for (helper, _) in closure(&self.served, file).into_iter().skip(1) {
+                    let snapshot = Snapshot::of(&self.served, file);
+                    for (helper, _) in snapshot.closure(file).into_iter().skip(1) {
                         helpers.push(address(Owned::Module {
-                            served: &self.served,
+                            snapshot: &snapshot,
                             file: &helper,
                             known: &self.known,
                         }));
                     }
-                    compile_module(&self.served, file, &self.known)
+                    snapshot.compile(file, &self.known)
                 }
                 None => compile_system(&name).unwrap_or_else(|| Err(anyhow!("no {name}"))),
             };
@@ -230,7 +231,7 @@ impl Widgets {
 /// A module file as last read: its source and the files its relative imports
 /// name, remembered until its change time or size moves or the watcher says
 /// it — or a file one of its imports could name — changed.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct Read {
     changed: Option<std::time::SystemTime>,
     len: u64,
@@ -359,68 +360,114 @@ fn relative_imports(path: &Path, source: &str) -> Vec<String> {
         .collect()
 }
 
-/// `file` and every module its relative imports reach inside the served
-/// folder: `file` first, then the rest in path order, each with its source.
-pub fn closure(served: &Path, file: &Path) -> Vec<(PathBuf, Arc<str>)> {
-    let Some(root) = read(file) else {
-        return Vec::new();
-    };
-    let mut found: BTreeMap<PathBuf, Arc<str>> = BTreeMap::new();
-    let mut queue: Vec<PathBuf> = root.imports.iter().map(|(_, p)| p.clone()).collect();
-    while let Some(next) = queue.pop() {
-        if next == file || found.contains_key(&next) || !next.starts_with(served) {
-            continue;
+/// The files a module is made from, each read once: the module and every
+/// module its relative imports reach inside the served folder. Its version
+/// and its compiled bytes both come from one snapshot, so a save landing
+/// between the two can't serve new bytes under the old version.
+#[derive(Debug)]
+pub struct Snapshot {
+    served: PathBuf,
+    reads: BTreeMap<PathBuf, Read>,
+}
+
+impl Snapshot {
+    /// Reads `file` and every module its relative imports reach.
+    pub fn of(served: &Path, file: &Path) -> Self {
+        let mut reads = BTreeMap::new();
+        let mut queue = vec![file.to_path_buf()];
+        while let Some(next) = queue.pop() {
+            if reads.contains_key(&next) || (next != file && !next.starts_with(served)) {
+                continue;
+            }
+            let Some(read) = read(&next) else { continue };
+            queue.extend(read.imports.iter().map(|(_, p)| p.clone()));
+            reads.insert(next, read);
         }
-        let Some(read) = read(&next) else { continue };
-        queue.extend(read.imports.iter().map(|(_, p)| p.clone()));
-        found.insert(next, read.source);
+        Self {
+            served: served.to_path_buf(),
+            reads,
+        }
     }
-    std::iter::once((file.to_path_buf(), root.source))
-        .chain(found)
-        .collect()
+
+    /// The served folder the snapshot was read in.
+    pub fn served(&self) -> &Path {
+        &self.served
+    }
+
+    /// `file` and every module its relative imports reach, as read: `file`
+    /// first, then the rest in path order, each with its source. Empty when
+    /// `file` couldn't be read.
+    pub fn closure(&self, file: &Path) -> Vec<(PathBuf, Arc<str>)> {
+        let Some(root) = self.reads.get(file) else {
+            return Vec::new();
+        };
+        let mut found: BTreeMap<PathBuf, Arc<str>> = BTreeMap::new();
+        let mut queue: Vec<PathBuf> = root.imports.iter().map(|(_, p)| p.clone()).collect();
+        while let Some(next) = queue.pop() {
+            if next == file || found.contains_key(&next) || !next.starts_with(&self.served) {
+                continue;
+            }
+            let Some(read) = self.reads.get(&next) else {
+                continue;
+            };
+            queue.extend(read.imports.iter().map(|(_, p)| p.clone()));
+            found.insert(next, read.source.clone());
+        }
+        std::iter::once((file.to_path_buf(), root.source.clone()))
+            .chain(found)
+            .collect()
+    }
+
+    /// A module's version: a hash of its source, the sources of every module
+    /// its relative imports reach (each with its path), the widget names it
+    /// can render and devpage's build — everything its compiled bytes are
+    /// made from. [`address`] is the address that carries it.
+    pub fn hash(&self, file: &Path, known: &[String]) -> String {
+        let mut hash = Sha256::new();
+        hash.update(crate::addresses::BUILD);
+        hash.update(known.join("\0"));
+        for (path, source) in self.closure(file) {
+            hash.update([0]);
+            hash.update(
+                path.strip_prefix(&self.served)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .as_bytes(),
+            );
+            hash.update([0]);
+            hash.update(source.as_bytes());
+        }
+        crate::addresses::short(&hash.finalize())
+    }
+
+    /// A project widget or helper, compiled as its address serves it: each
+    /// relative import rewritten to the imported module's address, made
+    /// from this same snapshot.
+    pub fn compile(&self, file: &Path, known: &[String]) -> Result<String> {
+        let read = self
+            .reads
+            .get(file)
+            .ok_or_else(|| anyhow!("{} can't be read", file.display()))?;
+        let imports = read
+            .imports
+            .iter()
+            .filter(|(_, path)| path.starts_with(&self.served))
+            .map(|(specifier, path)| {
+                let url = address(Owned::Module {
+                    snapshot: self,
+                    file: path,
+                    known,
+                });
+                (specifier.clone(), url)
+            })
+            .collect();
+        compile_cached(file, &read.source, known, &imports)
+    }
 }
 
-/// A module's version: a hash of its source, the sources of every module its
-/// relative imports reach (each with its path), the widget names it can
-/// render and devpage's build — everything its compiled bytes are made from.
-/// [`address`] is the address that carries it.
-pub fn module_hash(served: &Path, file: &Path, known: &[String]) -> String {
-    let mut hash = Sha256::new();
-    hash.update(crate::addresses::BUILD);
-    hash.update(known.join("\0"));
-    for (path, source) in closure(served, file) {
-        hash.update([0]);
-        hash.update(
-            path.strip_prefix(served)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .as_bytes(),
-        );
-        hash.update([0]);
-        hash.update(source.as_bytes());
-    }
-    crate::addresses::short(&hash.finalize())
-}
-
-/// A project widget or helper in the served folder, compiled as its address
-/// serves it: each relative import rewritten to the imported module's
-/// address.
+/// [`Snapshot::compile`] of `file`, read now.
 pub fn compile_module(served: &Path, file: &Path, known: &[String]) -> Result<String> {
-    let read = read(file).ok_or_else(|| anyhow!("{} can't be read", file.display()))?;
-    let imports = read
-        .imports
-        .into_iter()
-        .filter(|(_, path)| path.starts_with(served))
-        .map(|(specifier, path)| {
-            let url = address(Owned::Module {
-                served,
-                file: &path,
-                known,
-            });
-            (specifier, url)
-        })
-        .collect();
-    compile_cached(file, &read.source, known, &imports)
+    Snapshot::of(served, file).compile(file, known)
 }
 
 /// Whether `path` is a widget or helper file: a `.ts` or `.tsx` directly in a
@@ -1113,6 +1160,11 @@ pub fn system(name: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    /// [`Snapshot::hash`] of `file`, read now.
+    fn module_hash(served: &Path, file: &Path, known: &[String]) -> String {
+        Snapshot::of(served, file).hash(file, known)
+    }
+
     fn set(names: &[&str]) -> Widgets {
         let mut widgets = Widgets::default();
         for name in names {
@@ -1380,7 +1432,7 @@ mod tests {
         // The importer names the helper by the helper's own address.
         let card = compile_module(&dir, &w.join("Card.tsx"), &known).unwrap();
         let label = address(Owned::Module {
-            served: &dir,
+            snapshot: &Snapshot::of(&dir, &w.join("label.ts")),
             file: &w.join("label.ts"),
             known: &known,
         });
@@ -1417,7 +1469,7 @@ mod tests {
         let created = module_hash(&dir, &other, &known);
         assert_ne!(missing, created, "creating the helper");
         let label = address(Owned::Module {
-            served: &dir,
+            snapshot: &Snapshot::of(&dir, &w.join("label.ts")),
             file: &w.join("label.ts"),
             known: &known,
         });
@@ -1435,6 +1487,56 @@ mod tests {
         std::fs::remove_file(w.join("label.ts")).unwrap();
         forget(&w.join("label.ts"));
         assert_ne!(edited, module_hash(&dir, &other, &known), "removing it");
+    }
+
+    #[test]
+    fn a_snapshot_hashes_and_compiles_what_it_read_whatever_is_saved_since() {
+        let dir = std::env::temp_dir().join(format!("devpage-wsnap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("w")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let w = dir.join("w");
+        let card = w.join("Card.tsx");
+        std::fs::write(
+            &card,
+            "import { label } from \"./label\";\nexport default () => \"old\" + label;",
+        )
+        .unwrap();
+        std::fs::write(w.join("label.ts"), "export const label = 1;").unwrap();
+        let known = vec!["Card".to_string()];
+        let snapshot = Snapshot::of(&dir, &card);
+        let hash = snapshot.hash(&card, &known);
+        // Saves land between hashing and compiling.
+        std::fs::write(
+            &card,
+            "import { label } from \"./label\";\nexport default () => \"new\" + label;",
+        )
+        .unwrap();
+        std::fs::write(w.join("label.ts"), "export const label = 2;").unwrap();
+        forget(&card);
+        forget(&w.join("label.ts"));
+        assert_ne!(
+            hash,
+            module_hash(&dir, &card, &known),
+            "the files did change"
+        );
+        assert_eq!(hash, snapshot.hash(&card, &known));
+        let compiled = snapshot.compile(&card, &known).unwrap();
+        assert!(compiled.contains("\"old\""), "{compiled}");
+        let label = address(Owned::Module {
+            snapshot: &snapshot,
+            file: &w.join("label.ts"),
+            known: &known,
+        });
+        assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
+        assert_ne!(
+            label,
+            address(Owned::Module {
+                snapshot: &Snapshot::of(&dir, &w.join("label.ts")),
+                file: &w.join("label.ts"),
+                known: &known,
+            })
+        );
     }
 
     #[test]
@@ -1469,7 +1571,7 @@ mod tests {
         assert_eq!(
             widgets.modules["Card"],
             address(Owned::Module {
-                served: &dir,
+                snapshot: &Snapshot::of(&dir, &dir.join("widgets/Card.tsx")),
                 file: &dir.join("widgets/Card.tsx"),
                 known: &known
             })

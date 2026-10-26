@@ -58,7 +58,10 @@ page preloading its helper name the same address. A module asked for at its
 current version is served `immutable`, and the browser never asks for it
 again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
-comes from one function, `address` in `src/addresses.rs`. The files a version
+comes from one function, `address` in `src/addresses.rs`. A module's version
+and its compiled bytes come from one reading of the files they are made from
+(a `Snapshot`), so a save landing while a request is answered can't send the
+new bytes as `immutable` under the old version. The files a version
 is made from are read once and remembered until their change time or size
 moves, or the watcher reports them changed — or reports a file created,
 edited or removed where one of their relative imports could find it, so a
