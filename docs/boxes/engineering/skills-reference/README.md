@@ -55,6 +55,7 @@ An agent may also reach for these when its work calls for one.
 | `retro` | The session that coordinated `build` | A design branch that has merged into `main`. | A short report in chat: one line per stage, its cost and what it caught. Writes nothing. |
 | `align` | Used inside every stage | A conversation. | Shared understanding, one topic at a time. Writes no files and authorizes nothing. |
 | `documentation` | The operator, or any agent | A documentation subject and its scope. | Pages written to the five-layer reading hierarchy, from landing to reference. |
+| `presentation` | The operator, or any agent | A deck to make or improve, its purpose and its audience. | The story agreed with the operator (shaped with marketing and developer-relations viewpoints), slides of one headline and one picture each, speaker notes in plain English, every slide checked as an image. |
 | `codebase-design` | The operator, or any agent | Code being designed or restructured. | A vocabulary — module, interface, depth, seam, adapter, leverage, locality — and principles for deep modules. Upstream skill. |
 
 `AGENTS.md` names when the upstream architecture skill is used: architecture

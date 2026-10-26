@@ -1,15 +1,11 @@
-<Columns kicker="Get started" title="Start in two commands.">
+<Slide title="Try it today.">
 
-<Terminal>
+<Install />
 
-```
-$ cargo install devpage --locked
-$ devpage docs
-devpage → http://localhost:3030
-```
+</Slide>
 
-</Terminal>
-
-This deck is made with devpage. Press <Keys>F</Keys> for fullscreen, <Keys>←</Keys> <Keys>→</Keys> to move.
-
-</Columns>
+<Notes>
+You can try it today, in two commands. Install it, and run devpage docs in
+your repository. Your agent already writes your documents. Now you can read
+them. Thank you.
+</Notes>

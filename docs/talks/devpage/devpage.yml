@@ -1,23 +1,29 @@
-# The devpage talk: what devpage does and why to use it, as a deck made with
-# devpage — every slide uses what it describes. Its design, slide by slide,
-# is docs/boxes/showcase/README.md.
+# The devpage talk: what devpage is and why a developer would use it, as a
+# deck made with devpage — every slide uses what it describes. Half lesson,
+# half pitch, in plain English for readers who don't speak it natively. Its
+# design, slide by slide, is docs/boxes/showcase/README.md.
 kind: slides
 title: devpage
 logo: ../../logo.svg
 widgets: ../../widgets
+context: >
+  A short talk for software developers who use AI coding agents. It explains
+  what devpage is and why it helps: the agent writes the project's documents
+  in the repository, devpage shows them as live pages, and you review them in
+  the browser. Many listeners are not native English speakers, so speak
+  clearly, at a calm pace, with simple words. Friendly and confident, never
+  pushy.
 slides:
   - title.md
-  - problem.md
+  - agents-write.md
+  - hard-to-read.md
+  - scattered.md
+  - one-command.md
+  - live.md
+  - comments.md
   - kinds.md
   - designs.md
-  - live.md
-  - markdown.md
-  - diagrams.md
-  - widgets.md
-  - own-widgets.md
-  - comments.md
-  - checked.md
-  - paper.md
-  - navigation.md
-  - deploy.md
+  - sees.md
+  - share.md
+  - one-more.md
   - start.md

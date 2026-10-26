@@ -1,11 +1,12 @@
 // Where a project's documents usually live: windows of four different tools,
 // scattered and tilted, none of them the repository.
 export const css = `
-  .scattered-slide { position: absolute; inset: 0; padding: 96px 128px; }
+  .scattered-slide { position: absolute; inset: 0; padding: 104px 140px; }
   .scattered-kicker { font-size: 30px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--accent); }
-  .scattered-title { font-size: 96px; font-weight: 700; letter-spacing: -0.035em; line-height: 1.05; margin: 16px 0 0; max-width: 1200px; }
+  .scattered-title { font-size: 112px; font-weight: 700; letter-spacing: -0.04em; line-height: 1.04; margin: 0; text-align: center; }
   .scattered-title em { font-style: normal; color: var(--accent); }
-  .scattered-desk { position: absolute; left: 128px; right: 128px; top: 430px; bottom: 80px; }
+  .scattered-desk { position: absolute; left: 140px; right: 140px; top: 440px; bottom: 80px; }
+  .tool-stale { position: absolute; right: 18px; bottom: 18px; font-size: 26px; font-weight: 700; color: #ff3b30; border: 3px solid #ff3b30; border-radius: 10px; padding: 4px 14px; background: var(--background); transform: rotate(8deg); }
   .tool {
     position: absolute; width: 400px; border-radius: 22px; overflow: hidden;
     background: var(--background); border: 1px solid var(--border);
@@ -23,9 +24,9 @@ export const css = `
 `;
 
 const tools = [
-  { name: "Wiki", color: "#8e8e93", left: "0px", top: "60px", turn: "-5deg", body: "page" },
+  { name: "Wiki", color: "#8e8e93", left: "0px", top: "60px", turn: "-5deg", body: "page", stale: true },
   { name: "Slides", color: "#ff9f0a", left: "420px", top: "200px", turn: "4deg", body: "slide" },
-  { name: "Docs", color: "#0a84ff", left: "840px", top: "30px", turn: "-3deg", body: "page" },
+  { name: "Docs", color: "#0a84ff", left: "840px", top: "30px", turn: "-3deg", body: "page", stale: true },
   { name: "Chat", color: "#34c759", left: "1260px", top: "180px", turn: "5deg", body: "chat" },
 ];
 
@@ -54,6 +55,7 @@ export default function Scattered({ kicker, title }: { kicker?: string; title: s
           <div className="tool" style={{ left: tool.left, top: tool.top, transform: `rotate(${tool.turn})` }}>
             <div className="tool-bar"><span className="tool-dot" style={{ background: tool.color }} />{tool.name}</div>
             <Body kind={tool.body} />
+            {tool.stale ? <div className="tool-stale">out of date</div> : null}
           </div>
         ))}
       </div>

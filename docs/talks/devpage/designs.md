@@ -1,14 +1,17 @@
-<Columns kicker="Designs" title="Your agent draws the UI. You click through it.">
+<Slide title="Designs, as code.">
 
 ```jsx
-// button.design, shortened
-<Frame props={{ label: "Button" }}
-       layout="row" padding={[12, 20]}
-       radius={8} fill="#2563eb">
-  <Text color="#ffffff">{label}</Text>
-</Frame>
+// checkout.design
+<Button label="Pay $42" width="fill"
+        onClick="navigate ./confirmation.design" />
 ```
 
 ![The checkout prototype](../../designs/checkout/checkout.design)
 
-</Columns>
+</Slide>
+
+<Notes>
+Yes, even screen designs. Your agent writes a screen as code. This one line
+is the Pay button on the right. devpage draws the screen, and you can click
+through it like a real app. It is live, not a picture.
+</Notes>
