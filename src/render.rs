@@ -189,6 +189,17 @@ fn tag_end(html: &str) -> usize {
     html.len()
 }
 
+/// A site page's tab title: `<page> · <site>`, or just the site's name when
+/// the page is titled like it (trimmed, ignoring case).
+pub fn tab_title(page: &str, site: &str) -> String {
+    let (page, site) = (page.trim(), site.trim());
+    if page.to_lowercase() == site.to_lowercase() {
+        site.to_string()
+    } else {
+        format!("{page} · {site}")
+    }
+}
+
 /// A page's title: its first level-one heading, or its file name.
 pub fn title(source: &str, path: &Path) -> String {
     source
@@ -228,7 +239,7 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{page} · {document}</title>
+<title>{tab}</title>
 {theme}
 <link rel="stylesheet" href="/__devpage/style.css">
 {widgets}
@@ -240,8 +251,7 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
 {script}
 </body>
 </html>"#,
-        page = escape(&title(source, file)),
-        document = escape(&document.title),
+        tab = escape(&tab_title(&title(source, file), &document.title)),
         theme = crate::navbar::head(document),
         body_class = site_class(document),
         navbar = crate::navbar::render(document, &current, comments),
@@ -1055,5 +1065,15 @@ mod tests {
             "The vision"
         );
         assert_eq!(title("no heading", Path::new("notes.md")), "notes");
+    }
+
+    #[test]
+    fn tab_title_names_the_site_once() {
+        // A page titled like its site shows the site's name alone.
+        assert_eq!(tab_title("devpage", "devpage"), "devpage");
+        // Any other page shows its own title first.
+        assert_eq!(tab_title("Tests", "devpage"), "Tests · devpage");
+        // Case and surrounding space make no second name.
+        assert_eq!(tab_title(" DevPage ", "devpage"), "devpage");
     }
 }
