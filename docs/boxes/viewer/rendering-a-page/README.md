@@ -107,19 +107,22 @@ In detail:
   `no-sidebar` as the document file says;
 - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
   title, its links and dropdowns with their icons drawn as inline SVG, then
-  the comment-mode switch and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
+  the comment-mode switch (unless comments are off) and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
 - `<nav id="devpage-nav">`, unless `sidebar: false`, holds the tree — after a link
   to the site's root page with its logo and title when there is no navbar
   to hold it;
-- with no navbar, the comment-mode switch and the theme selector (unless
-  `theme-selector: false`) in `<div id="devpage-corner">`, top right;
+- with no navbar, the comment-mode switch (unless comments are off) and the
+  theme selector (unless `theme-selector: false`) in
+  `<div id="devpage-corner">`, top right;
 - `<main id="devpage-page"><article>` holds the rendered Markdown;
 - in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
   the document's widgets with the address of each
   ([Widgets](../widgets/how-widgets-run/README.md));
 - the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
-  `/__devpage/`.
+  `/__devpage/`; with comments off `devpage.js` carries `data-no-comments`,
+  and the script shows no threads and offers no comment
+  ([Turning comments off](../comments/README.md#turning-comments-off)).
 
 Every id the frame uses starts with `devpage-` — `devpage-page`,
 `devpage-nav`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and

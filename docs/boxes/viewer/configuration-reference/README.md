@@ -9,7 +9,7 @@ under the [viewer](../README.md).
 
 ```sh
 devpage [path] [--root <folder>]
-        [--host <address>] [--port <port>] [--user-header <name>]
+        [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
 devpage check [path] [--root <folder>]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage video <path> [--root <folder>] [-o <file>]
@@ -42,6 +42,7 @@ devpage --version
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
+| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/README.md#turning-comments-off)). |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 | `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
 

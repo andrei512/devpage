@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 220 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 222 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 141 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 148 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 52 tests marked `#[ignore]`, all drive Chrome, and one of them also
+Of the 53 tests marked `#[ignore]`, all drive Chrome, and one of them also
 calls GPT-Live.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
@@ -195,7 +195,7 @@ In Chrome:
 - Links, dropdowns, icons and icon-only links rendered in order.
 - The link holding the page shown highlighted, a dropdown holding it too.
 - Missing files and unknown icons as problems.
-- No navbar rendering nothing, the comment-mode switch in the corner, and the theme selector off with `theme-selector: false` while the switch stays.
+- No navbar rendering nothing, the comment-mode switch in the corner, and the theme selector off with `theme-selector: false` while the switch stays; with comments off, no switch.
 - A logo before the title and as the tab's icon, for a doc and a deck too.
 - A missing logo as a problem and the page shown without it.
 
@@ -209,7 +209,7 @@ In Chrome:
 
 ### `pdf`
 
-*2 tests, 15 in Chrome.*
+*2 tests, 16 in Chrome.*
 
 - The default file name made safe.
 - A site refused.
@@ -223,6 +223,7 @@ In Chrome:
 - The fixture doc on A4 with its header and footer.
 - The devpage talk one 16:9 page per slide.
 - A deck's keys.
+- A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
@@ -233,7 +234,7 @@ In Chrome:
 
 ### `render`
 
-*15 tests.*
+*16 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -247,10 +248,11 @@ In Chrome:
 - Links kept for chapters and slides from other folders.
 - A one-file doc's title.
 - A page's title.
+- With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
 
 ### `server`
 
-*13 tests.*
+*14 tests.*
 
 - A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
 - Widgets served compiled, for the document they belong to, with versioned helper imports.
@@ -260,6 +262,7 @@ In Chrome:
 - Comment threads over HTTP.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone.
 - A thread on a page outside the served folder refused.
+- With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Serving a folder with no `.git` by what each file is.
 - Nothing outside the served folder served.
 - A served folder reached through a symbolic link.

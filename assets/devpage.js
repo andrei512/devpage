@@ -8,6 +8,9 @@
 // stream, reopening it (and catching up) when it is shown again.
 
 const print = document.currentScript.hasAttribute("data-print");
+// Comments are off in print mode and on a page served with `--no-comments`:
+// no threads, no toggle, no way to start one.
+const comments = !print && !document.currentScript.hasAttribute("data-no-comments");
 
 // ---- Widgets --------------------------------------------------------------
 // The server leaves each widget as a placeholder carrying its name, its props'
@@ -371,7 +374,7 @@ function panel() {
 // newer call that finishes first wins, so overlapping refreshes never mix.
 let commentsGeneration = 0;
 async function loadComments() {
-  if (print) return;
+  if (!comments) return;
   const generation = ++commentsGeneration;
   const fetched = [];
   for (const section of sources()) {
@@ -615,7 +618,7 @@ const blocks = "p, li, pre, table, .diagram, blockquote, h1, h2, h3, h4";
 let hovered = null;
 applyCommentMode();
 document.addEventListener("mouseover", (event) => {
-  if (print || !commentMode() || !getSelection().isCollapsed) return;
+  if (!comments || !commentMode() || !getSelection().isCollapsed) return;
   const block = event.target.closest?.(blocks);
   const section = block?.closest("[data-source]");
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
@@ -635,7 +638,7 @@ document.addEventListener("mouseover", (event) => {
 
 // Selecting text inside one source offers a comment on it.
 document.addEventListener("mouseup", (event) => {
-  if (print || !commentMode() || event.target.closest?.(".comment-ui")) return;
+  if (!comments || !commentMode() || event.target.closest?.(".comment-ui")) return;
   setTimeout(() => {
     const selection = getSelection();
     if (selection.isCollapsed) return;
@@ -714,7 +717,7 @@ document.addEventListener("keydown", (event) => {
   else if (["ArrowLeft", "PageUp", "ArrowUp"].includes(key)) go(state.index - 1);
   else if (key === "Home") go(1);
   else if (key === "End") go(state.count);
-  else if (key === "c") document.body.classList.toggle("show-comments");
+  else if (key === "c" && comments) document.body.classList.toggle("show-comments");
   else if (key === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   else return;
   event.preventDefault();

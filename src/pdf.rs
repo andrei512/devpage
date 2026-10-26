@@ -348,7 +348,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -407,7 +407,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -457,6 +457,66 @@ mod tests {
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
+    async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
+        let dir = widget_folder(
+            "no-comments",
+            "# W\n",
+            &[
+                (
+                    "docs/talk.yml",
+                    "kind: slides\ntitle: T\nslides: [one.md]\n",
+                ),
+                ("docs/one.md", "# One\n\nThe proxy names the reader.\n"),
+                (
+                    ".devpage/comments/docs/one.md/20261025T000000Z-0001.yml",
+                    "anchor:\n  quote: names the reader\nthread:\n- author: T\n  at: 2026-10-25T00:00:00Z\n  text: which header?\n",
+                ),
+            ],
+        );
+        let document = Arc::new(Document::load(&dir.join("docs/talk.yml"), &dir).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let (changes, _) = broadcast::channel(1);
+        let router = server::router(document, changes, None);
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let profile = Profile::new();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
+        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+        let page = browser
+            .new_page(format!("http://{address}/docs/talk.yml").as_str())
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        // Even with comment mode remembered as on, nothing offers a comment.
+        page.evaluate("localStorage.setItem('devpage-comment-mode', 'on')")
+            .await
+            .unwrap();
+        page.evaluate("document.querySelector('.slide.shown p').dispatchEvent(new MouseEvent('mouseover', {bubbles: true}))")
+            .await
+            .unwrap();
+        page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'c'}))")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(
+                &page,
+                "document.documentElement.dataset.ready + ':' + ['.comment-mode', '#devpage-comments-toggle', '#devpage-comments', 'mark.comment', '.comment-button'].filter(s => document.querySelector(s)).join(',') + ':' + document.body.classList.contains('show-comments')"
+            )
+            .await,
+            "true::false"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -466,7 +526,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -535,7 +595,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, server::Identity::Local("T".into()));
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (browser, mut handler) =

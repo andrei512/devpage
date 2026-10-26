@@ -77,7 +77,7 @@ async fn serve(dir: &Path, entry: &str) -> String {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let (changes, _) = broadcast::channel(16);
-    let router = server::router(document, changes, server::Identity::Local("T".into()));
+    let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
     tokio::spawn(async move { axum::serve(listener, router).await.ok() });
     format!("http://{address}")
 }
@@ -92,7 +92,7 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
         Arc::new(crate::index::Index::build(dir)),
         designs.clone(),
         broadcast::channel(16).0,
-        server::Identity::Local("T".into()),
+        Some(server::Identity::Local("T".into())),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

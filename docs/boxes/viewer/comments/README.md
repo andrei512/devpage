@@ -53,6 +53,25 @@ can resolve any thread.
 Comments are never printed: print mode leaves them out
 ([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)).
 
+## Turning comments off
+
+Comments are for a team in a trusted place — your machine, or behind the auth
+proxy that names each reader. A public site has neither, so serve it with
+**`--no-comments`**:
+
+```sh
+devpage docs --no-comments
+```
+
+Then the pages show no comment-mode switch, no threads, no highlights and no
+**Comments (n)** button, and <Keys>C</Keys> on a deck does nothing. Every
+[comment request](the-comment-store/README.md#the-requests) answers `404`, as if
+it weren't there, so devpage never writes a thread — nor creates `.devpage/` for
+one. Everything else — live updates, link problems, a slide's PNG — is
+unchanged. It is a setting of the server, not of a document: the same docs can
+be served with comments for the team and without them in public
+([Deploying devpage](../deploying/README.md#a-public-site)).
+
 ## Who wrote it
 
 A comment is stamped with its **author** and the time it was written.

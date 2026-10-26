@@ -3,7 +3,8 @@
 How to run devpage for a team — on a Kubernetes cluster or any container host
 — so they can read the docs and comment on them: the example image, the auth
 proxy that names each reader, the volume that keeps comments, and trying the
-whole thing on your machine with Docker Compose. It is a task article under the
+whole thing on your machine with Docker Compose — and how to serve a public
+site, which runs with comments off. It is a task article under the
 [viewer](../README.md).
 
 ```mermaid
@@ -34,6 +35,21 @@ devpage docs --host 0.0.0.0 --port 3030 --user-header X-Forwarded-Email
 taken) and `--user-header` the header that names the reader, read only when
 deployed; their defaults are in the
 [configuration reference](../configuration-reference/README.md#flags).
+
+## A public site
+
+Comments are for a team behind its auth proxy. Docs anyone on the internet can
+read have no proxy to name the reader, so serve them with comments off:
+
+```sh
+devpage docs --host 0.0.0.0 --port 3030 --no-comments
+```
+
+The pages show no way to comment, every comment request answers `404`, and no
+`.devpage/` volume is needed
+([Turning comments off](../comments/README.md#turning-comments-off)). The
+same image can serve both: add `--no-comments` to the command of the public
+deployment only.
 
 ## The auth proxy
 

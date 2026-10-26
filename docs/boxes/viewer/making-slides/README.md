@@ -72,7 +72,7 @@ to read from the back of a room.
 | <Keys>← PgUp ↑</Keys> | previous slide |
 | <Keys>Home</Keys> / <Keys>End</Keys> | first / last slide |
 | <Keys>F</Keys> | fullscreen on and off |
-| <Keys>C</Keys> | the slide's comments on and off |
+| <Keys>C</Keys> | the slide's comments on and off; nothing with comments off |
 
 Keys pressed with <Keys>⌘</Keys>, <Keys>Ctrl</Keys> or <Keys>Alt</Keys> are left to the browser, so copying and
 finding work as usual; F and C work in either case.
