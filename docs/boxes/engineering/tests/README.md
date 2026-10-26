@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 222 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 223 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
 ```
 
@@ -234,7 +234,7 @@ In Chrome:
 
 ### `render`
 
-*16 tests.*
+*17 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -248,6 +248,7 @@ In Chrome:
 - Links kept for chapters and slides from other folders.
 - A one-file doc's title.
 - A page's title.
+- A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
 
 ### `server`
