@@ -20,6 +20,7 @@ flowchart LR
   main --> serve["Serving<br/>server.rs, comments.rs"]
   serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
   main --> other["Checking, printing<br/>check.rs, pdf.rs"]
+  main --> video["Recording a deck<br/>video.rs"]
   watch --> designs["Designs<br/>designs.rs"]
   serve --> designs
   designs --> engine["The design engine<br/>design/"]
@@ -29,13 +30,14 @@ flowchart LR
   click serve href "../../viewer/serving-pages/README.md" "Serving pages"
   click render href "../../viewer/rendering-a-page/README.md" "Rendering a page"
   click other href "../../viewer/checking-links/README.md" "Checking links"
+  click video href "../../viewer/making-a-video/README.md" "Making a video"
   click designs href "../../viewer/design-engine/README.md#in-the-server" "The design engine in the server"
   click engine href "../../viewer/design-engine/README.md" "The design engine"
 ```
 
 | Module | Does |
 | --- | --- |
-| `src/main.rs` | The command line (clap): serving, `check` and `pdf`; wires the parts together and picks the address. |
+| `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site. |
 | `src/watch.rs` | Watches the served folder, keeps the index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store. |
@@ -49,7 +51,8 @@ flowchart LR
 | `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders, and a slide's `<Notes>` taken out and read; TSX compiled by oxc, with helper imports versioned and compiled modules remembered. |
 | `src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
-| `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted, downloading the shell the first time. |
+| `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted, downloading the shell the first time; also downloads Chrome for Testing for `devpage video`. |
+| `src/video.rs` | `devpage video`: checks the deck's notes, serves it internally, opens it in Chrome for Testing with the recorder from `assets/video.js`, and plays each slide's voice into the recording, pressing → between slides. `video/live.rs`: the narrator — the `DEVPAGE_` provider settings and the GPT-Live session. `video/silence.rs`: the silence rules, pure. |
 | `src/slide_png.rs` | A slide as an image: serves the deck internally and has chrome-headless-shell screenshot slide `n` on a 1920 × 1080 screen once the page is ready, devpage's controls hidden. |
 | `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages, and with the `server` feature the `Designs` service). |
 | `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas — apply, lay out, paint on the CPU, hit-test; `gpu.rs`, the GPU backend on WebGPU. |
@@ -61,7 +64,8 @@ What each crate does is in [Dependencies](../dependencies/README.md).
 
 `main` in `src/main.rs` parses the command line. `devpage check` loads the
 document, checks it and exits with `0` or `1`; `devpage pdf` loads it and
-prints it. Serving starts in this order; a failure at any step stops devpage
+prints it; `devpage video` reads the narrator's settings, loads it and records
+it, stopping on Ctrl-C, `SIGTERM` or `SIGHUP`. Serving starts in this order; a failure at any step stops devpage
 with an error before anything is served.
 
 <Steps>

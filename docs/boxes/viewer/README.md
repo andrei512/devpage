@@ -5,8 +5,9 @@ in the browser — a **site** of pages, a **doc** read top to bottom, a deck
 of **slides**, or a **design** drawn on a canvas and clicked through as a
 prototype — keeps every open page current as the files change, lets readers
 leave **comments** on any page of a site, a doc or a deck (a design is
-discussed on the page that embeds it), checks every link, and prints a doc or a
-deck to PDF exactly as the browser shows it. This page says what its parts are
+discussed on the page that embeds it), checks every link, prints a doc or a
+deck to PDF exactly as the browser shows it, and records a deck as a narrated
+video. This page says what its parts are
 and where each is explained; it belongs to the [system catalog](../README.md).
 
 Point it at a document's YAML file, at a folder holding `devpage.yml`, or at a
@@ -17,6 +18,7 @@ devpage docs/devpage.yml      # or: devpage docs
 devpage design.md             # one Markdown file, served as a doc
 devpage check docs            # every link, exit 1 if one is broken
 devpage pdf talks/launch      # the deck as a PDF
+devpage video talks/launch    # the deck as an mp4, its notes read aloud
 devpage app/checkout.design   # one design, on a canvas
 ```
 
@@ -78,6 +80,7 @@ Each card opens the page that explains it.
 
 - (message-square) [Comments](comments/README.md) — Threads on text or a paragraph, kept as files git never sees.
 - (printer) [Printing to PDF](pdf/README.md) — `devpage pdf` has Chrome print a doc or a deck as it shows.
+- (video) [Making a video](making-a-video/README.md) — `devpage video` records a deck, each slide's notes read aloud by GPT-Live.
 - (server) [Deploying devpage](deploying/README.md) — For a team, behind the auth proxy you already run.
 
 </Cards>
@@ -118,6 +121,9 @@ Each card opens the page that explains it.
   the preview, and `devpage check` in tests.
 - [Printing to PDF](pdf/README.md) — `devpage pdf`, the Chrome it drives, and
   why the PDF matches the screen.
+- [Making a video](making-a-video/README.md) — `devpage video`, its narrator,
+  writing notes to be read aloud, how a deck is recorded, and its silence
+  rules.
 - [Deploying devpage](deploying/README.md) — the example image, the auth
   proxy that names readers, and trying it with Docker Compose.
 - [Diagrams](diagrams/README.md) — Mermaid diagrams: writing them, making
@@ -163,7 +169,8 @@ Each card opens the page that explains it.
 - [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
   — what devpage may serve, read and link to.
 - [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
-  — comments stay in `.devpage/`; a PDF goes only where it was asked for.
+  — comments stay in `.devpage/`; a PDF or a video goes only where it was
+  asked for.
 - [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
   — one renderer for screen and paper.
 - [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)

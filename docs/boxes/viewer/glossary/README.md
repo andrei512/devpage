@@ -37,6 +37,10 @@ A slide's script: the text of the `<Notes>` tag in its file, read aloud by a pre
 
 A deck's `context` field: what the talk is, who it is for and its tone — what its slides' notes are read against.
 
+## narrator
+
+GPT-Live, as `devpage video` uses it: told the deck's context, it says each slide's notes word for word into the recording. See [The narrator](../making-a-video/README.md#the-narrator).
+
 ## document file
 
 The YAML file describing a document — any name, `devpage.yml` by default.

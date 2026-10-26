@@ -76,15 +76,15 @@ What you edit decides what you have to do to see it:
 
 ```text
 $ cargo test                  # all four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the tests that drive chrome-headless-shell
+$ cargo test -- --ignored     # the tests that drive Chrome
 ```
 
 </Terminal>
 
 Run the Chrome tests after changing the page script, the design script, the
-module, the stylesheet, a widget, print mode or `devpage pdf`. They drive
-chrome-headless-shell, never a Chrome installed on the machine, so a run puts
-nothing in the macOS Dock. What each module's tests pin, the watcher tests
+module, the stylesheet, a widget, print mode, `devpage pdf` or `devpage video`.
+They drive chrome-headless-shell — `devpage video`'s, Chrome for Testing —
+never a Chrome installed on the machine. What each module's tests pin, the watcher tests
 that need file-system events, and what has no test, is on
 [Tests](../tests/README.md).
 

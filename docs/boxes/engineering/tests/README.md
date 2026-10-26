@@ -8,32 +8,39 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 196 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 50 tests that drive chrome-headless-shell
+$ cargo test                  # 213 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 122 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 139 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
 in `src/designs/canvas_tests.rs`, a child module of `designs`; the `tests/`
 folder holds only fixtures — `tests/fixtures/sync-design`, a doc of three
-chapters that the doc and PDF tests load. Route tests start the real router on
+chapters that the doc and PDF tests load, and `tests/fixtures/narrated-talk`,
+a deck of three slides with notes that the live video test records. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-The 50 tests marked `#[ignore]` drive chrome-headless-shell through
+Of the 52 tests marked `#[ignore]`, 51 drive Chrome and one calls GPT-Live.
+All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
 They run in parallel. Run them with `--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
-`devpage pdf` or a slide's PNG. The canvas tests and a slide's PNG start it
+`devpage pdf` or a slide's PNG. The two `video` tests drive Chrome for
+Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
+fetched the same way; run them after changing `devpage video` or its
+recorder, `assets/video.js`. The live one records
+`tests/fixtures/narrated-talk` with GPT-Live, which bills per minute, and
+passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The canvas tests and a slide's PNG start it
 with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
@@ -263,6 +270,32 @@ In Chrome:
 
 - A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
 
+### `video`
+
+*17 tests, 2 in Chrome.*
+
+- The silence rules: a pause inside a slide capped at a second and one under
+  it kept whole; silence held until what follows is known; a slide's end
+  keeping its share of the gap and the next slide starting on speech; leading
+  silence dropped; whatever arrived before a slide was asked for left out; a
+  fade at every cut.
+- The narrator's settings: none set naming the variables, blank counting as
+  unset and `OPENAI_API_KEY` never read; OpenAI's address and bearer header
+  with the default model; the Azure endpoint selecting Azure over an OpenAI
+  key, with its address, `api-key` header and deployment name; an endpoint
+  with a path or as a bare host; Azure without its key; the context in the
+  narrator's instructions.
+- The default file name; every slide needing notes, the error naming the ones
+  without; a site and a doc refused.
+
+In Chrome:
+
+- A two-slide deck recorded in Chrome for Testing with a synthetic voice fed
+  through the same player — no GPT-Live — to an mp4 with a 1920 × 1080 video
+  track and a sound track, the deck moving to slide 2 on the way.
+- `tests/fixtures/narrated-talk` recorded end to end with GPT-Live on OpenAI,
+  when `DEVPAGE_OPENAI_API_KEY` is set. The Azure path has no live test.
+
 ### `watch`
 
 *8 tests.*
@@ -329,8 +362,9 @@ In Chrome:
 
 syntax highlighting except through the `render` tests; a canvas reopening
 its stream after devpage restarts, closing streams in a hidden tab, and
-drag-to-pan and pinch on the canvas; chrome-headless-shell's first download
-(it needs an empty cache folder); fullscreen on a deck (headless Chrome refuses it without a real user
+drag-to-pan and pinch on the canvas; chrome-headless-shell's and Chrome for
+Testing's first download (it needs an empty cache folder); GPT-Live on Azure;
+`devpage video` stopping on a signal; fullscreen on a deck (headless Chrome refuses it without a real user
 gesture); and how the light and dark themes look, which is checked by eye.
 
 </Callout>

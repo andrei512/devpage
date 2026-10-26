@@ -110,6 +110,8 @@ a page and lists its `<Notes>` as a problem.
 
 A deck's **context** is what its notes are read against: what the talk is,
 who it is for, and its tone, in the deck's own document file.
+`devpage video` records the deck with its notes read aloud
+([Making a video](../making-a-video/README.md)).
 
 ```yaml
 kind: slides
