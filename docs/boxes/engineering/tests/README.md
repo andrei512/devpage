@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 59 tests marked `#[ignore]`, 58 drive Chrome, and one of them also
+Of the 61 tests marked `#[ignore]`, 60 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
