@@ -527,7 +527,6 @@ fn widget_problems(document: &Document) -> Vec<Problem> {
         return problems;
     };
     let names: Vec<String> = widgets.modules.keys().cloned().collect();
-    let version = crate::widgets::version(folder);
     let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
         .into_iter()
         .flatten()
@@ -537,8 +536,7 @@ fn widget_problems(document: &Document) -> Vec<Problem> {
         .collect();
     files.sort();
     for file in files {
-        let text = std::fs::read_to_string(&file).unwrap_or_default();
-        if let Err(error) = crate::widgets::compile_cached(&file, &text, &names, Some(version)) {
+        if let Err(error) = crate::widgets::compile_module(&document.served, &file, &names) {
             problems.push(Problem {
                 file: document.url(&file)[1..].to_string(),
                 line: None,

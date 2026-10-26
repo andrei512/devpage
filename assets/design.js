@@ -13,6 +13,7 @@
 // drawing.
 let Applied, Design, Gpu, failure;
 try {
+  // build.rs rewrites both addresses to the files' content addresses.
   const engine = await import("/__devpage/design-engine.js");
   await engine.default({ module_or_path: "/__devpage/design-engine.wasm" });
   ({ Applied, Design, Gpu } = engine);

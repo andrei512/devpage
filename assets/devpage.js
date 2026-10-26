@@ -173,6 +173,7 @@ function markBroken(root) {
 let designScript = null;
 function drawDesigns() {
   if (!designScript && !document.querySelector("canvas.design")) return;
+  // build.rs rewrites the address to design.js's content address.
   designScript ??= import("/__devpage/design.js");
   designScript
     .then((designs) => designs.scan())
@@ -207,15 +208,32 @@ function keepDesigns(swap) {
 }
 
 // The frame a body was rendered in: its classes, less `show-comments`, which
-// this script adds while the comments are shown and no fetched page carries.
+// this script adds while the comments are shown and no fetched page carries;
+// and the devpage build that rendered it, so a page from a new build — a new
+// page script, a new stylesheet — is loaded whole.
 function frameOf(body) {
-  return [...body.classList].filter((name) => name !== "show-comments").sort().join(" ");
+  const classes = [...body.classList].filter((name) => name !== "show-comments").sort();
+  return [...classes, `build:${body.dataset.build}`].join(" ");
 }
 
-// Fetches a page of this document and swaps its content and sidebar in.
+// The page shown: its address and the ETag it was served with. A fetch that
+// finds the same ETag at the same address has nothing to swap. The page this
+// script was loaded with is in the browser's cache already: its ETag comes
+// from there, without asking the server.
+const pageKey = (url) => { const u = new URL(url, location.href); u.hash = ""; return u.href; };
+let shown = { url: pageKey(location.href), etag: null };
+const seeded = print ? Promise.resolve() : fetch(location.href, { cache: "only-if-cached", mode: "same-origin" })
+  .then((response) => { if (response.ok && shown.etag === null) shown.etag = response.headers.get("etag"); })
+  .catch(() => {});
+
+// Fetches a page of this document and swaps its content and sidebar in —
+// unless it is the page shown, unchanged.
 async function load(url) {
-  const response = await fetch(url, { cache: "no-store" });
+  await seeded;
+  const response = await fetch(url, { cache: "no-cache" });
   if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) return false;
+  const etag = response.headers.get("etag");
+  if (etag && etag === shown.etag && pageKey(url) === shown.url) return true;
   const next = new DOMParser().parseFromString(await response.text(), "text/html");
   // A different frame — a fixed document file replacing its problem page, or
   // a document that changed kind — can't be swapped in part: load it whole.
@@ -223,6 +241,7 @@ async function load(url) {
     location.assign(url);
     return "navigating";
   }
+  shown = { url: pageKey(url), etag };
   keepDesigns(() => {
     for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
       const fresh = next.getElementById(id);
@@ -379,7 +398,7 @@ async function loadComments() {
   const fetched = [];
   for (const section of sources()) {
     const page = section.dataset.source;
-    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-store" });
+    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
     fetched.push({ section, page, threads: response.ok ? await response.json() : [] });
   }
   if (generation !== commentsGeneration) return;

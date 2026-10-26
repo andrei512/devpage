@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
+use crate::addresses::{Owned, address};
 use crate::check;
 use crate::document::{Document, Paper, Pdf, Slide};
 use crate::highlight::Highlighter;
@@ -214,7 +215,10 @@ fn page_script(print: bool, comments: bool) -> String {
     } else {
         ""
     };
-    format!("<script src=\"/__devpage/devpage.js\"{setting}></script>")
+    format!(
+        "<script src=\"{}\"{setting}></script>",
+        address(Owned::Asset("devpage.js"))
+    )
 }
 
 /// The whole page for one Markdown file: navigation, the rendered content and
@@ -230,16 +234,19 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{page} · {document}</title>
 {theme}
-<link rel="stylesheet" href="/__devpage/style.css">
+<link rel="stylesheet" href="{stylesheet}">
 {widgets}
 </head>
-<body class="{body_class}">
+<body class="{body_class}" data-build="{build}">
 {navbar}{sidebar}{corner}
 <main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
-<script src="/__devpage/pele.js"></script>
+<script src="{pele}"></script>
 {script}
 </body>
 </html>"#,
+        stylesheet = address(Owned::Asset("style.css")),
+        pele = address(Owned::Asset("pele.js")),
+        build = crate::addresses::BUILD,
         page = escape(&title(source, file)),
         document = escape(&document.title),
         theme = crate::navbar::head(document),
@@ -330,17 +337,20 @@ pub fn doc(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 {theme}
-<link rel="stylesheet" href="/__devpage/style.css">
+<link rel="stylesheet" href="{stylesheet}">
 {widgets}
 <style>@page {{ size: {paper}; margin: 22mm 18mm; }}</style>
 </head>
-<body class="doc{print_class}">
+<body class="doc{print_class}" data-build="{build}">
 {corner}{outline}
 <main id="devpage-page">{problems}<article>{heading}{content}</article></main>
-<script src="/__devpage/pele.js"></script>
+<script src="{pele}"></script>
 {script}
 </body>
 </html>"#,
+        stylesheet = address(Owned::Asset("style.css")),
+        pele = address(Owned::Asset("pele.js")),
+        build = crate::addresses::BUILD,
         title = escape(&document.title),
         theme = crate::navbar::head(document),
         corner = if print {
@@ -481,14 +491,18 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{address} · {document}</title>
 {theme}
-<link rel="stylesheet" href="/__devpage/style.css">
+<link rel="stylesheet" href="{stylesheet}">
 </head>
-<body class="invalid">
+<body class="invalid" data-build="{build}">
 <main id="devpage-page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
-<script src="/__devpage/pele.js"></script>
-<script src="/__devpage/devpage.js"></script>
+<script src="{pele}"></script>
+<script src="{page_script}"></script>
 </body>
 </html>"#,
+        stylesheet = crate::addresses::address(Owned::Asset("style.css")),
+        pele = crate::addresses::address(Owned::Asset("pele.js")),
+        build = crate::addresses::BUILD,
+        page_script = crate::addresses::address(Owned::Asset("devpage.js")),
         address = escape(&address),
         document = escape(&entry.title),
         theme = crate::navbar::head(entry),
@@ -538,16 +552,19 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
 {theme}
-<link rel="stylesheet" href="/__devpage/style.css">
+<link rel="stylesheet" href="{stylesheet}">
 {widgets}
 <style>@page {{ size: 1920px 1080px; margin: 0; }}</style>
 </head>
-<body class="slides{print_class}">
+<body class="slides{print_class}" data-build="{build}">
 {corner}<main id="devpage-page" class="deck">{problems}{content}</main>
-<script src="/__devpage/pele.js"></script>
+<script src="{pele}"></script>
 {script}
 </body>
 </html>"#,
+        stylesheet = address(Owned::Asset("style.css")),
+        pele = address(Owned::Asset("pele.js")),
+        build = crate::addresses::BUILD,
         title = escape(&document.title),
         theme = crate::navbar::head(document),
         corner = if print {
@@ -1034,13 +1051,16 @@ mod tests {
                 slides(&deck, files, false, comments),
             ]
         };
-        let script = "<script src=\"/__devpage/devpage.js\" data-no-comments>";
+        let script = format!(
+            "<script src=\"{}\" data-no-comments>",
+            address(Owned::Asset("devpage.js"))
+        );
         for html in frames(true) {
             assert!(html.contains("class=\"comment-mode\""), "{html}");
             assert!(!html.contains("data-no-comments"), "{html}");
         }
         for html in frames(false) {
-            assert!(html.contains(script), "{html}");
+            assert!(html.contains(&script), "{html}");
             assert!(!html.contains("comment-mode"), "{html}");
         }
         // Print mode shows no controls either way, and stays print mode.

@@ -64,6 +64,21 @@ It believes the header, so anyone who can reach it directly can claim to be
 anyone: expose the proxy, and keep devpage's own port inside the cluster.
 </Callout>
 
+## Caching and compression
+
+devpage needs nothing from the proxy to be fast. Its own files are
+[content-addressed](../serving-pages/README.md#caching): served once, kept by
+the browser for good, never asked for again until a new devpage changes them.
+The built-in assets are compressed when devpage is built, as brotli and gzip,
+and sent in whichever the browser accepts, with `Vary: Accept-Encoding`. Pages,
+images and widgets carry an ETag, and a browser that has the current one is
+answered `304` with no body.
+
+A proxy that compresses responses — Caddy's `encode`, say — leaves a response
+that is already compressed as it is, and compresses the rest. A proxy may
+weaken an ETag it compresses (`W/"…"`); devpage compares ETags the weak way,
+so the browser still gets its `304`.
+
 ## The image
 
 `deploy/Dockerfile` is an example image serving devpage's own docs. It installs

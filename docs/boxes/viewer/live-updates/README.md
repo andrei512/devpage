@@ -24,9 +24,14 @@ sequenceDiagram
   Watcher->>Channel: send("change")
   Channel-->>Server: one message per open stream
   Server-->>Page: event stream: data change
-  Page->>Server: GET the current page (no-store)
-  Server-->>Page: fresh HTML
-  Page->>Page: replace page, sidebar and navbar, mount widgets
+  Page->>Server: GET the current page (If-None-Match: its ETag)
+  alt the page renders as it did
+    Server-->>Page: 304 Not Modified
+    Page->>Page: nothing to swap
+  else it changed
+    Server-->>Page: fresh HTML, a new ETag
+    Page->>Page: replace page, sidebar and navbar, mount widgets
+  end
 ```
 
 ## The watcher
@@ -55,7 +60,10 @@ folder. A thread file in the comment store
 (`.devpage/comments/<page>/<id>.yml`) sends `comments /<page>`; the comment
 store is watched whatever a site's `watch` says, and never refreshes pages
 itself; nothing else under `.devpage/` is looked at. Every other path is first
-handed to the design store — see [Designs](#designs) — and passed to the
+handed to the design store — see [Designs](#designs) — and to the widgets'
+memory of the files they read, which forgets it so the next
+[widget address](../widgets/how-widgets-run/README.md#compiling) reads it
+again, and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
 edited or deleted document file or `.gitignore` is reflected at once. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
@@ -144,7 +152,8 @@ back until it is shown.
   on reconnecting, so changes made in between show with the next change or
   navigation.
 - **A burst of events.** Several events from one save each trigger a fetch;
-  they are not coalesced.
+  they are not coalesced. The first that finds the page changed swaps it in;
+  the rest find the ETag it brought and swap nothing.
 - **The watcher reports an error.** `notify` hands the callback in
   `src/watch.rs` either an event or an error, and an error is dropped
   silently (`let Ok(event) = event else { return };`) — nothing is logged and
