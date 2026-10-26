@@ -50,7 +50,7 @@ pub fn default_output(title: &str) -> PathBuf {
 /// What a deck says, checked before anything slow: its context and each
 /// slide's notes. A document that isn't a deck, or a slide without notes, is
 /// an error.
-pub fn script(document: &Document) -> Result<(Option<String>, Vec<String>)> {
+pub fn notes(document: &Document) -> Result<(Option<String>, Vec<String>)> {
     let Kind::Slides { slides, context } = &document.kind else {
         let kind = match document.kind {
             Kind::Site { .. } => "a site",
@@ -87,7 +87,7 @@ pub fn script(document: &Document) -> Result<(Option<String>, Vec<String>)> {
 
 /// Records `document`, narrated by GPT-Live per `config`, to `output`.
 pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
-    let (context, notes) = script(&document)?;
+    let (context, notes) = notes(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
     let instructions = live::instructions(context.as_deref());
     film(document, output, notes, heard.clone(), async |heard| {
@@ -96,15 +96,15 @@ pub async fn record(document: Arc<Document>, output: &Path, config: &live::Confi
     .await
 }
 
-/// The voice that says each slide's script, its audio arriving in [`Heard`].
+/// The voice that says each slide's notes, its audio arriving in [`Heard`].
 pub(crate) trait Voice {
-    fn say(&self, n: usize, script: &str);
+    fn say(&self, n: usize, notes: &str);
     async fn close(self);
 }
 
 impl Voice for live::Live {
-    fn say(&self, n: usize, script: &str) {
-        live::Live::say(self, n, script);
+    fn say(&self, n: usize, notes: &str) {
+        live::Live::say(self, n, notes);
     }
     async fn close(self) {
         live::Live::close(self).await;
@@ -211,11 +211,11 @@ async fn narrate<V: Voice>(
 
     let voice = voice(heard.clone()).await?;
     let total = notes.len();
-    for (i, script) in notes.iter().enumerate() {
+    for (i, slide_notes) in notes.iter().enumerate() {
         let n = i + 1;
         let asked = Instant::now();
         heard.lock().unwrap().trimmer.start_slide();
-        voice.say(n, script);
+        voice.say(n, slide_notes);
         // Hold the start until the voice is speaking and enough is buffered.
         loop {
             let ready = {
@@ -430,7 +430,7 @@ mod tests {
                 ("three.md", "# Three\n\n<Notes>\n\n</Notes>\n"),
             ],
         );
-        let error = script(&talk).unwrap_err().to_string();
+        let error = notes(&talk).unwrap_err().to_string();
         assert_eq!(
             error,
             "every slide needs <Notes> to be narrated; these have none: 2 (two.md), 3 (three.md)"
@@ -438,7 +438,7 @@ mod tests {
         std::fs::write(dir.join("two.md"), "# Two\n\n<Notes>Two.</Notes>\n").unwrap();
         std::fs::write(dir.join("three.md"), "# Three\n\n<Notes>Three.</Notes>\n").unwrap();
         let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
-        let (context, notes) = script(&talk).unwrap();
+        let (context, notes) = notes(&talk).unwrap();
         assert_eq!(context.as_deref(), Some("A test talk."));
         assert_eq!(notes, ["Hello.", "Two.", "Three."]);
         std::fs::remove_dir_all(&dir).ok();
@@ -474,7 +474,7 @@ mod tests {
     }
 
     /// A stand-in for GPT-Live: streams 20 ms of audio every 20 ms, as
-    /// GPT-Live does, silence included, and answers each script with a tone.
+    /// GPT-Live does, silence included, and answers each slide's notes with a tone.
     struct Tone {
         left: Arc<AtomicUsize>,
         seconds: f64,
@@ -588,7 +588,7 @@ mod tests {
                 ("two.md", "# Two\n\n<Notes>Second.</Notes>\n"),
             ],
         );
-        let (_, notes) = script(&talk).unwrap();
+        let (_, notes) = notes(&talk).unwrap();
         let out = dir.join("Talk.mp4");
         let heard = Arc::new(Mutex::new(Heard::default()));
         // `film` fails unless the deck shows slide 2 after slide 1.

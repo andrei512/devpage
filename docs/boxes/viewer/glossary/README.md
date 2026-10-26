@@ -31,7 +31,7 @@ A document that is a deck: one Markdown file per slide, in the order its `slides
 
 ## notes
 
-A slide's script: the text of the `<Notes>` tag in its file, read aloud by a presenter or a narrator and never shown on the slide. See [Speaker notes](../making-slides/README.md#speaker-notes).
+What is said over a slide: the text of the `<Notes>` tag in its file, read aloud by a presenter or a narrator and never shown on the slide. See [Speaker notes](../making-slides/README.md#speaker-notes).
 
 ## context
 

@@ -38,8 +38,8 @@ stops the run with an error naming what is missing:
 
 - **A narrator.** GPT-Live, from OpenAI or Azure, chosen by environment
   variables (below).
-- **Notes on every slide.** Each slide's `<Notes>` is its script; a slide
-  without notes is named in the error
+- **Notes on every slide.** Each slide is narrated from its `<Notes>`; a
+  slide without notes is named in the error
   (`every slide needs <Notes> to be narrated; these have none: 3 (demo.md)`).
 
 ### The narrator
@@ -80,7 +80,7 @@ slides: [intro.md, problem.md, demo.md]
 
 An agent writing the notes should look at each slide while it writes: every
 slide is a [PNG](../making-slides/README.md#a-slide-as-an-image) at
-`<deck file>/<n>.png` on a running devpage, so the script can talk about what
+`<deck file>/<n>.png` on a running devpage, so the notes can talk about what
 the slide shows.
 
 ## How it is recorded
@@ -92,7 +92,7 @@ sequenceDiagram
   participant live as GPT-Live
   video->>chrome: open the deck, served on a loopback port
   chrome->>chrome: capture its own tab, arm the recorder
-  video->>live: start a session: the context and how to read a script
+  video->>live: start a session: the context and how to read the notes
   loop each slide
     video->>live: say this slide's notes
     live-->>video: the voice, streamed

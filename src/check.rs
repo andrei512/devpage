@@ -977,6 +977,35 @@ mod external {
     }
 
     #[tokio::test]
+    async fn unclosed_notes_are_a_problem() {
+        let doc = folder("unclosed-notes", "# Home\n\n[deck](deck/devpage.yml)\n");
+        std::fs::create_dir_all(doc.base.join("deck")).unwrap();
+        std::fs::write(
+            doc.base.join("deck/a.md"),
+            "# A\n\n<Notes>\nSay this.\n</Note>\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("deck/devpage.yml"),
+            "kind: slides\ntitle: D\nslides: [a.md]\n",
+        )
+        .unwrap();
+        let found: Vec<String> = document(&doc, false)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        let expected = vec!["deck/a.md:3: a <Notes> without its </Notes>".to_string()];
+        assert_eq!(found, expected, "{found:#?}");
+        let deck = Document::load(&doc.base.join("deck/devpage.yml"), &doc.base).unwrap();
+        let shown: Vec<String> = preview(&deck, &pages(&deck))
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(shown, expected);
+    }
+
+    #[tokio::test]
     async fn a_broken_linked_document_is_named_by_its_address() {
         let doc = folder("linked-relative", "# Home\n\n[plan](plan/devpage.yml)\n");
         std::fs::create_dir_all(doc.base.join("plan")).unwrap();

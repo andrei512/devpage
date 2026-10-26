@@ -122,7 +122,7 @@ fn azure_host(endpoint: &str) -> Result<String> {
 }
 
 /// What the narrator is told before any slide: the deck's context, then how
-/// to read a script.
+/// to read a slide's notes.
 pub fn instructions(context: Option<&str>) -> String {
     let rules = "You are the narrator of a recorded presentation. There is no one on the \
         line; ignore any input audio. When you are given a slide's script, say it exactly as \
@@ -262,13 +262,13 @@ impl Live {
         }
     }
 
-    /// Asks for slide `n`'s script, said exactly and in full.
-    pub fn say(&self, n: usize, script: &str) {
+    /// Asks for slide `n`'s notes, said exactly and in full.
+    pub fn say(&self, n: usize, notes: &str) {
         self.send(json!({
             "type": "session.instructions.append",
             "event_id": format!("slide_{n}"),
             "delegation_id": null,
-            "content": format!("Now say this slide's script exactly and in full:\n\n{script}"),
+            "content": format!("Now say this slide's script exactly and in full:\n\n{notes}"),
         }));
     }
 

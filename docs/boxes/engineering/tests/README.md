@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 213 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 215 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 139 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 141 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,8 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 52 tests marked `#[ignore]`, 51 drive Chrome and one calls GPT-Live.
+Of the 52 tests marked `#[ignore]`, all drive Chrome, and one of them also
+calls GPT-Live.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
@@ -77,9 +78,9 @@ the suite green.
 
 ### `check`
 
-*16 tests.*
+*17 tests.*
 
-- `<Notes>` on a page that isn't a slide, and a second one on a slide, as problems — in `devpage check`, however a slide is reached, and in the preview.
+- `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
 - A missing logo reported once.
 - Widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages.
@@ -310,9 +311,9 @@ In Chrome:
 
 ### `widgets`
 
-*21 tests.*
+*22 tests.*
 
-- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash.
+- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.
 - A `Tab` outside a `Tabs` reported at its page line.
