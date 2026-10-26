@@ -64,7 +64,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
-| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/slide_png.rs`, `src/video.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
+| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/pdf.rs`, `src/slide_png.rs`, `src/video.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
 
 ## Video
 
@@ -122,7 +122,7 @@ of message types, and the proto ships inside the crate. `devpage` turns
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |
-| `parley` | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. | `design/src/render.rs` |
+| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render.rs` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU; samples a shadow's shape before the painter blurs it. | `design/src/render.rs` |
 | `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; encoding test images. | `design/src/resolve.rs`, `design/src/render.rs` (tests) |
 | `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |

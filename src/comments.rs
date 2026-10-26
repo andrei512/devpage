@@ -412,8 +412,9 @@ mod browser {
             entry,
             index,
             designs,
-            changes,
+            changes.clone(),
             Some(server::Identity::Local("Ana".into())),
+            crate::slide_png::Shots::new(&changes),
         );
         tokio::spawn(async move {
             let _watcher = _watcher;

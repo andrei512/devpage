@@ -18,8 +18,11 @@ Story:
 4. One swap path: built off-screen, unchanged widgets kept, slide changes
    never fetch. ([04](04-one-swap-path.md))
 5. Fast slide PNGs. ([05](05-fast-slide-pngs.md))
+6. Watch only what is served: no build output, no per-event syscalls.
+   ([06](06-watch-only-what-is-served.md))
 
-Order: 01 and 02 start together; 03 after 02; 04 after 03; 05 after 01.
+Order: 01 and 02 start together; 03 after 02; 04 after 03; 05 after 01;
+06 any time.
 
 ## The shared spine (02, 03 and 04 all depend on it)
 

@@ -35,7 +35,7 @@ flowchart LR
 | `/__devpage/{asset}` | one of the [built-in assets](#built-in-assets) |
 | `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
 | `/{*path}.design.png` | the design at `path` painted as a PNG — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
-| `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell; `404` with the reason when the file isn't a deck or has no slide `n` — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
+| `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,
@@ -158,7 +158,9 @@ response its ETag — the hash of its body — unless the handler set one: a
 built-in asset's is its content hash, with `-br` or `-gz` for a compressed
 copy; a [design's PNG](../designs/README.md#looking-at-a-design-as-a-png)'s is
 a hash of its resolved scene and devpage's build, known before painting, so
-a browser that has the PNG is answered without painting it again. Images
+a browser that has the PNG is answered without painting it again; a
+[slide's PNG](../making-slides/README.md#a-slide-as-an-image) carries the
+hash of the picture it keeps. Images
 keep their addresses and get only an ETag.
 
 A **build id** — a hash of everything the binary is built from — is on every

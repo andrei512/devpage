@@ -49,7 +49,9 @@ The pages show no way to comment, every comment request answers `404`, and no
 `.devpage/` volume is needed
 ([Turning comments off](../comments/README.md#turning-comments-off)). The
 same image can serve both: add `--no-comments` to the command of the public
-deployment only.
+deployment only. `--no-comments` arrives in the release after 0.2.0, so the
+[example image](#the-image) needs `DEVPAGE_VERSION` set to that release or
+later.
 
 ## The auth proxy
 
@@ -82,27 +84,51 @@ so the browser still gets its `304`.
 ## The image
 
 `deploy/Dockerfile` is an example image serving devpage's own docs. It installs
-devpage from crates.io — the same `cargo install devpage` anyone runs — copies
-the docs in, and starts devpage deployed:
+devpage from crates.io — the same `cargo install devpage` anyone runs — takes
+the docs from that release, and starts devpage deployed:
 
 ```dockerfile
 FROM rust:1.97-slim-bookworm AS build
-RUN cargo install devpage --version 0.2.0 --locked
+# devpage 0.2.0 links fontconfig through its font library; later releases don't.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends pkg-config libfontconfig1-dev \
+ && rm -rf /var/lib/apt/lists/*
+ARG DEVPAGE_VERSION=0.2.0
+# The docs and licence come from the published crate's own source, so they
+# always match the binary.
+RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
+ && cp -r "$CARGO_HOME"/registry/src/*/devpage-"$DEVPAGE_VERSION" /devpage-src
 
 FROM debian:bookworm-slim
+# ca-certificates: the link checker fetches https links.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates libfontconfig1 \
+ && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
-COPY docs /srv/docs
-COPY LICENSE /srv/LICENSE
+COPY --from=build /devpage-src/docs /srv/docs
+COPY --from=build /devpage-src/LICENSE /srv/LICENSE
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 ```
 
-Build it from the repository root: `docker build -f deploy/Dockerfile .`. The
-builder is Debian bookworm, the same as the runtime image, so the binary finds
-the C library it was linked against. The docs are baked in — with the licence
-they link to — so a docs change is a new image, shipped like
-any other.
+Build it with `docker build deploy`; it reads nothing from the build context.
+`DEVPAGE_VERSION` picks the release (`--build-arg DEVPAGE_VERSION=…`). The
+docs and the licence they link to come from that release's own source, which
+`cargo install` has just downloaded, so the docs always describe the binary
+beside them: a docs change reaches the image with the next release.
+
+- **Build packages.** Releases up to 0.2.0 link fontconfig, so the builder
+  installs `pkg-config` and `libfontconfig1-dev` and the runtime image
+  `libfontconfig1`
+  ([What you need](../../../installing.md#what-you-need)).
+- **`ca-certificates`.** `devpage check` fetches every external link over
+  HTTPS and needs the system's root certificates.
+- **Same Debian.** The builder is Debian bookworm, like the runtime image, so
+  the binary finds the C library it was linked against.
+- **No Chrome.** The image has no browser, so it serves pages, designs and
+  comments but not `devpage pdf` or a slide's PNG.
+
 devpage runs from `/srv`, so the [served folder](../writing-a-document/README.md#the-served-folder)
 is `/srv` and the comment store is `/srv/.devpage/comments`:
 
@@ -137,3 +163,11 @@ Open `http://localhost:8090`. Comments you write are stamped
 `dev@example.com`; stop and start the containers and they are still there.
 devpage's own port is not published, as on a cluster: only the proxy is
 reachable.
+
+CI keeps this example working: `.github/workflows/deploy-example.yml` builds
+the image and brings the compose file up on every pull request, every push to
+main and weekly, then expects the docs to load, a design's PNG to come back as
+`image/png`, a comment to be accepted, and `devpage check docs` to pass inside
+the image. A second job installs devpage from the checkout in a bare
+`rust:1.97-slim-bookworm` with nothing added, as
+[Installing devpage](../../../installing.md) promises.

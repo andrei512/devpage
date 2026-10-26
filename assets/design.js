@@ -218,6 +218,7 @@ class Host {
       this.paint();
     } else if (applied === Applied.Problems) {
       this.showProblems(this.design.problems());
+      this.settle();
     }
   }
 
@@ -290,7 +291,9 @@ class Host {
   }
 
   // Paints on the next frame — once, however many changes arrive before it.
+  // Until then the canvas isn't painted: what it shows is about to change.
   paint() {
+    delete this.canvas.dataset.painted;
     if (this.frame) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = 0;
@@ -306,7 +309,8 @@ class Host {
   }
 
   draw() {
-    if (!this.design || !this.canvas.isConnected || !this.fit()) return;
+    if (!this.design || !this.canvas.isConnected) return;
+    if (!this.fit()) return this.settle();
     // The bitmap matches the canvas's box on the screen, in device pixels.
     // The view is in CSS pixels, which a transform — a scaled slide — shrinks
     // on the screen: device pixels per view pixel are the screen's ratio
@@ -358,6 +362,14 @@ class Host {
 
   painted() {
     this.canvas.dataset.painted = "true";
+  }
+
+  // A design with problems and nothing valid to draw is as done as it will
+  // get: its problems bar is what shows, so whoever waits for the canvas to
+  // be painted — a PDF, a slide's PNG — goes on.
+  settle() {
+    if (this.frame || this.canvas.dataset.painted || !this.design?.problems().length) return;
+    this.canvas.dataset.painted = "problems";
   }
 
   // From a pointer event to the design's own pixels, through any transform

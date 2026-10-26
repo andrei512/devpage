@@ -156,11 +156,14 @@ async fn main() -> Result<()> {
     } else {
         Some(server::Identity::Header(cli.user_header))
     };
-    axum::serve(
-        listener,
-        server::router_with_index(entry, index, designs, changes, comments),
-    )
-    .await?;
+    let shots = slide_png::Shots::new(&changes);
+    let router = server::router_with_index(entry, index, designs, changes, comments, shots.clone());
+    // Stopped, the server closes the Chrome that draws its slides' PNGs.
+    tokio::select! {
+        served = axum::serve(listener, router) => served?,
+        _ = interrupted() => {}
+    }
+    shots.close().await;
     Ok(())
 }
 

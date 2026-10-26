@@ -8,12 +8,21 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
+use chromiumoxide::fetcher::{
+    BrowserFetcher, BrowserFetcherOptions, BrowserHost, BrowserKind, BrowserVersion, BuildInfo,
+    Platform, Version,
+};
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind, Paper, Pdf};
 use crate::server;
+
+/// The version of chrome-headless-shell and Chrome for Testing devpage
+/// drives. Pinned, so finding the browser makes no network call: the cached
+/// copy is used, and only a missing one is downloaded, as that version's zip.
+/// It moves with chromiumoxide, whose DevTools protocol it must speak.
+pub(crate) const CHROME_VERSION: (u32, u32, u32, u32) = (156, 0, 8078, 47);
 
 /// Prints `document` to `output`.
 pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
@@ -56,18 +65,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     // prints it: every slide of a deck is shown in print, so an embedded
     // design on any slide is fitted and painted where it will print.
     let page = browser.new_page("about:blank").await?;
+    shot(&page).await?;
     page.emulate_media_type(chromiumoxide::page::MediaTypeParams::Print)
         .await?;
     page.goto(url.as_str()).await?;
-    // devpage.js marks the page ready once its diagrams are drawn; each
-    // embedded design marks its canvas once it is painted.
-    for _ in 0..400 {
-        let ready: bool = page.evaluate(READY).await?.into_value()?;
-        if ready {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_ready(&page, &url).await?;
     let bytes = page.pdf(params).await.context("printing")?;
     std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))?;
 
@@ -79,9 +81,50 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
 }
 
 /// True once the page is ready to print: its diagrams drawn and every
-/// embedded design painted.
+/// embedded design that is laid out — on a slide being shown, or anywhere in
+/// print — painted, or settled showing its problems. A design on a hidden
+/// slide has no layout and never paints, so it doesn't count.
 pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true' \
-    && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
+    && [...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility()).every((c) => c.dataset.painted)";
+
+/// What a page that isn't ready still waits for, for the log.
+const MISSING: &str = "[document.documentElement.dataset.ready === 'true' ? null : 'its diagrams', \
+    ...[...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility() && !c.dataset.painted) \
+        .map((c) => `the design ${c.getAttribute('src')}`)] \
+    .filter(Boolean).join(', ')";
+
+/// Waits up to 20 s for `page`, showing `url`, to be [`READY`]. False when it
+/// never was: what it still waited for is logged, and the caller goes on with
+/// the page as it is.
+pub(crate) async fn wait_ready(page: &chromiumoxide::Page, url: &str) -> Result<bool> {
+    for _ in 0..400 {
+        if page.evaluate(READY).await?.into_value::<bool>()? {
+            return Ok(true);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let missing: String = page.evaluate(MISSING).await?.into_value()?;
+    eprintln!("{url} wasn't ready after 20 s, still waiting for {missing}");
+    Ok(false)
+}
+
+/// The header a page devpage's own Chrome shoots — a slide's PNG, or
+/// `devpage pdf` — sends with every request it makes. A slide's PNG asked for
+/// with it is never drawn, only answered from the cache, so a slide showing
+/// its own PNG can't shoot itself without end.
+pub(crate) const SHOT_HEADER: &str = "X-Devpage-Shot";
+
+/// Marks every request `page` makes with [`SHOT_HEADER`].
+pub(crate) async fn shot(page: &chromiumoxide::Page) -> Result<()> {
+    use chromiumoxide::cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams};
+    page.execute(SetExtraHttpHeadersParams::new(Headers::new(
+        serde_json::json!({ SHOT_HEADER: "1" }),
+    )))
+    .await?;
+    Ok(())
+}
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
 /// with the characters a file name can't hold replaced by `-`.
@@ -170,19 +213,64 @@ async fn fetch(kind: BrowserKind, name: &str) -> Result<std::path::PathBuf> {
     } else {
         Path::new(&home).join(".cache/devpage").join(name)
     };
-    std::fs::create_dir_all(&cache)?;
+    install(kind, name, &cache, BrowserHost::current(kind)).await
+}
+
+/// Downloads `kind` at [`CHROME_VERSION`] from `host` into `cache` unless it
+/// is there already, and returns the program.
+async fn install(
+    kind: BrowserKind,
+    name: &str,
+    cache: &Path,
+    host: BrowserHost,
+) -> Result<std::path::PathBuf> {
+    let (major, minor, build, patch) = CHROME_VERSION;
+    let version = Version::exact(major, minor, build, patch);
+    let Some(platform) = platform() else {
+        bail!(
+            "{name} {version} has no build for {} on {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+    };
+    let url = kind.download_url(platform, &BuildInfo::version(version.to_string()), &host);
+    std::fs::create_dir_all(cache)?;
     let fetcher = BrowserFetcher::new(
         BrowserFetcherOptions::builder()
-            .with_path(&cache)
+            .with_host(host)
+            .with_path(cache)
             .with_kind(kind)
+            .with_platform(platform)
+            .with_version(BrowserVersion::Version(version))
             .build()
             .map_err(anyhow::Error::msg)?,
     );
-    let info = fetcher
-        .fetch()
-        .await
-        .with_context(|| format!("downloading {name} into {}", cache.display()))?;
+    let info = fetcher.fetch().await.with_context(|| {
+        format!(
+            "downloading {name} {version} for {} from {url} into {}",
+            kind.folder(platform),
+            cache.display()
+        )
+    })?;
     Ok(info.executable_path)
+}
+
+/// The platform whose build of Chrome this machine runs, if Chrome for
+/// Testing has one the fetcher knows. There is none for Linux on Arm.
+fn platform() -> Option<Platform> {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(Platform::Linux)
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some(Platform::Mac)
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some(Platform::MacArm)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86")) {
+        Some(Platform::Win32)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some(Platform::Win64)
+    } else {
+        None
+    }
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -217,6 +305,118 @@ fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where the pinned Chrome's programs sit in a cache folder, on the
+    /// platforms the tests run on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn pinned_programs() -> [(BrowserKind, &'static str, std::path::PathBuf); 2] {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = format!("{major}.{minor}.{build}.{patch}");
+        let platform = cft_platform();
+        let folder = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac_arm"
+        } else {
+            "mac"
+        };
+        let folder = Path::new(&format!("{folder}-{version}")).to_path_buf();
+        let chrome = if cfg!(target_os = "linux") {
+            Path::new("chrome").to_path_buf()
+        } else {
+            Path::new("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+                .to_path_buf()
+        };
+        [
+            (
+                BrowserKind::ChromeHeadlessShell,
+                "chrome-headless-shell",
+                folder
+                    .join(format!("chrome-headless-shell-{platform}"))
+                    .join("chrome-headless-shell"),
+            ),
+            (
+                BrowserKind::Chrome,
+                "chrome-for-testing",
+                folder.join(format!("chrome-{platform}")).join(chrome),
+            ),
+        ]
+    }
+
+    /// The cached copy is used with no network call: the host is an address
+    /// nothing listens on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn the_pinned_chrome_already_in_the_cache_is_used_as_it_is() {
+        let caches = std::env::temp_dir().join(format!("devpage-pinned-{}", std::process::id()));
+        for (kind, name, program) in pinned_programs() {
+            let cache = caches.join(name);
+            let program = cache.join(program);
+            std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+            std::fs::write(&program, "").unwrap();
+            let nowhere = BrowserHost::single("http://127.0.0.1:9");
+            assert_eq!(install(kind, name, &cache, nowhere).await.unwrap(), program);
+        }
+        std::fs::remove_dir_all(&caches).ok();
+    }
+
+    /// A failed download says which browser, version, platform and address.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn a_failed_download_names_the_browser_version_platform_and_address() {
+        let cache =
+            std::env::temp_dir().join(format!("devpage-unreachable-{}", std::process::id()));
+        let nowhere = BrowserHost::single("http://127.0.0.1:9");
+        let error = install(
+            BrowserKind::ChromeHeadlessShell,
+            "chrome-headless-shell",
+            &cache,
+            nowhere,
+        )
+        .await
+        .unwrap_err();
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let platform = cft_platform();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "downloading chrome-headless-shell {major}.{minor}.{build}.{patch} for {platform} \
+                 from http://127.0.0.1:9/chrome-for-testing-public/{major}.{minor}.{build}.{patch}/{platform}/chrome-headless-shell-{platform}.zip \
+                 into {}",
+                cache.display()
+            )
+        );
+        std::fs::remove_dir_all(&cache).ok();
+    }
+
+    /// Chrome for Testing's name for this machine's platform.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn cft_platform() -> &'static str {
+        if cfg!(target_os = "linux") {
+            "linux64"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac-arm64"
+        } else {
+            "mac-x64"
+        }
+    }
+
+    /// Both browsers' zips exist at [`CHROME_VERSION`] for every platform.
+    /// Needs the network; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_pinned_chrome_can_be_downloaded_for_every_platform() {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = BuildInfo::version(format!("{major}.{minor}.{build}.{patch}"));
+        let client = reqwest::Client::new();
+        for kind in [BrowserKind::ChromeHeadlessShell, BrowserKind::Chrome] {
+            for &platform in Platform::all() {
+                let url = kind.download_url(platform, &version, &BrowserHost::current(kind));
+                let response = client.head(&url).send().await.unwrap();
+                assert_eq!(response.status(), reqwest::StatusCode::OK, "{url}");
+            }
+        }
+    }
 
     #[test]
     fn the_default_file_name_is_the_title_made_safe() {
@@ -259,6 +459,28 @@ mod tests {
                 (numbers[2] - numbers[0], numbers[3] - numbers[1])
             })
             .collect()
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_design_with_problems_does_not_delay_a_pdf() {
+        let dir = std::env::temp_dir().join(format!("devpage-pdf-problems-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.design"), "<Frame width={400} height={300}").unwrap();
+        std::fs::write(dir.join("doc.md"), "# Doc\n\n![Broken](broken.design)\n").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let document = Arc::new(Document::load(&dir.join("doc.md"), &dir).unwrap());
+        let output = dir.join("doc.pdf");
+        let started = std::time::Instant::now();
+        print(document, &output).await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!pages(&std::fs::read(&output).unwrap()).is_empty());
     }
 
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.

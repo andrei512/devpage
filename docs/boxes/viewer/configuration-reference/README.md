@@ -83,7 +83,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
 | `kind` | `site` | yes | Makes this file a site. |
-| `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`). |
+| `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`), or the whole tab title on a page titled like the site (trimmed, ignoring case). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
@@ -170,10 +170,11 @@ stop it either: `/` and the site's pages show the problem until the file is
 fixed, and the last valid version is kept meanwhile. The same problems in a
 document file reached by a link don't stop devpage: they are [problems](../checking-links/README.md), shown on the
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
-with `pdf prints a doc or slides, not a site` when given a site, and with the
-error `downloading chrome-headless-shell into <cache folder>` when the first
-download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
-and with `pdf prints a doc or slides, not a design` when given a design.
+with `pdf prints a doc or slides, not a site` when given a site, with the
+error `downloading chrome-headless-shell <version> for <platform> from <address> into <cache folder>`
+when the first download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
+with `chrome-headless-shell <version> has no build for <os> on <arch>` on a
+platform that has none, and with `pdf prints a doc or slides, not a design` when given a design.
 
 `devpage video` stops, before it starts Chrome, with
 `video needs GPT-Live: set DEVPAGE_OPENAI_API_KEY, or DEVPAGE_AZURE_OPENAI_ENDPOINT and DEVPAGE_AZURE_OPENAI_API_KEY`
@@ -181,9 +182,10 @@ when no narrator is set, `DEVPAGE_AZURE_OPENAI_ENDPOINT is set but DEVPAGE_AZURE
 `DEVPAGE_AZURE_OPENAI_ENDPOINT is not an address: <endpoint>`,
 `video records slides, not a site` (or `a doc`, `a design`), and
 `every slide needs <Notes> to be narrated; these have none: <n> (<file>), …`.
-Once running it stops with `downloading chrome-for-testing into <cache folder>`
+Once running it stops with `downloading chrome-for-testing <version> for <platform> from <address> into <cache folder>`
 when the first download of [its Chrome](../making-a-video/README.md#the-chrome-it-drives)
-fails, `connecting to GPT-Live at <address>` when the session can't open (a
+fails, `chrome-for-testing <version> has no build for <os> on <arch>` on a
+platform that has none, `connecting to GPT-Live at <address>` when the session can't open (a
 wrong key is `HTTP error: 401 Unauthorized`), with the error GPT-Live sends as
 `GPT-Live: <message>`, and with
 `the narrator said nothing for slide <n> within 60 seconds`. It writes no

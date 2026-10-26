@@ -1,0 +1,50 @@
+# Keeps the example deployment and the install page true: the image in
+# deploy/ builds and serves, and a checkout installs with only what
+# docs/installing.md lists. GitHub-hosted runners only: this repository is
+# public and never uses a self-hosted runner.
+name: deploy example
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and start it behind the proxy
+        run: docker compose -f deploy/compose.yaml up --build --detach --wait
+      - name: The docs load
+        run: >
+          curl -fsSL -o /dev/null --retry 10 --retry-all-errors --retry-delay 2
+          http://localhost:8090/
+      - name: A design's PNG is an image/png
+        run: >
+          test "$(curl -fsS -o /dev/null -w '%{content_type}'
+          http://localhost:8090/docs/designs/checkout/button.design.png)" = image/png
+      - name: A comment is accepted
+        run: >
+          curl -fsS -H 'Content-Type: application/json'
+          -d '{"page":"docs/README.md","anchor":{"quote":"devpage"},"text":"CI"}'
+          http://localhost:8090/__devpage/comments
+      - name: The docs pass devpage check
+        run: docker compose -f deploy/compose.yaml exec -T devpage devpage check docs
+      - name: Logs
+        if: failure()
+        run: docker compose -f deploy/compose.yaml logs
+
+  install:
+    runs-on: ubuntu-latest
+    container: rust:1.97-slim-bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from the checkout with nothing added
+        run: cargo install --path . --locked
+      - run: devpage --version
