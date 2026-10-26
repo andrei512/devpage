@@ -28,6 +28,7 @@ devpage --version
 | --- | --- |
 | a folder | the document file `devpage.yml` inside it |
 | a `.md` file | that file, as a doc of one chapter with default settings |
+| a `.design` file | that [design](../designs/README.md), titled by its file name without `.design`: `/` leads to its canvas, and `devpage check` reports its problems |
 | any other file | a document file, whatever its name |
 | none | `.` — `devpage.yml` in the current folder |
 
@@ -149,7 +150,13 @@ fixed, and the last valid version is kept meanwhile. The same problems in a
 document file reached by a link don't stop devpage: they are [problems](../checking-links/README.md), shown on the
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, and with the
-error from fetching Chromium when none is installed and the download fails.
+error `downloading chrome-headless-shell into <cache folder>` when the first
+download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
+and with `pdf prints a doc or slides, not a design` when given a design.
+
+A design's problems never stop devpage, even when the design is the entry:
+its canvas shows them over the last valid drawing, and `devpage check` prints
+each as `<file>:<line>:<column>: <message>` and exits `1`.
 
 ## Examples
 
@@ -169,3 +176,6 @@ watch:
 [The feature catalog](../../../features/devpage.yml) shows the doc kind and
 [the devpage talk](../../../talks/devpage/devpage.yml) the slides kind; each
 `devpage.yml` is beside its chapters or slides.
+[The checkout prototype](../../../designs/checkout/checkout.design) shows
+the design kind, which has no document file
+(`devpage docs/designs/checkout/checkout.design`).

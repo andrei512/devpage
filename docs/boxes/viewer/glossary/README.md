@@ -7,11 +7,11 @@ these words with these meanings. It is the reference page for the
 
 ## document
 
-What devpage serves and a reader opens: a site, a doc or slides. Every kind is a document; the code uses the same word (`Document`, `Kind`).
+What devpage serves and a reader opens: a site, a doc, slides or a design. Every kind is a document; the code uses the same word (`Document`, `Kind`).
 
 ## kind
 
-Which of the three a document is, named by the `kind` field of its document file: `site`, `doc` or `slides`.
+Which of the four a document is. A site, a doc or slides is named by the `kind` field of its document file — `site`, `doc` or `slides`; a design is its own `.design` file and has no document file.
 
 ## site
 
@@ -40,6 +40,66 @@ The document devpage was started with, where `/` leads.
 ## served folder
 
 The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to.
+
+## design
+
+A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch.
+
+## instance
+
+A design used inside another, by the name it was imported as.
+
+## prop
+
+A value a design takes when it is used, declared with a default in its root's `props`.
+
+## node
+
+One element of a resolved design — a frame, text, rectangle, ellipse, vector or image; its **id** is its path of child positions.
+
+## scene
+
+A design resolved into one tree of nodes, imports and props substituted, ready to lay out and paint.
+
+## interaction
+
+What clicking a node does in a prototype: `navigate`, `back`, `overlay` or `close`.
+
+## prototype
+
+Designs linked by interactions, clicked through on the canvas.
+
+## design engine
+
+The `devpage-design` crate: parses, resolves, lays out and paints designs, natively and in WebAssembly.
+
+## drawing
+
+What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## canvas page
+
+The page a design's own address answers: one canvas filling the window, which the reader zooms and pans, with the light/dark switch in its corner; a navigation in the prototype changes the address. See [The canvas page](../serving-pages/README.md#the-canvas-page).
+
+## embed
+
+A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## backdrop
+
+The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## watch stream
+
+A page's one gRPC-Web call, `Watch`, naming every design the page shows and carrying their updates — each whole scene first, then patches or problems — for as long as the page is open. See [The watch stream](../design-engine/README.md#the-watch-stream).
+
+## patch
+
+An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
+
+## image file
+
+A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its bytes — so a scene holds, decodes and sends it once however many nodes show it. See [Resolving](../design-engine/README.md#resolving).
 
 ## page
 
@@ -103,7 +163,7 @@ devpage listening on an address other than the local machine's (`--host`), behin
 
 ## problem
 
-A broken link, a missing chapter or slide, a Topics entry pointing nowhere or an invalid document file — shown on the page in the preview and reported by `devpage check`.
+A broken link, a missing chapter or slide, a Topics entry pointing nowhere, an invalid document file or a design that doesn't parse or resolve — shown on the page in the preview and reported by `devpage check`.
 
 ## print mode
 

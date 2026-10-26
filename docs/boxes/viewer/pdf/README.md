@@ -27,7 +27,8 @@ its header and footer ([Writing a doc](../writing-a-doc/README.md#on-paper)) —
 or a **deck**, one slide per 16:9 page
 ([Making slides](../making-slides/README.md#on-paper)). A site is many pages,
 not one, and `devpage pdf` refuses it; print one of its pages from the browser
-instead.
+instead. It refuses a design too; a page that embeds the design prints it, and
+its [PNG](../designs/README.md#looking-at-a-design-as-a-png) is its picture.
 
 The browser's own print — <Keys>⌘ P</Keys>, *Save as PDF* — produces the same pages from an
 open doc or deck, since both print the same print-mode page. `devpage pdf` adds
@@ -40,27 +41,37 @@ agent wants.
 sequenceDiagram
   participant pdf as devpage pdf
   participant server as Its own server
-  participant chrome as Headless Chrome
+  participant chrome as chrome-headless-shell
   pdf->>server: start, in the background
   pdf->>chrome: open the document in print mode
   chrome->>server: GET the page
-  chrome-->>pdf: every diagram and widget drawn
+  chrome-->>pdf: every diagram, widget and embedded design drawn
   pdf->>chrome: Page.printToPDF
   chrome-->>pdf: the PDF
 ```
 
 devpage does not render PDF itself. It starts its own server in the
-background, which logs nothing, opens the document in print mode in a headless Chrome, waits until
-every diagram is drawn, and has Chrome print it — the same `Page.printToPDF`
+background, which logs nothing, opens the document in print mode in a headless Chrome — laid out
+as paper from the start, with the print media type, so every slide of a deck
+is shown and a design embedded on any of them is fitted where it will print —
+waits until
+every diagram is drawn and every embedded design is painted — for at most 20
+seconds, after which it prints whatever the page shows, so a design that never
+paints (one with problems, say) costs that wait but doesn't stop the PDF; `devpage check`
+is what reports it — and has Chrome print it — the same `Page.printToPDF`
 call Playwright makes, spoken directly over the DevTools protocol by the
 `chromiumoxide` crate, with no Node and no extra process.
 
 Each run gives Chrome a profile folder of its own in the system's temporary
 folder, so several prints can run at once, and deletes it when the run ends.
 
-It uses the Chrome or Chromium installed on the machine. When it finds none, it
-downloads a Chromium once, into devpage's cache folder, says so, and uses that
-from then on.
+The Chrome is always **chrome-headless-shell**, never a Chrome installed on
+the machine. devpage downloads it the first time it needs one — into
+`~/Library/Caches/devpage/chrome-headless-shell` on macOS,
+`~/.cache/devpage/chrome-headless-shell` elsewhere — and uses that copy from
+then on. It is a bare program with no app bundle, so nothing devpage launches
+appears in the macOS Dock, and every machine prints with the same browser.
+The Chrome tests drive the same copy.
 
 ## Why the PDF matches the screen
 

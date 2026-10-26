@@ -43,6 +43,14 @@ Last, every Markdown table is wrapped in `<div class="table-scroll">`, so a
 table wider than the page scrolls inside its own box instead of widening
 the page.
 
+An image of a `.design` file — `![Checkout](checkout.design)`, or a raw
+`<img src="checkout.design">` however its attributes are quoted, spaced or
+capitalised — becomes the design's embed (`embed_designs`): a
+`<canvas class="design">` keeping the link in `src` and the image's text as
+its label, which the page script has the
+[design engine](../design-engine/README.md#in-the-browser) draw. Any other
+image is left as it is.
+
 ## Highlighted code
 
 `render::markdown` also plugs in a code-fence highlighter,

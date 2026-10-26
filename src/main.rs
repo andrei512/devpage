@@ -3,6 +3,7 @@
 
 mod check;
 mod comments;
+mod designs;
 mod document;
 mod highlight;
 mod icons;
@@ -31,11 +32,11 @@ use crate::index::Index;
 const FIRST_PORT: u16 = 3030;
 
 #[derive(Parser)]
-#[command(version, about = "Live documents from Markdown in a repository")]
+#[command(version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// A document file, a folder holding devpage.yml, or a Markdown file.
+    /// A document file, a folder holding devpage.yml, a Markdown file, or a design (.design).
     path: Option<PathBuf>,
     /// The served folder: nothing outside it is served. The current folder by default.
     #[arg(long, global = true)]
@@ -91,9 +92,16 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served));
     let entry = Arc::new(Entry::new(document.clone()));
 
+    let designs = designs::Designs::new(document.served.clone());
+
     let (changes, _) = broadcast::channel(16);
     check::announce_on(changes.clone());
-    let _watcher = watch::start(entry.clone(), index.clone(), changes.clone())?;
+    let _watcher = watch::start(
+        entry.clone(),
+        index.clone(),
+        designs.clone(),
+        changes.clone(),
+    )?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -115,7 +123,7 @@ async fn main() -> Result<()> {
     };
     axum::serve(
         listener,
-        server::router_with_index(entry, index, changes, identity),
+        server::router_with_index(entry, index, designs, changes, identity),
     )
     .await?;
     Ok(())

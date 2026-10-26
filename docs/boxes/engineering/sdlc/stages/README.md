@@ -65,9 +65,13 @@ a note, not a round. (`/review`)
 ## Release
 
 The operator's call, from main. A release publishes the version in
-`Cargo.toml` to [crates.io](https://crates.io) with
-`cargo publish`, from main's tip with the gates green, and tags that commit
-`v<version>`. Publishing is permanent — a version can be yanked but never
+`Cargo.toml` to [crates.io](https://crates.io), from main's tip with the gates
+green, and tags that commit `v<version>`. devpage depends on its design
+engine, `devpage-design`, which carries the same version and is published
+first — `cargo publish -p devpage-design`, then `cargo publish -p devpage` —
+since crates.io resolves devpage's dependencies from the registry. A version
+is published once, so a release moves both crates past the last published
+version together. Publishing is permanent — a version can be yanked but never
 replaced — so it happens only when the operator says so. The
 [example image](../../../viewer/deploying/README.md#the-image) installs the
 released version, so it follows each release.

@@ -19,6 +19,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 | A Topics entry | point at an existing page |
 | An `http` or `https` address | answer with a status below 400, following redirects |
 | A comment thread | parse, for each file in the comment store |
+| A design a page links to or embeds | parse and resolve, with every design it imports — see [Designs](#designs) |
 
 An external answer of 400 or above is a broken link at once. An address that
 doesn't answer within 10 seconds, or can't be connected to, may only be a slow
@@ -33,6 +34,20 @@ address is asked once per check, however many links point at it.
 Links in a [widget](../widgets/README.md)'s content are checked like any other,
 since devpage renders that Markdown. Links a widget's own code builds in the
 browser are not: devpage never runs widget code on the server.
+
+### Designs
+
+Every `.design` file a page links to or embeds, and every design those
+import, must parse and resolve: known elements, attributes and props, values
+of the right type, imports and images that exist in the served folder, and no
+design that uses itself ([Designs](../designs/README.md#problems)). They are
+read from the page's Markdown — an image or a link whose target ends in
+`.design`, never an example in code — and each of the design's problems is
+reported on the page as
+`broken design <target> — <file>:<line>:<column>: <message>`. A design whose
+drawing is too big to paint is a problem too. A link to a design's PNG
+address, `x.design.png`, is checked as the design `x.design`
+([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
 
 ## In the preview
 
@@ -82,8 +97,10 @@ $ echo $?
 
 </Terminal>
 
-It takes a document file's folder (`docs`, for `docs/devpage.yml`) or one
-Markdown file (`devpage check design.md`).
+It takes a document file's folder (`docs`, for `docs/devpage.yml`), one
+Markdown file (`devpage check design.md`), or one design
+(`devpage check app/checkout.design`), whose problems it prints as
+`<file>:<line>:<column>: <message>`.
 
 `devpage check` takes the same argument as `devpage`, checks that document and
 every page and document reachable from it by links within the served folder,

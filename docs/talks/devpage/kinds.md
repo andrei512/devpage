@@ -1,4 +1,4 @@
-<Columns kicker="Three kinds" title="Every document your project needs. One format.">
+<Columns kicker="Four kinds" title="Every document your project needs. One format.">
 
 <KindCards />
 

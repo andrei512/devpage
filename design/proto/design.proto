@@ -1,0 +1,156 @@
+// The watch stream between devpage and a page: for each design the page
+// shows, its scene, then patches of the nodes that changed, or its problems.
+syntax = "proto3";
+
+package devpage.design.v1;
+
+service Designs {
+  rpc Watch(WatchRequest) returns (stream Update);
+}
+
+message WatchRequest {
+  // Every design the page shows, by address from the top of the served
+  // folder. A page holds one stream for all of them.
+  repeated string paths = 1;
+}
+
+message Update {
+  oneof body {
+    Scene scene = 1;
+    Patch patch = 2;
+    Problems problems = 3;
+  }
+  // The design this update is about, as the request named it.
+  string path = 4;
+}
+
+// A whole scene: its tree, and each distinct image file the tree shows,
+// once, however many nodes show it.
+message Scene {
+  Node root = 1;
+  repeated ImageFile images = 2;
+}
+
+// The nodes that changed, and the image files they show that the scene last
+// sent didn't have — only those.
+message Patch {
+  repeated Replace replace = 1;
+  repeated ImageFile images = 2;
+}
+
+// An image file's bytes, PNG or JPEG, and its id: the SHA-256 of the bytes.
+message ImageFile {
+  bytes id = 1;
+  bytes data = 2;
+}
+
+// The node at `id` — its path of child positions, like "0.2.1" — replaced
+// with its whole subtree.
+message Replace {
+  string id = 1;
+  Node node = 2;
+}
+
+message Problems {
+  repeated string problems = 1;
+}
+
+// One node of a scene, every attribute resolved. Colors are 0xRRGGBBAA;
+// a size is pixels, or -1 for hug and -2 for fill. A fill is `fill` (one
+// color) or `gradient`, never both.
+message Node {
+  Kind kind = 1;
+  string name = 2;
+  float x = 3;
+  float y = 4;
+  float width = 5;
+  float height = 6;
+  float opacity = 7;
+  string on_click = 8;
+  optional uint32 fill = 9;
+  optional uint32 stroke = 10;
+  float stroke_width = 11;
+  repeated float radius = 12;
+  Shadow shadow = 13;
+  bool clip = 14;
+  Layout layout = 15;
+  float gap = 16;
+  repeated float padding = 17;
+  Align align = 18;
+  Align justify = 19;
+  Text text = 20;
+  repeated Node children = 21;
+  Gradient gradient = 22;
+  Vector vector = 23;
+  Image image = 24;
+}
+
+// A linear gradient: `angle` in degrees as in CSS, stops along its line.
+message Gradient {
+  float angle = 1;
+  repeated Stop stops = 2;
+}
+
+message Stop {
+  uint32 color = 1;
+  // From 0 to 1 along the gradient line.
+  float at = 2;
+}
+
+// A vector's SVG path data and its view box: min x, min y, width, height.
+message Vector {
+  string d = 1;
+  repeated float view_box = 2;
+}
+
+// An image's address in the served folder and the id of the image file it
+// shows, which the scene or a patch carries.
+message Image {
+  string src = 1;
+  bytes id = 2;
+}
+
+enum Kind {
+  FRAME = 0;
+  TEXT = 1;
+  RECT = 2;
+  ELLIPSE = 3;
+  VECTOR = 4;
+  IMAGE = 5;
+}
+
+enum Layout {
+  NONE = 0;
+  ROW = 1;
+  COLUMN = 2;
+}
+
+enum Align {
+  START = 0;
+  CENTER = 1;
+  END = 2;
+  SPACE_BETWEEN = 3;
+}
+
+message Shadow {
+  float x = 1;
+  float y = 2;
+  float blur = 3;
+  float spread = 4;
+  uint32 color = 5;
+}
+
+message Text {
+  string content = 1;
+  float size = 2;
+  uint32 weight = 3;
+  uint32 color = 4;
+  float line_height = 5;
+  TextAlign align = 6;
+}
+
+enum TextAlign {
+  TEXT_ALIGN_LEFT = 0;
+  TEXT_ALIGN_CENTER = 1;
+  TEXT_ALIGN_RIGHT = 2;
+}

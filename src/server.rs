@@ -20,6 +20,7 @@ use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
 use crate::comments::{Anchor, Store};
+use crate::designs::Designs;
 use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
@@ -31,6 +32,7 @@ struct AppState {
     changes: broadcast::Sender<String>,
     store: Arc<Store>,
     identity: Arc<Identity>,
+    designs: Designs,
 }
 
 /// Who writes a comment: one local author, or — deployed — whoever the auth
@@ -65,7 +67,14 @@ pub fn router(
     identity: Identity,
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
-    router_with_index(Arc::new(Entry::new(document)), index, changes, identity)
+    let designs = Designs::new(document.served.clone());
+    router_with_index(
+        Arc::new(Entry::new(document)),
+        index,
+        designs,
+        changes,
+        identity,
+    )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
@@ -73,18 +82,21 @@ pub fn router(
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
     identity: Identity,
 ) -> Router {
-    quiet(entry, index, changes, identity).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, identity).layer(middleware::from_fn(log))
 }
 
 /// The server for `devpage pdf`, which serves only Chrome and logs nothing.
 pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
     let index = Arc::new(Index::build(&document.served));
+    let designs = Designs::new(document.served.clone());
     quiet(
         Arc::new(Entry::new(document)),
         index,
+        designs,
         changes,
         Identity::Local(String::new()),
     )
@@ -93,6 +105,7 @@ pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> 
 fn quiet(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
     identity: Identity,
 ) -> Router {
@@ -109,7 +122,18 @@ fn quiet(
         .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
+        .route_service(
+            "/devpage.design.v1.Designs/Watch",
+            tower::ServiceBuilder::new()
+                .layer(tonic_web::GrpcWebLayer::new())
+                .service(devpage_design::proto::designs_server::DesignsServer::new(
+                    crate::designs::Watch {
+                        designs: designs.clone(),
+                    },
+                )),
+        )
         .with_state(AppState {
+            designs,
             store: Arc::new(Store::new(&entry.document().served)),
             identity: Arc::new(identity),
             entry,
@@ -151,7 +175,40 @@ async fn file(
     RawQuery(query): RawQuery,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    // A design's PNG — unless a real file of that name is there, which is
+    // served as it is.
+    let real = state
+        .entry
+        .document()
+        .file(&path)
+        .is_some_and(|f| f.is_file());
+    if let Some(design) = path
+        .strip_suffix(".png")
+        .filter(|p| p.ends_with(".design") && !real)
+    {
+        // A design that isn't a file in the served folder is like any other
+        // path that isn't: 404, never its problems.
+        if !state
+            .entry
+            .document()
+            .file(design)
+            .is_some_and(|f| f.is_file())
+        {
+            return (
+                StatusCode::NOT_FOUND,
+                format!("{path} is not part of the served folder"),
+            )
+                .into_response();
+        }
+        return match state.designs.png(design.to_string()).await {
+            Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
+            Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),
+        };
+    }
     let entry = state.entry.document();
+    if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
+        return Html(crate::designs::page(&path)).into_response();
+    }
     let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (
             StatusCode::NOT_FOUND,
@@ -223,6 +280,7 @@ fn show(document: &Document, print: bool) -> Response {
             Html(render::doc(document, chapters, pdf, print)).into_response()
         }
         Kind::Slides { slides } => Html(render::slides(document, slides, print)).into_response(),
+        Kind::Design => Redirect::temporary(&document.entry()).into_response(),
     }
 }
 
@@ -397,6 +455,21 @@ async fn asset(Path(name): Path<String>) -> Response {
         "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
         "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
         "react.js" => (include_str!("../assets/vendor/react.js"), "text/javascript"),
+        "design.js" => (include_str!("../assets/design.js"), "text/javascript"),
+        "design-engine.js" => (
+            include_str!("../assets/vendor/design-engine.js"),
+            "text/javascript",
+        ),
+        "design-engine.wasm" => {
+            return (
+                [
+                    (header::CONTENT_TYPE, "application/wasm"),
+                    (header::CACHE_CONTROL, "no-cache"),
+                ],
+                &include_bytes!("../assets/vendor/design-engine.wasm")[..],
+            )
+                .into_response();
+        }
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     (
@@ -866,8 +939,15 @@ mod tests {
         let index = Arc::new(Index::build(&dir));
         let entry = Arc::new(Entry::new(document));
         let (changes, _) = broadcast::channel(16);
-        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
-        let router = router_with_index(entry, index, changes, Identity::Local("T".into()));
+        let designs = Designs::new(dir.clone());
+        let _watcher = crate::watch::start(
+            entry.clone(),
+            index.clone(),
+            designs.clone(),
+            changes.clone(),
+        )
+        .unwrap();
+        let router = router_with_index(entry, index, designs, changes, Identity::Local("T".into()));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });

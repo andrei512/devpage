@@ -111,11 +111,12 @@ navbar:
     Site — these docs (book-open): README.md
     Doc — feature catalog (file-text): features/devpage.yml
     Slides — the devpage talk (presentation): talks/devpage/devpage.yml
+    Design — the checkout prototype (frame): designs/checkout/checkout.design
   (github): https://github.com/andrei512/devpage
 ```
 
 - **`Label: target`** is a link. The target is a page, a document file — a doc,
-  a deck, another site — or an address on the web; paths are relative to the
+  a deck, another site — a design, or an address on the web; paths are relative to the
   document file.
 - **`Label:` with a nested map** is a dropdown of the links under it, one level
   deep.

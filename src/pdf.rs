@@ -30,6 +30,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
             ..Default::default()
         },
         Kind::Site { .. } => bail!("pdf prints a doc or slides, not a site"),
+        Kind::Design => bail!("pdf prints a doc or slides, not a design"),
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
@@ -42,25 +43,25 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     });
 
     let profile = Profile::new();
-    let config = match profile.chrome().build() {
-        Ok(config) => config,
-        // No Chrome installed: download a Chromium once, into devpage's cache.
-        Err(_) => profile
-            .chrome()
-            .chrome_executable(fetch_chromium().await?)
-            .build()
-            .map_err(anyhow::Error::msg)?,
-    };
+    let config = profile
+        .chrome()
+        .await?
+        .build()
+        .map_err(anyhow::Error::msg)?;
     let (mut browser, mut handler) = Browser::launch(config).await.context("starting Chrome")?;
     let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
 
-    let page = browser.new_page(url.as_str()).await?;
-    // devpage.js marks the page ready once its diagrams are drawn.
-    for _ in 0..100 {
-        let ready: bool = page
-            .evaluate("document.documentElement.dataset.ready === 'true'")
-            .await?
-            .into_value()?;
+    // The page is laid out as paper from the start, not only when Chrome
+    // prints it: every slide of a deck is shown in print, so an embedded
+    // design on any slide is fitted and painted where it will print.
+    let page = browser.new_page("about:blank").await?;
+    page.emulate_media_type(chromiumoxide::page::MediaTypeParams::Print)
+        .await?;
+    page.goto(url.as_str()).await?;
+    // devpage.js marks the page ready once its diagrams are drawn; each
+    // embedded design marks its canvas once it is painted.
+    for _ in 0..400 {
+        let ready: bool = page.evaluate(READY).await?.into_value()?;
         if ready {
             break;
         }
@@ -75,6 +76,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     server.abort();
     Ok(())
 }
+
+/// True once the page is ready to print: its diagrams drawn and every
+/// embedded design painted.
+const READY: &str = "document.documentElement.dataset.ready === 'true' \
+    && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
 /// with the characters a file name can't hold replaced by `-`.
@@ -95,10 +101,10 @@ pub fn default_output(title: &str) -> std::path::PathBuf {
 /// A Chrome profile folder of its own for one run, so several prints can run
 /// at once without fighting over one profile's lock. It is deleted when the
 /// run ends.
-struct Profile(std::path::PathBuf);
+pub(crate) struct Profile(std::path::PathBuf);
 
 impl Profile {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static RUNS: AtomicUsize = AtomicUsize::new(0);
         Self(std::env::temp_dir().join(format!(
@@ -108,9 +114,11 @@ impl Profile {
         )))
     }
 
-    /// A headless Chrome using this profile.
-    fn chrome(&self) -> chromiumoxide::browser::BrowserConfigBuilder {
-        BrowserConfig::builder().user_data_dir(&self.0)
+    /// [`headless_shell`] using this profile.
+    pub(crate) async fn chrome(&self) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
+        Ok(BrowserConfig::builder()
+            .chrome_executable(headless_shell().await?)
+            .user_data_dir(&self.0))
     }
 }
 
@@ -120,25 +128,37 @@ impl Drop for Profile {
     }
 }
 
-/// Downloads a Chromium into devpage's cache folder, or finds the one there.
-async fn fetch_chromium() -> Result<std::path::PathBuf> {
-    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions};
-    let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
-    let cache = if cfg!(target_os = "macos") {
-        Path::new(&home).join("Library/Caches/devpage/chromium")
-    } else {
-        Path::new(&home).join(".cache/devpage/chromium")
-    };
-    std::fs::create_dir_all(&cache)?;
-    eprintln!("No Chrome found; using a Chromium in {}", cache.display());
-    let fetcher = BrowserFetcher::new(
-        BrowserFetcherOptions::builder()
-            .with_path(&cache)
-            .build()
-            .map_err(anyhow::Error::msg)?,
-    );
-    let info = fetcher.fetch().await.context("downloading Chromium")?;
-    Ok(info.executable_path)
+/// chrome-headless-shell, downloaded once into devpage's cache folder: the
+/// one browser devpage drives, for `devpage pdf` and for every Chrome test. It
+/// is a bare program with no app bundle, so nothing devpage launches ever shows
+/// in the macOS Dock, and every machine prints with the same browser. Prints
+/// running at once share one download.
+pub(crate) async fn headless_shell() -> Result<std::path::PathBuf> {
+    use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
+    static SHELL: tokio::sync::OnceCell<std::path::PathBuf> = tokio::sync::OnceCell::const_new();
+    SHELL
+        .get_or_try_init(|| async {
+            let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
+            let cache = if cfg!(target_os = "macos") {
+                Path::new(&home).join("Library/Caches/devpage/chrome-headless-shell")
+            } else {
+                Path::new(&home).join(".cache/devpage/chrome-headless-shell")
+            };
+            std::fs::create_dir_all(&cache)?;
+            let fetcher = BrowserFetcher::new(
+                BrowserFetcherOptions::builder()
+                    .with_path(&cache)
+                    .with_kind(BrowserKind::ChromeHeadlessShell)
+                    .build()
+                    .map_err(anyhow::Error::msg)?,
+            );
+            let info = fetcher.fetch().await.with_context(|| {
+                format!("downloading chrome-headless-shell into {}", cache.display())
+            })?;
+            anyhow::Ok(info.executable_path)
+        })
+        .await
+        .cloned()
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -217,7 +237,7 @@ mod tests {
             .collect()
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
@@ -255,7 +275,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_talk_prints_one_16_by_9_page_per_slide() {
@@ -277,7 +297,7 @@ mod tests {
         }
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn widgets_mount_on_load_and_after_a_live_update() {
@@ -307,9 +327,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}/docs/README.md").as_str())
@@ -348,7 +369,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
@@ -365,9 +386,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}{url}").as_str())
@@ -408,7 +430,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
@@ -423,9 +445,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (mut browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (mut browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser.new_page("about:blank").await.unwrap();
         let layout = |width: i64| {
@@ -491,9 +514,10 @@ mod tests {
         let router = server::router(document, changes, server::Identity::Local("T".into()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
-        let (browser, mut handler) = Browser::launch(profile.chrome().build().unwrap())
-            .await
-            .unwrap();
+        let (browser, mut handler) =
+            Browser::launch(profile.chrome().await.unwrap().build().unwrap())
+                .await
+                .unwrap();
         let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
         let page = browser
             .new_page(format!("http://{address}{path}").as_str())
@@ -531,7 +555,7 @@ mod tests {
         )
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
@@ -560,7 +584,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
@@ -631,7 +655,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
@@ -702,7 +726,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
@@ -738,7 +762,7 @@ mod tests {
         events.abort();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn every_system_widget_renders() {
@@ -845,7 +869,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
@@ -912,7 +936,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn an_edited_helper_reaches_open_pages() {
@@ -949,7 +973,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
@@ -1011,7 +1035,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_comment_anchors_on_text_inside_a_widget() {
@@ -1038,7 +1062,7 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
-    /// Drives the installed Chrome; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
     async fn a_printed_doc_shows_each_widgets_first_render() {

@@ -1,5 +1,6 @@
 //! Watches the served folder: keeps the index current, tells open pages a
-//! watched file changed, and tells them a comment thread changed.
+//! watched file changed, tells them a comment thread changed, and tells the
+//! design store every file that changed.
 
 use std::sync::Arc;
 
@@ -7,29 +8,67 @@ use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
+use crate::designs::Designs;
 use crate::document::{Document, Entry};
 use crate::index::Index;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Starts watching. A change to a watched file sends `change`; a change to a
 /// comment thread sends `comments /<page>`, whatever the site's `watch` says.
-/// The returned watcher stops when dropped.
+/// Every changed file outside `.devpage/` also goes to the design store,
+/// whatever `watch` and `.gitignore` say, since any file may be part of a
+/// design. The returned watcher stops when dropped.
 pub fn start(
     entry: Arc<Entry>,
     index: Arc<Index>,
+    designs: Designs,
     changes: broadcast::Sender<String>,
 ) -> Result<RecommendedWatcher> {
     let served = entry.document().served.clone();
     let root = served.clone();
+    let listeners = Listeners {
+        served,
+        entry,
+        index,
+        designs,
+        changes,
+    };
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         let Ok(event) = event else { return };
         if event.kind.is_access() {
             return;
         }
+        listeners.changed(&event.paths);
+    })?;
+    watcher.watch(&root, RecursiveMode::Recursive)?;
+    Ok(watcher)
+}
+
+/// Who hears about files that change: open pages, the index and the design
+/// store.
+struct Listeners {
+    served: PathBuf,
+    entry: Arc<Entry>,
+    index: Arc<Index>,
+    designs: Designs,
+    changes: broadcast::Sender<String>,
+}
+
+impl Listeners {
+    /// `paths` changed, were created or were deleted: tell each listener what
+    /// it needs to know.
+    fn changed(&self, paths: &[PathBuf]) {
+        let Listeners {
+            served,
+            entry,
+            index,
+            designs,
+            changes,
+        } = self;
         let mut refresh = false;
-        for path in &event.paths {
+        for path in paths {
             let path = path.canonicalize().unwrap_or_else(|_| path.clone());
-            let Ok(relative) = path.strip_prefix(&served) else {
+            let Ok(relative) = path.strip_prefix(served) else {
                 continue;
             };
             // A thread changed: tell the pages showing its page to fetch comments.
@@ -41,22 +80,24 @@ pub fn start(
                 }
                 continue;
             }
+            if relative.starts_with(".devpage") {
+                continue;
+            }
+            designs.changed(&path);
             index.changed(&path);
             // The entry's own file: re-read it, so `/` and `watch` follow it,
             // and refresh open pages whatever `watch` says.
             if path == entry.file() {
                 entry.reload();
                 refresh = true;
-            } else if !index.ignored(&path, path.is_dir()) && refreshes(&entry, &index, &path) {
+            } else if !index.ignored(&path, path.is_dir()) && refreshes(entry, index, &path) {
                 refresh = true;
             }
         }
         if refresh {
             let _ = changes.send("change".into());
         }
-    })?;
-    watcher.watch(&root, RecursiveMode::Recursive)?;
-    Ok(watcher)
+    }
 }
 
 /// Whether a change to `path` refreshes open pages. Document files and
@@ -102,7 +143,6 @@ fn is_widget_file(entry: &Entry, index: &Index, path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use std::time::Duration;
 
     fn served(name: &str, site: &str) -> PathBuf {
@@ -120,7 +160,8 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let (changes, mut received) = broadcast::channel(64);
-        let _watcher = start(Arc::new(Entry::new(document)), index, changes).unwrap();
+        let designs = Designs::new(dir.to_path_buf());
+        let _watcher = start(Arc::new(Entry::new(document)), index, designs, changes).unwrap();
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch();
@@ -130,6 +171,42 @@ mod tests {
             messages.push(message);
         }
         messages
+    }
+
+    /// The hand-off itself, without waiting on the platform's file events: a
+    /// changed file reaches the design store, which forgets what it read and
+    /// resolves the design again; a file under `.devpage/` never does.
+    #[test]
+    fn a_changed_file_reaches_the_design_store() {
+        let dir = served("designs", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join(".devpage")).unwrap();
+        let valid = "<Frame width={10} height={10} />\n";
+        let broken = "<Frame width={10} height={10} lable=\"x\" />\n";
+        std::fs::write(dir.join("docs/screen.design"), valid).unwrap();
+        std::fs::write(dir.join(".devpage/screen.design"), valid).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let designs = Designs::new(dir.clone());
+        let listeners = Listeners {
+            served: dir.clone(),
+            entry: Arc::new(Entry::new(document)),
+            index: Arc::new(Index::build(&dir)),
+            designs: designs.clone(),
+            changes: broadcast::channel(64).0,
+        };
+        assert!(designs.resolve("docs/screen.design").is_ok());
+        assert!(designs.resolve(".devpage/screen.design").is_ok());
+
+        // Saved broken: the store answers from memory until it is told.
+        std::fs::write(dir.join("docs/screen.design"), broken).unwrap();
+        std::fs::write(dir.join(".devpage/screen.design"), broken).unwrap();
+        assert!(designs.resolve("docs/screen.design").is_ok());
+
+        listeners.changed(&[
+            dir.join("docs/screen.design"),
+            dir.join(".devpage/screen.design"),
+        ]);
+        assert!(designs.resolve("docs/screen.design").is_err());
+        assert!(designs.resolve(".devpage/screen.design").is_ok());
     }
 
     #[tokio::test]
@@ -185,7 +262,8 @@ mod tests {
         let entry = Arc::new(Entry::new(document));
         let index = Arc::new(Index::build(&dir));
         let (changes, mut received) = broadcast::channel(64);
-        let _watcher = start(entry.clone(), index, changes).unwrap();
+        let designs = Designs::new(dir.clone());
+        let _watcher = start(entry.clone(), index, designs, changes).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Its own file changing refreshes pages, though `watch` names only Markdown.

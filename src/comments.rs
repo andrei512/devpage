@@ -354,7 +354,7 @@ mod tests {
     }
 }
 
-/// The page script's side of comments, in the installed Chrome. Run with
+/// The page script's side of comments, in chrome-headless-shell. Run with
 /// `cargo test -- --ignored`.
 #[cfg(test)]
 mod browser {
@@ -400,9 +400,21 @@ mod browser {
         let (changes, _) = broadcast::channel(16);
         let index = Arc::new(crate::index::Index::build(&document.served));
         let entry = Arc::new(crate::document::Entry::new(document));
-        let _watcher = crate::watch::start(entry.clone(), index.clone(), changes.clone()).unwrap();
-        let router =
-            server::router_with_index(entry, index, changes, server::Identity::Local("Ana".into()));
+        let designs = crate::designs::Designs::new(entry.document().served.clone());
+        let _watcher = crate::watch::start(
+            entry.clone(),
+            index.clone(),
+            designs.clone(),
+            changes.clone(),
+        )
+        .unwrap();
+        let router = server::router_with_index(
+            entry,
+            index,
+            designs,
+            changes,
+            server::Identity::Local("Ana".into()),
+        );
         tokio::spawn(async move {
             let _watcher = _watcher;
             axum::serve(listener, router).await.ok();
@@ -412,6 +424,7 @@ mod browser {
             std::process::id()
         ));
         let config = BrowserConfig::builder()
+            .chrome_executable(crate::pdf::headless_shell().await.unwrap())
             .user_data_dir(profile)
             .viewport(chromiumoxide::handler::viewport::Viewport {
                 width: 1400,
@@ -426,7 +439,20 @@ mod browser {
             .new_page(format!("http://{address}{path}").as_str())
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        // Ready once the page and its scripts have loaded, however long a
+        // loaded machine takes, rather than after a fixed wait.
+        for _ in 0..200 {
+            let ready = page
+                .evaluate("document.readyState === 'complete' && !!document.getElementById('page')")
+                .await
+                .ok()
+                .and_then(|v| v.into_value::<bool>().ok())
+                .unwrap_or(false);
+            if ready {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
         (browser, page, events)
     }
 
@@ -757,6 +783,40 @@ mod browser {
         )
         .await;
         assert!(until(&page, &format!("!({shown})")).await);
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn a_live_update_with_the_comments_shown_swaps_the_page_in_place() {
+        let root = folder("shown");
+        std::fs::write(root.join("a.md"), "# A\n\nThe first draft.\n").unwrap();
+        let (mut browser, page, events) = open("shown", &root, &root.join("a.md"), "/a.md").await;
+
+        // Showing the comments marks the body; a fetched page never carries
+        // that mark, and it must not make the update a full reload.
+        eval::<bool>(
+            &page,
+            "(document.body.classList.add('show-comments'), window.notReloaded = true, true)",
+        )
+        .await;
+        std::fs::write(root.join("a.md"), "# A\n\nThe second draft.\n").unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('article p')?.textContent === 'The second draft.'"
+            )
+            .await
+        );
+        assert!(
+            eval::<bool>(&page, "window.notReloaded === true").await,
+            "the page was swapped in place, not reloaded"
+        );
+        assert!(
+            eval::<bool>(&page, "document.body.classList.contains('show-comments')").await,
+            "the comments stay shown"
+        );
         browser.close().await.ok();
         events.abort();
     }

@@ -22,21 +22,37 @@ flowchart LR
 
 `load(url)` fetches the URL with
 `cache: "no-store"`. If the response isn't OK or isn't HTML it returns `false`;
-otherwise it parses the HTML, replaces the children of `#devpage-page`, `#devpage-nav` and
-`#devpage-navbar` with the fresh ones — so the navbar's highlight follows the page — sets the document title, takes the fresh page's
+otherwise it parses the HTML and compares its frame — the classes the server
+put on its `<body>`, less `show-comments`, which the script itself adds while
+the comments are shown — with the open page's. A different frame, as when a
+document changed kind, is loaded whole. The same frame is swapped in: the
+script replaces the children of `#devpage-page`, `#devpage-nav` and
+`#devpage-navbar` with the fresh ones — so the navbar's highlight follows the
+page — sets the document title, takes the fresh page's
 `window.devpageWidgets` — so widgets edited since are fetched at their new
-versions — and mounts the new content's widgets, its Mermaid diagrams included.
-The rest of the page — the scripts, the event stream, the scroll position —
-stays as it was. A fresh page in a different frame (its `<body>` class differs,
-as when a document changed kind) is loaded whole instead.
+versions — mounts the new content's widgets, its Mermaid diagrams included,
+and starts any design it newly embeds. The rest of the page — the scripts, the
+event stream, the scroll position — stays as it was.
+
+The swap keeps every [embedded design](../designs/README.md#viewing-a-design)'s
+canvas that is still in the page, outside a widget: each keeps its drawing,
+and the page's one watch stream stays open while the set of designs it shows
+is the same. A design embedded inside a widget is the exception: React makes
+the widget's content again, canvas included, so the new canvas takes over what
+the old one showed — the design it had navigated to and its way back — and is
+drawn again from the stream
+([Design engine](../design-engine/README.md#in-the-browser)).
 
 ## Mounting widgets
 
 On load and after every swap, each Mermaid fence becomes
 a `Diagram` placeholder, and every widget placeholder in the content is
 mounted with React — the widgets it names loaded first
-([Widgets](../widgets/how-widgets-run/README.md)). The page marks itself ready
-once every widget has mounted.
+([Widgets](../widgets/how-widgets-run/README.md)). Once every widget has
+mounted, the script draws the designs the content embeds — those inside
+widgets exist only now — and the page marks itself ready. The design script, `assets/design.js`, is loaded the first time a
+page has a design, and from then on starts every canvas not yet drawn and
+stops those gone.
 
 ## The live-update stream
 

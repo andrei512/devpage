@@ -135,6 +135,7 @@ garden/talk` prints one slide per page.
 three — and exits `1` if a link is broken: ready for a test.
 
 For a finished example of each kind: these docs are a site,
-[the feature catalog](features/devpage.yml) is a doc, and
-[the devpage talk](talks/devpage/devpage.yml) is a deck — all three in the
-navbar's **Examples** menu.
+[the feature catalog](features/devpage.yml) is a doc,
+[the devpage talk](talks/devpage/devpage.yml) is a deck, and
+[the checkout prototype](designs/checkout/checkout.design) is a design — all
+four in the navbar's **Examples** menu.

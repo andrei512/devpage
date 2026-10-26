@@ -2,7 +2,7 @@
 
 devpage renders the documents a software project lives by — a site of system
 docs, a design doc or PRD, a slide deck — from Markdown files in the
-repository, live: point it at a document, open the address it prints, and
+repository, and designs of its UI from `.design` files, live: point it at a document, open the address it prints, and
 every page you have open updates the moment its file is saved — by you or by an
 agent. These pages are devpage's own documentation, served by devpage.
 
@@ -15,6 +15,7 @@ agent. These pages are devpage's own documentation, served by devpage.
 - (file-code) [Extended Markdown](boxes/viewer/writing-a-document/markdown-that-works/README.md) — GitHub-flavoured Markdown with raw HTML allowed, highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to other pages.
 - (palette) [Light and dark](boxes/viewer/themes/README.md) — A light and a dark theme the reader can switch between.
 - (puzzle) [Widgets](boxes/viewer/widgets/README.md) — React components used as HTML tags in Markdown: callouts, tabs, file trees, examples, terminals, keycaps, steps and cards ship with devpage; a project adds its own as `.tsx` files.
+- (frame) [Designs](boxes/viewer/designs/README.md) — A UI an agent writes as code, a `.design` file in JSX syntax over Figma's node model: drawn on a canvas, clicked through as a prototype, embedded in any page, and fetched as a PNG so the agent can see its work.
 - (refresh-cw) [Live updates](boxes/viewer/live-updates/README.md) — A file's change refreshes every open page in place, without a reload.
 - (message-square) [Comments](boxes/viewer/comments/README.md) — Turn on comment mode, then select text or hover a paragraph; threads are files in a `.devpage/` folder git ignores, so an agent can read and resolve them.
 - (link) [Checked links](boxes/viewer/checking-links/README.md) — Broken links show on the page while you write, and `devpage check` fails a test on them.
@@ -26,11 +27,13 @@ agent. These pages are devpage's own documentation, served by devpage.
 ```mermaid
 flowchart LR
   md["Markdown files"] --> devpage
+  designs[".design files"] --> devpage
   devpage --> browser["Browser"]
   md -. "a save" .-> browser
   browser <-->|"comments"| store[".devpage/"]
   devpage --> pdf["PDF"]
   click md href "./boxes/viewer/writing-a-document/README.md" "Writing a document"
+  click designs href "./boxes/viewer/designs/README.md" "Designs"
   click devpage href "./boxes/viewer/README.md" "The viewer"
   click store href "./boxes/viewer/comments/README.md" "Comments"
   click pdf href "./boxes/viewer/pdf/README.md" "Printing to PDF"

@@ -13,7 +13,9 @@ description of the program.
 
 - Three kinds of document from Markdown in the repository: a **site** with a
   sidebar built from Topics sections, a **doc** of chapters with an outline,
-  and a deck of **slides**.
+  and a deck of **slides** — and a fourth, the **design**: a UI written as code
+  by an agent, drawn on a canvas at high fidelity by a Rust engine, clicked
+  through as a prototype, and fetched as a PNG so the agent can see its work.
 - GitHub-flavoured Markdown with raw HTML, server-side syntax highlighting, and
   Mermaid diagrams drawn as SVG with clickable nodes.
 - Live updates: a file's change refreshes every open page in place.

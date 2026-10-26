@@ -164,6 +164,51 @@ function markBroken(root) {
   }
 }
 
+// Embedded designs are drawn by the design script, loaded only once a page
+// has one: it starts every canvas not yet drawn and stops those gone — on
+// every page after that, so leaving the last design closes its stream.
+let designScript = null;
+function drawDesigns() {
+  if (!designScript && !document.querySelector("canvas.design")) return;
+  designScript ??= import("/__devpage/design.js");
+  designScript
+    .then((designs) => designs.scan())
+    .catch((error) => {
+      // The design script itself didn't load: each canvas says so.
+      console.error("devpage: the design script didn't load", error);
+      for (const canvas of document.querySelectorAll("canvas.design:not([data-failed])")) {
+        canvas.dataset.failed = "true";
+        const note = document.createElement("p");
+        note.className = "design-failed";
+        note.textContent = "This design can't be drawn: the design script didn't load.";
+        canvas.before(note);
+      }
+    });
+}
+
+// A page fetched again keeps the canvases it already has: each embedded
+// design still in the page keeps its drawing and its stream. They never leave
+// this document — a canvas moved between documents may lose its context. An
+// embed inside a widget is React's to make again; the design script carries
+// what it shows across that instead.
+function keepDesigns(swap) {
+  const outside = (embed) => !embed.closest("[data-widget]");
+  const kept = [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside);
+  swap();
+  for (const embed of [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside)) {
+    // By selector: a problems bar can sit before the canvas.
+    const src = embed.querySelector("canvas.design")?.getAttribute("src");
+    const at = kept.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);
+    if (at >= 0) embed.replaceWith(kept.splice(at, 1)[0]);
+  }
+}
+
+// The frame a body was rendered in: its classes, less `show-comments`, which
+// this script adds while the comments are shown and no fetched page carries.
+function frameOf(body) {
+  return [...body.classList].filter((name) => name !== "show-comments").sort().join(" ");
+}
+
 // Fetches a page of this document and swaps its content and sidebar in.
 async function load(url) {
   const response = await fetch(url, { cache: "no-store" });
@@ -171,14 +216,16 @@ async function load(url) {
   const next = new DOMParser().parseFromString(await response.text(), "text/html");
   // A different frame — a fixed document file replacing its problem page, or
   // a document that changed kind — can't be swapped in part: load it whole.
-  if (next.body.className !== document.body.className) {
+  if (frameOf(next.body) !== frameOf(document.body)) {
     location.assign(url);
     return "navigating";
   }
-  for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
-    const fresh = next.getElementById(id);
-    if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
-  }
+  keepDesigns(() => {
+    for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
+      const fresh = next.getElementById(id);
+      if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
+    }
+  });
   document.getElementById("devpage-navbar")?.classList.remove("open");
   applyTheme();
   applyCommentMode();
@@ -187,6 +234,7 @@ async function load(url) {
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
   if (list) new Function(list.textContent)();
   await mountWidgets(document.getElementById("devpage-page"));
+  drawDesigns();
   markBroken(document.getElementById("devpage-page"));
   showSlide();
   loadComments();
@@ -688,7 +736,10 @@ function followOutline() {
   mark();
 }
 
+drawDesigns();
 mountWidgets(document).catch((error) => console.error(error)).finally(() => {
+  // A widget's content mounts with it: designs it embeds exist only now.
+  drawDesigns();
   markBroken(document);
   showSlide();
   followOutline();

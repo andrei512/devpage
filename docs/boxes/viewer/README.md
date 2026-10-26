@@ -1,9 +1,11 @@
 # Viewer
 
 The viewer is the `devpage` program. It serves **documents** from a folder
-in the browser — a **site** of pages, a **doc** read top to bottom, or a deck
-of **slides** — keeps every open page current as the files change, lets readers
-leave **comments** on any of them, checks every link, and prints a doc or a
+in the browser — a **site** of pages, a **doc** read top to bottom, a deck
+of **slides**, or a **design** drawn on a canvas and clicked through as a
+prototype — keeps every open page current as the files change, lets readers
+leave **comments** on any page of a site, a doc or a deck (a design is
+discussed on the page that embeds it), checks every link, and prints a doc or a
 deck to PDF exactly as the browser shows it. This page says what its parts are
 and where each is explained; it belongs to the [system catalog](../README.md).
 
@@ -15,6 +17,7 @@ devpage docs/devpage.yml      # or: devpage docs
 devpage design.md             # one Markdown file, served as a doc
 devpage check docs            # every link, exit 1 if one is broken
 devpage pdf talks/launch      # the deck as a PDF
+devpage app/checkout.design   # one design, on a canvas
 ```
 
 Every page is rendered when it is requested, straight from the files on disk,
@@ -28,11 +31,17 @@ flowchart LR
   files -. "a save" .-> live["Live updates"]
   live -. "change" .-> page
   page --> pdf["PDF"]
+  designfiles[".design files"] --> engine["Design engine"]
+  engine -->|"changed nodes"| page
+  engine --> png["PNG of a design"]
   click files href "./writing-a-document/README.md" "Writing a document"
   click serving href "./serving-pages/README.md" "Serving pages"
   click page href "./widgets/README.md" "Widgets"
   click live href "./live-updates/README.md" "Live updates"
   click pdf href "./pdf/README.md" "Printing to PDF"
+  click designfiles href "./designs/README.md" "Designs"
+  click engine href "./design-engine/README.md" "The design engine"
+  click png href "./designs/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
 ```
 
 ## Its parts
@@ -43,12 +52,13 @@ Each card opens the page that explains it.
 
 <Cards>
 
-- (pen-line) [Writing a document](writing-a-document/README.md) — The three kinds, the document file and the served folder.
+- (pen-line) [Writing a document](writing-a-document/README.md) — The four kinds, the document file and the served folder.
 - (layout-grid) [Making a site](making-a-site/README.md) — Root page, sidebar, navbar, logo and theme switch.
 - (file-text) [Writing a doc](writing-a-doc/README.md) — Chapters, the outline, and the PDF's paper, header and footer.
 - (presentation) [Making slides](making-slides/README.md) — One file per slide on a 16:9 stage.
 - (puzzle) [Widgets](widgets/README.md) — React components as tags in Markdown, devpage's and your own.
 - (workflow) [Diagrams](diagrams/README.md) — Mermaid fences drawn as SVG, with nodes that are links.
+- (frame) [Designs](designs/README.md) — A UI as a `.design` file: a canvas to click through, an embed in any page, a PNG for the agent.
 
 </Cards>
 
@@ -91,7 +101,7 @@ Each card opens the page that explains it.
 
 ### Concepts and tasks
 
-- [Writing a document](writing-a-document/README.md) — the three kinds, the
+- [Writing a document](writing-a-document/README.md) — the four kinds, the
   document file, the served folder, links between pages and documents, and the
   Markdown that works.
 - [Making a site](making-a-site/README.md) — a site's document file, root page,
@@ -116,6 +126,8 @@ Each card opens the page that explains it.
   its code and its diagrams, the theme switch, and per-page CSS.
 - [Widgets](widgets/README.md) — React components as tags in Markdown: using
   them, the system widgets, and writing a project's own.
+- [Designs](designs/README.md) — writing a design as code, props and
+  instances, prototypes, embedding one in a page, and its PNG.
 
 ### Mechanisms
 
@@ -124,6 +136,8 @@ Each card opens the page that explains it.
   addresses and logging.
 - [Live updates](live-updates/README.md) — from a saved file to a swapped page:
   the watcher, the event stream and the page script.
+- [Design engine](design-engine/README.md) — parsing, resolving, layout and
+  painting in one crate for two targets, and the gRPC-Web watch stream.
 - [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
   from Topics sections, resolved, grouped and kept free of cycles.
 - [The vendored pele bundle](vendored-pele/README.md) — the third-party
@@ -156,3 +170,5 @@ Each card opens the page that explains it.
   — identity comes from the proxy in front of it.
 - [One name, one widget](constraints/one-name-one-widget.md)
   — widgets compose by name, so no name is shadowed.
+- [A design has one renderer](constraints/a-design-has-one-renderer.md)
+  — the agent's PNG is the reader's canvas.

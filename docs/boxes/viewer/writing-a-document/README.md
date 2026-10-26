@@ -1,24 +1,27 @@
 # Writing a document
 
-How to write a devpage document: the three kinds and when to use each, the
+How to write a devpage document: the four kinds and when to use each, the
 document file that describes one, and the folder devpage serves from. How
 pages link to each other and which Markdown renders are on their own pages,
 below. It is a task article under the [viewer](../README.md); read
 [Getting started](../../../getting-started.md) first for the mental model.
 
-## Three kinds
+## Four kinds
 
 <KindCards />
 
 A system's documentation is a site. A design doc, a PRD or a proposal is a
-doc. A talk is slides. All three are Markdown files on disk, render
-the same Markdown, take comments and are checked for broken links; a doc and a
-deck also [print to PDF](../pdf/README.md).
+doc. A talk is slides. A screen or a flow an agent proposes is a design. The
+first three are Markdown files on disk, render the same Markdown, take comments
+and are checked for broken links; a doc and a deck also
+[print to PDF](../pdf/README.md). A design is not Markdown and has no document
+file: its `.design` file is the whole document, and a page embeds it with
+`![Name](name.design)` — see [Designs](../designs/README.md).
 
 ## The document file
 
-A document is described by one YAML file. Its `kind` says which of the three it
-is, and the rest of its fields follow from that:
+A site, a doc or a deck is described by one YAML file. Its `kind` says which
+of the three it is, and the rest of its fields follow from that:
 
 <Tabs>
 <Tab title="Site">

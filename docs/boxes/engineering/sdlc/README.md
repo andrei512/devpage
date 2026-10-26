@@ -33,7 +33,7 @@ can run the flow inverted, as a [hack](./stages/README.md#hack).
 - [Plan](stages/README.md#plan) — `/plan`: the prototype turned into a story of tickets.
 - [Build](stages/README.md#build) — `/build`: lanes in their own worktrees, merged one at a time.
 - [Review](stages/README.md#review) — `/review`: the task bar per ticket, the drift bar at the end.
-- [Release](stages/README.md#release) — The operator's call: `cargo publish` and a tag.
+- [Release](stages/README.md#release) — The operator's call: `cargo publish`, the design engine first, and a tag.
 
 </Cards>
 

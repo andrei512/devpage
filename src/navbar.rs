@@ -298,6 +298,11 @@ pub fn selector(document: &Document) -> String {
     if !document.theme_selector {
         return String::new();
     }
+    theme_toggle()
+}
+
+/// The light/dark button itself, for a page that shows one.
+pub fn theme_toggle() -> String {
     format!(
         "<button type=\"button\" class=\"theme-toggle\" title=\"Switch theme\" aria-label=\"Switch theme\"><span class=\"to-dark\">{}</span><span class=\"to-light\">{}</span></button>",
         icons::svg("moon").unwrap_or_default(),
@@ -329,17 +334,24 @@ pub fn corner(document: &Document) -> String {
 /// never flashes the wrong one — the theme the reader switched to, if the page
 /// offers the switch and they used it, else the system's setting.
 pub fn head(document: &Document) -> String {
-    let stored = if document.theme_selector {
-        r#"try{c=localStorage.getItem("devpage-theme")}catch(e){}"#
-    } else {
-        ""
-    };
     let icon = match document.logo_url() {
         Some(url) => format!("<link rel=\"icon\" href=\"{}\">\n", escape(&url)),
         None => String::new(),
     };
+    format!("{icon}{}", theme_script(document.theme_selector))
+}
+
+/// The script that sets the theme before the page paints: the one the reader
+/// switched to, when the page offers the switch and they used it, else the
+/// system's setting.
+pub fn theme_script(switchable: bool) -> String {
+    let stored = if switchable {
+        r#"try{c=localStorage.getItem("devpage-theme")}catch(e){}"#
+    } else {
+        ""
+    };
     format!(
-        r#"{icon}<script>(function(){{var c;{stored}var d=document.documentElement;d.dataset.theme=c==="light"||c==="dark"?c:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})()</script>"#
+        r#"<script>(function(){{var c;{stored}var d=document.documentElement;d.dataset.theme=c==="light"||c==="dark"?c:(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light")}})()</script>"#
     )
 }
 

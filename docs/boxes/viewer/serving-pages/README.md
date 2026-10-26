@@ -13,10 +13,12 @@ flowchart LR
   req["GET /path"] --> route{"Route"}
   route -->|"/"| entry["The entry document"]
   route -->|"/__devpage/…"| own["devpage's own:<br/>events, comments,<br/>widgets, assets"]
+  route -->|"Watch, *.design.png"| designs["Designs:<br/>watch stream, PNG"]
   route -->|"anything else"| file["A file in the<br/>served folder"]
   click route href "#routes" "Routes"
   click entry href "#routes" "Routes"
   click own href "#routes" "Routes"
+  click designs href "../design-engine/README.md#in-the-server" "The design engine in the server"
   click file href "#the-url-is-the-file-path" "The URL is the file path"
 ```
 
@@ -30,6 +32,8 @@ flowchart LR
 | `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the built-in assets |
+| `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
+| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
 | `/{*path}` | the file at `path` in the served folder |
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,
@@ -67,13 +71,22 @@ gets `500` with the error's text.
 
 ## What a file is served as
 
-A file that passes the checks is one of three things:
+A file that passes the checks is one of four things:
 
 | The file | Is served as |
 | --- | --- |
 | A document file — YAML with `kind: site`, `doc` or `slides` | the document, as its kind |
 | A Markdown file | a page, in the frame of the document it belongs to |
+| A `.design` file | the [canvas page](#the-canvas-page) |
 | Anything else | its bytes, as they are — see [Other files](#other-files) |
+
+### The canvas page
+
+A `.design` file is shown on the canvas page: a frame holding a `<canvas>`,
+the light/dark switch in the corner with the head script that sets the theme
+before the page paints, and the design script, which draws it as the
+[design engine](../design-engine/README.md#in-the-browser) describes and runs
+the switch. It belongs to no site and has no sidebar, navbar or comments.
 
 ## Which document a file belongs to
 
@@ -93,7 +106,8 @@ is unknown.
 
 ## Built-in assets
 
-The page's own files are compiled into the binary with `include_str!`:
+The page's own files are compiled into the binary with `include_str!`, and
+the design engine's module with `include_bytes!`:
 
 | URL | Source | Content type |
 | --- | --- | --- |
@@ -101,6 +115,9 @@ The page's own files are compiled into the binary with `include_str!`:
 | `/__devpage/devpage.js` | `assets/devpage.js` | `text/javascript` |
 | `/__devpage/pele.js` | `assets/vendor/pele.js` | `text/javascript` |
 | `/__devpage/react.js` | `assets/vendor/react.js` | `text/javascript` |
+| `/__devpage/design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
+| `/__devpage/design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
+| `/__devpage/design-engine.wasm` | `assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
 
 They are sent with `Cache-Control: no-cache`; any other name under
 `/__devpage/` is `404`. Changing an asset means rebuilding devpage.

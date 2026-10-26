@@ -54,7 +54,8 @@ reported, as for a deleted file — and skipped if it isn't inside the served
 folder. A thread file in the comment store
 (`.devpage/comments/<page>/<id>.yml`) sends `comments /<page>`; the comment
 store is watched whatever a site's `watch` says, and never refreshes pages
-itself. Every other path is first passed to the
+itself; nothing else under `.devpage/` is looked at. Every other path is first
+handed to the design store — see [Designs](#designs) — and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
 edited or deleted document file or `.gitignore` is reflected at once. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
@@ -100,6 +101,24 @@ becomes one event whose data is the message — `change`, or `comments` and
 the page's path — including the error a subscriber
 gets when it falls more than 16 messages behind, so a slow page still hears
 that something changed. The stream sends a keep-alive every 15 seconds.
+
+## Designs
+
+A design on its canvas, or embedded in a page, is kept current by its own
+gRPC-Web watch stream rather than by refetching: the watcher hands every
+changed path outside `.devpage/` to the server's store of resolved designs —
+whatever a site's `watch` list and `.gitignore` say, since any file may be part
+of a design — and the store resolves again only the designs made from that
+file and streams the nodes that changed
+([Design engine](../design-engine/README.md#the-watch-stream)).
+
+A design's file is also an ordinary watched file, so saving one refetches the
+open pages like any other change — that is how a page embedding the design
+gets its problems bar again. The refetch keeps the page's canvases
+([The page script](../page-script/README.md#swapping-a-page-in-place)), so a
+design is redrawn only by its stream, and only where its nodes changed. A site
+whose `watch` list leaves out `.design` files and the images designs use still
+has its canvases redrawn, but its problems bar waits for the next refetch.
 
 ## The page script
 

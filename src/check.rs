@@ -39,6 +39,7 @@ fn pages(document: &Document) -> Vec<PathBuf> {
         Kind::Site { root } => vec![document.base.join(root)],
         Kind::Doc { chapters, .. } => chapters.clone(),
         Kind::Slides { slides } => slides.clone(),
+        Kind::Design => Vec::new(),
     }
 }
 
@@ -47,6 +48,20 @@ fn pages(document: &Document) -> Vec<PathBuf> {
 pub async fn document(document: &Document, check_external: bool) -> Vec<Problem> {
     let mut external = Vec::new();
     let mut problems = internal(document, &mut external);
+    if let Kind::Design = document.kind {
+        let address = document.url(&document.path());
+        problems.extend(
+            crate::designs::problems(&document.served, &address)
+                .into_iter()
+                // A design names its place by line and column.
+                .map(|problem| Problem {
+                    file: format!("{}:{}:{}", problem.file, problem.pos.line, problem.pos.col),
+                    line: None,
+                    message: problem.message,
+                    target: None,
+                }),
+        );
+    }
     if check_external {
         problems.extend(external_links(external).await);
     }
@@ -263,6 +278,13 @@ fn page_links_with(
     let mut reached = Vec::new();
     let mut targets = attributes(&html, "href");
     targets.extend(attributes(&html, "src"));
+    // A design embedded with `![…](x.design)`, read from the Markdown itself,
+    // whatever HTML the page renders it as.
+    for target in embedded_designs(&source) {
+        if !targets.contains(&target) {
+            targets.push(target);
+        }
+    }
     // A diagram's `click … href "…"` lines, from real Mermaid blocks only.
     for block in html.split("<pre lang=\"mermaid\"><code>").skip(1) {
         let block = block
@@ -298,6 +320,19 @@ fn page_links_with(
                 .ok()
                 .filter(|resolved| resolved.starts_with(&document.served))
         };
+        // A design's PNG address is the design drawn, when no real file of
+        // that name is there: the link is as good as the design.
+        let resolved = resolved.or_else(|| {
+            let design = path
+                .strip_suffix(".png")
+                .filter(|p| p.ends_with(".design"))?;
+            page.parent()
+                .unwrap_or(Path::new("."))
+                .join(design)
+                .canonicalize()
+                .ok()
+                .filter(|resolved| resolved.starts_with(&document.served) && resolved.is_file())
+        });
         let Some(resolved) = resolved else {
             problems.push(Problem {
                 file: file.clone(),
@@ -318,6 +353,17 @@ fn page_links_with(
                     file: file.clone(),
                     line,
                     message: format!("broken link {target} — no heading #{fragment}"),
+                    target: Some(target.clone()),
+                });
+            }
+        }
+        if resolved.extension().is_some_and(|ext| ext == "design") {
+            let address = document.url(&resolved);
+            for problem in crate::designs::problems(&document.served, &address) {
+                problems.push(Problem {
+                    file: file.clone(),
+                    line,
+                    message: format!("broken design {target} — {problem}"),
                     target: Some(target.clone()),
                 });
             }
@@ -401,6 +447,25 @@ fn page_links_with(
     }
     problems.extend(crate::comments::problems(document, page));
     (problems, reached)
+}
+
+/// The `.design` files a page's Markdown embeds or links to, read from its
+/// syntax tree — never from code, where `![…](x.design)` is only an example.
+fn embedded_designs(source: &str) -> Vec<String> {
+    use comrak::nodes::NodeValue;
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, source, &comrak::Options::default());
+    root.descendants()
+        .filter_map(|node| match &node.data.borrow().value {
+            NodeValue::Image(link) | NodeValue::Link(link) => Some(link.url.clone()),
+            _ => None,
+        })
+        .filter(|url| {
+            url.split('#')
+                .next()
+                .is_some_and(|path| path.ends_with(".design"))
+        })
+        .collect()
 }
 
 /// The problems of a document's widgets folder, once per document rather than

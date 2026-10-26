@@ -77,6 +77,10 @@ with a relative path:
 ![The parts](parts.svg)
 ```
 
+An image of a `.design` file is not served as bytes: it embeds the design,
+drawn live and clickable — `![Checkout](checkout.design)`; see
+[Designs](../../designs/README.md#viewing-a-design).
+
 By default a change to any file in the served folder refreshes the open
 pages, images included, except files a `.gitignore` excludes. A site can
 narrow that, for the files in its own folder, with its `watch` list ([configuration reference](../../configuration-reference/README.md#site)).
