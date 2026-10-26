@@ -116,7 +116,9 @@ a page and lists its `<Notes>` as a problem.
 
 A `<Notes>` can carry a **delivery** — how the slide should feel when it is
 said, as in `<Notes delivery="Curious, a little playful.">` — a direction for
-the narrator, never said and never shown. A deck says who it is for and how it
+the narrator, never said and never shown. It is a quoted string with no double
+quotes inside; one that can't be read, or isn't a string, is a problem, and the
+notes still never reach the slide. A deck says who it is for and how it
 should sound in its own document file: its **audience**, its **goal** and its
 **tone**, and `pronounce` lines for words a voice gets wrong. `devpage video`
 records the deck with its notes read aloud

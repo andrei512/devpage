@@ -50,7 +50,7 @@ pub fn default_output(title: &str) -> PathBuf {
 /// What the narrator is told, checked before anything slow: the session's
 /// instructions and one request per slide. A document that isn't a deck, a
 /// deck without `audience` or `goal`, or a slide without notes is an error.
-pub fn script(document: &Document) -> Result<(String, Vec<String>)> {
+pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
     let Kind::Slides { slides, narration } = &document.kind else {
         let kind = match document.kind {
             Kind::Site { .. } => "a site",
@@ -110,7 +110,7 @@ pub fn script(document: &Document) -> Result<(String, Vec<String>)> {
 
 /// Records `document`, narrated by GPT-Live per `config`, to `output`.
 pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
-    let (instructions, requests) = script(&document)?;
+    let (instructions, requests) = told(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
     film(document, output, requests, heard.clone(), async |heard| {
         live::Live::start(config, &instructions, heard).await
@@ -453,7 +453,7 @@ mod tests {
                 ("three.md", "# Three\n\n<Notes>\n\n</Notes>\n"),
             ],
         );
-        let error = script(&talk).unwrap_err().to_string();
+        let error = told(&talk).unwrap_err().to_string();
         assert_eq!(
             error,
             "every slide needs <Notes> to be narrated; these have none: 2 (two.md), 3 (three.md)"
@@ -461,7 +461,7 @@ mod tests {
         std::fs::write(dir.join("two.md"), "# Two\n\n<Notes>Two.</Notes>\n").unwrap();
         std::fs::write(dir.join("three.md"), "# Three\n\n<Notes>Three.</Notes>\n").unwrap();
         let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
-        let (instructions, requests) = script(&talk).unwrap();
+        let (instructions, requests) = told(&talk).unwrap();
         assert!(instructions.contains("Audience: Testers.\nGoal: They hear it.\n"));
         assert_eq!(requests.len(), 3);
         assert!(requests[0].starts_with("Slide 1 of 3. Delivery: in the talk's tone.\n"));
@@ -482,7 +482,7 @@ mod tests {
         .unwrap();
         let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
         assert_eq!(
-            script(&talk).unwrap_err().to_string(),
+            told(&talk).unwrap_err().to_string(),
             "the narrator needs to know who the talk is for and what it should achieve; set audience and goal in talk.yml"
         );
         std::fs::remove_dir_all(&dir).ok();
@@ -632,7 +632,7 @@ mod tests {
                 ("two.md", "# Two\n\n<Notes>Second.</Notes>\n"),
             ],
         );
-        let (_, notes) = script(&talk).unwrap();
+        let (_, notes) = told(&talk).unwrap();
         let out = dir.join("Talk.mp4");
         let heard = Arc::new(Mutex::new(Heard::default()));
         // `film` fails unless the deck shows slide 2 after slide 1.

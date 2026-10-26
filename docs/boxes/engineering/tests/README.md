@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 215 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 220 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 52 tests that drive Chrome or call GPT-Live
 ```
 
@@ -273,7 +273,7 @@ In Chrome:
 
 ### `video`
 
-*17 tests, 2 in Chrome.*
+*19 tests, 2 in Chrome.*
 
 - The silence rules: a pause inside a slide capped at a second and one under
   it kept whole; silence held until what follows is known; a slide's end
@@ -284,10 +284,14 @@ In Chrome:
   unset and `OPENAI_API_KEY` never read; OpenAI's address and bearer header
   with the default model; the Azure endpoint selecting Azure over an OpenAI
   key, with its address, `api-key` header and deployment name; an endpoint
-  with a path or as a bare host; Azure without its key; the context in the
-  narrator's instructions.
+  with a path or as a bare host; Azure without its key.
+- What the narrator is told: the audience, goal and default tone in its
+  instructions and each slide's request with its delivery; the
+  making-a-video page showing the template and request exactly as the code
+  sends them.
 - The default file name; every slide needing notes, the error naming the ones
-  without; a site and a doc refused.
+  without; a deck without `audience` or `goal` refused, naming them; a site
+  and a doc refused.
 
 In Chrome:
 
@@ -311,9 +315,9 @@ In Chrome:
 
 ### `widgets`
 
-*22 tests.*
+*25 tests.*
 
-- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown.
+- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.
 - A `Tab` outside a `Tabs` reported at its page line.

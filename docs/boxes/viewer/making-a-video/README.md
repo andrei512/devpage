@@ -158,9 +158,9 @@ sequenceDiagram
   participant live as GPT-Live
   video->>chrome: open the deck, served on a loopback port
   chrome->>chrome: capture its own tab, arm the recorder
-  video->>live: start a session: the context and how to read the notes
+  video->>live: start a session: the talk (audience, goal, tone) and how to read
   loop each slide
-    video->>live: say this slide's notes
+    video->>live: ask for this slide: its delivery and notes
     live-->>video: the voice, streamed
     video->>chrome: the voice, silences trimmed; resume recording
     video->>chrome: next slide, then pause
