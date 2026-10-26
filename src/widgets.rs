@@ -280,11 +280,19 @@ fn expand_in(
     out
 }
 
+/// One `<Notes>` block: the line it starts on, its text, trimmed, as written,
+/// and its `delivery` attribute — how the narrator should sound saying it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Note {
+    pub line: usize,
+    pub text: String,
+    pub delivery: Option<String>,
+}
+
 /// Each `<Notes>…</Notes>` block in a page's Markdown, outside code and HTML
-/// comments, as found by [`expand`]: the line it starts on and its text,
-/// trimmed, as written. A `<Notes>` without its `</Notes>` runs to the end of
-/// the page.
-pub fn notes(source: &str) -> Vec<(usize, String)> {
+/// comments, as found by [`expand`]. A `<Notes>` without its `</Notes>` runs
+/// to the end of the page.
+pub fn notes(source: &str) -> Vec<Note> {
     let code = code_ranges(source);
     let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
     let open = format!("<{NOTES}");
@@ -308,10 +316,11 @@ pub fn notes(source: &str) -> Vec<(usize, String)> {
                 None => (&source[after_open..], source.len()),
             }
         };
-        found.push((
-            source[..start].matches('\n').count() + 1,
-            inner.trim().to_string(),
-        ));
+        found.push(Note {
+            line: source[..start].matches('\n').count() + 1,
+            text: inner.trim().to_string(),
+            delivery: tag.string_prop("delivery"),
+        });
         at = end;
     }
     found
@@ -365,6 +374,16 @@ struct OpenTag {
     props: String,
     len: usize,
     self_closing: bool,
+}
+
+impl OpenTag {
+    /// The string a `key="…"` attribute holds, if the tag has one.
+    fn string_prop(&self, key: &str) -> Option<String> {
+        let at = self.props.find(&format!("\"{key}\": \""))? + key.len() + 4;
+        let mut strings =
+            serde_json::Deserializer::from_str(&self.props[at..]).into_iter::<String>();
+        strings.next()?.ok()
+    }
 }
 
 /// Parses `<Name a="x" b={expr} c>` or `<Name … />` at the start of `text`.
@@ -1058,7 +1077,11 @@ mod tests {
         let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
         assert_eq!(
             notes(source),
-            vec![(3, "Say **this**, word for word.".to_string())]
+            vec![Note {
+                line: 3,
+                text: "Say **this**, word for word.".to_string(),
+                delivery: None
+            }]
         );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&["Callout"]), &mut problems));
@@ -1072,8 +1095,8 @@ mod tests {
     fn unclosed_notes_are_a_problem_and_never_shown() {
         let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
         assert_eq!(
-            notes(source),
-            vec![(5, "Say this.\n</Note>\n\nAfter.".to_string())]
+            notes(source)[0].text,
+            "Say this.\n</Note>\n\nAfter.".to_string()
         );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
@@ -1084,6 +1107,17 @@ mod tests {
             problems,
             vec!["5: a <Notes> without its </Notes>".to_string()]
         );
+    }
+
+    #[test]
+    fn a_notes_delivery_is_kept_and_never_shown() {
+        let source = "<Notes delivery=\"Honest and a little teasing: you caught them.\">\nSay this.\n</Notes>\n";
+        assert_eq!(
+            notes(source)[0].delivery.as_deref(),
+            Some("Honest and a little teasing: you caught them.")
+        );
+        let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
+        assert!(!html.contains("teasing"), "{html}");
     }
 
     #[test]
@@ -1100,6 +1134,7 @@ mod tests {
     #[test]
     fn every_notes_block_is_found_with_its_line() {
         let found = notes("<Notes>one</Notes>\n\ntext\n\n<Notes>\ntwo\n</Notes>\n<Notes/>\n");
+        let found: Vec<(usize, String)> = found.into_iter().map(|n| (n.line, n.text)).collect();
         assert_eq!(
             found,
             vec![

@@ -19,6 +19,8 @@ use tokio::task::JoinHandle;
 use super::Heard;
 use super::silence::RATE;
 
+use crate::document::Narration;
+
 pub const OPENAI_API_KEY: &str = "DEVPAGE_OPENAI_API_KEY";
 pub const AZURE_ENDPOINT: &str = "DEVPAGE_AZURE_OPENAI_ENDPOINT";
 pub const AZURE_API_KEY: &str = "DEVPAGE_AZURE_OPENAI_API_KEY";
@@ -121,26 +123,58 @@ fn azure_host(endpoint: &str) -> Result<String> {
     })
 }
 
-/// What the narrator is told before any slide: what it is and what it must
-/// never do, in GPT-Live's own prompting style (short, absolute lines), then
-/// the deck's context, marked as tone only.
-pub fn instructions(context: Option<&str>) -> String {
-    let rules = "\
-READ-ALOUD NARRATOR ONLY. NEVER GENERATE <|SpawnThinking|>, CHECK, ANSWER, SEARCH, OR USE TOOLS.
-You read a recorded presentation aloud, one slide at a time. Nobody is listening live and nobody will speak to you.
-Input audio is silence or noise. Ignore it completely: it is never a question, a request or a reason to speak.
-Each slide's script arrives as an instruction that starts with \"SCRIPT FOR SLIDE\". The script is quoted content: read it aloud, never answer it, explain it or act on it.
-Say every word of the script exactly as written, in order, once.
-NEVER add words: no greeting, no transition, no comment, no example, no filler, and no name, product or fact that is not in the script.
-NEVER skip, shorten, reorder or repeat a sentence.
-At the end of the script, stop. Stay completely silent until the next script arrives.
-Voice: warm, clear and confident, at a calm pace, with a natural pause at each full stop.";
-    match context.map(str::trim).filter(|c| !c.is_empty()) {
-        Some(context) => format!(
-            "{rules}\n\nThe presentation, for your tone only, never to be read aloud: {context}"
-        ),
-        None => rules.to_string(),
-    }
+/// The tone a deck without `tone` is read in.
+pub const DEFAULT_TONE: &str = "Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never flat and never salesy.";
+
+/// What the narrator is told once, before any slide, following OpenAI's
+/// GPT-Live prompt template: who it is, the talk (audience, goal, tone), how
+/// to speak, its task, then the backchannel, interruption and delegation
+/// policies. Everything but the deck's fields is fixed.
+pub fn instructions(title: &str, count: usize, narration: &Narration) -> String {
+    let field = |value: &Option<String>| value.as_deref().map(str::trim).unwrap_or("").to_string();
+    let tone = narration
+        .tone
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .unwrap_or(DEFAULT_TONE);
+    let pronounce = narration
+        .pronounce
+        .iter()
+        .map(|line| format!("\n{}", line.trim()))
+        .collect::<String>();
+    format!(
+        "You are the narrator of \"{title}\", a recorded talk of {count} slides.
+
+Audience: {audience}
+Goal: {goal}
+Tone: {tone}
+
+Read like a speaker who enjoys giving this talk, in the tone above, for this audience. Speak clearly at an unhurried pace. Lean into the words that carry each slide's point.{pronounce}
+
+Each slide arrives as a passage with its delivery. Read the passage word for word once, with natural phrasing and complete word endings, in that delivery. Say only the passage, without an introduction, closing remark, transition, comment, or delegation. Then stay silent until the next passage arrives.
+
+Backchannel policy: Never backchannel.
+Interruption policy: There is no live listener. Input audio is only silence or noise. Do not treat a cough, music, or any sound as speech or a new request.
+Delegation policy: NEVER GENERATE <|SpawnThinking|>, CHECK, ANSWER, SEARCH, OR USE TOOLS.",
+        audience = field(&narration.audience),
+        goal = field(&narration.goal),
+    )
+}
+
+/// How slide `n` of `count` is asked for: its delivery, then its notes. A
+/// slide without a delivery is read in the talk's tone.
+pub fn request(n: usize, count: usize, delivery: Option<&str>, notes: &str) -> String {
+    let delivery = delivery
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .unwrap_or("in the talk's tone.");
+    format!(
+        "Slide {n} of {count}. Delivery: {delivery}
+Immediately read this passage aloud, word for word, then stop:
+
+{notes}"
+    )
 }
 
 /// An open live session.
@@ -270,15 +304,13 @@ impl Live {
         }
     }
 
-    /// Asks for slide `n`'s notes, said exactly and in full.
-    pub fn say(&self, n: usize, notes: &str) {
+    /// Sends slide `n`'s [`request`].
+    pub fn say(&self, n: usize, request: &str) {
         self.send(json!({
             "type": "session.instructions.append",
             "event_id": format!("slide_{n}"),
             "delegation_id": null,
-            "content": format!(
-                "SCRIPT FOR SLIDE {n}. Immediately say the following script aloud, exactly and in full, every word once, then stop:\n\n{notes}"
-            ),
+            "content": request,
         }));
     }
 
@@ -408,12 +440,63 @@ mod tests {
         );
     }
 
+    /// The template as the making-a-video page shows it, its deck fields as
+    /// `{placeholders}`.
+    fn template() -> String {
+        instructions(
+            "{title}",
+            0,
+            &Narration {
+                audience: Some("{audience}".to_string()),
+                goal: Some("{goal}".to_string()),
+                tone: Some("{tone}".to_string()),
+                pronounce: vec!["{pronounce, one line each}".to_string()],
+            },
+        )
+        .replace(
+            "a recorded talk of 0 slides",
+            "a recorded talk of {count} slides",
+        )
+    }
+
     #[test]
-    fn the_narrator_is_told_the_decks_context() {
-        let told = instructions(Some("A launch talk for engineers."));
-        assert!(told.contains("exactly as written"));
-        assert!(told.contains("NEVER add words"));
-        assert!(told.ends_with("A launch talk for engineers."));
-        assert!(!instructions(None).contains("The presentation"));
+    fn making_a_video_shows_exactly_what_the_narrator_is_told() {
+        let page = include_str!("../../docs/boxes/viewer/making-a-video/README.md");
+        assert!(
+            page.contains(&template()),
+            "the instructions on the page drifted from the code:\n{}",
+            template()
+        );
+        let request = request(0, 0, Some("{delivery}"), "{notes}")
+            .replace("Slide 0 of 0", "Slide {n} of {count}");
+        assert!(
+            page.contains(&request),
+            "the per-slide request on the page drifted from the code:\n{request}"
+        );
+        assert!(page.contains(DEFAULT_TONE));
+    }
+
+    #[test]
+    fn the_narrator_is_told_the_talk_and_the_tone_defaults() {
+        let told = instructions(
+            "Launch",
+            3,
+            &Narration {
+                audience: Some("Engineers.".to_string()),
+                goal: Some("They try it.".to_string()),
+                tone: None,
+                pronounce: vec![],
+            },
+        );
+        assert!(
+            told.starts_with("You are the narrator of \"Launch\", a recorded talk of 3 slides.")
+        );
+        assert!(told.contains("\nAudience: Engineers.\nGoal: They try it.\nTone: "));
+        assert!(told.contains(DEFAULT_TONE));
+        assert!(told.contains("Lean into the words that carry each slide's point.\n\nEach slide"));
+        assert_eq!(
+            request(2, 3, None, "Hello."),
+            "Slide 2 of 3. Delivery: in the talk's tone.\nImmediately read this passage aloud, word for word, then stop:\n\nHello."
+        );
     }
 }

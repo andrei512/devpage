@@ -36,7 +36,10 @@ enum Config {
     Slides {
         title: String,
         slides: Vec<String>,
-        context: Option<String>,
+        audience: Option<String>,
+        goal: Option<String>,
+        tone: Option<String>,
+        pronounce: Option<Vec<String>>,
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
@@ -180,30 +183,47 @@ pub enum Kind {
     },
     Slides {
         slides: Vec<Slide>,
-        /// What the talk is, who it is for and its tone, as written.
-        context: Option<String>,
+        /// Who the talk is for and how it should sound, for its narrator.
+        narration: Narration,
     },
     /// A `.design` file, which is the whole document.
     Design,
 }
 
-/// One slide of a deck: its Markdown file and its notes — the text of its
-/// first `<Notes>`, if it has one.
+/// What a deck tells its narrator about the talk as a whole, as written in
+/// its document file: who it is for, what it should achieve, how it should
+/// sound, and how to say words a voice gets wrong.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Narration {
+    pub audience: Option<String>,
+    pub goal: Option<String>,
+    pub tone: Option<String>,
+    pub pronounce: Vec<String>,
+}
+
+/// One slide of a deck: its Markdown file, its notes — the text of its first
+/// `<Notes>`, if it has one — and that `<Notes>`' `delivery`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Slide {
     pub file: PathBuf,
     pub notes: Option<String>,
+    pub delivery: Option<String>,
 }
 
 impl Slide {
     /// Reads a slide's notes from its file.
     fn read(file: PathBuf) -> Self {
         let source = std::fs::read_to_string(&file).unwrap_or_default();
-        let notes = crate::widgets::notes(&source)
-            .into_iter()
-            .next()
-            .map(|(_, text)| text);
-        Self { file, notes }
+        let first = crate::widgets::notes(&source).into_iter().next();
+        let (notes, delivery) = match first {
+            Some(note) => (Some(note.text), note.delivery),
+            None => (None, None),
+        };
+        Self {
+            file,
+            notes,
+            delivery,
+        }
     }
 }
 
@@ -379,7 +399,10 @@ impl Document {
             Config::Slides {
                 title,
                 slides,
-                context,
+                audience,
+                goal,
+                tone,
+                pronounce,
                 widgets,
                 theme_selector,
                 logo,
@@ -394,7 +417,13 @@ impl Document {
                     .iter()
                     .map(|slide| existing("slide", slide).map(Slide::read))
                     .collect::<Result<_>>()?;
-                (title, Kind::Slides { slides, context })
+                let narration = Narration {
+                    audience,
+                    goal,
+                    tone,
+                    pronounce: pronounce.unwrap_or_default(),
+                };
+                (title, Kind::Slides { slides, narration })
             }
         };
         let widgets = match widget_folder {
@@ -710,36 +739,48 @@ mod tests {
     }
 
     #[test]
-    fn a_deck_keeps_its_context_and_each_slides_notes() {
+    fn a_deck_keeps_its_narration_and_each_slides_notes_and_delivery() {
         let dir = folder("notes");
         std::fs::write(
             dir.join("one.md"),
-            "# One\n\n<Notes>\n  Hello, everyone.\n</Notes>\n\n<Notes>second</Notes>\n",
+            "# One\n\n<Notes delivery=\"Warm, a smile in the voice.\">\n  Hello, everyone.\n</Notes>\n\n<Notes>second</Notes>\n",
         )
         .unwrap();
         std::fs::write(dir.join("two.md"), "# Two\n\n`<Notes>not these</Notes>`\n").unwrap();
         let deck = parse(
-            "kind: slides\ntitle: Talk\ncontext: A talk for engineers, warm and brief.\nslides: [one.md, two.md]\n",
+            "kind: slides\ntitle: Talk\naudience: Engineers.\ngoal: They try it.\ntone: Warm and brief.\npronounce: ['Say \"devpage\" as \"dev page\".']\nslides: [one.md, two.md]\n",
             dir.clone(),
         )
         .unwrap();
-        let Kind::Slides { slides, context } = &deck.kind else {
+        let Kind::Slides { slides, narration } = &deck.kind else {
             panic!("{deck:?}")
         };
         assert_eq!(
-            context.as_deref(),
-            Some("A talk for engineers, warm and brief.")
+            narration,
+            &Narration {
+                audience: Some("Engineers.".to_string()),
+                goal: Some("They try it.".to_string()),
+                tone: Some("Warm and brief.".to_string()),
+                pronounce: vec!["Say \"devpage\" as \"dev page\".".to_string()],
+            }
         );
         assert_eq!(slides[0].file, dir.join("one.md"));
         assert_eq!(slides[0].notes.as_deref(), Some("Hello, everyone."));
+        assert_eq!(
+            slides[0].delivery.as_deref(),
+            Some("Warm, a smile in the voice.")
+        );
         assert_eq!(slides[1].notes, None);
         let plain = parse("kind: slides\ntitle: T\nslides: [one.md]\n", dir.clone()).unwrap();
-        assert!(matches!(plain.kind, Kind::Slides { context: None, .. }));
-        // `context` belongs to slides.
+        assert!(
+            matches!(&plain.kind, Kind::Slides { narration, .. } if *narration == Narration::default())
+        );
+        // The narration belongs to slides, and `context` is gone.
         for text in [
-            "kind: doc\ntitle: T\nchapters: [README.md]\ncontext: x\n",
-            "kind: site\ntitle: T\nroot: README.md\ncontext: x\n",
-            "kind: slides\ntitle: T\nslides: [one.md]\ncontext: [a, b]\n",
+            "kind: doc\ntitle: T\nchapters: [README.md]\naudience: x\n",
+            "kind: site\ntitle: T\nroot: README.md\ngoal: x\n",
+            "kind: slides\ntitle: T\nslides: [one.md]\ncontext: x\n",
+            "kind: slides\ntitle: T\nslides: [one.md]\npronounce: x\n",
         ] {
             assert!(parse(text, dir.clone()).is_err(), "{text}");
         }

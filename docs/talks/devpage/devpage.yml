@@ -6,13 +6,11 @@ kind: slides
 title: devpage
 logo: ../../logo.svg
 widgets: ../../widgets
-context: >
-  A short talk for software developers who use AI coding agents. It explains
-  what devpage is and why it helps: the agent writes the project's documents
-  in the repository, devpage shows them as live pages, and you review them in
-  the browser. Many listeners are not native English speakers, so speak
-  clearly, at a calm pace, with simple words. Friendly and confident, never
-  pushy.
+audience: Software developers who use AI coding agents. Many are not native English speakers.
+goal: They understand what devpage is, why it helps them, and try it today.
+tone: Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never salesy.
+pronounce:
+  - Say "devpage" as "dev page".
 slides:
   - title.md
   - agents-write.md

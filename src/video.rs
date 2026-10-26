@@ -47,11 +47,11 @@ pub fn default_output(title: &str) -> PathBuf {
     crate::pdf::default_output(title).with_extension("mp4")
 }
 
-/// What a deck says, checked before anything slow: its context and each
-/// slide's notes. A document that isn't a deck, or a slide without notes, is
-/// an error.
-pub fn notes(document: &Document) -> Result<(Option<String>, Vec<String>)> {
-    let Kind::Slides { slides, context } = &document.kind else {
+/// What the narrator is told, checked before anything slow: the session's
+/// instructions and one request per slide. A document that isn't a deck, a
+/// deck without `audience` or `goal`, or a slide without notes is an error.
+pub fn script(document: &Document) -> Result<(String, Vec<String>)> {
+    let Kind::Slides { slides, narration } = &document.kind else {
         let kind = match document.kind {
             Kind::Site { .. } => "a site",
             Kind::Doc { .. } => "a doc",
@@ -60,6 +60,19 @@ pub fn notes(document: &Document) -> Result<(Option<String>, Vec<String>)> {
         };
         bail!("video records slides, not {kind}");
     };
+    let blank = |field: &Option<String>| field.as_deref().is_none_or(|v| v.trim().is_empty());
+    let unset: Vec<&str> = [("audience", &narration.audience), ("goal", &narration.goal)]
+        .into_iter()
+        .filter(|(_, value)| blank(value))
+        .map(|(name, _)| name)
+        .collect();
+    if !unset.is_empty() {
+        bail!(
+            "the narrator needs to know who the talk is for and what it should achieve; set {} in {}",
+            unset.join(" and "),
+            document.file_name
+        );
+    }
     let missing: Vec<String> = slides
         .iter()
         .enumerate()
@@ -78,19 +91,28 @@ pub fn notes(document: &Document) -> Result<(Option<String>, Vec<String>)> {
             missing.join(", ")
         );
     }
-    let notes = slides
+    let count = slides.len();
+    let instructions = live::instructions(&document.title, count, narration);
+    let requests = slides
         .iter()
-        .map(|slide| slide.notes.clone().unwrap_or_default())
+        .enumerate()
+        .map(|(i, slide)| {
+            live::request(
+                i + 1,
+                count,
+                slide.delivery.as_deref(),
+                slide.notes.as_deref().unwrap_or_default(),
+            )
+        })
         .collect();
-    Ok((context.clone(), notes))
+    Ok((instructions, requests))
 }
 
 /// Records `document`, narrated by GPT-Live per `config`, to `output`.
 pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
-    let (context, notes) = notes(&document)?;
+    let (instructions, requests) = script(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
-    let instructions = live::instructions(context.as_deref());
-    film(document, output, notes, heard.clone(), async |heard| {
+    film(document, output, requests, heard.clone(), async |heard| {
         live::Live::start(config, &instructions, heard).await
     })
     .await
@@ -98,13 +120,14 @@ pub async fn record(document: Arc<Document>, output: &Path, config: &live::Confi
 
 /// The voice that says each slide's notes, its audio arriving in [`Heard`].
 pub(crate) trait Voice {
-    fn say(&self, n: usize, notes: &str);
+    /// Asks for slide `n` with its [`live::request`].
+    fn say(&self, n: usize, request: &str);
     async fn close(self);
 }
 
 impl Voice for live::Live {
-    fn say(&self, n: usize, notes: &str) {
-        live::Live::say(self, n, notes);
+    fn say(&self, n: usize, request: &str) {
+        live::Live::say(self, n, request);
     }
     async fn close(self) {
         live::Live::close(self).await;
@@ -405,7 +428,7 @@ mod tests {
         std::fs::write(
             dir.join("talk.yml"),
             format!(
-                "kind: slides\ntitle: Talk\ncontext: A test talk.\nslides: [{}]\n",
+                "kind: slides\ntitle: Talk\naudience: Testers.\ngoal: They hear it.\nslides: [{}]\n",
                 files.join(", ")
             ),
         )
@@ -430,7 +453,7 @@ mod tests {
                 ("three.md", "# Three\n\n<Notes>\n\n</Notes>\n"),
             ],
         );
-        let error = notes(&talk).unwrap_err().to_string();
+        let error = script(&talk).unwrap_err().to_string();
         assert_eq!(
             error,
             "every slide needs <Notes> to be narrated; these have none: 2 (two.md), 3 (three.md)"
@@ -438,9 +461,30 @@ mod tests {
         std::fs::write(dir.join("two.md"), "# Two\n\n<Notes>Two.</Notes>\n").unwrap();
         std::fs::write(dir.join("three.md"), "# Three\n\n<Notes>Three.</Notes>\n").unwrap();
         let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
-        let (context, notes) = notes(&talk).unwrap();
-        assert_eq!(context.as_deref(), Some("A test talk."));
-        assert_eq!(notes, ["Hello.", "Two.", "Three."]);
+        let (instructions, requests) = script(&talk).unwrap();
+        assert!(instructions.contains("Audience: Testers.\nGoal: They hear it.\n"));
+        assert_eq!(requests.len(), 3);
+        assert!(requests[0].starts_with("Slide 1 of 3. Delivery: in the talk's tone.\n"));
+        assert!(requests[2].ends_with("\n\nThree."));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn a_deck_without_audience_or_goal_is_refused_naming_them() {
+        let (dir, _) = deck(
+            "narration",
+            &[("one.md", "# One\n\n<Notes>Hello.</Notes>\n")],
+        );
+        std::fs::write(
+            dir.join("talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md]\n",
+        )
+        .unwrap();
+        let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
+        assert_eq!(
+            script(&talk).unwrap_err().to_string(),
+            "the narrator needs to know who the talk is for and what it should achieve; set audience and goal in talk.yml"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -588,7 +632,7 @@ mod tests {
                 ("two.md", "# Two\n\n<Notes>Second.</Notes>\n"),
             ],
         );
-        let (_, notes) = notes(&talk).unwrap();
+        let (_, notes) = script(&talk).unwrap();
         let out = dir.join("Talk.mp4");
         let heard = Arc::new(Mutex::new(Heard::default()));
         // `film` fails unless the deck shows slide 2 after slide 1.
