@@ -1,7 +1,7 @@
 # Installing devpage
 
 How to get a `devpage` program you can run on any document: installing it from
-crates.io, what `devpage pdf` needs, building it from a checkout instead, and
+crates.io, what `devpage pdf` and `devpage video` need, building it from a checkout instead, and
 starting it. It is a task page under the [devpage landing page](README.md);
 [Getting started](getting-started.md) then walks a first site, doc and deck.
 
@@ -14,6 +14,10 @@ starting it. It is a task page under the [devpage landing page](README.md);
   machine: the first time it prints, it downloads chrome-headless-shell once
   into devpage's cache folder and uses that from then on
   ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
+- **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
+  OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
+  time it records it downloads Chrome for Testing once into the same cache
+  folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
 
 <Callout kind="note" title="Why 1.97">
 The locked `oxc 0.153.0`, which compiles widgets, declares
@@ -87,7 +91,7 @@ devpage → http://localhost:3030
 </Terminal>
 
 Open that address in a browser; stop devpage with <Keys>Ctrl C</Keys>. `devpage --help`
-lists the commands — `check` and `pdf` beside serving — and the flags; the
+lists the commands — `check`, `pdf` and `video` beside serving — and the flags; the
 exact rules are in the
 [configuration reference](boxes/viewer/configuration-reference/README.md#command-line).
 
