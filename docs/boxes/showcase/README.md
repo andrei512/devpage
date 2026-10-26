@@ -22,49 +22,57 @@ kinds, all real and all in this repository, reached from the navbar's
 
 ## What it is for
 
-Someone who has never seen devpage watches the deck — or clicks through it —
-and leaves knowing what devpage does, why it beats the way they write docs
-today, and how to start. It is a pitch, not a manual: the feature catalog doc
-explains each feature, and the docs site teaches them.
-Every slide **shows** the capability it talks about, built with that
-capability: the slide about widgets is made of widgets, the slide about
-diagrams is a clickable diagram, the slide about PDF is in the PDF.
+A developer who has never seen devpage watches the talk — live, as a PDF or as
+its narrated video — and leaves knowing three things: their agent already
+writes their documents, devpage makes those files easy to read, review and
+share, and it starts with one command. It is half lesson, half pitch, for an
+audience of which many are not native English speakers. The feature catalog
+doc explains each feature; the docs site teaches them.
+
+The core message: **your documents live with your code — now they are easy to
+read.** The frame comes late, once the audience has felt it: devpage is an
+Office suite for developers.
 
 ## The slides
 
-One idea per slide, in this order. Each row names the capability a slide
-proves; a capability with no row isn't on the deck yet.
+A story in order, not a feature tour: the world the audience lives in, the
+pain in it, the reveal, the moments they feel, the frame, the proof, the
+action. Each row is one slide.
 
-| # | Slide | Proves | Built with |
+| # | Headline | The picture | The point the notes make |
 | --- | --- | --- | --- |
-| 1 | devpage | what it is, in one line | the logo, big type |
-| 2 | Documents are scattered | the problem | a picture of wikis, slide tools and chat |
-| 3 | One repository, four kinds | site, doc, slides and design | `KindCards` |
-| 4 | Designs | a UI an agent writes as code, clicked through as a prototype | a design's source beside the checkout prototype, embedded live |
-| 5 | Live | a save updates every open page | a diagram of the live-update loop |
-| 6 | Extended Markdown | GFM, code, raw HTML | `Example`, source beside result |
-| 7 | Diagrams are navigation | clickable Mermaid | a clickable diagram |
-| 8 | Widgets | React components in Markdown | `Example` of a widget, `Tabs` |
-| 9 | Your own widgets | project widgets in TSX | `FileTree` of `docs/widgets/`, the component's source |
-| 10 | Comments, with agents | comment mode on, comment, tell the agent, resolved | a diagram of the loop, the thread file |
-| 11 | Checked links | the problems bar, `devpage check` | `Terminal` with real output |
-| 12 | Paper | `devpage pdf` matches the screen | `Terminal` with the real command, and the pages it prints, drawn |
-| 13 | Navigation | navbar, sidebar, light and dark | the site's frame drawn in light and dark: navbar, open menu, theme switch, sidebar |
-| 14 | Deployed | behind your auth proxy | a diagram of proxy → devpage → volume |
-| 15 | Start | `cargo install devpage` | `Terminal` |
+| 1 | devpage | the logo | live documents for you and your agent |
+| 2 | Your agent writes a lot. | a repository's files, most marked "written by your agent" | designs, plans and reviews are Markdown in the repo now |
+| 3 | Nobody reads raw Markdown. | that design as raw text in a dark editor | a diagram is code, a table is lines, so we skip it |
+| 4 | So we copy it out. Then it goes stale. | a wiki, a deck, a document and a chat, scattered, two stamped "out of date" | copies drift and the agent can't see them |
+| 5 | One command. | `devpage docs` beside the same design rendered as a page | every file is a page, nothing copied |
+| 6 | Save. It's there. | the agent's editor with a new line, the page showing it | pages update as the agent writes |
+| 7 | Comment like Google Docs. | a highlighted phrase and a comment; read → fixed → closed | review goes straight to the agent |
+| 8 | An Office suite for developers. | four tiles: site, doc, slides, design, each "like" its office app | every kind of document, as files |
+| 9 | Designs, as code. | one real line of `checkout.design` beside the live prototype | screens the agent writes and you click |
+| 10 | Your agent sees its work. | slide 5 as a PNG, and the agent saying what it fixed | every slide and design is an image; links are checked |
+| 11 | Share it anywhere. | PDF, video and team-site tiles | people outside the repo get it too |
+| 12 | One more thing. | the deck's folder and `devpage video` | this talk is files, and so is its video |
+| 13 | Try it today. | the two commands | the action |
 
 ## Rules for every slide
 
-- **Show, don't list.** Every slide carries a visual — a widget, a diagram, a
-  terminal, an example — and at most a headline and one line of text. No slide
-  is a bullet list.
-- **One idea.** If a slide needs two headlines, it is two slides.
-- **Built with what it shows**, as above; never a screenshot of devpage where
-  devpage itself can draw the thing.
+- **One headline, one picture.** A headline of six words or fewer and one
+  picture filling the stage; no paragraphs, no bullet lists. If a slide needs
+  two headlines it is two slides.
+- **The speaker talks, the slide shows.** Every slide has `<Notes>` with the
+  exact words the speaker (or the narrator of `devpage video`) says, in
+  different words from the slide: two to four short sentences in plain
+  English, no idioms. The deck's `context` sets the tone.
+- **Show the moment, not the machine.** Pictures are what the user sees — a
+  window, a page, a comment — drawn by the project widgets in
+  `docs/widgets/` (`Slide` lays every slide out). A diagram has two or three
+  boxes at most.
 - **Fits the stage.** Nothing scrolls or overflows at 1920 × 1080, and every
   slide reads in light and dark and in the PDF.
-- **True.** Commands, output and file names on a slide are real; a terminal
-  shows what the command really prints.
+- **True.** Commands, output, file names and claims are real.
+
+How a deck like this is made, step by step, is the `presentation` skill.
 
 ## Constraints
 

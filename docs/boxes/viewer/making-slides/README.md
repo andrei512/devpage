@@ -33,12 +33,15 @@ diagrams all work as on any page, with links and images relative to the
 slide's own file.
 
 **A real deck to copy.** [The devpage talk](../../../talks/devpage/devpage.yml)
-is fourteen slides made this way, a pitch for devpage made with devpage. Every slide is a
-[widget](../widgets/README.md) or two: devpage's own (`Terminal`, `FileTree`,
-`Example`, `Keys`, Mermaid diagrams) and the project widgets in `docs/widgets/`
-that lay a slide out — `Hero` for a title, `Columns` for side-by-side blocks
-(or rows), `Scattered`, `Chips`, `PaperSketch` and `FrameSketch` for its
-pictures. The deck names that folder with `widgets: ../../widgets`.
+is thirteen slides made this way, a talk about devpage made with devpage, with
+speaker notes on every slide. Each slide is one headline and one picture: the
+project widget `Slide` lays the slide out, and project widgets in
+`docs/widgets/` draw the pictures — `Hero` for the title, `AgentFiles`,
+`RawMarkdown`, `Scattered`, `CommandToPage`, `LiveSplit`, `CommentLoop`,
+`Suite`, `AgentSees`, `ShareTiles`, `TalkFiles` and `Install`, sharing a
+window frame from the helper `frames.tsx`. The deck names that folder with
+`widgets: ../../widgets`. How to make a deck like it, from purpose and
+audience to the last slide, is the `presentation` skill.
 
 **Widgets on the stage.** A system widget on a slide looks as it does on a
 page, magnified for the 1920 × 1080 stage; Mermaid diagrams fill the width
