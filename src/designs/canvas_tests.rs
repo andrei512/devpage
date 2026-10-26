@@ -985,7 +985,7 @@ async fn leaving_the_last_design_in_place_closes_the_stream() {
         "document.querySelector('article').textContent.includes('No design.')",
     )
     .await;
-    // In place, not a full load, and no design stream left open.
+    // In place, not a full load, and no watch stream left open.
     assert!(eval::<bool>(&page, "document.body.marked === true").await);
     until(&page, &format!("{OPEN_WATCHES} === 0")).await;
     browser.close().await.ok();

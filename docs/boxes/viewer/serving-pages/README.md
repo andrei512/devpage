@@ -115,7 +115,7 @@ the design engine's module with `include_bytes!`:
 | `/__devpage/devpage.js` | `assets/devpage.js` | `text/javascript` |
 | `/__devpage/pele.js` | `assets/vendor/pele.js` | `text/javascript` |
 | `/__devpage/react.js` | `assets/vendor/react.js` | `text/javascript` |
-| `/__devpage/design.js` | `assets/design.js`, the canvas page's script | `text/javascript` |
+| `/__devpage/design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
 | `/__devpage/design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
 | `/__devpage/design-engine.wasm` | `assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
 

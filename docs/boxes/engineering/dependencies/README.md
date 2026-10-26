@@ -63,8 +63,8 @@ except where a code comment says so, and this page doesn't guess.
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
-| `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests) |
-| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`) and the Chrome tests; `fetcher` downloads chrome-headless-shell, the only Chrome devpage drives, into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/comments.rs` (tests) |
+| `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
+| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`) and the Chrome tests; `fetcher` downloads chrome-headless-shell, the only Chrome devpage drives, into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
 
 ## Designs
 
@@ -103,9 +103,9 @@ of message types, and the proto ships inside the crate. `devpage` turns
 | --- | --- | --- | --- | --- |
 | `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |
 | `parley` | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. | `design/src/render.rs` |
-| `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU. | `design/src/render.rs` |
-| `png` | 0.18.1 | MIT or Apache-2.0 | Encoding the PNG a design's address answers, and decoding PNG images a design uses. | `design/src/render.rs` |
-| `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses. | `design/src/render.rs` |
+| `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU; samples a shadow's shape before the painter blurs it. | `design/src/render.rs` |
+| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; encoding test images. | `design/src/resolve.rs`, `design/src/render.rs` (tests) |
+| `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire.rs` |
 | `tonic` (feature `codegen`; only with `server`) | 0.14.6 | MIT | What the generated `Designs` server is written against. | generated into `design/src/proto.rs` |
 | `tonic-prost` (only with `server`) | 0.14.6 | MIT | The protobuf codec the generated service encodes its messages with. | generated into `design/src/proto.rs` |

@@ -10,7 +10,7 @@ on that page.
 
 | Element | Draws | Children |
 | --- | --- | --- |
-| `Frame` | a box: fill, stroke, corners, shadow; lays out its children | any elements |
+| `Frame` | a box: fill, stroke, corners, shadow; lays out and clips its children | any elements |
 | `Text` | a run of text in the bundled typeface | text and `{prop}` only |
 | `Rect` | a rectangle | none |
 | `Ellipse` | an ellipse filling its box | none |
@@ -34,7 +34,8 @@ array, object or prop in braces: `"row"`, `{16}`, `{true}`, `{[12, 20]}`,
   just a backslash, as in JSX.
 - An attribute written bare, with no value — `<Frame clip>` — is `{true}`.
 - A name may hold letters, digits, `_` and `-`, not first: `aria-label`.
-- A number goes from −1,000,000 to 1,000,000.
+- A number goes from −1,000,000 to 1,000,000, written in braces or inside a
+  string — a gradient's angle and stops, a `viewBox`, a path's `d`.
 - An attribute may be given once on an element or an instance; given twice,
   it is a problem.
 
@@ -56,15 +57,15 @@ Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 | `stroke` | a color | none |
 | `strokeWidth` | pixels from `0` up, drawn inside the box | `1` |
 | `radius` | pixels from `0` up, or `[topLeft, topRight, bottomRight, bottomLeft]` | `0` |
-| `shadow` | `{ x, y, blur, spread, color }`, each optional, drawn outside the box | none |
-| `clip` | `{true}` to clip the children to the box | `{false}` |
+| `shadow` | `{ x, y, blur, spread, color }`, each optional: the box's shape, each corner's radius and the box itself widened by `spread`, moved by `x` and `y`, blurred by `blur` and drawn outside the box | none |
 
 A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
 
-`Frame` lays out its children with Figma's auto layout:
+`Frame` lays out its children with Figma's auto layout, and can clip them:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
+| `clip` | `{true}` to cut the children to the frame's shape, corners included | `{false}` |
 | `layout` | `"row"`, `"column"`, or `"none"` — children placed by their `x` and `y`, and a hugging frame as big as their furthest right and bottom edges | `"none"` |
 | `gap` | pixels from `0` up between children | `0` |
 | `padding` | pixels from `0` up, `[vertical, horizontal]` or `[top, right, bottom, left]` | `0` |
@@ -88,7 +89,8 @@ same on every machine and in every PNG.
 `Vector` takes `d` (SVG path data) and `viewBox` (`"minX minY width
 height"`, the path's own bounds when left out). The path is scaled into the
 vector's box keeping its proportions, and its `fill` and `stroke` paint the
-path rather than the box. `Image` takes `src`, a PNG or JPEG file. Hugging, a
+path rather than the box. `Image` takes `src`, a PNG or JPEG file that
+decodes whole; a broken or truncated one is a problem at `src`. Hugging, a
 vector takes its view box's size and an image its own size in pixels; given
 only one of `width` and `height`, either keeps its proportions.
 

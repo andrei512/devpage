@@ -2,6 +2,9 @@
 //! checked, typed and defaulted.
 
 use std::collections::HashMap;
+use std::sync::Arc;
+
+use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 use crate::Problem;
 use crate::parse::{self, Child, Element, Pos, TextPart, Value};
@@ -73,11 +76,87 @@ pub struct Vector {
     pub view_box: [f32; 4],
 }
 
-/// An `Image`'s file: its address in the served folder and its bytes.
-#[derive(Debug, Clone, PartialEq)]
+/// An `Image`'s file: its address in the served folder, its bytes, and its
+/// pixels — decoded once, when the scene is made, so a file that doesn't
+/// decode is a problem rather than a blank box.
+#[derive(Debug, Clone)]
 pub struct Image {
     pub src: String,
     pub data: Vec<u8>,
+    pub pixels: ImageData,
+}
+
+impl Image {
+    /// The image file `data` at `src`, decoded, or why it can't be.
+    pub fn new(src: String, data: Vec<u8>) -> Result<Image, String> {
+        let pixels = decode(&data)?;
+        Ok(Image { src, data, pixels })
+    }
+}
+
+/// Two images are the same when their files are: the pixels follow from the
+/// bytes.
+impl PartialEq for Image {
+    fn eq(&self, other: &Image) -> bool {
+        self.src == other.src && self.data == other.data
+    }
+}
+
+/// A PNG or JPEG file's pixels, as straight-alpha RGBA, or why it has none.
+pub fn decode(data: &[u8]) -> Result<ImageData, String> {
+    let (pixels, width, height) = if data.starts_with(b"\x89PNG\r\n\x1a\n") {
+        let broken = |e: &dyn std::fmt::Display| format!("is a PNG that doesn't decode: {e}");
+        let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
+        decoder.set_transformations(png::Transformations::normalize_to_color8());
+        let mut reader = decoder.read_info().map_err(|e| broken(&e))?;
+        let size = reader
+            .output_buffer_size()
+            .ok_or_else(|| broken(&"too big to hold"))?;
+        let mut buf = vec![0; size];
+        let info = reader.next_frame(&mut buf).map_err(|e| broken(&e))?;
+        buf.truncate(info.buffer_size());
+        let rgba = match info.color_type {
+            png::ColorType::Rgba => buf,
+            png::ColorType::Rgb => buf
+                .chunks(3)
+                .flat_map(|p| [p[0], p[1], p[2], 255])
+                .collect(),
+            png::ColorType::GrayscaleAlpha => buf
+                .chunks(2)
+                .flat_map(|p| [p[0], p[0], p[0], p[1]])
+                .collect(),
+            png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+            // Expanded to RGB by `normalize_to_color8`.
+            png::ColorType::Indexed => return Err(broken(&"an unexpanded palette")),
+        };
+        (rgba, info.width, info.height)
+    } else if data.starts_with(&[0xff, 0xd8, 0xff]) {
+        use zune_jpeg::JpegDecoder;
+        use zune_jpeg::zune_core::colorspace::ColorSpace;
+        use zune_jpeg::zune_core::options::DecoderOptions;
+        let broken = |e: &dyn std::fmt::Display| format!("is a JPEG that doesn't decode: {e}");
+        let options = DecoderOptions::default()
+            .set_strict_mode(true)
+            .jpeg_set_out_colorspace(ColorSpace::RGBA);
+        let mut decoder = JpegDecoder::new_with_options(std::io::Cursor::new(data), options);
+        let pixels = decoder.decode().map_err(|e| broken(&e))?;
+        let info = decoder.info().ok_or_else(|| broken(&"no header"))?;
+        (pixels, info.width as u32, info.height as u32)
+    } else {
+        return Err("is not a PNG or JPEG file".into());
+    };
+    if width == 0 || height == 0 || pixels.len() != width as usize * height as usize * 4 {
+        return Err(format!(
+            "is an image of {width}×{height} pixels that doesn't decode whole"
+        ));
+    }
+    Ok(ImageData {
+        data: Blob::new(Arc::new(pixels)),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width,
+        height,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -591,7 +670,8 @@ impl Resolver<'_> {
                 _ => Err("expected pixels or an array of 4".into()),
             },
             ("shadow", k) if k != Kind::Text => shadow(&value).map(|s| node.shadow = Some(s)),
-            ("clip", k) if k != Kind::Text => match value {
+            // Only a frame has children to clip.
+            ("clip", Kind::Frame) => match value {
                 Value::Bool(b) => Ok(node.clip = b),
                 _ => Err("expected true or false".into()),
             },
@@ -645,39 +725,42 @@ impl Resolver<'_> {
                 _ => Err("expected \"left\", \"center\" or \"right\"".into()),
             },
             ("d", Kind::Vector) => match str_of(&value) {
-                Some(d) => match vello_cpu::kurbo::BezPath::from_svg(&d) {
+                Some(d) => match path_numbers(&d).map_err(|e| e.to_string()).and_then(|()| {
+                    vello_cpu::kurbo::BezPath::from_svg(&d)
+                        .map_err(|e| format!("not SVG path data: {e}"))
+                }) {
                     Ok(_) => {
                         let view_box = node.vector.as_ref().map(|v| v.view_box);
                         let view_box = view_box.unwrap_or_else(|| bounds(&d));
                         Ok(node.vector = Some(Vector { d, view_box }))
                     }
-                    Err(e) => Err(format!("not SVG path data: {e}")),
+                    Err(e) => Err(e),
                 },
                 None => Err("expected SVG path data".into()),
             },
             ("viewBox", Kind::Vector) => match str_of(&value).as_deref().map(view_box) {
-                Some(Some(b)) => {
+                Some(Ok(b)) => {
                     let v = node.vector.get_or_insert_with(|| Vector {
                         d: String::new(),
                         view_box: b,
                     });
                     Ok(v.view_box = b)
                 }
-                _ => Err("expected \"minX minY width height\"".into()),
+                Some(Err(e)) => Err(e),
+                None => Err("expected \"minX minY width height\"".into()),
             },
             ("src", Kind::Image) => match str_of(&value) {
                 Some(src) => match join(path, &src) {
                     None => Err(format!("{src} — outside the served folder")),
                     Some(at) => match self.files.bytes(&at) {
                         None => Err(format!("{src} — no such file")),
-                        Some(data) if !is_image(&data) => {
-                            Err(format!("{src} is not a PNG or JPEG file"))
-                        }
                         Some(data) => {
                             if !self.read.iter().any(|p| p == &at) {
                                 self.read.push(at.clone());
                             }
-                            Ok(node.image = Some(Image { src: at, data }))
+                            Image::new(at, data)
+                                .map(|image| node.image = Some(image))
+                                .map_err(|e| format!("{src} {e}"))
                         }
                     },
                 },
@@ -766,20 +849,77 @@ fn default_text() -> TextStyle {
     }
 }
 
-fn is_image(data: &[u8]) -> bool {
-    data.starts_with(b"\x89PNG\r\n\x1a\n") || data.starts_with(&[0xff, 0xd8, 0xff])
-}
-
-fn view_box(s: &str) -> Option<[f32; 4]> {
+fn view_box(s: &str) -> Result<[f32; 4], String> {
     let v: Vec<f32> = s
         .split([' ', ','])
         .filter(|p| !p.is_empty())
-        .map(|p| p.parse().ok())
-        .collect::<Option<_>>()?;
+        .map(|p| parse::number(p).map(|n| n as f32))
+        .collect::<Result<_, _>>()?;
     match v[..] {
-        [x, y, w, h] if w > 0.0 && h > 0.0 => Some([x, y, w, h]),
-        _ => None,
+        [x, y, w, h] if w > 0.0 && h > 0.0 => Ok([x, y, w, h]),
+        _ => Err("expected \"minX minY width height\"".into()),
     }
+}
+
+/// Every number in SVG path data `d` held to the same limits as a design's
+/// other numbers. A number here is SVG's — it may have an exponent — and an
+/// arc's two flags are single digits that may be written run together.
+fn path_numbers(d: &str) -> Result<(), String> {
+    let b = d.as_bytes();
+    let mut i = 0;
+    let mut command = b' ';
+    // Which parameter of the current command comes next.
+    let mut param = 0;
+    while i < b.len() {
+        let c = b[i];
+        if c.is_ascii_alphabetic() && c != b'e' && c != b'E' {
+            command = c;
+            param = 0;
+            i += 1;
+            continue;
+        }
+        if c.is_ascii_whitespace() || c == b',' {
+            i += 1;
+            continue;
+        }
+        if matches!(command, b'A' | b'a') && matches!(param % 7, 3 | 4) && matches!(c, b'0' | b'1')
+        {
+            param += 1;
+            i += 1;
+            continue;
+        }
+        let start = i;
+        if matches!(b[i], b'+' | b'-') {
+            i += 1;
+        }
+        let mut dot = false;
+        while i < b.len() && (b[i].is_ascii_digit() || (b[i] == b'.' && !dot)) {
+            dot |= b[i] == b'.';
+            i += 1;
+        }
+        if i < b.len() && matches!(b[i], b'e' | b'E') {
+            let mut j = i + 1;
+            if j < b.len() && matches!(b[j], b'+' | b'-') {
+                j += 1;
+            }
+            if j < b.len() && b[j].is_ascii_digit() {
+                i = j;
+                while i < b.len() && b[i].is_ascii_digit() {
+                    i += 1;
+                }
+            }
+        }
+        if i == start {
+            // Not a number: the path parser says what is wrong.
+            return Ok(());
+        }
+        let s = &d[start..i];
+        if let Ok(n) = s.parse::<f64>() {
+            parse::in_range(s, n)?;
+        }
+        param += 1;
+    }
+    Ok(())
 }
 
 /// A path's own bounds, the view box of a `Vector` that names none.
@@ -950,16 +1090,13 @@ fn fill(v: &Value) -> Result<Fill, String> {
     let angle = parts
         .next()
         .and_then(|a| a.strip_suffix("deg"))
-        .and_then(|a| a.trim().parse::<f32>().ok())
         .ok_or_else(wrong)?;
+    let angle = parse::number(angle.trim())? as f32;
     let mut stops = Vec::new();
     for part in parts {
         let (c, at) = part.split_once(' ').ok_or_else(wrong)?;
-        let at = at
-            .trim()
-            .strip_suffix('%')
-            .and_then(|p| p.parse::<f32>().ok())
-            .ok_or_else(wrong)?;
+        let at = at.trim().strip_suffix('%').ok_or_else(wrong)?;
+        let at = parse::number(at)? as f32;
         stops.push((color(&Value::Str(c.to_string()))?, at / 100.0));
     }
     if stops.len() < 2 {
@@ -1250,12 +1387,21 @@ mod tests {
         }
     }
 
-    const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+    /// A 1×1 PNG that decodes.
+    fn png() -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut e = png::Encoder::new(&mut out, 1, 1);
+        e.set_color(png::ColorType::Rgba);
+        let mut w = e.write_header().unwrap();
+        w.write_image_data(&[0, 0, 0, 255]).unwrap();
+        drop(w);
+        out
+    }
 
     fn problems(source: &str) -> Vec<String> {
         let fs = Mem([
             ("d/a.design".to_string(), source.as_bytes().to_vec()),
-            ("d/photo.png".to_string(), PNG.to_vec()),
+            ("d/photo.png".to_string(), png()),
             ("d/notes.txt".to_string(), b"hi".to_vec()),
             (
                 "d/b.design".to_string(),
@@ -1389,6 +1535,46 @@ mod tests {
                 "d/a.design:1:15: src: ./notes.txt is not a PNG or JPEG file",
             ),
             (
+                "<Frame><Rect clip /></Frame>",
+                "d/a.design:1:14: Rect takes no attribute clip",
+            ),
+            (
+                "<Frame fill=\"linear-gradient(2000000deg, #fff 0%, #000 100%)\" />",
+                "d/a.design:1:8: fill: `2000000` is too large: numbers go up to 1000000",
+            ),
+            (
+                "<Frame fill=\"linear-gradient(90deg, #fff -2000000%, #000 100%)\" />",
+                "d/a.design:1:8: fill: `-2000000` is too small: numbers go down to -1000000",
+            ),
+            (
+                "<Frame fill=\"linear-gradient(NaNdeg, #fff 0%, #000 100%)\" />",
+                "d/a.design:1:8: fill: `NaN` is not a number",
+            ),
+            (
+                "<Frame fill=\"linear-gradient(90deg, #fff 0%, #000 inf%)\" />",
+                "d/a.design:1:8: fill: `inf` is not a number",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L1 1\" viewBox=\"0 0 2000000 24\" /></Frame>",
+                "d/a.design:1:29: viewBox: `2000000` is too large: numbers go up to 1000000",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L1 1\" viewBox=\"0 0 inf 24\" /></Frame>",
+                "d/a.design:1:29: viewBox: `inf` is not a number",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L2000000 0\" /></Frame>",
+                "d/a.design:1:16: d: `2000000` is too large: numbers go up to 1000000",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L1e999 0\" /></Frame>",
+                "d/a.design:1:16: d: `1e999` is too large: numbers go up to 1000000",
+            ),
+            (
+                "<Frame><Vector d=\"M0 0L-3e6 0\" /></Frame>",
+                "d/a.design:1:16: d: `-3e6` is too small: numbers go down to -1000000",
+            ),
+            (
                 "import X from \"../../x.design\"\n<Frame />",
                 "d/a.design:1:1: import ../../x.design — outside the served folder",
             ),
@@ -1408,6 +1594,59 @@ mod tests {
         for (source, expected) in cases {
             assert_eq!(problems(source), vec![expected.to_string()], "{source}");
         }
+    }
+
+    /// An image file is decoded whole while resolving, so a broken one is a
+    /// problem at its `src` — not a blank box — wherever the design is shown.
+    #[test]
+    fn an_image_that_does_not_decode_is_a_problem() {
+        let mut broken = b"\x89PNG\r\n\x1a\n".to_vec();
+        broken.extend(b"not a PNG past its signature");
+        let shirt = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/designs/checkout/shirt.jpg"
+        ))
+        .unwrap();
+        let truncated = shirt[..shirt.len() / 2].to_vec();
+        for (name, data, expected) in [
+            (
+                "broken.png",
+                broken,
+                "d/a.design:2:8: src: ./broken.png is a PNG that doesn't decode: ",
+            ),
+            (
+                "shirt.jpg",
+                truncated,
+                "d/a.design:2:8: src: ./shirt.jpg is a JPEG that doesn't decode: ",
+            ),
+        ] {
+            let source =
+                format!("<Frame>\n<Image src=\"./{name}\" width={{50}} height={{50}} />\n</Frame>");
+            let fs = Mem([
+                ("d/a.design".to_string(), source.into_bytes()),
+                (format!("d/{name}"), data),
+            ]
+            .into());
+            let found: Vec<String> = resolve(&fs, "d/a.design")
+                .unwrap_err()
+                .iter()
+                .map(|p| p.to_string())
+                .collect();
+            assert_eq!(found.len(), 1, "{found:?}");
+            assert!(found[0].starts_with(expected), "{found:?}");
+        }
+        // The whole file decodes: its pixels go with the scene.
+        let fs = Mem([
+            (
+                "a.design".to_string(),
+                br#"<Frame><Image src="./s.jpg" /></Frame>"#.to_vec(),
+            ),
+            ("s.jpg".to_string(), shirt),
+        ]
+        .into());
+        let scene = resolve(&fs, "a.design").unwrap();
+        let image = scene.root.children[0].image.as_ref().unwrap();
+        assert_eq!((image.pixels.width, image.pixels.height), (160, 160));
     }
 
     #[test]
@@ -1463,7 +1702,7 @@ mod tests {
 <Frame fill="linear-gradient(90deg, #ffffff 0%, #000000ff 100%)">
   <B label="Go" x={4} y={5} width={80} height="hug" name="Go" onClick="back" />
   <Vector d="M0 0L24 24" viewBox="0 0 24 24" stroke="#000" />
-  <Image src="./photo.png" radius={[1, 2, 3, 4]} clip />
+  <Frame radius={8} clip><Image src="./photo.png" radius={[1, 2, 3, 4]} /></Frame>
 </Frame>"##
             ),
             Vec::<String>::new()
@@ -1513,7 +1752,7 @@ mod tests {
 </Frame>"##
                         .to_vec(),
                 ),
-                ("p.png".to_string(), PNG.to_vec()),
+                ("p.png".to_string(), png()),
             ]
             .into(),
         );

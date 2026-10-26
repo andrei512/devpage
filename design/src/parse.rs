@@ -426,16 +426,9 @@ impl Parser {
                         break;
                     }
                 }
-                match s.parse::<f64>() {
-                    Ok(n) if n.abs() <= MAX_NUMBER => Ok(Value::Num(n)),
-                    Ok(n) if n < 0.0 => Err(self.problem(&format!(
-                        "`{s}` is too small: numbers go down to -{MAX_NUMBER}"
-                    ))),
-                    Ok(_) => Err(self.problem(&format!(
-                        "`{s}` is too large: numbers go up to {MAX_NUMBER}"
-                    ))),
-                    Err(_) => Err(self.problem(&format!("`{s}` is not a number"))),
-                }
+                number(&s)
+                    .map(Value::Num)
+                    .map_err(|message| self.problem(&message))
             }
             _ => {
                 let name = self.ident()?;
@@ -449,8 +442,41 @@ impl Parser {
     }
 }
 
-/// Ends a run of text: JSX rules, so whitespace with a newline in it vanishes
-/// and other runs of whitespace become one space.
+/// A number as a design writes one — digits, a `-` and a `.` — held to
+/// ±[`MAX_NUMBER`]: in braces, and inside a string that holds numbers, like a
+/// gradient's angle or a view box.
+pub fn number(s: &str) -> Result<f64, String> {
+    if !s
+        .chars()
+        .all(|c| c.is_ascii_digit() || c == '-' || c == '.')
+    {
+        return Err(format!("`{s}` is not a number"));
+    }
+    in_range(
+        s,
+        s.parse::<f64>()
+            .map_err(|_| format!("`{s}` is not a number"))?,
+    )
+}
+
+/// `n`, written `s`, if it lies within ±[`MAX_NUMBER`].
+pub fn in_range(s: &str, n: f64) -> Result<f64, String> {
+    if n.abs() <= MAX_NUMBER {
+        Ok(n)
+    } else if n.is_nan() {
+        Err(format!("`{s}` is not a number"))
+    } else if n < 0.0 {
+        Err(format!(
+            "`{s}` is too small: numbers go down to -{MAX_NUMBER}"
+        ))
+    } else {
+        Err(format!("`{s}` is too large: numbers go up to {MAX_NUMBER}"))
+    }
+}
+
+/// Ends a run of text. Text with a line break in it follows JSX: each line
+/// is trimmed, blank lines go, and the rest join with one space. Text on one
+/// line is kept as written, runs of spaces included, as JSX keeps it.
 fn flush_text(literal: &mut String, text: &mut Vec<TextPart>, children: &mut Vec<Child>, pos: Pos) {
     if !literal.is_empty() {
         text.push(TextPart::Literal(std::mem::take(literal)));

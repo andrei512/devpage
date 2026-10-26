@@ -194,9 +194,6 @@ fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
             Draw::Stroke(path, width, c) => {
                 v.stroke(&vello::kurbo::Stroke::new(*width as f64), t, *c, None, path)
             }
-            Draw::Shadow(rect, radius, std_dev, c) => {
-                v.draw_blurred_rounded_rect(t, *rect, *c, *radius as f64, *std_dev as f64)
-            }
             Draw::Glyphs(font, size, c, glyphs) => v
                 .draw_glyphs(font)
                 .font_size(*size)

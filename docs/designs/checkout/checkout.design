@@ -10,7 +10,9 @@ import Button from "./button.design"
   <Frame name="Item" width="fill" layout="row" align="center" gap={16}
          padding={16} radius={12} fill="#ffffff" stroke="#e2e8f0" strokeWidth={1}>
     <Frame name="Photo" width={64} height={64}>
-      <Image src="./shirt.jpg" width={64} height={64} radius={8} clip={true} />
+      <Frame name="Crop" width={64} height={64} radius={8} clip>
+        <Image src="./shirt.jpg" width={64} height={64} />
+      </Frame>
       <Ellipse x={52} y={-4} width={16} height={16} fill="#ef4444"
                stroke="#ffffff" strokeWidth={2} />
     </Frame>

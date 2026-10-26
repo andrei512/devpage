@@ -6,7 +6,6 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout as Text,
     LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use taffy::prelude::*;
 
@@ -38,12 +37,10 @@ const FONTS: [&[u8]; 4] = [
     include_bytes!("../fonts/Inter-Bold.ttf"),
 ];
 
-/// The fonts, text layout state and decoded images a renderer keeps between
-/// paints.
+/// The fonts and text layout state a renderer keeps between paints.
 pub struct Renderer {
     fonts: FontContext,
     layouts: LayoutContext<()>,
-    images: HashMap<String, (Vec<u8>, Option<ImageData>)>,
 }
 
 impl Default for Renderer {
@@ -76,7 +73,6 @@ pub enum Paint {
 pub enum Draw {
     Fill(BezPath, Paint),
     Stroke(BezPath, f32, PColor),
-    Shadow(KRect, f32, f32, PColor),
     Glyphs(FontData, f32, PColor, Vec<Glyph>),
     PushClip(BezPath),
     PushOpacity(f32),
@@ -108,21 +104,7 @@ impl Renderer {
         Renderer {
             fonts,
             layouts: LayoutContext::new(),
-            images: HashMap::new(),
         }
-    }
-
-    /// An image's pixels, decoded once per file contents.
-    fn image(&mut self, image: &resolve::Image) -> Option<ImageData> {
-        if let Some((data, decoded)) = self.images.get(&image.src)
-            && *data == image.data
-        {
-            return decoded.clone();
-        }
-        let decoded = decode(&image.data);
-        self.images
-            .insert(image.src.clone(), (image.data.clone(), decoded.clone()));
-        decoded
     }
 
     fn text_layout(&mut self, text: &resolve::TextStyle, width: Option<f32>) -> Text<()> {
@@ -153,7 +135,7 @@ impl Renderer {
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
         let mut texts = Vec::new();
         let mut hugs = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut texts, &mut hugs, self);
+        let root = build(&mut tree, &scene.root, None, &mut texts, &mut hugs);
         // A frame with no layout places its children absolutely, so flexbox
         // gives a hugging one no size; it takes its children's extent
         // instead. `hugs` is in post-order, so a pass settles every frame
@@ -350,21 +332,21 @@ impl Renderer {
             }
         };
         if let Some(s) = &node.shadow {
-            let r =
-                rect.inflate(s.spread as f64, s.spread as f64) + Vec2::new(s.x as f64, s.y as f64);
-            let radius = if node.kind == Kind::Ellipse {
-                (f.width.min(f.height) / 2.0) + s.spread
+            // The box's own shape, widened by the spread — every corner's
+            // radius by it too — and moved by the offset.
+            let spread = s.spread as f64;
+            let r = rect.inflate(spread, spread);
+            let mut path = if node.kind == Kind::Ellipse {
+                KEllipse::from_rect(r).to_path(0.1)
             } else {
-                node.radius[0] + s.spread
+                let [tl, tr, br, bl] = node.radius.map(|v| (v as f64 + spread).max(0.0));
+                RoundedRect::from_rect(r, (tl, tr, br, bl)).to_path(0.1)
             };
-            // A blur reaches three standard deviations past its rectangle.
-            cover(r.inflate(1.5 * s.blur as f64, 1.5 * s.blur as f64));
-            list.push(Draw::Shadow(
-                r,
-                radius.max(0.0),
-                s.blur / 2.0,
-                color(s.color),
-            ));
+            path.apply_affine(Affine::translate((s.x as f64, s.y as f64)));
+            let std_dev = (s.blur as f64 / 2.0).max(0.0);
+            // A blur reaches three standard deviations past its shape.
+            cover(path.bounding_box().inflate(3.0 * std_dev, 3.0 * std_dev));
+            list.push(shadow(&path, std_dev, s.color));
         }
         // A vector's fill and stroke follow its path; every other box's
         // follow the box.
@@ -386,9 +368,8 @@ impl Renderer {
             cover(path.bounding_box());
             list.push(Draw::Fill(path, paint));
         }
-        if let Some(image) = &node.image
-            && let Some(data) = self.image(image)
-        {
+        if let Some(image) = &node.image {
+            let data = image.pixels.clone();
             // Covering the box: scaled to fill it, centered, cut to its shape.
             let (iw, ih) = (data.width as f64, data.height as f64);
             let s = (f.width as f64 / iw).max(f.height as f64 / ih);
@@ -458,6 +439,98 @@ impl Renderer {
     }
 }
 
+/// The most samples a blurred shadow is drawn from.
+const SHADOW_SAMPLES: f64 = (1 << 20) as f64;
+
+/// A shadow: `path` filled with `c`, blurred by a Gaussian of `std_dev`
+/// pixels. Neither vello's blurred rounded rectangle, which takes one radius
+/// for all four corners, nor any filter both backends share draws that, so
+/// the engine blurs the shape itself: it samples the shape's coverage every
+/// half standard deviation — coarser only past [`SHADOW_SAMPLES`] samples —
+/// blurs that with a true Gaussian, and paints the result as an image over
+/// the shadow's extent. A blur that wide has nothing finer than its samples,
+/// so the image, sampled smoothly, is as sharp as the shadow at any zoom.
+fn shadow(path: &BezPath, std_dev: f64, c: Color) -> Draw {
+    if std_dev == 0.0 {
+        return Draw::Fill(path.clone(), Paint::Solid(color(c)));
+    }
+    let bounds = path.bounding_box().inflate(3.0 * std_dev, 3.0 * std_dev);
+    let step = (std_dev / 2.0)
+        .max((bounds.area() / SHADOW_SAMPLES).sqrt())
+        .max(bounds.width().max(bounds.height()) / 4096.0);
+    let (w, h) = (
+        (bounds.width() / step).ceil().max(1.0) as usize,
+        (bounds.height() / step).ceil().max(1.0) as usize,
+    );
+    // The shape's coverage of each sample.
+    let mut ctx = RenderContext::new(w as u16, h as u16);
+    ctx.set_transform(Affine::scale(1.0 / step) * Affine::translate((-bounds.x0, -bounds.y0)));
+    ctx.set_paint(PColor::from_rgba8(0, 0, 0, 255));
+    ctx.fill_path(path);
+    ctx.flush();
+    let mut coverage = Pixmap::new(w as u16, h as u16);
+    ctx.render(&mut coverage, &mut Resources::default());
+    let mut alpha: Vec<f32> = coverage
+        .data_as_u8_slice()
+        .iter()
+        .skip(3)
+        .step_by(4)
+        .map(|&a| a as f32 / 255.0)
+        .collect();
+    // A Gaussian is separable: across each row, then down each column.
+    let sigma = std_dev / step;
+    let reach = (3.0 * sigma).ceil() as isize;
+    let kernel: Vec<f32> = (-reach..=reach)
+        .map(|i| (-(i as f64).powi(2) / (2.0 * sigma * sigma)).exp() as f32)
+        .collect();
+    let total: f32 = kernel.iter().sum();
+    let kernel: Vec<f32> = kernel.iter().map(|k| k / total).collect();
+    let blur = |alpha: &[f32], at: &dyn Fn(usize, usize) -> usize, lines: usize, len: usize| {
+        let mut out = vec![0.0f32; alpha.len()];
+        for line in 0..lines {
+            for i in 0..len {
+                let mut sum = 0.0;
+                for (k, weight) in kernel.iter().enumerate() {
+                    let j = i as isize + k as isize - reach;
+                    if (0..len as isize).contains(&j) {
+                        sum += weight * alpha[at(line, j as usize)];
+                    }
+                }
+                out[at(line, i)] = sum;
+            }
+        }
+        out
+    };
+    alpha = blur(&alpha, &|y, x| y * w + x, h, w);
+    alpha = blur(&alpha, &|x, y| y * w + x, w, h);
+    let pixels: Vec<u8> = alpha
+        .iter()
+        .flat_map(|a| {
+            [
+                c.r,
+                c.g,
+                c.b,
+                (a.clamp(0.0, 1.0) * c.a as f32).round() as u8,
+            ]
+        })
+        .collect();
+    let image = ImageData {
+        data: Blob::new(Arc::new(pixels)),
+        format: ImageFormat::Rgba8,
+        alpha_type: ImageAlphaType::Alpha,
+        width: w as u32,
+        height: h as u32,
+    };
+    let extent = KRect::new(
+        bounds.x0,
+        bounds.y0,
+        bounds.x0 + w as f64 * step,
+        bounds.y0 + h as f64 * step,
+    );
+    let place = Affine::translate((bounds.x0, bounds.y0)) * Affine::scale(step);
+    Draw::Fill(extent.to_path(0.1), Paint::Image(image, place))
+}
+
 /// Replays a display list with `vello_cpu` into a pixmap of its area at
 /// `scale`, as `Renderer::paint` does.
 pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
@@ -489,10 +562,6 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
                 ctx.set_paint(*c);
                 ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
                 ctx.stroke_path(path);
-            }
-            Draw::Shadow(rect, radius, std_dev, c) => {
-                ctx.set_paint(*c);
-                ctx.fill_blurred_rounded_rect(rect, *radius, *std_dev, false);
             }
             Draw::Glyphs(font, size, c, glyphs) => {
                 ctx.set_paint(*c);
@@ -536,47 +605,6 @@ fn gradient(rect: KRect, angle: f32, stops: &[(Color, f32)]) -> Gradient {
 }
 
 /// A PNG's or JPEG's pixels, straight RGBA.
-fn decode(data: &[u8]) -> Option<ImageData> {
-    let (pixels, width, height) = if data.starts_with(b"\x89PNG") {
-        let mut decoder = png::Decoder::new(std::io::Cursor::new(data));
-        decoder.set_transformations(png::Transformations::normalize_to_color8());
-        let mut reader = decoder.read_info().ok()?;
-        let mut buf = vec![0; reader.output_buffer_size()?];
-        let info = reader.next_frame(&mut buf).ok()?;
-        buf.truncate(info.buffer_size());
-        let rgba = match info.color_type {
-            png::ColorType::Rgba => buf,
-            png::ColorType::Rgb => buf
-                .chunks(3)
-                .flat_map(|p| [p[0], p[1], p[2], 255])
-                .collect(),
-            png::ColorType::GrayscaleAlpha => buf
-                .chunks(2)
-                .flat_map(|p| [p[0], p[0], p[0], p[1]])
-                .collect(),
-            png::ColorType::Grayscale => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-            png::ColorType::Indexed => return None,
-        };
-        (rgba, info.width, info.height)
-    } else {
-        use zune_jpeg::JpegDecoder;
-        use zune_jpeg::zune_core::colorspace::ColorSpace;
-        use zune_jpeg::zune_core::options::DecoderOptions;
-        let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
-        let mut decoder = JpegDecoder::new_with_options(std::io::Cursor::new(data), options);
-        let pixels = decoder.decode().ok()?;
-        let info = decoder.info()?;
-        (pixels, info.width as u32, info.height as u32)
-    };
-    Some(ImageData {
-        data: Blob::new(Arc::new(pixels)),
-        format: ImageFormat::Rgba8,
-        alpha_type: ImageAlphaType::Alpha,
-        width,
-        height,
-    })
-}
-
 /// How far apart two drawings of the same scene may be. Two rasterizers of one
 /// display list differ only in how they anti-alias an edge: a pixel on an edge
 /// takes some value between the colors either side of it, and each rasterizer
@@ -685,7 +713,7 @@ pub fn matches(a: &[u8], b: &[u8], width: usize) -> Result<(), Option<Difference
 /// A PNG's or JPEG's pixels as straight RGBA, with its width and height —
 /// for comparing drawings.
 pub fn pixels(data: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
-    let image = decode(data)?;
+    let image = resolve::decode(data).ok()?;
     Some((image.data.data().to_vec(), image.width, image.height))
 }
 
@@ -695,7 +723,6 @@ fn build(
     parent: Option<&Node>,
     texts: &mut Vec<(resolve::TextStyle, bool)>,
     hugs: &mut Vec<(NodeId, bool, bool)>,
-    renderer: &mut Renderer,
 ) -> NodeId {
     let mut style = Style::default();
     let dir = parent.map(|p| p.layout);
@@ -765,7 +792,7 @@ fn build(
     }
     let intrinsic = match (&node.vector, &node.image) {
         (Some(v), _) => Some((v.view_box[2], v.view_box[3])),
-        (_, Some(i)) => renderer.image(i).map(|d| (d.width as f32, d.height as f32)),
+        (_, Some(i)) => Some((i.pixels.width as f32, i.pixels.height as f32)),
         _ => None,
     };
     if let Some((w, h)) = intrinsic {
@@ -776,7 +803,7 @@ fn build(
     let children: Vec<NodeId> = node
         .children
         .iter()
-        .map(|c| build(tree, c, Some(node), texts, hugs, renderer))
+        .map(|c| build(tree, c, Some(node), texts, hugs))
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
     // A root has no parent space to fill: on its own, `"fill"` hugs.
@@ -1008,6 +1035,35 @@ mod tests {
         assert_eq!(rgba(&p, 0, 39)[3], 255, "bottom left is square");
     }
 
+    /// A shadow takes the shape of its box: every corner its own radius, each
+    /// widened by the spread.
+    #[test]
+    fn a_shadow_follows_each_corner_and_the_spread() {
+        // The shadow's box is 55..95 × 5..45: its top-left corner rounded by
+        // 10 + 5, the others by 0 + 5.
+        let sharp = scene(
+            r##"<Frame width={100} height={60}><Rect x={10} y={10} width={30} height={30} radius={[10, 0, 0, 0]} shadow={{ x: 50, spread: 5, color: "#000000" }} /></Frame>"##,
+        );
+        let p = Renderer::new().paint(&sharp, 1.0);
+        assert_eq!(rgba(&p, 57, 7)[3], 0, "top left is rounded by 15");
+        assert_eq!(rgba(&p, 92, 7)[3], 255, "top right only by 5");
+        assert_eq!(rgba(&p, 92, 42)[3], 255, "bottom right only by 5");
+        assert_eq!(rgba(&p, 57, 42)[3], 255, "bottom left only by 5");
+        assert_eq!(rgba(&p, 94, 5)[3], 0, "but rounded");
+        // Blurred, each corner still fades by its own radius.
+        let blurred = scene(
+            r##"<Frame width={100} height={60}><Rect x={10} y={10} width={30} height={30} radius={[20, 0, 0, 0]} shadow={{ x: 50, blur: 6, color: "#000000" }} /></Frame>"##,
+        );
+        let p = Renderer::new().paint(&blurred, 1.0);
+        let (tl, tr) = (rgba(&p, 63, 13)[3], rgba(&p, 86, 13)[3]);
+        assert!(tr > 150 && tl < 100, "top left {tl}, top right {tr}");
+        let (bl, br) = (rgba(&p, 63, 36)[3], rgba(&p, 86, 36)[3]);
+        assert!(
+            bl.abs_diff(tr) <= 2 && br.abs_diff(tr) <= 2,
+            "{bl} {br} {tr}"
+        );
+    }
+
     #[test]
     fn opacity_applies_to_the_subtree_as_one() {
         // Two overlapping opaque squares at half opacity: where they overlap
@@ -1076,10 +1132,7 @@ mod tests {
         });
         let mut s = scene(r#"<Frame width={20} height={20} />"#);
         s.root.kind = Kind::Image;
-        s.root.image = Some(resolve::Image {
-            src: "i.png".into(),
-            data: image,
-        });
+        s.root.image = Some(resolve::Image::new("i.png".into(), image).unwrap());
         // The image is sampled smoothly, so each side is mostly its color.
         let p = Renderer::new().paint(&s, 1.0);
         let (left, right) = (rgba(&p, 1, 10), rgba(&p, 18, 10));
@@ -1091,17 +1144,17 @@ mod tests {
 
     #[test]
     fn png_and_jpeg_decode() {
-        let png = decode(&png_bytes(3, 2, |_, _| [1, 2, 3, 4])).unwrap();
+        let png = resolve::decode(&png_bytes(3, 2, |_, _| [1, 2, 3, 4])).unwrap();
         assert_eq!((png.width, png.height, png.data.data().len()), (3, 2, 24));
         let jpeg = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../docs/designs/checkout/shirt.jpg"
         ))
         .unwrap();
-        let jpeg = decode(&jpeg).unwrap();
+        let jpeg = resolve::decode(&jpeg).unwrap();
         assert_eq!((jpeg.width, jpeg.height), (160, 160));
         assert_eq!(jpeg.data.data().len(), 160 * 160 * 4);
-        assert!(decode(b"\x89PNG\r\n\x1a\nbroken").is_none());
+        assert!(resolve::decode(b"\x89PNG\r\n\x1a\nbroken").is_err());
     }
 
     #[test]
@@ -1361,8 +1414,8 @@ mod examples {
                 std::fs::write(&reference, &png).unwrap();
                 continue;
             }
-            let expected = decode(&std::fs::read(&reference).unwrap()).unwrap();
-            let painted = decode(&png).unwrap();
+            let expected = resolve::decode(&std::fs::read(&reference).unwrap()).unwrap();
+            let painted = resolve::decode(&png).unwrap();
             assert_eq!(
                 (painted.width, painted.height),
                 (expected.width, expected.height),

@@ -191,10 +191,11 @@ pub fn decode(n: &proto::Node) -> Node {
             d: v.d.clone(),
             view_box: four(&v.view_box),
         }),
-        image: n.image.as_ref().map(|i| Image {
-            src: i.src.clone(),
-            data: i.data.clone(),
-        }),
+        // The server resolved the same bytes, so they decode here too.
+        image: n
+            .image
+            .as_ref()
+            .and_then(|i| Image::new(i.src.clone(), i.data.clone()).ok()),
         children: n.children.iter().map(decode).collect(),
     }
 }

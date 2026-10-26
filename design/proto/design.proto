@@ -22,9 +22,6 @@ message Update {
   }
   // The design this update is about, as the request named it.
   string path = 4;
-  // Was `gone`: a deleted design stays watched, so it comes back when written
-  // again.
-  reserved 5;
 }
 
 message Patch {
@@ -66,11 +63,10 @@ message Node {
   Align align = 18;
   Align justify = 19;
   Text text = 20;
-  reserved 21; // was the design an instance came from, which nothing read
-  repeated Node children = 22;
-  Gradient gradient = 23;
-  Vector vector = 24;
-  Image image = 25;
+  repeated Node children = 21;
+  Gradient gradient = 22;
+  Vector vector = 23;
+  Image image = 24;
 }
 
 // A linear gradient: `angle` in degrees as in CSS, stops along its line.

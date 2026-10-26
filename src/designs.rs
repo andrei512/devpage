@@ -29,6 +29,9 @@ struct Resolved {
 /// outside the served folder.
 struct Source {
     bytes: Option<Vec<u8>>,
+    /// Which read of the store's this was, counting from one: a result made
+    /// from it is current only while the file is still this read.
+    read: u64,
     /// Its canonical path from the top of the served folder, which is what the
     /// watcher reports.
     canonical: Option<String>,
@@ -38,13 +41,23 @@ struct Store {
     served: PathBuf,
     renderer: Mutex<Renderer>,
     sources: Mutex<HashMap<String, Source>>,
+    /// How many files the store has read from disk.
+    reads: std::sync::atomic::AtomicU64,
+    /// Locked before `sources` whenever both are.
     resolved: Mutex<HashMap<String, Resolved>>,
     /// The address of each design whose scene or problems changed.
     updates: broadcast::Sender<String>,
     /// How many times a design was resolved, for the tests.
     #[cfg(test)]
     resolutions: std::sync::atomic::AtomicUsize,
+    /// Called after each file read from disk, for the tests: a save can land
+    /// there.
+    #[cfg(test)]
+    after_read: Mutex<Option<AfterRead>>,
 }
+
+#[cfg(test)]
+type AfterRead = Box<dyn Fn(&str) + Send + Sync>;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
@@ -52,10 +65,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The store's files, recording every path a resolving asks for.
+/// The store's files, recording every path a resolving asks for and which
+/// read of it the resolving saw.
 struct Reading<'a> {
     store: &'a Store,
     asked: RefCell<Vec<String>>,
+    seen: RefCell<Vec<(String, u64)>>,
 }
 
 impl Files for Reading<'_> {
@@ -65,6 +80,7 @@ impl Files for Reading<'_> {
         self.asked.borrow_mut().push(path.to_string());
         let mut sources = lock(&self.store.sources);
         if let Some(source) = sources.get(path) {
+            self.seen.borrow_mut().push((path.to_string(), source.read));
             return source.bytes.clone();
         }
         let file = self
@@ -77,9 +93,19 @@ impl Files for Reading<'_> {
         let source = Source {
             bytes: file.as_ref().and_then(|file| std::fs::read(file).ok()),
             canonical: file.as_ref().map(|file| self.store.relative(file)),
+            read: 1 + self
+                .store
+                .reads
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         };
+        self.seen.borrow_mut().push((path.to_string(), source.read));
         let bytes = source.bytes.clone();
         sources.insert(path.to_string(), source);
+        drop(sources);
+        #[cfg(test)]
+        if let Some(after) = lock(&self.store.after_read).as_ref() {
+            after(path);
+        }
         bytes
     }
 }
@@ -92,13 +118,35 @@ impl Store {
             .into_owned()
     }
 
-    fn resolve(&self, path: &str) -> Resolved {
+    /// The design at `path` resolved from the files as they are now, and
+    /// kept. A file the resolving read may change while it runs, after the
+    /// read and before the result is kept, and `changed` would then find
+    /// nothing kept to resolve again; so the result is kept only if every
+    /// file it read is still that read, and is made again otherwise.
+    fn refresh(&self, path: &str) -> Resolved {
+        loop {
+            let (resolved, seen) = self.resolve(path);
+            let mut kept = lock(&self.resolved);
+            let sources = lock(&self.sources);
+            let current = seen
+                .iter()
+                .all(|(file, read)| sources.get(file).is_some_and(|s| s.read == *read));
+            if current {
+                kept.insert(path.to_string(), resolved.clone());
+                return resolved;
+            }
+        }
+    }
+
+    /// The design at `path` resolved, and which read of each file it saw.
+    fn resolve(&self, path: &str) -> (Resolved, Vec<(String, u64)>) {
         #[cfg(test)]
         self.resolutions
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let reading = Reading {
             store: self,
             asked: RefCell::new(Vec::new()),
+            seen: RefCell::new(Vec::new()),
         };
         let result = guarded(
             path,
@@ -112,11 +160,12 @@ impl Store {
         let missing = lock(&self.sources)
             .get(path)
             .is_none_or(|source| source.bytes.is_none());
-        Resolved {
+        let resolved = Resolved {
             result,
             asked: reading.asked.into_inner(),
             missing,
-        }
+        };
+        (resolved, reading.seen.into_inner())
     }
 
     /// The design at `path`, from memory, resolving it the first time.
@@ -124,9 +173,7 @@ impl Store {
         if let Some(resolved) = lock(&self.resolved).get(path) {
             return resolved.clone();
         }
-        let resolved = self.resolve(path);
-        lock(&self.resolved).insert(path.to_string(), resolved.clone());
-        resolved
+        self.refresh(path)
     }
 }
 
@@ -148,10 +195,13 @@ impl Designs {
             served,
             renderer: Mutex::new(Renderer::new()),
             sources: Mutex::default(),
+            reads: Default::default(),
             resolved: Mutex::default(),
             updates: broadcast::channel(64).0,
             #[cfg(test)]
             resolutions: Default::default(),
+            #[cfg(test)]
+            after_read: Mutex::default(),
         }))
     }
 
@@ -166,32 +216,33 @@ impl Designs {
     pub fn changed(&self, file: &Path) {
         let store = &self.0;
         let relative = store.relative(file);
-        let forgotten: Vec<String> = {
+        // Forgotten and looked up at once, so a design is either kept already
+        // and found here, or not yet kept and made again by `refresh`.
+        let affected: Vec<(String, Resolved)> = {
+            let resolved = lock(&store.resolved);
             let mut sources = lock(&store.sources);
-            let keys = sources
+            let forgotten = sources
                 .iter()
                 .filter(|(key, source)| {
                     **key == relative || source.canonical.as_deref() == Some(relative.as_str())
                 })
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
-            for key in &keys {
+            if forgotten.is_empty() {
+                return;
+            }
+            for key in &forgotten {
                 sources.remove(key);
             }
-            keys
+            resolved
+                .iter()
+                .filter(|(_, resolved)| resolved.asked.iter().any(|a| forgotten.contains(a)))
+                .map(|(path, resolved)| (path.clone(), resolved.clone()))
+                .collect()
         };
-        if forgotten.is_empty() {
-            return;
-        }
-        let affected: Vec<(String, Resolved)> = lock(&store.resolved)
-            .iter()
-            .filter(|(_, resolved)| resolved.asked.iter().any(|a| forgotten.contains(a)))
-            .map(|(path, resolved)| (path.clone(), resolved.clone()))
-            .collect();
         for (path, old) in affected {
-            let new = store.resolve(&path);
+            let new = store.refresh(&path);
             let differs = new.result != old.result || new.missing != old.missing;
-            lock(&store.resolved).insert(path.clone(), new);
             if differs {
                 let _ = store.updates.send(path);
             }
@@ -491,6 +542,28 @@ mod tests {
         assert_eq!(found[0].to_string(), expected);
     }
 
+    #[tokio::test]
+    async fn an_image_that_does_not_decode_is_a_problem_everywhere() {
+        let dir = served("broken-image");
+        let mut broken = b"\x89PNG\r\n\x1a\n".to_vec();
+        broken.extend(b"garbage");
+        std::fs::write(dir.join("app/broken.png"), broken).unwrap();
+        std::fs::write(
+            dir.join("app/photo.design"),
+            "<Frame>\n  <Image src=\"./broken.png\" width={50} height={50} />\n</Frame>\n",
+        )
+        .unwrap();
+        let expected = "app/photo.design:2:10: src: ./broken.png is a PNG that doesn't decode";
+        // What `devpage check` reports…
+        let found = problems(&dir, "app/photo.design");
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert!(found[0].to_string().starts_with(expected), "{found:?}");
+        // …and the PNG, instead of a blank picture.
+        let designs = Designs::new(dir.clone());
+        let png = designs.png("app/photo.design".into()).await.unwrap_err();
+        assert!(png.starts_with(expected), "{png}");
+    }
+
     #[test]
     fn only_the_designs_made_from_a_changed_file_are_announced() {
         let dir = served("store");
@@ -531,6 +604,32 @@ mod tests {
         // A file nothing was made from is not even looked at.
         save(&designs, &dir.join("app/notes.txt"), "hi");
         assert!(updates.try_recv().is_err());
+    }
+
+    /// A save that lands while a design is being resolved — after its file
+    /// was read, before the result is kept — is not lost: the stale result
+    /// is never kept, and the design is resolved from the new file.
+    #[test]
+    fn a_save_while_a_design_resolves_is_not_lost() {
+        let dir = served("race");
+        let designs = Designs::new(dir.clone());
+        let other = dir.join("app/other.design");
+        let saver = designs.clone();
+        let saved = std::sync::atomic::AtomicBool::new(false);
+        *lock(&designs.0.after_read) = Some(Box::new(move |path: &str| {
+            if path == "app/other.design" && !saved.swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                save(&saver, &other, &OTHER.replace("{50}", "{20}"));
+            }
+        }));
+        let width =
+            |designs: &Designs| match designs.resolve("app/other.design").unwrap().root.width {
+                devpage_design::resolve::Size::Px(w) => w,
+                other => panic!("{other:?}"),
+            };
+        assert_eq!(width(&designs), 20.0, "resolved from the saved file");
+        *lock(&designs.0.after_read) = None;
+        assert_eq!(width(&designs), 20.0, "and kept so");
     }
 
     #[tokio::test]

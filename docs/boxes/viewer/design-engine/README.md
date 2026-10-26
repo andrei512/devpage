@@ -64,7 +64,9 @@ booleans and props, array and object literals, names with `-` in them, text
 with references in it, `//` comments — and nothing else. A file that doesn't
 parse gives one problem at the first place it went wrong; so does one nested
 more than 256 deep, or with a number past ±1,000,000, which keeps the parser's
-recursion and every later step finite.
+recursion and every later step finite. Numbers written inside a string — a
+gradient's angle and stops, a `viewBox`, a vector's `d` — are held to the same
+limit while resolving, so none of them is infinite or not a number either.
 
 No input makes the engine panic: every value is checked before it is used, a
 colour's digits as characters rather than bytes, and the resolver stops a tree
@@ -81,7 +83,12 @@ imported design's tree with its props substituted, rooted at one node — the
 design's root, with the instance's own attributes applied to it. Resolving reports every problem
 it finds, not just the first: unknown elements, attributes and props, values
 of the wrong type, missing or out-of-folder imports, images and interaction
-targets, and designs that use themselves.
+targets, images that don't decode, and designs that use themselves.
+
+An image's file is decoded whole while resolving — a PNG or JPEG that starts
+right but is broken or cut short is a problem at its `src` — and its pixels go
+with the scene, so painting never decodes. In the browser the module decodes
+an image's bytes once, when the scene or patch carrying it arrives.
 
 Every path a node carries — an image's file, an interaction's target — is
 stored as an address in the served folder, worked out from the file it was
@@ -127,6 +134,18 @@ each translating a command into its library's call and nothing more:
   encoded as the PNG — a server, a CI runner or a container has no GPU to
   count on. A browser without WebGPU paints the canvas with `vello_cpu` too.
 
+A shadow is its box's own shape — each corner's radius plus the spread — blurred
+by a true Gaussian, with a standard deviation of half the `blur`. Vello's
+blurred rounded rectangle takes one radius for all four corners, and the two
+backends share no blur filter, so the painter makes the shadow itself: it
+samples the shape's coverage every half standard deviation, blurs the samples,
+and puts the result in the list as an image filling the shadow's extent. A
+Gaussian that wide has no detail finer than its samples, so, sampled smoothly,
+the image is as sharp as the shadow at any zoom. A shadow that would need more
+than about a million samples — a huge box with a slight blur — is sampled
+more coarsely, and comes out slightly softer than asked for. A shadow with no
+blur is the shape filled.
+
 The list covers the design's **drawing**: the root's box, widened by
 everything painted outside it — a shadow's blur, a stroke, a child placed
 past an edge, a line of text — and cut by any clipping frame, rounded out to
@@ -152,7 +171,10 @@ ones included, and the text of every file it read (`src/designs.rs`). When the
 [watcher](../live-updates/README.md#the-watcher) reports a changed file, the
 store forgets that file's text, and only the designs that asked for it are
 parsed and resolved again; their other files come from memory, and no other
-design is touched. A design whose scene or problems came out different is
+design is touched. A save can land while a design is being resolved, after
+the file was read: the store numbers each read, and keeps a result only if
+every file it was made from is still the read it saw — otherwise it resolves
+the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it. Painting happens when a PNG is asked for, from the scene
 already in memory. `devpage check` and a page's problems bar read designs

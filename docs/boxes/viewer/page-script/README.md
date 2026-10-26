@@ -36,7 +36,7 @@ event stream, the scroll position — stays as it was.
 
 The swap keeps every [embedded design](../designs/README.md#viewing-a-design)'s
 canvas that is still in the page, outside a widget: each keeps its drawing,
-and the page's one design stream stays open while the set of designs it shows
+and the page's one watch stream stays open while the set of designs it shows
 is the same. A design embedded inside a widget is the exception: React makes
 the widget's content again, canvas included, so the new canvas takes over what
 the old one showed — the design it had navigated to and its way back — and is
