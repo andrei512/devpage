@@ -28,7 +28,10 @@ as written, bare attributes as `true`) and its Markdown source — and, for
 `Example`, that source highlighted as Markdown by the same highlighter fenced
 code uses, which reaches it as the `sourceHtml` prop. Its content stays between
 the tags for comrak to render as Markdown. The page's `<head>` gets an import map
-naming React, and the list of the document's widgets with the address of each.
+naming React and pele, the list of the document's widgets with the address of
+each, and a `modulepreload` for every module the page's widgets need — their
+own, those they render by name, their helpers, React and, with a diagram,
+pele ([the load set](../../rendering-a-page/README.md#the-load-set)).
 
 ## Compiling
 
@@ -73,7 +76,8 @@ failed.
 
 In `assets/devpage.js`, each `pre[lang="mermaid"]` first
 becomes a `Diagram` placeholder. Then the page script loads only the widgets the
-content names, nested ones included, and those each lists in `__devpageUses`;
+content names, nested ones included, and those each lists in `__devpageUses`,
+importing them alongside React rather than after it;
 adds a widget's exported `css` to the page once; and mounts each outermost
 placeholder with React. Nested widgets become React elements their parent can
 read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped

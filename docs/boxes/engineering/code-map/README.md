@@ -51,7 +51,7 @@ flowchart LR
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
-| `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders, and a slide's `<Notes>` taken out and read; TSX compiled by oxc, each helper import rewritten to the helper's own address, and compiled modules remembered; a module's version, from its source and every module it imports. |
+| `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders, and a slide's `<Notes>` taken out and read; TSX compiled by oxc, each helper import rewritten to the helper's own address, and compiled modules remembered; a module's version, from its source and every module it imports; a page's load set, preloaded from its head. |
 | `src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
 | `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted or settled on its problems, downloading the shell the first time; also downloads Chrome for Testing for `devpage video`. |

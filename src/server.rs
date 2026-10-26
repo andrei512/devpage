@@ -467,25 +467,11 @@ fn asked_version(query: Option<&str>) -> Option<&str> {
 /// at its current address, `no-cache` at any other.
 async fn system_widget(Path(name): Path<String>, RawQuery(query): RawQuery) -> Response {
     let stem = name.trim_end_matches(".tsx");
-    // System widgets compose only each other.
-    let known: Vec<String> = crate::widgets::SYSTEM
-        .iter()
-        .map(|(name, _)| name.to_string())
-        .collect();
-    match crate::widgets::system(stem) {
-        Some(source) => {
+    match crate::widgets::compile_system(stem) {
+        Some(module) => {
             let current = crate::addresses::system_widget_hash(stem)
                 .is_some_and(|hash| asked_version(query.as_deref()) == Some(hash));
-            compiled(
-                &name,
-                crate::widgets::compile_cached(
-                    std::path::Path::new(&name),
-                    source,
-                    &known,
-                    &Default::default(),
-                ),
-                current,
-            )
+            compiled(&name, module, current)
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }

@@ -874,6 +874,131 @@ mod tests {
         (browser, page, events, profile, answered)
     }
 
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_none() {
+        use chromiumoxide::cdp::browser_protocol::network::{
+            EnableParams, EventRequestWillBeSent, InitiatorType, ResourceType,
+        };
+        let dir = widget_folder(
+            "one-round-trip",
+            "# Home\n\n<Card />\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n![Checkout](checkout.design)\n",
+            &[
+                (
+                    "docs/widgets/Card.tsx",
+                    "import { label } from \"./label\";\nexport default function Card() { return <Tabs><Tab title={label}>x</Tab></Tabs>; }\n",
+                ),
+                ("docs/widgets/label.ts", "export const label = 'l';\n"),
+                ("docs/plain.md", "# Plain\n\nJust text.\n"),
+                ("docs/checkout.design", ""),
+            ],
+        );
+        // A plain page fetches neither pele nor React, nor any widget.
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/plain.md").await;
+        assert_eq!(
+            text(&page, "String(document.documentElement.dataset.ready)").await,
+            "true"
+        );
+        let log = answered.lock().unwrap().clone();
+        assert!(
+            log.iter()
+                .any(|(p, _)| p.starts_with("/__devpage/devpage.")),
+            "{log:?}"
+        );
+        assert!(
+            !log.iter()
+                .any(|(p, _)| p.contains("pele") || p.contains("react") || p.contains("widgets")),
+            "{log:?}"
+        );
+        let address = page.url().await.unwrap().unwrap();
+        let address = address.split("/docs/").next().unwrap().to_string();
+
+        // Cold — none of its modules fetched yet: every module the page
+        // imports was asked for by its head, not by a script.
+        let cold = browser.new_page("about:blank").await.unwrap();
+        cold.execute(EnableParams::default()).await.unwrap();
+        let mut sent = cold
+            .event_listener::<EventRequestWillBeSent>()
+            .await
+            .unwrap();
+        answered.lock().unwrap().clear();
+        cold.goto(format!("{address}/docs/README.md"))
+            .await
+            .unwrap();
+        for _ in 0..50 {
+            if text(&cold, "String(document.documentElement.dataset.ready)").await == "true" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            text(
+                &cold,
+                "String(!!document.querySelector('.diagram svg') && !!document.querySelector('[data-widget=Card] .tabs'))"
+            )
+            .await,
+            "true",
+            "the diagram and the card drew"
+        );
+        let mut modules = Vec::new();
+        while let Ok(Some(event)) =
+            tokio::time::timeout(Duration::from_millis(200), sent.next()).await
+        {
+            if event.r#type == Some(ResourceType::Script)
+                && event.request.url.contains("/__devpage/")
+                && !event.request.url.contains("/__devpage/devpage.")
+            {
+                modules.push((event.request.url.clone(), event.initiator.r#type.clone()));
+            }
+        }
+        for name in [
+            "react.",
+            "pele.",
+            "Card.tsx",
+            "label.ts",
+            "Tabs.tsx",
+            "Tab.tsx",
+            "Diagram.tsx",
+            "design.",
+            "design-engine.",
+        ] {
+            assert!(
+                modules.iter().any(|(url, _)| url.contains(name)),
+                "{name} in {modules:?}"
+            );
+        }
+        let by_script: Vec<_> = modules
+            .iter()
+            .filter(|(_, initiator)| *initiator == InitiatorType::Script)
+            .collect();
+        assert!(by_script.is_empty(), "started by script: {by_script:#?}");
+        // Each downloaded once: the preload and the import agree.
+        let log = answered.lock().unwrap().clone();
+        for (url, _) in &modules {
+            let path = url[address.len()..].split('?').next().unwrap();
+            assert_eq!(
+                log.iter().filter(|(p, _)| p == path).count(),
+                1,
+                "{path} in {log:?}"
+            );
+        }
+
+        // A page loaded in place brings its preloads into the head.
+        assert_eq!(
+            text(
+                &page,
+                "load('/docs/README.md').then(() => [...document.head.querySelectorAll('link[rel=modulepreload]')].some((l) => l.href.includes('/pele.')) && !!document.querySelector('.diagram svg')).then(String)"
+            )
+            .await,
+            "true"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
     async fn text(page: &chromiumoxide::Page, script: &str) -> String {
         page.evaluate(script).await.unwrap().into_value().unwrap()
     }

@@ -49,6 +49,11 @@ const SHOWS_SOURCE: &[&str] = &["Example"];
 #[derive(Debug, Default)]
 pub struct Widgets {
     pub modules: BTreeMap<String, String>,
+    /// The served folder, and each project widget's file, by name.
+    served: PathBuf,
+    files: BTreeMap<String, PathBuf>,
+    /// Every name in `modules`: what a project widget can render by name.
+    known: Vec<String>,
     /// Widget files that can't be widgets: a lowercase name, or a system
     /// widget's name.
     pub problems: Vec<String>,
@@ -64,6 +69,8 @@ impl Widgets {
                 .modules
                 .insert(name.to_string(), address(Owned::SystemWidget(name)));
         }
+        widgets.served = document.served.clone();
+        widgets.known = widgets.modules.keys().cloned().collect();
         let Some(folder) = &document.widgets else {
             return widgets;
         };
@@ -119,20 +126,104 @@ impl Widgets {
                 file: &file,
                 known: &known,
             });
-            widgets.modules.insert(name, url);
+            widgets.modules.insert(name.clone(), url);
+            widgets.files.insert(name, file);
         }
+        widgets.known = known;
         widgets
     }
 
-    /// What a page's `<head>` needs: the import map naming React, and the
-    /// widgets the page script loads.
-    pub fn head(&self) -> String {
+    /// What the `<head>` of a page whose rendered content is `content` needs:
+    /// the import map naming React and pele, the widgets the page script
+    /// loads, and the page's [load set](Self::load_set) — each module as a
+    /// `modulepreload` at the very address its import asks for, and the
+    /// design engine's wasm as a low-priority fetch — so the browser asks for
+    /// all of it at once, as soon as it reads the head.
+    pub fn head(&self, content: &str) -> String {
         let modules = serde_json::to_string(&self.modules).unwrap_or_default();
         let react = address(Owned::Asset("react.js"));
+        let pele = address(Owned::Asset("pele.js"));
+        let (preloads, fetches) = self.load_set(content);
+        let mut links = String::new();
+        for module in preloads {
+            links.push_str(&format!("\n<link rel=\"modulepreload\" href=\"{module}\">"));
+        }
+        for fetch in fetches {
+            links.push_str(&format!(
+                "\n<link rel=\"preload\" href=\"{fetch}\" as=\"fetch\" crossorigin fetchpriority=\"low\">"
+            ));
+        }
         format!(
-            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}"}}}}</script>
-<script>window.devpageWidgets = {modules};</script>"#
+            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}","pele":"{pele}"}}}}</script>
+<script>window.devpageWidgets = {modules};</script>{links}"#
         )
+    }
+
+    /// Everything a page whose rendered content is `content` loads from
+    /// devpage beyond its stylesheet and page script: the modules — React if
+    /// it has a widget; each widget it names, a Mermaid block being a
+    /// `Diagram`; the widgets each of those renders by name (its
+    /// `__devpageUses`), and so on; every helper a project widget's imports
+    /// reach; pele with a `Diagram`; the design script and engine with an
+    /// embedded design — and what is fetched, not imported: the engine's
+    /// wasm. Each is the address [`address`] makes, so it is the one the
+    /// import asks for.
+    pub fn load_set(&self, content: &str) -> (Vec<String>, Vec<String>) {
+        let mut queue: Vec<String> = content
+            .split("data-widget=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .map(str::to_string)
+            .collect();
+        if content.contains("<pre lang=\"mermaid\">") {
+            queue.push("Diagram".into());
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        let mut widgets = Vec::new();
+        let mut helpers = Vec::new();
+        // In the order the page names them: the first are wanted first.
+        let mut next = 0;
+        while let Some(name) = queue.get(next).cloned() {
+            next += 1;
+            if !self.modules.contains_key(&name) || !seen.insert(name.clone()) {
+                continue;
+            }
+            widgets.push(self.modules[&name].clone());
+            let compiled = match self.files.get(&name) {
+                Some(file) => {
+                    for (helper, _) in closure(&self.served, file).into_iter().skip(1) {
+                        helpers.push(address(Owned::Module {
+                            served: &self.served,
+                            file: &helper,
+                            known: &self.known,
+                        }));
+                    }
+                    compile_module(&self.served, file, &self.known)
+                }
+                None => compile_system(&name).unwrap_or_else(|| Err(anyhow!("no {name}"))),
+            };
+            queue.extend(compiled.map(|js| uses(&js)).unwrap_or_default());
+        }
+        let mut modules = Vec::new();
+        if !seen.is_empty() {
+            modules.push(address(Owned::Asset("react.js")));
+        }
+        modules.extend(widgets);
+        for helper in helpers {
+            if !modules.contains(&helper) {
+                modules.push(helper);
+            }
+        }
+        if seen.contains("Diagram") {
+            modules.push(address(Owned::Asset("pele.js")));
+        }
+        let mut fetches = Vec::new();
+        if content.contains("<canvas class=\"design\"") {
+            modules.push(address(Owned::Asset("design.js")));
+            modules.push(address(Owned::Asset("design-engine.js")));
+            fetches.push(address(Owned::Asset("design-engine.wasm")));
+        }
+        (modules, fetches)
     }
 }
 
@@ -918,6 +1009,28 @@ pub fn compile(
     let uses = serde_json::to_string(&used).unwrap_or_else(|_| "[]".into());
     Ok(format!(
         "{import}{shims}{code}\nexport const __devpageUses = {uses};\n"
+    ))
+}
+
+/// The widgets a module [compiled](compile) renders by name: the
+/// `__devpageUses` list `compile` ends it with.
+fn uses(compiled: &str) -> Vec<String> {
+    compiled
+        .rsplit_once("export const __devpageUses = ")
+        .and_then(|(_, list)| serde_json::from_str(list.trim().trim_end_matches(';')).ok())
+        .unwrap_or_default()
+}
+
+/// A system widget, compiled as its address serves it — system widgets
+/// compose only each other. `None` for a name that isn't one.
+pub fn compile_system(name: &str) -> Option<Result<String>> {
+    let source = system(name)?;
+    let known: Vec<String> = SYSTEM.iter().map(|(name, _)| name.to_string()).collect();
+    Some(compile_cached(
+        Path::new(&format!("{name}.tsx")),
+        source,
+        &known,
+        &Default::default(),
     ))
 }
 

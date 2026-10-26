@@ -35,7 +35,9 @@ which the script itself adds while the comments are shown, and the devpage
 build in its `data-build` — with the open page's. A different frame, as when
 a document changed kind or devpage was redeployed with a new page script, is
 loaded whole. The same frame is swapped in: the
-script replaces the children of `#devpage-page`, `#devpage-nav` and
+script first copies into its head the fresh page's preload links it lacks
+(`adoptPreloads`), so the modules the fresh page needs download together
+before mounting asks for them, then replaces the children of `#devpage-page`, `#devpage-nav` and
 `#devpage-navbar` with the fresh ones — so the navbar's highlight follows the
 page — sets the document title, takes the fresh page's
 `window.devpageWidgets` — so widgets edited since are fetched at their new
@@ -59,7 +61,11 @@ a `Diagram` placeholder, and every widget placeholder in the content is
 mounted with React — the widgets it names loaded first
 ([Widgets](../widgets/how-widgets-run/README.md)). Once every widget has
 mounted, the script draws the designs the content embeds — those inside
-widgets exist only now — and the page marks itself ready. The design script, `assets/design.js`, is loaded the first time a
+widgets exist only now — and the page marks itself ready. React and the
+widgets' modules are imported together, not React first; on a page as served
+they are already on their way, named by its head
+([the load set](../rendering-a-page/README.md#the-load-set)). The design
+script, `assets/design.js`, is loaded the first time a
 page has a design, and from then on starts every canvas not yet drawn and
 stops those gone.
 

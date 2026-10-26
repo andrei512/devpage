@@ -59,6 +59,12 @@ fn main() {
     let mut table = String::new();
     for (name, source, mime) in ASSETS {
         let mut bytes = std::fs::read(source).unwrap_or_else(|e| panic!("{source}: {e}"));
+        if *name == "pele.js" {
+            // The vendored bundle defines a global; served as a module, which
+            // the Diagram widget imports, it exports it instead. Done here so
+            // the bundle stays exactly as vendored.
+            bytes.extend_from_slice(b"\nexport default pele;\n");
+        }
         if !name.ends_with(".wasm") {
             for (earlier, hashed) in &done {
                 bytes = replace(

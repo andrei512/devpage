@@ -349,7 +349,10 @@ A page that embeds designs does the same for each `<canvas>` it holds, all
 through the page's one stream, closed while the tab is hidden like the
 [event stream](../live-updates/README.md#why-one-stream-per-tab) and closed
 when an in-place navigation leaves no design on the page. The page script
-loads the design script only on a page that has a design. An embedded
+loads the design script only on a page that has a design, and such a page
+names the design script, the engine's bindings and its wasm in its head, so
+the browser fetches all three alongside the page's other modules
+([the load set](../rendering-a-page/README.md#the-load-set)). An embedded
 design navigates inside its own canvas, with a back stack of its own, so the
 page around it stays where it is; and when the page fetches itself again, each
 embedded canvas still in it is kept with its drawing, and the stream changes
