@@ -46,10 +46,11 @@ flowchart LR
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
-| `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders; TSX compiled by oxc, with helper imports versioned and compiled modules remembered. |
+| `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders, and a slide's `<Notes>` taken out and read; TSX compiled by oxc, with helper imports versioned and compiled modules remembered. |
 | `src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
 | `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted, downloading the shell the first time. |
+| `src/slide_png.rs` | A slide as an image: serves the deck internally and has chrome-headless-shell screenshot slide `n` on a 1920 × 1080 screen once the page is ready, devpage's controls hidden. |
 | `design/src/` | The engine: `parse` (text → syntax tree), `resolve` (→ scene), `render` (layout, display list, the CPU backend, PNG), `wire` (scenes and patches as messages), `proto` (the generated messages, and with the `server` feature the `Designs` service). |
 | `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas — apply, lay out, paint on the CPU, hit-test; `gpu.rs`, the GPU backend on WebGPU. |
 | `design/module/src/` | The module's builder: `main.rs` builds and vendors it, `lib.rs` computes and checks the fingerprint. |

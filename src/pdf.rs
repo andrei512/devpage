@@ -79,7 +79,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
 
 /// True once the page is ready to print: its diagrams drawn and every
 /// embedded design painted.
-const READY: &str = "document.documentElement.dataset.ready === 'true' \
+pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true' \
     && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
@@ -129,10 +129,10 @@ impl Drop for Profile {
 }
 
 /// chrome-headless-shell, downloaded once into devpage's cache folder: the
-/// one browser devpage drives, for `devpage pdf` and for every Chrome test. It
-/// is a bare program with no app bundle, so nothing devpage launches ever shows
-/// in the macOS Dock, and every machine prints with the same browser. Prints
-/// running at once share one download.
+/// one browser devpage drives, for `devpage pdf`, a slide's PNG and every
+/// Chrome test. It is a bare program with no app bundle, so nothing devpage
+/// launches ever shows in the macOS Dock, and every machine prints with the
+/// same browser. Prints running at once share one download.
 pub(crate) async fn headless_shell() -> Result<std::path::PathBuf> {
     use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
     static SHELL: tokio::sync::OnceCell<std::path::PathBuf> = tokio::sync::OnceCell::const_new();
@@ -281,7 +281,7 @@ mod tests {
     async fn the_talk_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
-        let Kind::Slides { slides } = &document.kind else {
+        let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
         let count = slides.len();
@@ -375,7 +375,7 @@ mod tests {
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
-        let Kind::Slides { slides } = &document.kind else {
+        let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
         let last = format!("{0}#{0}", slides.len());

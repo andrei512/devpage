@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 189 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 49 tests that drive chrome-headless-shell
+$ cargo test                  # 196 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 50 tests that drive chrome-headless-shell
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 115 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 122 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -26,15 +26,15 @@ chapters that the doc and PDF tests load. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-The 49 tests marked `#[ignore]` drive chrome-headless-shell through
+The 50 tests marked `#[ignore]` drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
 They run in parallel. Run them with `--ignored` after changing the page
-script, the design script, the module, the stylesheet, a widget, print mode
-or `devpage pdf`. The canvas tests start it with `--enable-unsafe-webgpu` and
-`--enable-gpu`: the shell keeps its GPU process off without the second, and
+script, the design script, the module, the stylesheet, a widget, print mode,
+`devpage pdf` or a slide's PNG. The canvas tests and a slide's PNG start it
+with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
 it.
@@ -70,8 +70,9 @@ the suite green.
 
 ### `check`
 
-*15 tests.*
+*16 tests.*
 
+- `<Notes>` on a page that isn't a slide, and a second one on a slide, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
 - A missing logo reported once.
 - Widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages.
@@ -145,9 +146,10 @@ In Chrome:
 
 ### `document`
 
-*8 tests.*
+*9 tests.*
 
 - Each kind parsed.
+- A deck's `context` and each slide's notes, `context` refused on the other kinds.
 - A navbar read in order with its icons and dropdowns, `sidebar` and `theme-selector`, and its bad shapes refused.
 - Bad kinds, fields and missing files rejected.
 - A Markdown file as a one-chapter doc.
@@ -233,15 +235,16 @@ In Chrome:
 - Unknown languages left plain.
 - Tables and heading ids.
 - A doc's chapters with its outline.
-- A deck's slides.
+- A deck's slides, never showing their notes.
 - Links kept for chapters and slides from other folders.
 - A one-file doc's title.
 - A page's title.
 
 ### `server`
 
-*12 tests.*
+*13 tests.*
 
+- A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
 - Widgets served compiled, for the document they belong to, with versioned helper imports.
 - A page naming its widgets and carrying their placeholders, code left alone.
 - A site's page printing as a doc of one chapter.
@@ -253,6 +256,12 @@ In Chrome:
 - Nothing outside the served folder served.
 - A served folder reached through a symbolic link.
 - Each site's title linking to its own root page.
+
+### `slide_png`
+
+*1 test in Chrome.*
+
+- A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
 
 ### `watch`
 
@@ -268,8 +277,9 @@ In Chrome:
 
 ### `widgets`
 
-*17 tests.*
+*21 tests.*
 
+- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.
 - A `Tab` outside a `Tabs` reported at its page line.

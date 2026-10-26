@@ -34,6 +34,10 @@ pub const SYSTEM: &[(&str, &str)] = &[
     ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
 ];
 
+/// The tag that holds a slide's notes: devpage's own, never a widget. It is
+/// taken out of the page and its text kept (see [`notes`]).
+pub const NOTES: &str = "Notes";
+
 /// System widgets that show their own source: they also get it highlighted
 /// as Markdown, as the `sourceHtml` prop.
 const SHOWS_SOURCE: &[&str] = &["Example"];
@@ -87,6 +91,13 @@ impl Widgets {
             if SYSTEM.iter().any(|(system, _)| *system == name) {
                 widgets.problems.push(format!(
                     "{} — {name} is a system widget's name",
+                    url.trim_start_matches('/')
+                ));
+                continue;
+            }
+            if name == NOTES {
+                widgets.problems.push(format!(
+                    "{} — {NOTES} is devpage's tag for a slide's notes",
                     url.trim_start_matches('/')
                 ));
                 continue;
@@ -145,9 +156,9 @@ pub fn is_widget_file(path: &Path, folder: &Path) -> bool {
 }
 
 /// Replaces the tags of known widgets in Markdown with placeholder elements,
-/// leaving code alone. An unknown capitalized tag, and a `Tab` outside a
-/// `Tabs`, are reported; an unknown tag is replaced by an error in its place
-/// rather than passed through as HTML.
+/// leaving code alone, and takes `<Notes>` out. An unknown capitalized tag,
+/// and a `Tab` outside a `Tabs`, are reported; an unknown tag is replaced by
+/// an error in its place rather than passed through as HTML.
 pub fn expand(source: &str, widgets: &Widgets, problems: &mut Vec<String>) -> String {
     expand_in(source, widgets, problems, None, 0)
 }
@@ -202,6 +213,11 @@ fn expand_in(
             .is_some_and(|after| after.trim().is_empty());
         let block = starts_line && ends_line;
         let element = if block { "div" } else { "span" };
+        // A slide's notes are never shown: [`notes`] reads them.
+        if tag.name == NOTES {
+            at = end;
+            continue;
+        }
         if !widgets.modules.contains_key(&tag.name) {
             let message = format!("<{}> is not a widget", tag.name);
             problems.push(format!("{line}: {message}"));
@@ -256,6 +272,42 @@ fn expand_in(
     }
     out.push_str(&source[at..]);
     out
+}
+
+/// Each `<Notes>…</Notes>` block in a page's Markdown, outside code and HTML
+/// comments, as found by [`expand`]: the line it starts on and its text,
+/// trimmed, as written.
+pub fn notes(source: &str) -> Vec<(usize, String)> {
+    let code = code_ranges(source);
+    let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
+    let open = format!("<{NOTES}");
+    let mut found = Vec::new();
+    let mut at = 0;
+    while let Some(offset) = source[at..].find(&open) {
+        let start = at + offset;
+        at = start + 1;
+        if in_code(start) {
+            continue;
+        }
+        let Some(tag) = parse_open(&source[start..]).filter(|tag| tag.name == NOTES) else {
+            continue;
+        };
+        let after_open = start + tag.len;
+        let (inner, end) = if tag.self_closing {
+            ("", after_open)
+        } else {
+            match find_close(source, after_open, NOTES, &in_code) {
+                Some((close_start, close_end)) => (&source[after_open..close_start], close_end),
+                None => ("", after_open),
+            }
+        };
+        found.push((
+            source[..start].matches('\n').count() + 1,
+            inner.trim().to_string(),
+        ));
+        at = end;
+    }
+    found
 }
 
 /// A `Cards` list item may start with a Lucide `(icon)` before its link:
@@ -992,5 +1044,65 @@ mod tests {
         assert!(!out.contains("(rocket)"), "{out}");
         assert!(out.contains("[Plain](b.md)"), "{out}");
         assert_eq!(problems, vec!["7: unknown icon (no-such-icon)".to_string()]);
+    }
+
+    #[test]
+    fn notes_are_taken_out_of_the_page_and_their_text_kept() {
+        let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
+        assert_eq!(
+            notes(source),
+            vec![(3, "Say **this**, word for word.".to_string())]
+        );
+        let mut problems = Vec::new();
+        let html = crate::render::markdown(&expand(source, &set(&["Callout"]), &mut problems));
+        assert!(!html.contains("word for word"), "{html}");
+        assert!(!html.contains("widget-error"), "{html}");
+        assert!(html.contains("<p>After.</p>"), "{html}");
+        assert!(problems.is_empty(), "{problems:?}");
+    }
+
+    #[test]
+    fn notes_inside_code_and_comments_are_not_notes() {
+        let source = "`<Notes>x</Notes>`\n\n```\n<Notes>fenced</Notes>\n```\n\n    <Notes>indented</Notes>\n\n<!-- <Notes>hidden</Notes> -->\n";
+        assert!(notes(source).is_empty(), "{:?}", notes(source));
+        let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
+        assert!(
+            html.contains("fenced") && html.contains("indented"),
+            "{html}"
+        );
+    }
+
+    #[test]
+    fn every_notes_block_is_found_with_its_line() {
+        let found = notes("<Notes>one</Notes>\n\ntext\n\n<Notes>\ntwo\n</Notes>\n<Notes/>\n");
+        assert_eq!(
+            found,
+            vec![
+                (1, "one".to_string()),
+                (5, "two".to_string()),
+                (8, String::new())
+            ]
+        );
+    }
+
+    #[test]
+    fn a_project_widget_named_notes_clashes() {
+        let dir = std::env::temp_dir().join(format!("devpage-wnotes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# T\n").unwrap();
+        std::fs::write(dir.join("widgets/Notes.tsx"), "export default () => null;").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let widgets = Widgets::of(&Document::load(&dir, &dir).unwrap());
+        assert!(!widgets.modules.contains_key("Notes"));
+        assert_eq!(
+            widgets.problems,
+            vec!["widgets/Notes.tsx — Notes is devpage's tag for a slide's notes".to_string()]
+        );
     }
 }

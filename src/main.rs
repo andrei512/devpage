@@ -13,6 +13,7 @@ mod navbar;
 mod pdf;
 mod render;
 mod server;
+mod slide_png;
 mod watch;
 mod widgets;
 

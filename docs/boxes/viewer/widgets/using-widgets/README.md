@@ -62,7 +62,7 @@ the terminal, and failing `devpage check`:
 - a capitalized tag that names no widget — also shown as an error in its place;
 - a `Tab` outside a `Tabs`;
 - a project widget with a system widget's name — the system widget is the one
-  that renders;
+  that renders — or named `Notes`, devpage's tag for a slide's notes;
 - a widget or a helper file that doesn't compile, with the compiler's message
   and line — also shown in the place of each widget that is, or imports, it.
   A widgets folder's problems are reported once per document, not per page.
