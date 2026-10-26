@@ -55,8 +55,8 @@ devpage from crates.io — the same `cargo install devpage` anyone runs — copi
 the docs in, and starts devpage deployed:
 
 ```dockerfile
-FROM rust:1.89-slim-bookworm AS build
-RUN cargo install devpage --version 0.1.0 --locked
+FROM rust:1.97-slim-bookworm AS build
+RUN cargo install devpage --version 0.2.0 --locked
 
 FROM debian:bookworm-slim
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
