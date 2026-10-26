@@ -24,6 +24,13 @@ The locked `oxc 0.153.0`, which compiles widgets, declares
 `rust-version = 1.97`, the highest of any dependency.
 </Callout>
 
+<Callout kind="note" title="Linux, releases up to 0.2.0">
+Releases up to 0.2.0 link fontconfig, so installing one on Linux also needs
+`pkg-config` and fontconfig's headers — on Debian or Ubuntu,
+`apt install pkg-config libfontconfig1-dev`. Later releases and a checkout
+need neither.
+</Callout>
+
 Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
 no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer and
 the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module

@@ -2,9 +2,7 @@
 # then open http://localhost:8090. Only the proxy is published, as on a cluster.
 services:
   devpage:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
+    build: .
     volumes:
       - comments:/srv/.devpage
   proxy:
