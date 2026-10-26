@@ -1338,7 +1338,8 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
     std::fs::write(
         sub.join("page.md"),
         "# Sub\n\n![Plain](button.design)\n\n<Callout>\n\n![In a callout](button.design)\n\n</Callout>\n\n\
-<Tabs>\n<Tab title=\"One\">\n\n![In a tab](button.design)\n\n</Tab>\n</Tabs>\n",
+<Tabs>\n<Tab title=\"One\">\n\n![In a tab](button.design)\n\n</Tab>\n</Tabs>\n\n\
+<Steps>\n\n1. In a step\n\n   ![In a step](button.design)\n\n2. In a callout in a step\n\n   <Callout>\n\n   ![In a callout in a step](button.design)\n\n   </Callout>\n\n</Steps>\n",
     )
     .unwrap();
     let address = serve(&dir, "devpage.yml").await;
@@ -1347,11 +1348,13 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
         .new_page(format!("{address}/sub/page.md").as_str())
         .await
         .unwrap();
-    // Three embeds — plain, in a Callout, in a Tab — each paints its design
-    // and links to it beside the page, not at the top of the served folder.
+    // Five embeds — plain, in a Callout, in a Tab, in a step, and in a Callout
+    // inside a step, which mounts only in the nested pass after Steps draws
+    // its items — each paints its design and links to it beside the page, not
+    // at the top of the served folder.
     until(
         &page,
-        "document.querySelectorAll('canvas.design').length === 3 \
+        "document.querySelectorAll('canvas.design').length === 5 \
          && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')",
     )
     .await;
@@ -1360,7 +1363,7 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
         "[...document.querySelectorAll('a.design-open')].map((a) => new URL(a.href).pathname)",
     )
     .await;
-    assert_eq!(links, vec!["/sub/button.design"; 3]);
+    assert_eq!(links, vec!["/sub/button.design"; 5]);
     assert_eq!(
         eval::<usize>(
             &page,

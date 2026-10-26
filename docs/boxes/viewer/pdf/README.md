@@ -6,11 +6,19 @@ leaves out. It is a task and mechanism article under the [viewer](../README.md).
 
 ## `devpage pdf`
 
-```sh
-devpage pdf design/sync                 # the doc in design/sync/devpage.yml
-devpage pdf talks/launch -o launch.pdf  # a deck, to a chosen file
-devpage pdf design.md                   # one Markdown file, as a doc
+<Terminal>
+
 ```
+$ devpage pdf design/sync
+Sync design.pdf
+$ devpage pdf talks/launch -o launch.pdf
+launch.pdf
+```
+
+</Terminal>
+
+The first prints the doc in `design/sync/devpage.yml`, the second a deck to a
+chosen file; `devpage pdf design.md` prints one Markdown file as a doc.
 
 It takes the same argument as `devpage` and writes `<title>.pdf` in the current
 folder unless `-o` names the file; characters a file name can't hold — `/`,
@@ -19,14 +27,28 @@ its header and footer ([Writing a doc](../writing-a-doc/README.md#on-paper)) —
 or a **deck**, one slide per 16:9 page
 ([Making slides](../making-slides/README.md#on-paper)). A site is many pages,
 not one, and `devpage pdf` refuses it; print one of its pages from the browser
-instead.
+instead. It refuses a design too; a page that embeds the design prints it, and
+its [PNG](../designs/README.md#looking-at-a-design-as-a-png) is its picture.
 
-The browser's own print — ⌘P, *Save as PDF* — produces the same pages from an
+The browser's own print — <Keys>⌘ P</Keys>, *Save as PDF* — produces the same pages from an
 open doc or deck, since both print the same print-mode page. `devpage pdf` adds
 the doc's header and footer and needs no clicking, which is what a script or an
 agent wants.
 
 ## The Chrome it drives
+
+```mermaid
+sequenceDiagram
+  participant pdf as devpage pdf
+  participant server as Its own server
+  participant chrome as chrome-headless-shell
+  pdf->>server: start, in the background
+  pdf->>chrome: open the document in print mode
+  chrome->>server: GET the page
+  chrome-->>pdf: every diagram, widget and embedded design drawn
+  pdf->>chrome: Page.printToPDF
+  chrome-->>pdf: the PDF
+```
 
 devpage does not render PDF itself. It starts its own server in the
 background, which logs nothing, opens the document in print mode in a headless Chrome — laid out
@@ -53,10 +75,15 @@ The Chrome tests drive the same copy.
 
 ## Why the PDF matches the screen
 
-Print mode is the same page, with the same Markdown, stylesheet, highlighting
-and diagrams; it only leaves out live updates, comments, navigation, the
-deck's controls and soft shadows (PDF viewers draw them as grey boxes), and
-sets the page size
-([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)).
+Print mode is the same page; it only leaves things out, and sets the page size
+([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)):
+
+| Kept on paper | Left out |
+| --- | --- |
+| the Markdown, the stylesheet | live updates |
+| highlighted code | comments |
+| diagrams and widgets (their first render) | navigation and the deck's controls |
+| the doc's header and footer | soft shadows (PDF viewers draw them as grey boxes) |
+
 A deck's slides are laid out at a fixed 1920 × 1080 and only scaled to the
 window, so the printed page is the slide as it shows.

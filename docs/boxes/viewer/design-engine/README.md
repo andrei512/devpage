@@ -52,13 +52,13 @@ never silently lag the engine. Only someone changing the engine needs the
 `devpage-design` is published to crates.io when devpage is released, first
 and at the same version, so `cargo install devpage` builds the native engine
 from the registry and takes the module from the vendored files — see
-[Release](../../engineering/sdlc/README.md#release).
+[Release](../../engineering/sdlc/stages/README.md#release).
 
 ## Parsing
 
 The parser turns a file into a syntax tree: imports, then one element with its
 attributes and children, each carrying its line and column. It reads the JSX
-subset [Designs](../designs/README.md#attributes) defines — strings in double
+subset [Elements and attributes](../designs/elements-and-attributes/README.md#attributes) defines — strings in double
 or single quotes with no escapes, bare attributes as `true`, braced numbers,
 booleans and props, array and object literals, names with `-` in them, text
 with references in it, `//` comments — and nothing else. A file that doesn't

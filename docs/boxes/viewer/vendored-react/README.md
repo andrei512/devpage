@@ -32,24 +32,29 @@ serves it at `/__devpage/react.js` — see
 import map points `react`, `react/jsx-runtime` and `react-dom/client` at it,
 so compiled widgets — whose JSX becomes `react/jsx-runtime` calls — and the page
 script's mounting code share one copy of React
-([Widgets](../widgets/README.md#under-the-hood)).
+([Widgets](../widgets/how-widgets-run/README.md)).
 
 ## Upgrading it
 
-1. **Build the new bundle**, in a scratch folder outside the repository, with
-   [Bun](https://bun.sh):
+<Steps>
 
-   ```sh
-   npm install react@<version> react-dom@<version>
-   # entry.js as above
-   bun build entry.js --minify --target browser --format esm \
-     --define 'process.env.NODE_ENV="production"' --outfile react.js
-   ```
+1. Build the new bundle
+   In a scratch folder outside the repository, with [Bun](https://bun.sh),
+   using `entry.js` as above. Building 19.3.0 this way with Bun 1.4.2
+   reproduces the vendored file byte for byte.
 
-   Building 19.3.0 this way with Bun 1.4.2 reproduces the vendored file byte
-   for byte.
-2. **Replace the files**: `react.js`, and `react.LICENSE` from the package's
-   `LICENSE`.
-3. **Rebuild devpage and run the widget tests**, including the ones that drive
-   Chrome: `cargo test` and `cargo test -- --ignored`.
-4. **Update this page's version and size.**
+   $ npm install react@<version> react-dom@<version>
+   $ bun build entry.js --minify --target browser --format esm --define 'process.env.NODE_ENV="production"' --outfile react.js
+
+2. Replace the files
+   `react.js`, and `react.LICENSE` from the package's `LICENSE`.
+
+3. Rebuild devpage and run the widget tests
+   Including the ones that drive Chrome.
+
+   $ cargo test
+   $ cargo test -- --ignored
+
+4. Update this page's version and size
+
+</Steps>

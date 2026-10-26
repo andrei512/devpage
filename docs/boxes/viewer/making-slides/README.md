@@ -53,6 +53,14 @@ reflows when the window changes size: what fits on the stage fits everywhere,
 and on paper. Write slides for that size; the stylesheet sets type large enough
 to read from the back of a room.
 
+<div style="max-width:30rem;margin:1.25rem auto;aspect-ratio:2/1;border:1px solid var(--border);border-radius:10px;background:var(--surface);display:flex;align-items:center;justify-content:center;position:relative;font-size:0.75rem;color:var(--muted)">
+<span style="position:absolute;top:0.5rem;left:0.75rem">the window</span>
+<div style="height:86%;aspect-ratio:16/9;background:var(--background);border:1px dashed var(--accent);border-radius:4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:0.4rem;color:var(--accent)">
+<strong>1920 × 1080 stage</strong>
+<span style="color:var(--muted)">scaled as a whole</span>
+</div>
+</div>
+
 ## Presenting
 
 | Key | Does |

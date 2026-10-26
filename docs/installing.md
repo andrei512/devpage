@@ -8,30 +8,34 @@ starting it. It is a task page under the [devpage landing page](README.md);
 ## What you need
 
 - **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
-  The locked `oxc 0.153.0`, which compiles widgets, declares
-  `rust-version = 1.97`, the highest of any dependency. Check what you have with `cargo --version`; install or update
-  Rust with [rustup](https://rustup.rs) (`rustup update`).
+  Check what you have with `cargo --version`; install or update Rust with
+  [rustup](https://rustup.rs) (`rustup update`).
 - **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
   machine: the first time it prints, it downloads chrome-headless-shell once
   into devpage's cache folder and uses that from then on
   ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
 
+<Callout kind="note" title="Why 1.97">
+The locked `oxc 0.153.0`, which compiles widgets, declares
+`rust-version = 1.97`, the highest of any dependency.
+</Callout>
+
 Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
 no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer and
 the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
 are compiled into the binary; the module is
-[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), built
-once and committed beside the code, so installing devpage builds no
-WebAssembly. Diagrams are drawn by the reader's browser, and designs by the
-module. The engine's protobuf file is compiled with a Rust library
+[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), so
+installing devpage builds no WebAssembly. Diagrams are drawn by the reader's
+browser, and designs by the module. The engine's protobuf file is compiled
+with a Rust library
 ([Dependencies](boxes/engineering/dependencies/README.md#devpage-design-the-design-engine)).
 The first build downloads the crates `devpage` and `devpage-design` use and
 compiles the engine once, for your machine.
 
 The result is one file. A release build of `devpage` for 64-bit ARM macOS is
-about 40 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as a
-compressing proxy in front of a deployed devpage would send it; devpage itself
-sends it uncompressed).
+about 40 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as
+a compressing proxy in front of a deployed devpage would send it; devpage
+itself sends it uncompressed).
 
 ## Install it
 
@@ -60,21 +64,18 @@ cargo build --release               # or just build: target/release/devpage
 Without installing, `cargo run -- <path>` runs it from the checkout. In a
 checkout, rustup also adds the `wasm32-unknown-unknown` target that
 `rust-toolchain.toml` names; only rebuilding the vendored design engine uses
-it ([Developing devpage](boxes/engineering/developing-devpage/README.md)).
+it ([Developing devpage](boxes/engineering/developing-devpage/README.md#the-vendored-design-engine)).
 
 </Tab>
 </Tabs>
 
 ## Run it
 
-```sh
-devpage <path>
-```
-
-Give it a document file, a folder holding a `devpage.yml`, or a single
-Markdown file; with no argument it uses `devpage.yml` in the current folder.
+Give it a document file, a folder holding a `devpage.yml`, a single
+Markdown file, or a `.design` file; with no argument it uses `devpage.yml` in the current folder.
 devpage prints one line — the document's title and the address it serves on —
-then logs each request. For these docs, whose title is `devpage`:
+then logs each request. For these docs, whose title is `devpage`, run from the
+top of the devpage repository:
 
 <Terminal>
 
