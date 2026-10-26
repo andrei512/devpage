@@ -31,7 +31,7 @@ sequenceDiagram
     Page->>Page: nothing to swap
   else it changed
     Server-->>Page: fresh HTML, a new ETag
-    Page->>Page: replace page, sidebar and navbar, mount widgets
+    Page->>Page: mount it off-screen, keep unchanged widgets, swap in one frame
   end
 ```
 
@@ -179,8 +179,9 @@ back until it is shown.
 - **A burst of events.** Events within 50 ms of the first are handled
   together, each path once, with at most one `change`; events spread over a
   longer stretch make one burst, and at most one `change`, every 50 ms. Each
-  `change` makes an open page fetch itself; one that finds the page's ETag
-  unchanged swaps nothing.
+  `change` makes an open page fetch itself — or, while it is loading, load
+  once more after that; one that finds the page's ETag unchanged swaps
+  nothing.
 - **The watcher reports an error.** `notify` hands the callback in
   `src/watch.rs` either an event or an error, and an error is dropped
   silently by `Listeners::sift` — nothing is logged and

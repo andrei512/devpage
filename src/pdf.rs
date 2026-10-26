@@ -1500,6 +1500,346 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 
+    /// Samples every frame from now on into `window.sampled`: whether a slide
+    /// is shown, how many placeholders in the page are not mounted, how much
+    /// text the page shows, and the scroll position.
+    const SAMPLER: &str = "window.sampled = []; (function tick() {
+        const page = document.getElementById('devpage-page');
+        window.sampled.push({
+          slide: !!document.querySelector('#devpage-page .slide.shown'),
+          unmounted: page.querySelectorAll('[data-widget]:not([data-mounted]):not(style)').length,
+          text: page.innerText.trim().length,
+          y: scrollY,
+        });
+        requestAnimationFrame(tick);
+      })(); 0";
+
+    /// What the server answered since `from`, less the event stream.
+    fn since(answered: &Answered, from: usize) -> Vec<(String, u16)> {
+        answered.lock().unwrap()[from..]
+            .iter()
+            .filter(|(path, _)| path != "/__devpage/events" && path != "/favicon.ico")
+            .cloned()
+            .collect()
+    }
+
+    /// Polls `script` until it is true, for up to five seconds.
+    async fn until(page: &chromiumoxide::Page, script: &str) -> bool {
+        for _ in 0..50 {
+            if text(page, &format!("String(!!({script}))")).await == "true" {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_slide_change_fetches_nothing_and_every_frame_shows_a_slide() {
+        let dir = widget_folder(
+            "slide-change",
+            "# W\n",
+            &[
+                (
+                    "docs/talk.yml",
+                    "kind: slides\ntitle: T\nslides: [one.md, two.md, three.md]\n",
+                ),
+                ("docs/one.md", "# One\n\n<Callout>first</Callout>\n"),
+                ("docs/two.md", "# Two\n\nPress <Keys>→</Keys>\n"),
+                ("docs/three.md", "# Three\n"),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/talk.yml").await;
+        // The comments the page asked for on load have come.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        page.evaluate(SAMPLER).await.unwrap();
+        let from = answered.lock().unwrap().len();
+        for key in ["ArrowRight", "ArrowRight", "ArrowLeft"] {
+            page.evaluate(format!(
+                "document.dispatchEvent(new KeyboardEvent('keydown', {{ key: '{key}' }}))"
+            ))
+            .await
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        page.evaluate("history.back()").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.slide.shown').dataset.slide + location.hash"
+            )
+            .await,
+            "3#3"
+        );
+        assert_eq!(
+            since(&answered, from),
+            vec![],
+            "a slide change fetches nothing"
+        );
+        assert_eq!(
+            text(&page, "String(window.sampled.length > 5 && window.sampled.every((f) => f.slide && !f.unmounted))").await,
+            "true",
+            "every frame shows a slide"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn an_outline_click_scrolls_without_a_fetch() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let dir = widget_folder(
+            "outline-click",
+            "# W\n",
+            &[
+                (
+                    "docs/guide/devpage.yml",
+                    "kind: doc\ntitle: D\nchapters: [one.md]\n",
+                ),
+                (
+                    "docs/guide/one.md",
+                    &format!("# One\n\n{long}## Far down\n\n{long}"),
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/guide/devpage.yml").await;
+        let from = answered.lock().unwrap().len();
+        page.evaluate("[...document.querySelectorAll('.outline a')].find((a) => a.textContent === 'Far down').click()")
+            .await
+            .unwrap();
+        assert!(until(&page, "location.hash.endsWith('far-down') && scrollY > 500").await);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            since(&answered, from),
+            vec![],
+            "an outline click fetches nothing"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_live_update_keeps_unchanged_widgets_their_state_and_the_scroll() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let counter = "import { useState, useEffect } from \"react\";\nexport default function Counter() { const [n, setN] = useState(0); useEffect(() => () => { window.unmounted = (window.unmounted ?? 0) + 1; }, []); return <button className=\"counter\" onClick={() => setN((n) => n + 1)}>{n}</button>; }\n";
+        let readme = |text: &str| {
+            format!("# W\n\n{text}\n\n<Counter />\n\n<Callout>{text}</Callout>\n\n{long}")
+        };
+        let dir = widget_folder(
+            "keep",
+            &readme("before"),
+            &[("docs/widgets/Counter.tsx", counter)],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("document.querySelector('.counter').click(); document.querySelector('.counter').click(); window.counter = document.querySelector('.counter'); scrollTo(0, 600); 0")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "window.counter.textContent === '2' && scrollY === 600"
+            )
+            .await
+        );
+        page.evaluate(SAMPLER).await.unwrap();
+
+        // The text and the Callout change; the Counter's placeholder doesn't.
+        std::fs::write(dir.join("docs/README.md"), readme("after")).unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('.callout')?.textContent.includes('after')"
+            )
+            .await
+        );
+        assert_eq!(
+            text(&page, "[window.counter === document.querySelector('.counter'), window.counter.textContent, scrollY, window.unmounted ?? 0].join(' ')").await,
+            "true 2 600 0",
+            "the unchanged widget keeps its node and its state, and the page its scroll"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "String(window.sampled.every((f) => !f.unmounted && f.text > 0 && f.y === 600))"
+            )
+            .await,
+            "true",
+            "no frame shows an unmounted placeholder, an empty page or another scroll"
+        );
+
+        // An edited widget gets a new address: it mounts afresh, though its
+        // placeholder is the same, and the root it had is unmounted.
+        std::fs::write(
+            dir.join("docs/widgets/Counter.tsx"),
+            counter.replace("className=\"counter\"", "className=\"counter edited\""),
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        assert!(until(&page, "!!document.querySelector('.counter.edited')").await);
+        assert_eq!(
+            text(&page, "[window.counter.isConnected, document.querySelector('.counter').textContent, window.unmounted ?? 0].join(' ')").await,
+            "false 0 1"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_updates_during_a_load_make_one_more_load() {
+        let dir = widget_folder("coalesce", "# W\n\n<Callout>one</Callout>\n", &[]);
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/README.md").await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        std::fs::write(
+            dir.join("docs/README.md"),
+            "# W\n\n<Callout>two</Callout>\n",
+        )
+        .unwrap();
+        let from = answered.lock().unwrap().len();
+        page.evaluate("refresh(); refresh(); refresh(); refresh(); 0")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('.callout')?.textContent.includes('two')"
+            )
+            .await
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let pages = since(&answered, from)
+            .into_iter()
+            .filter(|(path, _)| path == "/docs/README.md")
+            .count();
+        assert_eq!(pages, 2, "the load, and one more after it");
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_link_swaps_in_a_whole_page_and_back_restores_the_scroll() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let dir = widget_folder(
+            "navigate",
+            &format!("# W\n\n{long}[Other](other.md)\n\n{long}"),
+            &[
+                (
+                    "docs/other.md",
+                    "# Other\n\n<Label />\n\n<Callout>there</Callout>\n",
+                ),
+                (
+                    "docs/widgets/Label.tsx",
+                    "export default () => <span className=\"label\">label</span>;",
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("scrollTo(0, 900); 0").await.unwrap();
+        assert!(until(&page, "scrollY === 900").await);
+        page.evaluate(SAMPLER).await.unwrap();
+        page.evaluate("[...document.querySelectorAll('article a')].find((a) => a.textContent === 'Other').click()")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "!!document.querySelector('.label') && location.pathname.endsWith('/other.md')"
+            )
+            .await
+        );
+        assert_eq!(text(&page, "String(scrollY)").await, "0");
+        assert_eq!(
+            text(
+                &page,
+                "String(window.sampled.every((f) => !f.unmounted && f.text > 0))"
+            )
+            .await,
+            "true",
+            "no half-built frame"
+        );
+        page.evaluate("history.back()").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "location.pathname.endsWith('/README.md') && !document.querySelector('.label')"
+            )
+            .await
+        );
+        assert!(
+            until(&page, "scrollY === 900").await,
+            "back restores the scroll"
+        );
+        page.evaluate("history.forward()").await.unwrap();
+        assert!(until(&page, "!!document.querySelector('.label') && scrollY === 0").await);
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn comments_are_asked_for_each_page_source_at_once() {
+        let dir = widget_folder(
+            "comment-sources",
+            "# W\n",
+            &[
+                (
+                    "docs/talk.yml",
+                    "kind: slides\ntitle: T\nslides: [one.md, two.md, three.md]\n",
+                ),
+                (
+                    "docs/one.md",
+                    "# One\n\n<Callout>a</Callout>\n\nPress <Keys>→</Keys>\n",
+                ),
+                ("docs/two.md", "# Two\n\n<Callout>b</Callout>\n"),
+                ("docs/three.md", "# Three\n"),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/talk.yml").await;
+        // The comments the page asked for on load have come.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        page.evaluate(
+            "window.asked = []; window.open_ = 0; window.peak = 0; const f = window.fetch;
+            window.fetch = async (url, options) => {
+              if (!String(url).includes('/__devpage/comments')) return f(url, options);
+              window.asked.push(decodeURIComponent(String(url).split('page=')[1]));
+              window.peak = Math.max(window.peak, ++window.open_);
+              try { return await f(url, options); } finally { window.open_--; }
+            }; loadComments(); 0",
+        )
+        .await
+        .unwrap();
+        assert!(until(&page, "window.asked.length >= 3 && window.open_ === 0").await);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            text(&page, "window.asked.sort().join(',') + ' ' + window.peak").await,
+            "/docs/one.md,/docs/three.md,/docs/two.md 3",
+            "only the slides, all at once"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
     #[tokio::test]
     #[ignore]
