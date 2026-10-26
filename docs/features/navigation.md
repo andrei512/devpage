@@ -2,7 +2,9 @@
 
 A site gets a sidebar from its pages' Topics sections and, optionally, a
 navbar of links, dropdowns and icons; every page has a light/dark switch, and a
-`logo` puts an image before the title and in the browser tab.
+`logo` puts an image before the title and in the browser tab. Links between
+pages open in place, and back and forward return to where you were on each
+page.
 
 ```yaml
 logo: logo.svg

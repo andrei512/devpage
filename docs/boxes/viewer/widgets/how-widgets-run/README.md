@@ -23,10 +23,13 @@ widgets in its Markdown — skipping fenced, indented and inline code and HTML
 comments — and turns each into
 a placeholder: a `div` for a block widget, a `span` for an inline one, so an
 inline widget never breaks its paragraph. The placeholder carries the widget's
-name, its props as a JavaScript object literal (quoted values as strings, `{…}`
-as written, bare attributes as `true`) and its Markdown source — and, for
-`Example`, that source highlighted as Markdown by the same highlighter fenced
-code uses, which reaches it as the `sourceHtml` prop. Its content stays between
+name (`data-widget`), its props as a JavaScript object literal (`data-props`:
+quoted values as strings, `{…}` as written, bare attributes as `true`) and its
+Markdown source (`data-widget-source`) — and, for `Example`, that source
+highlighted as Markdown by the same highlighter fenced code uses
+(`data-widget-source-html`), which reaches it as the `sourceHtml` prop. The
+`data-source` attribute is not a widget's: it names the Markdown file a page,
+chapter or slide comes from, whose comments the page asks for. Its content stays between
 the tags for comrak to render as Markdown. The page's `<head>` gets an import map
 naming React and pele, the list of the document's widgets with the address of
 each, and a `modulepreload` for every module the page's widgets need — their
@@ -84,8 +87,10 @@ read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapp
 in an error boundary that shows a failure in its place; a widget whose module
 didn't load shows the reason it didn't. Each widget gets its
 props, `children`, `source` and `html`. Mounting happens on page load and again
-after every live update that changed the page, which takes the fresh page's
-widget list, so new versions are fetched. The page marks itself ready only once every widget has
+whenever a changed page is swapped in, which takes the fresh page's widget
+list, so new versions are fetched; a widget whose placeholder and address are
+unchanged is kept mounted, with its state
+([Swapping a page in place](../../page-script/README.md#swapping-a-page-in-place)). The page marks itself ready only once every widget has
 mounted, which is what `devpage pdf` waits for.
 
 Widget and helper files refresh open pages whatever a site's `watch` list says

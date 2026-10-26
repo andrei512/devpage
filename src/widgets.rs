@@ -497,7 +497,7 @@ fn expand_in(
         let props = escape(&tag.props);
         let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
             format!(
-                r#" data-source-html="{}""#,
+                r#" data-widget-source-html="{}""#,
                 escape(&crate::highlight::highlight(
                     "markdown",
                     inner.trim_matches('\n')
@@ -507,7 +507,7 @@ fn expand_in(
             String::new()
         };
         let open = format!(
-            r#"<{element} data-widget="{name}" data-props="{props}" data-source="{src}"{source_html}>"#,
+            r#"<{element} data-widget="{name}" data-props="{props}" data-widget-source="{src}"{source_html}>"#,
             name = tag.name,
             src = escape(inner.trim_matches('\n')),
         );
@@ -1214,10 +1214,13 @@ mod tests {
         assert!(html.contains(r#"<div data-widget="Tab""#), "{html}");
         assert!(
             html.contains(
-                r#"<span data-widget="Keys" data-props="{}" data-source="⌘ P">⌘ P</span>"#
+                r#"<span data-widget="Keys" data-props="{}" data-widget-source="⌘ P">⌘ P</span>"#
             ),
             "{html}"
         );
+        // `data-source` names a page's Markdown file, which comments are
+        // asked for; a widget's own source is not one.
+        assert!(!html.contains("data-source"), "{html}");
     }
 
     #[test]
@@ -1412,10 +1415,10 @@ mod tests {
             &set(&["Example"]),
             &mut problems,
         );
-        assert!(out.contains("data-source-html=\""), "{out}");
+        assert!(out.contains("data-widget-source-html=\""), "{out}");
         assert!(out.contains("hl-"), "{out}");
         let callout = expand("<Callout>x</Callout>\n", &set(&["Callout"]), &mut problems);
-        assert!(!callout.contains("data-source-html"), "{callout}");
+        assert!(!callout.contains("data-widget-source-html"), "{callout}");
     }
 
     #[test]

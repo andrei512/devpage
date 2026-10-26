@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 242 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 62 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 69 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 62 tests marked `#[ignore]`, 61 drive Chrome, and one of them also
+Of the 69 tests marked `#[ignore]`, 68 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -123,7 +123,7 @@ In Chrome:
 
 ### `designs`
 
-*20 tests, 28 in Chrome.*
+*20 tests, 29 in Chrome.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
@@ -155,7 +155,7 @@ In Chrome:
 - The backdrop's link opening the design it shows on its canvas page; a small design not enlarged on its canvas page.
 - A doc printing its embedded design; a doc with eight embeds printing as fast as one with one.
 - Eight embedded designs painting through one stream while the page still loads; leaving the last design in place closing the stream.
-- An embed with problems surviving a page refetch.
+- An embed with problems surviving a page refetch; a swap keeping a design outside a widget's canvas and dropping a removed widget's design from the stream.
 - The canvas page's light/dark switch repainting what a design leaves transparent and remembered across a reload, and leaving the problems bar whole in light and dark; an embedded design painting again when the page switches theme.
 - A design inside a project widget on a slide not yet shown drawing once shown, inside the slide, and printing promptly.
 - An embed inside a widget keeping the design it navigated to, and its way back, across a page refetch.
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 20 in Chrome, 1 on the network.*
+*4 tests, 26 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -238,7 +238,8 @@ In Chrome:
 - The fixture doc on A4 with its header and footer.
 - A doc embedding a design with problems printed without waiting for it.
 - The devpage talk one 16:9 page per slide.
-- A deck's keys.
+- A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
+- A doc's outline click scrolling without a fetch.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
@@ -247,6 +248,10 @@ In Chrome:
 - Widgets mounting again after a live update and an edited widget or helper reaching open pages.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
+- A live update keeping an unchanged widget's node and state and the scroll, with no frame showing an unmounted placeholder; an edited widget mounting afresh and its old root unmounted.
+- Live updates during a load making one more load after it, not one each.
+- A link swapping in a page built off-screen, at the top, and back and forward restoring each page's scroll.
+- Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
 - A printed doc showing each widget's first render, terminal lines wrapping on paper.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.

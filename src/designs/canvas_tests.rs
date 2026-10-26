@@ -1748,3 +1748,67 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     browser.close().await.ok();
     events.abort();
 }
+
+#[tokio::test]
+#[ignore]
+async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_widgets() {
+    let dir = folder("removed-widget");
+    std::fs::create_dir_all(dir.join("widgets")).unwrap();
+    std::fs::write(
+        dir.join("widgets/Box.tsx"),
+        "export default function Box({ children }) { return <div className=\"box\">{children}</div>; }\n",
+    )
+    .unwrap();
+    let with_box =
+        "# Doc\n\n![The screen](screen.design)\n\n<Box>\n\n![Next](next.design)\n\n</Box>\n";
+    std::fs::write(dir.join("doc.md"), with_box).unwrap();
+    std::fs::write(
+        dir.join("doc.yml"),
+        "kind: doc\ntitle: Doc\nwidgets: widgets\nchapters: [doc.md]\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "doc.yml").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
+        .await
+        .unwrap();
+    page.goto(format!("{address}/doc.yml")).await.unwrap();
+    until(
+        &page,
+        "[...document.querySelectorAll('canvas.design')].filter((c) => c.dataset.painted === 'true').length === 2",
+    )
+    .await;
+    page.evaluate("window.outside = [...document.querySelectorAll('canvas.design')].find((c) => !c.closest('.box')); window.before = window.watches.length")
+        .await
+        .unwrap();
+    assert!(eval::<bool>(&page, "!!window.outside && !window.outside.closest('.box')").await);
+
+    // The Box goes: the design outside keeps its canvas, and the page's one
+    // stream is opened again without the Box's design.
+    std::fs::write(
+        dir.join("doc.md"),
+        "# Doc\n\n![The screen](screen.design)\n\nNo box.\n",
+    )
+    .unwrap();
+    page.evaluate("load(location.href)").await.unwrap();
+    until(
+        &page,
+        "document.querySelector('article').textContent.includes('No box.')",
+    )
+    .await;
+    until(
+        &page,
+        &format!("window.watches.length === window.before + 1 && {OPEN_WATCHES} === 1"),
+    )
+    .await;
+    assert!(
+        eval::<bool>(
+            &page,
+            "window.outside === document.querySelector('canvas.design') && !document.querySelector('.box')"
+        )
+        .await
+    );
+    browser.close().await.ok();
+    events.abort();
+}

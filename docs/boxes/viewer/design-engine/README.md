@@ -356,10 +356,12 @@ the browser fetches all three alongside the page's other modules
 design navigates inside its own canvas, with a back stack of its own, so the
 page around it stays where it is; and when the page fetches itself again, each
 embedded canvas still in it is kept with its drawing, and the stream changes
-only if the set of designs did. A canvas inside a widget is made again when
-React mounts the widget afresh; the design script hands the new canvas the
-old one's design and back stack, by its `src`, and reopens the stream so it
-gets its whole scene.
+only if the set of designs did. A canvas inside a widget is kept with the
+widget when the widget is unchanged, and made again when React mounts the
+widget afresh; the design script then hands the new canvas the old one's
+design and back stack, by its `src`, and reopens the stream so it gets its
+whole scene. A widget that leaves the page is unmounted, and its designs
+leave the stream.
 
 ## Failure modes
 

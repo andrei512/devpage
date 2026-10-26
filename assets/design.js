@@ -548,9 +548,8 @@ export function scan(root = document) {
       continue;
     }
     // The Markdown file the embed was written in: the nearest page, chapter
-    // or slide — not a widget around it, whose `data-source` is its own
-    // Markdown rather than an address.
-    const base = canvas.closest("[data-source]:not([data-widget])")?.dataset.source;
+    // or slide.
+    const base = canvas.closest("[data-source]")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
     const at = page ? -1 : carried.findIndex((state) => state.src === canvas.getAttribute("src"));
     const state = at >= 0 ? carried.splice(at, 1)[0] : null;
