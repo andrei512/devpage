@@ -100,8 +100,9 @@ cargo test
 ```
 
 Formatting must match `rustfmt`'s defaults, clippy's warnings — on tests too —
-are errors, and the suite passes. There is no CI yet, so nothing runs these
-for you: run them by hand before you push. See
+are errors, and the suite passes. The one workflow on GitHub checks the
+example deployment and a bare install, not these, so nothing runs them for
+you: run them by hand before you push. See
 [CI](../sdlc/review-bars/README.md#ci).
 
 ## The code

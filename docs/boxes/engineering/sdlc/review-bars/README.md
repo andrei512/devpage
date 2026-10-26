@@ -14,13 +14,26 @@ review runs is the [Review stage](../stages/README.md#review).
 
 ## CI
 
-<Callout kind="note" title="No CI yet">
+One workflow runs on GitHub, `.github/workflows/deploy-example.yml`, on every
+pull request, every push to `main` and every Monday at 06:00 UTC, on
+GitHub-hosted runners only — the repository is public and never uses a
+self-hosted runner. It keeps the [example deployment](../../../viewer/deploying/README.md)
+and the [install page](../../../../installing.md) true, and nothing else:
 
-There is no CI yet. The repository has no CI configuration — no `.github/`
-folder, no workflow of any kind — so nothing runs on a push or a pull request.
-The gates in `AGENTS.md` (`cargo fmt --check`, `cargo clippy --all-targets --
--D warnings`, `cargo test`) are run by hand, by whoever is about to merge or
-open a pull request; [Developing devpage](../../developing-devpage/README.md#the-gates)
-shows them. What CI should run on, and when, is not designed yet.
+- **`image`** builds the image in `deploy/` and starts it behind its proxy
+  with Docker Compose, then checks that the docs load, that a design's PNG
+  is served as `image/png`, that a comment is accepted, and that
+  `devpage check docs` passes inside the container.
+- **`install`** runs `cargo install --path . --locked` in a bare
+  `rust:1.97-slim-bookworm` container, with nothing added, and runs
+  `devpage --version`.
+
+<Callout kind="note" title="The gates run by hand">
+
+The workflow doesn't run the gates. The gates in `AGENTS.md`
+(`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
+`cargo test`, and `cargo test -- --ignored` where Chrome is concerned) are run
+by hand, by whoever is about to merge or open a pull request;
+[Developing devpage](../../developing-devpage/README.md#the-gates) shows them.
 
 </Callout>
