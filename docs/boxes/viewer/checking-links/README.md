@@ -6,27 +6,27 @@ them. It is a task article under the [viewer](../README.md).
 
 ## What is checked
 
-Every link a reader could follow and every file a page loads:
+Every link a reader could follow and every file a page loads — Markdown links,
+images, links and `src` attributes in raw HTML, and the targets of Mermaid
+`click` lines:
 
-- **Links and images** in every page — Markdown links, images, links and
-  `src` attributes in raw HTML, and the targets of Mermaid `click` lines.
-- **Targets inside the served folder** — the file must exist, inside the
-  [served folder](../constraints/the-served-folder-is-the-boundary.md); a `#fragment`
-  must name a heading or id on the page it points at; `#n` on a deck must be a
-  slide it has.
-- **Document files** — each must be valid for its kind, and its `root`,
-  `chapters` and `slides` must name existing files.
-- **Topics entries** — each must point at an existing page.
-- **External links** — `http` and `https` addresses must answer with a status
-  below 400, following redirects. An answer of 400 or above is a broken link
-  at once. An address that doesn't answer within 10 seconds, or can't be
-  connected to, may only be a slow network, so it is asked again before it
-  counts — see [In the preview](#in-the-preview) and
-  [`devpage check`](#devpage-check) for how. devpage asks for each one
-  as a browser asks for a page, accepting HTML, since some sites answer other
-  requests with an error no reader sees. Each address is asked once per check,
-  however many links point at it.
-- **Comment threads** — each file in the comment store must parse.
+| What | Must |
+| --- | --- |
+| A target inside the served folder | exist, inside the [served folder](../constraints/the-served-folder-is-the-boundary.md) |
+| A `#fragment` | name a heading or id on the page it points at |
+| `#n` on a deck | be a slide the deck has |
+| A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |
+| A Topics entry | point at an existing page |
+| An `http` or `https` address | answer with a status below 400, following redirects |
+| A comment thread | parse, for each file in the comment store |
+
+An external answer of 400 or above is a broken link at once. An address that
+doesn't answer within 10 seconds, or can't be connected to, may only be a slow
+network, so it is asked again before it counts — see
+[In the preview](#in-the-preview) and [`devpage check`](#devpage-check) for
+how. devpage asks for each one as a browser asks for a page, accepting HTML,
+since some sites answer other requests with an error no reader sees. Each
+address is asked once per check, however many links point at it.
 
 `mailto:` and other schemes are not checked.
 
@@ -71,10 +71,19 @@ Each change reaches open pages through the
 
 ## `devpage check`
 
-```sh
-devpage check docs            # the document in docs/devpage.yml
-devpage check design.md       # one Markdown file
+<Terminal>
+
 ```
+$ devpage check docs
+docs/README.md:12: https://example.com/gone — 404 Not Found
+$ echo $?
+1
+```
+
+</Terminal>
+
+It takes a document file's folder (`docs`, for `docs/devpage.yml`) or one
+Markdown file (`devpage check design.md`).
 
 `devpage check` takes the same argument as `devpage`, checks that document and
 every page and document reachable from it by links within the served folder,

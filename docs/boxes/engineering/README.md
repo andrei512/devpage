@@ -9,23 +9,31 @@ implements it — the [viewer](../viewer/README.md) — reached through the
 Changes reach `main` through a flow of stages — design, prototype, plan, build,
 review — each run by a skill the operator starts. The box docs on `main`
 describe the system as it is; a design not yet built waits on its own branch.
-Underneath sit the everyday mechanics of working on the code: a Rust build,
-90 tests plus 20 that drive Chrome, and three gates, run by hand.
+Underneath sit the everyday mechanics of working on the code: a Rust build, its
+[tests](tests/README.md), and three gates, run by hand.
 
-```mermaid
-flowchart LR
-  flow["Running the flow<br/>the operator's commands"] --> sdlc["SDLC<br/>stages, branches, bars"]
-  flow --> skills["Skills<br/>.claude/skills"]
-  sdlc --> gates["Gates<br/>fmt, clippy, test"]
-  dev["Developing devpage<br/>build, test, code map"] --> gates
-  dev --> deps["Dependencies<br/>crates"]
-  click flow href "./running-the-flow/README.md" "Running the flow with skills"
-  click sdlc href "./sdlc/README.md" "SDLC"
-  click skills href "./skills-reference/README.md" "Skills reference"
-  click gates href "./developing-devpage/README.md#the-gates" "The gates"
-  click dev href "./developing-devpage/README.md" "Developing devpage"
-  click deps href "./dependencies/README.md" "Dependencies"
-```
+## Its parts
+
+### The flow
+
+<Cards>
+
+- (workflow) [Running the flow](running-the-flow/README.md) — What the operator types for each stage, and where each stage's output lands.
+- (git-branch) [SDLC](sdlc/README.md) — The stages, the branches and the review bars.
+- (sparkles) [Skills reference](skills-reference/README.md) — The twelve skills and who starts each.
+
+</Cards>
+
+### The code
+
+<Cards>
+
+- (hammer) [Developing devpage](developing-devpage/README.md) — Build, run, the gates, and what needs a rebuild.
+- (folder-tree) [Code map](code-map/README.md) — The modules and how `main` wires them.
+- (circle-check) [Tests](tests/README.md) — What each module's tests pin, and what has no test.
+- (package) [Dependencies](dependencies/README.md) — Every crate, grouped by what it does here.
+
+</Cards>
 
 ## Glossary
 
@@ -62,17 +70,14 @@ page.
 
 ### Concepts and tasks
 
+- [SDLC](sdlc/README.md) — how a change reaches main: the stages, the
+  branches, the review bars, and how the box docs are organized and kept true.
 - [Developing devpage](developing-devpage/README.md) — build, test and the
-  gates; running the docs while you edit; what needs a rebuild; the code map.
-
-### Mechanisms
-
-- [SDLC](sdlc/README.md) — how a change reaches main, and how the box docs that
-  describe the system are organized and kept true.
+  gates; running the docs while you edit; what needs a rebuild.
 
 ### Reference
 
 - [Skills reference](skills-reference/README.md) — the twelve skills, who
   starts each, what goes in and comes out, and the upstream ones.
-- [Dependencies](dependencies/README.md) — every crate devpage depends on and
-  what it does here.
+- [Dependencies](dependencies/README.md) — every crate devpage depends on,
+  grouped by what it does here.

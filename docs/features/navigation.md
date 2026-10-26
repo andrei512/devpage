@@ -13,4 +13,4 @@ navbar:
 
 Teaches it: [Making a site](../boxes/viewer/making-a-site/README.md),
 [Organizing navigation](../boxes/viewer/organizing-navigation/README.md),
-[Choosing a theme](../boxes/viewer/diagrams-and-themes/README.md#choosing-a-theme).
+[Choosing a theme](../boxes/viewer/themes/README.md#choosing-a-theme).

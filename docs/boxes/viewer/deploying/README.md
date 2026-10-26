@@ -15,7 +15,7 @@ flowchart LR
   click proxy href "#the-auth-proxy" "The auth proxy"
   click devpage href "#the-image" "The image"
   click docs href "#the-image" "The image"
-  click store href "../comments/README.md#the-comment-store" "The comment store"
+  click store href "../comments/the-comment-store/README.md" "The comment store"
 ```
 
 ## What deployed means
@@ -30,11 +30,10 @@ does locally.
 devpage docs --host 0.0.0.0 --port 3030 --user-header X-Forwarded-Email
 ```
 
-| Flag | Default | Meaning |
-| --- | --- | --- |
-| `--host <address>` | `127.0.0.1` | The address to listen on. |
-| `--port <port>` | the first free from 3030 up | Listen on exactly this port, or fail if it is taken. |
-| `--user-header <name>` | `X-Forwarded-Email` | The request header that names the reader. Only read when deployed. |
+`--host` is the address to listen on, `--port` an exact port (failing if it is
+taken) and `--user-header` the header that names the reader, read only when
+deployed; their defaults are in the
+[configuration reference](../configuration-reference/README.md#flags).
 
 ## The auth proxy
 

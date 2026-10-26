@@ -1,5 +1,7 @@
 # No knowable rework
 
+<Callout kind="note" title="The rule">
+
 Build the final shape of what's needed now. A change is wrong if, on the day
 it lands, the rework is already nameable — nothing about the requirements has
 to change for it to need redoing or removing. One test, two failure modes:
@@ -22,14 +24,20 @@ And "final shape" is not
 final-shaped, because adding an extension when a document needs one is
 ordinary evolution, not scheduled rework.
 
-**Why:** cut corners compound — every one is a migration someone must
+</Callout>
+
+## Why
+
+Cut corners compound — every one is a migration someone must
 remember, and the system's docs stop being true the moment "temporarily wrong"
 ships. Overengineering compounds too: unconsumed surface is maintenance,
 drift risk, and a contract every user's documents must keep honoring. Both are
 the same mistake — spending on a shape the present doesn't ask for — and naming
 them as one rule keeps "do it right" from being heard as "build it big."
 
-**Check:** review, on every diff and every design. The question is "what
+## Check
+
+Review, on every diff and every design. The question is "what
 rework is already knowable?" — if the answer names a redo, it's a corner; if
 it names a removal, it's overengineering; if it names nothing, the size is
 right. In a design conversation the recommendation must be the shape that

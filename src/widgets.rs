@@ -23,10 +23,12 @@ use crate::document::Document;
 /// The widgets devpage ships, compiled into the binary.
 pub const SYSTEM: &[(&str, &str)] = &[
     ("Callout", include_str!("../assets/widgets/Callout.tsx")),
+    ("Cards", include_str!("../assets/widgets/Cards.tsx")),
     ("Diagram", include_str!("../assets/widgets/Diagram.tsx")),
     ("Example", include_str!("../assets/widgets/Example.tsx")),
     ("FileTree", include_str!("../assets/widgets/FileTree.tsx")),
     ("Keys", include_str!("../assets/widgets/Keys.tsx")),
+    ("Steps", include_str!("../assets/widgets/Steps.tsx")),
     ("Tab", include_str!("../assets/widgets/Tab.tsx")),
     ("Tabs", include_str!("../assets/widgets/Tabs.tsx")),
     ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
@@ -213,6 +215,14 @@ fn expand_in(
         if tag.name == "Tab" && parent != Some("Tabs") {
             problems.push(format!("{line}: <Tab> is outside a <Tabs>"));
         }
+        let inner_lines = lines_before + source[..after_open].matches('\n').count();
+        let icons;
+        let inner = if tag.name == "Cards" {
+            icons = card_icons(inner, inner_lines, problems);
+            icons.as_str()
+        } else {
+            inner
+        };
         let props = escape(&tag.props);
         let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
             format!(
@@ -233,7 +243,6 @@ fn expand_in(
         // Widgets inside the content are expanded too, then left for comrak to
         // render as Markdown: blank lines around a block widget's content
         // make it Markdown rather than raw HTML.
-        let inner_lines = lines_before + source[..after_open].matches('\n').count();
         let inner = expand_in(inner, widgets, problems, Some(&tag.name), inner_lines);
         if block {
             out.push_str(&format!(
@@ -246,6 +255,48 @@ fn expand_in(
         at = end;
     }
     out.push_str(&source[at..]);
+    out
+}
+
+/// A `Cards` list item may start with a Lucide `(icon)` before its link:
+/// drawn here, on the server, as inline SVG the widget picks up. An unknown
+/// name is a problem and is dropped. `lines_before` counts the page's lines
+/// before the one the content starts on.
+fn card_icons(inner: &str, lines_before: usize, problems: &mut Vec<String>) -> String {
+    let mut out = String::with_capacity(inner.len());
+    for (i, line) in inner.split_inclusive('\n').enumerate() {
+        let body = line.trim_start();
+        let rest = body
+            .strip_prefix("- ")
+            .or_else(|| body.strip_prefix("* "))
+            .or_else(|| body.strip_prefix("+ "));
+        let icon = rest.and_then(|rest| {
+            let name = rest.strip_prefix('(')?.split_once(')')?.0;
+            let valid = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+            valid.then_some(name)
+        });
+        let Some(name) = icon else {
+            out.push_str(line);
+            continue;
+        };
+        let indent = &line[..line.len() - body.len()];
+        let after = &body[2 + name.len() + 2..];
+        let drawn = match crate::icons::svg(name) {
+            Some(svg) => format!("{svg} "),
+            None => {
+                problems.push(format!("{}: unknown icon ({name})", lines_before + i + 1));
+                String::new()
+            }
+        };
+        out.push_str(&format!(
+            "{indent}{}{drawn}{}",
+            &body[..2],
+            after.trim_start()
+        ));
+    }
     out
 }
 
@@ -927,5 +978,19 @@ mod tests {
         assert!(out.contains("hl-"), "{out}");
         let callout = expand("<Callout>x</Callout>\n", &set(&["Callout"]), &mut problems);
         assert!(!callout.contains("data-source-html"), "{callout}");
+    }
+
+    #[test]
+    fn a_cards_icon_is_drawn_and_an_unknown_one_is_a_problem() {
+        let mut problems = Vec::new();
+        let out = expand(
+            "# T\n\n<Cards>\n\n- (rocket) [Start](a.md) — begin here\n- [Plain](b.md) — no icon\n- (no-such-icon) [Odd](c.md)\n\n</Cards>\n",
+            &set(&["Cards"]),
+            &mut problems,
+        );
+        assert!(out.contains(r#"<svg class="icon""#), "{out}");
+        assert!(!out.contains("(rocket)"), "{out}");
+        assert!(out.contains("[Plain](b.md)"), "{out}");
+        assert_eq!(problems, vec!["7: unknown icon (no-such-icon)".to_string()]);
     }
 }

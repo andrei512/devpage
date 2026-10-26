@@ -70,7 +70,7 @@ is on [Organizing navigation](../organizing-navigation/README.md).
 - **`logo`** shows an image before the title and makes it the tab's icon.
 - **The theme switch** and the **comment-mode** button sit at the right end of
   the navbar, or in the top-right corner without one
-  ([choosing a theme](../diagrams-and-themes/README.md#choosing-a-theme),
+  ([choosing a theme](../themes/README.md#choosing-a-theme),
   [Comments](../comments/README.md)).
 
 ## A real site to copy
