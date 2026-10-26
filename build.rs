@@ -5,7 +5,8 @@
 //! `design-engine.js`) is hashed after that name is rewritten to the other's
 //! content address, so the assets are listed leaves first. Each is also
 //! compressed once, as brotli and as gzip, for the server to send whichever
-//! the browser accepts. `src/addresses.rs` includes the result.
+//! the browser accepts. `src/addresses.rs` includes the result. Files left in
+//! `OUT_DIR` from an asset's earlier versions are removed.
 
 use std::fmt::Write as _;
 use std::io::Write as _;
@@ -57,6 +58,9 @@ fn main() {
 
     let mut done: Vec<(&str, String)> = Vec::new();
     let mut table = String::new();
+    // Every file this build writes; any other in `OUT_DIR` is left from an
+    // earlier version of an asset, and is removed.
+    let mut written: Vec<PathBuf> = vec![out.join("manifest.rs")];
     for (name, source, mime) in ASSETS {
         let mut bytes = std::fs::read(source).unwrap_or_else(|e| panic!("{source}: {e}"));
         if *name == "pele.js" {
@@ -93,6 +97,7 @@ fn main() {
         write_if_new(&brotli, &bytes, compress_brotli);
         let gzip = out.join(format!("{hashed}.gz"));
         write_if_new(&gzip, &bytes, compress_gzip);
+        written.extend([identity.clone(), brotli.clone(), gzip.clone()]);
         // A variant no smaller than the original isn't worth sending.
         let variant = |file: &Path| {
             let len = std::fs::metadata(file).map(|m| m.len()).unwrap_or(u64::MAX);
@@ -134,6 +139,19 @@ fn main() {
          pub static ASSETS: &[Asset] = &[\n{table}];\n"
     );
     std::fs::write(out.join("manifest.rs"), manifest).expect("writing the manifest");
+    prune(&out, &written);
+}
+
+/// Removes every file in `out` that isn't in `written`: the versions of
+/// assets this build no longer names, which would otherwise pile up in
+/// `OUT_DIR` with every edit.
+fn prune(out: &Path, written: &[PathBuf]) {
+    for entry in std::fs::read_dir(out).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if path.is_file() && !written.contains(&path) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 /// Writes `make(bytes)` to `file` unless it is there already: a file is named

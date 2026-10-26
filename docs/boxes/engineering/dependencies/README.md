@@ -95,8 +95,8 @@ except where a code comment says so, and this page doesn't guess.
 [built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
-content's hash, so it is made again only when the asset changes — and
-devpage's build id, a hash of everything the binary is built from.
+content's hash, so it is made again only when the asset changes, and the
+files of an asset's earlier versions are removed — and devpage's build id, a hash of everything the binary is built from.
 `src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
 binary embeds the vendored `assets/vendor/design-engine.wasm` and
 `assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
