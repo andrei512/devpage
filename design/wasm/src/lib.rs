@@ -11,6 +11,8 @@ use wasm_bindgen::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 mod gpu;
+#[cfg(any(target_arch = "wasm32", test))]
+mod scene;
 
 /// What one watch-stream message did to a design.
 #[wasm_bindgen]
@@ -34,10 +36,10 @@ pub struct Design {
     /// The scene laid out and turned into its display list, once per change.
     /// The page sees only the drawing, with its top-left at `(0, 0)`.
     laid_out: Option<Drawing>,
-    /// Which drawing `laid_out` is, counting from one: each is painted on
-    /// the GPU by a renderer of its own, whose image atlas holds just its
-    /// images.
-    drawings: u64,
+    /// Whether the scene changed since `laid_out` was made from it, which is
+    /// then kept for the next drawing to paint its images if they are the
+    /// same.
+    stale: bool,
 }
 
 /// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
@@ -81,7 +83,7 @@ impl Design {
             scene: None,
             problems: Vec::new(),
             laid_out: None,
-            drawings: 0,
+            stale: false,
         }
     }
 
@@ -113,7 +115,7 @@ impl Design {
             return Applied::Problems;
         }
         self.problems.clear();
-        self.laid_out = None;
+        self.stale = true;
         Applied::Changed
     }
 
@@ -166,20 +168,16 @@ impl Design {
 }
 
 impl Design {
-    /// Which drawing [`Design::laid_out`] last made, counting from one.
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    fn drawing_number(&self) -> u64 {
-        self.drawings
-    }
-
-    /// The drawing, laid out once per change. A drawing that can't be
-    /// painted — too big, or its images too many for the GPU — has none; the
-    /// server reports it as the design's problem.
+    /// The drawing, laid out once per change — painting the last drawing's
+    /// images when it paints the same ones, so the GPU keeps them. A drawing
+    /// that can't be painted — too big, or its images too many for the GPU —
+    /// has none; the server reports it as the design's problem.
     fn laid_out(&mut self) -> Option<&Drawing> {
-        if self.laid_out.is_none() {
+        if self.stale || self.laid_out.is_none() {
+            self.stale = false;
             let scene = self.scene.as_ref()?;
-            self.laid_out = Some(self.engine.drawing(scene).ok()?);
-            self.drawings += 1;
+            let last = self.laid_out.take();
+            self.laid_out = self.engine.drawing(scene, last.as_ref()).ok();
         }
         self.laid_out.as_ref()
     }

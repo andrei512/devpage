@@ -8,16 +8,16 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 186 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 48 tests that drive chrome-headless-shell
+$ cargo test                  # 189 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 49 tests that drive chrome-headless-shell
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 115 in `devpage`, 65 in the
-engine `devpage-design`, 4 in `devpage-design-wasm`, whose tests run
+`cargo test` runs every crate in the workspace: 115 in `devpage`, 66 in the
+engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
 in `src/designs/canvas_tests.rs`, a child module of `designs`; the `tests/`
@@ -26,7 +26,7 @@ chapters that the doc and PDF tests load. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-The 48 tests marked `#[ignore]` drive chrome-headless-shell through
+The 49 tests marked `#[ignore]` drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
@@ -106,7 +106,7 @@ In Chrome:
 
 ### `designs`
 
-*19 tests, 27 in Chrome.*
+*19 tests, 28 in Chrome.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
@@ -127,6 +127,7 @@ In Chrome:
 - Embeds inside widgets on a page in a subfolder — in a `Callout`, a `Tab`, a `Steps` item and a `Callout` inside a `Steps` item — each finding its design beside the page.
 - The canvas on the GPU and on the CPU each matching the PNG by the engine's comparison, over the whole drawing and a margin of plain page around it.
 - On the GPU, as in the PNG: a file wider than the GPU's atlas, twelve distinct 2000-pixel files together, and a save swapping six of them for new ones; shadows drawn in pieces — square, sampled and disc corners, a pill, a thin box, ellipses in wedges.
+- A navigation from a design whose four 4,096-pixel images fill the GPU's atlas to one with an image of its own drawing the second as its PNG, on a canvas page and inside an embed.
 - A click navigating, back returning, an overlay opening and closing; an interaction inside an instance from another folder opening its own target.
 - The wheel zooming about the pointer and panning.
 - An undone typo clearing the problems.
@@ -285,20 +286,22 @@ In Chrome:
 
 ### `devpage-design`
 
-*65 tests.*
+*66 tests.*
 
 - `parse`, 8: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `resolve`, 24: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none.
-- `render`, 29: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
+- `render`, 30: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
 - `wire`, 2: a patch carrying only the nodes that changed; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused.
-- `atlas`, 1: images placed as vello's own atlas places them — four 4,096-pixel squares filling it, a fifth not fitting.
-- `shadow`, 1: a shadow in pieces matching it as one image, with no seam, at fractional scales, for every kind of piece.
+- `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
+- `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
 
-*4 tests.*
+*6 tests.*
 
 - A scene sized, painted and hit-tested.
+- The engine's atlas model and vello's own resolver, as the module ships it, agreeing on 4,000 random sets of images: whether they fit, the first left out, and each one's place.
+- The two agreeing on a real drawing's image files and shadows, replayed as the canvas replays it, and on the same drawing with too many files.
 - A patch before any scene, or garbage, doing nothing.
 - Problems keeping the scene until a patch clears them.
 - A click landing only on what a clip shows.

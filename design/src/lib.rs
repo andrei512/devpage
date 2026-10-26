@@ -36,7 +36,7 @@ impl fmt::Display for Problem {
 /// Paints a scene's whole drawing at 1× and encodes it as a PNG, or says why
 /// it can't: see [`Renderer::drawing`].
 pub fn png(renderer: &mut Renderer, scene: &Scene) -> Result<Vec<u8>, String> {
-    let drawing = renderer.drawing(scene).map_err(|e| e.message)?;
+    let drawing = renderer.drawing(scene, None).map_err(|e| e.message)?;
     render::paint_list(drawing.area, &drawing.list, 1.0)
         .into_png()
         .map_err(|e| format!("encoding the PNG: {e}"))

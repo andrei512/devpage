@@ -187,8 +187,10 @@ pieces meet edge to edge they add up to the shadow with no seam at any zoom:
 
 - solid where the blur can't reach the edge;
 - along a straight edge, where it varies only across the edge, the edge's
-  one-dimensional profile stretched along it;
-- a corner rounded by less than 16 σ, sampled in two dimensions;
+  one-dimensional profile stretched along it — one piece for each unbroken
+  run, since every join inside a pixel costs each piece there a rounding;
+- a corner rounded by less than 16 σ, sampled in two dimensions, the cells of
+  sampled corners that meet merged into as few pieces as they make;
 - a rounder corner, the blurred edge of a disc as a radial gradient: across a
   disc of radius r, the straight edge's profile less φ(d)·σ/2r, within 0.1 of
   255 of the exact blur;
@@ -201,9 +203,16 @@ What holds at every allowed size, from a 100-pixel box to a 16,000-pixel one,
 and the tests pin: two and a half σ out the shadow is at most 2 of 255 and
 fades on from there, with no step where it ends; a straight edge rises from
 10% to 90% over 2.563 σ, give or take 0.2 σ, its middle on the box's edge to a
-quarter of a pixel; and a shadow in pieces is within 4 of 255 of the same
-shadow as one image, at 1× and at scales that put each meeting edge part way
-across a pixel. A 16,000-pixel box's shadow is 32 commands and builds in about
+quarter of a pixel; and a shadow in pieces is the same shadow as one image by
+the engine's rule — no seam — at 1× and at scales that put each meeting edge
+part way across a pixel. In any channel they differ by at most 4 of 255 where
+σ spans a device pixel or more. A narrower blur's edge is steeper than a
+pixel, and vello_cpu's 8-bit gradients and layers round a disc corner a few
+hundredths of a pixel away from the sampled image: up to 6 of 255 where σ is
+half a device pixel or more, 11 at a quarter or more, 18 below — a blur of 1
+seen at a quarter of its size. Those bounds were measured over 3,000 random
+outlines at 0.25×, 0.5×, 0.73×, 1×, 1.37× and 2×; the test holds the hard
+cases and a dozen random outlines to them on every run. A 16,000-pixel box's shadow is 32 commands and builds in about
 40 µs; an ellipse 16,000 by 8,000 blurred by 2, in about 0.3 ms.
 
 ### The GPU's image atlas
@@ -216,13 +225,26 @@ of its own, made in the order the drawing first paints it, and places them as
 `vello_encoding`'s own image cache places them in a fresh atlas
 (`design/src/atlas.rs`): the same `guillotiere` allocator, in that order, the
 atlas starting at 1,024 a side and doubling, everything placed so far repacked
-at each size. A drawing whose images don't all fit is the design's problem, at
+at each size. A test in the module runs vello's own resolver, as the module
+ships it, on the scene the canvas renders — 4,000 random sets of images, and a
+real drawing with files and shadows — and holds the two to the same fit, the
+same first image left out and the same places, so a vello upgrade that packs
+differently fails it. A drawing whose images don't all fit is the design's problem, at
 the `src` — or the `shadow` — of the first that doesn't, in the store,
 `devpage check` and the PNG route alike, so the canvas never draws one with a
 hole. An image file takes its room once however many `Image`s show it, and is
-at most 4,096 pixels a side, so four of the largest fill the atlas. The canvas
-renders each drawing with a vello renderer of its own, so its atlas holds that
-drawing's images and nothing else, placed as the engine placed them.
+at most 4,096 pixels a side, so four of the largest fill the atlas.
+
+A canvas keeps its vello renderer — and with it the atlas — only while the
+drawings it shows paint the very same blobs, in the same order. Any other
+drawing gets a fresh renderer: another design after a navigation, on a canvas
+page or in an embed, or a save that swaps a file or changes a shadow. So the
+atlas holds exactly the drawing's images, placed as the engine placed them in
+a fresh one. A drawing made after the one its canvas last showed, painting
+the same image files and the same shadow pixels in the same order, paints that
+drawing's blobs: a save that changes only text or layout keeps the atlas and
+uploads no image again. With four 4,096-pixel images on the canvas, such a
+save costs the page's main thread under 1 ms instead of 6 to 17.
 
 ## In the server
 
@@ -295,8 +317,9 @@ off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
 one per canvas. The module lays out and paints on the GPU into a `<canvas>`
 sized to the screen's device pixels; one WebGPU device serves every canvas on
-the page, and each drawing a canvas shows gets a vello renderer of its own —
-its own [image atlas](#the-gpus-image-atlas). On a slide, the 1920 × 1080 stage is scaled to the window by a
+the page, and a canvas keeps a vello renderer — its
+[image atlas](#the-gpus-image-atlas) — for as long as its drawings paint the
+same images. On a slide, the 1920 × 1080 stage is scaled to the window by a
 transform the canvas's CSS size doesn't see, so the bitmap follows the
 canvas's box on the screen and the module paints at the view's zoom times that
 transform — the whole drawing shows, crisp, at any window size — and a click

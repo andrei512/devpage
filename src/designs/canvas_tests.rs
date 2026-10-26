@@ -1496,6 +1496,17 @@ fn painted_png(w: u32, h: u32, fill: &str) -> Vec<u8> {
 /// `the_examples_match_their_pngs` compares the examples. On a failure the
 /// screen is kept in the temporary folder for a look.
 async fn gpu_against_png(page: &Page, address: &str, name: &str) -> Result<(), String> {
+    gpu_against_png_within(page, address, name, 24).await
+}
+
+/// `gpu_against_png`, with `margin` pixels of the page's background around
+/// the drawing: none for an embed, whose surroundings are its backdrop.
+async fn gpu_against_png_within(
+    page: &Page,
+    address: &str,
+    name: &str,
+    margin: usize,
+) -> Result<(), String> {
     until(
         page,
         "document.querySelector('canvas.design')?.dataset.painted === 'true'",
@@ -1514,9 +1525,8 @@ async fn gpu_against_png(page: &Page, address: &str, name: &str) -> Result<(), S
     .await;
     assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
     tokio::time::sleep(Duration::from_millis(300)).await;
-    const MARGIN: usize = 24;
-    let shot = screenshot(page, width, height, MARGIN as f64).await;
-    let d = difference(page, address, &shot, &format!("/{name}.design.png"), MARGIN).await;
+    let shot = screenshot(page, width, height, margin as f64).await;
+    let d = difference(page, address, &shot, &format!("/{name}.design.png"), margin).await;
     eprintln!("gpu {name}: {d:?}");
     if d.is_some_and(|d| d.within_tolerance()) {
         return Ok(());
@@ -1662,4 +1672,77 @@ async fn shadows_in_pieces_draw_on_the_gpu_as_in_the_png() {
     )
     .unwrap();
     the_gpu_matches_the_png(&dir, &["shadows"]).await;
+}
+
+/// Navigating on one canvas from a design whose images fill the GPU's atlas
+/// — four 4096-pixel squares — to another with an image of its own draws
+/// the second as its PNG does, on a canvas page and inside an embed alike:
+/// the new drawing's images never share an atlas with the last design's.
+#[tokio::test]
+#[ignore]
+async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
+    let dir = folder("atlas-navigation");
+    for (name, color) in [
+        ("red", "#dc0000"),
+        ("green", "#00c800"),
+        ("blue", "#0000dc"),
+        ("yellow", "#dcdc00"),
+        ("magenta", "#c800c8"),
+    ] {
+        std::fs::write(
+            dir.join(format!("{name}.png")),
+            painted_png(4096, 4096, color),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.join("a.design"),
+        r##"<Frame width={400} height={100} fill="#ffffff" layout="row">
+  <Image src="red.png" width={100} height={100} onClick="navigate ./b.design" />
+  <Image src="green.png" width={100} height={100} />
+  <Image src="blue.png" width={100} height={100} />
+  <Image src="yellow.png" width={100} height={100} />
+</Frame>"##,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("b.design"),
+        r##"<Frame width={400} height={300} fill="#ffffff" layout="row">
+  <Image src="magenta.png" width={200} height={200} />
+</Frame>"##,
+    )
+    .unwrap();
+    std::fs::write(dir.join("page.md"), "# Page\n\n![A](a.design)\n").unwrap();
+    let address = serve(&dir, "a.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let mut failures = Vec::new();
+    for (start, margin) in ["a.design", "page.md"].into_iter().zip([24, 0]) {
+        let page = browser.new_page("about:blank").await.unwrap();
+        page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
+            .await
+            .unwrap();
+        page.goto(format!("{address}/{start}")).await.unwrap();
+        if let Err(e) = gpu_against_png_within(&page, &address, "a", margin).await {
+            failures.push(format!("{start}: {e}"));
+        }
+        eval::<bool>(
+            &page,
+            "(document.querySelector('canvas.design').dataset.painted = 'false', true)",
+        )
+        .await;
+        let red = on_screen(&page, "canvas.design", 50.0, 50.0).await;
+        page.click(red).await.unwrap();
+        until(
+            &page,
+            "document.querySelector('canvas.design').dataset.size === '400,300'",
+        )
+        .await;
+        if let Err(e) = gpu_against_png_within(&page, &address, "b", margin).await {
+            failures.push(format!("{start}: {e}"));
+        }
+        page.close().await.ok();
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+    browser.close().await.ok();
+    events.abort();
 }

@@ -47,7 +47,29 @@ pub struct Renderer {
     /// from in it, and every image it paints, in the order it first does,
     /// with the attribute that asked for it.
     blobs: HashMap<ImageId, ImageData>,
-    painted: Vec<(ImageData, Origin)>,
+    painted: Vec<(Painted, Origin)>,
+}
+
+/// An image a drawing paints, and what it shows: an image file, known by
+/// its id, or a shadow's pixels.
+#[derive(Clone)]
+struct Painted {
+    data: ImageData,
+    file: Option<ImageId>,
+}
+
+impl Painted {
+    /// Whether the two show the same pixels.
+    fn same(&self, other: &Painted) -> bool {
+        match (self.file, other.file) {
+            (Some(a), Some(b)) => a == b,
+            (None, None) => {
+                (self.data.width, self.data.height) == (other.data.width, other.data.height)
+                    && self.data.data.data() == other.data.data.data()
+            }
+            _ => false,
+        }
+    }
 }
 
 impl Default for Renderer {
@@ -107,11 +129,17 @@ impl std::fmt::Display for Undrawable {
 }
 
 /// A scene laid out and ready to paint: every node's box in tree order, the
-/// design's drawing, and the commands that paint it.
+/// design's drawing, the commands that paint it, and the images they paint.
 pub struct Drawing {
     pub frames: Vec<Frame>,
     pub area: Frame,
     pub list: Vec<Draw>,
+    /// Every image the list paints, each under a blob of its own, in the
+    /// order the list first paints it: what the GPU's atlas holds for this
+    /// drawing, placed as [`crate::atlas::place`] places them.
+    pub images: Vec<ImageData>,
+    /// What each of `images` shows.
+    shows: Vec<Painted>,
 }
 
 impl Renderer {
@@ -278,7 +306,17 @@ impl Renderer {
     /// can't be drawn: a drawing bigger than `MAX_SIDE` a side, or images and
     /// shadows that don't fit the GPU's atlas together. What the PNG, the
     /// canvas and `devpage check` all start from.
-    pub fn drawing(&mut self, scene: &Scene) -> Result<Drawing, Undrawable> {
+    ///
+    /// Each image is painted under a blob of its own, made in the order the
+    /// drawing first paints it — except that a drawing made `after` the one
+    /// a canvas last showed, painting the same images in the same order,
+    /// paints that drawing's: the GPU then keeps the atlas it has, which
+    /// holds exactly them, placed as a fresh one would.
+    pub fn drawing(
+        &mut self,
+        scene: &Scene,
+        after: Option<&Drawing>,
+    ) -> Result<Drawing, Undrawable> {
         let frames = self.layout(scene);
         let (area, list) = self.list_for(scene, &frames);
         let painted = std::mem::take(&mut self.painted);
@@ -291,9 +329,12 @@ impl Renderer {
                 at: None,
             });
         }
-        let sizes: Vec<(u32, u32)> = painted.iter().map(|(d, _)| (d.width, d.height)).collect();
-        if let Err(n) = crate::atlas::fits(&sizes) {
-            let (data, at) = &painted[n];
+        let sizes: Vec<(u32, u32)> = painted
+            .iter()
+            .map(|(p, _)| (p.data.width, p.data.height))
+            .collect();
+        if let Err(n) = crate::atlas::place(&sizes) {
+            let (Painted { data, .. }, at) = &painted[n];
             let what = if at.file.is_empty() {
                 "an image"
             } else {
@@ -312,7 +353,32 @@ impl Renderer {
                 at: Some(at.clone()),
             });
         }
-        Ok(Drawing { frames, area, list })
+        let mut list = list;
+        let mut shows: Vec<Painted> = painted.into_iter().map(|(p, _)| p).collect();
+        if let Some(last) = after
+            && last.shows.len() == shows.len()
+            && last.shows.iter().zip(&shows).all(|(a, b)| a.same(b))
+        {
+            let last_of: HashMap<u64, &ImageData> = shows
+                .iter()
+                .zip(&last.shows)
+                .map(|(new, old)| (new.data.data.id(), &old.data))
+                .collect();
+            for draw in &mut list {
+                if let Draw::Fill(_, Paint::Image(data, _)) = draw {
+                    *data = last_of[&data.data.id()].clone();
+                }
+            }
+            shows = last.shows.clone();
+        }
+        let images = shows.iter().map(|p| p.data.clone()).collect();
+        Ok(Drawing {
+            frames,
+            area,
+            list,
+            images,
+            shows,
+        })
     }
 
     /// The display list for a scene already laid out as `frames`.
@@ -327,7 +393,7 @@ impl Renderer {
         let mut list = Vec::new();
         let mut at = 0;
         // Each drawing paints its images under blobs of its own, made in the
-        // order it first paints them: the order `atlas::fits` places them in,
+        // order it first paints them: the order `atlas::place` places them in,
         // on every machine.
         self.blobs.clear();
         self.painted.clear();
@@ -428,8 +494,11 @@ impl Renderer {
             }
             let mut images = Vec::new();
             shadow::shadow(outline, std_dev, s.color, list, &mut images);
-            self.painted
-                .extend(images.into_iter().map(|d| (d, s.at.clone())));
+            self.painted.extend(
+                images
+                    .into_iter()
+                    .map(|data| (Painted { data, file: None }, s.at.clone())),
+            );
         }
         // A vector's fill and stroke follow its path; every other box's
         // follow the box.
@@ -458,7 +527,13 @@ impl Renderer {
                 None => {
                     let data = file.image_data();
                     self.blobs.insert(image.id, data.clone());
-                    self.painted.push((data.clone(), image.at.clone()));
+                    self.painted.push((
+                        Painted {
+                            data: data.clone(),
+                            file: Some(image.id),
+                        },
+                        image.at.clone(),
+                    ));
                     data
                 }
             };
@@ -1095,7 +1170,7 @@ mod tests {
             size + 80
         ));
         let mut r = Renderer::new();
-        let d = r.drawing(&s).unwrap();
+        let d = r.drawing(&s, None).unwrap();
         let middle = 40.0 + size as f32 / 2.0;
         let strip = Frame {
             x: 0.0,
@@ -1394,7 +1469,7 @@ mod tests {
             "4096x4096-d.png",
         ]);
         let scene = resolve::resolve(&four, "a.design").unwrap();
-        assert!(r.drawing(&scene).is_ok());
+        assert!(r.drawing(&scene, None).is_ok());
         // The same four again, and again: still four images.
         let again = design(&[
             "4096x4096-a.png",
@@ -1405,7 +1480,7 @@ mod tests {
             "4096x4096-b.png",
         ]);
         let scene = resolve::resolve(&again, "a.design").unwrap();
-        assert!(r.drawing(&scene).is_ok());
+        assert!(r.drawing(&scene, None).is_ok());
         let six = design(&[
             "4096x4096-a.png",
             "4096x4096-b.png",
@@ -1415,7 +1490,7 @@ mod tests {
             "4096x4096-f.png",
         ]);
         let scene = resolve::resolve(&six, "a.design").unwrap();
-        let Err(e) = r.drawing(&scene) else {
+        let Err(e) = r.drawing(&scene, None) else {
             panic!("six 4096-pixel squares fit")
         };
         let at = e.at.unwrap();
@@ -1431,6 +1506,74 @@ mod tests {
         );
     }
 
+    /// A drawing made after another that paints the same images — files and
+    /// shadows alike, in the same order — paints the last one's, under the
+    /// same blobs, so the GPU keeps them in its atlas: an edit to text or
+    /// layout uploads no image again. Any other change of images, and any
+    /// drawing made after none, paints every image under a blob of its own.
+    #[test]
+    fn a_drawing_with_the_last_ones_images_paints_them_under_the_same_blobs() {
+        let design = |text: &str, files: &[&str], blur: u32| {
+            let images: String = files
+                .iter()
+                .map(|f| format!("\n  <Image src=\"{f}\" width={{40}} height={{40}} />"))
+                .collect();
+            let source = format!(
+                r##"<Frame layout="row"><Text>{text}</Text>{images}
+  <Rect width={{40}} height={{40}} shadow={{{{ blur: {blur}, color: "#000000" }}}} />
+</Frame>"##
+            );
+            resolve::resolve(
+                &Sized([("a.design".to_string(), source)].into()),
+                "a.design",
+            )
+            .unwrap()
+        };
+        let ids = |d: &Drawing| d.images.iter().map(|i| i.data.id()).collect::<Vec<_>>();
+        let painted = |d: &Drawing| {
+            d.list
+                .iter()
+                .filter_map(|c| match c {
+                    Draw::Fill(_, Paint::Image(i, _)) => Some(i.data.id()),
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let mut r = Renderer::new();
+        let files = ["300x200-a.png", "100x100-b.png", "300x200-a.png"];
+        let first = r.drawing(&design("One", &files, 6), None).unwrap();
+        // Two files, one shown twice, and the shadow's images.
+        assert!(first.images.len() > 2);
+        assert_eq!(painted(&first), ids(&first).into_iter().collect());
+
+        // New text and a new layout: the very same images.
+        let edited = r
+            .drawing(&design("Two words", &files, 6), Some(&first))
+            .unwrap();
+        assert_eq!(ids(&edited), ids(&first));
+        assert_eq!(painted(&edited), painted(&first));
+
+        // A drawing made after none, and drawings whose images differ — a
+        // file, their order, a shadow — share nothing with the last.
+        let fresh = r.drawing(&design("One", &files, 6), None).unwrap();
+        let other = ["300x200-a.png", "100x100-c.png"];
+        let swapped = ["100x100-b.png", "300x200-a.png"];
+        for d in [
+            fresh,
+            r.drawing(&design("One", &other, 6), Some(&first)).unwrap(),
+            r.drawing(&design("One", &swapped, 6), Some(&first))
+                .unwrap(),
+            r.drawing(&design("One", &files, 7), Some(&first)).unwrap(),
+        ] {
+            let shared: Vec<_> = ids(&d)
+                .into_iter()
+                .filter(|i| ids(&first).contains(i))
+                .collect();
+            assert!(shared.is_empty(), "{shared:?}");
+            assert_eq!(painted(&d), ids(&d).into_iter().collect());
+        }
+    }
+
     #[test]
     fn a_root_that_fills_on_its_own_hugs() {
         let mut r = Renderer::new();
@@ -1438,7 +1581,7 @@ mod tests {
             r##"<Frame width="fill" height="fill" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
             r##"<Frame width="fill" layout="row" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
         ] {
-            let d = r.drawing(&scene(root)).unwrap();
+            let d = r.drawing(&scene(root), None).unwrap();
             assert_eq!((d.area.width, d.area.height), (100.0, 50.0), "{root}");
         }
     }
@@ -1447,13 +1590,13 @@ mod tests {
     fn a_drawing_is_laid_out_once_and_refuses_to_be_too_big() {
         let mut r = Renderer::new();
         let s = scene(r#"<Frame layout="row" padding={4}><Rect width={10} height={10} /></Frame>"#);
-        let d = r.drawing(&s).unwrap();
+        let d = r.drawing(&s, None).unwrap();
         assert_eq!(d.frames, r.layout(&s));
         let (area, list) = r.display_list(&s);
         assert_eq!((d.area, d.list.len()), (area, list.len()));
         let big = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
         assert!(
-            r.drawing(&big)
+            r.drawing(&big, None)
                 .err()
                 .unwrap()
                 .message

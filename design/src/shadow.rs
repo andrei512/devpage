@@ -565,21 +565,59 @@ fn rounded(
     if !solid.elements().is_empty() {
         pieces.push(Piece::Solid(solid));
     }
-    pieces.extend(down.into_iter().map(|((j0, j1), p)| Piece::Down(p, j0, j1)));
-    pieces.extend(
-        across
-            .into_iter()
-            .map(|((i0, i1), p)| Piece::Across(p, i0, i1)),
-    );
+    // Bands that meet are one piece, with one image: every join between two
+    // pieces inside a pixel costs a rounding in each, so a straight run has
+    // none.
+    pieces.extend(runs(down).map(|((j0, j1), p)| Piece::Down(p, j0, j1)));
+    pieces.extend(runs(across).map(|((i0, i1), p)| Piece::Across(p, i0, i1)));
     pieces.extend(
         discs
             .into_iter()
             .map(|(n, p)| Piece::Disc(p, corners[n].disc.expect("a disc"), corners[n].radius)),
     );
-    for (i0, j0, i1, j1) in patches {
+    for (i0, j0, i1, j1) in merged(patches) {
         pieces.extend(tiles(&outline, grid, i0, j0, i1, j1));
     }
     pieces
+}
+
+/// Bands `(from, to)` of cells, merged where one ends as the next begins.
+fn runs(
+    bands: BTreeMap<(isize, isize), BezPath>,
+) -> impl Iterator<Item = ((isize, isize), BezPath)> {
+    let mut out: Vec<((isize, isize), BezPath)> = Vec::new();
+    for ((from, to), path) in bands {
+        match out.last_mut() {
+            Some(((_, end), run)) if *end == from => {
+                *end = to;
+                run.extend(path);
+            }
+            _ => out.push(((from, to), path)),
+        }
+    }
+    out.into_iter()
+}
+
+/// Cells `(i0, j0, i1, j1)` of a grid, none overlapping, merged into fewer
+/// rectangles: along each band first, then down where the runs line up.
+fn merged(mut cells: Vec<(isize, isize, isize, isize)>) -> Vec<(isize, isize, isize, isize)> {
+    cells.sort_unstable_by_key(|&(i0, j0, _, j1)| (j0, j1, i0));
+    let mut rows: Vec<(isize, isize, isize, isize)> = Vec::new();
+    for c in cells {
+        match rows.last_mut() {
+            Some(r) if (r.1, r.3, r.2) == (c.1, c.3, c.0) => r.2 = c.2,
+            _ => rows.push(c),
+        }
+    }
+    rows.sort_unstable_by_key(|&(i0, j0, i1, _)| (i0, i1, j0));
+    let mut out: Vec<(isize, isize, isize, isize)> = Vec::new();
+    for c in rows {
+        match out.last_mut() {
+            Some(r) if (r.0, r.2, r.3) == (c.0, c.2, c.1) => r.3 = c.3,
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 /// Samples `i0..i1` × `j0..j1` of `outline`'s shadow as tiles of at most
@@ -793,20 +831,71 @@ mod tests {
     use super::*;
     use crate::render::{Frame, compare, paint_list};
 
-    /// A shadow drawn in pieces is the shadow drawn as one image — no seam
-    /// where pieces meet, no step at a corner — at 1× and
-    /// at scales that put every edge between pieces part way across a pixel,
-    /// for square corners, sampled corners, disc corners, a pill, a thin box,
-    /// a thin ellipse, a circle, and ellipses in wedges with and without
-    /// sampled tips.
-    #[test]
-    fn a_shadow_in_pieces_is_the_shadow_in_one() {
-        let black = Color {
+    /// The most a shadow in pieces may differ from the same shadow as one
+    /// image, in any channel of 255, by how wide its blur is on the screen:
+    /// σ at the zoom, in device pixels. Measured over 3,000 random outlines
+    /// at 0.25×, 0.5×, 0.73×, 1×, 1.37× and 2× — what `random` makes, with
+    /// any seed. Where σ is a pixel or more, only the last bit of each
+    /// piece's 8-bit rounding is left; a narrower blur's edge is steeper than
+    /// a pixel, and vello_cpu's 8-bit gradient and layers round a disc
+    /// corner's a few hundredths of a pixel away from the sampled one.
+    fn bound(std_dev: f64, scale: f32) -> u8 {
+        match std_dev * scale as f64 {
+            s if s >= 1.0 => 4,
+            s if s >= 0.5 => 6,
+            s if s >= 0.25 => 11,
+            _ => 18,
+        }
+    }
+
+    /// Paints `outline`'s shadow at each scale as one image and in pieces,
+    /// and holds the two to the engine's tolerance — no seam — and to
+    /// [`bound`].
+    fn pieces_match_one_image(outline: Outline, std_dev: f64, case: &str, scales: &[f32]) {
+        let color = Color {
             r: 20,
             g: 30,
             b: 40,
             a: 200,
         };
+        let paint = |single: usize, scale: f32| {
+            let mut list = Vec::new();
+            shadow_with(outline, std_dev, color, &mut list, &mut Vec::new(), single);
+            let area = Frame {
+                x: 0.0,
+                y: 0.0,
+                width: 360.0,
+                height: 220.0,
+            };
+            let p = paint_list(area, &list, scale);
+            (
+                p.data_as_u8_slice().to_vec(),
+                p.width() as usize,
+                list.len(),
+            )
+        };
+        for &scale in scales {
+            let (one, width, single_list) = paint(usize::MAX, scale);
+            let (pieces, _, pieced_list) = paint(0, scale);
+            assert_eq!(single_list, 1, "{case}");
+            assert!(pieced_list > 3, "{case} isn't in pieces");
+            let d = compare(&one, &pieces, width).unwrap();
+            assert!(
+                d.within_tolerance() && d.max <= bound(std_dev, scale),
+                "{case}, σ {std_dev}, at {scale}: {d:?}"
+            );
+        }
+    }
+
+    /// A shadow drawn in pieces is the shadow drawn as one image — no seam
+    /// where pieces meet, no step at a corner — at 1× and at scales that put
+    /// every edge between pieces part way across a pixel, for square
+    /// corners, sampled corners, disc corners, a pill, a thin box, a thin
+    /// ellipse, a circle, and ellipses in wedges with and without sampled
+    /// tips; the box 1.48 pixels tall blurred by less than 2 that once
+    /// differed by 7 at 1×; and random outlines.
+    #[test]
+    fn a_shadow_in_pieces_is_the_shadow_in_one() {
         let r = |x0, y0, x1, y1| Rect::new(x0, y0, x1, y1);
         let cases = [
             (Outline::rounded(r(30.3, 20.7, 250.1, 170.9), [0.0; 4]), 4.0),
@@ -823,35 +912,72 @@ mod tests {
             (Outline::ellipse(r(25.0, 30.0, 185.0, 190.0)), 2.0),
             (Outline::ellipse(r(15.3, 30.6, 345.2, 190.1)), 2.0),
             (Outline::ellipse(r(20.0, 60.0, 340.0, 150.0)), 1.0),
+            (
+                Outline::rounded(
+                    r(50.0986, 43.2465, 329.1681, 44.7226),
+                    [0.738, 0.738, 0.738, 0.0],
+                ),
+                0.869,
+            ),
+            (
+                Outline::rounded(r(63.287, 18.532, 289.892, 187.314), [80.0; 4]),
+                0.584,
+            ),
         ];
         for (n, (outline, std_dev)) in cases.into_iter().enumerate() {
-            let paint = |single: usize, scale: f32| {
-                let mut list = Vec::new();
-                shadow_with(outline, std_dev, black, &mut list, &mut Vec::new(), single);
-                let area = Frame {
-                    x: 0.0,
-                    y: 0.0,
-                    width: 360.0,
-                    height: 220.0,
-                };
-                let p = paint_list(area, &list, scale);
-                (
-                    p.data_as_u8_slice().to_vec(),
-                    p.width() as usize,
-                    list.len(),
-                )
-            };
-            for scale in [1.0, 0.73, 1.37] {
-                let (one, width, single_list) = paint(usize::MAX, scale);
-                let (pieces, _, pieced_list) = paint(0, scale);
-                assert_eq!(single_list, 1, "case {n}");
-                assert!(pieced_list > 3, "case {n} isn't in pieces");
-                let d = compare(&one, &pieces, width).unwrap();
-                assert!(
-                    d.within_tolerance() && d.max <= 4,
-                    "case {n} at {scale}: {d:?}"
-                );
-            }
+            pieces_match_one_image(outline, std_dev, &format!("case {n}"), &[1.0, 0.73, 1.37]);
         }
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        for n in 0..12 {
+            let (outline, std_dev) = random(&mut seed);
+            pieces_match_one_image(outline, std_dev, &format!("random {n}"), &[0.5, 1.0]);
+        }
+    }
+
+    /// A random outline that fits the test's 360 × 220 area with its blur,
+    /// and one image of its shadow's samples, and its σ, from `seed`: a box with square, sampled, nearly-disc,
+    /// pill-round or random corners — all alike or each its own — or an
+    /// ellipse, blurred by σ from half a pixel to six.
+    fn random(seed: &mut u64) -> (Outline, f64) {
+        let mut next = || {
+            *seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (*seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        let (aw, ah) = (360.0, 220.0);
+        let sd = 0.5 + next() * 5.5;
+        let reach = 3.0 * sd;
+        // No wider than one image of samples can show, with its blur.
+        let most = SINGLE_SIDE as f64 * sd / 2.0 - 2.0 * reach - sd - 1.0;
+        let w = 1.0 + next() * (aw - 2.0 * reach - 20.0).min(most);
+        let h = 1.0 + next() * (ah - 2.0 * reach - 20.0).min(most);
+        let x0 = reach + 5.0 + next() * (aw - 2.0 * reach - 10.0 - w);
+        let y0 = reach + 5.0 + next() * (ah - 2.0 * reach - 10.0 - h);
+        let rect = Rect::new(x0, y0, x0 + w, y0 + h);
+        let half = w.min(h) / 2.0;
+        let kind = (next() * 6.0) as usize;
+        if kind == 5 {
+            return (Outline::ellipse(rect), sd);
+        }
+        let mut corners = [(0, 0.0); 4];
+        for c in &mut corners {
+            *c = ((next() * 5.0) as usize, next());
+        }
+        let alike = next() < 0.5;
+        let radius = |(kind, u): (usize, f64)| match kind {
+            0 => 0.0,
+            1 => u * ROUND * sd,
+            2 => ROUND * sd * (0.98 + 0.04 * u),
+            3 => half,
+            4 => half - u * 3.0 * sd,
+            _ => u * half,
+        };
+        let radii = if alike {
+            [radius(corners[0]); 4]
+        } else {
+            corners.map(radius)
+        };
+        (Outline::rounded(rect, radii), sd)
     }
 }

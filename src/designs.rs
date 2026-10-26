@@ -322,7 +322,7 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
 fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
     guarded(
         path,
-        || renderer.drawing(scene).map(|_| ()),
+        || renderer.drawing(scene, None).map(|_| ()),
         |p| devpage_design::render::Undrawable {
             message: p.message,
             at: None,
