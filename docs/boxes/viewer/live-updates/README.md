@@ -77,9 +77,12 @@ flowchart TD
 Before the decision, a path is canonicalized — falling back to the path as
 reported, as for a deleted file — and skipped if it isn't inside the served
 folder; only paths that survived sifting are. A thread file in the comment store
-(`.devpage/comments/<page>/<id>.yml`) is a change to that page's comments; the comment
-store is watched whatever a site's `watch` says, and never refreshes pages
-itself; nothing else under `.devpage/` is looked at. Every other path is first
+(`.devpage/comments/<page>/<id>.yml`) is a change to that page's comments —
+unless the server wrote it: a write through the comment store announces that
+page's comments as it lands, and the store remembers the bytes it wrote, so the
+watcher announces a thread file only when its bytes differ from what open pages
+last heard of, as after a hand edit. The comment store is watched whatever a
+site's `watch` says, and never refreshes pages itself; nothing else under `.devpage/` is looked at. Every other path is first
 handed to the design store — see [Designs](#designs) — and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
 edited or deleted document file or `.gitignore` is reflected at once, and its
