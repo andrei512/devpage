@@ -42,7 +42,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `Cargo.toml` pins it exactly (`=0.153.0`). | `core/src/widgets/compile.rs`, `core/src/widgets/modules.rs` |
+| `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `core/Cargo.toml` pins it exactly (`=0.153.0`). | `core/src/widgets/compile.rs` |
 
 ## Diagrams
 
@@ -110,7 +110,13 @@ The core's build script, `core/build.rs`, makes the asset manifest: each
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
 content's hash, so it is made again only when the asset changes, and the
-files of an asset's earlier versions are removed — and devpage's build id, a hash of everything the binary is built from: the core's sources and assets, and the binary's beside them.
+files of an asset's earlier versions are removed — and devpage's build id, a hash of what the binary is built from. In a
+checkout that is the core's sources, assets and `Cargo.toml`, the binary's
+sources, assets, `Cargo.toml` and `Cargo.lock`, and the design crate's
+sources. A published `devpage-core` package holds only its own files, so a
+crates.io build hashes the core's sources, assets and `Cargo.toml` — whose
+version is devpage's, since the three crates are released at one version — and
+skips the rest.
 `core/src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
 binary embeds the vendored `core/assets/vendor/design-engine.wasm` and
 `core/assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`

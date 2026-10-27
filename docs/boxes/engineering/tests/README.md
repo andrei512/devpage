@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 307 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 334 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 80 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,19 +16,23 @@ $ cargo test -- --ignored     # the 80 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 223 in `devpage`, 75 in the
-engine `devpage-design`, 7 in `devpage-design-wasm`, whose tests run
-natively, and 2 in `devpage-design-module`. Tests are written as
-`#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
-in `src/drive/server/canvas_tests.rs`, a child module of `designs`. The `tests/`
+`cargo test` runs every crate in the workspace: 91 in `devpage`, 159 in its
+core `devpage-core`, 75 in the engine `devpage-design`, 7 in
+`devpage-design-wasm`, whose tests run natively, and 2 in
+`devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
+the code they test — the canvas's Chrome tests in
+`src/drive/server/canvas_tests.rs` and the comments' in
+`src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
 folder holds one test, [the search's quality](#the-searchs-quality), and
 fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
 a deck of three slides with notes that the live video test records, and
 `tests/fixtures/search-docs`, a frozen copy of devpage's docs that the
 search's quality is measured on. Route tests start the real router on
-a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
-point the checker at a local web server, so the suite needs no network.
+a free port on `127.0.0.1` and talk to it with `reqwest`. The core's
+external-link tests ask a scripted table through the checker's `Ask` port,
+and the HTTP adapter's point it at a local web server, so the suite needs no
+network.
 
 Of the 80 tests marked `#[ignore]`, 79 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
@@ -56,10 +60,10 @@ directory, named with the test process's id, and don't all remove them.
 
 ### The watcher's tests need file-system events
 
-Seventeen tests save a file and wait for devpage to hear of it through the
+Nineteen tests save a file and wait for devpage to hear of it through the
 platform's watcher:
 
-- eight `watch` tests that count what the platform reports —
+- eight `adapters::watch` tests that count what the platform reports —
   `writes_out_of_sight_are_never_reported`,
   `writes_in_sight_are_reported_shallow_and_deep`,
   `a_new_gitignore_rule_stops_a_folders_events`,
@@ -68,16 +72,19 @@ platform's watcher:
   `a_deep_folder_deleted_and_made_again_is_watched_again`,
   `the_comment_store_is_reported_and_the_rest_of_devpage_is_not` and
   `an_ignored_folder_a_watch_pattern_names_is_watched`;
-- six `watch` tests — `a_saved_page_refreshes_open_pages`,
+- seven `adapters::watch` tests — `a_saved_page_refreshes_open_pages`,
   `a_comment_thread_always_reaches_its_page`,
+  `a_thread_written_through_the_store_is_announced_once_and_a_hand_edit_once`,
   `the_watch_list_follows_the_entry_file`,
   `a_sites_watch_list_narrows_only_its_own_folder`,
   `the_entrys_watch_list_does_not_quiet_another_folder` and
   `widget_files_refresh_whatever_watch_says` (of the others,
   `ignored_files_and_files_outside_watch_do_not_refresh` expects no event,
   and the rest feed made-up events, so they pass either way);
-- `server::the_entry_document_follows_its_file_without_a_restart`;
-- two Chrome tests in `comments::browser` —
+- two `drive::server` tests —
+  `the_entry_document_follows_its_file_without_a_restart` and
+  `a_server_and_the_watcher_its_options_start_announce_a_write_once`;
+- two Chrome tests in `drive::server::comments_browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
 
@@ -89,6 +96,9 @@ the suite green.
 
 ## By module
 
+`devpage-core`'s modules by their names; the binary's by their paths under
+`adapters::` (what devpage's core is wired to) and `drive::` (what drives it).
+
 ### `addresses`
 
 *3 tests.*
@@ -97,9 +107,31 @@ the suite green.
 - An asset naming the others by their content addresses.
 - A system widget's address carrying its own version.
 
+### `adapters::changes`
+
+*4 tests.*
+
+- A subscriber hearing its own scope and every-document changes, never another mount's.
+- One that falls behind hearing a refresh rather than losing an update.
+- `heard` reporting any change in scope since the last look, without waiting.
+- `next` waiting for its scope and ending when the bus is gone.
+
+### `adapters::http`
+
+*2 tests, against a local web server.*
+
+- `devpage check` asking each external address once and reporting every link to it.
+- The preview checking in the background and refreshing open pages.
+
+### `changes`
+
+*1 test.*
+
+- The page reading the same `change` and `comments /<page>` messages as before the bus was typed.
+
 ### `check`
 
-*18 tests.*
+*15 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
@@ -111,20 +143,21 @@ the suite green.
 - A heading in a doc checked against the ids the doc renders.
 - Topics checked against the page's own site, and a page in no site checked as a doc.
 - A broken linked document named by its address, not an absolute path.
-- Each external address asked once and every link to it reported.
-- An unreachable address asked again before `devpage check` reports it.
-- The preview's background check refreshing open pages.
-- An unreachable address shown only after three failures in a row and cleared when it answers.
+- The preview reporting each problem once to its reporter.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
 
 ### `comments`
 
-*4 tests, 6 in Chrome.*
+*8 tests — 4 of the port, 4 of its YAML adapter; 6 in Chrome, in `drive::server::comments_browser`.*
 
-- A thread's whole life leaving `git status` clean.
-- A thread file that doesn't parse named and left alone.
+- A page that climbs out of the served folder and a made-up id refused.
+- Every write announcing its page once, and a failed one nothing.
 - The local author without a `.git` folder.
 - Timestamps.
+- A thread's whole life leaving `git status` clean.
+- A thread file exactly the YAML it always was.
+- A thread file that doesn't parse named and left alone.
+- Only a change the store didn't make itself left for the watcher to announce.
 
 In Chrome:
 
@@ -137,7 +170,7 @@ In Chrome:
 
 ### `designs`
 
-*24 tests, 31 in Chrome.*
+*10 tests in the store; 14 more through the server, and 31 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
@@ -200,6 +233,14 @@ In Chrome:
 - A site's `watch` list.
 - Only YAML with a devpage `kind` is a document file.
 
+### `external`
+
+*3 tests, against a scripted `Ask`.*
+
+- `devpage check` asking an unreachable address once more before reporting it, and a broken one once.
+- Outside a runtime, the preview asking nothing.
+- The preview showing an unreachable address only after three failures in a row, and clearing it when it answers.
+
 ### `icons`
 
 *1 test.*
@@ -222,6 +263,12 @@ In Chrome:
 
 - Taking the next port when the first is busy.
 
+### `markup`
+
+*6 tests, on strings.*
+
+- `<Notes>` found with its line, none in code or comments; its text kept without its indentation; its `delivery` kept; one whose attributes can't be read keeping its text and no delivery; an unclosed one running to the end of the page.
+
 ### `navbar`
 
 *6 tests.*
@@ -241,7 +288,7 @@ In Chrome:
 - The tree stopping at a cycle.
 - A Topics entry outside the site or to a missing file is a problem.
 
-### `pdf`
+### `drive::pdf`
 
 *4 tests, 35 in Chrome, 1 on the network.*
 
@@ -285,6 +332,10 @@ In Chrome:
 - The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
 - The sidebar's search box, its searches answered by a stand-in for the endpoint in its answer's shape: typing showing results in the tree's place, grouped by page — the page's row, its sections under it, the more row — the lede of a page found by its title, another document's title over its page, the snippet's words marked; the first row selected the page found by its title, else the best section; arrows moving through every row, round; Escape and the clear button clearing it and bringing the tree back. A section's result swapped in through the page swap, landing on its first matched word with the heading scrolled past — again when scrolled away — its words marked in the section and not in code, a widget, its heading or the next section, the box keeping its text; Escape on the page taking the marks out and leaving the text as it was; opening another section moving them, back taking them out; a doc's chapter loaded whole landing the same way. A page found by its title opening at its top with nothing marked, the page shown and another. `/`, ⌘K and Ctrl+K focusing it, the `/` not typed. A slow answer to earlier text never replacing a later one's results.
 
+### `problem`
+
+*No tests of its own:* a problem is tested where it is found.
+
 ### `render`
 
 *24 tests.*
@@ -323,6 +374,27 @@ In Chrome:
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
+### `resolve`
+
+*8 tests, without a socket.*
+
+- A slide's PNG address naming a slide of a deck, or why there is none: a slide the deck doesn't have, a number written otherwise than plainly, a file that isn't a deck.
+- A design's PNG taking its theme from the address, and `400` for a bad one.
+- A site's page printing as a doc of one chapter.
+- Each site's title linking to its own root page.
+- A folder with no `.git` answered by what each file is.
+- A served folder reached through a symbolic link.
+- Nothing outside the served folder answered.
+- Every address it answers with carrying the mount prefix.
+
+### `served`
+
+*3 tests.*
+
+- Files and folders inside resolved.
+- What climbs out with `..` or links out through a symbolic link refused.
+- A deleted file still inside by its path.
+
 ### The search's quality
 
 `tests/search_quality.rs`, one test: it starts the real `devpage` on a free
@@ -336,28 +408,28 @@ and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
 ranking's result when they were set. A change to ranking that lowers either
 fails it; one that raises them raises the floor with it.
 
-### `server`
+### `drive::server`
 
-*18 tests.*
+*30 tests, 37 in Chrome.*
 
-- A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
+The design tests through the server — a PNG, its `304`, its theme, the watch stream and the canvas page — are listed under [`designs`](#designs), and the Chrome tests under `designs` and `comments`.
+
 - Widgets served compiled, for the document they belong to, each helper imported by its own address; `immutable` at the current version, `no-cache` at any other.
 - Every built-in asset `immutable` at its content address, its bare name and a stale hash answering `no-cache`, and the page naming them.
 - An asset sent as brotli or gzip as `Accept-Encoding` takes, each with its own ETag, and `304` for a holder of it.
 - A page, an image and a document file answering `304` to a strong or weakened ETag until they change; the event stream carrying none.
 - A page naming its widgets and carrying their placeholders, code left alone.
-- A site's page printing as a doc of one chapter.
 - `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back.
-- Comment threads over HTTP.
+- Comment threads over HTTP, against the in-memory store; each write reaching open pages without a watcher.
+- A server and the watcher its options start announcing a comment write once.
+- A page's event stream carrying only its documents' changes.
+- A search answering pages as JSON whether comments are on or off.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone.
 - A thread on a page outside the served folder refused.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
-- Serving a folder with no `.git` by what each file is.
-- Nothing outside the served folder served.
-- A served folder reached through a symbolic link.
-- Each site's title linking to its own root page.
+- Nothing outside the served folder served, through HTTP's percent-decoding.
 
-### `slide_png`
+### `drive::slide_png`
 
 *5 tests in Chrome.*
 
@@ -367,14 +439,14 @@ fails it; one that raises them raises the floor with it.
 - A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot, `508` there for one not drawn — until a change, after which the slide is drawn again.
 - Chrome closed when told, and started again for the next shot.
 
-### `validators`
+### `drive::validators`
 
 *2 tests.*
 
 - `If-None-Match` compared the weak way, as a list, and `*`.
 - Brotli preferred over gzip, and an encoding with `q=0` refused.
 
-### `video`
+### `drive::video`
 
 *19 tests, 2 in Chrome.*
 
@@ -404,9 +476,9 @@ In Chrome:
 - `tests/fixtures/narrated-talk` recorded end to end with GPT-Live on OpenAI,
   when `DEVPAGE_OPENAI_API_KEY` is set. The Azure path has no live test.
 
-### `watch`
+### `adapters::watch`
 
-*27 tests.*
+*28 tests.*
 
 Counting the paths the platform's watcher hands the handler, before sifting,
 on real folders:
@@ -425,7 +497,7 @@ on real folders:
 - An ignored folder a `watch` pattern names (`build/*.svg`) watched, another
   ignored folder not.
 
-The watch set itself (`watch::set`), on real folders: a folder with nothing
+The watch set itself (`adapters::watch::set`), on real folders: a folder with nothing
 out of sight watched whole; ignored folders and `.git` leaving their parents
 shallow and their siblings deep, a nested crate's `target/` included; the
 comment store deep and `.devpage` shallow; an ignored folder a `watch`
@@ -437,7 +509,7 @@ Through the listeners:
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
-- A comment thread always reaching its page.
+- A comment thread always reaching its page; one the server wrote through the store announced once, by the server, and a hand edit of it once, by the watcher.
 - The `watch` list following the entry file.
 - A site's `watch` narrowing only its own folder, whichever document devpage was started with.
 - Widget files refreshing whatever `watch` says.
@@ -454,7 +526,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 *28 tests.*
 
-- `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
+- `<Notes>` taken out of the page, and a project `Notes.tsx` a clash; an unclosed one a problem, so none of it is shown; its `delivery` never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown — finding `<Notes>` itself is [`markup`](#markup)'s.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.
 - A `Tab` outside a `Tabs` reported at its page line.
@@ -473,18 +545,18 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design`
 
-*66 tests.*
+*75 tests.*
 
-- `parse`, 8: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
-- `resolve`, 24: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none.
-- `render`, 30: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
-- `wire`, 2: a patch carrying only the nodes that changed; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused.
+- `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
+- `resolve`, 30: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none.
+- `render`, 31: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
+- `wire`, 3: a patch carrying only the nodes that changed; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused.
 - `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
 
-*6 tests.*
+*7 tests.*
 
 - A scene sized, painted and hit-tested.
 - The engine's atlas model and vello's own resolver, as the module ships it, agreeing on 4,000 random sets of images: whether they fit, the first left out, and each one's place.
