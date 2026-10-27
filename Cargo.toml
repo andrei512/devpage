@@ -32,6 +32,12 @@ devpage-design = { path = "design", version = "0.2.2", features = ["server"] }
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"] }
 tonic-web = "0.14.6"
 tower = "0.5"
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+object_store = { version = "0.14.2", features = ["aws", "azure"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+url = "2.5.8"
+sha2 = "0.10.9"
 
 # The macOS watcher (`src/adapters/watch/macos.rs`): FSEvents streams on a dispatch
 # queue, and kqueue.

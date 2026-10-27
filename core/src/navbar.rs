@@ -72,7 +72,7 @@ fn links(document: &Document) -> impl Iterator<Item = &NavLink> {
 /// The navbar's problems: a link to a file that isn't in the served folder,
 /// and an icon devpage doesn't have. They belong to the document file.
 pub fn problems(document: &Document) -> Vec<Problem> {
-    let file = document.url(&document.path())[1..].to_string();
+    let file = document.name(&document.path());
     let mut problems = Vec::new();
     let mut icon = |name: &Option<String>| {
         if let Some(name) = name
@@ -280,7 +280,7 @@ pub fn logo_problem(document: &Document) -> Option<Problem> {
         return None;
     }
     Some(Problem {
-        file: document.url(&document.path())[1..].to_string(),
+        file: document.name(&document.path()),
         line: None,
         message: format!("logo: {written} — no such file"),
         target: Some(written.clone()),

@@ -67,6 +67,9 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Serve published documents: every version kept in the bucket, served
+    /// from the cache. Configured by `DEVPAGE_*` variables.
+    Server,
     /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
     Video {
         path: PathBuf,
@@ -111,6 +114,26 @@ async fn main() -> Result<()> {
                 signal = interrupted() => anyhow::bail!("stopped by {signal}"),
             }
             println!("{}", output.display());
+            return Ok(());
+        }
+        Some(Command::Server) => {
+            let config = drive::server_mode::Config::from_vars(|name| std::env::var(name).ok())?;
+            let app = drive::server_mode::router(&config)?;
+            let host: IpAddr = std::env::var("DEVPAGE_HOST")
+                .ok()
+                .map(|h| h.parse())
+                .transpose()
+                .context("DEVPAGE_HOST")?
+                .unwrap_or(cli.host);
+            let port: u16 = std::env::var("DEVPAGE_PORT")
+                .ok()
+                .map(|p| p.parse())
+                .transpose()
+                .context("DEVPAGE_PORT")?
+                .unwrap_or(3030);
+            let listener = TcpListener::bind(SocketAddr::new(host, port)).await?;
+            println!("devpage server on http://{}", listener.local_addr()?);
+            axum::serve(listener, app).await?;
             return Ok(());
         }
         Some(Command::Check { .. }) | None => {}

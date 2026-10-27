@@ -489,6 +489,11 @@ impl Document {
         self.served.url(file)
     }
 
+    /// A file's name from the top of the served folder, for labels.
+    pub fn name(&self, file: &Path) -> String {
+        self.served.name(file)
+    }
+
     /// The file a URL path names, if it lies inside the served folder.
     pub fn file(&self, url_path: &str) -> Option<PathBuf> {
         self.served.at(url_path)

@@ -2,7 +2,9 @@
 //! runtime behind external links, the terminal problems are reported to, and
 //! the file watcher.
 
+pub mod bucket;
 pub mod changes;
 pub mod http;
+pub mod sqlite;
 pub mod terminal;
 pub mod watch;
