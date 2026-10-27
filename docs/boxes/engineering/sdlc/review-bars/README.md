@@ -14,26 +14,48 @@ review runs is the [Review stage](../stages/README.md#review).
 
 ## CI
 
-One workflow runs on GitHub, `.github/workflows/deploy-example.yml`, on every
-pull request, every push to `main` and every Monday at 06:00 UTC, on
-GitHub-hosted runners only — the repository is public and never uses a
-self-hosted runner. It keeps the [example deployment](../../../viewer/deploying/README.md)
-and the [install page](../../../../installing.md) true, and nothing else:
+Two workflows run on GitHub, on GitHub-hosted runners only — the repository
+is public and never uses a self-hosted runner.
 
-- **`image`** builds the image in `deploy/` and starts it behind its proxy
-  with Docker Compose, then checks that the docs load, that a design's PNG
-  is served as `image/png`, that a comment is accepted, and that
-  `devpage check docs` passes inside the container.
+**`.github/workflows/gates.yml`** runs on every pull request and every push to
+`main`, `design/**` and `prototype/**` — tickets merge into a design branch
+without a pull request, so a push there is what gates them. Its two jobs run
+side by side:
+
+- **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test`, with
+  `--locked` — and then `devpage check docs`, external links included, on
+  the change's own docs.
 - **`install`** runs `cargo install --path . --locked` in a bare
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
-  `devpage --version`.
+  `devpage --version`, keeping the [install page](../../../../installing.md)
+  true.
 
-<Callout kind="note" title="The gates run by hand">
+Both keep the built dependencies between runs with `Swatinem/rust-cache`,
+pinned to a commit, keyed on `Cargo.lock` and the toolchain; devpage's own
+crates are built afresh every run. A change to `Cargo.lock` or the toolchain
+misses the cache, so `install` builds every dependency again — their build
+scripts and C sources too — with nothing added. `install` caches no installed
+binary: one would make the install a no-op.
 
-The workflow doesn't run the gates. The gates in `AGENTS.md`
-(`cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`,
-`cargo test`, and `cargo test -- --ignored` where Chrome is concerned) are run
-by hand, by whoever is about to merge or open a pull request;
-[Developing devpage](../../developing-devpage/README.md#the-gates) shows them.
+**`.github/workflows/deploy-example.yml`** keeps the
+[example deployment](../../../viewer/deploying/README.md) true. Its one job,
+**`image`**, builds the image in `deploy/` and starts it behind its proxy
+with Docker Compose, then checks that the docs load, that a design's PNG is
+served as `image/png`, that a comment is accepted, and that
+`devpage check docs` passes inside the container. The image installs the
+released crate from crates.io, so a change outside `deploy/` can't change
+what it tests: it runs on a pull request that touches `deploy/` or the
+workflow, on every push to `main`, and every Monday at 06:00 UTC. A release
+pull request, which moves the image to a version not yet published, fails it
+until the version is.
+
+<Callout kind="note" title="The Chrome tests run by hand">
+
+CI doesn't run `cargo test -- --ignored`. The canvas tests need a WebGPU
+adapter, which a GitHub-hosted runner has no GPU to give, and the `video`
+tests record from Chrome for Testing in real time; whoever changes what they
+cover runs them by hand
+([Developing devpage](../../developing-devpage/README.md#tests) says when).
 
 </Callout>

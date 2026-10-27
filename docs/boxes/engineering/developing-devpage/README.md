@@ -100,10 +100,10 @@ cargo test
 ```
 
 Formatting must match `rustfmt`'s defaults, clippy's warnings — on tests too —
-are errors, and the suite passes. The one workflow on GitHub checks the
-example deployment and a bare install, not these, so nothing runs them for
-you: run them by hand before you push. See
-[CI](../sdlc/review-bars/README.md#ci).
+are errors, and the suite passes. Run them before you push. CI runs the same
+three, and `devpage check docs`, on every pull request and every push to
+`main`, a design branch or a prototype — but not the Chrome tests, which stay
+yours to run. See [CI](../sdlc/review-bars/README.md#ci).
 
 ## The code
 

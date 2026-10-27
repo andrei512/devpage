@@ -694,7 +694,20 @@ async fn an_undone_typo_clears_the_problems() {
 #[tokio::test]
 #[ignore]
 async fn a_deleted_design_comes_back_when_written_again() {
-    let dir = folder("deleted");
+    a_deleted_design_comes_back_on("next.design").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_deleted_embedded_design_comes_back_when_written_again() {
+    a_deleted_design_comes_back_on("page.md").await;
+}
+
+/// `next.design`, open on its canvas page or embedded in `page.md` (`at`),
+/// is deleted — the page shows its problem and keeps its one stream — and
+/// written again, when it draws again without a reload.
+async fn a_deleted_design_comes_back_on(at: &str) {
+    let dir = folder(&format!("deleted-{}", at.replace('.', "-")));
     std::fs::write(
         dir.join("page.md"),
         "# Page\n\nThe next screen:\n\n![Next](next.design)\n",
@@ -702,42 +715,40 @@ async fn a_deleted_design_comes_back_when_written_again() {
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
     let (mut browser, events, _profile) = chrome().await;
-    for at in ["next.design", "page.md"] {
-        let page = browser.new_page("about:blank").await.unwrap();
-        // Count the watch calls the page makes.
-        page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
-            "window.watchCalls = 0; const f = window.fetch; \
-             window.fetch = (url, ...rest) => { if (String(url).includes('/Watch')) window.watchCalls++; return f(url, ...rest); };",
-        ))
-        .await
-        .unwrap();
-        page.goto(format!("{address}/{at}")).await.unwrap();
-        until(
-            &page,
-            "document.querySelector('canvas.design')?.dataset.painted === 'true'",
-        )
-        .await;
-        let file = dir.join("next.design");
-        let source = std::fs::read_to_string(&file).unwrap();
-        std::fs::remove_file(&file).unwrap();
-        designs.changed(&file);
-        until(&page, "!!document.querySelector('.design-problems')").await;
-        let calls: u32 = eval(&page, "window.watchCalls").await;
-        // Deleted, it isn't asked for again and again: the one stream stays
-        // open for it. Long enough for three reconnects, were it reconnecting.
-        tokio::time::sleep(Duration::from_millis(3500)).await;
-        let later: u32 = eval(&page, "window.watchCalls").await;
-        assert_eq!(later, calls, "{at}: the page kept reopening its stream");
-        // The page fetched again — a branch switch touches every file — and
-        // the design written back: it draws again, without a reload.
-        if at == "page.md" {
-            page.evaluate("load(location.href)").await.ok();
-        }
-        std::fs::write(&file, source).unwrap();
-        designs.changed(&file);
-        until(&page, "!document.querySelector('.design-problems')").await;
-        page.close().await.ok();
+    let page = browser.new_page("about:blank").await.unwrap();
+    // Count the watch calls the page makes.
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+        "window.watchCalls = 0; const f = window.fetch; \
+         window.fetch = (url, ...rest) => { if (String(url).includes('/Watch')) window.watchCalls++; return f(url, ...rest); };",
+    ))
+    .await
+    .unwrap();
+    page.goto(format!("{address}/{at}")).await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let file = dir.join("next.design");
+    let source = std::fs::read_to_string(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    designs.changed(&file);
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    let calls: u32 = eval(&page, "window.watchCalls").await;
+    // Deleted, it isn't asked for again and again: the one stream stays
+    // open for it. Long enough for three reconnects, were it reconnecting.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let later: u32 = eval(&page, "window.watchCalls").await;
+    assert_eq!(later, calls, "{at}: the page kept reopening its stream");
+    // The page fetched again — a branch switch touches every file — and
+    // the design written back: it draws again, without a reload.
+    if at == "page.md" {
+        page.evaluate("load(location.href)").await.ok();
     }
+    std::fs::write(&file, source).unwrap();
+    designs.changed(&file);
+    until(&page, "!document.querySelector('.design-problems')").await;
+    page.close().await.ok();
     browser.close().await.ok();
     events.abort();
 }

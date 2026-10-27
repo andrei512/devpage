@@ -440,21 +440,30 @@ mod browser {
             .new_page(format!("http://{address}{path}").as_str())
             .await
             .unwrap();
-        // Ready once the page and its scripts have loaded, however long a
-        // loaded machine takes, rather than after a fixed wait.
-        for _ in 0..200 {
+        loaded(&page).await;
+        (browser, page, events)
+    }
+
+    /// Waits until `page` has loaded and its script has finished starting —
+    /// widgets mounted, comments asked for — however long a loaded machine
+    /// takes, rather than for a fixed while; for up to 20 seconds.
+    async fn loaded(page: &chromiumoxide::Page) {
+        for _ in 0..1000 {
             let ready = page
-                .evaluate("document.readyState === 'complete' && !!document.getElementById('page')")
+                .evaluate(
+                    "document.readyState === 'complete' \
+                     && document.documentElement.dataset.ready === 'true'",
+                )
                 .await
                 .ok()
                 .and_then(|v| v.into_value::<bool>().ok())
                 .unwrap_or(false);
             if ready {
-                break;
+                return;
             }
-            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
         }
-        (browser, page, events)
+        panic!("the page never finished loading");
     }
 
     async fn eval<T: serde::de::DeserializeOwned>(page: &chromiumoxide::Page, js: &str) -> T {
@@ -530,7 +539,7 @@ mod browser {
         // Remembered: after a reload the switch is still on, and turning it off
         // removes the icon while the thread stays.
         page.reload().await.unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        loaded(&page).await;
         assert_eq!(eval::<String>(&page, pressed).await, "true");
         eval::<bool>(
             &page,
@@ -726,7 +735,7 @@ mod browser {
         );
 
         page.reload().await.unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        loaded(&page).await;
         assert!(
             until(
                 &page,

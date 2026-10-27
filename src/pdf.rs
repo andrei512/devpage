@@ -409,12 +409,19 @@ mod tests {
         let (major, minor, build, patch) = CHROME_VERSION;
         let version = BuildInfo::version(format!("{major}.{minor}.{build}.{patch}"));
         let client = reqwest::Client::new();
+        let mut urls = Vec::new();
         for kind in [BrowserKind::ChromeHeadlessShell, BrowserKind::Chrome] {
             for &platform in Platform::all() {
-                let url = kind.download_url(platform, &version, &BrowserHost::current(kind));
-                let response = client.head(&url).send().await.unwrap();
-                assert_eq!(response.status(), reqwest::StatusCode::OK, "{url}");
+                urls.push(kind.download_url(platform, &version, &BrowserHost::current(kind)));
             }
+        }
+        // Asked all at once: each answer is a round trip to Google's server.
+        let asked = urls.into_iter().map(|url| async {
+            let status = client.head(&url).send().await.unwrap().status();
+            (url, status)
+        });
+        for (url, status) in futures::future::join_all(asked).await {
+            assert_eq!(status, reqwest::StatusCode::OK, "{url}");
         }
     }
 
