@@ -153,6 +153,22 @@ A run of entries under one `###` heading in a Topics section, shown under that h
 
 An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed.
 
+## out of sight
+
+A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
+
+## watch set
+
+The folders the watcher watches: the deep folders and the shallow folders of the served folder, planned again when a `.gitignore`, a site's `watch` list or a folder in sight changes. See [The watch set](../live-updates/README.md#the-watch-set).
+
+## deep folder
+
+A largest folder with nothing out of sight anywhere under it: watched recursively.
+
+## shallow folder
+
+A folder in sight that holds something out of sight — the served folder itself, usually: watched for its entries and the files directly in it.
+
 ## comment mode
 
 The switch beside the theme toggle that turns commenting on: while it is on, selecting text or hovering a paragraph offers a comment. Off until the reader turns it on; the browser remembers it.

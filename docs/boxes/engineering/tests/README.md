@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 244 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 258 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 170 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 184 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -53,8 +53,18 @@ directory, named with the test process's id, and don't all remove them.
 
 ### The watcher's tests need file-system events
 
-Nine tests save a file and wait for devpage to hear of it through `notify`:
+Seventeen tests save a file and wait for devpage to hear of it through the
+platform's watcher:
 
+- eight `watch` tests that count what the platform reports —
+  `writes_out_of_sight_are_never_reported`,
+  `writes_in_sight_are_reported_shallow_and_deep`,
+  `a_new_gitignore_rule_stops_a_folders_events`,
+  `a_nested_build_folder_stops_its_events_once_made`,
+  `a_folder_deleted_and_made_again_in_one_burst_is_watched_again`,
+  `a_deep_folder_deleted_and_made_again_is_watched_again`,
+  `the_comment_store_is_reported_and_the_rest_of_devpage_is_not` and
+  `an_ignored_folder_a_watch_pattern_names_is_watched`;
 - six `watch` tests — `a_saved_page_refreshes_open_pages`,
   `a_comment_thread_always_reaches_its_page`,
   `the_watch_list_follows_the_entry_file`,
@@ -68,8 +78,8 @@ Nine tests save a file and wait for devpage to hear of it through `notify`:
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
 
-Where the platform delivers no events to the test process — `notify` itself
-receives nothing, as can happen in some sandboxed or restricted sessions on
+Where the platform delivers no events to the test process — the watcher
+itself receives nothing, as can happen in some sandboxed or restricted sessions on
 macOS — those tests fail while everything else passes. That says nothing
 about the change under test; run them where file events work before calling
 the suite green.
@@ -346,7 +356,34 @@ In Chrome:
 
 ### `watch`
 
-*12 tests.*
+*26 tests.*
+
+Counting the paths the platform's watcher hands the handler, before sifting,
+on real folders:
+
+- Writes under an ignored `target/` and under `.git/` never reported.
+- A write to a file directly in the served folder (shallow) and in a deep
+  folder, a new file directly in the served folder, and a new folder in
+  sight and then a file in it, each reported.
+- Adding `gen/` to `.gitignore` stopping `gen/`'s events after the re-plan.
+- A nested `crate/target/` made after start stopping its events after the
+  re-plan, the rest of the crate still reported.
+- A shallow folder (`crate/`, holding an ignored `target/`) deleted and made
+  again within one burst, and a deep one (`docs/guides/`) deleted and made
+  again, each reported again afterwards.
+- Writes in the comment store reported, other `.devpage/` folders not.
+- An ignored folder a `watch` pattern names (`build/*.svg`) watched, another
+  ignored folder not.
+
+The watch set itself (`watch::set`), on real folders: a folder with nothing
+out of sight watched whole; ignored folders and `.git` leaving their parents
+shallow and their siblings deep, a nested crate's `target/` included; the
+comment store deep and `.devpage` shallow; an ignored folder a `watch`
+pattern reaches into watched, the folders under it too (`build/**/*.svg`);
+and `**/*.md`, which can match in an ignored folder but reaches into none,
+watching none.
+
+Through the listeners:
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
