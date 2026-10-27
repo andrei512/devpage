@@ -1,6 +1,6 @@
 # The page script
 
-What `assets/devpage.js` does in every open page: swapping a page in place,
+What `core/assets/devpage.js` does in every open page: swapping a page in place,
 mounting widgets, keeping a site's sidebar mounted, listening to the live-update stream, following links without
 reloading, keeping the theme, driving the navbar, and letting hidden tabs go
 quiet. It is a mechanism page under [Live updates](../live-updates/README.md),
@@ -101,7 +101,7 @@ widgets exist only now — and the page marks itself ready. React and the
 widgets' modules are imported together, not React first; on a page as served
 they are already on their way, named by its head
 ([the load set](../rendering-a-page/README.md#the-load-set)). The design
-script, `assets/design.js`, is loaded the first time a
+script, `core/assets/design.js`, is loaded the first time a
 page has a design, and from then on starts every canvas not yet drawn and
 stops those gone.
 

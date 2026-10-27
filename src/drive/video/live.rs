@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn making_a_video_shows_exactly_what_the_narrator_is_told() {
-        let page = include_str!("../../docs/boxes/viewer/making-a-video/README.md");
+        let page = include_str!("../../../docs/boxes/viewer/making-a-video/README.md");
         assert!(
             page.contains(&template()),
             "the instructions on the page drifted from the code:\n{}",

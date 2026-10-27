@@ -58,7 +58,7 @@ Of two sites in the same folder, the one whose file name sorts first wins.
 
 ## The index
 
-Finding the nearest site never scans folders. `src/index.rs` keeps an
+Finding the nearest site never scans folders. `core/src/index.rs` keeps an
 **index** of the served folder: every document file and its kind, and every
 `.gitignore`.
 

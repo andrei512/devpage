@@ -25,7 +25,7 @@ sequenceDiagram
 
 The server draws it while it renders the page: it hands the fence's text to
 **pele** — a Mermaid renderer built into devpage (version 1.10.0, vendored at
-`assets/vendor/pele.js`; see [the vendored pele bundle](../vendored-pele/README.md))
+`core/assets/vendor/pele.js`; see [the vendored pele bundle](../vendored-pele/README.md))
 — and puts the SVG it returns in the page, in a `<div class="diagram">`, where
 the fence was. The browser draws nothing: a page with a diagram loads no
 script for it, and a diagram is there in the HTML the moment the page is —
@@ -126,7 +126,7 @@ can't hold up or exhaust devpage.
 
 devpage runs pele in QuickJS, a JavaScript engine compiled into the binary
 (the `rquickjs` crate — [Dependencies](../../engineering/dependencies/README.md#diagrams)).
-`src/diagrams.rs` holds it.
+`core/src/diagrams.rs` holds it.
 
 - **Where the fences are drawn.** `render::markdown` renders a page's
   Markdown; the highlighter leaves each `mermaid` fence as

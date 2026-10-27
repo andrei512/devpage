@@ -3,12 +3,12 @@
 How highlighted code and Mermaid diagrams take their colors from the theme
 tokens: the classes the highlighter writes and the variables pele draws with.
 It is a mechanism page under [Themes](../README.md), for someone about to
-change `assets/style.css`.
+change `core/assets/style.css`.
 
 ## Highlighted code
 
 The highlighter marks code with classes named after syntax scopes, prefixed
-`hl-` (`hl-keyword`, `hl-string`, `hl-comment`…), and `assets/style.css` maps
+`hl-` (`hl-keyword`, `hl-string`, `hl-comment`…), and `core/assets/style.css` maps
 groups of those classes to the `--syntax-*` [tokens](../README.md#the-tokens):
 comments (in italics), strings, numeric and language constants, keywords and
 storage (in semibold), type names, function names, and tags, attribute names

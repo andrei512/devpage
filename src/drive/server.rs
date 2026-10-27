@@ -2,6 +2,12 @@
 //! that tells open pages a watched file changed.
 
 mod canvas;
+#[cfg(test)]
+mod canvas_tests;
+#[cfg(test)]
+mod comments_browser;
+#[cfg(test)]
+pub(crate) mod design_tests;
 mod watch_stream;
 
 use std::convert::Infallible;
@@ -24,7 +30,6 @@ use crate::check::Preview;
 use crate::comments::{self, Anchor};
 use crate::designs::Designs;
 use crate::document::{Document, Entry};
-use crate::external::External;
 use crate::index::Index;
 use crate::resolve::{Answer, Resolver};
 use crate::slide_png::Shots;
@@ -38,6 +43,8 @@ struct AppState {
     /// route answers 404.
     comments: Option<Arc<Commenting>>,
     designs: Designs,
+    /// The design store's changes, as the watch streams hear them.
+    design_updates: tokio::sync::broadcast::Sender<String>,
     /// Slides as images: the Chrome that draws them and what it drew.
     shots: Shots,
     /// The problems each page lists above itself.
@@ -125,7 +132,7 @@ impl Options {
             designs: Designs::new(document.served.path().to_path_buf()),
             shots: Shots::new(&changes),
             preview: Arc::new(Preview::new(
-                External::http(Some(changes.clone())),
+                crate::http::external(Some(changes.clone())),
                 Arc::new(crate::terminal::Terminal),
             )),
             store: Arc::new(comments::yaml::Yaml::new(&document.served)),
@@ -141,7 +148,7 @@ impl Options {
     pub fn printing(document: Arc<Document>, changes: Changes) -> Self {
         Self {
             preview: Arc::new(Preview::new(
-                External::http(None),
+                crate::http::external(None),
                 Arc::new(crate::terminal::Terminal),
             )),
             ..Self::new(document, changes)
@@ -165,10 +172,11 @@ pub fn router(options: Options) -> Router {
     let router = routes(AppState {
         comments: comments.map(|identity| {
             Arc::new(Commenting {
-                threads: comments::Comments::new(store, changes.clone(), Scope::root()),
+                threads: comments::Comments::new(store, Arc::new(changes.clone()), Scope::root()),
                 identity,
             })
         }),
+        design_updates: watch_stream::hear(&designs),
         designs,
         entry,
         index,
@@ -208,9 +216,7 @@ fn routes(state: AppState) -> Router {
             tower::ServiceBuilder::new()
                 .layer(tonic_web::GrpcWebLayer::new())
                 .service(devpage_design::proto::designs_server::DesignsServer::new(
-                    watch_stream::Watch {
-                        designs: designs.clone(),
-                    },
+                    watch_stream::Watch::new(designs.clone(), state.design_updates.clone()),
                 )),
         )
         .with_state(state)
@@ -287,10 +293,13 @@ async fn design_png(
     design: String,
     theme: devpage_design::Theme,
 ) -> Response {
-    let tag = state
-        .designs
-        .etag(&design, theme)
+    // Resolving and painting block, so they run off the async threads.
+    let designs = state.designs.clone();
+    let path = design.clone();
+    let tag = tokio::task::spawn_blocking(move || designs.etag(&path, theme))
         .await
+        .ok()
+        .flatten()
         .map(|hash| crate::validators::strong(&hash));
     if let Some(tag) = &tag
         && crate::validators::already_has(headers, tag)
@@ -305,7 +314,11 @@ async fn design_png(
         );
         return crate::validators::not_modified(known);
     }
-    match state.designs.png(design, theme).await {
+    let designs = state.designs.clone();
+    let painted = tokio::task::spawn_blocking(move || designs.png(&design, theme))
+        .await
+        .expect("painting");
+    match painted {
         Ok(png) => {
             let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
             if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {

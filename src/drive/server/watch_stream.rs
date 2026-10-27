@@ -17,7 +17,29 @@ use crate::designs::{self, Designs};
 /// problems. A deleted design stays watched: its `no such file` is a problem
 /// like any other, and writing it again brings it back.
 pub struct Watch {
-    pub designs: Designs,
+    designs: Designs,
+    /// The address of each design whose scene or problems changed, as the
+    /// store tells it.
+    updates: broadcast::Sender<String>,
+}
+
+impl Watch {
+    /// The watch stream over `designs`, hearing what [`hear`] passes on.
+    pub fn new(designs: Designs, updates: broadcast::Sender<String>) -> Self {
+        Watch { designs, updates }
+    }
+}
+
+/// Where the watch streams hear each change `designs` tells: one channel
+/// per server, so the store gets one listener however often the routes are
+/// built.
+pub fn hear(designs: &Designs) -> broadcast::Sender<String> {
+    let updates = broadcast::channel(64).0;
+    let told = updates.clone();
+    designs.on_change(move |path| {
+        let _ = told.send(path.to_string());
+    });
+    updates
 }
 
 /// A scene encoded for the stream: whole, the first time, then as the
@@ -99,7 +121,7 @@ impl devpage_design::proto::designs_server::Designs for Watch {
             }
         }
         let designs = self.designs.clone();
-        let mut updates = designs.changes();
+        let mut updates = self.updates.subscribe();
         let (tx, rx) = tokio::sync::mpsc::channel(16);
         tokio::spawn(async move {
             let mut due: Vec<String> = watched.iter().map(|(p, _, _)| p.clone()).collect();
@@ -148,7 +170,8 @@ mod tests {
     use prost::Message;
 
     use super::*;
-    use crate::designs::tests::{BUTTON, OTHER, SCREEN, THEMES, save, served, start};
+    use crate::server::design_tests::start;
+    use devpage_core::designs::testing::{BUTTON, OTHER, SCREEN, THEMES, save, served};
 
     /// A change that only makes a scene themed, or no longer themed, is
     /// still sent: it puts the switch on an embed, or takes it off.

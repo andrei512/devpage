@@ -1,0 +1,39 @@
+[package]
+name = "devpage-core"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.97"
+description = "devpage's core: documents, rendering, link checking, comments and designs, with no I/O runtime"
+license = "MIT"
+repository = "https://github.com/andrei512/devpage"
+
+[dependencies]
+anyhow = "1.0.104"
+comrak = "0.57.0"
+oxc = { version = "=0.153.0", features = ["transformer", "codegen", "semantic"] }
+futures = "0.3.34"
+globset = "0.4.20"
+ignore = "0.4.33"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+serde_yaml = "0.9.34"
+syntect = "5.3.0"
+two-face = "0.5.2"
+devpage-design = { path = "../design", version = "0.2.1" }
+sha2 = "0.10.9"
+tantivy = { version = "0.27", default-features = false, features = ["stemmer"] }
+# The diagram engine (`src/diagrams.rs`): QuickJS, built from its C source
+# by the crate, running the vendored pele bundle.
+rquickjs = "0.14.0"
+
+[features]
+# Test helpers — in-memory comment store, fixtures — for devpage's own tests.
+testing = []
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["full"] }
+
+[build-dependencies]
+brotli = "9.1.0"
+flate2 = "1.1.10"
+sha2 = "0.10.9"

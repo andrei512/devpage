@@ -10,8 +10,8 @@ widget is in [Widgets](../widgets/README.md).
 
 | File | What it is |
 | --- | --- |
-| `assets/vendor/react.js` | React and react-dom **19.3.0**, production builds, bundled into one minified ES module (about 222 KB). |
-| `assets/vendor/react.LICENSE` | Their licence: MIT, copyright Meta Platforms, Inc. and affiliates. |
+| `core/assets/vendor/react.js` | React and react-dom **19.3.0**, production builds, bundled into one minified ES module (about 222 KB). |
+| `core/assets/vendor/react.LICENSE` | Their licence: MIT, copyright Meta Platforms, Inc. and affiliates. |
 
 The bundle is built from the npm packages `react@19.3.0` and
 `react-dom@19.3.0` (published 2026-09-09) with this entry module:
@@ -31,7 +31,7 @@ takes over from the server's markup and updates within a page swap's commit
 
 ## How devpage uses it
 
-`build.rs` builds the file into the binary, and devpage serves it at its
+`core/build.rs` builds the file into the binary, and devpage serves it at its
 content address, `/__devpage/react.<hash>.js` — see
 [built-in assets](../serving-pages/README.md#built-in-assets). Every page's
 import map points `react`, `react/jsx-runtime` and `react-dom/client` at it,

@@ -1,5 +1,5 @@
 # The browser target is used only by `cargo run -p devpage-design-module`, which
-# rebuilds the vendored design engine in assets/vendor/; building devpage never
+# rebuilds the vendored design engine in core/assets/vendor/; building devpage never
 # needs it.
 [toolchain]
 channel = "stable"

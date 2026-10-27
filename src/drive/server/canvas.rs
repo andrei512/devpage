@@ -40,7 +40,8 @@ pub fn page(path: &str, theme: Option<Theme>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::designs::tests::{served, start};
+    use crate::server::design_tests::start;
+    use devpage_core::designs::testing::served;
 
     #[test]
     fn the_canvas_page_is_titled_without_the_extension() {

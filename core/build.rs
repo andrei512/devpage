@@ -35,18 +35,22 @@ const ASSETS: &[(&str, &str, &str)] = &[
 ];
 
 /// What devpage's build is made from: a change to any of it is a new build id.
-/// Paths that don't exist (the design crate's, in a published package) are
-/// skipped.
+/// The core crate is built into the `devpage` binary, so the binary's own
+/// sources count too. Paths that don't exist — the binary's and the design
+/// crate's, in a published package — are skipped.
 const BUILD_INPUTS: &[&str] = &[
     "build.rs",
     "Cargo.toml",
-    "Cargo.lock",
     "src",
     "assets",
-    "design/Cargo.toml",
-    "design/src",
-    "design/proto",
-    "design/fonts",
+    "../Cargo.toml",
+    "../Cargo.lock",
+    "../src",
+    "../assets",
+    "../design/Cargo.toml",
+    "../design/src",
+    "../design/proto",
+    "../design/fonts",
 ];
 
 fn main() {

@@ -45,7 +45,7 @@ feature.
    $ /design
 
    *Example:* the agent works out the blast radius — the viewer's navigation
-   pages, `assets/devpage.js`, the stylesheet — and writes the change into
+   pages, `core/assets/devpage.js`, the stylesheet — and writes the change into
    `docs/boxes/viewer/` on `design/collapsible-groups`.
 
 2. Prototype

@@ -3,8 +3,8 @@
 How a widget tag in Markdown becomes a mounted React component: the
 placeholder the server writes, how widgets are compiled and served, and how the
 page script mounts them. It is a mechanism page under [Widgets](../README.md),
-for someone about to change `src/widgets/` or the widget code in
-`assets/devpage.js`.
+for someone about to change `core/src/widgets/` or the widget code in
+`core/assets/devpage.js`.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,7 @@ flowchart LR
 
 ## On the server
 
-In `src/widgets/tags.rs`, rendering a page finds the tags of known
+In `core/src/widgets/tags.rs`, rendering a page finds the tags of known
 widgets in its Markdown — skipping fenced, indented and inline code and HTML
 comments — and turns each into
 a placeholder: a `div` for a block widget, a `span` for an inline one, so an
@@ -38,7 +38,7 @@ own, those they render by name, their helpers and React
 
 ## Compiling
 
-A widget or helper is compiled from TSX by `oxc` (`src/widgets/compile.rs`)
+A widget or helper is compiled from TSX by `oxc` (`core/src/widgets/compile.rs`)
 when the browser asks for it, with React's automatic JSX runtime. Capitalized names a
 widget uses without declaring them are other widgets: the compiled module looks
 each up by name when it renders, and lists them in `__devpageUses`. A system
@@ -58,7 +58,7 @@ page preloading its helper name the same address. A module asked for at its
 current version is served `immutable`, and the browser never asks for it
 again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
-comes from one function, `address` in `src/addresses.rs`. A module's version
+comes from one function, `address` in `core/src/addresses.rs`. A module's version
 and its compiled bytes come from one reading of the files they are made from
 (a `Snapshot`), so a save landing while a request is answered can't send the
 new bytes as `immutable` under the old version. The files a version
@@ -70,7 +70,7 @@ new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
 per request. Both memories are one **module cache** (`Modules`, in
-`src/widgets/modules.rs`), owned by the served folder's
+`core/src/widgets/modules.rs`), owned by the served folder's
 [index](../../document-index/README.md#the-index): every widget set, page and
 widget request built from that index reads and compiles through it, and the
 index forgets a file when the watcher reports it (`Index::changed`). A widget
@@ -85,12 +85,12 @@ failed.
 | Address | What it serves |
 | --- | --- |
 | `/__devpage/react.<hash>.js` | React and react-dom, [vendored](../../vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
-| `/__devpage/system-widgets/<Name>.tsx?v=<version>` | A system widget, compiled from `assets/widgets/`, built into the binary |
+| `/__devpage/system-widgets/<Name>.tsx?v=<version>` | A system widget, compiled from `core/assets/widgets/`, built into the binary |
 | `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; a path without an extension finds the `.tsx` or `.ts` |
 
 ## In the browser
 
-In `assets/devpage.js`, the page script loads only the widgets the
+In `core/assets/devpage.js`, the page script loads only the widgets the
 content names, nested ones included, and those each lists in `__devpageUses`
 and theirs in turn, importing them alongside React rather than after it — and
 importing again each one whose address changed, even when the widget

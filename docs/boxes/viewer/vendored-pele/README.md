@@ -11,8 +11,8 @@ the bundle or change how diagrams are drawn; how to write a diagram is in
 
 | File | What it is |
 | --- | --- |
-| `assets/vendor/pele.js` | The bundle, minified, one file. |
-| `assets/vendor/pele.LICENSE` | Its licence text. |
+| `core/assets/vendor/pele.js` | The bundle, minified, one file. |
+| `core/assets/vendor/pele.LICENSE` | Its licence text. |
 
 The bundle's first line is its only provenance record:
 
@@ -29,7 +29,7 @@ taken from.
 
 ## How devpage uses it
 
-The bundle is compiled into the binary (`include_str!` in `src/diagrams.rs`)
+The bundle is compiled into the binary (`include_str!` in `core/src/diagrams.rs`)
 and run by the server only: the [diagram engine](../diagrams/README.md#the-diagram-engine)
 loads it into QuickJS once, on its own thread, and draws every `mermaid` fence
 with it while it renders a page. It is not a [built-in asset](../serving-pages/README.md#built-in-assets):
@@ -52,7 +52,7 @@ bundle exports more — zoom controls, mounting, registering diagram types —
 and devpage calls none of it.
 
 pele colors its SVG with `--pele-*` CSS variables, which stay variables in the
-SVG; `assets/style.css` sets them from devpage's theme tokens on every
+SVG; `core/assets/style.css` sets them from devpage's theme tokens on every
 `.diagram`. The mapping is in
 [How diagrams follow the theme](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams).
 
@@ -63,8 +63,8 @@ There is no package manager step and no script; an upgrade is done by hand:
 <Steps>
 
 1. Replace the files
-   Put the new bundle at `assets/vendor/pele.js` and its licence at
-   `assets/vendor/pele.LICENSE`. Check the new header line and the licence for
+   Put the new bundle at `core/assets/vendor/pele.js` and its licence at
+   `core/assets/vendor/pele.LICENSE`. Check the new header line and the licence for
    the version and for any newly bundled third-party notices.
 
 2. Rebuild and restart
@@ -74,7 +74,7 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 3. Check every diagram
    `devpage check` draws every diagram the docs reach with the new bundle and
-   reports each one that no longer parses; the tests in `src/diagrams.rs`
+   reports each one that no longer parses; the tests in `core/src/diagrams.rs`
    check that a `click` line still becomes a link, and that the engine's
    `URL` is enough for an `https://` target.
 
@@ -83,12 +83,12 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 4. Re-check the `--pele-*` mapping
    List the variables the new bundle reads and compare them with the ones
-   `assets/style.css` sets. A variable the stylesheet doesn't set keeps pele's
+   `core/assets/style.css` sets. A variable the stylesheet doesn't set keeps pele's
    own default, which doesn't follow devpage's light and dark tokens, so look
    at a diagram in both themes.
 
-   $ grep -o -- '--pele-[a-z-]*' assets/vendor/pele.js | sort -u
-   $ grep -o -- '--pele-[a-z-]*' assets/style.css | sort -u
+   $ grep -o -- '--pele-[a-z-]*' core/assets/vendor/pele.js | sort -u
+   $ grep -o -- '--pele-[a-z-]*' core/assets/style.css | sort -u
 
 5. Update the docs
    The pages that name the version — this page and

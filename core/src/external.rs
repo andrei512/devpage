@@ -3,15 +3,18 @@
 //! reached); the preview asks in the background and shows what it has heard,
 //! announcing on the change bus when that changes.
 //!
-//! How an address is asked is the [`Ask`] port: [`Http`] asks the network,
-//! and tests answer from a table.
+//! How an address is asked is the [`Ask`] port, and where the preview's
+//! background asking runs is the [`Background`] port: the `devpage` binary
+//! asks the network over HTTP and runs on its runtime; tests answer from a
+//! table.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::changes::{Change, Changes, Scope};
 use futures::future::BoxFuture;
+
+use crate::changes::{Change, Publish, Scope};
 
 use crate::problem::Problem;
 
@@ -34,54 +37,14 @@ pub trait Ask: Send + Sync {
     fn ask<'a>(&'a self, address: &'a str, wait: Duration) -> BoxFuture<'a, Outcome>;
 }
 
-/// Asks the network. It asks for HTML as a browser does — some sites answer
-/// other requests with an error a reader never sees.
-pub struct Http(reqwest::Client);
-
-impl Http {
-    pub fn new() -> Self {
-        Http(
-            reqwest::Client::builder()
-                .user_agent(concat!("devpage/", env!("CARGO_PKG_VERSION")))
-                .default_headers(reqwest::header::HeaderMap::from_iter([(
-                    reqwest::header::ACCEPT,
-                    reqwest::header::HeaderValue::from_static("text/html,*/*;q=0.8"),
-                )]))
-                .build()
-                .expect("an HTTP client"),
-        )
-    }
-}
-
-impl Ask for Http {
-    fn ask<'a>(&'a self, address: &'a str, wait: Duration) -> BoxFuture<'a, Outcome> {
-        Box::pin(async move {
-            match self.0.get(address).timeout(wait).send().await {
-                Ok(response) if response.status().as_u16() < 400 => Outcome::Fine,
-                Ok(response) => Outcome::Broken(response.status().to_string()),
-                Err(error) if error.is_timeout() => {
-                    Outcome::Unreachable(format!("no answer in {}", seconds(wait)))
-                }
-                // reqwest's own message repeats the address; the root cause says why.
-                Err(error) => {
-                    let mut cause: &dyn std::error::Error = &error;
-                    while let Some(source) = cause.source() {
-                        cause = source;
-                    }
-                    Outcome::Unreachable(cause.to_string())
-                }
-            }
-        })
-    }
-}
-
-fn seconds(wait: Duration) -> String {
-    let millis = wait.as_millis();
-    if millis.is_multiple_of(1000) {
-        format!("{} seconds", millis / 1000)
-    } else {
-        format!("{millis} ms")
-    }
+/// Where the preview's background asking runs, and how it waits between
+/// tries.
+pub trait Background: Send + Sync {
+    /// Runs `task` in the background; `false` when there is nowhere to run
+    /// it — a unit test rendering a page outside a runtime.
+    fn spawn(&self, task: BoxFuture<'static, ()>) -> bool;
+    /// Waits `pause`.
+    fn sleep(&self, pause: Duration) -> BoxFuture<'static, ()>;
 }
 
 /// How long an address gets to answer, and how the preview retries one that
@@ -121,27 +84,29 @@ enum Answer {
 /// The external-link checker: one per devpage process, shared by every page.
 pub struct External {
     ask: Arc<dyn Ask>,
+    background: Arc<dyn Background>,
     waits: Waits,
     /// Every address the preview has asked about, for as long as it lives.
     answers: Mutex<HashMap<String, Answer>>,
     /// Where the preview announces a change in what it would show, so open
     /// pages fetch themselves again.
-    changes: Option<Changes>,
+    changes: Option<Arc<dyn Publish>>,
 }
 
 impl External {
-    pub fn new(ask: Arc<dyn Ask>, waits: Waits, changes: Option<Changes>) -> Arc<Self> {
+    pub fn new(
+        ask: Arc<dyn Ask>,
+        background: Arc<dyn Background>,
+        waits: Waits,
+        changes: Option<Arc<dyn Publish>>,
+    ) -> Arc<Self> {
         Arc::new(External {
             ask,
+            background,
             waits,
             answers: Mutex::default(),
             changes,
         })
-    }
-
-    /// Asks the network, with the default waits, announcing on `changes`.
-    pub fn http(changes: Option<Changes>) -> Arc<Self> {
-        External::new(Arc::new(Http::new()), Waits::default(), changes)
     }
 
     /// Checks each address once, however many pages link to it, and reports
@@ -217,11 +182,14 @@ impl External {
                 }
                 Some(Answer::Pending | Answer::Fine | Answer::Unreachable(..)) => {}
                 None => {
-                    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-                        continue;
-                    };
-                    answers.insert(address.clone(), Answer::Pending);
-                    runtime.spawn(Arc::clone(self).watch(address));
+                    // The answers stay locked until `Pending` is in, so the
+                    // task can't record an answer before it.
+                    if self
+                        .background
+                        .spawn(Box::pin(Arc::clone(self).watch(address.clone())))
+                    {
+                        answers.insert(address, Answer::Pending);
+                    }
                 }
             }
         }
@@ -262,17 +230,51 @@ impl External {
             }
             // 30 s, then 60 s, then every 120 s while it stays out of reach.
             let pause = self.waits.retry_after * (1 << (failures - 1).min(2));
-            tokio::time::sleep(pause).await;
+            self.background.sleep(pause).await;
         }
     }
 
     /// How many times in a row the preview has failed to reach `address`.
-    #[cfg(test)]
+    #[cfg(any(test, feature = "testing"))]
     pub fn failures(&self, address: &str) -> u32 {
         match self.answers.lock().unwrap().get(address) {
             Some(Answer::Unreachable(failures, _)) => *failures,
             _ => 0,
         }
+    }
+}
+
+/// External checkers for tests.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing {
+    use super::*;
+
+    /// Answers every address fine.
+    struct Fine;
+
+    impl Ask for Fine {
+        fn ask<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Outcome> {
+            Box::pin(async { Outcome::Fine })
+        }
+    }
+
+    /// Runs nothing in the background.
+    struct Nowhere;
+
+    impl Background for Nowhere {
+        fn spawn(&self, _: BoxFuture<'static, ()>) -> bool {
+            false
+        }
+
+        fn sleep(&self, _: Duration) -> BoxFuture<'static, ()> {
+            Box::pin(async {})
+        }
+    }
+
+    /// A checker that finds every address fine and whose preview asks none:
+    /// for tests about everything but external links.
+    pub fn offline() -> Arc<External> {
+        External::new(Arc::new(Fine), Arc::new(Nowhere), Waits::default(), None)
     }
 }
 
@@ -327,6 +329,32 @@ mod tests {
         ("README.md".into(), Some(3), address.into())
     }
 
+    /// Runs on the test's tokio runtime, as `devpage` runs on its own.
+    struct Tokio;
+
+    impl Background for Tokio {
+        fn spawn(&self, task: BoxFuture<'static, ()>) -> bool {
+            let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+                return false;
+            };
+            runtime.spawn(task);
+            true
+        }
+
+        fn sleep(&self, pause: Duration) -> BoxFuture<'static, ()> {
+            Box::pin(tokio::time::sleep(pause))
+        }
+    }
+
+    /// Hears what the preview publishes.
+    struct Heard(tokio::sync::mpsc::UnboundedSender<Change>);
+
+    impl Publish for Heard {
+        fn publish(&self, _scope: &Scope, change: Change) {
+            let _ = self.0.send(change);
+        }
+    }
+
     fn down() -> Outcome {
         Outcome::Unreachable("no connection".into())
     }
@@ -339,7 +367,7 @@ mod tests {
                 .with("drop", &[down()])
                 .with("gone", &[Outcome::Broken("404 Not Found".into())]),
         );
-        let external = External::new(table.clone(), quick(), None);
+        let external = External::new(table.clone(), Arc::new(Tokio), quick(), None);
         let found: Vec<String> = external
             .check(vec![link("slow"), link("drop"), link("gone"), link("gone")])
             .await
@@ -369,12 +397,16 @@ mod tests {
     #[tokio::test]
     async fn the_preview_shows_an_unreachable_address_only_after_three_failures() {
         let table = Arc::new(Table::default().with("flaky", &[down()]));
-        let changes = Changes::default();
-        let mut heard = changes.subscribe(Scope::root());
-        let external = External::new(table, quick(), Some(changes));
+        let (changes, mut heard) = tokio::sync::mpsc::unbounded_channel();
+        let external = External::new(
+            table,
+            Arc::new(Tokio),
+            quick(),
+            Some(Arc::new(Heard(changes))),
+        );
         assert!(external.preview(vec![link("flaky")]).is_empty());
         // Announced once, when the third failure makes it a problem.
-        assert_eq!(heard.next().await, Some(Change::Refresh));
+        assert_eq!(heard.recv().await, Some(Change::Refresh));
         assert!(external.failures("flaky") >= FAILURES_BEFORE_A_PROBLEM);
         assert_eq!(
             external
@@ -389,7 +421,7 @@ mod tests {
     #[test]
     fn outside_a_runtime_the_preview_asks_nothing() {
         let table = Arc::new(Table::default().with("x", &[Outcome::Fine]));
-        let external = External::new(table.clone(), quick(), None);
+        let external = External::new(table.clone(), Arc::new(Tokio), quick(), None);
         assert!(external.preview(vec![link("x")]).is_empty());
         assert_eq!(table.asked("x"), 0);
     }

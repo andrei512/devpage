@@ -29,7 +29,7 @@ use crate::server;
 use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
-const RECORDER: &str = include_str!("../assets/video.js");
+const RECORDER: &str = include_str!("../../assets/video.js");
 /// The size of the recording, and of the page it captures.
 const WIDTH: i64 = 1920;
 const HEIGHT: i64 = 1080;
