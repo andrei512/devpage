@@ -271,7 +271,9 @@ mod tests {
             "1200x900-c.png",
             "4000x1000-d.png",
         ];
-        let drawing = renderer.drawing(&design(&files), None).unwrap();
+        let drawing = renderer
+            .drawing(&design(&files), devpage_design::Theme::Light, None)
+            .unwrap();
         let replayed = scene(&drawing.list, Affine::IDENTITY, drawing.area);
         let painted = vello_places(&replayed);
         assert_eq!(painted.len(), drawing.images.len());
@@ -281,10 +283,14 @@ mod tests {
         let mut more = files.to_vec();
         more.extend(["4096x4096-e.png", "4096x4096-f.png"]);
         let more = design(&more);
-        assert!(renderer.drawing(&more, None).is_err());
+        assert!(
+            renderer
+                .drawing(&more, devpage_design::Theme::Light, None)
+                .is_err()
+        );
         // The same list, painted anyway: vello leaves out the image the
         // engine said it would.
-        let (area, list) = renderer.display_list(&more);
+        let (area, list) = renderer.display_list(&more, devpage_design::Theme::Light);
         let mut images: Vec<ImageData> = Vec::new();
         for draw in &list {
             if let Draw::Fill(_, Paint::Image(i, _)) = draw

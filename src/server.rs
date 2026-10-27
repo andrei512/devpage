@@ -224,7 +224,19 @@ async fn file(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    let print = query
+        .as_deref()
+        .is_some_and(|query| query.split('&').any(|pair| pair == "print"));
+    // A design's theme, as `?theme=` names it: its light one when it names
+    // none.
+    let theme = query
+        .as_deref()
+        .and_then(|query| {
+            query
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("theme="))
+        })
+        .map(|name| devpage_design::Theme::named(name).ok_or(name));
     // A design's PNG — unless a real file of that name is there, which is
     // served as it is.
     let real = state
@@ -250,11 +262,22 @@ async fn file(
             )
                 .into_response();
         }
+        let theme = match theme {
+            None => devpage_design::Theme::Light,
+            Some(Ok(theme)) => theme,
+            Some(Err(other)) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    format!("theme: expected light or dark, found \"{other}\""),
+                )
+                    .into_response();
+            }
+        };
         // The ETag comes from the scene, so a browser that has this PNG
         // already is answered without painting it again.
         let tag = state
             .designs
-            .etag(design)
+            .etag(design, theme)
             .await
             .map(|hash| crate::validators::strong(&hash));
         if let Some(tag) = &tag
@@ -270,7 +293,7 @@ async fn file(
             );
             return crate::validators::not_modified(known);
         }
-        return match state.designs.png(design.to_string()).await {
+        return match state.designs.png(design.to_string(), theme).await {
             Ok(png) => {
                 let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
                 if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
@@ -292,7 +315,10 @@ async fn file(
         return slide_png(&state, &headers, deck, &file, n).await;
     }
     if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
-        return Html(crate::designs::page(&path)).into_response();
+        // An address that names a theme shows it; any other `theme` is
+        // passed over.
+        let theme = theme.and_then(Result::ok);
+        return Html(crate::designs::page(&path, theme)).into_response();
     }
     let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (

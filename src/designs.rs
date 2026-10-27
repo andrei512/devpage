@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use devpage_design::proto::{Problems, Update, WatchRequest, update::Body};
 use devpage_design::resolve::ImageFile;
-use devpage_design::{Files, Problem, Renderer, Scene, wire};
+use devpage_design::{Files, Problem, Renderer, Scene, Theme, wire};
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
@@ -273,15 +273,16 @@ impl Designs {
         }
     }
 
-    /// The validator of the design at `path`'s PNG, known before painting: a
-    /// hash of its resolved scene — every node and the image files it shows —
-    /// and devpage's build, which paints it. `None` when it doesn't resolve.
-    pub async fn etag(&self, path: &str) -> Option<String> {
+    /// The validator of the design at `path`'s PNG in `theme`, known before
+    /// painting: a hash of its resolved scene — every node and the image
+    /// files it shows — the theme, and devpage's build, which paints it.
+    /// `None` when it doesn't resolve.
+    pub async fn etag(&self, path: &str, theme: Theme) -> Option<String> {
         let designs = self.clone();
         let path = path.to_string();
         tokio::task::spawn_blocking(move || {
             let scene = designs.resolve(&path).ok()?;
-            let mut text = format!("{}\0{:?}", crate::addresses::BUILD, scene.root);
+            let mut text = format!("{}\0{theme:?}\0{:?}", crate::addresses::BUILD, scene.root);
             for id in scene.images.keys() {
                 text.push_str(&format!("\0{id:?}"));
             }
@@ -292,8 +293,9 @@ impl Designs {
         .flatten()
     }
 
-    /// The design at `path` painted as a PNG, or its problems one per line.
-    pub async fn png(&self, path: String) -> Result<Vec<u8>, String> {
+    /// The design at `path` painted as a PNG in `theme`, or its problems one
+    /// per line.
+    pub async fn png(&self, path: String, theme: Theme) -> Result<Vec<u8>, String> {
         let designs = self.clone();
         tokio::task::spawn_blocking(move || {
             let scene = designs
@@ -302,7 +304,7 @@ impl Designs {
             let mut renderer = lock(&designs.0.renderer);
             guarded(
                 &path,
-                || devpage_design::png(&mut renderer, &scene),
+                || devpage_design::png(&mut renderer, &scene, theme),
                 |p| p.message,
             )
             .map_err(|e| format!("{}: {e}", address(&path)))
@@ -335,13 +337,23 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
     .unwrap_or_default()
 }
 
-/// Whether the design at `path` can be drawn at all: a drawing too big to
-/// paint is the design's problem everywhere — on its canvas, in its PNG and in
-/// `devpage check` — not only where a picture is asked for.
+/// Whether the design at `path` can be drawn at all — in each theme, when
+/// it is themed: a drawing too big to paint is the design's problem
+/// everywhere — on its canvas, in its PNG and in `devpage check` — not only
+/// where a picture is asked for.
 fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
+    let themes: &[Theme] = if scene.themed {
+        &[Theme::Light, Theme::Dark]
+    } else {
+        &[Theme::Light]
+    };
     guarded(
         path,
-        || renderer.drawing(scene, None).map(|_| ()),
+        || {
+            themes
+                .iter()
+                .try_for_each(|&theme| renderer.drawing(scene, theme, None).map(|_| ()))
+        },
         |p| devpage_design::render::Undrawable {
             message: p.message,
             at: None,
@@ -440,10 +452,12 @@ impl Sent {
                 // Problems on show: even an empty patch says the design is
                 // valid again.
                 let fixed = self.problems.take().is_some();
+                let themed = self.scene.as_ref().map(|s| s.themed);
                 let body = match body {
                     Encoded::Whole(whole) => Some(Body::Scene(*whole)),
                     Encoded::Changed(patch) => {
-                        (fixed || !patch.replace.is_empty()).then_some(Body::Patch(patch))
+                        (fixed || !patch.replace.is_empty() || themed != Some(patch.themed))
+                            .then_some(Body::Patch(patch))
                     }
                 };
                 self.scene = Some(scene);
@@ -520,8 +534,9 @@ impl devpage_design::proto::designs_server::Designs for Watch {
 }
 
 /// The canvas page for the design at `path`: the design fills the window,
-/// drawn by the design script.
-pub fn page(path: &str) -> String {
+/// drawn by the design script — in `theme` when the address names one, set
+/// before the page paints and never remembered.
+pub fn page(path: &str, theme: Option<Theme>) -> String {
     let path = path.trim_start_matches('/');
     let file = path.rsplit('/').next().unwrap_or(path);
     let name = file.strip_suffix(".design").unwrap_or(file);
@@ -530,7 +545,7 @@ pub fn page(path: &str) -> String {
 <html lang="en"><head><meta charset="utf-8"><title>{name}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="{stylesheet}">
-{theme}
+{theme}{chosen}
 </head><body class="design-page">
 <canvas class="design" src="/{path}" role="img" aria-label="{name}"></canvas>
 <div id="devpage-corner">{toggle}</div>
@@ -541,6 +556,13 @@ pub fn page(path: &str) -> String {
         name = crate::render::escape(name),
         path = crate::render::escape(path),
         theme = crate::navbar::theme_script(true),
+        chosen = match theme {
+            Some(Theme::Dark) =>
+                r#"<script>document.documentElement.dataset.theme="dark"</script>"#,
+            Some(Theme::Light) =>
+                r#"<script>document.documentElement.dataset.theme="light"</script>"#,
+            None => "",
+        },
         toggle = crate::navbar::theme_toggle(),
     )
 }
@@ -694,7 +716,10 @@ mod tests {
         assert!(found[0].to_string().starts_with(expected), "{found:?}");
         // …and the PNG, instead of a blank picture.
         let designs = Designs::new(dir.clone());
-        let png = designs.png("app/photo.design".into()).await.unwrap_err();
+        let png = designs
+            .png("app/photo.design".into(), Theme::Light)
+            .await
+            .unwrap_err();
         assert!(png.starts_with(expected), "{png}");
     }
 
@@ -771,11 +796,19 @@ mod tests {
         let dir = served("hostile");
         let designs = Designs::new(dir.clone());
         let other = dir.join("app/other.design");
-        assert!(designs.png("app/other.design".into()).await.is_ok());
+        assert!(
+            designs
+                .png("app/other.design".into(), Theme::Light)
+                .await
+                .is_ok()
+        );
         // A colour with a pasted zero-width space, saved over a design held
         // in memory: what once panicked the watcher's thread.
         save(&designs, &other, &OTHER.replace("#000000", "#000\u{200b}"));
-        let problems = designs.png("app/other.design".into()).await.unwrap_err();
+        let problems = designs
+            .png("app/other.design".into(), Theme::Light)
+            .await
+            .unwrap_err();
         assert!(
             problems.contains("fill: #000\u{200b} is not a color"),
             "{problems}"
@@ -788,13 +821,19 @@ mod tests {
         ] {
             save(&designs, &other, &text);
             assert!(
-                designs.png("app/other.design".into()).await.is_err(),
+                designs
+                    .png("app/other.design".into(), Theme::Light)
+                    .await
+                    .is_err(),
                 "{text:.40}"
             );
         }
         // And the store still sees saves afterwards.
         save(&designs, &other, &OTHER.replace("{50}", "{20}"));
-        let png = designs.png("app/other.design".into()).await.unwrap();
+        let png = designs
+            .png("app/other.design".into(), Theme::Light)
+            .await
+            .unwrap();
         let (_, w, h) = devpage_design::render::pixels(&png).unwrap();
         assert_eq!((w, h), (20, 20));
     }
@@ -808,6 +847,87 @@ mod tests {
         assert!(problems[0].message.contains("no such file"), "{problems:?}");
         save(&designs, &dir.join("app/button.design"), BUTTON);
         assert!(designs.resolve("app/screen.design").is_ok());
+    }
+
+    const THEMES: &str = "kind: themes\nlight:\n  bg: \"#ffffff\"\ndark:\n  bg: \"#000000\"\n";
+
+    /// Creating, editing and deleting a `themes.yml` resolves again exactly
+    /// the designs that read it — a missing one included.
+    #[test]
+    fn a_themes_file_resolves_again_only_the_designs_that_read_it() {
+        let dir = served("themes");
+        std::fs::write(
+            dir.join("app/themed.design"),
+            "<Frame width={10} height={10} fill={theme.bg} />",
+        )
+        .unwrap();
+        let designs = Designs::new(dir.clone());
+        let mut updates = designs.0.updates.subscribe();
+        let problems = designs.resolve("app/themed.design").unwrap_err();
+        assert!(
+            problems[0].message.contains("no themes.yml"),
+            "{problems:?}"
+        );
+        assert!(designs.resolve("app/other.design").is_ok());
+        let fill = |designs: &Designs| designs.resolve("app/themed.design").unwrap().root.fill;
+        // Created at the top: two folders above the design.
+        save(&designs, &dir.join("themes.yml"), THEMES);
+        assert_eq!(updates.try_recv().unwrap(), "app/themed.design");
+        assert!(updates.try_recv().is_err(), "other.design reads no themes");
+        let top = fill(&designs);
+        // Created between them: it overrides the top one.
+        save(
+            &designs,
+            &dir.join("app/themes.yml"),
+            &THEMES.replace("#000000", "#111111"),
+        );
+        assert_eq!(updates.try_recv().unwrap(), "app/themed.design");
+        assert_ne!(fill(&designs), top);
+        // Deleted: the top one again.
+        std::fs::remove_file(dir.join("app/themes.yml")).unwrap();
+        designs.changed(&dir.join("app/themes.yml"));
+        assert_eq!(updates.try_recv().unwrap(), "app/themed.design");
+        assert_eq!(fill(&designs), top);
+        assert!(updates.try_recv().is_err());
+    }
+
+    /// A change that only makes a scene themed, or no longer themed, is
+    /// still sent: it puts the switch on an embed, or takes it off.
+    #[test]
+    fn a_scene_that_becomes_themed_is_sent() {
+        let files: HashMap<String, String> = [
+            (
+                "themes.yml".to_string(),
+                THEMES.replace("#000000", "#ffffff"),
+            ),
+            (
+                "a.design".to_string(),
+                "<Frame fill=\"#ffffff\" />".to_string(),
+            ),
+            (
+                "b.design".to_string(),
+                "<Frame fill={theme.bg} />".to_string(),
+            ),
+        ]
+        .into();
+        let resolved = |path: &str| Resolved {
+            result: devpage_design::resolve(&files, path).map(|mut scene| {
+                scene.files.clear();
+                scene
+            }),
+            asked: Vec::new(),
+            missing: false,
+        };
+        let mut sent = Sent::default();
+        assert!(matches!(
+            sent.next("a", resolved("a.design")),
+            Some(Body::Scene(_))
+        ));
+        let Some(Body::Patch(patch)) = sent.next("a", resolved("b.design")) else {
+            panic!("a patch")
+        };
+        assert!(patch.replace.is_empty() && patch.themed);
+        assert!(sent.next("a", resolved("b.design")).is_none());
     }
 
     #[test]
@@ -899,6 +1019,50 @@ mod tests {
         assert_eq!(lines.len(), 2, "{text}");
         assert!(lines[0].starts_with("app/broken.design:3:"), "{text}");
         assert!(lines[1].starts_with("app/broken.design:4:"), "{text}");
+    }
+
+    #[tokio::test]
+    async fn a_png_in_either_theme() {
+        let dir = served("png-theme");
+        std::fs::write(dir.join("themes.yml"), THEMES).unwrap();
+        std::fs::write(
+            dir.join("app/themed.design"),
+            "<Frame width={10} height={10} fill={theme.bg} />",
+        )
+        .unwrap();
+        let (address, _) = start(&dir, "app/screen.design").await;
+        let get = |query: &str| reqwest::get(format!("{address}/app/themed.design.png{query}"));
+        let mut tags = Vec::new();
+        for (query, value) in [("", 255), ("?theme=light", 255), ("?theme=dark", 0)] {
+            let response = get(query).await.unwrap();
+            assert_eq!(response.status(), 200, "{query}");
+            tags.push(response.headers()["etag"].to_str().unwrap().to_string());
+            let png = response.bytes().await.unwrap();
+            let (pixels, _, _) = devpage_design::render::pixels(&png).unwrap();
+            assert_eq!(pixels[..4], [value, value, value, 255], "{query}");
+        }
+        assert_eq!(tags[0], tags[1]);
+        assert_ne!(tags[0], tags[2], "each theme is its own PNG");
+        let wrong = get("?theme=blue").await.unwrap();
+        assert_eq!(wrong.status(), 400);
+        assert_eq!(
+            wrong.text().await.unwrap(),
+            "theme: expected light or dark, found \"blue\""
+        );
+    }
+
+    #[tokio::test]
+    async fn the_canvas_page_shows_the_theme_its_address_names() {
+        let dir = served("page-theme");
+        let (address, _) = start(&dir, "app/screen.design").await;
+        let page = |query: &str| {
+            let url = format!("{address}/app/screen.design{query}");
+            async move { reqwest::get(url).await.unwrap().text().await.unwrap() }
+        };
+        let chosen = r#"<script>document.documentElement.dataset.theme="dark"</script>"#;
+        assert!(page("?theme=dark").await.contains(chosen));
+        assert!(!page("").await.contains("dataset.theme=\"dark\""));
+        assert!(!page("?theme=blue").await.contains("dataset.theme=\"blue\""));
     }
 
     #[tokio::test]
@@ -1073,7 +1237,7 @@ mod tests {
 
     #[test]
     fn the_canvas_page_is_titled_without_the_extension() {
-        let page = page("/app/checkout.design");
+        let page = page("/app/checkout.design", None);
         assert!(page.contains("<title>checkout</title>"), "{page}");
         assert!(page.contains(r#"src="/app/checkout.design""#), "{page}");
     }

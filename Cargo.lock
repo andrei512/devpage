@@ -880,6 +880,7 @@ dependencies = [
  "png",
  "prost",
  "protox",
+ "serde_yaml",
  "sha2",
  "taffy",
  "tonic",

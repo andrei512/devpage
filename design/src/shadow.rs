@@ -26,7 +26,7 @@ use vello_cpu::peniko::{Blob, Color as PColor, Gradient, ImageAlphaType, ImageDa
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
 use crate::render::{Draw, Paint};
-use crate::resolve::Color;
+use crate::resolve::Rgba;
 
 /// How far a blur reaches, in samples: three standard deviations at two
 /// samples a standard deviation. Past it the Gaussian is under 0.15%, less
@@ -242,7 +242,7 @@ fn profile(lo: f64, hi: f64, origin: f64, step: f64, from: isize, len: usize) ->
 
 /// `values`, `w` × `h`, as an image of `c` whose alpha is each value times
 /// `alpha`.
-fn image(values: &[f32], w: usize, h: usize, c: Color, alpha: f32) -> ImageData {
+fn image(values: &[f32], w: usize, h: usize, c: Rgba, alpha: f32) -> ImageData {
     let pixels: Vec<u8> = values
         .iter()
         .flat_map(|v| [c.r, c.g, c.b, (v.clamp(0.0, 1.0) * alpha).round() as u8])
@@ -289,7 +289,7 @@ enum Piece {
 pub fn shadow(
     outline: Outline,
     std_dev: f64,
-    c: Color,
+    c: Rgba,
     list: &mut Vec<Draw>,
     images: &mut Vec<ImageData>,
 ) {
@@ -300,7 +300,7 @@ pub fn shadow(
 pub fn shadow_with(
     outline: Outline,
     std_dev: f64,
-    c: Color,
+    c: Rgba,
     list: &mut Vec<Draw>,
     images: &mut Vec<ImageData>,
     single: usize,
@@ -344,7 +344,7 @@ pub fn shadow_with(
         c.a as f32 / 255.0,
         Some(extent.to_path(0.1)),
     ));
-    let opaque = Color { a: 255, ..c };
+    let opaque = Rgba { a: 255, ..c };
     let paint_over = |clip: &BezPath| clip.bounding_box().inflate(MARGIN, MARGIN).to_path(0.1);
     for piece in pieces {
         let (clip, paint) = match piece {
@@ -393,7 +393,7 @@ pub fn shadow_with(
 /// across the edge of a disc of radius R is, to within 0.1 of 255 once R is
 /// [`ROUND`] σ, the straight edge's minus φ(d)·σ/2R — the disc's curve taking
 /// a little from it.
-fn disc(center: Point, radius: f64, std_dev: f64, c: Color) -> Gradient {
+fn disc(center: Point, radius: f64, std_dev: f64, c: Rgba) -> Gradient {
     let reach = REACH as f64 * std_dev / 2.0;
     let (r0, r1) = (radius - reach, radius + reach);
     const STOPS: usize = 49;
@@ -852,7 +852,7 @@ mod tests {
     /// and holds the two to the engine's tolerance — no seam — and to
     /// [`bound`].
     fn pieces_match_one_image(outline: Outline, std_dev: f64, case: &str, scales: &[f32]) {
-        let color = Color {
+        let color = Rgba {
             r: 20,
             g: 30,
             b: 40,

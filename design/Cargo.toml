@@ -14,6 +14,7 @@ vello_cpu = "0.3.0"
 prost = "0.14.4"
 png = "0.18.1"
 zune-jpeg = "0.5.15"
+serde_yaml = "0.9.34"
 sha2 = "0.10.9"
 guillotiere = "0.7.0"
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"], optional = true }

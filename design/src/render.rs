@@ -18,8 +18,8 @@ use vello_cpu::peniko::{
 use vello_cpu::{Glyph, Pixmap, RenderContext, Resources};
 
 use crate::resolve::{
-    self, Align, Color, Fill, ImageFiles, ImageId, Kind, Layout, Node, Origin, Scene,
-    Size as DSize, TextAlign,
+    self, Align, Color, Fill, ImageFiles, ImageId, Kind, Layout, Node, Origin, Rgba, Scene,
+    Size as DSize, TextAlign, Theme,
 };
 use crate::shadow::{self, Outline};
 
@@ -297,12 +297,13 @@ impl Renderer {
     /// area they cover: the design's **drawing**, its root's box plus
     /// anything painted outside it, in whole pixels. The list is clipped to
     /// that area, so every backend shows exactly it.
-    pub fn display_list(&mut self, scene: &Scene) -> (Frame, Vec<Draw>) {
+    pub fn display_list(&mut self, scene: &Scene, theme: Theme) -> (Frame, Vec<Draw>) {
         let frames = self.layout(scene);
-        self.list_for(scene, &frames)
+        self.list_for(scene, &frames, theme)
     }
 
-    /// The scene laid out once and turned into its display list, or why it
+    /// The scene laid out once and turned into its display list in `theme`
+    /// — every color its value there — or why it
     /// can't be drawn: a drawing bigger than `MAX_SIDE` a side, or images and
     /// shadows that don't fit the GPU's atlas together. What the PNG, the
     /// canvas and `devpage check` all start from.
@@ -315,10 +316,11 @@ impl Renderer {
     pub fn drawing(
         &mut self,
         scene: &Scene,
+        theme: Theme,
         after: Option<&Drawing>,
     ) -> Result<Drawing, Undrawable> {
         let frames = self.layout(scene);
-        let (area, list) = self.list_for(scene, &frames);
+        let (area, list) = self.list_for(scene, &frames, theme);
         let painted = std::mem::take(&mut self.painted);
         if area.width > MAX_SIDE || area.height > MAX_SIDE {
             return Err(Undrawable {
@@ -382,7 +384,7 @@ impl Renderer {
     }
 
     /// The display list for a scene already laid out as `frames`.
-    fn list_for(&mut self, scene: &Scene, frames: &[Frame]) -> (Frame, Vec<Draw>) {
+    fn list_for(&mut self, scene: &Scene, frames: &[Frame], theme: Theme) -> (Frame, Vec<Draw>) {
         let root = frames[0];
         let mut area = KRect::new(
             root.x as f64,
@@ -405,6 +407,7 @@ impl Renderer {
             &mut list,
             None,
             &mut area,
+            theme,
         );
         self.blobs.clear();
         // Out to whole pixels, ignoring the slivers floating point leaves on
@@ -430,8 +433,8 @@ impl Renderer {
     /// Paints the scene's drawing with `vello_cpu` at `scale` device pixels
     /// per scene pixel, its top-left at the drawing's. A drawing bigger than
     /// `MAX_SIDE` a side is painted only that far.
-    pub fn paint(&mut self, scene: &Scene, scale: f32) -> Pixmap {
-        let (area, list) = self.display_list(scene);
+    pub fn paint(&mut self, scene: &Scene, theme: Theme, scale: f32) -> Pixmap {
+        let (area, list) = self.display_list(scene, theme);
         paint_list(area, &list, scale)
     }
 
@@ -447,6 +450,7 @@ impl Renderer {
         list: &mut Vec<Draw>,
         clip: Option<KRect>,
         area: &mut KRect,
+        theme: Theme,
     ) {
         let f = frames[*at];
         *at += 1;
@@ -493,7 +497,7 @@ impl Renderer {
                 cover(r.inflate(3.0 * std_dev, 3.0 * std_dev));
             }
             let mut images = Vec::new();
-            shadow::shadow(outline, std_dev, s.color, list, &mut images);
+            shadow::shadow(outline, std_dev, s.color.get(theme), list, &mut images);
             self.painted.extend(
                 images
                     .into_iter()
@@ -513,8 +517,10 @@ impl Renderer {
         });
         if let Some(fill) = &node.fill {
             let paint = match fill {
-                Fill::Solid(c) => Paint::Solid(color(*c)),
-                Fill::Linear { angle, stops } => Paint::Gradient(gradient(rect, *angle, stops)),
+                Fill::Solid(c) => Paint::Solid(color(c.get(theme))),
+                Fill::Linear { angle, stops } => {
+                    Paint::Gradient(gradient(rect, *angle, stops, theme))
+                }
             };
             let path = vector.clone().unwrap_or_else(|| shape(0.0));
             cover(path.bounding_box());
@@ -560,7 +566,7 @@ impl Renderer {
             };
             let half = node.stroke_width as f64 / 2.0;
             cover(path.bounding_box().inflate(half, half));
-            list.push(Draw::Stroke(path, node.stroke_width, color(c)));
+            list.push(Draw::Stroke(path, node.stroke_width, color(c.get(theme))));
         }
         if let Some(text) = &node.text {
             let layout = self.text_layout(text, Some(f.width + 0.5));
@@ -587,7 +593,7 @@ impl Renderer {
                         list.push(Draw::Glyphs(
                             run.run().font().clone(),
                             run.run().font_size(),
-                            color(text.color),
+                            color(text.color.get(theme)),
                             glyphs,
                         ));
                     }
@@ -601,7 +607,7 @@ impl Renderer {
             clip
         };
         for child in &node.children {
-            self.node(scene, child, frames, at, list, inner, area);
+            self.node(scene, child, frames, at, list, inner, area, theme);
         }
         if node.clip {
             list.push(Draw::Pop);
@@ -683,18 +689,22 @@ enum Leaf {
     Intrinsic(f32, f32),
 }
 
-fn color(c: Color) -> PColor {
+fn color(c: Rgba) -> PColor {
     PColor::from_rgba8(c.r, c.g, c.b, c.a)
 }
 
 /// A CSS linear gradient over `rect`: 0° points up, 90° right; the line runs
 /// through the center, long enough that its ends touch the far corners.
-fn gradient(rect: KRect, angle: f32, stops: &[(Color, f32)]) -> Gradient {
+/// Its stops take their colors in `theme`.
+fn gradient(rect: KRect, angle: f32, stops: &[(Color, f32)], theme: Theme) -> Gradient {
     let a = (angle as f64).to_radians();
     let dir = Vec2::new(a.sin(), -a.cos());
     let half = (rect.width() * a.sin().abs() + rect.height() * a.cos().abs()) / 2.0;
     let center = rect.center();
-    let stops: Vec<(f32, PColor)> = stops.iter().map(|(c, at)| (*at, color(*c))).collect();
+    let stops: Vec<(f32, PColor)> = stops
+        .iter()
+        .map(|(c, at)| (*at, color(c.get(theme))))
+        .collect();
     Gradient::new_linear(center - dir * half, center + dir * half).with_stops(stops.as_slice())
 }
 
@@ -1060,7 +1070,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={300} height={40} fill="#ffffff"><Text width={300} textAlign="center" color="#000000">Hi</Text></Frame>"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         let dark = |x: u16| (0..20).any(|y| p.sample(x, y).r < 128);
         assert_eq!(left[1].width, 300.0);
         assert!((140..160).any(dark), "ink near the middle");
@@ -1089,7 +1099,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={100} height={20} fill="linear-gradient(90deg, #ff0000 0%, #0000ff 100%)" />"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert!(
             close(rgba(&p, 0, 10), [255, 0, 0, 255]),
             "{:?}",
@@ -1103,7 +1113,7 @@ mod tests {
         let down = scene(
             r##"<Frame width={20} height={100} fill="linear-gradient(180deg, #ff0000 0%, #0000ff 100%)" />"##,
         );
-        let p = Renderer::new().paint(&down, 1.0);
+        let p = Renderer::new().paint(&down, Theme::Light, 1.0);
         assert!(close(rgba(&p, 10, 0), [255, 0, 0, 255]));
         assert!(close(rgba(&p, 10, 99), [0, 0, 255, 255]));
     }
@@ -1113,7 +1123,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={40} height={40}><Rect x={10} y={10} width={20} height={20} stroke="#ff0000" strokeWidth={4} /></Frame>"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert!(close(rgba(&p, 11, 20), [255, 0, 0, 255]));
         assert!(close(rgba(&p, 13, 20), [255, 0, 0, 255]));
         assert_eq!(rgba(&p, 9, 20)[3], 0, "nothing outside the box");
@@ -1124,7 +1134,7 @@ mod tests {
     fn each_corner_takes_its_own_radius() {
         let s =
             scene(r##"<Frame width={40} height={40} radius={[20, 0, 0, 0]} fill="#000000" />"##);
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert_eq!(rgba(&p, 1, 1)[3], 0, "top left is rounded");
         assert_eq!(rgba(&p, 39, 0)[3], 255, "top right is square");
         assert_eq!(rgba(&p, 0, 39)[3], 255, "bottom left is square");
@@ -1139,7 +1149,7 @@ mod tests {
         let sharp = scene(
             r##"<Frame width={100} height={60}><Rect x={10} y={10} width={30} height={30} radius={[10, 0, 0, 0]} shadow={{ x: 50, spread: 5, color: "#000000" }} /></Frame>"##,
         );
-        let p = Renderer::new().paint(&sharp, 1.0);
+        let p = Renderer::new().paint(&sharp, Theme::Light, 1.0);
         assert_eq!(rgba(&p, 57, 7)[3], 0, "top left is rounded by 15");
         assert_eq!(rgba(&p, 92, 7)[3], 255, "top right only by 5");
         assert_eq!(rgba(&p, 92, 42)[3], 255, "bottom right only by 5");
@@ -1149,7 +1159,7 @@ mod tests {
         let blurred = scene(
             r##"<Frame width={100} height={60}><Rect x={10} y={10} width={30} height={30} radius={[20, 0, 0, 0]} shadow={{ x: 50, blur: 6, color: "#000000" }} /></Frame>"##,
         );
-        let p = Renderer::new().paint(&blurred, 1.0);
+        let p = Renderer::new().paint(&blurred, Theme::Light, 1.0);
         let (tl, tr) = (rgba(&p, 63, 13)[3], rgba(&p, 86, 13)[3]);
         assert!(tr > 150 && tl < 100, "top left {tl}, top right {tr}");
         let (bl, br) = (rgba(&p, 63, 36)[3], rgba(&p, 86, 36)[3]);
@@ -1170,7 +1180,7 @@ mod tests {
             size + 80
         ));
         let mut r = Renderer::new();
-        let d = r.drawing(&s, None).unwrap();
+        let d = r.drawing(&s, Theme::Light, None).unwrap();
         let middle = 40.0 + size as f32 / 2.0;
         let strip = Frame {
             x: 0.0,
@@ -1233,7 +1243,7 @@ mod tests {
   <Rect width={20} height={10} fill="#000000" /><Rect x={10} width={20} height={10} fill="#000000" />
 </Frame></Frame>"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         let (alone, overlap) = (rgba(&p, 5, 5), rgba(&p, 15, 5));
         assert!(close(alone, overlap), "{alone:?} {overlap:?}");
         assert!(alone[0] > 100 && alone[0] < 155, "{alone:?}");
@@ -1246,7 +1256,7 @@ mod tests {
   <Rect x={10} y={10} width={30} height={30} fill="#000000" />
 </Frame></Frame>"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert_eq!(rgba(&p, 15, 15)[3], 255);
         assert_eq!(rgba(&p, 25, 25)[3], 0);
     }
@@ -1257,7 +1267,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={40} height={40}><Vector d="M0 0L10 0L0 10Z" viewBox="0 0 10 10" width={40} height={40} fill="#000000" /></Frame>"##,
         );
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert_eq!(rgba(&p, 5, 5)[3], 255);
         assert_eq!(rgba(&p, 35, 35)[3], 0);
     }
@@ -1300,7 +1310,7 @@ mod tests {
         });
         s.images.insert(file.id, file);
         // The image is sampled smoothly, so each side is mostly its color.
-        let p = Renderer::new().paint(&s, 1.0);
+        let p = Renderer::new().paint(&s, Theme::Light, 1.0);
         let (left, right) = (rgba(&p, 1, 10), rgba(&p, 18, 10));
         assert!(left[0] > 200 && left[2] < 50, "{left:?}");
         assert!(right[2] > 200 && right[0] < 50, "{right:?}");
@@ -1323,12 +1333,43 @@ mod tests {
         assert!(resolve::decode(b"\x89PNG\r\n\x1a\nbroken").is_err());
     }
 
+    /// A drawing is made for a theme: each color its value there.
+    #[test]
+    fn a_drawing_takes_each_colors_value_in_its_theme() {
+        let files: HashMap<String, String> = [
+            (
+                "themes.yml".to_string(),
+                "kind: themes\nlight:\n  bg: \"#ffffff\"\n  edge: \"#ff0000\"\ndark:\n  bg: \"#000000\"\n  edge: \"#00ff00\"\n"
+                    .to_string(),
+            ),
+            (
+                "a.design".to_string(),
+                r##"<Frame width={40} height={20} fill={theme.bg} stroke={theme.edge} strokeWidth={4}>
+  <Rect x={10} y={8} width={20} height={4} fill="linear-gradient(90deg, theme.edge 0%, theme.edge 100%)" />
+</Frame>"##
+                    .to_string(),
+            ),
+        ]
+        .into();
+        let s = resolve::resolve(&files, "a.design").unwrap();
+        let mut r = Renderer::new();
+        for (theme, bg, edge) in [
+            (Theme::Light, [255, 255, 255, 255], [255, 0, 0, 255]),
+            (Theme::Dark, [0, 0, 0, 255], [0, 255, 0, 255]),
+        ] {
+            let p = r.paint(&s, theme, 1.0);
+            assert_eq!(rgba(&p, 6, 6), bg, "{theme:?}");
+            assert_eq!(rgba(&p, 1, 1), edge, "{theme:?}");
+            assert_eq!(rgba(&p, 20, 10), edge, "{theme:?}");
+        }
+    }
+
     #[test]
     fn paints_fills_and_text() {
         let s = scene(
             r##"<Frame width={100} height={40} fill="#ff0000" layout="row" padding={8}><Text color="#ffffff">Pay</Text></Frame>"##,
         );
-        let pixmap = Renderer::new().paint(&s, 1.0);
+        let pixmap = Renderer::new().paint(&s, Theme::Light, 1.0);
         assert_eq!((pixmap.width(), pixmap.height()), (100, 40));
         let p = pixmap.sample(90, 30);
         assert_eq!((p.r, p.g, p.b, p.a), (255, 0, 0, 255));
@@ -1364,7 +1405,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={40} height={30} radius={12} fill="#000000"><Text>Hi</Text></Frame>"##,
         );
-        let (area, _) = r.display_list(&s);
+        let (area, _) = r.display_list(&s, Theme::Light);
         assert_eq!(
             area,
             Frame {
@@ -1374,14 +1415,14 @@ mod tests {
                 height: 30.0
             }
         );
-        assert_eq!(r.paint(&s, 1.0).width(), 40);
+        assert_eq!(r.paint(&s, Theme::Light, 1.0).width(), 40);
         // A shadow and a child past the edge widen it; the PNG shows them.
         let s = scene(
             r##"<Frame width={40} height={30} fill="#ffffff" shadow={{ y: 4, blur: 8, color: "#000000ff" }}>
   <Rect x={30} y={-10} width={20} height={10} fill="#ff0000" />
 </Frame>"##,
         );
-        let (area, _) = r.display_list(&s);
+        let (area, _) = r.display_list(&s, Theme::Light);
         assert_eq!(
             area,
             Frame {
@@ -1391,7 +1432,7 @@ mod tests {
                 height: 56.0
             }
         );
-        let p = r.paint(&s, 1.0);
+        let p = r.paint(&s, Theme::Light, 1.0);
         assert_eq!((p.width(), p.height()), (64, 56));
         // The red child, at (30..50, -10..0), drawn at its place in the PNG.
         assert!(close(rgba(&p, 12 + 45, 5), [255, 0, 0, 255]));
@@ -1401,7 +1442,7 @@ mod tests {
         let s = scene(
             r##"<Frame width={40} height={30} clip><Rect x={30} width={50} height={10} fill="#ff0000" /></Frame>"##,
         );
-        assert_eq!(r.display_list(&s).0.width, 40.0);
+        assert_eq!(r.display_list(&s, Theme::Light).0.width, 40.0);
     }
 
     #[test]
@@ -1409,11 +1450,11 @@ mod tests {
         let mut r = Renderer::new();
         let s = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
         assert_eq!(
-            crate::png(&mut r, &s).unwrap_err(),
+            crate::png(&mut r, &s, Theme::Light).unwrap_err(),
             "the drawing is 20000×10 pixels; a design draws at most 16384 a side"
         );
         // Painting for the canvas stops at the limit rather than allocating more.
-        assert_eq!(r.paint(&s, 1.0).width(), 16384);
+        assert_eq!(r.paint(&s, Theme::Light, 1.0).width(), 16384);
     }
 
     /// Files whose `.png`s are image files of the size their name says,
@@ -1469,7 +1510,7 @@ mod tests {
             "4096x4096-d.png",
         ]);
         let scene = resolve::resolve(&four, "a.design").unwrap();
-        assert!(r.drawing(&scene, None).is_ok());
+        assert!(r.drawing(&scene, Theme::Light, None).is_ok());
         // The same four again, and again: still four images.
         let again = design(&[
             "4096x4096-a.png",
@@ -1480,7 +1521,7 @@ mod tests {
             "4096x4096-b.png",
         ]);
         let scene = resolve::resolve(&again, "a.design").unwrap();
-        assert!(r.drawing(&scene, None).is_ok());
+        assert!(r.drawing(&scene, Theme::Light, None).is_ok());
         let six = design(&[
             "4096x4096-a.png",
             "4096x4096-b.png",
@@ -1490,7 +1531,7 @@ mod tests {
             "4096x4096-f.png",
         ]);
         let scene = resolve::resolve(&six, "a.design").unwrap();
-        let Err(e) = r.drawing(&scene, None) else {
+        let Err(e) = r.drawing(&scene, Theme::Light, None) else {
             panic!("six 4096-pixel squares fit")
         };
         let at = e.at.unwrap();
@@ -1541,29 +1582,35 @@ mod tests {
         };
         let mut r = Renderer::new();
         let files = ["300x200-a.png", "100x100-b.png", "300x200-a.png"];
-        let first = r.drawing(&design("One", &files, 6), None).unwrap();
+        let first = r
+            .drawing(&design("One", &files, 6), Theme::Light, None)
+            .unwrap();
         // Two files, one shown twice, and the shadow's images.
         assert!(first.images.len() > 2);
         assert_eq!(painted(&first), ids(&first).into_iter().collect());
 
         // New text and a new layout: the very same images.
         let edited = r
-            .drawing(&design("Two words", &files, 6), Some(&first))
+            .drawing(&design("Two words", &files, 6), Theme::Light, Some(&first))
             .unwrap();
         assert_eq!(ids(&edited), ids(&first));
         assert_eq!(painted(&edited), painted(&first));
 
         // A drawing made after none, and drawings whose images differ — a
         // file, their order, a shadow — share nothing with the last.
-        let fresh = r.drawing(&design("One", &files, 6), None).unwrap();
+        let fresh = r
+            .drawing(&design("One", &files, 6), Theme::Light, None)
+            .unwrap();
         let other = ["300x200-a.png", "100x100-c.png"];
         let swapped = ["100x100-b.png", "300x200-a.png"];
         for d in [
             fresh,
-            r.drawing(&design("One", &other, 6), Some(&first)).unwrap(),
-            r.drawing(&design("One", &swapped, 6), Some(&first))
+            r.drawing(&design("One", &other, 6), Theme::Light, Some(&first))
                 .unwrap(),
-            r.drawing(&design("One", &files, 7), Some(&first)).unwrap(),
+            r.drawing(&design("One", &swapped, 6), Theme::Light, Some(&first))
+                .unwrap(),
+            r.drawing(&design("One", &files, 7), Theme::Light, Some(&first))
+                .unwrap(),
         ] {
             let shared: Vec<_> = ids(&d)
                 .into_iter()
@@ -1581,7 +1628,7 @@ mod tests {
             r##"<Frame width="fill" height="fill" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
             r##"<Frame width="fill" layout="row" fill="#ff0000"><Rect width={100} height={50} /></Frame>"##,
         ] {
-            let d = r.drawing(&scene(root), None).unwrap();
+            let d = r.drawing(&scene(root), Theme::Light, None).unwrap();
             assert_eq!((d.area.width, d.area.height), (100.0, 50.0), "{root}");
         }
     }
@@ -1590,13 +1637,13 @@ mod tests {
     fn a_drawing_is_laid_out_once_and_refuses_to_be_too_big() {
         let mut r = Renderer::new();
         let s = scene(r#"<Frame layout="row" padding={4}><Rect width={10} height={10} /></Frame>"#);
-        let d = r.drawing(&s, None).unwrap();
+        let d = r.drawing(&s, Theme::Light, None).unwrap();
         assert_eq!(d.frames, r.layout(&s));
-        let (area, list) = r.display_list(&s);
+        let (area, list) = r.display_list(&s, Theme::Light);
         assert_eq!((d.area, d.list.len()), (area, list.len()));
         let big = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
         assert!(
-            r.drawing(&big, None)
+            r.drawing(&big, Theme::Light, None)
                 .err()
                 .unwrap()
                 .message
@@ -1679,7 +1726,7 @@ mod tests {
                         [("a.design".to_string(), source.clone())].into();
                     if let Ok(s) = resolve::resolve(&files, "a.design") {
                         r.layout(&s);
-                        let _ = crate::png(&mut r, &s);
+                        let _ = crate::png(&mut r, &s, Theme::Light);
                     }
                 }
             }
@@ -1733,7 +1780,7 @@ mod examples {
         for name in ["button", "checkout", "confirmation", "details"] {
             let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
-            let png = crate::png(&mut renderer, &scene).unwrap();
+            let png = crate::png(&mut renderer, &scene, Theme::Light).unwrap();
             let reference = dir.join(format!("{name}.png"));
             if update {
                 std::fs::write(&reference, &png).unwrap();
@@ -1780,7 +1827,7 @@ mod examples {
         let mut renderer = Renderer::new();
         let mut paint = |files: &dyn Files| {
             let scene = crate::resolve(files, path).unwrap_or_else(|p| panic!("{p:?}"));
-            pixels(&crate::png(&mut renderer, &scene).unwrap()).unwrap()
+            pixels(&crate::png(&mut renderer, &scene, Theme::Light).unwrap()).unwrap()
         };
         let whole = paint(&repo());
         for (part, hidden) in [

@@ -24,18 +24,21 @@ message Update {
   string path = 4;
 }
 
-// A whole scene: its tree, and each distinct image file the tree shows,
-// once, however many nodes show it.
+// A whole scene: its tree, each distinct image file the tree shows, once,
+// however many nodes show it, and whether it is themed — whether any
+// `theme.` reference reached it.
 message Scene {
   Node root = 1;
   repeated ImageFile images = 2;
+  bool themed = 3;
 }
 
-// The nodes that changed, and the image files they show that the scene last
-// sent didn't have — only those.
+// The nodes that changed, the image files they show that the scene last
+// sent didn't have — only those — and whether the scene is themed now.
 message Patch {
   repeated Replace replace = 1;
   repeated ImageFile images = 2;
+  bool themed = 3;
 }
 
 // An image file's bytes, PNG or JPEG, and its id: the SHA-256 of the bytes.
@@ -55,9 +58,9 @@ message Problems {
   repeated string problems = 1;
 }
 
-// One node of a scene, every attribute resolved. Colors are 0xRRGGBBAA;
-// a size is pixels, or -1 for hug and -2 for fill. A fill is `fill` (one
-// color) or `gradient`, never both.
+// One node of a scene, every attribute resolved. A size is pixels, or -1
+// for hug and -2 for fill. A fill is `fill` (one color) or `gradient`, never
+// both.
 message Node {
   Kind kind = 1;
   string name = 2;
@@ -67,8 +70,8 @@ message Node {
   float height = 6;
   float opacity = 7;
   string on_click = 8;
-  optional uint32 fill = 9;
-  optional uint32 stroke = 10;
+  Color fill = 9;
+  Color stroke = 10;
   float stroke_width = 11;
   repeated float radius = 12;
   Shadow shadow = 13;
@@ -91,8 +94,15 @@ message Gradient {
   repeated Stop stops = 2;
 }
 
+// A color's value in each of the design's themes, each 0xRRGGBBAA; a color
+// written as `#…` has the same value in both.
+message Color {
+  uint32 light = 1;
+  uint32 dark = 2;
+}
+
 message Stop {
-  uint32 color = 1;
+  Color color = 1;
   // From 0 to 1 along the gradient line.
   float at = 2;
 }
@@ -137,14 +147,14 @@ message Shadow {
   float y = 2;
   float blur = 3;
   float spread = 4;
-  uint32 color = 5;
+  Color color = 5;
 }
 
 message Text {
   string content = 1;
   float size = 2;
   uint32 weight = 3;
-  uint32 color = 4;
+  Color color = 4;
   float line_height = 5;
   TextAlign align = 6;
 }

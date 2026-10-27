@@ -1,6 +1,8 @@
 /* devpage's built-in light and dark themes. Every color comes from these tokens,
-   diagrams included, so a theme is a set of token values. */
-:root {
+   diagrams included, so a theme is a set of token values. An embedded
+   design's backdrop that its own switch turned carries data-theme too, and
+   takes that theme's tokens whatever the page's. */
+:root, .design-embed[data-theme="light"] {
   --background: #ffffff;
   --surface: #f5f5f7;
   --text: #1d1d1f;
@@ -22,7 +24,7 @@
 
 /* Dark: chosen with the theme selector (data-theme, set before the page
    paints), or — with no choice made and no script — by the system setting. */
-:root[data-theme="dark"] {
+:root[data-theme="dark"], .design-embed[data-theme="dark"] {
     --background: #000000;
     --surface: #1d1d1f;
     --text: #f5f5f7;
@@ -56,8 +58,8 @@
     --syntax-attribute: #fd8f3f;
   }
 }
-:root[data-theme="light"] { color-scheme: light; }
-:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"], .design-embed[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"], .design-embed[data-theme="dark"] { color-scheme: dark; }
 
 
 * { box-sizing: border-box; }
@@ -302,10 +304,13 @@ body.design-page { margin: 0; height: 100vh; overflow: hidden; background: var(-
 body.design-page > canvas.design { position: fixed; inset: 0; width: 100vw; height: 100vh; touch-action: none; }
 .design-embed { display: flex; justify-content: center; align-items: center; position: relative; margin: 24px 0; padding: 40px 24px; min-height: 120px; box-sizing: border-box; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); overflow: hidden; }
 .design-embed > canvas.design { display: block; flex: none; border-radius: 2px; box-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 8px 28px rgb(0 0 0 / 0.08); }
-.design-embed > a.design-open { position: absolute; top: 10px; right: 12px; z-index: 1; padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--muted); font: 500 12px/1.5 var(--font); text-decoration: none; opacity: 0.85; transition: opacity 0.15s, color 0.15s; }
-.design-embed > a.design-open::after { content: " ↗"; }
-.design-embed > a.design-open:hover, .design-embed > a.design-open:focus-visible { opacity: 1; color: var(--accent); }
-@media print { .design-embed { padding: 16px; border-radius: 8px; } .design-embed > canvas.design { box-shadow: none; } .design-embed > a.design-open { display: none; } }
+/* The backdrop's corner: a themed design's own theme switch, then the link
+   to its canvas page. */
+.design-embed > .design-corner { position: absolute; top: 8px; right: 12px; z-index: 1; display: flex; align-items: center; gap: 4px; }
+.design-embed a.design-open { padding: 3px 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--background); color: var(--muted); font: 500 12px/1.5 var(--font); text-decoration: none; opacity: 0.85; transition: opacity 0.15s, color 0.15s; }
+.design-embed a.design-open::after { content: " ↗"; }
+.design-embed a.design-open:hover, .design-embed a.design-open:focus-visible { opacity: 1; color: var(--accent); }
+@media print { .design-embed { padding: 16px; border-radius: 8px; } .design-embed > canvas.design { box-shadow: none; } .design-embed > .design-corner { display: none; } }
 .design-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: rgb(15 23 42 / 0.4); }
 .design-overlay.design-overlay-page { position: fixed; z-index: 2; }
 .design-problems { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 3; margin: 0; padding: 10px 14px 10px 32px; border: 1px solid #d70015; border-radius: 10px; background: var(--background); color: #d70015; font: 13px var(--font-mono); }
@@ -438,18 +443,27 @@ body.with-navbar #devpage-nav { top: 52px; height: calc(100vh - 52px); }
    the navbar when a site has one, else in the top-right corner. Never printed;
    a deck hides it in fullscreen. */
 
-.theme-toggle, .comment-mode {
+.theme-toggle, .comment-mode, .design-theme {
   display: inline-flex; align-items: center; justify-content: center;
   width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px;
   background: none; color: var(--muted); cursor: pointer; transition: color 0.15s, background 0.15s;
 }
 .theme-toggle:hover, .comment-mode:hover { color: var(--text); background: var(--surface); }
+/* An embed's own switch sits on the backdrop, which is the surface. */
+.design-theme:hover { background: var(--background); }
+.design-theme[hidden] { display: none; }
 /* Comment mode, pressed: the accent, on a tint of it. */
 .comment-mode[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 #devpage-corner { display: flex; gap: 4px; }
-.theme-toggle span { display: inline-flex; }
+.theme-toggle span, .design-theme span { display: inline-flex; }
 .theme-toggle .to-light, :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
 :root[data-theme="dark"] .theme-toggle .to-light { display: inline-flex; }
+/* An embed's switch shows the theme a click turns it to: its own theme's
+   once turned, else the page's. */
+.design-theme .to-light, :root[data-theme="dark"] .design-theme .to-dark, .design-embed[data-theme="dark"] .design-theme .to-dark { display: none; }
+:root[data-theme="dark"] .design-theme .to-light, .design-embed[data-theme="dark"] .design-theme .to-light { display: inline-flex; }
+.design-embed[data-theme="light"] .design-theme .to-dark { display: inline-flex; }
+.design-embed[data-theme="light"] .design-theme .to-light { display: none; }
 #devpage-corner { position: fixed; top: 14px; right: 16px; z-index: 15; }
 :root:fullscreen #devpage-corner, .print #devpage-corner { display: none; }
 @media print { #devpage-navbar, #devpage-corner { display: none !important; } body.with-navbar #devpage-nav { top: 0; } }
