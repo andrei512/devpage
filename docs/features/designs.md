@@ -23,4 +23,9 @@ light and a dark value for each name: a design on a dark page is drawn dark,
 and an embed has a switch of its own to see it the other way.
 `checkout.design.png?theme=dark` is the dark drawing.
 
+The same file names the font: `font: ./fonts/Figtree`, a font file checked
+into the repository beside the designs, so the checkout is set in Figtree
+rather than the Inter devpage carries — the same glyphs and line breaks on the
+canvas and in the PNG, whatever fonts the machine has.
+
 Teaches it: [Designs](../boxes/viewer/designs/README.md).

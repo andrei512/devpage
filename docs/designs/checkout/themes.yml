@@ -1,5 +1,7 @@
-# The checkout's colors in each theme: every theme.<name> its designs use.
+# The checkout's colors in each theme — every theme.<name> its designs use —
+# and the font both themes set its text in.
 kind: themes
+font: ./fonts/Figtree
 light:
   background: "#f8fafc"
   card: "#ffffff"

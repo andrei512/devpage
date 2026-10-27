@@ -8,6 +8,7 @@ use std::sync::Arc;
 use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 use crate::Problem;
+use crate::fonts::{self, Family, FontFile, FontFiles, FontId};
 use crate::parse::{self, Child, Element, Pos, TextPart, Value};
 
 /// One color's value: straight-alpha RGBA.
@@ -371,6 +372,9 @@ pub struct Shadow {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextStyle {
+    /// The font file the text is set in, the face its weight picked; `None`
+    /// for Inter.
+    pub font: Option<FontId>,
     pub content: String,
     pub size: f32,
     pub weight: u16,
@@ -439,8 +443,11 @@ impl Node {
 
 /// Reads a design's files by their path from the top of the served folder.
 pub trait Files {
-    /// A file's bytes: a design's text, or an `Image`'s file.
+    /// A file's bytes: a design's text, an `Image`'s file or a font file.
     fn bytes(&self, path: &str) -> Option<Vec<u8>>;
+    /// The names of the files directly in the folder at `path`, sorted;
+    /// `None` when there is no such folder. A font folder is read this way.
+    fn list(&self, path: &str) -> Option<Vec<String>>;
     /// A design file's text.
     fn read(&self, path: &str) -> Option<String> {
         String::from_utf8(self.bytes(path)?).ok()
@@ -452,21 +459,46 @@ pub trait Files {
         self.bytes(path)
             .map(|bytes| ImageFile::new(bytes).map(Arc::new))
     }
+    /// The font file at `path`, checked, or why it isn't one; `None` when
+    /// there is no such file. A store that keeps files between resolves
+    /// keeps them checked too.
+    fn font(&self, path: &str) -> Option<Result<Arc<FontFile>, String>> {
+        self.bytes(path)
+            .map(|bytes| FontFile::new(bytes).map(Arc::new))
+    }
+}
+
+/// The names of the files directly in `folder`, from every path a store
+/// holds — `None` when it holds none there.
+pub fn listed<'a>(paths: impl Iterator<Item = &'a String>, folder: &str) -> Option<Vec<String>> {
+    let prefix = format!("{folder}/");
+    let mut names: Vec<String> = paths
+        .filter_map(|p| p.strip_prefix(&prefix))
+        .filter(|rest| !rest.contains('/'))
+        .map(str::to_string)
+        .collect();
+    names.sort();
+    (!names.is_empty()).then_some(names)
 }
 
 impl Files for HashMap<String, String> {
     fn bytes(&self, path: &str) -> Option<Vec<u8>> {
         self.get(path).map(|s| s.clone().into_bytes())
     }
+    fn list(&self, path: &str) -> Option<Vec<String>> {
+        listed(self.keys(), path)
+    }
 }
 
-/// A resolved design: its tree, each distinct image file its `Image`s show,
-/// the files it was made from, and whether it is **themed** — whether any
-/// `theme.` reference reached its nodes.
+/// A resolved design: its tree, each distinct image file its `Image`s show
+/// and font file its texts are set in, the files it was made from, and
+/// whether it is **themed** — whether any `theme.` reference reached its
+/// nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     pub root: Node,
     pub images: ImageFiles,
+    pub fonts: FontFiles,
     pub files: Vec<String>,
     pub themed: bool,
 }
@@ -493,6 +525,8 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         depth: 0,
         images: ImageFiles::new(),
         by_path: HashMap::new(),
+        fonts: FontFiles::new(),
+        families: HashMap::new(),
         themes: HashMap::new(),
         themed: false,
     };
@@ -501,6 +535,7 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         Ok(Scene {
             root: root.expect("no problems means a root"),
             images: r.images,
+            fonts: r.fonts,
             files: r.read,
             themed: r.themed,
         })
@@ -523,6 +558,12 @@ struct Resolver<'a> {
     images: ImageFiles,
     /// Each image file read so far, by its path.
     by_path: HashMap<String, Result<ImageId, String>>,
+    /// Every font file the design's texts are set in, by id.
+    fonts: FontFiles,
+    /// Each font a `font` named so far, file or folder, by its path: `None`
+    /// when there is nothing there, and whether its problem was reported
+    /// yet, for a font the themes name, reported once.
+    families: HashMap<String, (Found, bool)>,
     /// The themes each folder's designs use, merged from every `themes.yml`
     /// from that folder up, by folder: read once per resolve.
     themes: HashMap<String, Rc<Themes>>,
@@ -539,12 +580,24 @@ struct Themes {
     found: bool,
     light: BTreeMap<String, Rgba>,
     dark: BTreeMap<String, Rgba>,
+    /// The font of the lowest file that sets one.
+    font: Option<ThemesFont>,
 }
 
-/// One `themes.yml`'s two themes, as far as they are valid.
+/// A `themes.yml`'s `font`: the path as written, its address — `None` when
+/// it leaves the served folder — and where it is written.
+#[derive(Debug, Clone)]
+struct ThemesFont {
+    written: String,
+    at: Option<String>,
+    origin: Origin,
+}
+
+/// One `themes.yml`'s two themes and its font, as far as they are valid.
 struct ThemesFile {
     light: BTreeMap<String, Rgba>,
     dark: BTreeMap<String, Rgba>,
+    font: Option<ThemesFont>,
 }
 
 /// The file a folder's themes are in.
@@ -554,7 +607,19 @@ pub const THEMES_FILE: &str = "themes.yml";
 /// the parser's own limit for one file, and so far beyond any real design.
 const MAX_DEPTH: usize = parse::MAX_DEPTH;
 
-type Props = HashMap<String, Value>;
+/// A prop's value and the file that wrote it, which a path in it is
+/// relative to.
+#[derive(Debug, Clone)]
+struct Given {
+    value: Value,
+    by: String,
+}
+
+type Props = HashMap<String, Given>;
+
+/// A font a `font` names: its family, or why it can't be used; `None` when
+/// there is nothing there.
+type Found = Option<Result<Rc<Family>, String>>;
 
 impl Resolver<'_> {
     fn problem(&mut self, file: &str, pos: Pos, message: String) {
@@ -712,6 +777,9 @@ impl Resolver<'_> {
                 merged.found = true;
                 merged.light.extend(own.light);
                 merged.dark.extend(own.dark);
+                if own.font.is_some() {
+                    merged.font = own.font;
+                }
                 Rc::new(merged)
             }
         };
@@ -730,6 +798,7 @@ impl Resolver<'_> {
         let mut file = ThemesFile {
             light: BTreeMap::new(),
             dark: BTreeMap::new(),
+            font: None,
         };
         let yaml: serde_yaml::Value = match serde_yaml::from_str(&text) {
             Ok(yaml) => yaml,
@@ -759,12 +828,33 @@ impl Resolver<'_> {
                 "kind" => continue,
                 "light" => &mut file.light,
                 "dark" => &mut file.dark,
+                "font" => {
+                    let pos = key_pos(&text, None, key).unwrap_or(start);
+                    match value.as_str() {
+                        Some(written) => {
+                            file.font = Some(ThemesFont {
+                                written: written.to_string(),
+                                at: join(path, written),
+                                origin: Origin {
+                                    file: path.to_string(),
+                                    pos,
+                                },
+                            })
+                        }
+                        None => self.problem(
+                            path,
+                            pos,
+                            "font: expected a path to a font file or a folder of one family's, like ./fonts/Geist".into(),
+                        ),
+                    }
+                    continue;
+                }
                 other => {
                     let pos = key_pos(&text, None, other).unwrap_or(start);
                     self.problem(
                         path,
                         pos,
-                        format!("{other}: a themes file has kind, light and dark only"),
+                        format!("{other}: a themes file has kind, font, light and dark only"),
                     );
                     continue;
                 }
@@ -831,7 +921,7 @@ impl Resolver<'_> {
     fn design(
         &mut self,
         path: &str,
-        args: &[parse::Attr],
+        args: &[(parse::Attr, String)],
         from: Option<(&str, Pos)>,
         used_as: &str,
         parent: Option<Layout>,
@@ -944,7 +1034,13 @@ impl Resolver<'_> {
                             );
                             continue;
                         }
-                        props.insert(k.clone(), v.clone());
+                        props.insert(
+                            k.clone(),
+                            Given {
+                                value: v.clone(),
+                                by: path.to_string(),
+                            },
+                        );
                     }
                 }
                 _ => self.problem(
@@ -957,14 +1053,20 @@ impl Resolver<'_> {
         let (caller, caller_pos) = from.unwrap_or((path, file.root.pos));
         let caller = caller.to_string();
         let mut overrides = Vec::new();
-        for arg in args {
+        for (arg, by) in args {
             if matches!(
                 arg.name.as_str(),
                 "x" | "y" | "width" | "height" | "name" | "opacity" | "onClick"
             ) {
-                overrides.push(arg.clone());
+                overrides.push((arg.clone(), by.clone()));
             } else if props.contains_key(&arg.name) {
-                props.insert(arg.name.clone(), arg.value.clone());
+                props.insert(
+                    arg.name.clone(),
+                    Given {
+                        value: arg.value.clone(),
+                        by: by.clone(),
+                    },
+                );
             } else {
                 self.problem(
                     &caller,
@@ -978,9 +1080,9 @@ impl Resolver<'_> {
         let mut root = self.element(path, &file.root, &props, &imports, true, parent);
         self.stack.pop();
         if let Some(root) = root.as_mut() {
-            for attr in &overrides {
+            for (attr, by) in &overrides {
                 // The caller's own props are already substituted into these.
-                self.common(&caller, root, attr, attr.value.clone());
+                self.common(&caller, by, root, attr, attr.value.clone());
                 self.fill_needs_layout(&caller, attr, &attr.value, parent);
                 self.place_needs_no_layout(&caller, attr, parent);
             }
@@ -1032,12 +1134,16 @@ impl Resolver<'_> {
             if !el.children.is_empty() {
                 self.problem(path, el.pos, format!("{} takes no children", el.name));
             }
-            let args: Vec<parse::Attr> = attrs
+            let args: Vec<(parse::Attr, String)> = attrs
                 .iter()
-                .map(|a| parse::Attr {
-                    name: a.name.clone(),
-                    value: substitute(&a.value, props),
-                    pos: a.pos,
+                .map(|a| {
+                    let (value, by) = substitute(&a.value, props, path);
+                    let arg = parse::Attr {
+                        name: a.name.clone(),
+                        value,
+                        pos: a.pos,
+                    };
+                    (arg, by)
                 })
                 .collect();
             let target = target.clone();
@@ -1057,7 +1163,10 @@ impl Resolver<'_> {
             }
         };
         let mut node = Node::new(kind, &el.name);
-        for attr in attrs {
+        // A text's `font`, as given and by the file that wrote it, chosen a
+        // face from once its weight is known.
+        let mut font = None;
+        for &attr in &attrs {
             if attr.name == "props" {
                 if !root {
                     self.problem(
@@ -1081,20 +1190,24 @@ impl Resolver<'_> {
                 );
                 continue;
             }
-            let value = match &attr.value {
+            let (value, by) = match &attr.value {
                 Value::Prop(p) => match props.get(p) {
-                    Some(v) => v.clone(),
+                    Some(given) => (given.value.clone(), given.by.clone()),
                     None => {
                         self.problem(path, attr.pos, format!("{}: no prop \"{p}\"", attr.name));
                         continue;
                     }
                 },
-                v => v.clone(),
+                v => (v.clone(), path.to_string()),
             };
             self.themed |= has_theme(&value);
             self.fill_needs_layout(path, attr, &value, parent);
             self.place_needs_no_layout(path, attr, parent);
-            self.attribute(path, &mut node, attr, value);
+            if kind == Kind::Text && attr.name == "font" {
+                font = Some((attr, value, by));
+                continue;
+            }
+            self.attribute(path, &by, &mut node, attr, value);
         }
         match kind {
             Kind::Vector if !el.attrs.iter().any(|a| a.name == "d") => self.problem(
@@ -1119,7 +1232,7 @@ impl Resolver<'_> {
                         for part in parts {
                             match part {
                                 TextPart::Literal(s) => content.push_str(s),
-                                TextPart::Prop(p) => match props.get(p) {
+                                TextPart::Prop(p) => match props.get(p).map(|g| &g.value) {
                                     Some(Value::Str(s, _)) => content.push_str(s),
                                     Some(Value::Num(n)) => content.push_str(&n.to_string()),
                                     _ => self.problem(path, *pos, format!("no text prop \"{p}\"")),
@@ -1137,7 +1250,11 @@ impl Resolver<'_> {
                     Child::Element(e) => self.problem(path, e.pos, "Text holds text only".into()),
                 }
             }
-            node.text.get_or_insert_with(default_text).content = content;
+            let text = node.text.get_or_insert_with(default_text);
+            text.content = content;
+            let weight = text.weight;
+            let weight_at = attrs.iter().find(|a| a.name == "weight").map(|a| a.pos);
+            text.font = self.text_font(path, el.pos, font, weight, weight_at);
         } else {
             for child in &el.children {
                 match child {
@@ -1204,11 +1321,21 @@ impl Resolver<'_> {
 
     // Each arm sets a field and says whether the value fit: `Ok(field = v)`.
     #[allow(clippy::unit_arg)]
-    fn attribute(&mut self, path: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
+    fn attribute(
+        &mut self,
+        path: &str,
+        by: &str,
+        node: &mut Node,
+        attr: &parse::Attr,
+        value: Value,
+    ) {
         let kind = node.kind;
+        // A path is relative to the file that wrote it, and its problem is
+        // where it was written.
+        let (at_file, at_pos) = written_at(path, by, attr, &value);
         let ok = match (attr.name.as_str(), kind) {
             ("x" | "y" | "width" | "height" | "name" | "opacity" | "onClick", _) => {
-                self.common(path, node, attr, value);
+                self.common(path, by, node, attr, value);
                 return;
             }
             ("fill", k) if k != Kind::Text => fill(&value).map(|f| node.fill = Some(f)),
@@ -1259,10 +1386,10 @@ impl Resolver<'_> {
                 px(&value).map(|n| node.text.get_or_insert_with(default_text).size = n)
             }
             ("weight", Kind::Text) => match num(&value) {
-                Ok(w) if [400.0, 500.0, 600.0, 700.0].contains(&w) => {
+                Ok(w) if fonts::WEIGHTS.iter().any(|&k| k as f32 == w) => {
                     Ok(node.text.get_or_insert_with(default_text).weight = w as u16)
                 }
-                _ => Err("expected 400, 500, 600 or 700".into()),
+                _ => Err("expected 100 to 900 in steps of 100".into()),
             },
             ("color", Kind::Text) => {
                 color(&value).map(|c| node.text.get_or_insert_with(default_text).color = c)
@@ -1308,11 +1435,21 @@ impl Resolver<'_> {
                 None => Err("expected \"minX minY width height\"".into()),
             },
             ("src", Kind::Image) => match str_of(&value) {
-                Some(src) => match join(path, &src) {
-                    None => Err(format!("{src} — outside the served folder")),
+                Some(src) => match join(by, &src) {
+                    None => {
+                        let e = format!("src: {src} — outside the served folder");
+                        self.problem(&at_file, at_pos, e);
+                        return;
+                    }
                     Some(at) => match self.image_file(&at) {
-                        None => Err(format!("{src} — no such file")),
-                        Some(Err(e)) => Err(format!("{src} {e}")),
+                        None => {
+                            self.problem(&at_file, at_pos, format!("src: {src} — no such file"));
+                            return;
+                        }
+                        Some(Err(e)) => {
+                            self.problem(&at_file, at_pos, format!("src: {src} {e}"));
+                            return;
+                        }
                         Some(Ok(id)) => {
                             node.image = Some(Image {
                                 src: at,
@@ -1362,6 +1499,159 @@ impl Resolver<'_> {
         Some(id)
     }
 
+    /// The font file a `Text` written at `pos` in `path` is set in, for its
+    /// `weight` — `None` for Inter — from its own `font`, given as `value`
+    /// by the file `by`, or else from the themes of `path`. A font that can't
+    /// be used, or lacks the weight, is a problem: at the `font` that named
+    /// it, and at the `weight` — or the `Text` — that asked for what it lacks.
+    fn text_font(
+        &mut self,
+        path: &str,
+        pos: Pos,
+        font: Option<(&parse::Attr, Value, String)>,
+        weight: u16,
+        weight_at: Option<Pos>,
+    ) -> Option<FontId> {
+        let (written, at, origin, from_themes) = match font {
+            Some((attr, value, by)) => {
+                let (file, at_pos) = written_at(path, &by, attr, &value);
+                let origin = Origin { file, pos: at_pos };
+                let Some(written) = str_of(&value) else {
+                    self.problem(
+                        &origin.file,
+                        origin.pos,
+                        "font: expected a path to a font file or a folder of one family's, like \"./fonts/Geist\"".into(),
+                    );
+                    return None;
+                };
+                let at = join(&by, &written);
+                (written, at, origin, false)
+            }
+            None => {
+                let folder = path.rsplit_once('/').map_or("", |(folder, _)| folder);
+                match self.themes(folder).font.clone() {
+                    Some(f) => (f.written, f.at, f.origin, true),
+                    None => {
+                        if !fonts::INTER_WEIGHTS.contains(&weight) {
+                            self.no_weight(
+                                path,
+                                pos,
+                                weight_at,
+                                weight,
+                                fonts::INTER,
+                                &fonts::INTER_WEIGHTS,
+                            );
+                        }
+                        return None;
+                    }
+                }
+            }
+        };
+        let Some(at) = at else {
+            self.problem(
+                &origin.file,
+                origin.pos,
+                format!("font: {written} — outside the served folder"),
+            );
+            return None;
+        };
+        let (family, reported) = self.family(&at);
+        let family = match family {
+            Some(Ok(family)) => family,
+            missing_or_bad => {
+                let problem = match missing_or_bad {
+                    Some(Err(e)) => format!("font: {written} {e}"),
+                    _ => format!("font: {written} — no such file or folder"),
+                };
+                // A font the themes name is reported once, however many
+                // texts use it.
+                if !(from_themes && reported) {
+                    self.problem(&origin.file, origin.pos, problem);
+                    if let Some(entry) = self.families.get_mut(&at) {
+                        entry.1 = true;
+                    }
+                }
+                return None;
+            }
+        };
+        match family.face(weight) {
+            Some(face) => {
+                self.fonts.entry(face.id).or_insert_with(|| face.clone());
+                Some(face.id)
+            }
+            None => {
+                let has = family.weights();
+                self.no_weight(path, pos, weight_at, weight, &family.name, &has);
+                None
+            }
+        }
+    }
+
+    /// The problem of a weight the font doesn't have: at the `Text`'s
+    /// `weight`, or at the `Text` when it leaves the weight at 400.
+    fn no_weight(
+        &mut self,
+        path: &str,
+        pos: Pos,
+        weight_at: Option<Pos>,
+        weight: u16,
+        family: &str,
+        has: &[u16],
+    ) {
+        let message = if has.is_empty() {
+            format!(
+                "weight: {family} has no {weight}; it has no weight from 100 to 900 in steps of 100"
+            )
+        } else {
+            format!(
+                "weight: {family} has no {weight}; it has {}",
+                fonts::list(has)
+            )
+        };
+        self.problem(path, weight_at.unwrap_or(pos), message);
+    }
+
+    /// The font at `at` — one file, or a folder of one family's files — read
+    /// and checked once per resolve, or why it can't be used; `None` when
+    /// there is nothing there. Also whether its problem was reported yet.
+    fn family(&mut self, at: &str) -> (Found, bool) {
+        if let Some(known) = self.families.get(at) {
+            return known.clone();
+        }
+        let family = match self.font_file(at) {
+            Some(Ok(file)) => Some(Ok(Rc::new(Family {
+                name: file.family.clone(),
+                faces: vec![file],
+            }))),
+            Some(Err(e)) => Some(Err(e)),
+            None => self.files.list(at).map(|names| {
+                let mut faces = Vec::new();
+                for name in names.into_iter().filter(|n| fonts::is_font_name(n)) {
+                    match self.font_file(&format!("{at}/{name}")) {
+                        Some(Ok(file)) => faces.push((name, file)),
+                        Some(Err(e)) => return Err(format!("holds {name}, which {e}")),
+                        // Gone since the folder was listed.
+                        None => {}
+                    }
+                }
+                Family::of_folder(faces).map(Rc::new)
+            }),
+        };
+        self.families
+            .insert(at.to_string(), (family.clone(), false));
+        (family, false)
+    }
+
+    /// The font file at `at`, checked, or why it isn't one; `None` when there
+    /// is no such file.
+    fn font_file(&mut self, at: &str) -> Option<Result<Arc<FontFile>, String>> {
+        let file = self.files.font(at)?;
+        if !self.read.iter().any(|p| p == at) {
+            self.read.push(at.to_string());
+        }
+        Some(file)
+    }
+
     /// An interaction with its path, if it has one, made relative to the top of
     /// the served folder instead of to `path`, the file it is written in.
     fn interaction(&mut self, path: &str, action: &str) -> Result<String, String> {
@@ -1379,7 +1669,8 @@ impl Resolver<'_> {
         }
     }
 
-    fn common(&mut self, path: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
+    fn common(&mut self, path: &str, by: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
+        let (at_file, at_pos) = written_at(path, by, attr, &value);
         let ok = match attr.name.as_str() {
             "x" => num(&value).map(|n| node.x = n),
             "y" => num(&value).map(|n| node.y = n),
@@ -1399,9 +1690,16 @@ impl Resolver<'_> {
                 )),
             },
             "onClick" => match str_of(&value).filter(|s| interaction_ok(s)) {
-                Some(action) => self
-                    .interaction(path, &action)
-                    .map(|a| node.on_click = Some(a)),
+                Some(action) => match self.interaction(by, &action) {
+                    Ok(a) => {
+                        node.on_click = Some(a);
+                        Ok(())
+                    }
+                    Err(e) => {
+                        self.problem(&at_file, at_pos, format!("onClick: {e}"));
+                        return;
+                    }
+                },
                 None => Err(
                     "expected \"navigate <path>\", \"back\", \"overlay <path>\" or \"close\""
                         .into(),
@@ -1417,6 +1715,7 @@ impl Resolver<'_> {
 
 fn default_text() -> TextStyle {
     TextStyle {
+        font: None,
         content: String::new(),
         size: 14.0,
         weight: 400,
@@ -1543,10 +1842,25 @@ pub fn join(from: &str, relative: &str) -> Option<String> {
     Some(parts.join("/"))
 }
 
-fn substitute(value: &Value, props: &Props) -> Value {
+/// `value`, written in `path`, with a prop put in its place, and the file
+/// that wrote what it ends up as.
+fn substitute(value: &Value, props: &Props, path: &str) -> (Value, String) {
     match value {
-        Value::Prop(p) => props.get(p).cloned().unwrap_or_else(|| value.clone()),
-        v => v.clone(),
+        Value::Prop(p) => match props.get(p) {
+            Some(given) => (given.value.clone(), given.by.clone()),
+            None => (value.clone(), path.to_string()),
+        },
+        v => (v.clone(), path.to_string()),
+    }
+}
+
+/// Where a path in `attr`'s `value` was written: at the attribute, in
+/// `path`, or — when the value came as a prop from another file, `by` — at
+/// the string there.
+fn written_at(path: &str, by: &str, attr: &parse::Attr, value: &Value) -> (String, Pos) {
+    match value {
+        Value::Str(_, pos) if by != path => (by.to_string(), *pos),
+        _ => (path.to_string(), attr.pos),
     }
 }
 
@@ -2073,6 +2387,9 @@ mod tests {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             self.0.get(path).cloned()
         }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            listed(self.0.keys(), path)
+        }
     }
 
     /// A 1×1 PNG that decodes.
@@ -2168,7 +2485,7 @@ mod tests {
             ),
             (
                 "<Frame><Text weight={450}>a</Text></Frame>",
-                "d/a.design:1:14: weight: expected 400, 500, 600 or 700",
+                "d/a.design:1:14: weight: expected 100 to 900 in steps of 100",
             ),
             (
                 "<Frame><Text textAlign=\"justify\">a</Text></Frame>",
@@ -2719,6 +3036,9 @@ dark:
             self.1.borrow_mut().push(path.to_string());
             self.0.bytes(path)
         }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            self.0.list(path)
+        }
     }
 
     #[test]
@@ -2856,7 +3176,7 @@ colour: red
                 "themes.yml:6:3: light.edge: no color: write it in quotes, \"#rrggbb\", as YAML reads # as a comment",
                 "themes.yml:7:3: light.9lives: a name holds letters, digits, _ and -, and starts with a letter",
                 "themes.yml:8:1: dark: expected a map of names to colors, like surface: \"#ffffff\"",
-                "themes.yml:9:1: colour: a themes file has kind, light and dark only",
+                "themes.yml:9:1: colour: a themes file has kind, font, light and dark only",
                 "a.design:1:14: theme.surface: only the light theme has surface; a name needs a color in both",
             ]
         );
@@ -2910,6 +3230,354 @@ colour: red
             problems_in(&fs, "a.design"),
             vec![
                 "a.design:1:8: fill: theme.surface is a theme color: write it in braces, {theme.surface}, not in quotes"
+            ]
+        );
+    }
+
+    fn figtree() -> Vec<u8> {
+        std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../docs/designs/checkout/fonts/Figtree/Figtree-Variable.ttf"
+        ))
+        .unwrap()
+    }
+
+    fn inter(face: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/fonts/Inter-{face}.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    fn mem(list: &[(&str, Vec<u8>)]) -> Mem {
+        Mem(list
+            .iter()
+            .map(|(p, b)| (p.to_string(), b.clone()))
+            .collect())
+    }
+
+    fn fonts_of(node: &Node, out: &mut Vec<Option<FontId>>) {
+        if let Some(t) = &node.text {
+            out.push(t.font);
+        }
+        for c in &node.children {
+            fonts_of(c, out);
+        }
+    }
+
+    /// A text is set in its own `font`, or else in the font of the nearest
+    /// `themes.yml` that sets one — a lower one without a font keeping the
+    /// one above — or else in Inter; a folder's licence is passed over.
+    #[test]
+    fn a_text_is_set_in_its_own_font_or_its_themes_or_inter() {
+        let fig = FontId::of(&figtree());
+        let bold = FontId::of(&inter("Bold"));
+        let fs = mem(&[
+            (
+                "themes.yml",
+                b"kind: themes\nfont: ./fonts/Figtree\nlight: {}\ndark: {}\n".to_vec(),
+            ),
+            ("fonts/Figtree/Figtree-Variable.ttf", figtree()),
+            ("fonts/Figtree/OFL.txt", b"licence".to_vec()),
+            ("fonts/Inter/Inter-Bold.ttf", inter("Bold")),
+            ("fonts/Inter/Inter-Regular.ttf", inter("Regular")),
+            (
+                "app/themes.yml",
+                b"kind: themes\nlight:\n  a: \"#fff\"\ndark:\n  a: \"#000\"\n".to_vec(),
+            ),
+            (
+                "app/a.design",
+                br#"<Frame><Text>a</Text><Text font="../fonts/Inter" weight={700}>b</Text></Frame>"#
+                    .to_vec(),
+            ),
+            (
+                "other/themes.yml",
+                b"kind: themes\nfont: ../fonts/Inter\nlight: {}\ndark: {}\n".to_vec(),
+            ),
+            ("other/b.design", br#"<Frame><Text weight={700}>c</Text></Frame>"#.to_vec()),
+        ]);
+        let scene = resolve(&fs, "app/a.design").unwrap();
+        let mut found = Vec::new();
+        fonts_of(&scene.root, &mut found);
+        assert_eq!(found, vec![Some(fig), Some(bold)]);
+        assert_eq!(scene.fonts.keys().copied().collect::<Vec<_>>(), {
+            let mut ids = vec![fig, bold];
+            ids.sort();
+            ids
+        });
+        assert!(!scene.themed, "a font is no theme reference");
+        let lower = resolve(&fs, "other/b.design").unwrap();
+        let mut found = Vec::new();
+        fonts_of(&lower.root, &mut found);
+        assert_eq!(found, vec![Some(bold)], "the lowest font wins");
+        let plain = files(&[("a.design", "<Frame><Text>a</Text></Frame>")]);
+        let scene = resolve(&plain, "a.design").unwrap();
+        assert_eq!(scene.root.children[0].text.as_ref().unwrap().font, None);
+        assert!(scene.fonts.is_empty());
+    }
+
+    /// Weight picks the face: the static file of that weight, or the
+    /// variable font set to it — and a scene carries only the faces its
+    /// texts use, each once.
+    #[test]
+    fn weight_picks_the_face_and_a_scene_carries_only_those_used() {
+        let fs = mem(&[
+            ("f/Inter-Regular.ttf", inter("Regular")),
+            ("f/Inter-Medium.ttf", inter("Medium")),
+            ("f/Inter-SemiBold.ttf", inter("SemiBold")),
+            ("f/Inter-Bold.ttf", inter("Bold")),
+            ("v.ttf", figtree()),
+            (
+                "a.design",
+                br#"<Frame><Text font="./f" weight={600}>a</Text><Text font="./f" weight={600}>b</Text><Text font="./f">c</Text><Text font="./v.ttf" weight={800}>d</Text><Text font="./v.ttf" weight={300}>e</Text></Frame>"#
+                    .to_vec(),
+            ),
+        ]);
+        let scene = resolve(&fs, "a.design").unwrap();
+        let mut found = Vec::new();
+        fonts_of(&scene.root, &mut found);
+        let (semi, regular, fig) = (
+            FontId::of(&inter("SemiBold")),
+            FontId::of(&inter("Regular")),
+            FontId::of(&figtree()),
+        );
+        assert_eq!(
+            found,
+            vec![Some(semi), Some(semi), Some(regular), Some(fig), Some(fig)]
+        );
+        assert_eq!(scene.fonts.len(), 3, "medium and bold aren't used");
+    }
+
+    fn font_problems(list: &[(&str, Vec<u8>)], path: &str) -> Vec<String> {
+        match resolve(&mem(list), path) {
+            Ok(_) => Vec::new(),
+            Err(p) => p.iter().map(|p| p.to_string()).collect(),
+        }
+    }
+
+    /// A weight the font lacks is a problem at the `weight`, or at the
+    /// `Text` when it leaves the weight at 400, listing those it has.
+    #[test]
+    fn a_weight_the_font_lacks_is_a_problem_listing_those_it_has() {
+        let design = |text: &str| {
+            vec![
+                ("v.ttf", figtree()),
+                ("b/Inter-Bold.ttf", inter("Bold")),
+                ("a.design", format!("<Frame>{text}</Frame>").into_bytes()),
+            ]
+        };
+        for (text, expected) in [
+            (
+                r#"<Text weight={300}>a</Text>"#,
+                "a.design:1:14: weight: Inter has no 300; it has 400, 500, 600 and 700",
+            ),
+            (
+                r#"<Text font="./v.ttf" weight={200}>a</Text>"#,
+                "a.design:1:29: weight: Figtree has no 200; it has 300, 400, 500, 600, 700, 800 and 900",
+            ),
+            (
+                r#"<Text font="./b">a</Text>"#,
+                "a.design:1:8: weight: Inter has no 400; it has 700",
+            ),
+        ] {
+            assert_eq!(
+                font_problems(&design(text), "a.design"),
+                vec![expected],
+                "{text}"
+            );
+        }
+    }
+
+    /// A font that can't be used is a problem at the `font` that names it.
+    #[test]
+    fn a_font_that_cant_be_used_is_a_problem_where_it_is_named() {
+        let mut big = vec![0, 1, 0, 0];
+        big.resize(fonts::MAX_FONT_BYTES + 1, 0);
+        let mut copy = inter("Regular");
+        copy.push(0);
+        let list = vec![
+            ("v.ttf", figtree()),
+            ("notes.txt", b"hi".to_vec()),
+            ("web.woff2", b"wOF2rest".to_vec()),
+            ("web.woff", b"wOFFrest".to_vec()),
+            ("all.ttc", b"ttcfrest".to_vec()),
+            ("big.ttf", big),
+            ("broken.ttf", b"\0\x01\0\0broken".to_vec()),
+            ("empty/OFL.txt", b"licence".to_vec()),
+            ("mixed/Figtree.ttf", figtree()),
+            ("mixed/Inter.ttf", inter("Regular")),
+            ("twice/a.ttf", inter("Regular")),
+            ("twice/b.ttf", copy),
+            ("bad/a.ttf", b"nope".to_vec()),
+        ];
+        for (font, expected) in [
+            ("./nope", "font: ./nope — no such file or folder"),
+            ("./../up", "font: ./../up — outside the served folder"),
+            (
+                "./notes.txt",
+                "font: ./notes.txt is not a font: devpage reads .ttf and .otf files",
+            ),
+            (
+                "./web.woff2",
+                "font: ./web.woff2 is a WOFF2 file, which devpage doesn't read — decompress it to a .ttf or .otf",
+            ),
+            (
+                "./web.woff",
+                "font: ./web.woff is a WOFF file, which devpage doesn't read — decompress it to a .ttf or .otf",
+            ),
+            (
+                "./all.ttc",
+                "font: ./all.ttc is a collection of fonts; name one font's own .ttf or .otf file",
+            ),
+            (
+                "./big.ttf",
+                "font: ./big.ttf is 4.0 MB; a font file is at most 4 MB — subset it to the characters the design shows",
+            ),
+            (
+                "./broken.ttf",
+                "font: ./broken.ttf is a .ttf or .otf file that doesn't read as a font",
+            ),
+            ("./empty", "font: ./empty holds no .ttf or .otf file"),
+            (
+                "./mixed",
+                "font: ./mixed holds more than one family: Figtree (Figtree.ttf), Inter (Inter.ttf)",
+            ),
+            (
+                "./twice",
+                "font: ./twice holds two files of weight 400: a.ttf and b.ttf",
+            ),
+            (
+                "./bad",
+                "font: ./bad holds a.ttf, which is not a font: devpage reads .ttf and .otf files",
+            ),
+        ] {
+            // Written in a folder of its own, so `..` can leave the top.
+            let (font, expected) = (
+                font.replacen("./", "../", 1),
+                expected.replacen("./", "../", 1),
+            );
+            let mut files = list.clone();
+            files.push((
+                "d/a.design",
+                format!("<Frame><Text font=\"{font}\">a</Text></Frame>").into_bytes(),
+            ));
+            assert_eq!(
+                font_problems(&files, "d/a.design"),
+                vec![format!("d/a.design:1:14: {expected}")]
+            );
+        }
+        // Not a path at all.
+        assert_eq!(
+            font_problems(
+                &[(
+                    "a.design",
+                    br#"<Frame><Text font={3}>a</Text></Frame>"#.to_vec()
+                )],
+                "a.design"
+            ),
+            vec![
+                "a.design:1:14: font: expected a path to a font file or a folder of one family's, like \"./fonts/Geist\""
+            ]
+        );
+    }
+
+    /// The themes' font is a problem at its line in `themes.yml`, once
+    /// however many texts use it; one that isn't a path is a problem there
+    /// too.
+    #[test]
+    fn a_themes_font_that_cant_be_used_is_a_problem_at_its_line_once() {
+        let problems = font_problems(
+            &[
+                (
+                    "themes.yml",
+                    b"kind: themes\nlight: {}\ndark: {}\nfont: ./fonts/Gone\n".to_vec(),
+                ),
+                (
+                    "a.design",
+                    b"<Frame><Text>a</Text><Text>b</Text></Frame>".to_vec(),
+                ),
+            ],
+            "a.design",
+        );
+        assert_eq!(
+            problems,
+            vec!["themes.yml:4:1: font: ./fonts/Gone — no such file or folder"]
+        );
+        let problems = font_problems(
+            &[
+                (
+                    "themes.yml",
+                    b"kind: themes\nfont: [1]\nlight: {}\ndark: {}\n".to_vec(),
+                ),
+                ("a.design", b"<Frame><Text>a</Text></Frame>".to_vec()),
+            ],
+            "a.design",
+        );
+        assert_eq!(
+            problems,
+            vec![
+                "themes.yml:2:1: font: expected a path to a font file or a folder of one family's, like ./fonts/Geist"
+            ]
+        );
+    }
+
+    /// A path given as a prop — an image's `src`, a text's `font`, an
+    /// interaction — is relative to the file that wrote it, and its problem
+    /// is where it was written.
+    #[test]
+    fn a_path_given_as_a_prop_is_relative_to_the_file_that_wrote_it() {
+        let list = |caller: &str| {
+            vec![
+                (
+                    "app/a.design",
+                    format!("import Card from \"../lib/card.design\"\n<Frame>{caller}</Frame>")
+                        .into_bytes(),
+                ),
+                ("app/me.png", png()),
+                ("app/v.ttf", figtree()),
+                ("app/next.design", b"<Frame />".to_vec()),
+                (
+                    "lib/card.design",
+                    br#"<Frame props={{ src: "./own.png", font: "./own.ttf", go: "back" }} onClick={go}><Image src={src} /><Text font={font}>a</Text></Frame>"#
+                        .to_vec(),
+                ),
+                ("lib/own.png", png()),
+                ("lib/own.ttf", inter("Regular")),
+            ]
+        };
+        let scene = resolve(
+            &mem(&list(
+                r#"<Card src="./me.png" font="./v.ttf" go="navigate ./next.design" />"#,
+            )),
+            "app/a.design",
+        )
+        .unwrap();
+        let card = &scene.root.children[0];
+        assert_eq!(card.children[0].image.as_ref().unwrap().src, "app/me.png");
+        assert_eq!(
+            card.children[1].text.as_ref().unwrap().font,
+            Some(FontId::of(&figtree()))
+        );
+        assert_eq!(card.on_click.as_deref(), Some("navigate app/next.design"));
+        // The defaults are the design's own file's.
+        let scene = resolve(&mem(&list("<Card />")), "app/a.design").unwrap();
+        let card = &scene.root.children[0];
+        assert_eq!(card.children[0].image.as_ref().unwrap().src, "lib/own.png");
+        assert_eq!(
+            card.children[1].text.as_ref().unwrap().font,
+            Some(FontId::of(&inter("Regular")))
+        );
+        // A bad path is a problem where it was written.
+        assert_eq!(
+            font_problems(
+                &list(r#"<Card src="./no.png" font="./no.ttf" go="overlay ./no.design" />"#),
+                "app/a.design"
+            ),
+            vec![
+                "app/a.design:2:48: onClick: overlay ./no.design — no such file",
+                "app/a.design:2:18: src: ./no.png — no such file",
+                "app/a.design:2:34: font: ./no.ttf — no such file or folder",
             ]
         );
     }

@@ -346,7 +346,7 @@ docs/designs/checkout/checkout.design:7:11: Button has no prop "lable"
 docs/designs/checkout/button.design:2:21: padding: expected pixels or an array of 2 or 4, found "12px"
 docs/designs/checkout/cart.design:1:1: import ./row.design — no such file
 docs/designs/checkout/cart.design:4:30: theme.srface: the themes have no srface; they have accent, background, border, text
-docs/designs/checkout/cart.design:9:9: weight: Figtree has no 200; it has 300, 400, 500, 600, 700, 800, 900
+docs/designs/checkout/cart.design:9:9: weight: Figtree has no 200; it has 300, 400, 500, 600, 700, 800 and 900
 ```
 
 The [themes](#themes) have problems of their own, each at the reference or

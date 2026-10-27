@@ -116,9 +116,14 @@ impl Design {
         };
         let applied = match update.body {
             Some(Body::Scene(whole)) => {
-                // Image files the canvas already holds aren't decoded again.
-                let held = self.scene.take().map(|s| s.images).unwrap_or_default();
-                wire::decode_scene(&whole, &held).map(|scene| self.scene = Some(scene))
+                // Image and font files the canvas already holds aren't
+                // decoded or checked again.
+                let (images, fonts) = self
+                    .scene
+                    .take()
+                    .map(|s| (s.images, s.fonts))
+                    .unwrap_or_default();
+                wire::decode_scene(&whole, (&images, &fonts)).map(|scene| self.scene = Some(scene))
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
                 Some(scene) => wire::apply(scene, &patch),
@@ -286,6 +291,68 @@ mod tests {
         .encode_to_vec()
     }
 
+    /// Files as bytes, so a design can be set in a font file.
+    struct Bytes(HashMap<String, Vec<u8>>);
+
+    impl devpage_design::Files for Bytes {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            devpage_design::resolve::listed(self.0.keys(), path)
+        }
+    }
+
+    /// A design set in a font file comes over the stream, in its first
+    /// update and in a patch that brings another, and the canvas lays it
+    /// out and paints it as the server paints its PNG: the same line breaks,
+    /// the same pixels.
+    #[test]
+    fn a_design_in_a_font_file_paints_as_the_server_does() {
+        let figtree = std::fs::read(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/designs/checkout/fonts/Figtree/Figtree-Variable.ttf"
+        ))
+        .unwrap();
+        let resolve = |weight: u16| {
+            let files = Bytes(HashMap::from([
+                ("f.ttf".to_string(), figtree.clone()),
+                (
+                    "a.design".to_string(),
+                    format!(
+                        r##"<Frame width={{160}} layout="column" padding={{8}} fill="#ffffff"><Text width="fill" font="./f.ttf" weight={{{weight}}}>Washed linen with a relaxed fit. Machine wash cold.</Text></Frame>"##
+                    )
+                    .into_bytes(),
+                ),
+            ]));
+            devpage_design::resolve(&files, "a.design").unwrap()
+        };
+        let (first, heavier) = (resolve(400), resolve(800));
+        let mut design = Design::new();
+        let whole = Update {
+            body: Some(Body::Scene(wire::scene(&first))),
+            ..Default::default()
+        };
+        assert_eq!(design.apply(&whole.encode_to_vec()), Applied::Changed);
+        let mut server = Renderer::new();
+        for scene in [&first, &heavier] {
+            if scene == &heavier {
+                let patch = Update {
+                    body: Some(Body::Patch(wire::patch(&first, &heavier))),
+                    ..Default::default()
+                };
+                assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
+            }
+            let frames = server.layout(scene);
+            assert_eq!(design.laid_out().unwrap().frames, frames);
+            let png = devpage_design::png(&mut server, scene, Theme::Light).unwrap();
+            let (expected, w, h) = devpage_design::render::pixels(&png).unwrap();
+            let mut painted = design.paint(1.0).unwrap();
+            assert_eq!((painted.width(), painted.height()), (w, h));
+            assert_eq!(painted.take(), expected);
+        }
+    }
+
     #[test]
     fn a_scene_is_sized_painted_and_hit_tested() {
         let mut design = Design::new();
@@ -329,6 +396,7 @@ mod tests {
                     node: Some(wire::encode(&wider.root)),
                 }],
                 images: vec![],
+                fonts: vec![],
                 themed: false,
             })),
             ..Default::default()
@@ -382,6 +450,7 @@ mod tests {
             body: Some(Body::Patch(Patch {
                 replace: vec![],
                 images: vec![],
+                fonts: vec![],
                 themed: false,
             })),
             ..Default::default()

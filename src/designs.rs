@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use devpage_design::fonts::FontFile;
 use devpage_design::proto::{Problems, Update, WatchRequest, update::Body};
 use devpage_design::resolve::ImageFile;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme, wire};
@@ -26,7 +27,8 @@ struct Resolved {
 }
 
 /// A file as last read: its bytes, or `None` when it doesn't exist or lies
-/// outside the served folder.
+/// outside the served folder. A folder's listing is kept the same way, under
+/// its path and a `/`, as the names of its files, one per line.
 struct Source {
     bytes: Option<Vec<u8>>,
     /// Which read of the store's this was, counting from one: a result made
@@ -38,6 +40,9 @@ struct Source {
     /// The file decoded as an image, once a design shows it: forgotten with
     /// the file, so a save decodes only the image that changed.
     image: Option<Result<Arc<ImageFile>, String>>,
+    /// The file checked as a font, once a design's text is set in it:
+    /// forgotten with the file, like `image`.
+    font: Option<Result<Arc<FontFile>, String>>,
 }
 
 struct Store {
@@ -76,41 +81,109 @@ struct Reading<'a> {
     seen: RefCell<Vec<(String, u64)>>,
 }
 
-impl Files for Reading<'_> {
-    /// Any file's bytes — a design's text, or an image's — read once and
-    /// kept until the watcher reports it changed.
-    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-        self.asked.borrow_mut().push(path.to_string());
+impl Reading<'_> {
+    /// What `key` holds — a file's bytes, or a folder's listing when it ends
+    /// in `/` — read once and kept until the watcher reports it changed.
+    fn source(&self, key: &str) -> Option<Vec<u8>> {
+        self.asked.borrow_mut().push(key.to_string());
         let mut sources = lock(&self.store.sources);
-        if let Some(source) = sources.get(path) {
-            self.seen.borrow_mut().push((path.to_string(), source.read));
+        if let Some(source) = sources.get(key) {
+            self.seen.borrow_mut().push((key.to_string(), source.read));
             return source.bytes.clone();
         }
-        let file = self
-            .store
-            .served
-            .join(path)
-            .canonicalize()
-            .ok()
-            .filter(|file| file.starts_with(&self.store.served) && file.is_file());
-        let source = Source {
-            bytes: file.as_ref().and_then(|file| std::fs::read(file).ok()),
-            canonical: file.as_ref().map(|file| self.store.relative(file)),
-            read: 1 + self
-                .store
-                .reads
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            image: None,
+        let source = match key.strip_suffix('/') {
+            Some(folder) => {
+                let found = inside(&self.store.served, folder).filter(|f| f.is_dir());
+                Source {
+                    bytes: found
+                        .as_ref()
+                        .and_then(|f| names(f))
+                        .map(|names| names.join("\n").into_bytes()),
+                    canonical: found
+                        .as_ref()
+                        .map(|f| format!("{}/", self.store.relative(f))),
+                    read: self.store.next_read(),
+                    image: None,
+                    font: None,
+                }
+            }
+            None => {
+                let found = inside(&self.store.served, key).filter(|f| f.is_file());
+                Source {
+                    bytes: found.as_ref().and_then(|f| std::fs::read(f).ok()),
+                    canonical: found.as_ref().map(|f| self.store.relative(f)),
+                    read: self.store.next_read(),
+                    image: None,
+                    font: None,
+                }
+            }
         };
-        self.seen.borrow_mut().push((path.to_string(), source.read));
+        self.seen.borrow_mut().push((key.to_string(), source.read));
         let bytes = source.bytes.clone();
-        sources.insert(path.to_string(), source);
+        sources.insert(key.to_string(), source);
         drop(sources);
         #[cfg(test)]
         if let Some(after) = lock(&self.store.after_read).as_ref() {
-            after(path);
+            after(key);
         }
         bytes
+    }
+}
+
+/// `path` in the served folder, canonical, when it is there and stays inside.
+fn inside(served: &Path, path: &str) -> Option<PathBuf> {
+    served
+        .join(path)
+        .canonicalize()
+        .ok()
+        .filter(|found| found.starts_with(served))
+}
+
+/// The names of the files directly in `folder`, sorted.
+fn names(folder: &Path) -> Option<Vec<String>> {
+    let mut names: Vec<String> = std::fs::read_dir(folder)
+        .ok()?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_file())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .collect();
+    names.sort();
+    Some(names)
+}
+
+impl Files for Reading<'_> {
+    /// Any file's bytes — a design's text, an image's or a font's — read
+    /// once and kept until the watcher reports it changed.
+    fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+        self.source(path)
+    }
+
+    /// A folder's files, listed once and kept until the watcher reports a
+    /// change to any file directly in it.
+    fn list(&self, path: &str) -> Option<Vec<String>> {
+        let listing = self.source(&format!("{path}/"))?;
+        let text = String::from_utf8(listing).ok()?;
+        Some(text.lines().map(str::to_string).collect())
+    }
+
+    /// A font file checked, once per read of it.
+    fn font(&self, path: &str) -> Option<Result<Arc<FontFile>, String>> {
+        if let Some(source) = lock(&self.store.sources).get(path)
+            && let Some(font) = &source.font
+        {
+            self.asked.borrow_mut().push(path.to_string());
+            self.seen.borrow_mut().push((path.to_string(), source.read));
+            return Some(font.clone());
+        }
+        let bytes = self.bytes(path)?;
+        let read = self.seen.borrow().last().map(|(_, read)| *read);
+        let font = FontFile::new(bytes).map(Arc::new);
+        if let Some(source) = lock(&self.store.sources).get_mut(path)
+            && Some(source.read) == read
+        {
+            source.font = Some(font.clone());
+        }
+        Some(font)
     }
 
     /// An image file decoded, once per read of it.
@@ -135,6 +208,13 @@ impl Files for Reading<'_> {
 }
 
 impl Store {
+    /// The number of the next read from disk, counting from one.
+    fn next_read(&self) -> u64 {
+        1 + self
+            .reads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
     fn relative(&self, file: &Path) -> String {
         file.strip_prefix(&self.served)
             .unwrap_or(file)
@@ -235,11 +315,15 @@ impl Designs {
     }
 
     /// A file in the served folder changed, was created or was deleted: forget
-    /// it, resolve again every design that asked for it, and announce the
-    /// designs whose scene or problems changed.
+    /// it and its folder's listing, resolve again every design that asked for
+    /// either, and announce the designs whose scene or problems changed.
     pub fn changed(&self, file: &Path) {
         let store = &self.0;
         let relative = store.relative(file);
+        let folder = match relative.rsplit_once('/') {
+            Some((folder, _)) => format!("{folder}/"),
+            None => "/".to_string(),
+        };
         // Forgotten and looked up at once, so a design is either kept already
         // and found here, or not yet kept and made again by `refresh`.
         let affected: Vec<(String, Resolved)> = {
@@ -248,7 +332,9 @@ impl Designs {
             let forgotten = sources
                 .iter()
                 .filter(|(key, source)| {
-                    **key == relative || source.canonical.as_deref() == Some(relative.as_str())
+                    [relative.as_str(), folder.as_str()].iter().any(|changed| {
+                        key == changed || source.canonical.as_deref() == Some(changed)
+                    })
                 })
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
@@ -286,6 +372,9 @@ impl Designs {
             for id in scene.images.keys() {
                 text.push_str(&format!("\0{id:?}"));
             }
+            for id in scene.fonts.keys() {
+                text.push_str(&format!("\0{id:?}"));
+            }
             Some(crate::addresses::hash(text.as_bytes()))
         })
         .await
@@ -320,10 +409,10 @@ pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
     struct Disk<'a>(&'a Path);
     impl Files for Disk<'_> {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-            let file = self.0.join(path).canonicalize().ok()?;
-            file.starts_with(self.0)
-                .then(|| std::fs::read(file).ok())
-                .flatten()
+            std::fs::read(inside(self.0, path)?).ok()
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            names(&inside(self.0, path).filter(|f| f.is_dir())?)
         }
     }
     let path = address(path);
@@ -636,6 +725,9 @@ mod tests {
             fn bytes(&self, path: &str) -> Option<Vec<u8>> {
                 (path == "app/a.design").then(|| self.0.clone().into_bytes())
             }
+            fn list(&self, _: &str) -> Option<Vec<String>> {
+                None
+            }
             fn image(&self, path: &str) -> Option<Result<Arc<ImageFile>, String>> {
                 let (size, _) = path.strip_prefix("app/")?.split_once('-')?;
                 let (w, h) = size.split_once('x')?;
@@ -888,6 +980,79 @@ mod tests {
         designs.changed(&dir.join("app/themes.yml"));
         assert_eq!(updates.try_recv().unwrap(), "app/themed.design");
         assert_eq!(fill(&designs), top);
+        assert!(updates.try_recv().is_err());
+    }
+
+    /// A font is one of the files of the designs set in it: a change to a
+    /// font file, or to any file in a font folder, resolves again exactly
+    /// the designs whose text is set in it — `devpage check` reports the
+    /// same — and the scene carries the face its text uses.
+    #[test]
+    fn a_font_change_resolves_again_only_the_designs_set_in_it() {
+        let dir = served("fonts");
+        let regular = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Regular.ttf"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("app/fonts/Body")).unwrap();
+        std::fs::write(dir.join("app/fonts/Body/Body-Regular.ttf"), &regular).unwrap();
+        std::fs::write(dir.join("app/fonts/Body/OFL.txt"), "licence").unwrap();
+        std::fs::write(
+            dir.join("app/themes.yml"),
+            "kind: themes\nfont: ./fonts/Body\nlight: {}\ndark: {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("app/set.design"),
+            "<Frame><Text>Hello</Text></Frame>",
+        )
+        .unwrap();
+        let designs = Designs::new(dir.clone());
+        let mut updates = designs.0.updates.subscribe();
+        let scene = designs.resolve("app/set.design").unwrap();
+        assert_eq!(scene.fonts.len(), 1);
+        assert!(designs.resolve("app/other.design").is_ok());
+        let resolutions = || {
+            designs
+                .0
+                .resolutions
+                .load(std::sync::atomic::Ordering::Relaxed)
+        };
+        let before = resolutions();
+        // The licence changes: the folder's listing is the same, the design
+        // is resolved again and unchanged.
+        save(&designs, &dir.join("app/fonts/Body/OFL.txt"), "licence, v2");
+        assert_eq!(resolutions(), before + 1, "only set.design");
+        assert!(updates.try_recv().is_err());
+        // A second regular face arrives: a problem at the themes' font.
+        let mut copy = regular.clone();
+        copy.push(0);
+        std::fs::write(dir.join("app/fonts/Body/Copy.ttf"), &copy).unwrap();
+        designs.changed(&dir.join("app/fonts/Body/Copy.ttf"));
+        assert_eq!(updates.try_recv().unwrap(), "app/set.design");
+        assert!(updates.try_recv().is_err());
+        let expected = "app/themes.yml:2:1: font: ./fonts/Body holds two files of weight 400: Body-Regular.ttf and Copy.ttf";
+        let problems = designs.resolve("app/set.design").unwrap_err();
+        assert_eq!(problems[0].to_string(), expected);
+        assert_eq!(
+            super::problems(&dir, "/app/set.design")[0].to_string(),
+            expected
+        );
+        // It goes again, and a font file itself is saved over as bold.
+        std::fs::remove_file(dir.join("app/fonts/Body/Copy.ttf")).unwrap();
+        designs.changed(&dir.join("app/fonts/Body/Copy.ttf"));
+        assert_eq!(updates.try_recv().unwrap(), "app/set.design");
+        let bold = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Bold.ttf"),
+        )
+        .unwrap();
+        std::fs::write(dir.join("app/fonts/Body/Body-Regular.ttf"), &bold).unwrap();
+        designs.changed(&dir.join("app/fonts/Body/Body-Regular.ttf"));
+        assert_eq!(updates.try_recv().unwrap(), "app/set.design");
+        assert_eq!(
+            designs.resolve("app/set.design").unwrap_err()[0].message,
+            "weight: Inter has no 400; it has 700"
+        );
         assert!(updates.try_recv().is_err());
     }
 
