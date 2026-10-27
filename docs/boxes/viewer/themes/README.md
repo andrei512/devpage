@@ -47,7 +47,8 @@ marks; the yellow (`#ffd60a`, half seen through) of the
 [How themes reach code and diagrams](how-themes-reach-code-and-diagrams/README.md).
 
 A [design](../designs/README.md) has light and dark themes of its own: the
-colors its `themes.yml` names, which it draws with instead of the tokens. It
+colors its `themes.yml` names, and the [font](../designs/README.md#fonts) both
+share, which it draws with instead of the tokens. It
 is drawn in the theme of the page it is shown on, so a dark page shows a dark
 design on a dark backdrop — see [Themes](../designs/README.md#themes).
 

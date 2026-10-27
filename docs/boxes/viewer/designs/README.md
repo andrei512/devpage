@@ -13,14 +13,17 @@ parsed, laid out, drawn and streamed is in the
 flowchart LR
   agent["Agent"] -->|"writes"| file["checkout.design"]
   file -->|"imports"| button["button.design"]
-  file -->|"theme.text"| themes["themes.yml<br/>light and dark"]
+  file -->|"theme.text"| themes["themes.yml<br/>light and dark, and a font"]
   file --> engine
   themes --> engine["Design engine<br/>parse · resolve · lay out · paint"]
   button --> engine
   engine -->|"changed nodes, over gRPC-Web"| canvas["Canvas in the browser<br/>click through the prototype"]
   engine -->|"GET checkout.design.png"| png["PNG<br/>the agent looks at its work"]
   click engine href "../design-engine/README.md" "The design engine"
+  themes -->|"font: ./fonts/Figtree"| fonts["fonts/Figtree<br/>font files"]
+  fonts --> engine
   click themes href "#themes" "Themes"
+  click fonts href "#fonts" "Fonts"
 ```
 
 Humans never edit a design. They look at it, comment on the page that embeds
@@ -66,7 +69,8 @@ the prototype moves to `confirmation.design`.
 
 Every `theme.` name comes from `docs/designs/checkout/themes.yml`, the
 [themes](#themes) beside them, so the same files draw a light checkout on a
-light page and a dark one on a dark page.
+light page and a dark one on a dark page. The same file names the checkout's
+[font](#fonts), Figtree, from `docs/designs/checkout/fonts/`.
 
 ## One design per file
 
@@ -112,6 +116,12 @@ that leaves a prop out gets its default. Naming a prop the design doesn't
 declare is a problem. There are no expressions: a value is a literal or one
 prop.
 
+A path given as a prop — an `Image`'s `src`, a `Text`'s `font`, an
+interaction's target — is relative to the file that wrote it, wherever the
+prop ends up: `<Avatar src="./me.png" />` shows the `me.png` beside the file
+that wrote that line, not beside `avatar.design`. A default in `props` is
+written by the design's own file.
+
 ## Themes
 
 A design's colors can follow the light/dark switch. A file named `themes.yml`
@@ -154,11 +164,12 @@ design that follows the themes names every color it wants to change.
   file at the top can hold a product's palette and a folder can change a few
   of its colors. A `themes.yml` whose `kind` isn't `themes` is another tool's
   file, and devpage passes over it.
-- **What a theme holds.** Colors only — `#rgb`, `#rgba`, `#rrggbb` or
-  `#rrggbbaa`, in quotes, since YAML reads an unquoted `#` as a comment. A
-  name is letters, digits, `_` and `-`. Every `themes.yml` has both `light`
-  and `dark`, and after the files are merged every name a design uses has a
-  value in both, so dark never lacks a color light has.
+- **What a theme holds.** Named colors — `#rgb`, `#rgba`, `#rrggbb` or
+  `#rrggbbaa`, in quotes, since YAML reads an unquoted `#` as a comment — and
+  the design's [font](#fonts), which light and dark share, set by `font`
+  beside them. A name is letters, digits, `_` and `-`. Every `themes.yml` has
+  both `light` and `dark`, and after the files are merged every name a design
+  uses has a value in both, so dark never lacks a color light has.
 - **Where a name is looked up.** In the themes of the file `theme.` is
   written in, as a relative path is. A `theme.accent` passed as a prop to a
   design in another folder, or a prop default that names one, keeps the color
@@ -167,6 +178,59 @@ design that follows the themes names every color it wants to change.
 
 A design never picks its theme; where it is shown does — see
 [Viewing a design](#viewing-a-design).
+
+## Fonts
+
+A design's text is set in **Inter** unless it names another font. devpage
+carries Inter inside it — regular, medium, semibold and bold — so a design
+that names no font looks the same on every machine. Any other font is a
+**font file** in the [served folder](../constraints/the-served-folder-is-the-boundary.md):
+devpage never uses a font installed on the machine, since the canvas is
+WebAssembly in a browser that can't read them and the PNG is drawn wherever
+devpage runs.
+
+A project names its font once, in a `themes.yml`, with `font` beside the
+two themes:
+
+```yaml
+kind: themes
+font: ./fonts/Figtree
+light:
+  text: "#0f172a"
+dark:
+  text: "#f1f5f9"
+```
+
+- **What `font` names.** A path relative to the file it is written in — a
+  font file, or a folder holding one family's files. A font file is a
+  `.ttf` or `.otf` of one font, at most 4 MB. A folder's fonts are the `.ttf`
+  and `.otf` files directly in it; anything else there, a licence say, is
+  passed over, and so are its italic and oblique faces, since a text is
+  always upright.
+- **Which font a text is set in.** Its own `font`, when it has one —
+  `<Text font="./fonts/Geist">` — or else the font of the nearest
+  `themes.yml` up the folder tree from the file the `Text` is written in that
+  sets one, or else Inter. A `themes.yml` that doesn't set `font` leaves the
+  one above it, as one that doesn't list a color does. Light and dark share
+  the font: only colors change with the theme.
+- **Weight picks the face.** `weight` means the same in every font. Inter has
+  400, 500, 600 and 700. Any other font takes a weight from 100 to 900, in
+  steps of 100, that it has: a variable font, any weight its weight axis
+  reaches — drawn at that point of the axis; a folder of static files, the
+  weight of one of its files.
+- **Why 4 MB.** Every font file a design uses goes, whole, to every browser
+  that shows the design, with its first update and before it draws. A whole
+  Latin family is well under 1 MB — static or variable, Greek and Cyrillic
+  included; each Inter face devpage carries is 0.4 MB. A font of 4 MB or more
+  covers a script of thousands of characters, Chinese or Japanese, and should
+  be subset to the characters the design shows.
+- **WOFF and WOFF2.** The web's compressed fonts aren't read: neither backend
+  can decompress them without carrying a decompressor into the browser's
+  module. Convert one back to a `.ttf` — `fonttools ttLib.woff2 decompress`
+  does it.
+
+A font file comes with its licence: one checked into a repository brings the
+licence along, as the checkout's `fonts/Figtree/OFL.txt` does.
 
 ## Elements and attributes
 
@@ -188,9 +252,9 @@ takes one:
 | `"overlay <path>"` | shows the design at `path` centered over this one, which it dims |
 | `"close"` | closes the overlay this element is in |
 
-A path is relative to the file the `onClick` is written in, like every path in
-a design, so an interaction inside an imported design works wherever that
-design is used. A path must name a `.design` file that exists in the served
+A path is relative to the file that wrote it, like every path in a design —
+[passed as a prop](#props) too — so an interaction inside an imported design
+works wherever that design is used. A path must name a `.design` file that exists in the served
 folder; anything else is a problem.
 
 The element under the pointer that has an interaction takes the click, and a
@@ -282,6 +346,7 @@ docs/designs/checkout/checkout.design:7:11: Button has no prop "lable"
 docs/designs/checkout/button.design:2:21: padding: expected pixels or an array of 2 or 4, found "12px"
 docs/designs/checkout/cart.design:1:1: import ./row.design — no such file
 docs/designs/checkout/cart.design:4:30: theme.srface: the themes have no srface; they have accent, background, border, text
+docs/designs/checkout/cart.design:9:9: weight: Figtree has no 200; it has 300, 400, 500, 600, 700, 800, 900
 ```
 
 The [themes](#themes) have problems of their own, each at the reference or
@@ -295,6 +360,19 @@ at the line of the `themes.yml` that is wrong:
   colors;
 - `theme` as a prop's or an import's name, and `{theme.x}` in a `Text`'s
   text, where a color can't go.
+
+A [font](#fonts) is a problem at the `font` that names it — on a `Text`, or
+on the line of the `themes.yml` — when a text uses it:
+
+- no such file or folder;
+- a file that isn't a `.ttf` or `.otf` font — a WOFF or WOFF2 among them, and
+  a collection of several fonts in one file;
+- a file larger than 4 MB;
+- a folder with no `.ttf` or `.otf` file in it, with only italic faces, with
+  faces of more than one family, naming each, or with two files of one
+  weight;
+- a weight the font doesn't have, listing those it has — at the `Text`'s
+  `weight`, or at the `Text` when it leaves its weight at 400.
 
 While a design has problems the canvas keeps showing the last valid drawing,
 under the list of problems.
