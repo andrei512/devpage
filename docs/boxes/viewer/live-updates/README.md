@@ -234,6 +234,14 @@ checker, and the server, whose comment writes each publish that page's
 `Comments` as they land — and to its subscribers. Publishing with no one subscribed is not an
 error.
 
+In [server mode](../server/README.md) there is no watcher: each published
+document has a bus of its own, shared by every router serving its latest
+version at `/d/<id>`, and a publish — or deleting the latest version —
+publishes a `Refresh` on it. A page open at the link fetches itself again and
+gets the new version, whichever version it loaded, and keeps hearing the next
+publish through the same bus; a page under `/d/<id>/v/<n>` hears nothing,
+since a version never changes.
+
 The watcher decides a burst in two halves: `Listeners::forget` has every cache
 forget what changed — the design store, the index with its widget modules, the
 entry document — and returns the changes the burst means, publishing nothing;

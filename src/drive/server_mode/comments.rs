@@ -52,7 +52,7 @@ pub async fn create(
             document: id.clone(),
             version,
         }),
-        Arc::new(state.changes(&id)),
+        Arc::new(state.bus(&id)),
         Scope::root(),
     );
     let thread = threads
@@ -90,7 +90,7 @@ pub async fn reply(
         return Err(Refused::NotFound);
     }
     state
-        .changes(&id)
+        .bus(&id)
         .publish(&Scope::root(), Change::Comments(page));
     Ok(StatusCode::CREATED.into_response())
 }
@@ -108,7 +108,7 @@ pub async fn resolve(
         return Err(Refused::NotFound);
     }
     state
-        .changes(&id)
+        .bus(&id)
         .publish(&Scope::root(), Change::Comments(page));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
@@ -144,7 +144,7 @@ pub async fn carry(state: &ServerMode, id: &str, version: u64, files: &Path) -> 
     let changed =
         tokio::task::spawn_blocking(move || carry_onto(&store, &document, version, &files))
             .await??;
-    let changes = state.changes(id);
+    let changes = state.bus(id);
     for page in changed {
         changes.publish(&Scope::root(), Change::Comments(page));
     }

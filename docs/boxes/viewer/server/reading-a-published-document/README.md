@@ -11,7 +11,8 @@ next, and a PDF or PNG to download. It is a concept article under
 every open page swaps it in at once — the same
 [live update](../../live-updates/README.md) a saved file gives locally.
 
-**Older versions** are listed in the navbar's version menu and stay at
+**Older versions** are listed in the version menu, at the page's bottom left,
+and stay at
 `/d/<id>/v/<n>`, under a banner that links to the latest. A version never
 changes ([a version never changes](../constraints/a-version-never-changes.md)),
 so a link to version 3 shows the same thing for as long as version 3 exists.
@@ -61,7 +62,7 @@ With `--json` each thread carries the
 | doc, slides | PDF |
 | design | PNG |
 
-From the navbar's download button, `devpage download`, or
+From the download button beside the version menu, `devpage download`, or
 `/d/<id>/v/<n>/download`. A download is rendered the way
 [`devpage pdf`](../../pdf/README.md) prints — the page the browser shows —
 once per version, then kept in the [cache](../storage/README.md#the-cache).

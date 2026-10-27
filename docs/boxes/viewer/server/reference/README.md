@@ -73,6 +73,12 @@ without that header gets `401`.
 | `/d/<id>/v/<n>` | Version `n`. |
 | `/d/<id>/v/<n>/download` | Its PDF or PNG. |
 
+These routes come before the document's own files: under the latest's mount,
+a top-level folder of the document named `v` is not reached as `/d/<id>/v/…`,
+and in a version a top-level file named `download` is not reached at
+`/d/<id>/v/<n>/download`. A page also asks `__devpage/versions` under its
+mount for the version menu, the banner and the download button.
+
 ## Environment
 
 | Variable | Default | Meaning |

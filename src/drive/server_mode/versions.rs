@@ -19,6 +19,7 @@ use tower::ServiceExt;
 use super::ServerMode;
 use super::cache::Served;
 use crate::adapters::sqlite::DocumentThreads;
+use crate::changes::Changes;
 use crate::server::{self, Identity};
 
 /// `/d/<id>`: the document's folder, `/d/<id>/`, so that the links on its
@@ -44,7 +45,14 @@ pub async fn in_document(
     request: Request,
 ) -> Response {
     if let Some((n, path)) = versioned(&rest) {
-        return serve(&state, &id, n, &format!("/d/{id}/v/{n}"), &path, request).await;
+        return match path.as_str() {
+            "/download" => super::pages::download(&state, &id, n).await,
+            "/__devpage/versions" => super::pages::versions(&state, &id, Some(n)),
+            _ => serve(&state, &id, n, &format!("/d/{id}/v/{n}"), &path, request).await,
+        };
+    }
+    if rest == "__devpage/versions" {
+        return super::pages::versions(&state, &id, None);
     }
     latest(&state, &id, &format!("/{rest}"), request).await
 }
@@ -113,7 +121,7 @@ async fn serve(
 /// version is in the cache, made on a miss — from the zip in the bucket when
 /// the version isn't unpacked yet. `entry` is its document file, from the
 /// top of the zip.
-async fn version_router(
+pub(super) async fn version_router(
     state: &ServerMode,
     id: &str,
     n: u64,
@@ -122,10 +130,15 @@ async fn version_router(
 ) -> Result<Served> {
     let key = (id.to_string(), n);
     let fetch = state.bucket.get_version(id, n);
-    let changes = state.changes(id);
-    // Comments follow the latest version: its page shows and takes them.
-    // An earlier version, behind its banner, is read as it was.
+    // The latest version's pages hear the document's publishes and its
+    // comments, and show and take them; a version's own pages, behind their
+    // banner, never change and are read as they were.
     let latest = mount == format!("/d/{id}");
+    let changes = if latest {
+        state.bus(id)
+    } else {
+        Changes::default()
+    };
     state
         .cache
         .router(&key, mount, fetch, |dir: &Path| {
