@@ -1,6 +1,6 @@
 # Search
 
-How the viewer finds text: `core/src/search.rs` keeps a full-text index of the
+How the viewer finds text: `core/src/search/` keeps a full-text index of the
 sections of everything the served document publishes in memory, ranks a
 query's matches with BM25, groups them by page and answers
 `GET /__devpage/search?q=…` with them as JSON, which the search box at the

@@ -1,0 +1,20 @@
+//! Markdown to a full page: the rendered file inside the document's frame.
+
+mod frame;
+mod markdown;
+mod sidebar;
+
+pub use crate::markup::title;
+pub use frame::{doc, invalid, page, slides, tab_title};
+pub(crate) use markdown::options;
+pub use markdown::{FRAME_IDS, front_matter, markdown, markdown_in};
+
+pub fn escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+#[cfg(test)]
+mod tests;
