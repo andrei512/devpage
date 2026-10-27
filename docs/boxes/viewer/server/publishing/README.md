@@ -53,8 +53,10 @@ its pages, chapters or slides, the project widgets they use, and every local
 image they link to. Drafts or secrets lying in the same folder are never sent.
 
 If a link is broken, the publish stops before uploading anything and lists the
-problems. The server runs the same check again, so a hand-made zip can't
-publish one either.
+problems. The server runs the same check again on the files it received, so a
+hand-made zip can't publish one either — every check but external addresses,
+which the CLI asks before uploading, so that a publish never waits on the
+internet from inside the cluster.
 
 ## Everything else takes the id
 
