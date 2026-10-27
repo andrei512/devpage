@@ -143,7 +143,8 @@ value in the theme the design is drawn in:
 — a fill, a stroke, a text's color, a shadow's color, a gradient's stop
 inside its string, a prop's default and an instance's attribute
 (`<Button fill={theme.accent} />`). A color written as `#rrggbb` stays the
-same in both themes.
+same in both themes, and so does a default — a text's `#0f172a` — so a
+design that follows the themes names every color it wants to change.
 
 - **Which `themes.yml`.** A design uses the nearest `themes.yml` up the
   folder tree from its own file, as far as the
