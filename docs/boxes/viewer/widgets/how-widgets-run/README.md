@@ -3,7 +3,7 @@
 How a widget tag in Markdown becomes a mounted React component: the
 placeholder the server writes, how widgets are compiled and served, and how the
 page script mounts them. It is a mechanism page under [Widgets](../README.md),
-for someone about to change `src/widgets.rs` or the widget code in
+for someone about to change `src/widgets/` or the widget code in
 `assets/devpage.js`.
 
 ```mermaid
@@ -18,7 +18,7 @@ flowchart LR
 
 ## On the server
 
-In `src/widgets.rs`, rendering a page finds the tags of known
+In `src/widgets/tags.rs`, rendering a page finds the tags of known
 widgets in its Markdown — skipping fenced, indented and inline code and HTML
 comments — and turns each into
 a placeholder: a `div` for a block widget, a `span` for an inline one, so an
@@ -38,8 +38,8 @@ own, those they render by name, their helpers and React
 
 ## Compiling
 
-A widget or helper is compiled from TSX by `oxc` when the
-browser asks for it, with React's automatic JSX runtime. Capitalized names a
+A widget or helper is compiled from TSX by `oxc` (`src/widgets/compile.rs`)
+when the browser asks for it, with React's automatic JSX runtime. Capitalized names a
 widget uses without declaring them are other widgets: the compiled module looks
 each up by name when it renders, and lists them in `__devpageUses`. A system
 widget composes only system widgets; a project widget composes the system
@@ -69,7 +69,14 @@ helper created after the widget importing it was read gives that widget a
 new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
-per request. A file that doesn't compile is served as
+per request. Both memories are one **module cache** (`Modules`, in
+`src/widgets/modules.rs`), owned by the served folder's
+[index](../../document-index/README.md#the-index): every widget set, page and
+widget request built from that index reads and compiles through it, and the
+index forgets a file when the watcher reports it (`Index::changed`). A widget
+or helper that resolves outside the served folder — a symbolic link pointing
+out — is never read, as nothing outside it is
+([the served folder is the boundary](../../constraints/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
 a module that throws the compiler's message, and so is a widget whose relative
 imports reach a helper that doesn't compile — with the helper's message — so
 the page shows why in the widget's place rather than only that its import

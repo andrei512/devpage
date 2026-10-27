@@ -18,7 +18,7 @@ flowchart LR
   main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, served.rs, index.rs, search.rs"]
   main --> watch["Watching<br/>watch.rs"]
   main --> serve["Serving<br/>server.rs, resolve.rs, comments.rs"]
-  serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
+  serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets/, navbar.rs, icons.rs"]
   render --> diagrams["Diagrams<br/>diagrams.rs"]
   main --> other["Checking, printing<br/>check.rs, external.rs, pdf.rs"]
   main --> video["Recording a deck<br/>video.rs"]
@@ -41,7 +41,7 @@ flowchart LR
 | --- | --- |
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
-| `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one. |
+| `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
 | `src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
 | `src/watch.rs` | Watches the served folder, keeps the index and its search index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
 | `src/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
@@ -67,7 +67,10 @@ flowchart LR
 | `src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. External addresses it hands to `src/external.rs`. The preview reports each problem the first time it finds it through its `Report` port: `src/terminal.rs` in devpage, a recorder in tests. |
 | `src/terminal.rs` | The terminal as the preview's reporter: each problem printed on standard error once. |
 | `src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a change on the live-update channel. How an address is asked is its `Ask` port: `Http` in devpage, a scripted table in tests. |
-| `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders (found by `src/markup.rs`'s scanner), and a slide's `<Notes>` taken out; TSX compiled by oxc, each helper import rewritten to the helper's own address, and compiled modules remembered; a module's version, from its source and every module it imports; a page's load set, preloaded from its head. |
+| `src/widgets/mod.rs` | The widget set a document has: the system and project widgets, each at its address, and their problems; a page's load set, preloaded from its head. |
+| `src/widgets/tags.rs` | Widget tags in Markdown turned into placeholders (found by `src/markup.rs`'s scanner), and a slide's `<Notes>` taken out — text in, text out. |
+| `src/widgets/compile.rs` | TSX compiled by oxc: the JSX runtime, the shims for widgets rendered by name, each helper import rewritten to the helper's own address. |
+| `src/widgets/modules.rs` | The module cache, owned by the index: each module's files read once per change and its compiles remembered; a module's snapshot and version, from its source and every module it imports inside the served folder. |
 | `src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
 | `src/pdf.rs` | `devpage pdf`: serves the document internally and has chrome-headless-shell print it once every embedded design has painted or settled on its problems, downloading the shell the first time; also downloads Chrome for Testing for `devpage video`. |

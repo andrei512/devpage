@@ -11,6 +11,7 @@ use crate::render;
 
 use crate::external::{External, Link};
 use crate::problem::Problem;
+use crate::widgets::Widgets;
 
 /// The pages a document is made of.
 fn pages(document: &Document) -> Vec<PathBuf> {
@@ -84,10 +85,11 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
             None => None,
         };
         let owner = owner.as_ref().unwrap_or(document);
+        let widgets = Widgets::of(owner, index.modules());
         if let Some(folder) = &owner.widgets
             && widget_folders.insert(folder.clone())
         {
-            problems.extend(widget_problems(owner));
+            problems.extend(widget_problems(owner, &widgets));
         }
         // A document's logo is checked once.
         if logos.insert(owner.path())
@@ -109,7 +111,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
                 }
             }
         }
-        let (found, reached) = page_links_with(owner, &page, external);
+        let (found, reached) = page_links_with(owner, &widgets, &page, external);
         problems.extend(found);
         for target in reached {
             if target.extension().is_some_and(|ext| ext == "md") {
@@ -157,13 +159,17 @@ fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem>
 /// in `external` as (file, line, address).
 fn page_links_with(
     document: &Document,
+    widgets: &Widgets,
     page: &Path,
     external: &mut Vec<Link>,
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
-    let widgets = crate::widgets::Widgets::of(document);
     let mut unknown = Vec::new();
-    let html = render::markdown(&crate::widgets::expand(&source, &widgets, &mut unknown));
+    let html = render::markdown(&crate::widgets::expand(
+        &source,
+        widgets.names(),
+        &mut unknown,
+    ));
     let file = document.url(page)[1..].to_string();
     let mut problems = Vec::new();
     for found in unknown {
@@ -296,7 +302,9 @@ fn page_links_with(
                     let Kind::Doc { chapters, pdf } = &linked.kind else {
                         unreachable!()
                     };
-                    let rendered = render::doc(&linked, chapters, pdf, true, true, &[]);
+                    let linked_widgets = Widgets::of(&linked, widgets.cache());
+                    let rendered =
+                        render::doc(&linked, &linked_widgets, chapters, pdf, true, true, &[]);
                     if !rendered.contains(&format!("id=\"{fragment}\"")) {
                         problems.push(Problem {
                             file: file.clone(),
@@ -391,8 +399,7 @@ fn embedded_designs(source: &str) -> Vec<String> {
 /// The problems of a document's widgets folder, once per document rather than
 /// once per page: a file with a system widget's name, and every widget or
 /// helper that doesn't compile.
-fn widget_problems(document: &Document) -> Vec<Problem> {
-    let widgets = crate::widgets::Widgets::of(document);
+fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let mut problems: Vec<Problem> = widgets
         .problems
         .iter()
@@ -409,7 +416,6 @@ fn widget_problems(document: &Document) -> Vec<Problem> {
     let Some(folder) = &document.widgets else {
         return problems;
     };
-    let names: Vec<String> = widgets.modules.keys().cloned().collect();
     let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
         .into_iter()
         .flatten()
@@ -419,7 +425,7 @@ fn widget_problems(document: &Document) -> Vec<Problem> {
         .collect();
     files.sort();
     for file in files {
-        if let Err(error) = crate::widgets::compile_module(&document.served, &file, &names) {
+        if let Err(error) = widgets.compile(&file) {
             problems.push(Problem {
                 file: document.url(&file)[1..].to_string(),
                 line: None,
@@ -467,15 +473,20 @@ impl Preview {
     /// the next render, which its answer triggers; an address that can't be
     /// reached is retried, and shows only after three failures in a row,
     /// until it answers again.
-    pub fn problems(&self, document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
+    pub fn problems(
+        &self,
+        document: &Document,
+        widgets: &Widgets,
+        pages: &[PathBuf],
+    ) -> Vec<Problem> {
         let mut external = Vec::new();
-        let mut problems = widget_problems(document);
+        let mut problems = widget_problems(document, widgets);
         problems.extend(crate::navbar::problems(document));
         problems.extend(crate::navbar::logo_problem(document));
         problems.extend(
             pages
                 .iter()
-                .flat_map(|page| page_links_with(document, page, &mut external).0),
+                .flat_map(|page| page_links_with(document, widgets, page, &mut external).0),
         );
         // The pages of a deck are its slides; any other page is not one.
         let slide = matches!(document.kind, Kind::Slides { .. });
@@ -533,6 +544,11 @@ pub mod testing {
 mod tests {
     use super::*;
 
+    /// `document`'s widget set, read through a cache of its own.
+    fn widgets_of(document: &Document) -> Widgets {
+        Widgets::of(document, &crate::widgets::Modules::default())
+    }
+
     #[test]
     fn finds_missing_files_headings_and_climbs_out_of_the_served_folder() {
         let dir = std::env::temp_dir().join(format!("devpage-check-{}", std::process::id()));
@@ -586,7 +602,7 @@ mod tests {
         // In `devpage check`, and in the page's problems.
         for found in [
             internal(&doc, &mut Vec::new()),
-            testing::preview().problems(&doc, &[doc.base.join("README.md")]),
+            testing::preview().problems(&doc, &widgets_of(&doc), &[doc.base.join("README.md")]),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
             assert_eq!(found.len(), 1, "{found:#?}");
@@ -663,6 +679,12 @@ pub(crate) mod web {
 #[cfg(test)]
 mod external {
     use super::*;
+    use crate::widgets::Modules;
+
+    /// `document`'s widget set, read through a cache of its own.
+    fn widgets_of(document: &Document) -> Widgets {
+        Widgets::of(document, &Modules::default())
+    }
     use crate::external::{Http, Waits};
     use std::time::Duration;
     use tokio::sync::broadcast;
@@ -942,7 +964,11 @@ mod external {
 
     /// The problems a fresh preview finds at once.
     fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
-        Preview::new(checker(300, 3000, 50), Arc::new(Recorder::default())).problems(doc, pages)
+        Preview::new(checker(300, 3000, 50), Arc::new(Recorder::default())).problems(
+            doc,
+            &widgets_of(doc),
+            pages,
+        )
     }
 
     /// Renders until `done` holds of the problems found, or five seconds pass.
@@ -954,7 +980,7 @@ mod external {
     ) -> Vec<Problem> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
-            let found = preview.problems(doc, pages);
+            let found = preview.problems(doc, &widgets_of(doc), pages);
             if done(&found) || tokio::time::Instant::now() > deadline {
                 return found;
             }
@@ -978,8 +1004,8 @@ mod external {
         let recorder = Arc::new(Recorder::default());
         let preview = Preview::new(checker(300, 3000, 50), recorder.clone());
         let pages = [doc.base.join("README.md")];
-        assert_eq!(preview.problems(&doc, &pages).len(), 1);
-        assert_eq!(preview.problems(&doc, &pages).len(), 1);
+        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
+        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
         assert_eq!(
             *recorder.0.lock().unwrap(),
             ["README.md:3: broken link gone.md — no such file"]
@@ -997,7 +1023,7 @@ mod external {
         let pages = [doc.base.join("README.md")];
 
         // The first render holds nothing up: the answer isn't in yet.
-        assert!(preview.problems(&doc, &pages).is_empty());
+        assert!(preview.problems(&doc, &widgets_of(&doc), &pages).is_empty());
         // A broken address, once answered, asks open pages to fetch again …
         let message = tokio::time::timeout(Duration::from_secs(5), heard.recv())
             .await
@@ -1011,7 +1037,7 @@ mod external {
         assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
         assert_eq!(found[0].line, Some(3));
         // Each address is asked once for as long as devpage runs.
-        preview.problems(&doc, &pages);
+        preview.problems(&doc, &widgets_of(&doc), &pages);
         let hits = web.hits.lock().unwrap();
         assert_eq!(hits.get("/missing"), Some(&1));
         assert_eq!(hits.get("/ok"), Some(&1));

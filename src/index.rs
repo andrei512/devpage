@@ -13,9 +13,12 @@ use ignore::gitignore::Gitignore;
 use crate::document::{KindName, kind_of};
 use crate::search::Search;
 use crate::served::ServedFolder;
+use crate::widgets::Modules;
 
 pub struct Index {
     served: ServedFolder,
+    /// What was read and compiled of the served folder's widgets.
+    modules: Modules,
     inner: RwLock<Inner>,
     /// The search index, when this one was built [`with_search`](Index::with_search).
     search: Option<Search>,
@@ -35,6 +38,7 @@ impl Index {
         let served = served.as_ref();
         let index = Self {
             served: ServedFolder::canonical(served.to_path_buf()),
+            modules: Modules::default(),
             inner: RwLock::new(Inner::default()),
             search: None,
         };
@@ -120,11 +124,18 @@ impl Index {
         self.read().documents.keys().cloned().collect()
     }
 
-    /// Brings the index up to date after `path` changed, appeared or vanished.
+    /// The served folder's widget modules, as read and compiled so far.
+    pub fn modules(&self) -> &Modules {
+        &self.modules
+    }
+
+    /// Brings the index up to date after `path` changed, appeared or vanished,
+    /// and forgets what was read of it as a widget module.
     pub fn changed(&self, path: &Path) {
         if !self.served.contains(path) {
             return;
         }
+        self.modules.forget(path);
         let is_gitignore = path.file_name().is_some_and(|name| name == ".gitignore");
         if is_gitignore {
             // What is excluded changed: index the folder it governs afresh.
