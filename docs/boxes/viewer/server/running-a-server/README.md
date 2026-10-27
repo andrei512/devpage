@@ -56,12 +56,12 @@ Litestream restores the store from the bucket when the PVC is empty, then runs
 The command is the mode; everything else is a `DEVPAGE_*` variable. Secrets —
 the bucket's keys when there is no workload identity — reach the environment
 from the platform's secret store, never from the image. The ones a server
-must have:
+must have, and the cache's limit:
 
 ```sh
 DEVPAGE_BUCKET_URL=s3://docs-bucket/devpage   # or az://container/devpage
 DEVPAGE_DATA_DIR=/data                         # the PVC's mount
-DEVPAGE_CACHE_MAX_BYTES=8GB                    # less than the PVC
+DEVPAGE_CACHE_MAX_BYTES=8GB                    # optional: 80% of the PVC by default
 ```
 
 devpage checks the environment before it listens: a variable that is missing,

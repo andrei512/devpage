@@ -67,7 +67,8 @@ without that header gets `401`.
 | `DEVPAGE_PORT` | `3030` | The port. |
 | `DEVPAGE_BUCKET_URL` | required | `s3://bucket/prefix` or `az://container/prefix`. |
 | `DEVPAGE_DATA_DIR` | required | The PVC's mount: the store and the cache. |
-| `DEVPAGE_CACHE_MAX_BYTES` | required | The cache's budget, less than the PVC. |
+| `DEVPAGE_CACHE_MAX_BYTES` | 80% of the PVC | The cache's limit ([the cache](../storage/README.md#the-cache)). |
+| `DEVPAGE_CACHE_POLICY` | `lru` | Which entries go when the cache is past its limit ([the eviction policy](../storage/README.md#the-eviction-policy)). |
 | `DEVPAGE_MAX_UPLOAD_BYTES` | `100MB` | The largest zip a publish may send. |
 | `DEVPAGE_USER_HEADER` | none | The header naming each write's author; unset, writes are `anonymous`. |
 | `AWS_*`, `AZURE_*` | — | The bucket's credentials, read by the SDKs' own chains — so workload identity needs none set. |

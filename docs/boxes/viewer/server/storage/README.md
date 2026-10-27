@@ -54,20 +54,36 @@ Litestream both assume.
 ## The cache
 
 Everything else on the PVC is a copy: versions unpacked from their zips,
-compiled widgets, rendered downloads. It is bounded and evicts what was used
-least recently.
+compiled widgets, rendered downloads. A read that misses fetches the version
+from the bucket and unpacks it; losing the whole PVC only means fetching
+again.
 
-- **`DEVPAGE_CACHE_MAX_BYTES` is the budget.** Past it, devpage evicts down to
-  90%, so a full cache doesn't evict on every read.
-- **Least recently used goes first**, by an access time devpage keeps in
-  memory — a file's `atime` lies on volumes mounted `noatime`. On start it
-  scans the cache and seeds each entry's recency from its `mtime`.
-- **Cheapest to rebuild goes first among equals**: a download before an
-  unpacked version.
+- **A limit, and a policy that chooses.** The cache knows its size, its limit
+  and each entry — the version it belongs to, its bytes, when it was last
+  read. When a write takes it past the limit, it asks its **eviction policy**
+  which entries to delete to free enough room, and deletes them itself,
+  skipping any entry being served — so a policy decides and never acts, and
+  cannot break a read.
+- **The limit is 80% of the PVC** — the size of the volume under
+  `$DEVPAGE_DATA_DIR`, read at start — unless `DEVPAGE_CACHE_MAX_BYTES` sets
+  it. A bigger volume is a bigger cache with nothing to configure, and the
+  cache never fills the disk the store is on.
 - **Nothing is ever stale.** Every entry belongs to a version, and a version
   never changes, so there is nothing to invalidate — only room to make.
-- **An entry bigger than the budget** is served from the bucket without being
+- **An entry bigger than the limit** is served from the bucket without being
   cached.
 
 Hits, misses, size and evictions are logged, so the PVC can be sized from what
 the cache does.
+
+### The eviction policy
+
+A port: given the entries and how many bytes to free, it returns which to
+delete. One policy exists — the seam is there because policies are expected
+to change, by what a cache under real use shows, without touching the cache.
+A policy is a pure function of its entries, tested on lists of them, with no
+disk or bucket.
+
+| `DEVPAGE_CACHE_POLICY` | Chooses |
+| --- | --- |
+| `lru` (the default, and the only one) | The least recently read first, until the cache is at 90% of its limit, so a full cache doesn't evict on every read. Recency is kept in memory — a file's `atime` lies on volumes mounted `noatime` — and seeded from each entry's `mtime` on start. |
