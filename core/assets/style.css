@@ -638,7 +638,9 @@ a.card:hover .card-arrow { opacity: 1; transform: none; }
 @media print { .card, .step { break-inside: avoid; } .card-arrow { display: none; } a.card { transform: none; box-shadow: none; } }
 
 /* A published document's versions: the menu and the download at the bottom
-   left, and on an old version a banner at the top linking to the latest. */
+   left — the sidebar leaves room under its last link for them — and on an old
+   version a strip across the top linking to the latest, in the page's flow
+   like the navbar, so it covers nothing. */
 #devpage-versions { position: fixed; left: 16px; bottom: 16px; z-index: 6; display: flex; gap: 8px; align-items: flex-end; font: 13px var(--font); }
 #devpage-versions summary, .version-download { display: block; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; text-decoration: none; list-style: none; }
 #devpage-versions summary::-webkit-details-marker { display: none; }
@@ -647,6 +649,8 @@ a.card:hover .card-arrow { opacity: 1; transform: none; }
 .version-menu li { padding: 3px 12px; white-space: nowrap; }
 .version-menu li span { color: var(--muted); }
 .version-menu a[aria-current] { font-weight: 600; }
-#devpage-version-banner { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 7; font: 13px var(--font); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 12px; box-shadow: 0 1px 4px rgb(0 0 0 / 0.12); }
+body.with-versions #devpage-nav { padding-bottom: 72px; }
+body.with-version-banner { flex-wrap: wrap; align-content: flex-start; }
+#devpage-version-banner { flex: 0 0 100%; padding: 6px 64px; text-align: center; font: 13px var(--font); background: var(--surface); color: var(--text); border-bottom: 1px solid var(--border); }
 :fullscreen #devpage-versions, :fullscreen #devpage-version-banner { display: none; }
 @media print { #devpage-versions, #devpage-version-banner { display: none !important; } }
