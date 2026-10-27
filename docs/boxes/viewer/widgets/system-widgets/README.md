@@ -40,8 +40,8 @@ Never expose devpage without the proxy.
 
 ## Tabs and Tab
 
-Tabs, the first one open; clicking a tab's title shows it. Printed, only the
-open tab shows. A `Tab` outside a `Tabs` is a problem.
+Tabs, the first one open; clicking a tab's title shows it, and a design in it
+draws as it appears. Printed, only the open tab shows. A `Tab` outside a `Tabs` is a problem.
 
 <Example>
 

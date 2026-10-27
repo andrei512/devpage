@@ -448,7 +448,11 @@ widget when the widget is unchanged, and made again when React mounts the
 widget afresh; the design script then hands the new canvas the old one's
 design and back stack, by its `src`, and reopens the stream so it gets its
 whole scene. A widget that leaves the page is unmounted, and its designs
-leave the stream.
+leave the stream. A widget can also put a design on the page, or take one
+off, after it mounted — `Tabs` shows only the open tab — so the page script
+watches the page for a design's canvas coming or going: one that appears is
+started then, loading the design script first if the page had no design yet,
+and one that goes leaves the stream.
 
 ## Failure modes
 

@@ -1617,6 +1617,52 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
     events.abort();
 }
 
+/// A design that appears after the page has loaded — in a tab other than the
+/// first, which `Tabs` puts on the page only when it opens — draws when it
+/// appears, even on a page whose only design it is; closing the tab and
+/// opening it again draws it again.
+#[tokio::test]
+#[ignore]
+async fn a_design_in_a_tab_opened_later_draws_when_it_appears() {
+    let dir = folder("later-tab");
+    designs(&dir);
+    std::fs::write(
+        dir.join("page.md"),
+        "# Tabs\n\n<Tabs>\n<Tab title=\"Words\">\n\nNo design here.\n\n</Tab>\n<Tab title=\"Design\">\n\n![Button](button.design)\n\n</Tab>\n</Tabs>\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/page.md").as_str())
+        .await
+        .unwrap();
+    until(&page, "document.documentElement.dataset.ready === 'true'").await;
+    assert_eq!(
+        eval::<usize>(&page, "document.querySelectorAll('canvas.design').length").await,
+        0,
+        "the second tab isn't on the page yet"
+    );
+    let open =
+        |n: usize| format!("document.querySelectorAll('.tabs-bar button')[{n}].click(); true");
+    eval::<bool>(&page, &open(1)).await;
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    eval::<bool>(&page, &open(0)).await;
+    until(&page, "!document.querySelector('canvas.design')").await;
+    eval::<bool>(&page, &open(1)).await;
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    browser.close().await.ok();
+    events.abort();
+}
+
 /// A design on a slide, in a window smaller than the 1920 × 1080 stage the
 /// deck scales down: the whole drawing is painted — each corner shows its own
 /// color — and a click lands where the reader sees it. Checked on the GPU and

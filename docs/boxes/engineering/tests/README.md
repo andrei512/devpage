@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 320 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 82 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 83 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
