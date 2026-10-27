@@ -73,7 +73,10 @@ once, when it loads, and writes through four requests:
 
 The three writes need an author: deployed, a write without the identity header
 gets `401`; reading needs none. With comments off (`--no-comments`) all four
-answer `404` and write nothing ([Turning comments off](../README.md#turning-comments-off)). The comment store is always watched, whatever a site's `watch`
-says, so a thread written, changed or deleted — by a reader or by an
-agent editing the files — reaches every open page through the
-[live-update stream](../../live-updates/README.md).
+answer `404` and write nothing ([Turning comments off](../README.md#turning-comments-off)). Each write
+announces that page's comments on the
+[live-update stream](../../live-updates/README.md) as it lands, so every open
+page fetches them again. The comment store is also always watched, whatever a
+site's `watch` says, so a thread written, changed or deleted by an agent
+editing the files reaches every open page too; a file the server just wrote is
+not announced a second time.

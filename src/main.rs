@@ -138,11 +138,15 @@ async fn main() -> Result<()> {
         external::External::http(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
+    // One comment store for the server and the watcher, so the watcher knows
+    // the threads the server wrote — and announced — itself.
+    let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
     let _watcher = watch::start(
         entry.clone(),
         index.clone(),
         designs.clone(),
         changes.clone(),
+        threads.clone(),
     )?;
 
     let listener = match cli.port {
@@ -175,6 +179,7 @@ async fn main() -> Result<()> {
         designs,
         changes,
         comments,
+        store: threads,
         shots: shots.clone(),
         preview,
         log: true,

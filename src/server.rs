@@ -21,7 +21,7 @@ use serde::Deserialize;
 
 use crate::changes::{Changes, Scope};
 use crate::check::Preview;
-use crate::comments::{Anchor, Store};
+use crate::comments::{self, Anchor};
 use crate::designs::Designs;
 use crate::document::{Document, Entry};
 use crate::external::External;
@@ -36,7 +36,7 @@ struct AppState {
     changes: Changes,
     /// `None` when comments are off: the pages show none and every comment
     /// route answers 404.
-    comments: Option<Arc<Comments>>,
+    comments: Option<Arc<Commenting>>,
     designs: Designs,
     /// Slides as images: the Chrome that draws them and what it drew.
     shots: Shots,
@@ -44,9 +44,10 @@ struct AppState {
     preview: Arc<Preview>,
 }
 
-/// Comments on: where threads are kept, and who writes them.
-struct Comments {
-    store: Store,
+/// Comments on: the threads, announced as they are written, and who
+/// writes them.
+struct Commenting {
+    threads: comments::Comments,
     identity: Identity,
 }
 
@@ -54,7 +55,7 @@ impl AppState {
     /// The comments, or — when they are off — the 404 every comment route
     /// answers, as if it weren't there.
     #[allow(clippy::result_large_err)]
-    fn comments(&self) -> Result<&Comments, Response> {
+    fn comments(&self) -> Result<&Commenting, Response> {
         self.comments
             .as_deref()
             .ok_or_else(|| (StatusCode::NOT_FOUND, "comments are off").into_response())
@@ -103,6 +104,10 @@ pub struct Options {
     pub changes: Changes,
     /// Who writes comments, or `None` when they are off (`--no-comments`).
     pub comments: Option<Identity>,
+    /// Where threads are kept: the served folder's YAML files unless a
+    /// caller gives another store — the watcher's, so it knows the server's
+    /// own writes, or one in memory.
+    pub store: Arc<dyn comments::Store>,
     /// The Chrome that draws slides as PNGs, and what it drew.
     pub shots: Shots,
     /// The problems each page lists.
@@ -123,6 +128,7 @@ impl Options {
                 External::http(Some(changes.clone())),
                 Arc::new(crate::terminal::Terminal),
             )),
+            store: Arc::new(comments::yaml::Yaml::new(&document.served)),
             entry: Arc::new(Entry::new(document)),
             comments: Some(Identity::Local(String::new())),
             changes,
@@ -151,14 +157,15 @@ pub fn router(options: Options) -> Router {
         designs,
         changes,
         comments,
+        store,
         shots,
         preview,
         log,
     } = options;
     let router = routes(AppState {
         comments: comments.map(|identity| {
-            Arc::new(Comments {
-                store: Store::new(&entry.document().served),
+            Arc::new(Commenting {
+                threads: comments::Comments::new(store, changes.clone(), Scope::root()),
                 identity,
             })
         }),
@@ -596,7 +603,7 @@ async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQu
         Ok(comments) => comments,
         Err(off) => return off,
     };
-    match comments.store.list(&query.page) {
+    match comments.threads.list(&query.page) {
         Ok(threads) => Json(threads).into_response(),
         Err(error) => failed(error),
     }
@@ -629,7 +636,7 @@ async fn create_comment(
             .into_response();
     }
     match comments
-        .store
+        .threads
         .create(&new.page, new.anchor, &author, &new.text)
     {
         Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
@@ -651,7 +658,7 @@ async fn reply_comment(
         Err(refused) => return refused,
     };
     match comments
-        .store
+        .threads
         .reply(&reply.page, &reply.id, &author, &reply.text)
     {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -671,7 +678,7 @@ async fn resolve_comment(
     if let Err(refused) = comments.identity.author(&headers) {
         return refused;
     }
-    match comments.store.resolve(&reply.page, &reply.id) {
+    match comments.threads.resolve(&reply.page, &reply.id) {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => failed(error),
     }
@@ -683,11 +690,20 @@ mod tests {
     use serde_json::{Value, json};
 
     /// A served folder holding one page, served by the real router on a free
-    /// port, with the given comment author — or `None`, comments off.
+    /// port with its threads in memory and no watcher, with the given comment
+    /// author — or `None`, comments off. Also the bus the server announces on.
     async fn serve_comments(
         name: &str,
         comments: Option<Identity>,
     ) -> (String, std::path::PathBuf) {
+        let (address, root, _) = serve_comments_on(name, comments).await;
+        (address, root)
+    }
+
+    async fn serve_comments_on(
+        name: &str,
+        comments: Option<Identity>,
+    ) -> (String, std::path::PathBuf, crate::changes::Changes) {
         let root =
             std::env::temp_dir().join(format!("devpage-routes-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -701,18 +717,14 @@ mod tests {
         let changes = crate::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move {
-            axum::serve(
-                listener,
-                router(Options {
-                    comments,
-                    ..Options::new(document, changes)
-                }),
-            )
-            .await
-            .unwrap()
+        let router = router(Options {
+            comments,
+            store: Arc::new(comments::memory::Memory::default()),
+            preview: crate::check::testing::preview(),
+            ..Options::new(document, changes.clone())
         });
-        (address, root)
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (address, root, changes)
     }
 
     fn new_thread() -> Value {
@@ -756,10 +768,7 @@ mod tests {
         assert_eq!(listed[0]["anchor"]["quote"], "retries");
         assert_eq!(listed[0]["thread"][0]["author"], "Ana");
         assert_eq!(listed[0]["thread"][1]["text"], "Only the outbox.");
-        assert!(
-            root.join(format!(".devpage/comments/a.md/{id}.yml"))
-                .is_file()
-        );
+        assert!(!root.join(".devpage").exists(), "kept in memory");
 
         let resolved = client
             .post(format!("{address}/__devpage/comments/resolve"))
@@ -777,6 +786,49 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(listed, json!([]));
+    }
+
+    #[tokio::test]
+    async fn each_write_reaches_open_pages_without_a_watcher() {
+        use crate::changes::{Change, Scope};
+        let (address, _, changes) =
+            serve_comments_on("announce", Some(Identity::Local("Ana".into()))).await;
+        let mut heard = changes.subscribe(Scope::root());
+        let client = reqwest::Client::new();
+        let created: Value = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+        for action in ["reply", "resolve"] {
+            let done = client
+                .post(format!("{address}/__devpage/comments/{action}"))
+                .json(&json!({ "page": "/a.md", "id": id, "text": "x" }))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(done.status(), 204, "{action}");
+        }
+        // A refused write and a read announce nothing.
+        let refused = client
+            .post(format!("{address}/__devpage/comments/reply"))
+            .json(&json!({ "page": "/a.md", "id": id, "text": "gone" }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 400);
+        client
+            .get(format!("{address}/__devpage/comments?page=/a.md"))
+            .send()
+            .await
+            .unwrap();
+        let page = Change::Comments("/a.md".into());
+        assert_eq!(heard.drain(), [page.clone(), page.clone(), page]);
     }
 
     #[tokio::test]
@@ -1061,11 +1113,13 @@ mod tests {
         let entry = Arc::new(Entry::new(document.clone()));
         let changes = crate::changes::Changes::default();
         let designs = Designs::new(dir.clone());
+        let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
         let _watcher = crate::watch::start(
             entry.clone(),
             index.clone(),
             designs.clone(),
             changes.clone(),
+            threads.clone(),
         )
         .unwrap();
         let router = router(Options {
@@ -1073,6 +1127,7 @@ mod tests {
             index,
             designs,
             comments: Some(Identity::Local("T".into())),
+            store: threads,
             preview: crate::check::testing::preview(),
             ..Options::new(document, changes.clone())
         });

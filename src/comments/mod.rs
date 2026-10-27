@@ -1,11 +1,23 @@
-//! The comment store: one YAML file per thread under `.devpage/comments/`, by
-//! the path of the page it is about. The server writes nothing outside `.devpage/`.
+//! Comments: threads readers leave on a page, kept by a comment store. The
+//! [`Store`] port is what a store must do — list, create, reply, resolve —
+//! and [`Comments`] is what the server writes through: every write it makes
+//! announces itself on the change bus, so open pages hear it whatever keeps
+//! the threads. The YAML files under `.devpage/comments/` are one store
+//! ([`yaml`]); tests keep threads in memory ([`memory`]).
 
-use std::path::{Path, PathBuf};
+pub mod yaml;
+
+#[cfg(test)]
+pub mod memory;
+
+use std::path::Path;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
+
+use crate::changes::{Change, Changes, Scope};
 
 /// What a thread is attached to: rendered text, with a little context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -32,152 +44,94 @@ pub struct Thread {
 }
 
 /// A thread with its id, as the page receives it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Listed {
     pub id: String,
     #[serde(flatten)]
     pub thread: Thread,
 }
 
-/// Thread files that don't parse, each with its error.
-type Unparsable = Vec<(PathBuf, String)>;
-
-pub struct Store {
-    root: PathBuf,
+/// The comment store port: where one served folder's threads are kept. A
+/// `page` is the address of the Markdown file a thread is about (`/a.md`);
+/// one that climbs out of the served folder, and an id that isn't a thread's,
+/// are errors. Writes are silent — announcing them is [`Comments`]'s job.
+pub trait Store: Send + Sync {
+    /// A page's threads, oldest first.
+    fn list(&self, page: &str) -> Result<Vec<Listed>>;
+    /// Starts a thread on `page`; answers its id.
+    fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String>;
+    /// Appends a reply to thread `id`.
+    fn reply(&self, page: &str, id: &str, author: &str, text: &str) -> Result<()>;
+    /// Resolves thread `id`: it is gone.
+    fn resolve(&self, page: &str, id: &str) -> Result<()>;
 }
 
-impl Store {
-    pub fn new(served: impl AsRef<Path>) -> Self {
-        let served = served.as_ref();
+/// The comments of the documents under one scope: a store, and the bus every
+/// successful write is announced on — `comments <page>`, once, as the write
+/// lands — so open pages fetch that page's threads again.
+#[derive(Clone)]
+pub struct Comments {
+    store: Arc<dyn Store>,
+    changes: Changes,
+    scope: Scope,
+}
+
+impl Comments {
+    pub fn new(store: Arc<dyn Store>, changes: Changes, scope: Scope) -> Self {
         Self {
-            root: served.join(".devpage"),
+            store,
+            changes,
+            scope,
         }
     }
 
-    /// The folder holding a page's threads. `page` is a path from the top of
-    /// the served folder; anything climbing out of it is refused.
-    fn folder(&self, page: &str) -> Result<PathBuf> {
-        let page = Path::new(page.trim_start_matches('/'));
-        if page
-            .components()
-            .any(|part| !matches!(part, std::path::Component::Normal(_)))
-        {
-            bail!("{} is not a page in the served folder", page.display());
-        }
-        Ok(self.root.join("comments").join(page))
-    }
-
-    fn thread_file(&self, page: &str, id: &str) -> Result<PathBuf> {
-        if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-            bail!("no thread {id}");
-        }
-        Ok(self.folder(page)?.join(format!("{id}.yml")))
-    }
-
-    /// Creates `.devpage/` with a `.gitignore` that keeps git away from it.
-    fn prepare(&self) -> Result<()> {
-        std::fs::create_dir_all(&self.root)?;
-        let ignore = self.root.join(".gitignore");
-        if !ignore.exists() {
-            std::fs::write(ignore, "*\n")?;
-        }
-        Ok(())
-    }
-
-    /// A page's threads, oldest first. A thread file that doesn't parse is
-    /// left out — and left alone; [`problems`] names it.
     pub fn list(&self, page: &str) -> Result<Vec<Listed>> {
-        Ok(self.read(page)?.0)
-    }
-
-    /// The page's threads, and the thread files that don't parse with why.
-    fn read(&self, page: &str) -> Result<(Vec<Listed>, Unparsable)> {
-        let Ok(entries) = std::fs::read_dir(self.folder(page)?) else {
-            return Ok(Default::default());
-        };
-        let (mut listed, mut broken) = (Vec::new(), Vec::new());
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().is_none_or(|ext| ext != "yml") {
-                continue;
-            }
-            let parsed = std::fs::read_to_string(&path)
-                .map_err(anyhow::Error::from)
-                .and_then(|text| Ok(serde_yaml::from_str::<Thread>(&text)?));
-            match parsed {
-                Ok(thread) => {
-                    let id = path
-                        .file_stem()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .into_owned();
-                    listed.push(Listed { id, thread });
-                }
-                Err(error) => broken.push((path, format!("{error:#}"))),
-            }
-        }
-        listed.sort_by(|a, b| a.id.cmp(&b.id));
-        broken.sort();
-        Ok((listed, broken))
+        self.store.list(page)
     }
 
     pub fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String> {
-        self.prepare()?;
-        let (stamp, nanos) = now();
-        let id = format!("{}-{:04x}", stamp.replace(['-', ':'], ""), nanos & 0xffff);
-        let file = self.thread_file(page, &id)?;
-        std::fs::create_dir_all(file.parent().unwrap())?;
-        let thread = Thread {
-            anchor,
-            thread: vec![Message {
-                author: author.into(),
-                at: stamp,
-                text: text.into(),
-            }],
-        };
-        std::fs::write(file, serde_yaml::to_string(&thread)?)?;
+        let id = self.store.create(page, anchor, author, text)?;
+        self.announce(page);
         Ok(id)
     }
 
     pub fn reply(&self, page: &str, id: &str, author: &str, text: &str) -> Result<()> {
-        let file = self.thread_file(page, id)?;
-        let mut thread: Thread = serde_yaml::from_str(&std::fs::read_to_string(&file)?)?;
-        thread.thread.push(Message {
-            author: author.into(),
-            at: now().0,
-            text: text.into(),
-        });
-        std::fs::write(file, serde_yaml::to_string(&thread)?)?;
+        self.store.reply(page, id, author, text)?;
+        self.announce(page);
         Ok(())
     }
 
-    /// Resolving a thread deletes its file.
     pub fn resolve(&self, page: &str, id: &str) -> Result<()> {
-        std::fs::remove_file(self.thread_file(page, id)?)?;
+        self.store.resolve(page, id)?;
+        self.announce(page);
         Ok(())
+    }
+
+    fn announce(&self, page: &str) {
+        let page = format!("/{}", page.trim_start_matches('/'));
+        self.changes.publish(&self.scope, Change::Comments(page));
     }
 }
 
-/// The page's thread files that don't parse, as problems: listed on the page
-/// in the preview and reported by `devpage check`.
-pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::problem::Problem> {
-    let store = Store::new(&document.served);
-    let unparsable = store.read(&document.url(page)).map(|(_, broken)| broken);
-    unparsable
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(file, error)| crate::problem::Problem {
-            file: document
-                .served
-                .relative(&file)
-                .unwrap_or(&file)
-                .display()
-                .to_string(),
-            line: None,
-            message: format!("comment thread doesn't parse — {error}"),
-            target: None,
-        })
-        .collect()
+/// A new thread's id: the UTC time it was started, to the second, and four
+/// hex digits from the clock's nanoseconds — so a page's threads list oldest
+/// first — with when it was started.
+fn new_id() -> (String, String) {
+    let (stamp, nanos) = now();
+    let id = format!("{}-{:04x}", stamp.replace(['-', ':'], ""), nanos & 0xffff);
+    (id, stamp)
+}
+
+/// Whether `id` can be a thread's: letters, digits and dashes, never empty.
+fn is_id(id: &str) -> bool {
+    !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// Whether `page` stays inside the served folder: only plain path parts.
+fn is_page(page: &str) -> bool {
+    Path::new(page.trim_start_matches('/'))
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)))
 }
 
 /// The local author: `git config user.name` as git sees it from the served
@@ -231,102 +185,37 @@ mod tests {
     use super::*;
     use std::process::Command;
 
-    fn git(repo: &Path, args: &[&str]) -> String {
-        let output = Command::new("git")
-            .arg("-C")
-            .arg(repo)
-            .args(args)
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&output.stdout).into_owned()
-    }
-
-    #[test]
-    fn a_thread_lives_and_dies_without_touching_the_repository() {
-        let repo = std::env::temp_dir().join(format!("devpage-comments-{}", std::process::id()));
-        std::fs::create_dir_all(repo.join("docs")).unwrap();
-        std::fs::write(repo.join("docs/a.md"), "# A\n\nThe client retries.\n").unwrap();
-        git(&repo, &["init", "-q"]);
-        git(&repo, &["add", "."]);
-        git(
-            &repo,
-            &[
-                "-c",
-                "user.name=t",
-                "-c",
-                "user.email=t@t",
-                "commit",
-                "-qm",
-                "x",
-            ],
-        );
-
-        let store = Store::new(&repo);
-        let anchor = Anchor {
+    fn anchor() -> Anchor {
+        Anchor {
             quote: "retries".into(),
             prefix: "The client ".into(),
             suffix: ".".into(),
-        };
-        let id = store
-            .create("/docs/a.md", anchor.clone(), "Ana", "Every write?")
-            .unwrap();
-        store
-            .reply("/docs/a.md", &id, "Bo", "Only the outbox.")
-            .unwrap();
-        let listed = store.list("/docs/a.md").unwrap();
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].thread.anchor, anchor);
-        assert_eq!(listed[0].thread.thread[1].author, "Bo");
-        assert!(
-            repo.join(format!(".devpage/comments/docs/a.md/{id}.yml"))
-                .is_file()
-        );
-        assert_eq!(
-            git(&repo, &["status", "--porcelain"]),
-            "",
-            "git sees nothing"
-        );
-
-        store.resolve("/docs/a.md", &id).unwrap();
-        assert!(store.list("/docs/a.md").unwrap().is_empty());
-        assert!(store.create("/../x.md", anchor, "Ana", "no").is_err());
+        }
     }
 
     #[test]
-    fn a_thread_file_that_doesnt_parse_is_named_and_left_alone() {
-        let root = std::env::temp_dir().join(format!("devpage-unparsable-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let store = Store::new(&root);
-        let anchor = Anchor {
-            quote: "x".into(),
-            prefix: String::new(),
-            suffix: String::new(),
-        };
-        store.create("/a.md", anchor, "Ana", "fine").unwrap();
-        let bad = root.join(".devpage/comments/a.md/20261025T000000Z-0000.yml");
-        std::fs::write(&bad, "anchor: [not, a, mapping]\n").unwrap();
-        assert_eq!(
-            store.list("/a.md").unwrap().len(),
-            1,
-            "the good thread still lists"
+    fn every_write_announces_its_page_once_and_a_failed_one_nothing() {
+        let changes = Changes::default();
+        let mut heard = changes.subscribe(Scope::root());
+        let comments = Comments::new(
+            Arc::new(memory::Memory::default()),
+            changes.clone(),
+            Scope::root(),
         );
-        let broken = store.read("/a.md").unwrap().1;
-        assert_eq!(broken.len(), 1);
-        assert_eq!(broken[0].0, bad);
-        assert!(bad.is_file(), "left alone");
-
-        std::fs::write(root.join("a.md"), "# A\n").unwrap();
-        let document = crate::document::Document::load(&root.join("a.md"), &root).unwrap();
-        let found = problems(&document, &document.served.path().join("a.md"));
-        assert_eq!(found.len(), 1);
+        let id = comments
+            .create("/a.md", anchor(), "Ana", "Every write?")
+            .unwrap();
+        comments
+            .reply("/a.md", &id, "Bo", "Only the outbox.")
+            .unwrap();
+        comments.resolve("/a.md", &id).unwrap();
+        assert!(comments.reply("/a.md", &id, "Bo", "gone").is_err());
+        assert!(comments.create("/../x.md", anchor(), "Ana", "no").is_err());
+        let comments_of_a = Change::Comments("/a.md".into());
         assert_eq!(
-            found[0].file,
-            ".devpage/comments/a.md/20261025T000000Z-0000.yml"
-        );
-        assert!(
-            found[0].message.starts_with("comment thread doesn't parse"),
-            "{}",
-            found[0]
+            heard.drain(),
+            [comments_of_a.clone(), comments_of_a.clone(), comments_of_a],
+            "one per write that landed, none for the two refused"
         );
     }
 
@@ -354,12 +243,21 @@ mod tests {
             "{stamp}"
         );
     }
+
+    #[test]
+    fn a_page_that_climbs_out_and_a_made_up_id_are_refused() {
+        assert!(is_page("/docs/a.md"));
+        assert!(!is_page("/../x.md"));
+        assert!(is_id("20261025T181502Z-7f3a"));
+        assert!(!is_id("../x") && !is_id(""));
+    }
 }
 
 /// The page script's side of comments, in chrome-headless-shell. Run with
 /// `cargo test -- --ignored`.
 #[cfg(test)]
 mod browser {
+    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -402,11 +300,13 @@ mod browser {
         let index = Arc::new(crate::index::Index::build(&document.served));
         let entry = Arc::new(crate::document::Entry::new(document));
         let designs = crate::designs::Designs::new(entry.document().served.path().to_path_buf());
+        let threads = Arc::new(yaml::Yaml::new(&entry.document().served));
         let _watcher = crate::watch::start(
             entry.clone(),
             index.clone(),
             designs.clone(),
             changes.clone(),
+            threads.clone(),
         )
         .unwrap();
         let document = entry.document();
@@ -415,6 +315,7 @@ mod browser {
             index,
             designs,
             comments: Some(server::Identity::Local("Ana".into())),
+            store: threads,
             preview: crate::check::testing::preview(),
             ..server::Options::new(document, changes.clone())
         });
@@ -613,7 +514,7 @@ mod browser {
             "the thread sits beside the text and the composer closed"
         );
 
-        let threads = Store::new(&root).list("/a.md").unwrap();
+        let threads = yaml::Yaml::new(&root).list("/a.md").unwrap();
         assert_eq!(threads.len(), 1);
         let thread = &threads[0].thread;
         assert_eq!(thread.anchor.quote, "retries every write");
@@ -758,7 +659,7 @@ mod browser {
             prefix: "The ".into(),
             suffix: ".".into(),
         };
-        Store::new(&root)
+        yaml::Yaml::new(&root)
             .create("/one.md", anchor, "Bo", "Sharper?")
             .unwrap();
         let (mut browser, page, events) =
