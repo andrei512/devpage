@@ -1,6 +1,9 @@
 //! The HTTP server: pages rendered on request, the page assets, and a stream
 //! that tells open pages a watched file changed.
 
+mod canvas;
+mod watch_stream;
+
 use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -195,7 +198,7 @@ fn routes(state: AppState) -> Router {
             tower::ServiceBuilder::new()
                 .layer(tonic_web::GrpcWebLayer::new())
                 .service(devpage_design::proto::designs_server::DesignsServer::new(
-                    crate::designs::Watch {
+                    watch_stream::Watch {
                         designs: designs.clone(),
                     },
                 )),
@@ -330,7 +333,7 @@ async fn file(
         // An address that names a theme shows it; any other `theme` is
         // passed over.
         let theme = theme.and_then(Result::ok);
-        return Html(crate::designs::page(&path, theme)).into_response();
+        return Html(canvas::page(&path, theme)).into_response();
     }
     let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
         return (
