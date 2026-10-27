@@ -21,6 +21,7 @@ use sha2::{Digest, Sha256};
 
 use crate::addresses::{Owned, address};
 use crate::document::Document;
+use crate::served::ServedFolder;
 
 /// The widgets devpage ships, compiled into the binary.
 pub const SYSTEM: &[(&str, &str)] = &[
@@ -77,7 +78,7 @@ impl Widgets {
                 .modules
                 .insert(name.to_string(), address(Owned::SystemWidget(name)));
         }
-        widgets.served = document.served.clone();
+        widgets.served = document.served.path().to_path_buf();
         widgets.known = widgets.modules.keys().cloned().collect();
         let Some(folder) = &document.widgets else {
             return widgets;
@@ -372,32 +373,30 @@ fn relative_imports(path: &Path, source: &str) -> Vec<String> {
 /// between the two can't serve new bytes under the old version.
 #[derive(Debug)]
 pub struct Snapshot {
-    served: PathBuf,
+    served: ServedFolder,
     reads: BTreeMap<PathBuf, Read>,
 }
 
 impl Snapshot {
     /// Reads `file` and every module its relative imports reach.
-    pub fn of(served: &Path, file: &Path) -> Self {
+    pub fn of(served: impl AsRef<Path>, file: &Path) -> Self {
+        let served = ServedFolder::canonical(served.as_ref().to_path_buf());
         let mut reads = BTreeMap::new();
         let mut queue = vec![file.to_path_buf()];
         while let Some(next) = queue.pop() {
-            if reads.contains_key(&next) || (next != file && !next.starts_with(served)) {
+            if reads.contains_key(&next) || (next != file && !served.contains(&next)) {
                 continue;
             }
             let Some(read) = read(&next) else { continue };
             queue.extend(read.imports.iter().map(|(_, p)| p.clone()));
             reads.insert(next, read);
         }
-        Self {
-            served: served.to_path_buf(),
-            reads,
-        }
+        Self { served, reads }
     }
 
     /// The served folder the snapshot was read in.
     pub fn served(&self) -> &Path {
-        &self.served
+        self.served.path()
     }
 
     /// `file` and every module its relative imports reach, as read: `file`
@@ -410,7 +409,7 @@ impl Snapshot {
         let mut found: BTreeMap<PathBuf, Arc<str>> = BTreeMap::new();
         let mut queue: Vec<PathBuf> = root.imports.iter().map(|(_, p)| p.clone()).collect();
         while let Some(next) = queue.pop() {
-            if next == file || found.contains_key(&next) || !next.starts_with(&self.served) {
+            if next == file || found.contains_key(&next) || !self.served.contains(&next) {
                 continue;
             }
             let Some(read) = self.reads.get(&next) else {
@@ -435,7 +434,8 @@ impl Snapshot {
         for (path, source) in self.closure(file) {
             hash.update([0]);
             hash.update(
-                path.strip_prefix(&self.served)
+                self.served
+                    .relative(&path)
                     .unwrap_or(&path)
                     .to_string_lossy()
                     .as_bytes(),
@@ -457,7 +457,7 @@ impl Snapshot {
         let imports = read
             .imports
             .iter()
-            .filter(|(_, path)| path.starts_with(&self.served))
+            .filter(|(_, path)| self.served.contains(path))
             .map(|(specifier, path)| {
                 let url = address(Owned::Module {
                     snapshot: self,
@@ -472,7 +472,7 @@ impl Snapshot {
 }
 
 /// [`Snapshot::compile`] of `file`, read now.
-pub fn compile_module(served: &Path, file: &Path, known: &[String]) -> Result<String> {
+pub fn compile_module(served: impl AsRef<Path>, file: &Path, known: &[String]) -> Result<String> {
     Snapshot::of(served, file).compile(file, known)
 }
 

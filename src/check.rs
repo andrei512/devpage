@@ -203,12 +203,9 @@ fn page_links_with(
         let resolved = if path.is_empty() {
             Some(page.to_path_buf())
         } else {
-            page.parent()
-                .unwrap_or(Path::new("."))
-                .join(path)
-                .canonicalize()
-                .ok()
-                .filter(|resolved| resolved.starts_with(&document.served))
+            document
+                .served
+                .inside(&page.parent().unwrap_or(Path::new(".")).join(path))
         };
         // A design's PNG address is the design drawn, when no real file of
         // that name is there: the link is as good as the design.
@@ -216,12 +213,9 @@ fn page_links_with(
             let design = path
                 .strip_suffix(".png")
                 .filter(|p| p.ends_with(".design"))?;
-            page.parent()
-                .unwrap_or(Path::new("."))
-                .join(design)
-                .canonicalize()
-                .ok()
-                .filter(|resolved| resolved.starts_with(&document.served) && resolved.is_file())
+            document
+                .served
+                .file(&page.parent().unwrap_or(Path::new(".")).join(design))
         });
         let Some(resolved) = resolved else {
             problems.push(Problem {
@@ -266,7 +260,7 @@ fn page_links_with(
                         line,
                         message: format!(
                             "broken link {target} — {}",
-                            relative(&format!("{error:#}"), &document.served)
+                            relative(&format!("{error:#}"), document.served.path())
                         ),
                         target: Some(target.clone()),
                     });
@@ -871,7 +865,7 @@ mod external {
             .collect();
         assert_eq!(found.len(), 1, "{found:#?}");
         assert!(
-            !found[0].contains(&doc.served.display().to_string()),
+            !found[0].contains(&doc.served.path().display().to_string()),
             "{found:#?}"
         );
         assert!(found[0].contains("in plan/devpage.yml"), "{found:#?}");

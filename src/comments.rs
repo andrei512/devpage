@@ -47,7 +47,8 @@ pub struct Store {
 }
 
 impl Store {
-    pub fn new(served: &Path) -> Self {
+    pub fn new(served: impl AsRef<Path>) -> Self {
+        let served = served.as_ref();
         Self {
             root: served.join(".devpage"),
         }
@@ -166,8 +167,9 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
         .unwrap_or_default()
         .into_iter()
         .map(|(file, error)| crate::problem::Problem {
-            file: file
-                .strip_prefix(&document.served)
+            file: document
+                .served
+                .relative(&file)
                 .unwrap_or(&file)
                 .display()
                 .to_string(),
@@ -315,7 +317,7 @@ mod tests {
 
         std::fs::write(root.join("a.md"), "# A\n").unwrap();
         let document = crate::document::Document::load(&root.join("a.md"), &root).unwrap();
-        let found = problems(&document, &document.served.join("a.md"));
+        let found = problems(&document, &document.served.path().join("a.md"));
         assert_eq!(found.len(), 1);
         assert_eq!(
             found[0].file,
@@ -400,7 +402,7 @@ mod browser {
         let (changes, _) = broadcast::channel(16);
         let index = Arc::new(crate::index::Index::build(&document.served));
         let entry = Arc::new(crate::document::Entry::new(document));
-        let designs = crate::designs::Designs::new(entry.document().served.clone());
+        let designs = crate::designs::Designs::new(entry.document().served.path().to_path_buf());
         let _watcher = crate::watch::start(
             entry.clone(),
             index.clone(),

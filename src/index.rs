@@ -12,9 +12,10 @@ use ignore::gitignore::Gitignore;
 
 use crate::document::{KindName, kind_of};
 use crate::search::Search;
+use crate::served::ServedFolder;
 
 pub struct Index {
-    served: PathBuf,
+    served: ServedFolder,
     inner: RwLock<Inner>,
     /// The search index, when this one was built [`with_search`](Index::with_search).
     search: Option<Search>,
@@ -30,9 +31,10 @@ struct Inner {
 
 impl Index {
     /// Indexes the served folder, which must be canonical.
-    pub fn build(served: &Path) -> Self {
+    pub fn build(served: impl AsRef<Path>) -> Self {
+        let served = served.as_ref();
         let index = Self {
-            served: served.to_path_buf(),
+            served: ServedFolder::canonical(served.to_path_buf()),
             inner: RwLock::new(Inner::default()),
             search: None,
         };
@@ -55,13 +57,13 @@ impl Index {
 
     /// The served folder.
     pub fn served(&self) -> &Path {
-        &self.served
+        self.served.path()
     }
 
     /// Whether `path` is out of sight: inside `.git` or `.devpage`, or
     /// excluded by a `.gitignore` in the served folder.
     pub fn ignored(&self, path: &Path, is_dir: bool) -> bool {
-        let Ok(relative) = path.strip_prefix(&self.served) else {
+        let Some(relative) = self.served.relative(path) else {
             return true;
         };
         if relative
@@ -82,7 +84,7 @@ impl Index {
                     return false;
                 }
             }
-            if folder == self.served {
+            if folder == self.served.path() {
                 break;
             }
         }
@@ -120,13 +122,13 @@ impl Index {
 
     /// Brings the index up to date after `path` changed, appeared or vanished.
     pub fn changed(&self, path: &Path) {
-        if !path.starts_with(&self.served) {
+        if !self.served.contains(path) {
             return;
         }
         let is_gitignore = path.file_name().is_some_and(|name| name == ".gitignore");
         if is_gitignore {
             // What is excluded changed: index the folder it governs afresh.
-            let folder = path.parent().unwrap_or(&self.served).to_path_buf();
+            let folder = path.parent().unwrap_or(self.served.path()).to_path_buf();
             {
                 let mut inner = self.write();
                 inner.ignores.retain(|dir, _| !dir.starts_with(&folder));

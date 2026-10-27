@@ -15,7 +15,7 @@ Each part of the diagram opens the page that explains it.
 
 ```mermaid
 flowchart LR
-  main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, index.rs, search.rs"]
+  main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, served.rs, index.rs, search.rs"]
   main --> watch["Watching<br/>watch.rs"]
   main --> serve["Serving<br/>server.rs, resolve.rs, comments.rs"]
   serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
@@ -40,7 +40,7 @@ flowchart LR
 | Module | Does |
 | --- | --- |
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
-| `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
+| `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one. |
 | `src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
 | `src/watch.rs` | Watches the served folder, keeps the index and its search index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
@@ -58,6 +58,7 @@ flowchart LR
 | `src/validators.rs` | The middleware that gives every response but the streams an ETag and answers `304`; `Accept-Encoding` negotiation. |
 | `src/render.rs` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar, from the problems it is given — rendering checks nothing itself; an invalid document file's page. |
 | `src/markup.rs` | A page's Markdown read as text, before rendering: its front matter, its title, its `<Notes>`, and the scanner that finds widget tags outside code. A leaf: it uses nothing else in devpage. |
+| `src/served.rs` | `ServedFolder`: the served folder and the boundary around it — resolving a path, link or URL inside it with symbolic links followed, refusing what lands outside, and a file's address. Every check that a path lies inside the served folder goes through it. A leaf. |
 | `src/problem.rs` | `Problem`: one broken thing and where it was found, as checking, the navbar, widgets and comments report it. A leaf. |
 | `src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |

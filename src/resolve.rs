@@ -79,7 +79,7 @@ impl Resolver<'_> {
             .find_map(|pair| pair.strip_prefix("theme="))
             .map(|name| Theme::named(name).ok_or(name));
         let entry = self.entry.document();
-        let file_at = |path: &str| entry.file(path).filter(|file| file.is_file());
+        let file_at = |path: &str| entry.served.file_at(path);
         let outside = || Answer::NotFound(format!("{path} is not part of the served folder"));
         let real = file_at(path);
 

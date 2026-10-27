@@ -12,6 +12,8 @@ use devpage_design::resolve::ImageFile;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 use tokio::sync::broadcast;
 
+use crate::served::ServedFolder;
+
 /// A design resolved once: its scene or its problems, and every file the
 /// resolving asked for — missing ones included, so creating one counts.
 #[derive(Clone)]
@@ -38,7 +40,7 @@ struct Source {
 }
 
 struct Store {
-    served: PathBuf,
+    served: ServedFolder,
     renderer: Mutex<Renderer>,
     sources: Mutex<HashMap<String, Source>>,
     /// How many files the store has read from disk.
@@ -83,13 +85,8 @@ impl Files for Reading<'_> {
             self.seen.borrow_mut().push((path.to_string(), source.read));
             return source.bytes.clone();
         }
-        let file = self
-            .store
-            .served
-            .join(path)
-            .canonicalize()
-            .ok()
-            .filter(|file| file.starts_with(&self.store.served) && file.is_file());
+        let served = &self.store.served;
+        let file = served.file(&served.path().join(path));
         let source = Source {
             bytes: file.as_ref().and_then(|file| std::fs::read(file).ok()),
             canonical: file.as_ref().map(|file| self.store.relative(file)),
@@ -133,7 +130,8 @@ impl Files for Reading<'_> {
 
 impl Store {
     fn relative(&self, file: &Path) -> String {
-        file.strip_prefix(&self.served)
+        self.served
+            .relative(file)
             .unwrap_or(file)
             .to_string_lossy()
             .into_owned()
@@ -213,7 +211,7 @@ impl Designs {
     /// The store for the served folder, which must be canonical.
     pub fn new(served: PathBuf) -> Designs {
         Designs(Arc::new(Store {
-            served,
+            served: ServedFolder::canonical(served),
             renderer: Mutex::new(Renderer::new()),
             sources: Mutex::default(),
             reads: Default::default(),
@@ -320,20 +318,19 @@ impl Designs {
 
 /// The design at `path`'s problems, read straight from disk: what
 /// `devpage check` and a page's problems bar report.
-pub fn problems(served: &Path, path: &str) -> Vec<Problem> {
-    struct Disk<'a>(&'a Path);
+pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
+    let served = ServedFolder::canonical(served.as_ref().to_path_buf());
+    struct Disk<'a>(&'a ServedFolder);
     impl Files for Disk<'_> {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-            let file = self.0.join(path).canonicalize().ok()?;
-            file.starts_with(self.0)
-                .then(|| std::fs::read(file).ok())
-                .flatten()
+            let file = self.0.inside(&self.0.path().join(path))?;
+            std::fs::read(file).ok()
         }
     }
     let path = address(path);
     guarded(
         path,
-        || devpage_design::resolve(&Disk(served), path),
+        || devpage_design::resolve(&Disk(&served), path),
         |p| vec![p],
     )
     .and_then(|scene| drawable(&mut Renderer::new(), path, &scene))

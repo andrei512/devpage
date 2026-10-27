@@ -12,6 +12,7 @@ use crate::markup::split_front_matter;
 pub use crate::markup::title;
 use crate::nav;
 use crate::problem::Problem;
+use crate::served::ServedFolder;
 
 /// GitHub-flavoured Markdown with raw HTML allowed. Fenced code goes through
 /// `highlight::Highlighter`, which keeps the language only on Mermaid blocks
@@ -306,7 +307,10 @@ pub fn doc(
     let names: Vec<(PathBuf, String)> = chapters
         .iter()
         .map(|chapter| {
-            let canonical = chapter.canonicalize().unwrap_or_else(|_| chapter.clone());
+            let canonical = document
+                .served
+                .inside(chapter)
+                .unwrap_or_else(|| chapter.clone());
             let name = chapter
                 .file_stem()
                 .unwrap_or_default()
@@ -319,7 +323,7 @@ pub fn doc(
         let source = std::fs::read_to_string(chapter).unwrap_or_default();
         let mut html = markdown_in(document, &source);
         if chapters.len() > 1 {
-            html = scope_ids(&html, chapter, &names);
+            html = scope_ids(&html, chapter, &names, &document.served);
         }
         let html = rebase(&html, chapter, document);
         for (level, id, text) in headings(&html) {
@@ -331,7 +335,10 @@ pub fn doc(
         // when there is more than one — and then can't clash with a heading's,
         // which carries the chapter's prefix.
         let id = if chapters.len() > 1 {
-            format!(" id=\"{}\"", chapter_name(chapter, &names))
+            format!(
+                " id=\"{}\"",
+                chapter_name(chapter, &names, &document.served)
+            )
         } else {
             String::new()
         };
@@ -397,10 +404,10 @@ pub fn doc(
     )
 }
 
-fn chapter_name(chapter: &Path, names: &[(PathBuf, String)]) -> String {
-    let canonical = chapter
-        .canonicalize()
-        .unwrap_or_else(|_| chapter.to_path_buf());
+fn chapter_name(chapter: &Path, names: &[(PathBuf, String)], served: &ServedFolder) -> String {
+    let canonical = served
+        .inside(chapter)
+        .unwrap_or_else(|| chapter.to_path_buf());
     names
         .iter()
         .find(|(path, _)| *path == canonical)
@@ -411,8 +418,13 @@ fn chapter_name(chapter: &Path, names: &[(PathBuf, String)]) -> String {
 /// Prefixes a chapter's ids with its name and points links at the doc's ids:
 /// `#why` → `#context--why`, `rollout.md#steps` → `#rollout--steps`,
 /// `rollout.md` → `#rollout`.
-fn scope_ids(html: &str, chapter: &Path, names: &[(PathBuf, String)]) -> String {
-    let own = chapter_name(chapter, names);
+fn scope_ids(
+    html: &str,
+    chapter: &Path,
+    names: &[(PathBuf, String)],
+    served: &ServedFolder,
+) -> String {
+    let own = chapter_name(chapter, names, served);
     let html = html.replace(" id=\"", &format!(" id=\"{own}--"));
     let mut out = String::new();
     let mut rest = html.as_str();
@@ -427,12 +439,7 @@ fn scope_ids(html: &str, chapter: &Path, names: &[(PathBuf, String)]) -> String 
         } else if href.contains("://") {
             None
         } else {
-            let resolved = chapter
-                .parent()
-                .unwrap_or(Path::new("."))
-                .join(path)
-                .canonicalize()
-                .ok();
+            let resolved = served.inside(&chapter.parent().unwrap_or(Path::new(".")).join(path));
             names
                 .iter()
                 .find(|(file, _)| Some(file) == resolved.as_ref())

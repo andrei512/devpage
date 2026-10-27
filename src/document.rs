@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
+
+use crate::served::ServedFolder;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -245,7 +247,7 @@ pub struct Document {
     pub file_name: String,
     /// The served folder: where devpage was started, or `--root`. Addresses
     /// are paths in it, and nothing outside it is served.
-    pub served: PathBuf,
+    pub served: ServedFolder,
     /// A site's `watch` list: when set, only matching files refresh pages.
     watch: Option<GlobSet>,
     /// Where each `watch` pattern can match: its literal prefix — the
@@ -267,7 +269,8 @@ pub struct Document {
 impl Document {
     /// Loads a document file, `devpage.yml` in a folder, a Markdown file or a
     /// design, which must lie inside the served folder `served`.
-    pub fn load(path: &Path, served: &Path) -> Result<Self> {
+    pub fn load(path: &Path, served: impl AsRef<Path>) -> Result<Self> {
+        let served = served.as_ref();
         let file = if path.is_dir() {
             path.join("devpage.yml")
         } else {
@@ -275,19 +278,19 @@ impl Document {
         };
         let text = std::fs::read_to_string(&file)
             .with_context(|| format!("reading {}", file.display()))?;
-        let served = served
-            .canonicalize()
-            .with_context(|| format!("reading {}", served.display()))?;
+        let served =
+            ServedFolder::new(served).with_context(|| format!("reading {}", served.display()))?;
         // A bare file name has an empty parent, which means the current folder.
         let parent = file.parent().filter(|p| !p.as_os_str().is_empty());
-        let base = parent.unwrap_or(Path::new(".")).canonicalize()?;
-        if !base.starts_with(&served) {
+        let parent = parent.unwrap_or(Path::new("."));
+        let Some(base) = served.folder(parent) else {
+            parent.canonicalize()?;
             bail!(
                 "{} is outside the served folder {}",
                 path.display(),
-                served.display()
+                served.path().display()
             );
-        }
+        };
         let file_name = file
             .file_name()
             .unwrap_or_default()
@@ -336,12 +339,12 @@ impl Document {
             .with_context(|| format!("in {}", file.display()))
     }
 
-    fn parse(text: &str, base: PathBuf, file_name: String, served: PathBuf) -> Result<Self> {
+    fn parse(text: &str, base: PathBuf, file_name: String, served: ServedFolder) -> Result<Self> {
         // A part must be an existing file inside the served folder.
         let existing = |field: &str, path: &str| -> Result<PathBuf> {
-            match base.join(path).canonicalize() {
-                Ok(file) if file.is_file() && file.starts_with(&served) => Ok(file),
-                _ => bail!("{field} {path} does not exist"),
+            match served.file(&base.join(path)) {
+                Some(file) => Ok(file),
+                None => bail!("{field} {path} does not exist"),
             }
         };
         let mut watch = None;
@@ -437,9 +440,9 @@ impl Document {
             }
         };
         let widgets = match widget_folder {
-            Some(folder) => match base.join(&folder).canonicalize() {
-                Ok(dir) if dir.is_dir() && dir.starts_with(&served) => Some(dir),
-                _ => bail!("widgets {folder} is not a folder"),
+            Some(folder) => match served.folder(&base.join(&folder)) {
+                Some(dir) => Some(dir),
+                None => bail!("widgets {folder} is not a folder"),
             },
             None => None,
         };
@@ -477,26 +480,18 @@ impl Document {
     /// the page shows without it.
     pub fn logo_url(&self) -> Option<String> {
         let written = self.logo.as_ref()?;
-        let file = self.base.join(written).canonicalize().ok()?;
-        (file.is_file() && file.starts_with(&self.served)).then(|| self.url(&file))
+        let file = self.served.file(&self.base.join(written))?;
+        Some(self.url(&file))
     }
 
     /// A file's address: its path from the top of the served folder.
     pub fn url(&self, file: &Path) -> String {
-        format!(
-            "/{}",
-            file.strip_prefix(&self.served).unwrap_or(file).display()
-        )
+        self.served.url(file)
     }
 
     /// The file a URL path names, if it lies inside the served folder.
     pub fn file(&self, url_path: &str) -> Option<PathBuf> {
-        let candidate = self
-            .served
-            .join(url_path.trim_start_matches('/'))
-            .canonicalize()
-            .ok()?;
-        candidate.starts_with(&self.served).then_some(candidate)
+        self.served.at(url_path)
     }
 
     /// Whether a change to `file` refreshes open pages: always, unless this
@@ -612,7 +607,12 @@ mod tests {
     }
 
     fn parse(text: &str, dir: PathBuf) -> Result<Document> {
-        Document::parse(text, dir.clone(), "devpage.yml".into(), dir)
+        Document::parse(
+            text,
+            dir.clone(),
+            "devpage.yml".into(),
+            ServedFolder::canonical(dir),
+        )
     }
 
     #[test]
@@ -725,7 +725,7 @@ mod tests {
         )
         .unwrap();
         let doc = Document::load(&served.join("guides"), &served).unwrap();
-        assert_eq!(doc.served, served);
+        assert_eq!(doc.served.path(), served);
         assert_eq!(doc.entry(), "/guides/start.md");
         assert!(
             doc.file("/README.md").is_some(),
@@ -743,7 +743,7 @@ mod tests {
     #[test]
     fn a_document_outside_the_served_folder_is_refused() {
         let served = folder("outside");
-        let error = Document::load(&served.join("README.md"), &served.join("guides"))
+        let error = Document::load(&served.join("README.md"), served.join("guides"))
             .unwrap_err()
             .to_string();
         assert!(error.contains("is outside the served folder"), "{error}");
