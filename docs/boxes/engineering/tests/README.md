@@ -53,8 +53,16 @@ directory, named with the test process's id, and don't all remove them.
 
 ### The watcher's tests need file-system events
 
-Nine tests save a file and wait for devpage to hear of it through `notify`:
+Fifteen tests save a file and wait for devpage to hear of it through the
+platform's watcher:
 
+- six `watch` tests that count what the platform reports —
+  `writes_out_of_sight_are_never_reported`,
+  `writes_in_sight_are_reported_shallow_and_deep`,
+  `a_new_gitignore_rule_stops_a_folders_events`,
+  `a_nested_build_folder_stops_its_events_once_made`,
+  `the_comment_store_is_reported_and_the_rest_of_devpage_is_not` and
+  `an_ignored_folder_a_watch_pattern_names_is_watched`;
 - six `watch` tests — `a_saved_page_refreshes_open_pages`,
   `a_comment_thread_always_reaches_its_page`,
   `the_watch_list_follows_the_entry_file`,
@@ -68,8 +76,8 @@ Nine tests save a file and wait for devpage to hear of it through `notify`:
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
 
-Where the platform delivers no events to the test process — `notify` itself
-receives nothing, as can happen in some sandboxed or restricted sessions on
+Where the platform delivers no events to the test process — the watcher
+itself receives nothing, as can happen in some sandboxed or restricted sessions on
 macOS — those tests fail while everything else passes. That says nothing
 about the change under test; run them where file events work before calling
 the suite green.
@@ -346,7 +354,29 @@ In Chrome:
 
 ### `watch`
 
-*12 tests.*
+*22 tests.*
+
+Counting the paths the platform's watcher hands the handler, before sifting,
+on real folders:
+
+- Writes under an ignored `target/` and under `.git/` never reported.
+- A write to a file directly in the served folder (shallow) and in a deep
+  folder, a new file directly in the served folder, and a new folder in
+  sight and then a file in it, each reported.
+- Adding `gen/` to `.gitignore` stopping `gen/`'s events after the re-plan.
+- A nested `crate/target/` made after start stopping its events after the
+  re-plan, the rest of the crate still reported.
+- Writes in the comment store reported, other `.devpage/` folders not.
+- An ignored folder a `watch` pattern names (`build/*.svg`) watched, another
+  ignored folder not.
+
+The watch set itself (`watch::set`), on real folders: a folder with nothing
+out of sight watched whole; ignored folders and `.git` leaving their parents
+shallow and their siblings deep, a nested crate's `target/` included; the
+comment store deep and `.devpage` shallow; and an ignored folder a `watch`
+pattern reaches into watched.
+
+Through the listeners:
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
