@@ -4,7 +4,7 @@
 //! first link of each list item, labelled with that link's text — in list order.
 //! `### headings` inside Topics group them. The tree starts at the root page.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use comrak::nodes::{AstNode, NodeValue};
@@ -12,11 +12,15 @@ use comrak::{Arena, Options, parse_document};
 
 use crate::document::Document;
 
-/// One entry of the tree: a page and its own children.
+/// One entry of the tree: a page and its own children. A page listed more
+/// than once has one position, `home`: its shallowest listing, the first in
+/// reading order on a tie. Only there does it have children, and only there
+/// is it the page shown; elsewhere it is a plain link.
 #[derive(Debug, PartialEq)]
 pub struct Entry {
     pub label: String,
     pub file: PathBuf,
+    pub home: bool,
     pub children: Vec<Group>,
 }
 
@@ -36,39 +40,72 @@ pub struct Topic {
     pub href: String,
 }
 
-/// The children of the root page, recursively. A page reached a second time is
-/// listed again but not expanded, so cycles end.
+/// The children of the root page, recursively. Each page is expanded only at
+/// its position (see [`Entry`]); the root's position is the top, so cycles end.
 pub fn tree(document: &Document) -> Vec<Group> {
     let crate::document::Kind::Site { root } = &document.kind else {
         return Vec::new();
     };
-    let mut seen = HashSet::new();
     let root = document.base.join(root);
-    seen.insert(root.clone());
-    children(document, &root, &mut seen)
+    let homes = homes(document, &root);
+    children(document, &root, &homes)
 }
 
-fn children(document: &Document, page: &Path, seen: &mut HashSet<PathBuf>) -> Vec<Group> {
+/// Where each page listed in the tree has its position: the page listing it
+/// and the listing's index among that page's Topics links. Found level by
+/// level from the root, so the shallowest listing wins, then the first.
+fn homes(document: &Document, root: &Path) -> HashMap<PathBuf, (PathBuf, usize)> {
+    let mut homes = HashMap::new();
+    let mut seen = HashSet::from([root.to_path_buf()]);
+    let mut level = vec![root.to_path_buf()];
+    while !level.is_empty() {
+        let mut next = Vec::new();
+        for page in &level {
+            let Ok(source) = std::fs::read_to_string(page) else {
+                continue;
+            };
+            for (index, topic) in topics(&source).into_iter().enumerate() {
+                let file = match resolve(document, page, &topic.href) {
+                    Target::Page(file) | Target::Document(file) => file,
+                    Target::None | Target::Problem(_) => continue,
+                };
+                if seen.insert(file.clone()) {
+                    homes.insert(file.clone(), (page.clone(), index));
+                    next.push(file);
+                }
+            }
+        }
+        level = next;
+    }
+    homes
+}
+
+fn children(
+    document: &Document,
+    page: &Path,
+    homes: &HashMap<PathBuf, (PathBuf, usize)>,
+) -> Vec<Group> {
     let Ok(source) = std::fs::read_to_string(page) else {
         return Vec::new();
     };
     let mut groups: Vec<Group> = Vec::new();
-    for topic in topics(&source) {
-        let (file, expand) = match resolve(document, page, &topic.href) {
-            Target::Page(file) => {
-                let expand = seen.insert(file.clone());
-                (file, expand)
-            }
+    for (index, topic) in topics(&source).into_iter().enumerate() {
+        let (file, page_target) = match resolve(document, page, &topic.href) {
+            Target::Page(file) => (file, true),
             Target::Document(file) => (file, false),
             Target::None | Target::Problem(_) => continue,
         };
+        let home = homes
+            .get(&file)
+            .is_some_and(|(parent, at)| parent == page && *at == index);
         let entry = Entry {
             label: topic.label,
-            children: if expand {
-                children(document, &file, seen)
+            children: if home && page_target {
+                children(document, &file, homes)
             } else {
                 Vec::new()
             },
+            home,
             file,
         };
         match groups.last_mut() {
@@ -198,6 +235,49 @@ mod tests {
                     "boxes/engineering/README.md"
                 ),
             ]
+        );
+    }
+
+    #[test]
+    fn a_page_listed_twice_has_its_position_at_its_shallowest_listing() {
+        let dir = std::env::temp_dir().join(format!("devpage-nav-home-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        // Reading order meets `start` under `system` first, one level deeper.
+        std::fs::write(
+            dir.join("README.md"),
+            "# Home\n\n## Topics\n\n- [System](system.md)\n- [Start](start.md)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("system.md"),
+            "# System\n\n## Topics\n\n- [Start](start.md)\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("start.md"),
+            "# Start\n\n## Topics\n\n- [First](first.md)\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("first.md"), "# First\n").unwrap();
+        let document = Document::load(&dir, &dir).unwrap();
+
+        let tree = tree(&document);
+        let [system, start] = &tree[0].entries[..] else {
+            panic!("two top-level entries");
+        };
+        assert!(start.home, "the top-level listing is the position");
+        assert_eq!(start.children[0].entries[0].label, "First");
+        let listed_again = &system.children[0].entries[0];
+        assert_eq!(listed_again.label, "Start");
+        assert!(!listed_again.home);
+        assert!(
+            listed_again.children.is_empty(),
+            "a second listing is a plain link"
         );
     }
 

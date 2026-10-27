@@ -39,6 +39,7 @@ tonic = { version = "0.14.6", default-features = false, features = ["codegen"] }
 tonic-web = "0.14.6"
 tower = "0.5"
 sha2 = "0.10.9"
+tantivy = { version = "0.27", default-features = false, features = ["stemmer"] }
 
 # The macOS watcher (`src/watch/macos.rs`): FSEvents streams on a dispatch
 # queue, and kqueue.

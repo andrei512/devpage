@@ -49,18 +49,36 @@ list — never change the sidebar. Use them freely to link across the tree.
 
 ## How the tree grows
 
-The sidebar starts with the site's title, which links to the root page. Under it
-come the root page's Topics children; under each child, that page's own Topics
+The sidebar starts with the site's title, which links to the root page, and a
+[search box](../search/README.md#the-search-box) that finds any section of any
+document as you type — `/` or ⌘K focuses it. Under them come the root page's
+Topics children; under each child, that page's own Topics
 children, and so on down.
 
-- **A page listed twice** appears in both places, but only its first
-  appearance — reading the tree top to bottom, children before siblings — shows
-  its own children. A link back up the tree, such as a child listing its
-  parent, therefore can't loop.
+- **A page listed twice** appears in both places, but has one position: its
+  listing nearest the top of the tree, and of those the first. Only there does
+  it show its own children, get highlighted, and open its branch; anywhere
+  else it is a plain link. A link back up the tree, such as a child listing
+  its parent, therefore can't loop.
 - **A page that no Topics section lists** is still served when something links
   to it, but has no place in the sidebar.
-- **The sidebar highlights** every entry for the page being shown — more than
-  one when the page is listed twice — or the document title, on the root page.
+- **The sidebar highlights** the page being shown at its position, or the
+  document title, on the root page.
+
+## Opening and closing
+
+The sidebar starts collapsed: the top level of the tree shows, and the branch
+down to the page shown is open — every entry above it, and the page's own
+children. Every entry with children has a chevron beside it that opens or
+closes it; its link still opens the page.
+
+- **What you open is remembered** for that document, in the browser: a branch
+  you opened is open again when you come back, from the first frame — even
+  after a reload. Closing it forgets it. A browser that keeps nothing still
+  opens and closes branches; it only forgets them.
+- **Moving to another page** keeps the sidebar as it is — what is open, where
+  it is scrolled — and only moves the highlight, opening the new page's branch.
+- **Group headings** stay where they are in the tree, open or closed.
 
 For example, take three pages whose Topics sections list:
 
@@ -70,16 +88,16 @@ guide.md           → Step (step.md), Reference (reference.md)
 reference.md       → Fields (fields.md)
 ```
 
-The tree is read depth first, in list order, so *Reference* is first met
-under *Guide* — that appearance shows its children — and the root's own
-listing of it, met later, is a leaf:
+*Reference* is listed by the root page and by *Guide*. The root's listing is
+nearer the top, so it is the position — it shows the children — and the
+listing under *Guide* is a plain link:
 
 ```mermaid
 flowchart TD
   title["Document title<br/>links to README.md"] --> guide["Guide"]
-  title --> ref2["Reference<br/>listed again: not expanded"]
+  title --> ref1["Reference<br/>its position: expanded"]
   guide --> step["Step"]
-  guide --> ref1["Reference<br/>first appearance: expanded"]
+  guide --> ref2["Reference<br/>listed again: a plain link"]
   ref1 --> fields["Fields"]
   click title href "../configuration-reference/README.md#site" "The root page"
   click guide href "#a-topics-section" "A Topics section"
@@ -87,11 +105,12 @@ flowchart TD
   click ref2 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are stopped"
 ```
 
-Both *Reference* entries link to the same page, and both are highlighted
-while it is shown.
+Both *Reference* entries link to the same page; while it is shown, only the
+one at its position is highlighted, and *Guide* stays closed.
 
 Because the tree is read from the files on every request, editing a Topics
-list changes the sidebar of every open page as soon as the file is saved.
+list changes the sidebar of every open page as soon as the file is saved,
+leaving open what was open.
 
 ## The navbar
 

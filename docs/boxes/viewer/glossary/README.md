@@ -149,6 +149,38 @@ One page in a sidebar tree, labelled with its Topics link's text.
 
 A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar.
 
+## branch
+
+An entry with children in the sidebar. Its chevron opens and closes it; the branch down to the page shown is open, and those the reader opened stay open, remembered per document. See [Organizing navigation](../organizing-navigation/README.md#opening-and-closing).
+
+## search index
+
+The full-text index of the sections of everything the served document publishes — the pages its nav reaches and the chapters and slides of the documents those reach, split at their headings — held in memory and kept current by the watcher. The code calls it `Search`. See [Search](../search/README.md).
+
+## page result
+
+One page a search found: its title, address, kind (`page`, `chapter` or `slide`), trail, document and lede, its best sections and a count of the rest. The code calls it `PageResult`. See [The endpoint](../search/README.md#the-endpoint).
+
+## section result
+
+One section of a page result: its heading, its path of headings, its address with the heading's anchor, a snippet of its prose with the matched words marked, and those words as its text spells them. The code calls it `SectionResult`.
+
+## hit
+
+One section result as the search box shows it: its page's title and trail, its heading and its snippet. See [The search box](../search/README.md#the-search-box).
+
+## title match
+
+A page whose title the query is — the same words but stopwords, the last perhaps still being typed. It comes first, and opens at its top. See [Ranking](../search/README.md#ranking).
+
+## front matter
+
+YAML between `---` lines at the very top of a page, never shown. Search reads `search`, `description` and `keywords` from it. See [Front matter](../configuration-reference/README.md#front-matter).
+
+## search box
+
+The field at the top of a site's sidebar that searches the search index as the reader types; while it holds text, its hits take the tree's place. `/` or ⌘K / Ctrl+K focuses it. See [The search box](../search/README.md#the-search-box).
+
 ## live update
 
 An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed.

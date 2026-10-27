@@ -131,6 +131,29 @@ default.
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
 
+## Front matter
+
+A page may open with YAML front matter: a `---` line first, the fields, and
+another `---` line. It is never shown — the page renders from what follows —
+and its title is still its first `# ` heading after it.
+
+```markdown
+---
+search: true
+description: How the outbox survives a restart.
+keywords: [retry, offline]
+---
+# The outbox
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `search` | boolean | `false` leaves the page out of [search](../search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
+| `description` | string | Words search finds the page by, weighted like its title. |
+| `keywords` | string or list of strings | The same. |
+
+Any other field is read by nothing and ignored.
+
 ## Errors
 
 devpage stops before serving when the **entry** document can't be loaded. It

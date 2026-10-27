@@ -84,15 +84,16 @@ impl Identity {
     }
 }
 
-/// The server for one entry document, with a fresh index of its served folder.
-/// `comments` names who writes them, or is `None` when comments are off.
+/// The server for one entry document, with a fresh index of its served folder
+/// and its search index, as `devpage` serves it. `comments` names who writes
+/// them, or is `None` when comments are off.
 #[cfg(test)]
 pub fn router(
     document: Arc<Document>,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
 ) -> Router {
-    let index = Arc::new(Index::build(&document.served));
+    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let designs = Designs::new(document.served.clone());
     let shots = Shots::new(&changes);
     router_with_index(
@@ -170,6 +171,7 @@ fn routes(state: AppState) -> Router {
         )
         .route("/__devpage/comments/reply", post(reply_comment))
         .route("/__devpage/comments/resolve", post(resolve_comment))
+        .route("/__devpage/search", get(search))
         .route("/__devpage/system-widgets/{name}", get(system_widget))
         .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
@@ -655,6 +657,25 @@ fn failed(error: anyhow::Error) -> Response {
     (StatusCode::BAD_REQUEST, format!("{error:#}")).into_response()
 }
 
+/// `?q=` of a search; none is an empty query.
+#[derive(Deserialize)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+
+/// The pages a search finds, as JSON, best first: `{"pages": [...]}`.
+/// Comments on or off; a server without a search index — printing's — finds
+/// nothing.
+async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
+    let answer = state
+        .index
+        .search()
+        .map(|search| search.search(&query.q))
+        .unwrap_or_default();
+    Json(answer).into_response()
+}
+
 async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
     let comments = match state.comments() {
         Ok(comments) => comments,
@@ -961,6 +982,72 @@ mod tests {
         address
     }
 
+    #[tokio::test]
+    async fn a_search_answers_pages_as_json_whether_comments_are_on_or_off() {
+        let dir = std::env::temp_dir().join(format!("devpage-search-route-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: a.md\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("a.md"), "# A\n\n## Topics\n\n- [Retries](b.md)\n").unwrap();
+        std::fs::write(
+            dir.join("b.md"),
+            "# Retries\n\n## The outbox\n\nThe client retries every write & read from its outbox.\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&dir, &dir).unwrap());
+        let (changes, _) = broadcast::channel(16);
+        let router = router_with_index(
+            Arc::new(Entry::new(document)),
+            Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
+            Designs::new(dir.clone()),
+            changes.clone(),
+            None,
+            Shots::new(&changes),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+        // `q` as it goes in the address, already escaped.
+        let search = |q: &str| {
+            let url = format!("{address}/__devpage/search?q={q}");
+            async move {
+                let response = reqwest::get(url).await.unwrap();
+                assert_eq!(response.status(), 200);
+                response.json::<Value>().await.unwrap()
+            }
+        };
+        assert_eq!(
+            search("outbx").await,
+            json!({ "pages": [{
+                "title": "Retries",
+                "url": "/b.md",
+                "trail": ["Retries"],
+                "document": { "title": "T", "path": "/devpage.yml" },
+                "kind": "page",
+                "title_match": false,
+                "lede": "The client retries every write & read from its outbox.",
+                "sections": [{
+                    "heading": "The outbox",
+                    "path": ["Retries", "The outbox"],
+                    "url": "/b.md#the-outbox",
+                    "snippet": "The client retries every write &amp; read from its <mark>outbox</mark>.",
+                    "words": ["outbox"],
+                }],
+                "more": 0,
+            }] })
+        );
+        assert_eq!(search("%20%20").await, json!({ "pages": [] }));
+        assert_eq!(search("").await, json!({ "pages": [] }));
+        let (status, _) = get(&format!("{address}/__devpage/search")).await;
+        assert_eq!(status, 200, "no q is an empty query");
+    }
+
     async fn get(url: &str) -> (u16, String) {
         let client = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -1041,7 +1128,7 @@ mod tests {
         let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
         assert_eq!(status, 200);
         assert!(
-            page.contains("<nav id=\"devpage-nav\">"),
+            page.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "a page of its nearest site"
         );
         assert!(page.contains("Step · Docs"), "{page}");
@@ -1049,12 +1136,12 @@ mod tests {
         let (status, deck) = get(&format!("{base}/notes/talk.yml")).await;
         assert_eq!(status, 200);
         assert!(deck.contains("Talk"), "a document file opens as its kind");
-        assert!(!deck.contains("<nav id=\"devpage-nav\">"));
+        assert!(!deck.contains("<nav id=\"devpage-nav\" data-sidebar="));
 
         let (status, loose) = get(&format!("{base}/notes/loose.md")).await;
         assert_eq!(status, 200);
         assert!(
-            !loose.contains("<nav id=\"devpage-nav\">"),
+            !loose.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "in no site: a doc of one chapter"
         );
         assert!(loose.contains("Loose"));
@@ -1084,10 +1171,13 @@ mod tests {
             "{page}"
         );
         assert!(page.contains("@page { size: A4;"), "{page}");
-        assert!(!page.contains("<nav id=\"devpage-nav\">"), "{page}");
+        assert!(
+            !page.contains("<nav id=\"devpage-nav\" data-sidebar="),
+            "{page}"
+        );
         let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
         assert!(
-            on_screen.contains("<nav id=\"devpage-nav\">"),
+            on_screen.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "still a site page on screen"
         );
     }

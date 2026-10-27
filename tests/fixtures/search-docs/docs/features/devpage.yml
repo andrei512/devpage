@@ -1,0 +1,23 @@
+# The feature catalog: a quick tour of everything devpage does, one short
+# chapter per area, each linking to the page that teaches it. A doc.
+kind: doc
+title: devpage features
+logo: ../logo.svg
+widgets: ../widgets
+chapters:
+  - kinds.md
+  - designs.md
+  - markdown.md
+  - widgets.md
+  - live.md
+  - comments.md
+  - checking.md
+  - pdf.md
+  - notes.md
+  - video.md
+  - navigation.md
+  - search.md
+  - deploying.md
+pdf:
+  header: devpage features
+  footer: "Page {page} of {pages}"

@@ -87,7 +87,10 @@ again, and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
 edited or deleted document file or `.gitignore` is reflected at once. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
-`watch` list follow the file — and refreshes whatever `watch` says.
+`watch` list follow the file — and refreshes whatever `watch` says. Once the
+burst is decided and any `change` sent, its paths go to the
+[search index](../search/README.md#how-it-stays-current) (`Search::changed`),
+which reads everything published again when one of them can change it.
 
 ### What is out of sight
 
