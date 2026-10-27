@@ -416,7 +416,7 @@ mod browser {
             index,
             designs,
             comments: Some(server::Identity::Local("Ana".into())),
-            preview: crate::check::Preview::shared(),
+            preview: crate::check::testing::preview(),
             ..server::Options::new(document, changes.clone())
         });
         tokio::spawn(async move {

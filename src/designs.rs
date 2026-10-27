@@ -746,7 +746,7 @@ pub(crate) mod tests {
             index,
             designs: designs.clone(),
             comments: Some(Identity::Local("T".into())),
-            preview: crate::check::Preview::shared(),
+            preview: crate::check::testing::preview(),
             ..Options::new(document, changes)
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

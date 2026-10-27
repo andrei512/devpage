@@ -94,7 +94,7 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     let router = server::router(server::Options {
         designs: designs.clone(),
         comments: Some(server::Identity::Local("T".into())),
-        preview: crate::check::Preview::shared(),
+        preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes)
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

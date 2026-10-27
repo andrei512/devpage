@@ -366,3 +366,71 @@ pub(crate) fn is_list_item(trimmed: &str) -> bool {
     let digits = trimmed.chars().take_while(|c| c.is_ascii_digit()).count();
     bullet || (digits > 0 && matches!(trimmed[digits..].chars().next(), Some('.' | ')')))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notes_keep_their_text_without_its_indentation() {
+        let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
+        assert_eq!(
+            notes(source),
+            vec![Note {
+                line: 3,
+                text: "Say **this**, word for word.".to_string(),
+                delivery: None
+            }]
+        );
+    }
+
+    #[test]
+    fn unclosed_notes_run_to_the_end_of_the_page() {
+        let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
+        assert_eq!(
+            notes(source)[0].text,
+            "Say this.\n</Note>\n\nAfter.".to_string()
+        );
+    }
+
+    #[test]
+    fn a_notes_delivery_is_kept() {
+        let source = "<Notes delivery=\"Honest and a little teasing: you caught them.\">\nSay this.\n</Notes>\n";
+        assert_eq!(
+            notes(source)[0].delivery.as_deref(),
+            Some("Honest and a little teasing: you caught them.")
+        );
+    }
+
+    #[test]
+    fn a_notes_with_unreadable_attributes_keeps_its_text_and_no_delivery() {
+        for source in [
+            "<Notes delivery=\"the \"aha\" moment\">\nSAYTHIS\n</Notes>\n\nAfter.\n",
+            "<Notes delivery=\"say \\\"wow\\\" now\">\nSAYTHIS\n</Notes>\n\nAfter.\n",
+            "<Notes delivery={\"warm\"}>\nSAYTHIS\n</Notes>\n",
+        ] {
+            assert_eq!(notes(source)[0].text, "SAYTHIS");
+            assert_eq!(notes(source)[0].delivery, None);
+        }
+    }
+
+    #[test]
+    fn notes_inside_code_and_comments_are_not_notes() {
+        let source = "`<Notes>x</Notes>`\n\n```\n<Notes>fenced</Notes>\n```\n\n    <Notes>indented</Notes>\n\n<!-- <Notes>hidden</Notes> -->\n";
+        assert!(notes(source).is_empty(), "{:?}", notes(source));
+    }
+
+    #[test]
+    fn every_notes_block_is_found_with_its_line() {
+        let found = notes("<Notes>one</Notes>\n\ntext\n\n<Notes>\ntwo\n</Notes>\n<Notes/>\n");
+        let found: Vec<(usize, String)> = found.into_iter().map(|n| (n.line, n.text)).collect();
+        assert_eq!(
+            found,
+            vec![
+                (1, "one".to_string()),
+                (5, "two".to_string()),
+                (8, String::new())
+            ]
+        );
+    }
+}
