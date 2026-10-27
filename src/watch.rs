@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use notify::event::{CreateKind, EventKind, RemoveKind};
-use tokio::sync::broadcast;
 
+use crate::changes::{Change, Changes, Scope};
 use crate::designs::Designs;
 use crate::document::{Document, Entry, KindName};
 use crate::index::Index;
@@ -50,8 +50,9 @@ pub struct Watch {
     _platform: Arc<Mutex<Platform>>,
 }
 
-/// Starts watching. A change to a watched file sends `change`; a change to a
-/// comment thread sends `comments /<page>`, whatever the site's `watch` says.
+/// Starts watching. A change to a watched file publishes a refresh on the
+/// change bus; a change to a comment thread publishes that page's comments,
+/// whatever the site's `watch` says — both for the documents at `/`.
 /// A path out of sight — under `.git`, or excluded by a `.gitignore` and not
 /// named by its site's `watch` — is dropped as it arrives, before any
 /// listener hears of it. Every other changed file outside `.devpage/` also
@@ -61,7 +62,7 @@ pub fn start(
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
-    changes: broadcast::Sender<String>,
+    changes: Changes,
 ) -> Result<Watch> {
     let root = entry.document().served.clone();
     let set = WatchSet::plan(root.path(), &index, &entry);
@@ -71,6 +72,7 @@ pub fn start(
         index,
         designs,
         changes,
+        scope: Scope::root(),
     };
     let watching = Arc::new(OnceLock::new());
     let mut platform = Platform::new(root.path(), intake(listeners, watching.clone()))?;
@@ -158,14 +160,17 @@ fn next_burst<T: Clone + Eq + Hash>(arriving: &mpsc::Receiver<T>) -> Option<Vec<
     Some(burst)
 }
 
-/// Who hears about files that change: open pages, the index and the design
-/// store.
+/// Who hears about files that change: the caches that forget what changed —
+/// the index (with the widget modules it owns), the design store, the entry
+/// document and the search index — and, through the change bus, open pages.
 struct Listeners {
     served: ServedFolder,
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
-    changes: broadcast::Sender<String>,
+    changes: Changes,
+    /// The documents the watched folder's changes concern.
+    scope: Scope,
 }
 
 impl Listeners {
@@ -278,16 +283,33 @@ impl Listeners {
         Document::load(&site, &document.served).is_ok_and(|site| site.names(path))
     }
 
-    /// `paths` changed, were created or were deleted: tell each listener what
-    /// it needs to know, and send at most one `change`.
+    /// `paths` changed, were created or were deleted: every cache forgets
+    /// what it read of them, open pages hear what they should show — at most
+    /// one refresh — and then the search index reads them again.
     fn changed(&self, paths: &[PathBuf]) {
+        let (heard, searched) = self.forget(paths);
+        for change in heard {
+            self.changes.publish(&self.scope, change);
+        }
+        // After the pages hear, so indexing text never holds up a refresh.
+        if let Some(search) = self.index.search() {
+            search.changed(&self.index, &searched);
+        }
+    }
+
+    /// The caches forget what they read of `paths`; the changes open pages
+    /// should hear come back — a page's comments as each thread changes, then
+    /// at most one refresh — with the paths the search index should read
+    /// again. Nothing is published.
+    fn forget(&self, paths: &[PathBuf]) -> (Vec<Change>, Vec<PathBuf>) {
         let Listeners {
             served,
             entry,
             index,
             designs,
-            changes,
+            ..
         } = self;
+        let mut heard = Vec::new();
         let mut refresh = false;
         let mut searched = Vec::new();
         for path in paths {
@@ -300,7 +322,7 @@ impl Listeners {
                 if thread.extension().is_some_and(|ext| ext == "yml")
                     && let Some(page) = thread.parent()
                 {
-                    let _ = changes.send(format!("comments /{}", page.display()));
+                    heard.push(Change::Comments(format!("/{}", page.display())));
                 }
                 continue;
             }
@@ -320,12 +342,9 @@ impl Listeners {
             }
         }
         if refresh {
-            let _ = changes.send("change".into());
+            heard.push(Change::Refresh);
         }
-        // After the pages hear, so indexing text never holds up a refresh.
-        if let Some(search) = index.search() {
-            search.changed(index, &searched);
-        }
+        (heard, searched)
     }
 }
 
@@ -426,7 +445,7 @@ mod tests {
             Arc::new(Entry::new(document)),
             Arc::new(Index::build(dir)),
             Designs::new(dir.to_path_buf()),
-            broadcast::channel(64).0,
+            Changes::default(),
         )
         .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -610,7 +629,7 @@ mod tests {
     }
 
     /// The listeners of the served folder `dir`, started on `docs/`.
-    fn listeners(dir: &Path, changes: broadcast::Sender<String>) -> Listeners {
+    fn listeners(dir: &Path, changes: Changes) -> Listeners {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         Listeners {
             served: ServedFolder::canonical(dir.to_path_buf()),
@@ -618,6 +637,7 @@ mod tests {
             index: Arc::new(Index::build(dir)),
             designs: Designs::new(dir.to_path_buf()),
             changes,
+            scope: Scope::root(),
         }
     }
 
@@ -626,15 +646,6 @@ mod tests {
         let mut event = notify::Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)));
         event.paths = paths.to_vec();
         Ok(event)
-    }
-
-    /// Every message already sent.
-    fn drain(received: &mut broadcast::Receiver<String>) -> Vec<String> {
-        let mut messages = Vec::new();
-        while let Ok(message) = received.try_recv() {
-            messages.push(message);
-        }
-        messages
     }
 
     #[test]
@@ -649,8 +660,7 @@ mod tests {
             "<Frame width={10} height={10} />\n",
         )
         .unwrap();
-        let (changes, mut received) = broadcast::channel(64);
-        let listeners = listeners(&dir, changes);
+        let listeners = listeners(&dir, Changes::default());
         assert!(
             listeners
                 .designs
@@ -678,9 +688,9 @@ mod tests {
         assert_eq!(listeners.sift(Ok(folder)), Vec::<PathBuf>::new());
 
         let before = CANONICALIZED.with(|count| count.get());
-        listeners.changed(&listeners.sift(written(&noise)));
+        let (heard, _) = listeners.forget(&listeners.sift(written(&noise)));
         assert_eq!(CANONICALIZED.with(|count| count.get()), before);
-        assert_eq!(drain(&mut received), Vec::<String>::new());
+        assert_eq!(heard, []);
         assert!(
             listeners
                 .designs
@@ -695,8 +705,7 @@ mod tests {
             "named",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\", \"build/*.svg\"]\n",
         );
-        let (changes, mut received) = broadcast::channel(64);
-        let listeners = listeners(&dir, changes);
+        let listeners = listeners(&dir, Changes::default());
         let thread = dir.join(".devpage/comments/docs/README.md/20261025T000000Z-abcd.yml");
         let named = dir.join("docs/build/chart.svg");
         let unnamed = dir.join("docs/build/chart.png");
@@ -708,15 +717,18 @@ mod tests {
             page.clone(),
         ]));
         assert_eq!(arrived, vec![thread, named, page]);
-        listeners.changed(&arrived);
-        assert_eq!(drain(&mut received), ["comments /docs/README.md", "change"]);
+        let (heard, _) = listeners.forget(&arrived);
+        assert_eq!(
+            heard,
+            [Change::Comments("/docs/README.md".into()), Change::Refresh]
+        );
     }
 
     #[test]
     fn a_new_gitignore_rule_takes_effect_without_a_restart() {
         let dir = served("rule", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::create_dir_all(dir.join("docs/drafts")).unwrap();
-        let listeners = listeners(&dir, broadcast::channel(64).0);
+        let listeners = listeners(&dir, Changes::default());
         let draft = dir.join("docs/drafts/idea.md");
         assert_eq!(
             listeners.sift(written(std::slice::from_ref(&draft))),
@@ -739,7 +751,7 @@ mod tests {
         .unwrap();
         let page = dir.join("docs/guide.md");
         std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
-        let mut listeners = listeners(&dir, broadcast::channel(64).0);
+        let mut listeners = listeners(&dir, Changes::default());
         listeners.index = Arc::new(Index::build(&dir).with_search(&dir.join("docs/devpage.yml")));
         let found = |word: &str| {
             let search = listeners.index.search().unwrap();
@@ -768,7 +780,8 @@ mod tests {
     #[test]
     fn a_burst_of_changes_to_one_file_sends_one_change() {
         let dir = served("burst", "kind: site\ntitle: T\nroot: README.md\n");
-        let (changes, mut received) = broadcast::channel(64);
+        let changes = Changes::default();
+        let mut received = changes.subscribe(Scope::root());
         let handler = intake(listeners(&dir, changes), Arc::default());
         // Saves trickling in, as an editor or a build writes, within one burst.
         for _ in 0..5 {
@@ -776,12 +789,12 @@ mod tests {
             std::thread::sleep(BURST / 25);
         }
         std::thread::sleep(BURST * 6);
-        assert_eq!(drain(&mut received), ["change"]);
+        assert_eq!(received.drain(), [Change::Refresh]);
 
         // A later burst is a new one.
         handler(written(&[dir.join("docs/README.md")]));
         std::thread::sleep(BURST * 6);
-        assert_eq!(drain(&mut received), ["change"]);
+        assert_eq!(received.drain(), [Change::Refresh]);
     }
 
     fn served(name: &str, site: &str) -> PathBuf {
@@ -798,7 +811,8 @@ mod tests {
     async fn after(dir: &Path, touch: impl FnOnce()) -> Vec<String> {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
-        let (changes, mut received) = broadcast::channel(64);
+        let changes = Changes::default();
+        let mut received = changes.subscribe(Scope::root());
         let designs = Designs::new(dir.to_path_buf());
         let _watcher = start(Arc::new(Entry::new(document)), index, designs, changes).unwrap();
         // Let the platform's watcher settle before changing anything.
@@ -806,8 +820,8 @@ mod tests {
         touch();
         let mut messages = Vec::new();
         let deadline = tokio::time::Instant::now() + Duration::from_millis(1500);
-        while let Ok(Ok(message)) = tokio::time::timeout_at(deadline, received.recv()).await {
-            messages.push(message);
+        while let Ok(Some(change)) = tokio::time::timeout_at(deadline, received.next()).await {
+            messages.push(change.message());
         }
         messages
     }
@@ -830,7 +844,8 @@ mod tests {
             entry: Arc::new(Entry::new(document)),
             index: Arc::new(Index::build(&dir)),
             designs: designs.clone(),
-            changes: broadcast::channel(64).0,
+            changes: Changes::default(),
+            scope: Scope::root(),
         };
         assert!(designs.resolve("docs/screen.design").is_ok());
         assert!(designs.resolve(".devpage/screen.design").is_ok());
@@ -840,7 +855,7 @@ mod tests {
         std::fs::write(dir.join(".devpage/screen.design"), broken).unwrap();
         assert!(designs.resolve("docs/screen.design").is_ok());
 
-        listeners.changed(&[
+        listeners.forget(&[
             dir.join("docs/screen.design"),
             dir.join(".devpage/screen.design"),
         ]);
@@ -900,7 +915,8 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
         let entry = Arc::new(Entry::new(document));
         let index = Arc::new(Index::build(&dir));
-        let (changes, mut received) = broadcast::channel(64);
+        let changes = Changes::default();
+        let mut received = changes.subscribe(Scope::root());
         let designs = Designs::new(dir.clone());
         let _watcher = start(entry.clone(), index, designs, changes).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -911,12 +927,12 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.svg\"]\n",
         )
         .unwrap();
-        let drain = |received: &mut broadcast::Receiver<String>| {
-            let mut messages = Vec::new();
-            while let Ok(message) = received.try_recv() {
-                messages.push(message);
-            }
-            messages
+        let drain = |received: &mut crate::changes::Subscription| {
+            received
+                .drain()
+                .iter()
+                .map(Change::message)
+                .collect::<Vec<_>>()
         };
         tokio::time::sleep(Duration::from_millis(800)).await;
         let messages = drain(&mut received);

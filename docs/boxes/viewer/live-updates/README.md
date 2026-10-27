@@ -1,29 +1,29 @@
 # Live updates
 
 How a saved file reaches every open page: a file watcher over the served
-folder skips what isn't watched, a broadcast channel fans each change out to one
-server-sent event stream per open tab, and the page script fetches its page —
+folder skips what isn't watched, the change bus carries each typed change to
+one server-sent event stream per open tab of the documents it concerns, and the page script fetches its page —
 or, for a change in the comment store, the page's comments — again and swaps
 it in place. It also covers why
 there is one stream per tab; [the page script](../page-script/README.md) is
 the browser's side. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
-`src/watch.rs`, `src/server.rs` or `assets/devpage.js`.
+`src/watch.rs`, `src/changes.rs`, `src/server.rs` or `assets/devpage.js`.
 
 ```mermaid
 sequenceDiagram
   participant Editor as Person or agent
   participant Disk as Markdown file
   participant Watcher as watcher (src/watch.rs)
-  participant Channel as broadcast channel
+  participant Channel as change bus (src/changes.rs)
   participant Server as server (src/server.rs)
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
   Watcher->>Watcher: out of sight? collect the burst
   Watcher->>Watcher: watched?
-  Watcher->>Channel: send("change")
-  Channel-->>Server: one message per open stream
+  Watcher->>Channel: publish(Refresh, documents at /)
+  Channel-->>Server: one change per open stream of those documents
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (If-None-Match: its ETag)
   alt the page renders as it did
@@ -64,7 +64,7 @@ reports goes to one handler, whose work happens in two steps:
 ```mermaid
 flowchart TD
   path["A changed path,<br/>canonicalized"] --> thread{"A comment<br/>thread file?"}
-  thread -->|"yes"| comments["Send comments /page"]
+  thread -->|"yes"| comments["Comments of /page"]
   thread -->|"no"| entry{"The entry<br/>document's file?"}
   entry -->|"yes"| reload["Re-read it,<br/>count a refresh"]
   entry -->|"no"| seen{"Out of sight, or<br/>not in its site's watch?"}
@@ -77,7 +77,7 @@ flowchart TD
 Before the decision, a path is canonicalized — falling back to the path as
 reported, as for a deleted file — and skipped if it isn't inside the served
 folder; only paths that survived sifting are. A thread file in the comment store
-(`.devpage/comments/<page>/<id>.yml`) sends `comments /<page>`; the comment
+(`.devpage/comments/<page>/<id>.yml`) is a change to that page's comments; the comment
 store is watched whatever a site's `watch` says, and never refreshes pages
 itself; nothing else under `.devpage/` is looked at. Every other path is first
 handed to the design store — see [Designs](#designs) — and passed to the
@@ -88,7 +88,7 @@ module cache forgets the file so the next
 again. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
 `watch` list follow the file — and refreshes whatever `watch` says. Once the
-burst is decided and any `change` sent, its paths go to the
+burst is decided and its changes published, its paths go to the
 [search index](../search/README.md#how-it-stays-current) (`Search::changed`),
 which reads everything published again when one of them can change it.
 
@@ -104,12 +104,12 @@ directly in the widgets folder of the entry document or of any indexed
 document — and a path in no site with a `watch` list, whichever document
 devpage was started with.
 
-If any path counted, it sends one `change` message for the burst. Nothing in
+If any path counted, the burst is one refresh. Nothing in
 this needs a `.git` folder to exist. A `.gitignore`d file a site's `watch`
 names gets past sifting — so the index and the design store hear of it — but
 still doesn't refresh.
 
-A `change` message carries no file name: every open page refreshes, whichever
+A refresh carries no file name: every open page refreshes, whichever
 file changed. The events of one save, or of many files saved together, that
 arrive within 50 ms of the first are one burst and one refresh; a save
 reported across a longer stretch can still refresh more than once. Creating a
@@ -219,18 +219,31 @@ written into a new folder of the comment store at once.
 Every platform hands the same handler `notify` events, so sifting, bursts
 and the listeners are the same everywhere.
 
-## The channel and the stream
+## The bus and the stream
 
-`src/main.rs` creates a `tokio::sync::broadcast` channel with room for 16
-messages. A send with no open pages fails, and the watcher ignores the
-failure.
+The change bus (`Changes` in `src/changes.rs`) carries typed changes: a
+`Refresh`, or the `Comments` of the Markdown file at an address. Each is
+published for a **scope** — the documents served under one mount prefix (`/`
+for everything a local devpage serves), or every document, which is how the
+external-link checker announces an answer any page may link to. `src/main.rs`
+makes one bus and hands it to its producers — the watcher and the external-link
+checker — and to its subscribers. Publishing with no one subscribed is not an
+error.
 
-`GET /__devpage/events` (`events` in `src/server.rs`) subscribes to the channel
-and answers with a server-sent event stream. Every item from the subscription
-becomes one event whose data is the message — `change`, or `comments` and
-the page's path — including the error a subscriber
-gets when it falls more than 16 messages behind, so a slow page still hears
-that something changed. The stream sends a keep-alive every 15 seconds.
+The watcher decides a burst in two halves: `Listeners::forget` has every cache
+forget what changed — the design store, the index with its widget modules, the
+entry document — and returns the changes the burst means, publishing nothing;
+`Listeners::changed` publishes them for the documents at `/`, then hands the
+paths to the search index. The forgetting is the watcher's own, never traffic
+on the bus.
+
+`GET /__devpage/events` (`events` in `src/server.rs`) subscribes to the
+documents the server serves, at `/`, and answers with a server-sent event
+stream. Every change it hears becomes one event whose data is its message —
+`change`, or `comments` and the page's path. A subscriber that falls more than
+64 changes behind hears a refresh, so a slow page still hears that something
+changed. The stream sends a keep-alive every 15 seconds. The slide-PNG cache
+subscribes the same way and forgets what it drew on any change it hears.
 
 ## Designs
 

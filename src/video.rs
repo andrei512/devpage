@@ -22,7 +22,6 @@ use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, Dispat
 use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
 use futures::StreamExt;
 use serde::de::DeserializeOwned;
-use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind};
 use crate::pdf::{Profile, READY};
@@ -171,7 +170,7 @@ async fn film<V: Voice>(
 ) -> Result<()> {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let url = format!("http://{}{}", listener.local_addr()?, document.entry());
-    let (changes, _) = broadcast::channel(1);
+    let changes = crate::changes::Changes::default();
     let server = tokio::spawn(async move {
         axum::serve(
             listener,

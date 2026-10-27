@@ -14,7 +14,6 @@ use chromiumoxide::cdp::browser_protocol::page::{
 };
 use chromiumoxide::layout::Point;
 use futures::StreamExt;
-use tokio::sync::broadcast;
 
 use devpage_design::render::{self, Difference};
 
@@ -76,7 +75,7 @@ async fn serve(dir: &Path, entry: &str) -> String {
     let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let (changes, _) = broadcast::channel(16);
+    let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
         comments: Some(server::Identity::Local("T".into())),
         ..server::Options::new(document, changes)
@@ -90,7 +89,7 @@ async fn serve(dir: &Path, entry: &str) -> String {
 async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
     let designs = super::Designs::new(dir.to_path_buf());
-    let changes = broadcast::channel(16).0;
+    let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
         designs: designs.clone(),
         comments: Some(server::Identity::Local("T".into())),

@@ -43,7 +43,8 @@ flowchart LR
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
 | `src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
-| `src/watch.rs` | Watches the served folder, keeps the index and its search index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
+| `src/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus for the documents at `/`, and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
+| `src/changes.rs` | The change bus: typed changes (`Refresh`, `Comments` of a page) scoped to the documents under one mount prefix, or to every document; any producer may publish, and each subscriber — a page's event stream, the slide-PNG cache — hears its own scope. |
 | `src/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
 | `src/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
@@ -66,7 +67,7 @@ flowchart LR
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
 | `src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. External addresses it hands to `src/external.rs`. The preview reports each problem the first time it finds it through its `Report` port: `src/terminal.rs` in devpage, a recorder in tests. |
 | `src/terminal.rs` | The terminal as the preview's reporter: each problem printed on standard error once. |
-| `src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a change on the live-update channel. How an address is asked is its `Ask` port: `Http` in devpage, a scripted table in tests. |
+| `src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a refresh for every document on the change bus. How an address is asked is its `Ask` port: `Http` in devpage, a scripted table in tests. |
 | `src/widgets/mod.rs` | The widget set a document has: the system and project widgets, each at its address, and their problems; a page's load set, preloaded from its head. |
 | `src/widgets/tags.rs` | Widget tags in Markdown turned into placeholders (found by `src/markup.rs`'s scanner), and a slide's `<Notes>` taken out — text in, text out. |
 | `src/widgets/compile.rs` | TSX compiled by oxc: the JSX runtime, the shims for widgets rendered by name, each helper import rewritten to the helper's own address. |
@@ -110,11 +111,12 @@ with an error before anything is served.
    ([in the server](../../viewer/design-engine/README.md#in-the-server)), and
    the watcher and the server share it too.
 
-3. Create the change channel
-   A broadcast channel of 16 messages carrying `change` and `comments /<page>`
-   ([the channel and the stream](../../viewer/live-updates/README.md#the-channel-and-the-stream)).
-   The link checker gets it too, and sends `change` when a background check of
-   an external address finds it broken.
+3. Create the change bus
+   The bus carrying typed changes — a refresh, or a page's comments — each
+   scoped to the documents it concerns
+   ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream)).
+   The link checker gets it too, and publishes a refresh for every document
+   when a background check of an external address changes what pages show.
 
 4. Start the watcher
    On the watch set of the served folder, with the design store to hand changed paths to

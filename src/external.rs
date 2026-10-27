@@ -1,7 +1,7 @@
 //! External links: whether each address a page links to outside devpage
 //! answers. `devpage check` asks each address once (twice if it can't be
 //! reached); the preview asks in the background and shows what it has heard,
-//! announcing on the live-update channel when that changes.
+//! announcing on the change bus when that changes.
 //!
 //! How an address is asked is the [`Ask`] port: [`Http`] asks the network,
 //! and tests answer from a table.
@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use crate::changes::{Change, Changes, Scope};
 use futures::future::BoxFuture;
-use tokio::sync::broadcast;
 
 use crate::problem::Problem;
 
@@ -126,15 +126,11 @@ pub struct External {
     answers: Mutex<HashMap<String, Answer>>,
     /// Where the preview announces a change in what it would show, so open
     /// pages fetch themselves again.
-    changes: Option<broadcast::Sender<String>>,
+    changes: Option<Changes>,
 }
 
 impl External {
-    pub fn new(
-        ask: Arc<dyn Ask>,
-        waits: Waits,
-        changes: Option<broadcast::Sender<String>>,
-    ) -> Arc<Self> {
+    pub fn new(ask: Arc<dyn Ask>, waits: Waits, changes: Option<Changes>) -> Arc<Self> {
         Arc::new(External {
             ask,
             waits,
@@ -144,7 +140,7 @@ impl External {
     }
 
     /// Asks the network, with the default waits, announcing on `changes`.
-    pub fn http(changes: Option<broadcast::Sender<String>>) -> Arc<Self> {
+    pub fn http(changes: Option<Changes>) -> Arc<Self> {
         External::new(Arc::new(Http::new()), Waits::default(), changes)
     }
 
@@ -258,7 +254,8 @@ impl External {
             if shown_now != shown_before
                 && let Some(changes) = &self.changes
             {
-                let _ = changes.send("change".into());
+                // Any page may link to the address, whatever its document.
+                changes.publish(&Scope::Every, Change::Refresh);
             }
             if done {
                 return;
@@ -372,11 +369,12 @@ mod tests {
     #[tokio::test]
     async fn the_preview_shows_an_unreachable_address_only_after_three_failures() {
         let table = Arc::new(Table::default().with("flaky", &[down()]));
-        let (changes, mut heard) = broadcast::channel(8);
+        let changes = Changes::default();
+        let mut heard = changes.subscribe(Scope::root());
         let external = External::new(table, quick(), Some(changes));
         assert!(external.preview(vec![link("flaky")]).is_empty());
         // Announced once, when the third failure makes it a problem.
-        assert_eq!(heard.recv().await.unwrap(), "change");
+        assert_eq!(heard.next().await, Some(Change::Refresh));
         assert!(external.failures("flaky") >= FAILURES_BEFORE_A_PROBLEM);
         assert_eq!(
             external
