@@ -89,18 +89,18 @@ pele's message, and exits with `1`, so a test or a CI job fails on it.
 
 ```
 $ devpage check docs
-docs/planting.md:14: broken diagram — Parse error on line 2:
-  A->>B: soak the seeds; plant them
------------------------------^
-Expecting 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', … got 'NEWLINE'
+docs/planting.md:5: broken diagram — Parse error on line 4:
+  You->>Soil: soak the seeds; plant them
+----------------------------------------^
+Expecting 'SOLID_OPEN_ARROW', 'DOTTED_OPEN_ARROW', 'SOLID_ARROW', 'DOTTED_ARROW', 'SOLID_CROSS', 'DOTTED_CROSS', 'SOLID_POINT', 'DOTTED_POINT', got 'NEWLINE'
 $ echo $?
 1
 ```
 
 </Terminal>
 
-pele's message names the line inside the diagram, counted from the line after
-the fence. While devpage serves the page, the same problem is in the
+The line is the fence's; pele's message names the line inside the diagram,
+counted from the line after the fence. While devpage serves the page, the same problem is in the
 [problems bar](../checking-links/README.md#in-the-preview) at the page's top.
 A `;` ends a statement in Mermaid, so one inside a sequence diagram's message
 is a common cause; reword the message.

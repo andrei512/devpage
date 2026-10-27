@@ -162,7 +162,7 @@ sequenceDiagram
   loop each slide
     video->>live: ask for this slide: its delivery and notes
     live-->>video: the voice, streamed
-    video->>chrome: the voice, silences trimmed; resume recording
+    video->>chrome: the voice with its silences trimmed, then resume recording
     video->>chrome: next slide, then pause
   end
   chrome-->>video: the mp4, in pieces

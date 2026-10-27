@@ -30,7 +30,6 @@ pub const SYSTEM: &[(&str, &str)] = &[
         include_str!("../assets/widgets/DevpageSidebar.tsx"),
     ),
     ("Cards", include_str!("../assets/widgets/Cards.tsx")),
-    ("Diagram", include_str!("../assets/widgets/Diagram.tsx")),
     ("Example", include_str!("../assets/widgets/Example.tsx")),
     ("FileTree", include_str!("../assets/widgets/FileTree.tsx")),
     ("Keys", include_str!("../assets/widgets/Keys.tsx")),
@@ -145,7 +144,7 @@ impl Widgets {
 
     /// What the `<head>` of a page whose rendered content is `content`, in a
     /// frame that mounts the widgets `chrome`, needs: the import map naming
-    /// React and pele, the widgets the page script loads, and the page's
+    /// React, the widgets the page script loads, and the page's
     /// [load set](Self::load_set) — each module as a `modulepreload` at the
     /// very address its import asks for, and the design engine's wasm as a
     /// low-priority fetch — so the browser asks for all of it at once, as
@@ -153,7 +152,6 @@ impl Widgets {
     pub fn head(&self, content: &str, chrome: &[&str]) -> String {
         let modules = serde_json::to_string(&self.modules).unwrap_or_default();
         let react = address(Owned::Asset("react.js"));
-        let pele = address(Owned::Asset("pele.js"));
         let (preloads, fetches) = self.load_set(content, chrome);
         let mut links = String::new();
         for module in preloads {
@@ -165,7 +163,7 @@ impl Widgets {
             ));
         }
         format!(
-            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}","pele":"{pele}"}}}}</script>
+            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}"}}}}</script>
 <script>window.devpageWidgets = {modules};</script>{links}"#
         )
     }
@@ -173,11 +171,10 @@ impl Widgets {
     /// Everything a page whose rendered content is `content`, in a frame that
     /// mounts the widgets `chrome` — a site's sidebar, [`SIDEBAR`] — loads
     /// from devpage beyond its stylesheet and page script: the modules —
-    /// React if it has a widget; each widget it names, a Mermaid block being
-    /// a `Diagram`, then the frame's; the widgets each of those renders by
-    /// name (its
-    /// `__devpageUses`), and so on; every helper a project widget's imports
-    /// reach; pele with a `Diagram`; the design script and engine with an
+    /// React if it has a widget; each widget it names, then the frame's; the
+    /// widgets each of those renders by name (its `__devpageUses`), and so
+    /// on; every helper a project widget's imports reach; the design script
+    /// and engine with an
     /// embedded design — and what is fetched, not imported: the engine's
     /// wasm. Each is the address [`address`] makes, so it is the one the
     /// import asks for.
@@ -188,9 +185,6 @@ impl Widgets {
             .filter_map(|rest| rest.split('"').next())
             .map(str::to_string)
             .collect();
-        if content.contains("<pre lang=\"mermaid\">") {
-            queue.push("Diagram".into());
-        }
         // The frame's own come after the content's: the server drew them
         // already, so the reader waits on the content's first.
         queue.extend(chrome.iter().map(|name| name.to_string()));
@@ -230,9 +224,6 @@ impl Widgets {
             if !modules.contains(&helper) {
                 modules.push(helper);
             }
-        }
-        if seen.contains("Diagram") {
-            modules.push(address(Owned::Asset("pele.js")));
         }
         let mut fetches = Vec::new();
         if content.contains("<canvas class=\"design\"") {

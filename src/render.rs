@@ -13,7 +13,7 @@ use crate::nav;
 
 /// GitHub-flavoured Markdown with raw HTML allowed. Fenced code goes through
 /// `highlight::Highlighter`, which keeps the language only on Mermaid blocks
-/// (`<pre lang="mermaid">`), so the page can find and draw them.
+/// (`<pre lang="mermaid">`), so `markdown` can find and draw them.
 pub(crate) fn options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.table = true;
@@ -46,8 +46,9 @@ pub const FRAME_IDS: [&str; 8] = [
     "devpage-comment-mode",
 ];
 
-/// Renders Markdown to HTML, highlighting fenced code (see `highlight`) and
-/// turning an image of a design into its canvas (see `embed_designs`).
+/// Renders Markdown to HTML, highlighting fenced code (see `highlight`),
+/// turning an image of a design into its canvas (see `embed_designs`) and
+/// drawing each Mermaid fence (see `diagrams`).
 pub fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
@@ -65,7 +66,7 @@ pub fn markdown(source: &str) -> String {
                 );
         }
     }
-    embed_designs(&html)
+    crate::diagrams::draw_fences(&embed_designs(&html))
 }
 
 /// Renders a page of `document`'s Markdown, its widget tags expanded first.
@@ -261,7 +262,7 @@ fn page_script(print: bool, comments: bool) -> String {
 }
 
 /// The whole page for one Markdown file: navigation, the rendered content and
-/// the scripts that draw diagrams and keep it live. `comments` is whether
+/// the scripts that mount its widgets and keep it live. `comments` is whether
 /// comments are on.
 pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> String {
     let current = document.url(file);
@@ -476,9 +477,8 @@ fn rebase(html: &str, file: &Path, document: &Document) -> String {
     let folder = file.parent().unwrap_or(Path::new("."));
     let mut out = String::new();
     let mut rest = html;
-    // Attributes, and a Mermaid `click … href "…"` line, which is still
-    // source here — the browser draws the diagram later.
-    const STARTS: [(&str, &str); 3] = [(" href=\"", "\""), (" src=\"", "\""), (" href \"", "\"")];
+    // Attributes — a diagram's links among them, drawn already.
+    const STARTS: [(&str, &str); 2] = [(" href=\"", "\""), (" src=\"", "\"")];
     loop {
         let next = STARTS
             .iter()
@@ -957,12 +957,32 @@ mod tests {
     }
 
     #[test]
-    fn keeps_raw_html_and_marks_mermaid_fences() {
+    fn keeps_raw_html_and_draws_mermaid_fences() {
         let html =
             markdown("<div class=\"note\">hi</div>\n\n```mermaid\nflowchart LR\n  A --> B\n```\n");
         assert!(html.contains("<div class=\"note\">hi</div>"));
-        assert!(html.contains("<pre lang=\"mermaid\">"));
-        assert!(html.contains("A --&gt; B"));
+        assert!(
+            html.contains("<div class=\"diagram\"><svg xmlns=\"http://www.w3.org/2000/svg\" class=\"pele pele-flowchart\""),
+            "{html}"
+        );
+        assert!(!html.contains("<pre lang=\"mermaid\">"), "{html}");
+        // A diagram in code is an example, never drawn.
+        let html = markdown("````markdown\n```mermaid\nflowchart LR\n  A --> B\n```\n````\n");
+        assert!(!html.contains("<svg"), "{html}");
+    }
+
+    #[test]
+    fn a_diagram_that_does_not_parse_shows_its_error_and_its_source() {
+        let html = markdown("```mermaid\nsequenceDiagram\n  A->>B: one; two\n```\n");
+        assert!(
+            html.contains("<pre class=\"diagram-error\">Diagram error: Parse error on line 2:"),
+            "{html}"
+        );
+        assert!(
+            html.contains("\n\nsequenceDiagram\n  A-&gt;&gt;B: one; two\n</pre>"),
+            "{html}"
+        );
+        assert!(!html.contains("<svg"), "{html}");
     }
 
     #[test]
@@ -1108,8 +1128,11 @@ mod tests {
         );
         assert!(html.contains("href=\"https://x.y/z\""), "{html}");
         assert!(html.contains("href=\"#glossary\""), "{html}");
+        // The diagram's link, drawn by the server, is rebased like the rest.
         assert!(
-            html.contains(&format!("href \"{base}/shared/terms.md\"")),
+            html.contains(&format!(
+                "<a href=\"{base}/shared/terms.md\" rel=\"noopener\">"
+            )),
             "{html}"
         );
     }
@@ -1272,24 +1295,23 @@ mod tests {
     }
 
     #[test]
-    fn a_diagram_page_preloads_the_diagram_widget_pele_and_react() {
+    fn a_diagram_page_comes_drawn_and_loads_nothing_for_it() {
         let (_, html) = site_page(
             "diagram",
             "# D\n\n```mermaid\nflowchart LR\n  A --> B\n```\n",
             &[],
         );
-        let modules = linked(&html, "modulepreload");
-        for owned in [
-            Owned::Asset("react.js"),
-            Owned::Asset("pele.js"),
-            Owned::SystemWidget("Diagram"),
-        ] {
-            assert!(
-                modules.contains(&address(owned)),
-                "{owned:?} in {modules:?}"
-            );
-        }
-        assert!(!html.contains("<script src=\"/__devpage/pele."), "{html}");
+        assert!(html.contains("<div class=\"diagram\"><svg"), "{html}");
+        assert_eq!(
+            linked(&html, "modulepreload"),
+            [
+                address(Owned::Asset("react.js")),
+                address(Owned::SystemWidget("DevpageSidebar"))
+            ],
+            "{html}"
+        );
+        // The import map names no pele: the browser never runs it.
+        assert!(!html.contains("\"pele\":"), "{html}");
     }
 
     #[test]
@@ -1304,7 +1326,6 @@ mod tests {
             "{html}"
         );
         assert!(linked(&html, "preload").is_empty(), "{html}");
-        assert!(!html.contains("<script src=\"/__devpage/pele."), "{html}");
         // The page script is in the head, deferred: fetched with the rest.
         let head = &html[..html.find("</head>").unwrap()];
         assert!(
@@ -1355,7 +1376,6 @@ mod tests {
             assert!(modules.contains(&expected), "{expected} in {modules:?}");
         }
         assert!(!modules.iter().any(|m| m.contains("Unused")), "{modules:?}");
-        assert!(!modules.contains(&address(Owned::Asset("pele.js"))));
         assert_eq!(modules.len(), 5, "{modules:?}");
     }
 

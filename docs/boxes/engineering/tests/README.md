@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 299 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 79 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 307 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 80 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 215 in `devpage`, 75 in the
+`cargo test` runs every crate in the workspace: 223 in `devpage`, 75 in the
 engine `devpage-design`, 7 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -30,7 +30,7 @@ search's quality is measured on. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 75 tests marked `#[ignore]`, 74 drive Chrome, and one of them also
+Of the 80 tests marked `#[ignore]`, 79 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -99,13 +99,14 @@ the suite green.
 
 ### `check`
 
-*17 tests.*
+*18 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
 - A missing logo reported once.
 - Widget problems — an unknown widget tag, a project widget with a system widget's name, a widget or a helper that doesn't compile, a widgets folder's problems reported once however many pages.
 - Missing files and headings and links climbing out of the served folder.
+- A diagram that doesn't parse reported at its fence's line with pele's message, past front matter, in `devpage check` and in the preview; one in a `markdown` fence never.
 - A slide number the deck doesn't have.
 - A heading in a doc checked against the ids the doc renders.
 - Topics checked against the page's own site, and a page in no site checked as a doc.
@@ -136,7 +137,7 @@ In Chrome:
 
 ### `designs`
 
-*20 tests, 29 in Chrome.*
+*24 tests, 31 in Chrome.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
@@ -173,6 +174,17 @@ In Chrome:
 - A design inside a project widget on a slide not yet shown drawing once shown, inside the slide, and printing promptly.
 - An embed inside a widget keeping the design it navigated to, and its way back, across a page refetch.
 - A design on a slide scaled down to a 1280 × 720 or 1600 × 900 window painted whole on the GPU and on the CPU, each corner its own color, and a click landing where the reader sees it.
+
+### `diagrams`
+
+*6 tests.*
+
+- A flowchart drawn to SVG with its `click` links, its tooltip as their title, an `https://` target kept through the engine's `URL`, and its colors left as `--pele-*` variables.
+- pele's error as the diagram's — a parse error, no diagram type — and the engine drawing the next one.
+- A diagram drawn before, or one pele rejected, coming from the cache; only new ones sent to the thread.
+- A diagram past the time limit failing with how long it may take, and not kept, so it is tried again.
+- A diagram past the memory limit failing as out of memory, and the next one drawn in a fresh runtime.
+- Fences in rendered HTML replaced by their drawings or by the error block with the source, escaped; other code left alone.
 
 ### `document`
 
@@ -223,7 +235,7 @@ In Chrome:
 
 ### `nav`
 
-*3 tests.*
+*4 tests.*
 
 - Links and `###` groups read from the Topics section only.
 - The tree stopping at a cycle.
@@ -231,7 +243,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 32 in Chrome, 1 on the network.*
+*4 tests, 35 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -247,6 +259,7 @@ In Chrome:
 - The logo loaded at 22px before the navbar's title, centred on it, and the tab's icon.
 - The navbar's dropdown by click and keyboard, its highlight following an in-place link.
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
+- A diagram in the page's HTML as served, its shapes taking the theme's `--surface` in light and again in dark after the switch, and its node's link opening the page in place.
 - The navbar folding into a menu on a narrow screen.
 - The fixture doc on A4 with its header and footer.
 - A doc embedding a design with problems printed without waiting for it.
@@ -257,7 +270,7 @@ In Chrome:
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
-- A plain page fetching neither pele nor any widget but its sidebar; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
+- A plain page fetching no widget but its sidebar; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once, and nothing fetched for the diagram; a page loaded in place bringing its preloads.
 - Widgets mounting again after a live update and an edited widget or helper reaching open pages, a widget rendered by name inside an unchanged one too.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
@@ -266,7 +279,7 @@ In Chrome:
 - A link swapping in a page built off-screen, at the top, and back and forward restoring each page's scroll.
 - Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
-- A printed doc showing each widget's first render, terminal lines wrapping on paper.
+- A printed doc showing each widget's first render, terminal lines wrapping on paper, and its diagram on paper with its node's link in the PDF.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
 - The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
@@ -274,23 +287,23 @@ In Chrome:
 
 ### `render`
 
-*23 tests.*
+*24 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
 - Every frame carrying the logo as its tab's icon, before the sidebar's and the outline's title.
-- Raw HTML kept and Mermaid fences marked.
+- Raw HTML kept and Mermaid fences drawn, one in a `markdown` fence never; a diagram that doesn't parse shown as its error and its source.
 - Highlighting without a language label.
 - Unknown languages left plain.
 - Tables and heading ids.
 - A doc's chapters with its outline.
 - A deck's slides, never showing their notes.
-- Links kept for chapters and slides from other folders.
+- Links kept for chapters and slides from other folders, a diagram's links among them.
 - A one-file doc's title.
 - A page's title.
 - A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
-- The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
+- The load set in the head: a diagram page coming drawn and preloading nothing for it, its import map naming no pele; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
 - The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, the empty search box between the title and the tree, no text between its elements, and the tree beside it as JSON with the document file's address; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
 
 ### `search`
@@ -325,7 +338,7 @@ fails it; one that raises them raises the floor with it.
 
 ### `server`
 
-*17 tests.*
+*18 tests.*
 
 - A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
 - Widgets served compiled, for the document they belong to, each helper imported by its own address; `immutable` at the current version, `no-cache` at any other.
@@ -393,7 +406,7 @@ In Chrome:
 
 ### `watch`
 
-*26 tests.*
+*27 tests.*
 
 Counting the paths the platform's watcher hands the handler, before sifting,
 on real folders:

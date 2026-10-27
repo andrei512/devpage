@@ -40,6 +40,9 @@ tonic-web = "0.14.6"
 tower = "0.5"
 sha2 = "0.10.9"
 tantivy = { version = "0.27", default-features = false, features = ["stemmer"] }
+# The diagram engine (`src/diagrams.rs`): QuickJS, built from its C source
+# by the crate, running the vendored pele bundle.
+rquickjs = "0.14.0"
 
 # The macOS watcher (`src/watch/macos.rs`): FSEvents streams on a dispatch
 # queue, and kqueue.
@@ -76,4 +79,8 @@ sha2 = "0.10.9"
 # build.rs compresses the built-in assets with brotli at its best, which is
 # slow unoptimised; optimise it in development builds too.
 [profile.dev.package.brotli]
+opt-level = 3
+
+# QuickJS draws every diagram a page has; unoptimised it is many times slower.
+[profile.dev.package.rquickjs-sys]
 opt-level = 3

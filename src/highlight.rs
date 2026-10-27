@@ -3,7 +3,7 @@
 //! Code is wrapped in spans whose classes name syntax scopes (`hl-keyword`,
 //! `hl-string`…); the stylesheet colors those classes from theme tokens, so
 //! highlighting follows the light and dark themes like everything else. Mermaid
-//! blocks are left as plain text for the page script to draw.
+//! blocks are left as plain text for `diagrams` to draw.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -64,7 +64,7 @@ impl SyntaxHighlighterAdapter for Highlighter {
         }
     }
 
-    /// Only Mermaid blocks keep their language, so the page can find them; other
+    /// Only Mermaid blocks keep their language, so `diagrams` can find them; other
     /// blocks carry no language label.
     fn write_pre_tag(
         &self,

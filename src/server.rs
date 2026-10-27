@@ -1534,13 +1534,13 @@ mod tests {
         use std::io::Read;
         let dir = served("encodings");
         let base = serve(&dir, "docs").await;
-        let pele = crate::addresses::address(crate::addresses::Owned::Asset("pele.js"));
+        let react = crate::addresses::address(crate::addresses::Owned::Asset("react.js"));
         let identity = crate::addresses::ASSETS
             .iter()
-            .find(|a| a.name == "pele.js")
+            .find(|a| a.name == "react.js")
             .unwrap()
             .identity;
-        let url = format!("{base}{pele}");
+        let url = format!("{base}{react}");
 
         let (_, headers, body) =
             fetch(&url, &[("accept-encoding", "gzip, deflate, br, zstd")]).await;
