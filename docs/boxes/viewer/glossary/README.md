@@ -149,6 +149,10 @@ One page in a sidebar tree, labelled with its Topics link's text.
 
 A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar.
 
+## branch
+
+An entry with children in the sidebar. Its chevron opens and closes it; the branch down to the page shown is open, and those the reader opened stay open, remembered per document. See [Organizing navigation](../organizing-navigation/README.md#opening-and-closing).
+
 ## search index
 
 The full-text index of every in-sight document's sections — pages, chapters and slides split at their headings — held in memory and kept current by the watcher. The code calls it `Search`. See [Search](../search/README.md).

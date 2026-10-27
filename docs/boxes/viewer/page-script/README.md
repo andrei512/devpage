@@ -1,7 +1,7 @@
 # The page script
 
 What `assets/devpage.js` does in every open page: swapping a page in place,
-mounting widgets, listening to the live-update stream, following links without
+mounting widgets, keeping a site's sidebar mounted, listening to the live-update stream, following links without
 reloading, keeping the theme, driving the navbar, and letting hidden tabs go
 quiet. It is a mechanism page under [Live updates](../live-updates/README.md),
 for someone about to change the script.
@@ -72,8 +72,9 @@ way back — and is drawn again from the stream
 
 **Commit**, in one task, so no frame shows a page half built: the kept
 elements take their places, the fresh content replaces the children of
-`#devpage-page`, the fresh children replace those of `#devpage-nav` and
-`#devpage-navbar` — so the navbar's highlight follows the page — a link's
+`#devpage-page`, the mounted [sidebar](#the-sidebar) is given the fresh
+page's tree and address, the fresh children replace those of `#devpage-navbar`
+— so the navbar's highlight follows the page — and of a doc's outline, a link's
 address is pushed onto the history, the title is set, the slide is shown,
 broken links are marked, and the scroll is put where it belongs: kept for a
 live update, the reader's for back and forward, and the `#fragment` or the
@@ -104,6 +105,27 @@ they are already on their way, named by its head
 script, `assets/design.js`, is loaded the first time a
 page has a design, and from then on starts every canvas not yet drawn and
 stops those gone.
+
+## The sidebar
+
+A site's sidebar is the `DevpageSidebar` widget
+([Navigation tree](../navigation-tree/README.md#rendering-the-sidebar)). On
+load, `mountSidebar` imports React and the widget — both named by the page's
+head — and **hydrates** `#devpage-nav` with it (`hydrateRoot`), from the tree
+the server put beside it as JSON (`#devpage-sidebar`). The server's markup is
+what the widget renders, so React adopts the existing nodes and changes none:
+nothing on screen moves when it takes over. The page marks itself ready once
+the sidebar and the content's widgets have mounted.
+
+The sidebar is mounted once and never unmounted while the tab shows the site.
+A swap waits for it to have mounted, so it never replaces nodes React is
+taking over; then, in the commit, it hands the widget the fresh page's tree
+and address inside `flushSync`, so React renders it in that same task: the
+highlight moves, and the new page's branch opens, in the frame that shows the
+new content, never one before or after. Everything else the widget holds —
+the branches open, the sidebar's scroll — stays. If the widget couldn't load,
+the sidebar stays as the server drew it, and each swap replaces its children
+as it does the navbar's.
 
 ## The live-update stream
 

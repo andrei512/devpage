@@ -62,6 +62,21 @@ children, and so on down.
 - **The sidebar highlights** every entry for the page being shown — more than
   one when the page is listed twice — or the document title, on the root page.
 
+## Opening and closing
+
+The sidebar starts collapsed: the top level of the tree shows, and the branch
+down to the page shown is open — every entry above it, and the page's own
+children. Every entry with children has a chevron beside it that opens or
+closes it; its link still opens the page.
+
+- **What you open is remembered** for that document, in the browser: a branch
+  you opened is open again when you come back, from the first frame — even
+  after a reload. Closing it forgets it. A browser that keeps nothing still
+  opens and closes branches; it only forgets them.
+- **Moving to another page** keeps the sidebar as it is — what is open, where
+  it is scrolled — and only moves the highlight, opening the new page's branch.
+- **Group headings** stay where they are in the tree, open or closed.
+
 For example, take three pages whose Topics sections list:
 
 ```text
@@ -91,7 +106,8 @@ Both *Reference* entries link to the same page, and both are highlighted
 while it is shown.
 
 Because the tree is read from the files on every request, editing a Topics
-list changes the sidebar of every open page as soon as the file is saved.
+list changes the sidebar of every open page as soon as the file is saved,
+leaving open what was open.
 
 ## The navbar
 

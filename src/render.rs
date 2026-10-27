@@ -27,14 +27,15 @@ pub(crate) fn options() -> Options<'static> {
     options
 }
 
-/// The ids of devpage's own frame — the page, the sidebar, the navbar, the
-/// theme corner and the comments — used by `assets/style.css` and
+/// The ids of devpage's own frame — the page, the sidebar and its tree, the
+/// navbar, the theme corner and the comments — used by `assets/style.css` and
 /// `assets/devpage.js`. They all start with `devpage-`, so a heading's id,
 /// taken from its text, matches one only if the heading spells it out; such a
 /// heading's id gets `-heading` added, so a frame id is never a heading's.
-pub const FRAME_IDS: [&str; 7] = [
+pub const FRAME_IDS: [&str; 8] = [
     "devpage-page",
     "devpage-nav",
+    "devpage-sidebar",
     "devpage-navbar",
     "devpage-corner",
     "devpage-comments",
@@ -270,7 +271,14 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
             String::new()
         },
         problems = problems(document, &[file.to_path_buf()]),
-        widgets = crate::widgets::Widgets::of(document).head(&content),
+        widgets = crate::widgets::Widgets::of(document).head(
+            &content,
+            if document.sidebar {
+                &[crate::widgets::SIDEBAR]
+            } else {
+                &[]
+            }
+        ),
     )
 }
 
@@ -365,7 +373,7 @@ pub fn doc(
         } else {
             crate::navbar::corner(document, comments)
         },
-        widgets = crate::widgets::Widgets::of(document).head(&content),
+        widgets = crate::widgets::Widgets::of(document).head(&content, &[]),
         // A lone Markdown file's title is its own first heading; don't repeat it.
         heading = if document.file_name.ends_with(".md") {
             String::new()
@@ -575,7 +583,7 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool
         } else {
             crate::navbar::corner(document, comments)
         },
-        widgets = crate::widgets::Widgets::of(document).head(&content),
+        widgets = crate::widgets::Widgets::of(document).head(&content, &[]),
         print_class = if print { " print" } else { "" },
         script = page_script(print, comments),
         problems = if print {
@@ -640,40 +648,139 @@ fn site_class(document: &Document) -> String {
 }
 
 /// A site's sidebar, unless it sets `sidebar: false`: its title — left to the
-/// navbar when there is one — then the tree its Topics sections form.
+/// navbar when there is one — then the tree its Topics sections form,
+/// collapsed but for the branch down to the page shown. It is the markup
+/// [`DevpageSidebar`](crate::widgets::SIDEBAR) renders from the same tree,
+/// which follows it as JSON: the page script has React take the sidebar over
+/// without changing a node. Before the page paints, a small script opens the
+/// entries the reader opened on another visit, as the widget will.
 fn sidebar(document: &Document, current: &str) -> String {
     if !document.sidebar {
         return String::new();
     }
-    let title = if document.navbar.is_empty() {
-        format!(
-            "<a class=\"document-title{}\" href=\"{}\">{}{}</a>\n",
-            if current == document.entry() {
+    let groups = nav::tree(document);
+    let title = document.navbar.is_empty().then(|| SidebarTitle {
+        label: document.title.clone(),
+        href: document.entry(),
+        logo: document.logo_url(),
+    });
+    let mut html = format!(
+        "<nav id=\"devpage-nav\" data-sidebar=\"{}\">",
+        escape(&document.entry())
+    );
+    if let Some(title) = &title {
+        html.push_str(&format!(
+            "<a class=\"document-title{}\" href=\"{}\">{}{}</a>",
+            if title.href == current {
                 " current"
             } else {
                 ""
             },
-            escape(&document.entry()),
+            escape(&title.href),
             crate::navbar::logo(document),
-            escape(&document.title)
-        )
-    } else {
-        String::new()
+            escape(&title.label)
+        ));
+    }
+    // The search box goes here, at the top of the sidebar, as it does in
+    // `DevpageSidebar`.
+    let groups: Vec<SidebarGroup> = groups
+        .iter()
+        .map(|g| SidebarGroup::of(document, g))
+        .collect();
+    tree(&groups, current, &mut html);
+    html.push_str("</nav>");
+    let data = SidebarData {
+        document: document.entry(),
+        current: current.to_string(),
+        title,
+        groups,
     };
-    format!(
-        "<nav id=\"devpage-nav\">\n{title}{}\n</nav>",
-        navigation(document, current)
-    )
-}
-
-/// The sidebar: the document's title, then the tree the pages' Topics sections form.
-fn navigation(document: &Document, current: &str) -> String {
-    let mut html = String::new();
-    tree(document, &nav::tree(document), current, &mut html);
+    // `<` escaped, so no label can close the script.
+    let json = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .replace('<', "\\u003c");
+    html.push_str(&format!(
+        "<script type=\"application/json\" id=\"devpage-sidebar\">{json}</script><script>{OPEN_REMEMBERED}</script>"
+    ));
     html
 }
 
-fn tree(document: &Document, groups: &[nav::Group], current: &str, html: &mut String) {
+/// Opens, before the page paints, the entries the reader opened on another
+/// visit to the document, which `DevpageSidebar` keeps in `localStorage`
+/// under `devpage-sidebar:` and the document's address. It changes only what
+/// the widget's first render will, so React takes over the same DOM.
+const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage-nav\");let opened;try{opened=JSON.parse(localStorage.getItem(\"devpage-sidebar:\"+nav.dataset.sidebar))}catch{}if(!Array.isArray(opened))return;for(const li of nav.querySelectorAll(\"li.branch:not(.open)\"))if(opened.includes(li.dataset.href)){li.classList.add(\"open\");li.querySelector(\".chevron\").setAttribute(\"aria-expanded\",\"true\")}})()";
+
+/// What `DevpageSidebar` renders: the document it belongs to (its address,
+/// which keys what the reader opened), the page shown, the title link when
+/// the sidebar has one, and the tree.
+#[derive(serde::Serialize)]
+struct SidebarData {
+    document: String,
+    current: String,
+    title: Option<SidebarTitle>,
+    groups: Vec<SidebarGroup>,
+}
+
+#[derive(serde::Serialize)]
+struct SidebarTitle {
+    label: String,
+    href: String,
+    logo: Option<String>,
+}
+
+#[derive(serde::Serialize)]
+struct SidebarGroup {
+    title: Option<String>,
+    entries: Vec<SidebarEntry>,
+}
+
+#[derive(serde::Serialize)]
+struct SidebarEntry {
+    label: String,
+    href: String,
+    children: Vec<SidebarGroup>,
+}
+
+impl SidebarGroup {
+    fn of(document: &Document, group: &nav::Group) -> Self {
+        Self {
+            title: group.title.clone(),
+            entries: group
+                .entries
+                .iter()
+                .map(|entry| SidebarEntry {
+                    label: entry.label.clone(),
+                    href: document.url(&entry.file),
+                    children: entry
+                        .children
+                        .iter()
+                        .map(|g| SidebarGroup::of(document, g))
+                        .collect(),
+                })
+                .collect(),
+        }
+    }
+}
+
+impl SidebarEntry {
+    /// Whether the page shown is this entry or under it: the entries open
+    /// when a page is shown.
+    fn leads_to(&self, current: &str) -> bool {
+        self.href == current
+            || self
+                .children
+                .iter()
+                .flat_map(|g| &g.entries)
+                .any(|e| e.leads_to(current))
+    }
+}
+
+/// The tree as nested `<ul>` lists: a group's title as a heading in place, an
+/// entry with children as a branch — its link, a chevron that opens and
+/// closes it, and its children's list, shown while open. No text sits
+/// between elements: React renders none.
+fn tree(groups: &[SidebarGroup], current: &str, html: &mut String) {
     if groups.is_empty() {
         return;
     }
@@ -686,17 +793,23 @@ fn tree(document: &Document, groups: &[nav::Group], current: &str, html: &mut St
             ));
         }
         for entry in &group.entries {
-            let href = document.url(&entry.file);
-            let class = if href == current {
+            let href = escape(&entry.href);
+            let label = escape(&entry.label);
+            let class = if entry.href == current {
                 " class=\"current\""
             } else {
                 ""
             };
+            if entry.children.is_empty() {
+                html.push_str(&format!("<li><a href=\"{href}\"{class}>{label}</a></li>"));
+                continue;
+            }
+            let open = entry.leads_to(current);
             html.push_str(&format!(
-                "<li><a href=\"{href}\"{class}>{}</a>",
-                escape(&entry.label)
+                "<li class=\"branch{}\" data-href=\"{href}\"><div class=\"entry\"><a href=\"{href}\"{class}>{label}</a><button type=\"button\" class=\"chevron\" aria-expanded=\"{open}\" aria-label=\"{label}\"></button></div>",
+                if open { " open" } else { "" },
             ));
-            tree(document, &entry.children, current, html);
+            tree(&entry.children, current, html);
             html.push_str("</li>");
         }
     }
@@ -1133,9 +1246,16 @@ mod tests {
     }
 
     #[test]
-    fn a_plain_page_loads_neither_pele_nor_react_nor_any_widget() {
+    fn a_plain_page_loads_only_react_and_its_sidebar() {
         let (_, html) = site_page("plain", "# Plain\n\nJust text.\n", &[]);
-        assert!(linked(&html, "modulepreload").is_empty(), "{html}");
+        assert_eq!(
+            linked(&html, "modulepreload"),
+            [
+                address(Owned::Asset("react.js")),
+                address(Owned::SystemWidget("DevpageSidebar"))
+            ],
+            "{html}"
+        );
         assert!(linked(&html, "preload").is_empty(), "{html}");
         assert!(!html.contains("<script src=\"/__devpage/pele."), "{html}");
         // The page script is in the head, deferred: fetched with the rest.
@@ -1183,12 +1303,13 @@ mod tests {
             module("widgets/Card.tsx"),
             frames,
             address(Owned::SystemWidget("Callout")),
+            address(Owned::SystemWidget("DevpageSidebar")),
         ] {
             assert!(modules.contains(&expected), "{expected} in {modules:?}");
         }
         assert!(!modules.iter().any(|m| m.contains("Unused")), "{modules:?}");
         assert!(!modules.contains(&address(Owned::Asset("pele.js"))));
-        assert_eq!(modules.len(), 4, "{modules:?}");
+        assert_eq!(modules.len(), 5, "{modules:?}");
     }
 
     #[test]
@@ -1198,6 +1319,8 @@ mod tests {
         assert_eq!(
             modules,
             [
+                address(Owned::Asset("react.js")),
+                address(Owned::SystemWidget("DevpageSidebar")),
                 address(Owned::Asset("design.js")),
                 address(Owned::Asset("design-engine.js"))
             ]
@@ -1207,6 +1330,115 @@ mod tests {
             address(Owned::Asset("design-engine.wasm"))
         );
         assert!(html.contains(&wasm), "{html}");
+    }
+
+    #[test]
+    fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() {
+        let (dir, _) = site_page(
+            "sidebar",
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n\n### Reference\n\n- [Fields](fields.md)\n",
+            &[
+                (
+                    "guide.md",
+                    "# Guide\n\n## Topics\n\n- [Step](step.md)\n- [Deep](deep.md)\n",
+                ),
+                ("deep.md", "# Deep\n\n## Topics\n\n- [Leaf](leaf.md)\n"),
+                (
+                    "fields.md",
+                    "# Fields\n\n## Topics\n\n- [Field](field.md)\n",
+                ),
+                ("step.md", "# Step\n"),
+                ("leaf.md", "# Leaf\n"),
+                ("field.md", "# Field\n"),
+            ],
+        );
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let html = page(&site, &dir.join("deep.md"), "# Deep\n", true);
+        let nav = &html[html.find("<nav id=\"devpage-nav\"").unwrap()..];
+        let nav = &nav[..nav.find("</nav>").unwrap() + 6];
+        let url = |file: &str| site.url(&dir.join(file));
+        let branch = |file: &str, label: &str, open: bool, current: bool| {
+            format!(
+                "<li class=\"branch{}\" data-href=\"{href}\"><div class=\"entry\"><a href=\"{href}\"{}>{label}</a><button type=\"button\" class=\"chevron\" aria-expanded=\"{open}\" aria-label=\"{label}\"></button></div>",
+                if open { " open" } else { "" },
+                if current { " class=\"current\"" } else { "" },
+                href = url(file),
+            )
+        };
+        // The branch down to the page shown is open, the page's own children
+        // included; every other branch is closed.
+        assert!(
+            nav.contains(&branch("guide.md", "Guide", true, false)),
+            "{nav}"
+        );
+        assert!(
+            nav.contains(&branch("deep.md", "Deep", true, true)),
+            "{nav}"
+        );
+        assert!(
+            nav.contains(&branch("fields.md", "Fields", false, false)),
+            "{nav}"
+        );
+        assert!(
+            nav.contains(&format!("<li><a href=\"{}\">Step</a></li>", url("step.md"))),
+            "a page with no children is a plain entry: {nav}"
+        );
+        assert!(
+            nav.contains("<li class=\"group\"><span>Reference</span></li>"),
+            "group headings stay where they are: {nav}"
+        );
+        assert!(
+            !nav.contains('\n'),
+            "no text between the elements React renders: {nav}"
+        );
+        assert!(
+            nav.starts_with(&format!(
+                "<nav id=\"devpage-nav\" data-sidebar=\"{}\">",
+                site.entry()
+            )),
+            "{nav}"
+        );
+        // The tree, as JSON, for DevpageSidebar to take the sidebar over from.
+        let data = html
+            .split("<script type=\"application/json\" id=\"devpage-sidebar\">")
+            .nth(1)
+            .and_then(|rest| rest.split("</script>").next())
+            .unwrap();
+        let data: serde_json::Value = serde_json::from_str(data).unwrap();
+        assert_eq!(data["document"], site.entry());
+        assert_eq!(data["current"], url("deep.md"));
+        assert_eq!(data["title"]["label"], "S");
+        assert_eq!(data["groups"][1]["title"], "Reference");
+        assert_eq!(
+            data["groups"][0]["entries"][0]["children"][0]["entries"][1]["href"],
+            url("deep.md")
+        );
+        // DevpageSidebar is preloaded with React, though the content uses
+        // no widget.
+        let modules = linked(&html, "modulepreload");
+        assert!(
+            modules.contains(&address(Owned::SystemWidget("DevpageSidebar"))),
+            "{modules:?}"
+        );
+    }
+
+    #[test]
+    fn a_site_with_sidebar_false_has_no_sidebar_and_loads_nothing_for_it() {
+        let dir = std::env::temp_dir().join(format!("devpage-render-nosb-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: S\nroot: README.md\nsidebar: false\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
+        let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+        let html = page(&site, &dir.join("README.md"), "# Home\n", true);
+        assert!(!html.contains("devpage-nav"), "{html}");
+        assert!(!html.contains("devpage-sidebar"), "{html}");
+        assert!(linked(&html, "modulepreload").is_empty(), "{html}");
     }
 
     #[test]

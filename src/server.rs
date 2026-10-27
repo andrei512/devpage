@@ -1117,7 +1117,7 @@ mod tests {
         let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
         assert_eq!(status, 200);
         assert!(
-            page.contains("<nav id=\"devpage-nav\">"),
+            page.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "a page of its nearest site"
         );
         assert!(page.contains("Step · Docs"), "{page}");
@@ -1125,12 +1125,12 @@ mod tests {
         let (status, deck) = get(&format!("{base}/notes/talk.yml")).await;
         assert_eq!(status, 200);
         assert!(deck.contains("Talk"), "a document file opens as its kind");
-        assert!(!deck.contains("<nav id=\"devpage-nav\">"));
+        assert!(!deck.contains("<nav id=\"devpage-nav\" data-sidebar="));
 
         let (status, loose) = get(&format!("{base}/notes/loose.md")).await;
         assert_eq!(status, 200);
         assert!(
-            !loose.contains("<nav id=\"devpage-nav\">"),
+            !loose.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "in no site: a doc of one chapter"
         );
         assert!(loose.contains("Loose"));
@@ -1160,10 +1160,13 @@ mod tests {
             "{page}"
         );
         assert!(page.contains("@page { size: A4;"), "{page}");
-        assert!(!page.contains("<nav id=\"devpage-nav\">"), "{page}");
+        assert!(
+            !page.contains("<nav id=\"devpage-nav\" data-sidebar="),
+            "{page}"
+        );
         let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
         assert!(
-            on_screen.contains("<nav id=\"devpage-nav\">"),
+            on_screen.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "still a site page on screen"
         );
     }
