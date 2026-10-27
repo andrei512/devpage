@@ -5,6 +5,7 @@ mod addresses;
 mod check;
 mod comments;
 mod designs;
+mod diagrams;
 mod document;
 mod highlight;
 mod icons;
@@ -83,6 +84,7 @@ enum Command {
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
+    diagrams::start();
     let served = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
     if let Some(Command::Check { path }) = &cli.command {
         let document = Document::load(

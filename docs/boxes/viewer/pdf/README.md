@@ -45,7 +45,7 @@ sequenceDiagram
   pdf->>server: start, in the background
   pdf->>chrome: open the document in print mode
   chrome->>server: GET the page
-  chrome-->>pdf: every diagram, widget and embedded design drawn
+  chrome-->>pdf: every widget and embedded design drawn
   pdf->>chrome: Page.printToPDF
   chrome-->>pdf: the PDF
 ```
@@ -55,7 +55,8 @@ background, which logs nothing, opens the document in print mode in a headless C
 as paper from the start, with the print media type, so every slide of a deck
 is shown and a design embedded on any of them is fitted where it will print —
 waits until
-every diagram is drawn and every embedded design is painted — a design with
+every widget has mounted and every embedded design is painted (diagrams come
+drawn in the page's HTML) — a design with
 problems and nothing valid to draw counts as soon as its problems show, so it
 doesn't hold the PDF up; `devpage check` is what reports it. It waits for at
 most 20 seconds, after which it logs what the page still waited for and
@@ -97,7 +98,7 @@ Print mode is the same page; it only leaves things out, and sets the page size
 | --- | --- |
 | the Markdown, the stylesheet | live updates |
 | highlighted code | comments |
-| diagrams and widgets (their first render) | navigation and the deck's controls |
+| diagrams, and widgets (their first render) | navigation and the deck's controls |
 | the doc's header and footer | soft shadows (PDF viewers draw them as grey boxes) |
 
 A deck's slides are laid out at a fixed 1920 × 1080 and only scaled to the

@@ -31,10 +31,10 @@ highlighted as Markdown by the same highlighter fenced code uses
 `data-source` attribute is not a widget's: it names the Markdown file a page,
 chapter or slide comes from, whose comments the page asks for. Its content stays between
 the tags for comrak to render as Markdown. The page's `<head>` gets an import map
-naming React and pele, the list of the document's widgets with the address of
+naming React, the list of the document's widgets with the address of
 each, and a `modulepreload` for every module the page's widgets need — their
-own, those they render by name, their helpers, React and, with a diagram,
-pele ([the load set](../../rendering-a-page/README.md#the-load-set)).
+own, those they render by name, their helpers and React
+([the load set](../../rendering-a-page/README.md#the-load-set)).
 
 ## Compiling
 
@@ -83,8 +83,7 @@ failed.
 
 ## In the browser
 
-In `assets/devpage.js`, each `pre[lang="mermaid"]` first
-becomes a `Diagram` placeholder. Then the page script loads only the widgets the
+In `assets/devpage.js`, the page script loads only the widgets the
 content names, nested ones included, and those each lists in `__devpageUses`
 and theirs in turn, importing them alongside React rather than after it — and
 importing again each one whose address changed, even when the widget

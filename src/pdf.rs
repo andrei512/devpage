@@ -80,7 +80,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     Ok(())
 }
 
-/// True once the page is ready to print: its diagrams drawn and every
+/// True once the page is ready to print: its widgets mounted and every
 /// embedded design that is laid out — on a slide being shown, or anywhere in
 /// print — painted, or settled showing its problems. A design on a hidden
 /// slide has no layout and never paints, so it doesn't count.
@@ -89,7 +89,7 @@ pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true
         .filter((c) => c.checkVisibility()).every((c) => c.dataset.painted)";
 
 /// What a page that isn't ready still waits for, for the log.
-const MISSING: &str = "[document.documentElement.dataset.ready === 'true' ? null : 'its diagrams', \
+const MISSING: &str = "[document.documentElement.dataset.ready === 'true' ? null : 'its widgets', \
     ...[...document.querySelectorAll('canvas.design')] \
         .filter((c) => c.checkVisibility() && !c.dataset.painted) \
         .map((c) => `the design ${c.getAttribute('src')}`)] \
@@ -895,7 +895,7 @@ mod tests {
                 ("docs/checkout.design", ""),
             ],
         );
-        // A plain page fetches neither pele nor any widget but its sidebar.
+        // A plain page fetches no widget but its sidebar.
         let (mut browser, page, events, _profile, answered) =
             open_logged(&dir, "/docs/plain.md").await;
         assert_eq!(
@@ -965,12 +965,10 @@ mod tests {
         }
         for name in [
             "react.",
-            "pele.",
             "Card.tsx",
             "label.ts",
             "Tabs.tsx",
             "Tab.tsx",
-            "Diagram.tsx",
             "design.",
             "design-engine.",
             "DevpageSidebar.tsx",
@@ -980,6 +978,13 @@ mod tests {
                 "{name} in {modules:?}"
             );
         }
+        // The diagram came drawn: nothing was fetched to draw it.
+        assert!(
+            !modules
+                .iter()
+                .any(|(url, _)| url.contains("pele") || url.contains("Diagram")),
+            "{modules:?}"
+        );
         let by_script: Vec<_> = modules
             .iter()
             .filter(|(_, initiator)| *initiator == InitiatorType::Script)
@@ -1001,7 +1006,7 @@ mod tests {
         assert_eq!(
             text(
                 &page,
-                "load('/docs/README.md').then(() => [...document.head.querySelectorAll('link[rel=modulepreload]')].some((l) => l.href.includes('/pele.')) && !!document.querySelector('.diagram svg')).then(String)"
+                "load('/docs/README.md').then(() => [...document.head.querySelectorAll('link[rel=modulepreload]')].some((l) => l.href.includes('/Card.tsx')) && !!document.querySelector('.diagram svg')).then(String)"
             )
             .await,
             "true"
@@ -1194,6 +1199,55 @@ mod tests {
         assert_eq!(
             text(&page, "String(localStorage.getItem('devpage-theme'))").await,
             "light"
+        );
+        browser.close().await.ok();
+        events.abort();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_diagram_comes_drawn_follows_the_theme_and_its_nodes_are_links() {
+        let dir = widget_folder(
+            "diagram-theme",
+            "# Home\n\n```mermaid\nflowchart LR\n  a[Alpha] --> b[Beta]\n  click b href \"beta.md\" \"Beta\"\n```\n",
+            &[("docs/beta.md", "# Beta page\n")],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        // In the HTML as served: nothing in the browser drew it.
+        assert_eq!(
+            text(
+                &page,
+                "fetch(location.href).then(r => r.text()).then(t => String(t.includes('<div class=\"diagram\"><svg')))"
+            )
+            .await,
+            "true"
+        );
+        let fill = "getComputedStyle(document.querySelector('.diagram rect')).fill";
+        let surface = "(() => { const probe = document.createElement('i'); probe.style.color = 'var(--surface)'; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; })()";
+        page.evaluate("document.documentElement.dataset.theme = 'light'")
+            .await
+            .unwrap();
+        let light = text(&page, fill).await;
+        assert_eq!(light, text(&page, surface).await);
+        page.evaluate("document.querySelector('.theme-toggle').click()")
+            .await
+            .unwrap();
+        assert_eq!(
+            text(&page, "document.documentElement.dataset.theme").await,
+            "dark"
+        );
+        let dark = text(&page, fill).await;
+        assert_eq!(dark, text(&page, surface).await);
+        assert_ne!(light, dark, "the diagram recolours with the theme");
+        // A node's link opens its page in place.
+        page.evaluate("document.querySelector('.diagram a[href=\"beta.md\"]').dispatchEvent(new MouseEvent('click', { bubbles: true, button: 0 }))")
+            .await
+            .unwrap();
+        assert!(
+            until(&page, "location.pathname === '/docs/beta.md' && document.querySelector('h1').textContent === 'Beta page'").await,
+            "{}",
+            text(&page, "location.pathname").await
         );
         browser.close().await.ok();
         events.abort();
@@ -2761,7 +2815,7 @@ mod tests {
                 ),
                 (
                     "docs/design/one.md",
-                    "# One\n\n<Tabs>\n<Tab title=\"First\">\n\nshown on paper\n\n</Tab>\n<Tab title=\"Second\">\n\nonly on screen\n\n</Tab>\n</Tabs>\n\n<Terminal>\n\n```\n$ echo a long line\n```\n\n</Terminal>\n",
+                    "# One\n\n<Tabs>\n<Tab title=\"First\">\n\nshown on paper\n\n</Tab>\n<Tab title=\"Second\">\n\nonly on screen\n\n</Tab>\n</Tabs>\n\n<Terminal>\n\n```\n$ echo a long line\n```\n\n</Terminal>\n\n```mermaid\nflowchart LR\n  paper[On paper] --> web\n  click paper href \"https://example.com/drawn-on-the-server\"\n```\n",
                 ),
             ],
         );
@@ -2787,12 +2841,27 @@ mod tests {
             .await,
             "pre-wrap"
         );
+        // The diagram is on paper, drawn by the server.
+        assert_eq!(
+            text(
+                &page,
+                "String(document.querySelector('.diagram svg')?.getBoundingClientRect().width > 0)"
+            )
+            .await,
+            "true"
+        );
         browser.close().await.ok();
         events.abort();
         let document = Arc::new(Document::load(&dir.join("docs/design"), &dir).unwrap());
         let out = dir.join("d.pdf");
         print(document, &out).await.unwrap();
-        assert!(!pages(&std::fs::read(&out).unwrap()).is_empty());
+        let pdf = std::fs::read(&out).unwrap();
+        assert!(!pages(&pdf).is_empty());
+        // Its node's link is the PDF's too.
+        assert!(
+            String::from_utf8_lossy(&pdf).contains("https://example.com/drawn-on-the-server"),
+            "the diagram's link in the PDF"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

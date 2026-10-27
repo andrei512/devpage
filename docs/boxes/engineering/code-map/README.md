@@ -19,6 +19,7 @@ flowchart LR
   main --> watch["Watching<br/>watch.rs"]
   main --> serve["Serving<br/>server.rs, comments.rs"]
   serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
+  render --> diagrams["Diagrams<br/>diagrams.rs"]
   main --> other["Checking, printing<br/>check.rs, pdf.rs"]
   main --> video["Recording a deck<br/>video.rs"]
   watch --> designs["Designs<br/>designs.rs"]
@@ -29,6 +30,7 @@ flowchart LR
   click watch href "../../viewer/live-updates/README.md#the-watcher" "The watcher"
   click serve href "../../viewer/serving-pages/README.md" "Serving pages"
   click render href "../../viewer/rendering-a-page/README.md" "Rendering a page"
+  click diagrams href "../../viewer/diagrams/README.md#the-diagram-engine" "The diagram engine"
   click other href "../../viewer/checking-links/README.md" "Checking links"
   click video href "../../viewer/making-a-video/README.md" "Making a video"
   click designs href "../../viewer/design-engine/README.md#in-the-server" "The design engine in the server"
@@ -54,8 +56,9 @@ flowchart LR
 | `src/render.rs` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar; an invalid document file's page. |
 | `src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
+| `src/diagrams.rs` | The diagram engine: pele in QuickJS on a thread of its own, with the `URL` pele needs; each `mermaid` block of rendered HTML replaced by its SVG or its error block; the cache of drawings by source; the time and memory limits. |
 | `src/comments.rs` | The comment store: one YAML file per thread under `.devpage/comments/`, and the local author. |
-| `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses. |
+| `src/check.rs` | Link checking, for the preview and `devpage check`, including external addresses and diagrams that don't parse. |
 | `src/widgets.rs` | Widgets: the system and project widget sets and their problems; widget tags in Markdown turned into placeholders, and a slide's `<Notes>` taken out and read; TSX compiled by oxc, each helper import rewritten to the helper's own address, and compiled modules remembered; a module's version, from its source and every module it imports; a page's load set, preloaded from its head. |
 | `src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
@@ -70,7 +73,10 @@ What each crate does is in [Dependencies](../dependencies/README.md).
 
 ## How main wires it together
 
-`main` in `src/main.rs` parses the command line. `devpage check` loads the
+`main` in `src/main.rs` parses the command line and, whatever the command,
+starts the [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine)'s
+thread, which loads pele in the background while devpage gets on with the
+rest, so the first page with a diagram doesn't wait for it. `devpage check` loads the
 document, checks it and exits with `0` or `1`; `devpage pdf` loads it and
 prints it; `devpage video` reads the narrator's settings, loads it and records
 it, stopping on Ctrl-C, `SIGTERM` or `SIGHUP`. Serving starts in this order; a failure at any step stops devpage

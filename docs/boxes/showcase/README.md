@@ -50,7 +50,7 @@ action. Each row is one slide.
 | 7 | Comment like Google Docs. | a highlighted phrase and a comment; read → fixed → closed | review goes straight to the agent |
 | 8 | An Office suite for developers. | four tiles: site, doc, slides, design, each "like" its office app | every kind of document, as files |
 | 9 | Designs, as code. | one real line of `checkout.design` beside the live prototype, light or dark with the deck | screens the agent writes and you click |
-| 10 | Your agent sees its work. | slide 5 as a PNG, and the agent saying what it fixed | every slide and design is an image; links are checked |
+| 10 | Your agent sees its work. | slide 5 as a PNG, and the agent saying what it fixed | every slide and design is an image; links and diagrams are checked |
 | 11 | Share it anywhere. | PDF, video and team-site tiles | people outside the repo get it too |
 | 12 | One more thing. | the deck's folder and `devpage video` | this talk is files, and so is its video |
 | 13 | Try it today. | the two commands | the action |

@@ -66,7 +66,7 @@ What you edit decides what you have to do to see it:
 | A page's Topics list | Save. The sidebar is rebuilt on every request, on every open page. |
 | `docs/devpage.yml`, or any document file | Save. Document files are read on every request and the index of them is kept current by the watcher. |
 | Rust code in `src/` | Stop devpage (Ctrl-C) and `cargo run` again, then reload the browser tab. A page reconnects to its event stream by itself, but doesn't fetch itself again on reconnecting. |
-| `assets/style.css`, `assets/devpage.js`, `assets/design.js`, `assets/vendor/pele.js` | Rebuild and restart — `build.rs` builds them into the binary — then reload the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts — except that a page from a new build is loaded whole, so the next live update after the restart brings the new ones. |
+| `assets/style.css`, `assets/devpage.js`, `assets/design.js`, `assets/vendor/pele.js` | Rebuild and restart — they are built into the binary (pele by `src/diagrams.rs`, the rest by `build.rs`) — then reload the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts — except that a page from a new build is loaded whole, so the next live update after the restart brings the new ones. |
 | A `.design` file, or an image a design uses | Save. The design store resolves again the designs made from that file and the open canvases redraw in place ([Designs](../../viewer/designs/README.md)). |
 | The engine in `design/src/`, the module in `design/wasm/src/`, or `design/proto/design.proto` | Run `cargo run -p devpage-design-module` to rebuild the [vendored module](#the-vendored-design-engine), then rebuild and restart devpage, and do a full reload of the tab — the binary embeds the module. After changing what the engine draws, run `DEVPAGE_UPDATE_REFERENCES=1 cargo test -p devpage-design` to rewrite the reference PNGs in `design/testdata/`, and look at them before committing. |
 
@@ -118,12 +118,13 @@ in [Dependencies](../dependencies/README.md).
 These docs are a devpage site: `docs/devpage.yml`, rooted at
 `docs/README.md`. Keep `cargo run -- docs` open, from the repository root,
 while you write, and run `cargo run -- check docs` before you push — `cargo
-test` checks the same internal links.
+test` checks the same internal links and diagrams.
 How to write and organize pages is in the
 [viewer's task articles](../../viewer/README.md#topics); the reading hierarchy
 this repository follows is the documentation skill,
-`.claude/skills/documentation/SKILL.md`. Check every diagram you add with the
-Node command in [Diagrams](../../viewer/diagrams/README.md#checking-a-diagram-before-committing).
+`.claude/skills/documentation/SKILL.md`. A diagram that doesn't parse is a
+problem `devpage check` reports, like a broken link
+([Diagrams](../../viewer/diagrams/README.md#checking-diagrams-before-committing)).
 
 ## Topics
 

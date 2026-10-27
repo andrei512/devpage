@@ -1,27 +1,30 @@
 # Rendering a page
 
 How a Markdown file becomes the HTML page a reader sees: comrak turns it into
-HTML with highlighted code, the title and sidebar are worked out, and the
-pieces go into the page frame. It is a mechanism page under the
+HTML with highlighted code, its diagrams are drawn, the title and sidebar are
+worked out, and the pieces go into the page frame. It is a mechanism page under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
-for someone about to change `src/render.rs` or `src/highlight.rs`.
+for someone about to change `src/render.rs`, `src/highlight.rs` or
+`src/diagrams.rs`.
 
 ```mermaid
 flowchart LR
   md["page.md"] --> comrak["Markdown to HTML<br/>comrak"]
   comrak --> code["Code highlighted<br/>syntect"]
-  code --> frame["The page frame"]
+  code --> diagrams["Diagrams drawn<br/>pele"]
+  diagrams --> frame["The page frame"]
   title["Title"] --> frame
   side["Sidebar"] --> frame
   click comrak href "#markdown-to-html" "Markdown to HTML"
   click code href "#highlighted-code" "Highlighted code"
+  click diagrams href "#diagrams" "Diagrams"
   click title href "#the-title-and-the-sidebar" "The title and the sidebar"
   click side href "#the-title-and-the-sidebar" "The title and the sidebar"
   click frame href "#the-page-frame" "The page frame"
 ```
 
 A file ending in `.md` is read as text and passed to `render::page`, which
-does the four steps below.
+does the steps below.
 
 ## Markdown to HTML
 
@@ -70,8 +73,18 @@ image is left as it is.
 - otherwise — no language, an unknown one, `mermaid`, or a highlighting
   error partway through — writes the code HTML-escaped and unhighlighted;
 - writes a bare `<pre>` and `<code>` with no language attributes, except
-  `<pre lang="mermaid">` for Mermaid blocks, which is how the page script
+  `<pre lang="mermaid">` for Mermaid blocks, which is how the next step
   finds the diagrams to draw.
+
+## Diagrams
+
+Then `render::markdown` hands the HTML to `diagrams::draw_fences`, which
+replaces each `<pre lang="mermaid">` block with the SVG pele draws from its
+text, in a `<div class="diagram">`, or with a `<pre class="diagram-error">`
+when it doesn't parse. All of a page's diagrams go to the
+[diagram engine](../diagrams/README.md#the-diagram-engine) at once, and each
+one drawn before comes from its cache. So no `<pre lang="mermaid">` reaches
+the browser, and a page's HTML holds its diagrams already drawn.
 
 ## The title and the sidebar
 
@@ -132,7 +145,7 @@ In detail:
   ([Turning comments off](../comments/README.md#turning-comments-off));
 - then an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → React's content address,
-  `/__devpage/react.<hash>.js`) and pele (`pele` → `/__devpage/pele.<hash>.js`),
+  `/__devpage/react.<hash>.js`),
   `window.devpageWidgets`, the document's widgets with the address of each
   ([Widgets](../widgets/how-widgets-run/README.md)), and the page's
   [load set](#the-load-set).
@@ -145,15 +158,13 @@ reads the head — one round trip after the HTML, not one per import a script
 finds. `Widgets::head` in `src/widgets.rs` works it out from the rendered
 content:
 
-- each widget the content names (`data-widget`), and `Diagram` when it has a
-  `<pre lang="mermaid">`;
+- each widget the content names (`data-widget`);
 - the widgets each of those renders by name — its compiled module's
   `__devpageUses` — and theirs, in turn;
 - every helper a project widget's relative imports reach;
 - `DevpageSidebar`, on a site page with a sidebar, after the content's
   widgets: the server has drawn the sidebar already;
 - React, when there is any widget — so on every site page with a sidebar;
-  pele, with a `Diagram`;
 - the design script and the engine's bindings (`design.js`,
   `design-engine.js`), when the content embeds a design.
 
@@ -163,7 +174,8 @@ downloaded twice. The engine's wasm, which is fetched rather than imported, is
 a `<link rel="preload" as="fetch" crossorigin fetchpriority="low">`. Plain
 Markdown on a site page with a sidebar preloads React and `DevpageSidebar`
 only; a doc's or deck's page with none of these, or a site's with
-`sidebar: false`, preloads nothing and never loads React or pele.
+`sidebar: false`, preloads nothing and never loads React. A diagram adds
+nothing to the load set: it is drawn already.
 
 Every id the frame uses starts with `devpage-` — `devpage-page`,
 `devpage-nav`, `devpage-sidebar`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
@@ -180,7 +192,7 @@ deck's frames carry the same head — the logo's icon link and the theme script 
 and the theme corner. Titles and sidebar labels are HTML-escaped; the page body
 is not, since raw HTML is allowed.
 
-Beyond the index, nothing is cached between requests: each page request
+Beyond the index and the drawn diagrams, nothing is cached between requests: each page request
 re-reads the page, its site's document file and, to build the sidebar, every
 page the tree reaches. The browser keeps the page, but asks again each time:
 it is served `no-cache` with an ETag, the hash of its HTML, and answered

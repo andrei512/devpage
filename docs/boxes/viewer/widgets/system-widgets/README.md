@@ -15,11 +15,11 @@ how to write props and content is on [Using widgets](../using-widgets/README.md)
 | [`Keys`](#keys) | — | Key names separated by spaces |
 | [`Steps`](#steps) | — | A numbered Markdown list |
 | [`Cards`](#cards) | `columns` (optional, 2–4; default fits the width) | A Markdown list of links |
-| [`Diagram`](#diagram) | — | Mermaid text |
 
 `Notes` is taken too, though it is not a widget: it holds a slide's
 [notes](../../making-slides/README.md#speaker-notes) and is never shown. So is
-[`DevpageSidebar`](#devpagesidebar), devpage's own chrome.
+[`DevpageSidebar`](#devpagesidebar), devpage's own chrome. A `mermaid` fence
+is no widget: the server draws it ([Diagrams](../../diagrams/README.md)).
 
 ## Callout
 
@@ -152,21 +152,6 @@ Lucide doesn't have is a [problem](../../checking-links/README.md).
 - (file-text) [Writing a doc](../../writing-a-doc/README.md) — one long page.
 
 </Cards>
-
-</Example>
-
-## Diagram
-
-The diagram, drawn by pele, which it imports — so a page loads pele only when
-it has a diagram. Every `mermaid` fence renders through it, so the
-tag itself is rarely written — see [Diagrams](../../diagrams/README.md).
-
-<Example>
-
-```mermaid
-flowchart LR
-  Markdown --> devpage --> Page
-```
 
 </Example>
 

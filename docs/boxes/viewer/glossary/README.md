@@ -235,7 +235,15 @@ devpage listening on an address other than the local machine's (`--host`), behin
 
 ## problem
 
-A broken link, a missing chapter or slide, a Topics entry pointing nowhere, an invalid document file or a design that doesn't parse or resolve — shown on the page in the preview and reported by `devpage check`.
+A broken link, a missing chapter or slide, a Topics entry pointing nowhere, an invalid document file, a design that doesn't parse or resolve, or a diagram that doesn't parse — shown on the page in the preview and reported by `devpage check`.
+
+## diagram
+
+A fenced code block whose language is `mermaid`, drawn by the server as SVG in the page's HTML. See [Diagrams](../diagrams/README.md).
+
+## diagram engine
+
+pele running in QuickJS on a thread of its own in the server, with a cache of what it drew and limits on each drawing's time and memory (`src/diagrams.rs`). See [The diagram engine](../diagrams/README.md#the-diagram-engine).
 
 ## print mode
 
@@ -251,7 +259,7 @@ An address that changes exactly when the bytes it serves would: a built-in asset
 
 ## load set
 
-Everything a page loads from devpage beyond its stylesheet and page script — its widgets' modules, those they render by name, their helpers, React, pele, the design script and engine — named in its `<head>` at their content addresses, so the browser asks for all of it at once. The code uses the same words (`Widgets::load_set`). See [The load set](../rendering-a-page/README.md#the-load-set).
+Everything a page loads from devpage beyond its stylesheet and page script — its widgets' modules, those they render by name, their helpers, React, the design script and engine — named in its `<head>` at their content addresses, so the browser asks for all of it at once. The code uses the same words (`Widgets::load_set`). See [The load set](../rendering-a-page/README.md#the-load-set).
 
 ## build id
 
@@ -263,7 +271,7 @@ A React component used in Markdown as an HTML tag whose name starts with a capit
 
 ## system widget
 
-A widget devpage ships, in every document: `Callout`, `Tabs`, `Tab`, `Example`, `FileTree`, `Terminal`, `Keys`, `Steps`, `Cards` and `Diagram`, through which every Mermaid fence renders.
+A widget devpage ships, in every document: `Callout`, `Tabs`, `Tab`, `Example`, `FileTree`, `Terminal`, `Keys`, `Steps` and `Cards`.
 
 ## project widget
 

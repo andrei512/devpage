@@ -1,5 +1,5 @@
-// Draws Mermaid diagrams with pele, and keeps the page live: when a watched file
-// changes, the page re-fetches itself and swaps its content in place.
+// Mounts widgets, and keeps the page live: when a watched file changes, the
+// page re-fetches itself and swaps its content in place.
 //
 // Browsers allow only six open connections per host over plain HTTP, and the
 // live-update stream holds one for as long as it is open. So a tab keeps a
@@ -15,9 +15,8 @@ const comments = !print && !document.currentScript.hasAttribute("data-no-comment
 // ---- Widgets --------------------------------------------------------------
 // The server leaves each widget as a placeholder carrying its name, its props'
 // source, its own source (`data-widget-source`) and its content rendered as
-// Markdown; Mermaid fences stay as <pre lang="mermaid"> and become Diagram
-// widgets here. Each placeholder is mounted with React, on load and in every
-// page swapped in.
+// Markdown — its Mermaid diagrams drawn already. Each placeholder is mounted
+// with React, on load and in every page swapped in.
 
 const widgetModules = {};
 
@@ -71,16 +70,8 @@ async function loadWidget(name, seen = new Set()) {
 const roots = new Map();
 const keys = new Map();
 
-// Turns the content's Mermaid fences into Diagram placeholders and returns
-// its outermost placeholders.
+// The content's outermost widget placeholders.
 function placeholdersIn(root) {
-  for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
-    const placeholder = document.createElement("div");
-    placeholder.dataset.widget = "Diagram";
-    placeholder.dataset.props = "{}";
-    placeholder.dataset.widgetSource = pre.textContent;
-    pre.replaceWith(placeholder);
-  }
   return [...root.querySelectorAll("[data-widget]:not(style)")].filter((el) => !el.parentElement.closest("[data-widget]"));
 }
 

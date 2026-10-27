@@ -90,7 +90,7 @@ Each card opens the page that explains it.
 
 <Cards>
 
-- (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, in the preview and in `devpage check`.
+- (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
 - (book-open) [Configuration reference](configuration-reference/README.md) — Every field, flag and error.
 - (search-check) [Viewer glossary](glossary/README.md) — The words the viewer owns.
 
@@ -128,7 +128,8 @@ Each card opens the page that explains it.
 - [Deploying devpage](deploying/README.md) — the example image, the auth
   proxy that names readers, and trying it with Docker Compose.
 - [Diagrams](diagrams/README.md) — Mermaid diagrams: writing them, making
-  their nodes links, checking them, and what errors look like.
+  their nodes links, checking them, what errors look like, and how the server
+  draws them.
 - [Themes](themes/README.md) — the light and dark tokens that color the page,
   its code and its diagrams, the theme switch, and per-page CSS.
 - [Widgets](widgets/README.md) — React components as tags in Markdown: using

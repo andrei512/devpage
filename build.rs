@@ -30,7 +30,6 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ),
     ("design.js", "assets/design.js", "text/javascript"),
     ("react.js", "assets/vendor/react.js", "text/javascript"),
-    ("pele.js", "assets/vendor/pele.js", "text/javascript"),
     ("style.css", "assets/style.css", "text/css"),
     ("devpage.js", "assets/devpage.js", "text/javascript"),
 ];
@@ -63,12 +62,6 @@ fn main() {
     let mut written: Vec<PathBuf> = vec![out.join("manifest.rs")];
     for (name, source, mime) in ASSETS {
         let mut bytes = std::fs::read(source).unwrap_or_else(|e| panic!("{source}: {e}"));
-        if *name == "pele.js" {
-            // The vendored bundle defines a global; served as a module, which
-            // the Diagram widget imports, it exports it instead. Done here so
-            // the bundle stays exactly as vendored.
-            bytes.extend_from_slice(b"\nexport default pele;\n");
-        }
         if !name.ends_with(".wasm") {
             for (earlier, hashed) in &done {
                 bytes = replace(

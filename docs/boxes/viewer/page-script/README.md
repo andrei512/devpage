@@ -49,7 +49,7 @@ them kept its own (`loadWidget`). It puts the fresh content of `#devpage-page`
 into a hidden copy of it in the same document — absolutely placed,
 `visibility: hidden`, as wide as the page, so a widget that measures itself
 gets real sizes — shows the slide the address names in it, and mounts the
-widgets there, its Mermaid diagrams included. The page shown stays as it was
+widgets there; its diagrams come drawn by the server. The page shown stays as it was
 the whole time.
 
 **Keep what hasn't changed** (`keepUnchanged`). Before mounting, each
@@ -91,8 +91,7 @@ it, however many arrive.
 
 ## Mounting widgets
 
-On load and in every page staged, each Mermaid fence becomes
-a `Diagram` placeholder, and every widget placeholder in the content is
+On load and in every page staged, every widget placeholder in the content is
 mounted with React — the widgets it names loaded first
 ([Widgets](../widgets/how-widgets-run/README.md)). Each root is remembered by
 the element it renders into, and each outermost one by its key, so a later
@@ -141,8 +140,8 @@ tab holds at most one stream.
 One click listener on the document handles every
 link, in the text and in
 [clickable diagrams](../diagrams/README.md#clickable-diagrams), where
-pele turns a Mermaid `click … href` line into an SVG `<a href>` inside the
-node. The listener reads the link's `href` *attribute* and resolves it against
+pele, on the server, has turned a Mermaid `click … href` line into an SVG
+`<a href>` inside the node. The listener reads the link's `href` *attribute* and resolves it against
 the page's address: an SVG link's `href` property is an object, not a URL
 string, so the attribute is the one form both kinds of link share. A click is
 handled in place when it is a plain left click — no Cmd, Ctrl or Shift, not

@@ -1,6 +1,6 @@
 //! Link checking: every link, image and diagram target a page holds must
 //! reach a file in the served folder — and a heading on it, when it names one —
-//! and every external address must answer.
+//! every external address must answer, and every diagram must draw.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -322,19 +322,9 @@ fn page_links_with(
             targets.push(target);
         }
     }
-    // A diagram's `click … href "…"` lines, from real Mermaid blocks only.
-    for block in html.split("<pre lang=\"mermaid\"><code>").skip(1) {
-        let block = block
-            .split("</code>")
-            .next()
-            .unwrap_or_default()
-            .replace("&quot;", "\"");
-        targets.extend(block.lines().filter_map(|line| {
-            let rest = line.trim().strip_prefix("click ")?;
-            let href = rest.split("href \"").nth(1)?.split('"').next()?;
-            Some(href.to_string())
-        }));
-    }
+    // A diagram's `click … href "…"` lines are links in its drawing, found
+    // with the rest; one that doesn't draw is a problem of its own.
+    problems.extend(diagram_problems(&source, &file));
     for target in targets {
         let line = source
             .find(&target)
@@ -484,6 +474,42 @@ fn page_links_with(
     }
     problems.extend(crate::comments::problems(document, page));
     (problems, reached)
+}
+
+/// Each Mermaid fence of a page's Markdown that doesn't draw, at the fence's
+/// line. Rendering the page drew them already, so they come from the cache.
+fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
+    use comrak::nodes::NodeValue;
+    let arena = comrak::Arena::new();
+    let root = comrak::parse_document(&arena, source, &render::options());
+    let fences: Vec<(usize, String)> = root
+        .descendants()
+        .filter_map(|node| {
+            let data = node.data.borrow();
+            match &data.value {
+                NodeValue::CodeBlock(block)
+                    if block.fenced && block.info.split_whitespace().next() == Some("mermaid") =>
+                {
+                    Some((data.sourcepos.start.line, block.literal.clone()))
+                }
+                _ => None,
+            }
+        })
+        .collect();
+    let sources: Vec<String> = fences.iter().map(|(_, s)| s.clone()).collect();
+    fences
+        .iter()
+        .zip(crate::diagrams::draw_all(&sources))
+        .filter_map(|((line, _), drawn)| {
+            let why = drawn.err()?;
+            Some(Problem {
+                file: file.to_string(),
+                line: Some(*line),
+                message: format!("broken diagram — {why}"),
+                target: None,
+            })
+        })
+        .collect()
 }
 
 /// The `.design` files a page's Markdown embeds or links to, read from its
@@ -729,6 +755,32 @@ mod tests {
                 .any(|p| p.starts_with("b.md:5: broken link logo.png")),
             "{found:#?}"
         );
+    }
+
+    #[test]
+    fn a_diagram_that_does_not_parse_is_a_problem_at_its_fence() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-check-diagram-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+        let page = "---\ntitle: x\n---\n# Home\n\n```mermaid\nflowchart LR\n  a --> b\n```\n\n````markdown\n```mermaid\nnot a diagram\n```\n````\n\n```mermaid\nsequenceDiagram\n  A->>B: one; two\n```\n";
+        std::fs::write(dir.join("README.md"), page).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        let doc = Document::load(&dir, &dir).unwrap();
+        let expected = "README.md:17: broken diagram — Parse error on line 2:\n  A->>B: one; two\n";
+        // In `devpage check`, and in the page's problems.
+        for found in [
+            internal(&doc, &mut Vec::new()),
+            preview(&doc, &[doc.base.join("README.md")]),
+        ] {
+            let found: Vec<String> = found.iter().map(ToString::to_string).collect();
+            assert_eq!(found.len(), 1, "{found:#?}");
+            assert!(found[0].starts_with(expected), "{found:#?}");
+            assert!(found[0].contains("got 'NEWLINE'"), "{found:#?}");
+        }
     }
 }
 

@@ -65,7 +65,7 @@ Highlighting happens on the server when the page renders, and its colors come
 from the theme's syntax tokens, so code follows the light and dark themes —
 see [Themes](../../themes/README.md#the-tokens). Code
 blocks show no language label and have no copy button. A `mermaid` block is
-not highlighted; it becomes a diagram.
+not highlighted; the server draws it as a diagram.
 
 ## Images and other files
 
