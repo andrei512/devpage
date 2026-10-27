@@ -243,7 +243,7 @@ A fenced code block whose language is `mermaid`, drawn by the server as SVG in t
 
 ## diagram engine
 
-pele running in QuickJS on a thread of its own in the server, with a cache of what it drew and limits on each drawing's time and memory (`src/diagrams.rs`). See [The diagram engine](../diagrams/README.md#the-diagram-engine).
+pele running in QuickJS on a thread of its own in the server, with a cache of what it drew and limits on each drawing's time and memory (`core/src/diagrams.rs`). See [The diagram engine](../diagrams/README.md#the-diagram-engine).
 
 ## print mode
 
@@ -291,4 +291,4 @@ A site's bar across the top: its title, then the links, dropdowns and icons its 
 
 ## token
 
-A CSS custom property in `assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from.
+A CSS custom property in `core/assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from.

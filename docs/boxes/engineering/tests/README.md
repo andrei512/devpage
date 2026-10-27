@@ -20,7 +20,7 @@ $ cargo test -- --ignored     # the 80 tests that drive Chrome or call GPT-Live
 engine `devpage-design`, 7 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
-in `src/designs/canvas_tests.rs`, a child module of `designs`. The `tests/`
+in `src/drive/server/canvas_tests.rs`, a child module of `designs`. The `tests/`
 folder holds one test, [the search's quality](#the-searchs-quality), and
 fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,

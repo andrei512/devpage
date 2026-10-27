@@ -73,7 +73,7 @@ folder, so several prints can run at once, and deletes it when the run ends.
 
 The Chrome is always **chrome-headless-shell**, never a Chrome installed on
 the machine, and always one version, pinned in devpage — 156.0.8078.47,
-`CHROME_VERSION` in `src/pdf.rs`. devpage downloads it the first time it
+`CHROME_VERSION` in `src/drive/pdf.rs`. devpage downloads it the first time it
 needs one — into `~/Library/Caches/devpage/chrome-headless-shell` on macOS,
 `~/.cache/devpage/chrome-headless-shell` elsewhere, in a folder named for the
 platform and version, such as `mac_arm-156.0.8078.47` — and uses that copy

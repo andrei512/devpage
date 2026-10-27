@@ -1,6 +1,6 @@
 # Search
 
-How the viewer finds text: `src/search.rs` keeps a full-text index of the
+How the viewer finds text: `core/src/search.rs` keeps a full-text index of the
 sections of everything the served document publishes in memory, ranks a
 query's matches with BM25, groups them by page and answers
 `GET /__devpage/search?q=…` with them as JSON, which the search box at the
@@ -196,7 +196,7 @@ chapter takes its doc out until it is back.
 
 ## The endpoint
 
-`GET /__devpage/search?q=<query>` (`search` in `src/server.rs`) answers
+`GET /__devpage/search?q=<query>` (`search` in `src/drive/server.rs`) answers
 `200` with the pages found, whether comments are on or off; a missing or
 blank `q` answers none:
 
@@ -306,7 +306,7 @@ and its results, and the reader can move to the next row and open it in turn.
 A row's link carries the words it matched — a section's `words`, as they
 appear in its text; none for a page's row or a more row — in `data-found`,
 and the [page script](../page-script/README.md#links-and-history) does the
-rest once the page is in place (`land` in `assets/devpage.js`):
+rest once the page is in place (`land` in `core/assets/devpage.js`):
 
 - It marks every whole-word occurrence of those words, in any case, in the
   section the link's `#fragment` names — from that heading to the next heading

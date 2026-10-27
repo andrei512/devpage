@@ -41,7 +41,7 @@ flowchart LR
 
 **Who decides.** What every route from `/` down answers with — a page, a
 redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
-`500` with the reason — is decided by the **resolver** (`src/resolve.rs`) from
+`500` with the reason — is decided by the **resolver** (`core/src/resolve.rs`) from
 the documents alone: the entry document, the index, the problems each page
 lists and whether comments are on. The HTTP server only turns its answer into
 a response, reading the file's bytes or drawing the PNG it names, so every
@@ -122,7 +122,7 @@ is unknown.
 
 ## Built-in assets
 
-The page's own files are built into the binary by `build.rs`, each under its
+The page's own files are built into the binary by `core/build.rs`, each under its
 **content address**: its name with the first 16 hex digits of the SHA-256 of
 its bytes put before the extension — `/__devpage/devpage.<hash>.js`. An asset
 that names another — `devpage.js` imports `design.js`, which imports
@@ -132,16 +132,16 @@ addresses.
 
 | Asset | Source | Content type |
 | --- | --- | --- |
-| `style.css` | `assets/style.css` | `text/css` |
-| `devpage.js` | `assets/devpage.js` | `text/javascript` |
-| `react.js` | `assets/vendor/react.js` | `text/javascript` |
-| `design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
-| `design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
-| `design-engine.wasm` | `assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
+| `style.css` | `core/assets/style.css` | `text/css` |
+| `devpage.js` | `core/assets/devpage.js` | `text/javascript` |
+| `react.js` | `core/assets/vendor/react.js` | `text/javascript` |
+| `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
+| `design-engine.js` | `core/assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
+| `design-engine.wasm` | `core/assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
 
 Every address a page loads from devpage — these, and the
 [widgets'](../widgets/how-widgets-run/README.md#compiling) — is made by one
-function, `address` in `src/addresses.rs`, so the page's tags, its import map,
+function, `address` in `core/src/addresses.rs`, so the page's tags, its import map,
 its widget list, its [preloads](../rendering-a-page/README.md#the-load-set) and
 the imports inside a compiled widget never name the same
 file two ways. An asset is also asked for by its bare name (`devpage.js`) or

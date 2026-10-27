@@ -520,10 +520,10 @@ fn attributes(html: &str, name: &str) -> Vec<String> {
 }
 
 /// Previews for tests that serve pages.
-#[cfg(test)]
+#[cfg(any(test, feature = "testing"))]
 pub mod testing {
     use super::{Preview, Problem, Report};
-    use crate::external::External;
+    use crate::external::testing::offline;
     use std::sync::Arc;
 
     /// Tells no one.
@@ -533,10 +533,10 @@ pub mod testing {
         fn problem(&self, _: &Problem) {}
     }
 
-    /// A preview asking the network, announcing on nothing and reporting to
-    /// no one.
+    /// A preview that asks no external address, announces on nothing and
+    /// reports to no one.
     pub fn preview() -> Arc<Preview> {
-        Arc::new(Preview::new(External::http(None), Arc::new(Silent)))
+        Arc::new(Preview::new(offline(), Arc::new(Silent)))
     }
 }
 
@@ -612,70 +612,6 @@ mod tests {
     }
 }
 
-/// A local web server for external-link tests, so the suite needs no
-/// network: `/ok` answers 200, anything else 404, and it counts the requests
-/// for each path.
-#[cfg(test)]
-pub(crate) mod web {
-    use std::collections::HashMap;
-    use std::io::{BufRead, BufReader, Write};
-    use std::net::TcpListener;
-    use std::sync::{Arc, Mutex};
-
-    pub struct Server {
-        pub address: String,
-        pub hits: Arc<Mutex<HashMap<String, usize>>>,
-    }
-
-    pub fn start() -> Server {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        let address = format!("http://{}", listener.local_addr().unwrap());
-        let hits = Arc::new(Mutex::new(HashMap::new()));
-        let counted = hits.clone();
-        // `/ok` answers 200 and anything else 404, except: `/slow-<ms>` answers
-        // 200 after that long, `/drop` closes without answering, and
-        // `/flaky-<n>` closes without answering its first n times, then 200.
-        std::thread::spawn(move || {
-            for stream in listener.incoming() {
-                let Ok(mut stream) = stream else { continue };
-                let counted = counted.clone();
-                std::thread::spawn(move || {
-                    let mut request = String::new();
-                    let mut reader = BufReader::new(stream.try_clone().unwrap());
-                    let _ = reader.read_line(&mut request);
-                    let path = request.split(' ').nth(1).unwrap_or("/").to_string();
-                    let hit = {
-                        let mut hits = counted.lock().unwrap();
-                        let n = hits.entry(path.clone()).or_insert(0);
-                        *n += 1;
-                        *n
-                    };
-                    let status = if path == "/ok" {
-                        "200 OK"
-                    } else if let Some(ms) = path.strip_prefix("/slow-") {
-                        std::thread::sleep(std::time::Duration::from_millis(ms.parse().unwrap()));
-                        "200 OK"
-                    } else if path == "/drop" {
-                        return;
-                    } else if let Some(n) = path.strip_prefix("/flaky-") {
-                        if hit <= n.parse::<usize>().unwrap() {
-                            return;
-                        }
-                        "200 OK"
-                    } else {
-                        "404 Not Found"
-                    };
-                    let _ = write!(
-                        stream,
-                        "HTTP/1.1 {status}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
-                    );
-                });
-            }
-        });
-        Server { address, hits }
-    }
-}
-
 #[cfg(test)]
 mod external {
     use super::*;
@@ -685,9 +621,7 @@ mod external {
     fn widgets_of(document: &Document) -> Widgets {
         Widgets::of(document, &Modules::default())
     }
-    use crate::changes::{Change, Changes, Scope, Subscription};
-    use crate::external::{Http, Waits};
-    use std::time::Duration;
+    use crate::external::testing::offline;
 
     fn folder(name: &str, page: &str) -> Document {
         let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
@@ -914,79 +848,13 @@ mod external {
         assert!(found[0].contains("in plan/devpage.yml"), "{found:#?}");
     }
 
-    #[tokio::test]
-    async fn check_asks_each_address_once_and_reports_every_link_to_it() {
-        let web = web::start();
-        let doc = folder(
-            "check-external",
-            &format!(
-                "# Home\n\n[a]({0}/gone) [b]({0}/gone)\n\n[c]({0}/ok)\n",
-                web.address
-            ),
-        );
-        let found: Vec<String> = document(&doc, Some(&checker(300, 3000, 50)))
-            .await
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        let gone = format!("README.md:3: {}/gone — 404 Not Found", web.address);
-        assert_eq!(found, vec![gone.clone(), gone], "{found:#?}");
-        let hits = web.hits.lock().unwrap();
-        assert_eq!(hits.get("/gone"), Some(&1));
-        assert_eq!(hits.get("/ok"), Some(&1));
-    }
-
-    /// The external-link checker over the network, with these waits in
-    /// milliseconds, announcing on nothing.
-    fn checker(first: u64, retry: u64, retry_after: u64) -> Arc<External> {
-        External::new(
-            Arc::new(Http::new()),
-            waits(first, retry, retry_after),
-            None,
-        )
-    }
-
-    fn waits(first: u64, retry: u64, retry_after: u64) -> Waits {
-        Waits {
-            first: Duration::from_millis(first),
-            retry: Duration::from_millis(retry),
-            retry_after: Duration::from_millis(retry_after),
-        }
-    }
-
-    /// A preview asking the network with these waits, and the live-update
-    /// channel it announces on.
-    fn previewing(waits: Waits) -> (Preview, Subscription) {
-        let changes = Changes::default();
-        let heard = changes.subscribe(Scope::root());
-        let external = External::new(Arc::new(Http::new()), waits, Some(changes));
-        (Preview::new(external, Arc::new(Recorder::default())), heard)
-    }
-
     /// The problems a fresh preview finds at once.
     fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
-        Preview::new(checker(300, 3000, 50), Arc::new(Recorder::default())).problems(
+        Preview::new(offline(), Arc::new(Recorder::default())).problems(
             doc,
             &widgets_of(doc),
             pages,
         )
-    }
-
-    /// Renders until `done` holds of the problems found, or five seconds pass.
-    async fn render_until(
-        preview: &Preview,
-        doc: &Document,
-        pages: &[PathBuf],
-        done: impl Fn(&[Problem]) -> bool,
-    ) -> Vec<Problem> {
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        loop {
-            let found = preview.problems(doc, &widgets_of(doc), pages);
-            if done(&found) || tokio::time::Instant::now() > deadline {
-                return found;
-            }
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
     }
 
     /// A reporter that keeps what it is told, for tests.
@@ -1003,7 +871,7 @@ mod external {
     fn the_preview_reports_each_problem_once_to_its_reporter() {
         let doc = folder("preview-report", "# Home\n\n[gone](gone.md)\n");
         let recorder = Arc::new(Recorder::default());
-        let preview = Preview::new(checker(300, 3000, 50), recorder.clone());
+        let preview = Preview::new(offline(), recorder.clone());
         let pages = [doc.base.join("README.md")];
         assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
         assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
@@ -1013,35 +881,6 @@ mod external {
         );
     }
 
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_preview_checks_in_the_background_and_refreshes_open_pages() {
-        let web = web::start();
-        let doc = folder(
-            "preview-external",
-            &format!("# Home\n\n[a]({0}/missing) [b]({0}/ok)\n", web.address),
-        );
-        let (preview, mut heard) = previewing(Waits::default());
-        let pages = [doc.base.join("README.md")];
-
-        // The first render holds nothing up: the answer isn't in yet.
-        assert!(preview.problems(&doc, &widgets_of(&doc), &pages).is_empty());
-        // A broken address, once answered, asks open pages to fetch again …
-        let change = tokio::time::timeout(Duration::from_secs(5), heard.next())
-            .await
-            .expect("a change");
-        assert_eq!(change, Some(Change::Refresh));
-        // … and the next render lists it, marking the link as written.
-        let found = render_until(&preview, &doc, &pages, |found| !found.is_empty()).await;
-        assert_eq!(found.len(), 1, "{found:#?}");
-        let missing = format!("{}/missing", web.address);
-        assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
-        assert_eq!(found[0].line, Some(3));
-        // Each address is asked once for as long as devpage runs.
-        preview.problems(&doc, &widgets_of(&doc), &pages);
-        let hits = web.hits.lock().unwrap();
-        assert_eq!(hits.get("/missing"), Some(&1));
-        assert_eq!(hits.get("/ok"), Some(&1));
-    }
     #[tokio::test]
     async fn check_reports_the_navbar_once_and_follows_its_links() {
         let doc = folder("navbar-check", "# Home\n\n[Two](two.md)\n");
@@ -1161,6 +1000,13 @@ mod external {
 mod documents {
     use super::*;
 
+    /// The top of the repository the core crate sits in.
+    fn repository() -> PathBuf {
+        Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/.."))
+            .canonicalize()
+            .unwrap()
+    }
+
     #[test]
     fn the_fixture_doc_the_catalog_and_the_talk_have_no_broken_links() {
         for example in [
@@ -1168,8 +1014,8 @@ mod documents {
             "docs/talks/devpage",
             "docs/features",
         ] {
-            let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-            let doc = Document::load(&root.join(example), root).unwrap();
+            let root = repository();
+            let doc = Document::load(&root.join(example), &root).unwrap();
             let problems = internal(&doc, &mut Vec::new());
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
@@ -1179,8 +1025,8 @@ mod documents {
     /// anchor must hold. External links aren't checked, so no network.
     #[test]
     fn devpage_docs_have_no_broken_links() {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let doc = Document::load(&root.join("docs"), root).unwrap();
+        let root = repository();
+        let doc = Document::load(&root.join("docs"), &root).unwrap();
         let problems: Vec<String> = internal(&doc, &mut Vec::new())
             .iter()
             .map(ToString::to_string)

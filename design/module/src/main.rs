@@ -1,6 +1,6 @@
 //! `cargo run -p devpage-design-module`: builds the design engine for
 //! WebAssembly, generates its JavaScript bindings with wasm-bindgen used as a
-//! library, and writes both into `assets/vendor/` with the fingerprint of the
+//! library, and writes both into `core/assets/vendor/` with the fingerprint of the
 //! sources they were built from. `devpage` embeds those files; building
 //! devpage itself never builds WebAssembly.
 

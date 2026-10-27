@@ -1,33 +1,22 @@
 //! devpage: serves the documents of a repository — sites, docs and slides
 //! written in Markdown — live in the browser, and prints them to PDF.
 
-mod addresses;
-mod changes;
-mod check;
-mod comments;
-mod designs;
-mod diagrams;
-mod document;
-mod external;
-mod highlight;
-mod icons;
-mod index;
-mod markup;
-mod nav;
-mod navbar;
-mod pdf;
-mod problem;
-mod render;
-mod resolve;
-mod search;
-mod served;
-mod server;
-mod slide_png;
-mod terminal;
-mod validators;
-mod video;
-mod watch;
-mod widgets;
+// The code is arranged by role. The core — documents, rendering, checking,
+// comments, designs — is the `devpage-core` crate, which depends on no I/O
+// runtime; the binary plugs adapters into its ports and drives it.
+
+/// Driven adapters: what the core's ports are plugged into.
+mod adapters;
+/// Driving adapters: what drives the core — the HTTP server, Chrome.
+mod drive;
+
+// The core's modules and the binary's, each by its own name.
+use adapters::{changes, http, terminal, watch};
+use devpage_core::{
+    addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
+    resolve, served, widgets,
+};
+use drive::{pdf, server, slide_png, validators, video};
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -97,7 +86,7 @@ async fn main() -> Result<()> {
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served,
         )?;
-        let problems = check::document(&document, Some(&external::External::http(None))).await;
+        let problems = check::document(&document, Some(&http::external(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -135,7 +124,7 @@ async fn main() -> Result<()> {
 
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(
-        external::External::http(Some(changes.clone())),
+        http::external(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
     // One comment store for the server and the watcher, so the watcher knows

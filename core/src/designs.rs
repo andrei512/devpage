@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use devpage_design::resolve::ImageFile;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
-use tokio::sync::broadcast;
 
 use crate::served::ServedFolder;
 
@@ -39,6 +38,9 @@ struct Source {
     image: Option<Result<Arc<ImageFile>, String>>,
 }
 
+/// What the store tells when a design's scene or problems change.
+type Listener = Box<dyn Fn(&str) + Send + Sync>;
+
 struct Store {
     served: ServedFolder,
     renderer: Mutex<Renderer>,
@@ -47,8 +49,8 @@ struct Store {
     reads: std::sync::atomic::AtomicU64,
     /// Locked before `sources` whenever both are.
     resolved: Mutex<HashMap<String, Resolved>>,
-    /// The address of each design whose scene or problems changed.
-    updates: broadcast::Sender<String>,
+    /// Told the address of each design whose scene or problems changed.
+    listeners: Mutex<Vec<Listener>>,
     /// How many times a design was resolved, for the tests.
     #[cfg(test)]
     resolutions: std::sync::atomic::AtomicUsize,
@@ -216,7 +218,7 @@ impl Designs {
             sources: Mutex::default(),
             reads: Default::default(),
             resolved: Mutex::default(),
-            updates: broadcast::channel(64).0,
+            listeners: Mutex::default(),
             #[cfg(test)]
             resolutions: Default::default(),
             #[cfg(test)]
@@ -229,11 +231,12 @@ impl Designs {
         self.0.get(address(path)).result
     }
 
-    /// The address of each design whose scene or problems change from now
-    /// on, as the engine names it — what [`Designs::resolve`] then answers
-    /// anew. A receiver that falls behind is told it lagged.
-    pub fn changes(&self) -> broadcast::Receiver<String> {
-        self.0.updates.subscribe()
+    /// Tells `listener` the address of each design whose scene or problems
+    /// change from now on, as the engine names it — what
+    /// [`Designs::resolve`] then answers anew. It is called on the thread
+    /// that reported the change, so it should only pass the address on.
+    pub fn on_change(&self, listener: impl Fn(&str) + Send + Sync + 'static) {
+        lock(&self.0.listeners).push(Box::new(listener));
     }
 
     /// A file in the served folder changed, was created or was deleted: forget
@@ -270,7 +273,9 @@ impl Designs {
             let new = store.refresh(&path);
             let differs = new.result != old.result || new.missing != old.missing;
             if differs {
-                let _ = store.updates.send(path);
+                for listener in lock(&store.listeners).iter() {
+                    listener(&path);
+                }
             }
         }
     }
@@ -278,41 +283,28 @@ impl Designs {
     /// The validator of the design at `path`'s PNG in `theme`, known before
     /// painting: a hash of its resolved scene — every node and the image
     /// files it shows — the theme, and devpage's build, which paints it.
-    /// `None` when it doesn't resolve.
-    pub async fn etag(&self, path: &str, theme: Theme) -> Option<String> {
-        let designs = self.clone();
-        let path = path.to_string();
-        tokio::task::spawn_blocking(move || {
-            let scene = designs.resolve(&path).ok()?;
-            let mut text = format!("{}\0{theme:?}\0{:?}", crate::addresses::BUILD, scene.root);
-            for id in scene.images.keys() {
-                text.push_str(&format!("\0{id:?}"));
-            }
-            Some(crate::addresses::hash(text.as_bytes()))
-        })
-        .await
-        .ok()
-        .flatten()
+    /// `None` when it doesn't resolve. It may resolve the design, so it
+    /// blocks.
+    pub fn etag(&self, path: &str, theme: Theme) -> Option<String> {
+        let scene = self.resolve(path).ok()?;
+        let mut text = format!("{}\0{theme:?}\0{:?}", crate::addresses::BUILD, scene.root);
+        for id in scene.images.keys() {
+            text.push_str(&format!("\0{id:?}"));
+        }
+        Some(crate::addresses::hash(text.as_bytes()))
     }
 
     /// The design at `path` painted as a PNG in `theme`, or its problems one
-    /// per line.
-    pub async fn png(&self, path: String, theme: Theme) -> Result<Vec<u8>, String> {
-        let designs = self.clone();
-        tokio::task::spawn_blocking(move || {
-            let scene = designs
-                .resolve(&path)
-                .map_err(|problems| lines(&problems))?;
-            let mut renderer = lock(&designs.0.renderer);
-            guarded(
-                &path,
-                || devpage_design::png(&mut renderer, &scene, theme),
-                |p| p.message,
-            )
-            .map_err(|e| format!("{}: {e}", address(&path)))
-        })
-        .await
-        .expect("painting")
+    /// per line. Painting blocks.
+    pub fn png(&self, path: &str, theme: Theme) -> Result<Vec<u8>, String> {
+        let scene = self.resolve(path).map_err(|problems| lines(&problems))?;
+        let mut renderer = lock(&self.0.renderer);
+        guarded(
+            path,
+            || devpage_design::png(&mut renderer, &scene, theme),
+            |p| p.message,
+        )
+        .map_err(|e| format!("{}: {e}", address(path)))
     }
 }
 
@@ -406,28 +398,28 @@ fn lines(problems: &[Problem]) -> String {
         .join("\n")
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use crate::document::Document;
-    use crate::index::Index;
-    use crate::server::{Identity, Options, router};
+/// Designs to test with, and saving one as the watcher would.
+#[cfg(any(test, feature = "testing"))]
+pub mod testing {
+    use std::path::{Path, PathBuf};
 
-    pub(crate) const BUTTON: &str = r##"<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]} fill="#2563eb">
+    use super::Designs;
+
+    pub const BUTTON: &str = r##"<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]} fill="#2563eb">
   <Text color="#ffffff">{label}</Text>
 </Frame>
 "##;
-    pub(crate) const SCREEN: &str = r##"import Button from "./button.design"
+    pub const SCREEN: &str = r##"import Button from "./button.design"
 
 <Frame width={200} height={120} layout="column" gap={8} padding={16} fill="#f8fafc">
   <Text>Cart</Text>
   <Button label="Pay" />
 </Frame>
 "##;
-    pub(crate) const OTHER: &str = r##"<Frame width={50} height={50} fill="#000000" />
+    pub const OTHER: &str = r##"<Frame width={50} height={50} fill="#000000" />
 "##;
 
-    pub(crate) fn served(name: &str) -> PathBuf {
+    pub fn served(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("devpage-designs-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -438,10 +430,28 @@ pub(crate) mod tests {
         dir.canonicalize().unwrap()
     }
 
+    pub const THEMES: &str = "kind: themes\nlight:\n  bg: \"#ffffff\"\ndark:\n  bg: \"#000000\"\n";
+
     /// Writes a file and tells the store, as the watcher does.
-    pub(crate) fn save(designs: &Designs, file: &Path, text: &str) {
+    pub fn save(designs: &Designs, file: &Path, text: &str) {
         std::fs::write(file, text).unwrap();
         designs.changed(file);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::*;
+    use super::*;
+
+    /// What the store tells, as it tells it.
+    fn announced(designs: &Designs) -> std::sync::mpsc::Receiver<String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let tx = Mutex::new(tx);
+        designs.on_change(move |path| {
+            let _ = lock(&tx).send(path.to_string());
+        });
+        rx
     }
 
     #[test]
@@ -510,7 +520,7 @@ pub(crate) mod tests {
     fn a_save_decodes_only_the_image_that_changed() {
         let dir = served("decode-once");
         let shirt = std::fs::read(
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/designs/checkout/shirt.jpg"),
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../docs/designs/checkout/shirt.jpg"),
         )
         .unwrap();
         std::fs::write(dir.join("app/p.jpg"), &shirt).unwrap();
@@ -535,8 +545,8 @@ pub(crate) mod tests {
         assert!(!Arc::ptr_eq(&file(&second), &file(&third)));
     }
 
-    #[tokio::test]
-    async fn an_image_that_does_not_decode_is_a_problem_everywhere() {
+    #[test]
+    fn an_image_that_does_not_decode_is_a_problem_everywhere() {
         let dir = served("broken-image");
         let mut broken = b"\x89PNG\r\n\x1a\n".to_vec();
         broken.extend(b"garbage");
@@ -553,10 +563,7 @@ pub(crate) mod tests {
         assert!(found[0].to_string().starts_with(expected), "{found:?}");
         // …and the PNG, instead of a blank picture.
         let designs = Designs::new(dir.clone());
-        let png = designs
-            .png("app/photo.design".into(), Theme::Light)
-            .await
-            .unwrap_err();
+        let png = designs.png("app/photo.design", Theme::Light).unwrap_err();
         assert!(png.starts_with(expected), "{png}");
     }
 
@@ -564,7 +571,7 @@ pub(crate) mod tests {
     fn only_the_designs_made_from_a_changed_file_are_announced() {
         let dir = served("store");
         let designs = Designs::new(dir.clone());
-        let mut updates = designs.0.updates.subscribe();
+        let updates = announced(&designs);
         assert!(designs.resolve("app/screen.design").is_ok());
         assert!(designs.resolve("/app/other.design").is_ok());
         let resolutions = || {
@@ -628,24 +635,16 @@ pub(crate) mod tests {
         assert_eq!(width(&designs), 20.0, "and kept so");
     }
 
-    #[tokio::test]
-    async fn no_design_file_stops_the_store() {
+    #[test]
+    fn no_design_file_stops_the_store() {
         let dir = served("hostile");
         let designs = Designs::new(dir.clone());
         let other = dir.join("app/other.design");
-        assert!(
-            designs
-                .png("app/other.design".into(), Theme::Light)
-                .await
-                .is_ok()
-        );
+        assert!(designs.png("app/other.design", Theme::Light).is_ok());
         // A colour with a pasted zero-width space, saved over a design held
         // in memory: what once panicked the watcher's thread.
         save(&designs, &other, &OTHER.replace("#000000", "#000\u{200b}"));
-        let problems = designs
-            .png("app/other.design".into(), Theme::Light)
-            .await
-            .unwrap_err();
+        let problems = designs.png("app/other.design", Theme::Light).unwrap_err();
         assert!(
             problems.contains("fill: #000\u{200b} is not a color"),
             "{problems}"
@@ -658,19 +657,13 @@ pub(crate) mod tests {
         ] {
             save(&designs, &other, &text);
             assert!(
-                designs
-                    .png("app/other.design".into(), Theme::Light)
-                    .await
-                    .is_err(),
+                designs.png("app/other.design", Theme::Light).is_err(),
                 "{text:.40}"
             );
         }
         // And the store still sees saves afterwards.
         save(&designs, &other, &OTHER.replace("{50}", "{20}"));
-        let png = designs
-            .png("app/other.design".into(), Theme::Light)
-            .await
-            .unwrap();
+        let png = designs.png("app/other.design", Theme::Light).unwrap();
         let (_, w, h) = devpage_design::render::pixels(&png).unwrap();
         assert_eq!((w, h), (20, 20));
     }
@@ -686,9 +679,6 @@ pub(crate) mod tests {
         assert!(designs.resolve("app/screen.design").is_ok());
     }
 
-    pub(crate) const THEMES: &str =
-        "kind: themes\nlight:\n  bg: \"#ffffff\"\ndark:\n  bg: \"#000000\"\n";
-
     /// Creating, editing and deleting a `themes.yml` resolves again exactly
     /// the designs that read it — a missing one included.
     #[test]
@@ -700,7 +690,7 @@ pub(crate) mod tests {
         )
         .unwrap();
         let designs = Designs::new(dir.clone());
-        let mut updates = designs.0.updates.subscribe();
+        let updates = announced(&designs);
         let problems = designs.resolve("app/themed.design").unwrap_err();
         assert!(
             problems[0].message.contains("no themes.yml"),
@@ -736,243 +726,4 @@ pub(crate) mod tests {
         let designs = Designs::new(dir.join("app"));
         assert!(designs.resolve("../outside.design").is_err());
     }
-
-    pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
-        let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
-        let index = Arc::new(Index::build(dir));
-        let designs = Designs::new(dir.to_path_buf());
-        let changes = crate::changes::Changes::default();
-        let router = router(Options {
-            index,
-            designs: designs.clone(),
-            comments: Some(Identity::Local("T".into())),
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes)
-        });
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = format!("http://{}", listener.local_addr().unwrap());
-        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-        (address, designs)
-    }
-
-    #[tokio::test]
-    async fn a_png_answers_304_from_its_scene_without_painting() {
-        let dir = served("png-etag");
-        let (address, designs) = start(&dir, "app/screen.design").await;
-        let url = format!("{address}/app/screen.design.png");
-        let client = reqwest::Client::new();
-        let first = client.get(&url).send().await.unwrap();
-        assert_eq!(first.status(), 200);
-        assert_eq!(first.headers()["cache-control"], "no-cache");
-        let tag = first.headers()["etag"].to_str().unwrap().to_string();
-        let again = client
-            .get(&url)
-            .header("if-none-match", &tag)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(again.status(), 304);
-        assert_eq!(again.headers()["etag"], tag.as_str());
-        // A change to a design it uses is a new scene, and a new PNG.
-        let button = std::fs::read_to_string(dir.join("app/button.design")).unwrap();
-        save(
-            &designs,
-            &dir.join("app/button.design"),
-            &button.replace("#2563eb", "#16a34a"),
-        );
-        let changed = client
-            .get(&url)
-            .header("if-none-match", &tag)
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(changed.status(), 200);
-        assert_ne!(changed.headers()["etag"], tag.as_str());
-    }
-
-    #[tokio::test]
-    async fn a_png_or_the_problems() {
-        let dir = served("png");
-        let (address, _) = start(&dir, "app/screen.design").await;
-        let response = reqwest::get(format!("{address}/app/screen.design.png"))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["content-type"], "image/png");
-        let png = response.bytes().await.unwrap();
-        assert_eq!(&png[1..4], b"PNG");
-        assert_eq!(u32::from_be_bytes(png[16..20].try_into().unwrap()), 200);
-
-        std::fs::write(
-            dir.join("app/broken.design"),
-            "import Button from \"./button.design\"\n<Frame>\n  <Button lable=\"x\" />\n  <Text size=\"big\">a</Text>\n</Frame>\n",
-        )
-        .unwrap();
-        let response = reqwest::get(format!("{address}/app/broken.design.png"))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 422);
-        let text = response.text().await.unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 2, "{text}");
-        assert!(lines[0].starts_with("app/broken.design:3:"), "{text}");
-        assert!(lines[1].starts_with("app/broken.design:4:"), "{text}");
-    }
-
-    #[tokio::test]
-    async fn a_png_in_either_theme() {
-        let dir = served("png-theme");
-        std::fs::write(dir.join("themes.yml"), THEMES).unwrap();
-        std::fs::write(
-            dir.join("app/themed.design"),
-            "<Frame width={10} height={10} fill={theme.bg} />",
-        )
-        .unwrap();
-        let (address, _) = start(&dir, "app/screen.design").await;
-        let get = |query: &str| reqwest::get(format!("{address}/app/themed.design.png{query}"));
-        let mut tags = Vec::new();
-        for (query, value) in [("", 255), ("?theme=light", 255), ("?theme=dark", 0)] {
-            let response = get(query).await.unwrap();
-            assert_eq!(response.status(), 200, "{query}");
-            tags.push(response.headers()["etag"].to_str().unwrap().to_string());
-            let png = response.bytes().await.unwrap();
-            let (pixels, _, _) = devpage_design::render::pixels(&png).unwrap();
-            assert_eq!(pixels[..4], [value, value, value, 255], "{query}");
-        }
-        assert_eq!(tags[0], tags[1]);
-        assert_ne!(tags[0], tags[2], "each theme is its own PNG");
-        let wrong = get("?theme=blue").await.unwrap();
-        assert_eq!(wrong.status(), 400);
-        assert_eq!(
-            wrong.text().await.unwrap(),
-            "theme: expected light or dark, found \"blue\""
-        );
-    }
-
-    #[tokio::test]
-    async fn no_png_of_a_design_outside_the_served_folder() {
-        let dir = served("png-outside");
-        let outside = dir.join("../png-outside-secret.design");
-        std::fs::write(&outside, "<Frame width={10} height={10} />").unwrap();
-        std::os::unix::fs::symlink(&outside, dir.join("app/escape.design")).unwrap();
-        let (address, _) = start(&dir, "app/screen.design").await;
-        for path in [
-            "/../png-outside-secret.design.png",
-            "/%2E%2E/png-outside-secret.design.png",
-            "/app/escape.design.png",
-            "/app/missing.design.png",
-        ] {
-            let response = reqwest::get(format!("{address}{path}")).await.unwrap();
-            assert_eq!(response.status(), 404, "{path}");
-            let body = response.text().await.unwrap();
-            assert!(
-                body.ends_with("is not part of the served folder"),
-                "{path}: {body}"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn a_real_file_named_like_a_designs_png_wins() {
-        let dir = served("png-real");
-        std::fs::write(dir.join("app/screen.design.png"), b"not a drawing").unwrap();
-        let (address, _) = start(&dir, "app/screen.design").await;
-        let real = reqwest::get(format!("{address}/app/screen.design.png"))
-            .await
-            .unwrap();
-        assert_eq!(real.status(), 200);
-        assert_eq!(real.bytes().await.unwrap().as_ref(), b"not a drawing");
-        // Without one, the address is the design's drawing.
-        let drawn = reqwest::get(format!("{address}/app/other.design.png"))
-            .await
-            .unwrap();
-        assert_eq!(drawn.headers()["content-type"], "image/png");
-    }
-
-    #[tokio::test]
-    async fn a_designs_png_is_a_link_check_accepts() {
-        let dir = served("png-link");
-        std::fs::write(
-            dir.join("app/broken.design"),
-            SCREEN.replace("<Button label", "<Button lable"),
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("page.md"),
-            "# Page\n\n![Screen](app/screen.design.png)\n\n![Broken](app/broken.design.png)\n\n![Nothing](app/nothing.design.png)\n",
-        )
-        .unwrap();
-        let document = Document::load(&dir.join("page.md"), &dir).unwrap();
-        let problems: Vec<String> = crate::check::document(&document, None)
-            .await
-            .iter()
-            .map(|p| p.to_string())
-            .collect();
-        assert_eq!(problems.len(), 2, "{problems:?}");
-        assert!(
-            problems[0].starts_with(
-                "page.md:5: broken design app/broken.design.png — app/broken.design:5:"
-            ),
-            "{problems:?}"
-        );
-        assert_eq!(
-            problems[1],
-            "page.md:7: broken link app/nothing.design.png — no such file"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_design_is_an_entry_document() {
-        let dir = served("entry");
-        let (address, _) = start(&dir, "app/screen.design").await;
-        let client = reqwest::Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .unwrap();
-        let home = client.get(format!("{address}/")).send().await.unwrap();
-        assert_eq!(home.status(), 307);
-        assert_eq!(home.headers()["location"], "/app/screen.design");
-        let page = client
-            .get(format!("{address}/app/screen.design"))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(page.status(), 200);
-        assert!(page.text().await.unwrap().contains("<canvas"));
-    }
-
-    #[tokio::test]
-    async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
-        let dir = served("check");
-        std::fs::write(
-            dir.join("app/screen.design"),
-            SCREEN.replace("<Button label", "<Button lable"),
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("page.md"),
-            "# Page\n\n![Screen](app/screen.design)\n\nEmbed with `![Name](name.design)`:\n\n```markdown\n![Gone](gone.design)\n```\n",
-        )
-        .unwrap();
-        let document = Document::load(&dir.join("page.md"), &dir).unwrap();
-        let problems = crate::check::document(&document, None).await;
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        let shown = problems[0].to_string();
-        assert!(
-            shown.starts_with("page.md:3: broken design app/screen.design — app/screen.design:5:"),
-            "{shown}"
-        );
-        assert!(shown.contains("lable"), "{shown}");
-
-        let design = Document::load(&dir.join("app/screen.design"), &dir).unwrap();
-        let problems = crate::check::document(&design, None).await;
-        assert_eq!(problems.len(), 1, "{problems:?}");
-        assert!(
-            problems[0].to_string().starts_with("app/screen.design:5:"),
-            "{problems:?}"
-        );
-    }
 }
-
-#[cfg(test)]
-mod canvas_tests;

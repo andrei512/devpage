@@ -1,60 +1,17 @@
-//! The change bus: how open pages hear there is something new to show. A
-//! change is typed — refresh the page, or fetch a page's comments again —
-//! and scoped to the documents it concerns, so a page hears only its own.
-//! Anything may publish: the file watcher today, a publish or a comment
-//! store tomorrow. The bus only carries changes; what a producer forgets
-//! when a file changes is the producer's business, not traffic here.
-
-use std::sync::Arc;
+//! The change bus: how open pages hear there is something new to show —
+//! the core's [`Change`]s, each scoped to the documents it concerns, carried
+//! to every subscriber. Anything may publish: the file watcher, a comment
+//! store, the external-link checker. The bus only carries changes; what a
+//! producer forgets when a file changes is the producer's business, not
+//! traffic here.
 
 use tokio::sync::broadcast;
+
+pub use devpage_core::changes::{Change, Publish, Scope};
 
 /// How many changes wait for a slow subscriber before it lags. A lagging
 /// subscriber hears a refresh, so nothing is ever missed, only merged.
 const CAPACITY: usize = 64;
-
-/// Which documents a change concerns: the documents served under one mount
-/// prefix — every document of the served folder at `/` — or every document
-/// there is.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Scope {
-    /// What every open page may show, whatever its document: an external
-    /// link's answer.
-    Every,
-    /// The documents served under this mount prefix; empty at `/`.
-    Mount(Arc<str>),
-}
-
-impl Scope {
-    /// The documents served at `/` — everything a local devpage serves.
-    pub fn root() -> Self {
-        Self::Mount(Arc::from(""))
-    }
-
-    /// Whether a page subscribed to `self` hears a change to `scope`.
-    fn hears(&self, scope: &Scope) -> bool {
-        matches!(scope, Scope::Every) || scope == self
-    }
-}
-
-/// Something new for open pages to show.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Change {
-    /// Fetch the page again.
-    Refresh,
-    /// The threads on the Markdown file at this address changed.
-    Comments(String),
-}
-
-impl Change {
-    /// The message the page script reads off its event stream.
-    pub fn message(&self) -> String {
-        match self {
-            Change::Refresh => "change".into(),
-            Change::Comments(page) => format!("comments {page}"),
-        }
-    }
-}
 
 /// The bus. Cheap to clone: every clone publishes to the same subscribers.
 #[derive(Clone)]
@@ -63,6 +20,12 @@ pub struct Changes(broadcast::Sender<(Scope, Change)>);
 impl Default for Changes {
     fn default() -> Self {
         Self(broadcast::channel(CAPACITY).0)
+    }
+}
+
+impl Publish for Changes {
+    fn publish(&self, scope: &Scope, change: Change) {
+        Changes::publish(self, scope, change);
     }
 }
 
@@ -130,6 +93,8 @@ impl Subscription {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
 
     fn mount(prefix: &str) -> Scope {
@@ -182,14 +147,5 @@ mod tests {
         changes.publish(&Scope::root(), Change::Comments("/c.md".into()));
         assert!(root.heard());
         assert!(!root.heard());
-    }
-
-    #[test]
-    fn the_page_reads_the_same_messages_as_before() {
-        assert_eq!(Change::Refresh.message(), "change");
-        assert_eq!(
-            Change::Comments("/docs/a.md".into()).message(),
-            "comments /docs/a.md"
-        );
     }
 }

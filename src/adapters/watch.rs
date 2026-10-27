@@ -926,7 +926,8 @@ mod tests {
         let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
         let store = threads.clone();
         let messages = after_with(&dir, threads, |changes| {
-            let comments = crate::comments::Comments::new(store, changes.clone(), Scope::root());
+            let comments =
+                crate::comments::Comments::new(store, Arc::new(changes.clone()), Scope::root());
             let anchor = crate::comments::Anchor {
                 quote: "x".into(),
                 prefix: String::new(),

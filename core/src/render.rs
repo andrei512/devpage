@@ -859,7 +859,7 @@ fn tree(groups: &[SidebarGroup], current: &str, html: &mut String) {
     html.push_str("</ul>");
 }
 
-pub(crate) fn escape(text: &str) -> String {
+pub fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

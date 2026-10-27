@@ -10,13 +10,13 @@ someone about to replace the set; using icons in a site's navbar is in
 
 | File | What it is |
 | --- | --- |
-| `assets/vendor/lucide.json` | Every [Lucide](https://lucide.dev) icon — 1,877 of them — from `lucide-static` **1.55.0** (published 2026-10-10): its `icon-nodes.json`, minified. Each icon is a list of SVG elements on a 24 × 24 grid, drawn with strokes. |
-| `assets/vendor/lucide.LICENSE` | Lucide's licence: ISC, with the MIT notice for the icons derived from Feather. |
-| `src/icons.rs` | GitHub's mark, one filled path, from [Simple Icons](https://simpleicons.org) **16.34.0** under CC0 1.0 — Lucide carries no brand marks. |
+| `core/assets/vendor/lucide.json` | Every [Lucide](https://lucide.dev) icon — 1,877 of them — from `lucide-static` **1.55.0** (published 2026-10-10): its `icon-nodes.json`, minified. Each icon is a list of SVG elements on a 24 × 24 grid, drawn with strokes. |
+| `core/assets/vendor/lucide.LICENSE` | Lucide's licence: ISC, with the MIT notice for the icons derived from Feather. |
+| `core/src/icons.rs` | GitHub's mark, one filled path, from [Simple Icons](https://simpleicons.org) **16.34.0** under CC0 1.0 — Lucide carries no brand marks. |
 
 ## How devpage uses them
 
-`src/icons.rs` compiles `lucide.json` into the binary with `include_str!` and
+`core/src/icons.rs` compiles `lucide.json` into the binary with `include_str!` and
 reads it once, on first use. An icon is drawn on the server, as inline SVG in
 the page — `<svg class="icon">`, in the text color (`currentColor`) — so a
 page carries only the icons it shows and they follow the theme. A name the set
@@ -33,8 +33,8 @@ devpage draws icons in a site's navbar and in the theme selector (`moon` and
 
    ```sh
    curl -so nodes.json https://cdn.jsdelivr.net/npm/lucide-static@<version>/icon-nodes.json
-   curl -so assets/vendor/lucide.LICENSE https://cdn.jsdelivr.net/npm/lucide-static@<version>/LICENSE
-   python3 -c 'import json; json.dump(json.load(open("nodes.json")), open("assets/vendor/lucide.json", "w"), separators=(",", ":"))'
+   curl -so core/assets/vendor/lucide.LICENSE https://cdn.jsdelivr.net/npm/lucide-static@<version>/LICENSE
+   python3 -c 'import json; json.dump(json.load(open("nodes.json")), open("core/assets/vendor/lucide.json", "w"), separators=(",", ":"))'
    ```
 
 2. Check every icon devpage names still exists
@@ -50,4 +50,4 @@ devpage draws icons in a site's navbar and in the theme selector (`moon` and
 </Steps>
 
 GitHub's mark changes rarely; to replace it, copy the `d` of the path in
-Simple Icons' `icons/github.svg` into `BRANDS` in `src/icons.rs`.
+Simple Icons' `icons/github.svg` into `BRANDS` in `core/src/icons.rs`.

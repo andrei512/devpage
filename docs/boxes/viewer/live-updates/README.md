@@ -8,15 +8,15 @@ it in place. It also covers why
 there is one stream per tab; [the page script](../page-script/README.md) is
 the browser's side. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
-`src/watch.rs`, `src/changes.rs`, `src/server.rs` or `assets/devpage.js`.
+`src/adapters/watch.rs`, `src/adapters/changes.rs`, `src/drive/server.rs` or `core/assets/devpage.js`.
 
 ```mermaid
 sequenceDiagram
   participant Editor as Person or agent
   participant Disk as Markdown file
-  participant Watcher as watcher (src/watch.rs)
-  participant Channel as change bus (src/changes.rs)
-  participant Server as server (src/server.rs)
+  participant Watcher as watcher (src/adapters/watch.rs)
+  participant Channel as change bus (src/adapters/changes.rs)
+  participant Server as server (src/drive/server.rs)
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
@@ -37,7 +37,7 @@ sequenceDiagram
 
 ## The watcher
 
-When devpage starts, `watch::start` in `src/watch.rs` plans the
+When devpage starts, `watch::start` in `src/adapters/watch.rs` plans the
 [watch set](#the-watch-set) of the
 [served folder](../writing-a-document/README.md#the-served-folder) — every
 folder in sight, and nothing out of sight — and has the
@@ -100,7 +100,7 @@ which reads everything published again when one of them can change it.
 A path doesn't refresh when the index finds it out of sight — inside a `.git`
 or `.devpage` folder, or excluded by any `.gitignore` in the served folder,
 nested ones included — or when the nearest site holding it has a `watch` list
-that matches none of it (`refreshes` in `src/watch.rs`, then
+that matches none of it (`refreshes` in `src/adapters/watch.rs`, then
 `Document::watches`, patterns relative to that site's folder). A document file
 always counts, and so does a widget or helper — a `.ts` or `.tsx` file
 directly in the widgets folder of the entry document or of any indexed
@@ -137,7 +137,7 @@ fseventsd 5.6 s of CPU with no devpage running, 9.6 s with one watching the
 whole folder, and 42.8 s with eight — about 4.5 s more per devpage, for
 events it threw away. So the watcher never asks for them.
 
-`WatchSet::plan` (`src/watch/set.rs`) splits the served folder, by the
+`WatchSet::plan` (`src/adapters/watch/set.rs`) splits the served folder, by the
 index's rules — [out of sight](#what-is-out-of-sight) is the same judgement
 sifting makes — into:
 
@@ -195,7 +195,7 @@ written into a new folder of the comment store at once.
 
 ### Per platform
 
-- **macOS** (`src/watch/macos.rs`): devpage's own watcher, not `notify`'s,
+- **macOS** (`src/adapters/watch/macos.rs`): devpage's own watcher, not `notify`'s,
   since `notify` has one FSEvents stream for every path it watches and
   filters a non-recursive watch in its callback, after fseventsd has
   delivered the whole subtree. Each deep folder gets an FSEvents stream of
@@ -208,14 +208,14 @@ written into a new folder of the comment store at once.
   thread waits on the kqueue. kqueue holds a descriptor per
   watched file and folder, so devpage raises its open-files limit to what
   the system allows (at most 10240) when it starts watching.
-- **Linux** (`src/watch/inotify.rs`): `notify`'s inotify watcher,
+- **Linux** (`src/adapters/watch/inotify.rs`): `notify`'s inotify watcher,
   non-recursive on every folder in sight — the shallow folders and every
   folder of the deep ones. inotify watches a folder at a time anyway, so an
   ignored folder gets no inotify watch at all, and a folder created in sight
   is watched on the next re-plan. A folder an event says was removed or
   renamed is no longer counted watched, with every folder under it, so the
   next re-plan watches whatever has its name again.
-- **Elsewhere** (`src/watch/recursive.rs`): `notify`'s recommended watcher,
+- **Elsewhere** (`src/adapters/watch/recursive.rs`): `notify`'s recommended watcher,
   recursive on the whole served folder, as before the watch set: it reports
   everything, and sifting drops what is out of sight.
 
@@ -224,7 +224,7 @@ and the listeners are the same everywhere.
 
 ## The bus and the stream
 
-The change bus (`Changes` in `src/changes.rs`) carries typed changes: a
+The change bus (`Changes` in `src/adapters/changes.rs`) carries typed changes: a
 `Refresh`, or the `Comments` of the Markdown file at an address. Each is
 published for a **scope** — the documents served under one mount prefix (`/`
 for everything a local devpage serves), or every document, which is how the
@@ -240,7 +240,7 @@ entry document — and returns the changes the burst means, publishing nothing;
 paths to the search index. The forgetting is the watcher's own, never traffic
 on the bus.
 
-`GET /__devpage/events` (`events` in `src/server.rs`) subscribes to the
+`GET /__devpage/events` (`events` in `src/drive/server.rs`) subscribes to the
 documents the server serves, at `/`, and answers with a server-sent event
 stream. Every change it hears becomes one event whose data is its message —
 `change`, or `comments` and the page's path. A subscriber that falls more than
@@ -274,7 +274,7 @@ message — and with links, the theme, the navbar and hidden tabs — is on
 
 ## Why one stream per tab
 
-The reason is stated in the header comment of `assets/devpage.js`: browsers
+The reason is stated in the header comment of `core/assets/devpage.js`: browsers
 allow only six open connections per host over plain HTTP/1.1, and an open event
 stream holds one of them for as long as it is open. So a tab keeps a single
 stream however many pages it visits — links inside the document swap the page
@@ -296,7 +296,7 @@ back until it is shown.
   once more after that; one that finds the page's ETag unchanged swaps
   nothing.
 - **The watcher reports an error.** The platform's watcher hands the
-  handler in `src/watch.rs` either an event or an error, and an error is dropped
+  handler in `src/adapters/watch.rs` either an event or an error, and an error is dropped
   silently by `Listeners::sift` — nothing is logged and
   devpage keeps serving. A watch that has broken this way shows only as pages
   that stop refreshing while requests still work; restart devpage to start a
