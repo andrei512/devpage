@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 410 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 91 tests that drive Chrome or Docker, or call GPT-Live
+$ cargo test                  # 411 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 92 tests that drive Chrome or Docker, or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 146 in `devpage`, 168 in its
+`cargo test` runs every crate in the workspace: 147 in `devpage`, 168 in its
 core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -34,8 +34,9 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 91 tests marked `#[ignore]`, 88 drive Chrome, and one of them also
-calls GPT-Live; two run the server deploy example in Docker; the last asks
+Of the 92 tests marked `#[ignore]`, 89 drive Chrome, and one of them also
+calls GPT-Live; two run the server deploy example in Docker, one at a time,
+since they share its compose project; the last asks
 Google's server for the pinned Chrome's zips, all at once, so it needs the
 network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -63,7 +64,7 @@ directory, named with the test process's id, and don't all remove them.
 
 ### The watcher's tests need file-system events
 
-Nineteen tests save a file and wait for devpage to hear of it through the
+Twenty tests save a file and wait for devpage to hear of it through the
 platform's watcher:
 
 - eight `adapters::watch` tests that count what the platform reports —
@@ -84,6 +85,10 @@ platform's watcher:
   `widget_files_refresh_whatever_watch_says` (of the others,
   `ignored_files_and_files_outside_watch_do_not_refresh` expects no event,
   and the rest feed made-up events, so they pass either way);
+- one macOS test, `a_save_just_before_a_folder_leaves_its_stream_is_heard`:
+  a file saved and its folder passed from an FSEvents stream to kqueue at
+  once, as the first comment's `.devpage/` does to the served folder, still
+  reported;
 - two `drive::server` tests —
   `the_entry_document_follows_its_file_without_a_restart` and
   `a_server_and_the_watcher_its_options_start_announce_a_write_once`;
@@ -496,7 +501,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - The front page saying how to connect and listing no documents; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
 - A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
 - A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.
-- In Chrome: a page at the link swapping in each new version, its version menu following; an old version's banner linking to the latest, its menu listing every version, and a publish leaving it unchanged; a doc's download button saving its PDF, printed once and then read from the cache; every request a published page makes staying under its mount.
+- In Chrome: a page at the link swapping in each new version, its version menu following; an old version's banner linking to the latest, its menu listing every version, and a publish leaving it unchanged; the banner above a doc's page, never over it, wide and narrow, and a long sidebar's last link above the version bar; a doc's download button saving its PDF, printed once and then read from the cache; every request a published page makes staying under its mount.
 
 ### `drive::slide_png`
 

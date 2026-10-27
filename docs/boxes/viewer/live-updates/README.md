@@ -207,7 +207,14 @@ written into a new folder of the comment store at once.
   renames; a symbolic link is watched itself, never what it points to. One
   thread waits on the kqueue. kqueue holds a descriptor per
   watched file and folder, so devpage raises its open-files limit to what
-  the system allows (at most 10240) when it starts watching.
+  the system allows (at most 10240) when it starts watching. A re-plan
+  starts new watches before it stops old ones, but fseventsd holds each
+  event for a stream's latency — longer on a loaded machine — and a stopped
+  stream never delivers what it held, so a file saved just before its
+  folder passes from a stream to other watches would go unheard: after
+  stopping a stream, devpage handles as changed every file under its folder
+  still in sight that was modified in the last second. Flushing the stream
+  first doesn't help — fseventsd hasn't handed it the event yet.
 - **Linux** (`src/adapters/watch/inotify.rs`): `notify`'s inotify watcher,
   non-recursive on every folder in sight — the shallow folders and every
   folder of the deep ones. inotify watches a folder at a time anyway, so an

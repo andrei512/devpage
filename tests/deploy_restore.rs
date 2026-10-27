@@ -12,6 +12,10 @@ use std::time::{Duration, Instant};
 const COMPOSE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/deploy/server/compose.yaml");
 const PROJECT: &str = "devpage-restore";
 
+/// Held by each test for its whole run: both use the one compose project,
+/// and each takes it down when it ends.
+static PROJECT_IN_USE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[tokio::test]
 #[ignore = "runs docker compose: builds the server image and starts the bucket emulators"]
 async fn an_s3_server_on_an_empty_volume_restores_everything() {
@@ -25,6 +29,7 @@ async fn an_azure_server_on_an_empty_volume_restores_everything() {
 }
 
 async fn restores(service: &str, volume: &str, port: u16) {
+    let _project = PROJECT_IN_USE.lock().await;
     let _down = Down;
     compose(&["up", "--build", "--detach", "--wait", service]);
     let server = format!("http://127.0.0.1:{port}");
