@@ -197,6 +197,18 @@ A page rendered for Chrome to print: no live updates, no comments, no navigation
 
 One of the files compiled into the binary and served under `/__devpage/`.
 
+## content address
+
+An address that changes exactly when the bytes it serves would: a built-in asset's carries the hash of its bytes (`/__devpage/devpage.<hash>.js`), a widget's its version (`?v=<hash>`). What answers one never changes, so the browser keeps it for good. See [Caching](../serving-pages/README.md#caching).
+
+## load set
+
+Everything a page loads from devpage beyond its stylesheet and page script — its widgets' modules, those they render by name, their helpers, React, pele, the design script and engine — named in its `<head>` at their content addresses, so the browser asks for all of it at once. The code uses the same words (`Widgets::load_set`). See [The load set](../rendering-a-page/README.md#the-load-set).
+
+## build id
+
+A hash of everything devpage's binary is built from, on every page's `<body>`: a page from another build is loaded whole, never swapped in.
+
 ## widget
 
 A React component used in Markdown as an HTML tag whose name starts with a capital letter — `<Callout>`. Its props come from the tag's attributes and its content, rendered as Markdown, is its `children`.

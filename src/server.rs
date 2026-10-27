@@ -24,6 +24,7 @@ use crate::designs::Designs;
 use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
+use crate::slide_png::Shots;
 
 #[derive(Clone)]
 struct AppState {
@@ -34,6 +35,8 @@ struct AppState {
     /// route answers 404.
     comments: Option<Arc<Comments>>,
     designs: Designs,
+    /// Slides as images: the Chrome that draws them and what it drew.
+    shots: Shots,
 }
 
 /// Comments on: where threads are kept, and who writes them.
@@ -91,39 +94,45 @@ pub fn router(
 ) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
+    let shots = Shots::new(&changes);
     router_with_index(
         Arc::new(Entry::new(document)),
         index,
         designs,
         changes,
         comments,
+        shots,
     )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
 /// current, logging every request. `comments` names who writes them, or is
-/// `None` when comments are off (`--no-comments`).
+/// `None` when comments are off (`--no-comments`); `shots` draws its slides'
+/// PNGs.
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
+    shots: Shots,
 ) -> Router {
-    quiet(entry, index, designs, changes, comments).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, comments, shots).layer(middleware::from_fn(log))
 }
 
-/// The server for `devpage pdf` and a slide's PNG, which serves only Chrome
+/// The server for `devpage pdf` and `devpage video`, which serves only Chrome
 /// and logs nothing.
 pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
     let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(document.served.clone());
+    let shots = Shots::new(&changes);
     quiet(
         Arc::new(Entry::new(document)),
         index,
         designs,
         changes,
         Some(Identity::Local(String::new())),
+        shots,
     )
 }
 
@@ -133,10 +142,28 @@ fn quiet(
     designs: Designs,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
+    shots: Shots,
 ) -> Router {
+    routes(AppState {
+        comments: comments.map(|identity| {
+            Arc::new(Comments {
+                store: Store::new(&entry.document().served),
+                identity,
+            })
+        }),
+        designs,
+        entry,
+        index,
+        changes,
+        shots,
+    })
+}
+
+/// Every route, on `state`, logging nothing.
+fn routes(state: AppState) -> Router {
+    let designs = state.designs.clone();
     Router::new()
         .route("/", get(home))
-        .route("/__devpage/events", get(events))
         .route(
             "/__devpage/comments",
             get(list_comments).post(create_comment),
@@ -147,6 +174,10 @@ fn quiet(
         .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
+        // Every route so far answers with a validator; the streams below
+        // never end, so the middleware, which reads a whole body, skips them.
+        .route_layer(middleware::from_fn(crate::validators::validate))
+        .route("/__devpage/events", get(events))
         .route_service(
             "/devpage.design.v1.Designs/Watch",
             tower::ServiceBuilder::new()
@@ -157,18 +188,7 @@ fn quiet(
                     },
                 )),
         )
-        .with_state(AppState {
-            designs,
-            comments: comments.map(|identity| {
-                Arc::new(Comments {
-                    store: Store::new(&entry.document().served),
-                    identity,
-                })
-            }),
-            entry,
-            index,
-            changes,
-        })
+        .with_state(state)
 }
 
 /// Logs each request with its status and how long the response took to start.
@@ -202,6 +222,7 @@ async fn file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
+    headers: HeaderMap,
 ) -> Response {
     let print = query.is_some_and(|query| query.split('&').any(|pair| pair == "print"));
     // A design's PNG — unless a real file of that name is there, which is
@@ -229,8 +250,34 @@ async fn file(
             )
                 .into_response();
         }
+        // The ETag comes from the scene, so a browser that has this PNG
+        // already is answered without painting it again.
+        let tag = state
+            .designs
+            .etag(design)
+            .await
+            .map(|hash| crate::validators::strong(&hash));
+        if let Some(tag) = &tag
+            && crate::validators::already_has(&headers, tag)
+        {
+            let mut known = HeaderMap::new();
+            if let Ok(value) = tag.parse() {
+                known.insert(header::ETAG, value);
+            }
+            known.insert(
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_static("no-cache"),
+            );
+            return crate::validators::not_modified(known);
+        }
         return match state.designs.png(design.to_string()).await {
-            Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
+            Ok(png) => {
+                let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
+                if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
+                    response.headers_mut().insert(header::ETAG, tag);
+                }
+                response
+            }
             Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),
         };
     }
@@ -242,7 +289,7 @@ async fn file(
             .extension()
             .is_some_and(|ext| ext == "yml" || ext == "yaml")
     {
-        return slide_png(&entry, deck, &file, n).await;
+        return slide_png(&state, &headers, deck, &file, n).await;
     }
     if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
         return Html(crate::designs::page(&path)).into_response();
@@ -313,10 +360,19 @@ async fn file(
 }
 
 /// `<deck>.yml/<n>.png`: slide `n` of the deck at `file`, drawn by Chrome —
-/// or 404 when the file isn't a deck or has no slide `n`.
-async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str) -> Response {
+/// or 404 when the file isn't a deck or has no slide `n`. A slide drawn since
+/// the last change comes from the cache, and is a 304 for a request that
+/// already holds it. Asked for by a page devpage's own Chrome is shooting, it
+/// is never drawn: the cache's copy, or 508.
+async fn slide_png(
+    state: &AppState,
+    headers: &HeaderMap,
+    deck: &str,
+    file: &std::path::Path,
+    n: &str,
+) -> Response {
     let not_found = |reason: String| (StatusCode::NOT_FOUND, reason).into_response();
-    let document = match Document::load(file, &entry.served) {
+    let document = match Document::load(file, &state.entry.document().served) {
         Ok(document) if matches!(document.kind, Kind::Slides { .. }) => document,
         _ => return not_found(format!("{deck} is not a deck")),
     };
@@ -335,10 +391,48 @@ async fn slide_png(entry: &Document, deck: &str, file: &std::path::Path, n: &str
             if count == 1 { "" } else { "s" }
         ));
     };
-    match crate::slide_png::png(Arc::new(document), n).await {
-        Ok(png) => ([(header::CONTENT_TYPE, "image/png")], png).into_response(),
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response(),
+    let url = document.entry();
+    let shot = if headers.contains_key(crate::pdf::SHOT_HEADER) {
+        match state.shots.cached(&url, n) {
+            Some(shot) => shot,
+            None => {
+                return (
+                    StatusCode::LOOP_DETECTED,
+                    format!("{deck}/{n}.png isn't drawn inside another shot"),
+                )
+                    .into_response();
+            }
+        }
+    } else {
+        let serving = state.clone();
+        match state.shots.png(&url, n, move || routes(serving)).await {
+            Ok(shot) => shot,
+            Err(error) => {
+                return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
+            }
+        }
+    };
+    let held = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|tags| tags.split(',').any(|tag| tag.trim() == shot.etag));
+    let mut response = if held {
+        StatusCode::NOT_MODIFIED.into_response()
+    } else {
+        ([(header::CONTENT_TYPE, "image/png")], shot.png).into_response()
+    };
+    let answer = response.headers_mut();
+    if let Ok(etag) = shot.etag.parse() {
+        answer.insert(header::ETAG, etag);
     }
+    // Drawn as it was after 20 s, not ready: the log says what it waited for.
+    if !shot.ready {
+        answer.insert(
+            "x-devpage-ready",
+            header::HeaderValue::from_static("timeout"),
+        );
+    }
+    response
 }
 
 /// A document as its kind: a site opens on its root page.
@@ -364,27 +458,38 @@ async fn events(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
-/// A system widget, compiled from the TSX built into the binary.
-async fn system_widget(Path(name): Path<String>) -> Response {
+/// The `v` a widget's address was asked with, if any.
+fn asked_version(query: Option<&str>) -> Option<&str> {
+    query?.split('&').find_map(|pair| pair.strip_prefix("v="))
+}
+
+/// A system widget, compiled from the TSX built into the binary: `immutable`
+/// at its current address, `no-cache` at any other.
+async fn system_widget(Path(name): Path<String>, RawQuery(query): RawQuery) -> Response {
     let stem = name.trim_end_matches(".tsx");
-    // System widgets compose only each other.
-    let known: Vec<String> = crate::widgets::SYSTEM
-        .iter()
-        .map(|(name, _)| name.to_string())
-        .collect();
-    match crate::widgets::system(stem) {
-        Some(source) => compiled(std::path::Path::new(&name), &name, source, &known, None),
+    match crate::widgets::compile_system(stem) {
+        Some(module) => {
+            let current = crate::addresses::system_widget_hash(stem)
+                .is_some_and(|hash| asked_version(query.as_deref()) == Some(hash));
+            compiled(&name, module, current)
+        }
         None => StatusCode::NOT_FOUND.into_response(),
     }
 }
 
-/// A project widget or a helper it imports, compiled from the served folder.
-/// An import without an extension finds the `.ts` or `.tsx` beside it.
-async fn project_widget(State(state): State<AppState>, Path(path): Path<String>) -> Response {
+/// A project widget or a helper it imports, compiled from the served folder:
+/// `immutable` at its current address, `no-cache` at any other. An import
+/// without an extension finds the `.ts` or `.tsx` beside it.
+async fn project_widget(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
     let document = state.entry.document();
     let found = ["", ".tsx", ".ts"]
         .iter()
-        .find_map(|ext| document.file(&format!("{path}{ext}")));
+        .find_map(|ext| document.file(&format!("{path}{ext}")))
+        .filter(|file| file.is_file());
     let Some(file) = found else {
         return (
             StatusCode::NOT_FOUND,
@@ -393,20 +498,19 @@ async fn project_widget(State(state): State<AppState>, Path(path): Path<String>)
             .into_response();
     };
     let folder = file.parent().unwrap_or(&file).to_path_buf();
-    let version = crate::widgets::version(&folder);
-    match std::fs::read_to_string(&file) {
-        Ok(source) => {
-            let known = known(&state, &folder);
-            // A helper this file imports that doesn't compile: the browser
-            // would only say the import failed, so say why, here.
-            if let Some(error) = broken_import(&document, &folder, &source, &known, version) {
-                return module_error(&error);
-            }
-            let label = document.url(&file)[1..].to_string();
-            compiled(&file, &label, &source, &known, Some(version))
-        }
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+    let known = known(&state, &folder);
+    // The version asked about and the bytes sent come from one reading of
+    // the files: a save between the two can't be served as `immutable` under
+    // the version before it.
+    let snapshot = crate::widgets::Snapshot::of(&document.served, &file);
+    let current = asked_version(query.as_deref()) == Some(snapshot.hash(&file, &known).as_str());
+    // A helper this file imports that doesn't compile: the browser would only
+    // say the import failed, so say why, here.
+    if let Some(error) = broken_import(&document, &snapshot, &file, &known) {
+        return module_error(&error);
     }
+    let label = document.url(&file)[1..].to_string();
+    compiled(&label, snapshot.compile(&file, &known), current)
 }
 
 /// The names a widget in `folder` can render by name: the system widgets and
@@ -430,55 +534,24 @@ fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
-/// The first helper reached through `source`'s relative imports, in `folder`,
-/// that doesn't compile: its name and the compiler's message.
+/// The first helper reached through `file`'s relative imports that doesn't
+/// compile: its name and the compiler's message.
 fn broken_import(
     document: &crate::document::Document,
-    folder: &std::path::Path,
-    source: &str,
+    snapshot: &crate::widgets::Snapshot,
+    file: &std::path::Path,
     known: &[String],
-    version: u128,
 ) -> Option<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut queue = relative_imports(source);
-    while let Some(import) = queue.pop() {
-        let base = folder.join(import.trim_start_matches("./"));
-        let Some(file) = ["", ".tsx", ".ts"]
-            .iter()
-            .map(|ext| std::path::PathBuf::from(format!("{}{ext}", base.display())))
-            .find(|path| path.is_file())
-        else {
-            continue;
-        };
-        if !seen.insert(file.clone()) {
-            continue;
-        }
-        let text = std::fs::read_to_string(&file).unwrap_or_default();
-        match crate::widgets::compile_cached(&file, &text, known, Some(version)) {
-            Ok(_) => queue.extend(relative_imports(&text)),
-            Err(error) => {
-                return Some(format!(
-                    "{} does not compile: {error}",
-                    &document.url(&file)[1..]
-                ));
-            }
-        }
-    }
-    None
-}
-
-/// The `./…` specifiers a module imports or re-exports from.
-fn relative_imports(source: &str) -> Vec<String> {
-    ["from \"./", "from './", "import \"./", "import './"]
-        .iter()
-        .flat_map(|pattern| {
-            let quote = &pattern[pattern.len() - 3..pattern.len() - 2];
-            source
-                .split(pattern)
-                .skip(1)
-                .filter_map(move |rest| rest.split(quote).next().map(|name| format!("./{name}")))
+    snapshot
+        .closure(file)
+        .into_iter()
+        .skip(1)
+        .find_map(|(helper, _)| {
+            snapshot
+                .compile(&helper, known)
+                .err()
+                .map(|error| format!("{} does not compile: {error}", &document.url(&helper)[1..]))
         })
-        .collect()
 }
 
 /// A module that throws `message`, so the page shows it in the widget's place.
@@ -496,21 +569,23 @@ fn module_error(message: &str) -> Response {
         .into_response()
 }
 
-/// A compiled module, or — when it doesn't compile — a module that throws the
-/// compiler's message, naming the file as `label`, so the page shows it in the
-/// place of the widget it belongs to.
-fn compiled(
-    path: &std::path::Path,
-    label: &str,
-    source: &str,
-    known: &[String],
-    version: Option<u128>,
-) -> Response {
-    match crate::widgets::compile_cached(path, source, known, version) {
+/// `Cache-Control` for what answers a current content address: it never
+/// changes.
+const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// A compiled module — `immutable` when asked for at its `current` address —
+/// or, when it doesn't compile, a module that throws the compiler's message,
+/// naming the file as `label`, so the page shows it in the place of the
+/// widget it belongs to.
+fn compiled(label: &str, result: anyhow::Result<String>, current: bool) -> Response {
+    match result {
         Ok(js) => (
             [
                 (header::CONTENT_TYPE, "text/javascript"),
-                (header::CACHE_CONTROL, "no-cache"),
+                (
+                    header::CACHE_CONTROL,
+                    if current { IMMUTABLE } else { "no-cache" },
+                ),
             ],
             js,
         )
@@ -519,38 +594,41 @@ fn compiled(
     }
 }
 
-/// The page's own files, built into the binary.
-async fn asset(Path(name): Path<String>) -> Response {
-    let (body, mime): (&'static str, &str) = match name.as_str() {
-        "style.css" => (include_str!("../assets/style.css"), "text/css"),
-        "devpage.js" => (include_str!("../assets/devpage.js"), "text/javascript"),
-        "pele.js" => (include_str!("../assets/vendor/pele.js"), "text/javascript"),
-        "react.js" => (include_str!("../assets/vendor/react.js"), "text/javascript"),
-        "design.js" => (include_str!("../assets/design.js"), "text/javascript"),
-        "design-engine.js" => (
-            include_str!("../assets/vendor/design-engine.js"),
-            "text/javascript",
-        ),
-        "design-engine.wasm" => {
-            return (
-                [
-                    (header::CONTENT_TYPE, "application/wasm"),
-                    (header::CACHE_CONTROL, "no-cache"),
-                ],
-                &include_bytes!("../assets/vendor/design-engine.wasm")[..],
-            )
-                .into_response();
-        }
-        _ => return StatusCode::NOT_FOUND.into_response(),
+/// A built-in asset, from the manifest `build.rs` made: `immutable` at its
+/// content address; at its bare name or a stale hash, the current bytes with
+/// `no-cache`, so a page from an older build still loads. Sent brotli- or
+/// gzip-compressed when the browser takes it.
+async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
+    let Some((asset, current)) = crate::addresses::asset(&name) else {
+        return StatusCode::NOT_FOUND.into_response();
     };
-    (
+    let encoding =
+        crate::validators::encoding(&headers, asset.brotli.is_some(), asset.gzip.is_some());
+    let (body, tag) = match encoding {
+        Some("br") => (asset.brotli, format!("{}-br", asset.hash)),
+        Some(_) => (asset.gzip, format!("{}-gz", asset.hash)),
+        None => (Some(asset.identity), asset.hash.to_string()),
+    };
+    let mut response = (
         [
-            (header::CONTENT_TYPE, mime),
-            (header::CACHE_CONTROL, "no-cache"),
+            (header::CONTENT_TYPE, asset.mime.to_string()),
+            (
+                header::CACHE_CONTROL,
+                if current { IMMUTABLE } else { "no-cache" }.to_string(),
+            ),
+            (header::VARY, "Accept-Encoding".to_string()),
+            (header::ETAG, crate::validators::strong(&tag)),
         ],
-        body,
+        body.unwrap_or(asset.identity),
     )
-        .into_response()
+        .into_response();
+    if let Some(encoding) = encoding {
+        response.headers_mut().insert(
+            header::CONTENT_ENCODING,
+            header::HeaderValue::from_static(encoding),
+        );
+    }
+    response
 }
 
 #[derive(Deserialize)]
@@ -1001,7 +1079,10 @@ mod tests {
         let base = serve(&dir, "docs").await;
         let (status, page) = get(&format!("{base}/docs/guide/step.md?print")).await;
         assert_eq!(status, 200);
-        assert!(page.contains("<body class=\"doc print\">"), "{page}");
+        assert!(
+            page.contains("<body class=\"doc print\" data-build="),
+            "{page}"
+        );
         assert!(page.contains("@page { size: A4;"), "{page}");
         assert!(!page.contains("<nav id=\"devpage-nav\">"), "{page}");
         let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
@@ -1102,8 +1183,9 @@ mod tests {
             entry,
             index,
             designs,
-            changes,
+            changes.clone(),
             Some(Identity::Local("T".into())),
+            Shots::new(&changes),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -1183,20 +1265,62 @@ mod tests {
             404
         );
 
-        let version = crate::widgets::version(&dir.join("docs/widgets"));
-        let (status, card) = get(&format!(
-            "{base}/__devpage/widgets/docs/widgets/Card.tsx?v={version}"
-        ))
-        .await;
-        assert_eq!(status, 200);
-        assert!(card.contains(&format!("\"./label?v={version}\"")), "{card}");
+        let (_, page) = get(&format!("{base}/docs/README.md")).await;
+        let card_address = page
+            .split("\"Card\":\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap()
+            .to_string();
+        let served = dir.canonicalize().unwrap();
+        let docs = Document::load(&served.join("docs"), &served).unwrap();
+        let known: Vec<String> = crate::widgets::Widgets::of(&docs)
+            .modules
+            .into_keys()
+            .collect();
+        let address = |file: &str| {
+            crate::addresses::address(crate::addresses::Owned::Module {
+                snapshot: &crate::widgets::Snapshot::of(&served, &served.join(file)),
+                file: &served.join(file),
+                known: &known,
+            })
+        };
+        assert_eq!(card_address, address("docs/widgets/Card.tsx"));
+        let response = reqwest::get(format!("{base}{card_address}")).await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            response.headers()["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
+        let card = response.text().await.unwrap();
+        // The helper is imported by its own address, whatever the import says.
+        let label = address("docs/widgets/label.ts");
+        assert!(card.contains(&format!("\"{label}\"")), "{card}");
         assert!(card.contains("__devpageUses = [\"Callout\"]"), "{card}");
-        let (status, helper) = get(&format!(
-            "{base}/__devpage/widgets/docs/widgets/label?v={version}"
-        ))
-        .await;
+        let response = reqwest::get(format!("{base}{label}")).await.unwrap();
+        assert_eq!(
+            response.headers()["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
+        assert!(response.text().await.unwrap().contains("label"));
+        // Any other version answers with the current module, never immutable.
+        for stale in [
+            "/__devpage/widgets/docs/widgets/Card.tsx?v=0123456789abcdef",
+            "/__devpage/widgets/docs/widgets/Card.tsx",
+        ] {
+            let response = reqwest::get(format!("{base}{stale}")).await.unwrap();
+            assert_eq!(response.headers()["cache-control"], "no-cache", "{stale}");
+            assert_eq!(response.text().await.unwrap(), card, "{stale}");
+        }
+        let (status, helper) = get(&format!("{base}/__devpage/widgets/docs/widgets/label")).await;
         assert_eq!(status, 200, "an import without an extension finds the .ts");
         assert!(helper.contains("label"), "{helper}");
+        let system = crate::addresses::address(crate::addresses::Owned::SystemWidget("Tabs"));
+        let response = reqwest::get(format!("{base}{system}")).await.unwrap();
+        assert_eq!(
+            response.headers()["cache-control"],
+            "public, max-age=31536000, immutable"
+        );
 
         let (_, broken) = get(&format!("{base}/__devpage/widgets/docs/widgets/Broken.tsx")).await;
         assert!(broken.starts_with("throw new Error("), "{broken}");
@@ -1220,7 +1344,10 @@ mod tests {
         let (_, page) = get(&format!("{base}/docs/README.md")).await;
         assert!(page.contains("<script type=\"importmap\">"), "{page}");
         assert!(
-            page.contains("\"Callout\":\"/__devpage/system-widgets/Callout.tsx\""),
+            page.contains(&format!(
+                "\"Callout\":\"{}\"",
+                crate::addresses::address(crate::addresses::Owned::SystemWidget("Callout"))
+            )),
             "{page}"
         );
         assert_eq!(
@@ -1229,5 +1356,145 @@ mod tests {
             "code is left alone: {page}"
         );
         assert!(page.contains("<strong>bold</strong>"), "{page}");
+    }
+
+    /// `GET url`, with `headers`: the status, the response headers and the
+    /// body's bytes, as sent.
+    async fn fetch(
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> (u16, reqwest::header::HeaderMap, Vec<u8>) {
+        let mut request = reqwest::Client::new().get(url);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.send().await.unwrap();
+        let status = response.status().as_u16();
+        let headers = response.headers().clone();
+        (status, headers, response.bytes().await.unwrap().to_vec())
+    }
+
+    #[tokio::test]
+    async fn every_asset_is_immutable_at_its_content_address_and_answers_at_any_other() {
+        let dir = served("assets");
+        let base = serve(&dir, "docs").await;
+        let (_, page) = get(&format!("{base}/docs/README.md")).await;
+        for asset in crate::addresses::ASSETS {
+            let address = crate::addresses::address(crate::addresses::Owned::Asset(asset.name));
+            if !matches!(
+                asset.name,
+                "design.js" | "design-engine.js" | "design-engine.wasm" | "react.js"
+            ) {
+                assert!(page.contains(&address), "{} not in {page}", asset.name);
+            }
+            let (status, headers, body) = fetch(&format!("{base}{address}"), &[]).await;
+            assert_eq!(status, 200, "{address}");
+            assert_eq!(
+                headers["cache-control"],
+                "public, max-age=31536000, immutable"
+            );
+            assert_eq!(headers["content-type"], asset.mime);
+            assert_eq!(body, asset.identity, "{address}");
+            let (stem, ext) = asset.name.split_once('.').unwrap();
+            for old in [
+                asset.name.to_string(),
+                format!("{stem}.0123456789abcdef.{ext}"),
+            ] {
+                let (status, headers, body) = fetch(&format!("{base}/__devpage/{old}"), &[]).await;
+                assert_eq!(status, 200, "{old}");
+                assert_eq!(headers["cache-control"], "no-cache", "{old}");
+                assert!(headers.contains_key("etag"), "{old}");
+                assert_eq!(body, asset.identity, "{old}");
+            }
+        }
+        assert_eq!(
+            fetch(&format!("{base}/__devpage/nope.js"), &[]).await.0,
+            404
+        );
+    }
+
+    #[tokio::test]
+    async fn an_asset_is_sent_compressed_as_the_browser_accepts() {
+        use std::io::Read;
+        let dir = served("encodings");
+        let base = serve(&dir, "docs").await;
+        let pele = crate::addresses::address(crate::addresses::Owned::Asset("pele.js"));
+        let identity = crate::addresses::ASSETS
+            .iter()
+            .find(|a| a.name == "pele.js")
+            .unwrap()
+            .identity;
+        let url = format!("{base}{pele}");
+
+        let (_, headers, body) =
+            fetch(&url, &[("accept-encoding", "gzip, deflate, br, zstd")]).await;
+        assert_eq!(headers["content-encoding"], "br");
+        assert_eq!(headers["vary"], "Accept-Encoding");
+        let mut decoded = Vec::new();
+        brotli::Decompressor::new(&body[..], 4096)
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, identity);
+        let br_tag = headers["etag"].clone();
+
+        let (_, headers, body) = fetch(&url, &[("accept-encoding", "gzip")]).await;
+        assert_eq!(headers["content-encoding"], "gzip");
+        let mut decoded = Vec::new();
+        flate2::read::GzDecoder::new(&body[..])
+            .read_to_end(&mut decoded)
+            .unwrap();
+        assert_eq!(decoded, identity);
+        assert_ne!(
+            headers["etag"], br_tag,
+            "each encoding is its own representation"
+        );
+
+        let (_, headers, body) = fetch(&url, &[]).await;
+        assert!(!headers.contains_key("content-encoding"));
+        assert_eq!(body, identity);
+
+        let tag = br_tag.to_str().unwrap();
+        let (status, headers, body) =
+            fetch(&url, &[("accept-encoding", "br"), ("if-none-match", tag)]).await;
+        assert_eq!(status, 304);
+        assert!(body.is_empty());
+        assert_eq!(headers["etag"], tag);
+    }
+
+    #[tokio::test]
+    async fn a_page_and_an_image_answer_304_when_unchanged() {
+        let dir = served("validators");
+        std::fs::write(dir.join("docs/logo.png"), b"\x89PNG not really").unwrap();
+        let base = serve(&dir, "docs").await;
+        for path in ["/docs/README.md", "/docs/logo.png", "/docs/devpage.yml"] {
+            let url = format!("{base}{path}");
+            let (status, headers, _) = fetch(&url, &[]).await;
+            assert_eq!(status, 200, "{path}");
+            assert_eq!(headers["cache-control"], "no-cache", "{path}");
+            let tag = headers["etag"].to_str().unwrap().to_string();
+            assert!(tag.starts_with('"'), "a strong ETag: {tag}");
+            let (status, headers, body) = fetch(&url, &[("if-none-match", &tag)]).await;
+            assert_eq!(status, 304, "{path}");
+            assert!(body.is_empty(), "{path}");
+            assert_eq!(headers["etag"], tag.as_str());
+            // A proxy that weakened it still matches.
+            let weak = format!("W/{tag}");
+            assert_eq!(fetch(&url, &[("if-none-match", &weak)]).await.0, 304);
+        }
+        let url = format!("{base}/docs/README.md");
+        let tag = fetch(&url, &[]).await.1["etag"]
+            .to_str()
+            .unwrap()
+            .to_string();
+        std::fs::write(dir.join("docs/README.md"), "# Home, edited\n").unwrap();
+        let (status, headers, _) = fetch(&url, &[("if-none-match", &tag)]).await;
+        assert_eq!(status, 200);
+        assert_ne!(headers["etag"], tag.as_str());
+        // The streams carry no validator and are never held back.
+        let events = reqwest::get(format!("{base}/__devpage/events"))
+            .await
+            .unwrap();
+        assert_eq!(events.status(), 200);
+        assert!(!events.headers().contains_key("etag"));
     }
 }

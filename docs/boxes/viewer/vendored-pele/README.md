@@ -29,12 +29,16 @@ taken from.
 
 ## How devpage uses it
 
-`src/server.rs` compiles the bundle into the binary with `include_str!` and
-serves it at `/__devpage/pele.js` — see
-[built-in assets](../serving-pages/README.md#built-in-assets). Every page loads
-it before `devpage.js`. One function of it is used, by the `Diagram`
+`build.rs` builds the bundle into the binary as a module — it appends
+`export default pele;`, so the vendored file stays exactly as published — and
+devpage serves it at its content address, `/__devpage/pele.<hash>.js` — see
+[built-in assets](../serving-pages/README.md#built-in-assets). Every page's
+import map names it `pele`, and the `Diagram`
 [system widget](../widgets/system-widgets/README.md) (`assets/widgets/Diagram.tsx`)
-that every `<pre lang="mermaid">` block is mounted as: `pele.render(source)`
+that every `<pre lang="mermaid">` block is mounted as imports it from there. So
+only a page with a diagram loads it, and that page preloads it from its head
+([the load set](../rendering-a-page/README.md#the-load-set)). One function of
+it is used: `pele.render(source)`
 returns an object whose `svg` string the widget renders, and a thrown error
 becomes the
 [diagram error block](../diagrams/README.md#when-a-diagram-fails). The bundle exports more — zoom
@@ -56,7 +60,7 @@ There is no package manager step and no script; an upgrade is done by hand:
    the version and for any newly bundled third-party notices.
 
 2. Rebuild and restart
-   The bundle is embedded with `include_str!`, so a running devpage keeps
+   The bundle is embedded in the binary, so a running devpage keeps
    serving the old one until it is rebuilt and restarted (`cargo run -- docs`,
    or `cargo install --path .` again for an installed copy).
 

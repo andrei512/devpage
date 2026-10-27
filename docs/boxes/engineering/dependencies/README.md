@@ -1,7 +1,7 @@
 # Dependencies
 
 Every crate devpage depends on, with the version `Cargo.lock` resolves and
-what devpage uses it for, and the build script and builder that make what it
+what devpage uses it for, and the build scripts and builder that make what it
 embeds. It is a reference page under
 [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
@@ -14,7 +14,7 @@ in `design/`; `devpage-design-wasm`, the engine built for the browser, in
 two that are published, together, at a release
 ([Release](../sdlc/stages/README.md#release)); the other two never are. Each
 crate's list is its `[dependencies]` and `[build-dependencies]`, and
-`devpage`'s one `[dev-dependencies]` entry, marked below. The roles below say
+`devpage`'s `[dev-dependencies]`, marked below. The roles below say
 what each crate does in devpage. Why a crate was chosen over another is recorded nowhere,
 except where a code comment says so, and this page doesn't guess.
 
@@ -64,7 +64,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
-| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — into devpage's cache folder the first time one is needed. | `src/pdf.rs`, `src/slide_png.rs`, `src/video.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
+| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/pdf.rs`, `src/slide_png.rs`, `src/video.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
 
 ## Video
 
@@ -77,17 +77,30 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server`) | 0.2.0 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
+| `devpage-design` (feature `server`) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/designs.rs`, `src/server.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/server.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/server.rs` |
 | `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/designs.rs` (tests) |
 
-`devpage` has no build script and builds no WebAssembly: the binary embeds
-the vendored `assets/vendor/design-engine.wasm` and
-`assets/vendor/design-engine.js` as the
-[built-in assets](../../viewer/serving-pages/README.md#built-in-assets)
-`/__devpage/design-engine.wasm` and `/__devpage/design-engine.js`.
+## Caching
+
+| Crate | Locked version | Licence | What devpage uses it for | Where |
+| --- | --- | --- | --- | --- |
+| `sha2` | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `build.rs`, `src/addresses.rs`, `src/widgets.rs`, `src/validators.rs` |
+| `brotli` (build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `build.rs`, `src/server.rs` (tests) |
+| `flate2` (build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `build.rs`, `src/server.rs` (tests) |
+
+`devpage`'s build script, `build.rs`, makes the asset manifest: each
+[built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
+references to other assets rewritten to their content addresses, hashed,
+and compressed once into `OUT_DIR` — a compressed file is named by its
+content's hash, so it is made again only when the asset changes, and the
+files of an asset's earlier versions are removed — and devpage's build id, a hash of everything the binary is built from.
+`src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
+binary embeds the vendored `assets/vendor/design-engine.wasm` and
+`assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
+and `design-engine.js`.
 
 ## Errors
 
@@ -109,7 +122,7 @@ of message types, and the proto ships inside the crate. `devpage` turns
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |
-| `parley` | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. | `design/src/render.rs` |
+| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render.rs` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU; samples a shadow's shape before the painter blurs it. | `design/src/render.rs` |
 | `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; encoding test images. | `design/src/resolve.rs`, `design/src/render.rs` (tests) |
 | `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |
@@ -125,7 +138,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` | 0.2.0 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `devpage-design` | 0.2.1 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
 | `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: the display list replayed into a vello scene and drawn with WebGPU through `wgpu`. | `design/wasm/src/gpu.rs` |
 | `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu.rs` |

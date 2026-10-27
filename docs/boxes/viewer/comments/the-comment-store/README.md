@@ -61,8 +61,8 @@ page's problems ([Checking links](../../checking-links/README.md)) and left alon
 ## The requests
 
 The page script asks for the threads of every Markdown file it shows — a
-page, each chapter of a doc, each slide of a deck — when it loads, and writes
-through four requests:
+page, each chapter of a doc, each slide of a deck, never a widget — all at
+once, when it loads, and writes through four requests:
 
 | Request | Does |
 | --- | --- |

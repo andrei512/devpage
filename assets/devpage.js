@@ -14,9 +14,10 @@ const comments = !print && !document.currentScript.hasAttribute("data-no-comment
 
 // ---- Widgets --------------------------------------------------------------
 // The server leaves each widget as a placeholder carrying its name, its props'
-// source and its content rendered as Markdown; Mermaid fences stay as
-// <pre lang="mermaid"> and become Diagram widgets here. Each placeholder is
-// mounted with React, on load and after every live update.
+// source, its own source (`data-widget-source`) and its content rendered as
+// Markdown; Mermaid fences stay as <pre lang="mermaid"> and become Diagram
+// widgets here. Each placeholder is mounted with React, on load and in every
+// page swapped in.
 
 const widgetModules = {};
 
@@ -30,9 +31,13 @@ const widgetUrls = {};
 const widgetLoadErrors = {};
 
 // Loads a widget's module, again when its address changed — an edited widget
-// or helper gives the folder a new version — puts its exported CSS in the page
-// once, and loads the widgets it renders by name, which it lists.
-async function loadWidget(name) {
+// or helper gives the folder a new version — and puts its exported CSS in the
+// page once. Then does the same for the widgets it renders by name, which it
+// lists, and theirs in turn, whether or not its own address changed: an edited
+// widget rendered by name inside an unchanged one has a new address while the
+// outer one keeps its own. `seen` stops a cycle of widgets rendering each other.
+async function loadWidget(name, seen = new Set()) {
+  seen.add(name);
   const url = (window.devpageWidgets || {})[name];
   if (!url) throw new Error(`<${name}> is not a widget`);
   if (widgetUrls[name] !== url) {
@@ -45,9 +50,6 @@ async function loadWidget(name) {
       throw error;
     }
     widgetUrls[name] = url;
-    await Promise.all((widgetModules[name].__devpageUses || []).map((used) => loadWidget(used)
-      .then(() => { delete widgetLoadErrors[used]; })
-      .catch((error) => { widgetLoadErrors[used] = error; })));
     document.head.querySelector(`style[data-widget="${name}"]`)?.remove();
     const css = widgetModules[name].css;
     if (css) {
@@ -57,27 +59,73 @@ async function loadWidget(name) {
       document.head.append(style);
     }
   }
-  return widgetModules[name];
+  const module = widgetModules[name];
+  await Promise.all((module.__devpageUses || []).filter((used) => !seen.has(used)).map((used) => loadWidget(used, seen)
+    .then(() => { delete widgetLoadErrors[used]; })
+    .catch((error) => { widgetLoadErrors[used] = error; })));
+  return module;
 }
 
-async function mountWidgets(root) {
+// Every React root mounted, by the element it renders into; and for each
+// outermost one, what it was mounted from (`keyOf`).
+const roots = new Map();
+const keys = new Map();
+
+// Turns the content's Mermaid fences into Diagram placeholders and returns
+// its outermost placeholders.
+function placeholdersIn(root) {
   for (const pre of root.querySelectorAll('pre[lang="mermaid"]')) {
     const placeholder = document.createElement("div");
     placeholder.dataset.widget = "Diagram";
     placeholder.dataset.props = "{}";
-    placeholder.dataset.source = pre.textContent;
+    placeholder.dataset.widgetSource = pre.textContent;
     pre.replaceWith(placeholder);
   }
-  const placeholders = [...root.querySelectorAll("[data-widget]")].filter((el) => !el.parentElement.closest("[data-widget]"));
+  return [...root.querySelectorAll("[data-widget]:not(style)")].filter((el) => !el.parentElement.closest("[data-widget]"));
+}
+
+// What an outermost placeholder mounts from: its HTML as the server sent it,
+// and the address of every widget it can render — those it names, nested
+// ones included, and those they render by name. An address changes exactly
+// when its compiled module would, so the same key mounts the same thing.
+function keyOf(placeholder) {
+  const names = new Set([placeholder, ...placeholder.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
+  for (const name of names) for (const used of widgetModules[name]?.__devpageUses ?? []) names.add(used);
+  const urls = window.devpageWidgets || {};
+  return [placeholder.outerHTML, ...[...names].sort().map((name) => `${name} ${urls[name] ?? ""}`)].join("\n");
+}
+
+// Unmounts every root no longer in the page, which stops its effects and
+// timers and lets the design script close the streams of designs in it.
+function unmountGone() {
+  for (const [el, root] of roots) {
+    if (el.isConnected) continue;
+    roots.delete(el);
+    keys.delete(el);
+    try {
+      root.unmount();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
+async function mountWidgets(root) {
+  const placeholders = placeholdersIn(root);
   if (!placeholders.length) return;
-  const React = await import("react");
-  const { createRoot } = await import("react-dom/client");
   // Only the widgets this content names, nested ones included, and those they
-  // render by name.
+  // render by name, transitively (`loadWidget`) — loaded alongside React, not
+  // after it.
   const names = new Set([...root.querySelectorAll("[data-widget]")].map((el) => el.dataset.widget));
-  await Promise.all([...names].map((name) => loadWidget(name)
-    .then(() => { delete widgetLoadErrors[name]; })
-    .catch((error) => { widgetLoadErrors[name] = error; })));
+  const [React, { createRoot }] = await Promise.all([
+    import("react"),
+    import("react-dom/client"),
+    ...[...names].map((name) => loadWidget(name)
+      .then(() => { delete widgetLoadErrors[name]; })
+      .catch((error) => { widgetLoadErrors[name] = error; })),
+  ]);
+  // Keyed before mounting, while each holds what the server sent.
+  for (const el of placeholders) keys.set(el, keyOf(el));
 
   class Boundary extends React.Component {
     constructor(props) { super(props); this.state = { error: null }; }
@@ -129,13 +177,14 @@ async function mountWidgets(root) {
     if (!component) return React.createElement("pre", { className: "widget-error", key }, `<${name}>: ${widgetLoadErrors[name]?.message ?? "could not be loaded"}`);
     // Nested widgets are plain elements, so a parent reads their props — a
     // Tabs reads each Tab's title; the outermost one catches what they throw.
-    return React.createElement(component, { ...props, key, source: node.dataset.source ?? "", sourceHtml: node.dataset.sourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
+    return React.createElement(component, { ...props, key, source: node.dataset.widgetSource ?? "", sourceHtml: node.dataset.widgetSourceHtml, html: node.innerHTML, children: children.length ? children : undefined });
   };
 
   const mount = (els) => Promise.all(els.map((el) => new Promise((resolve) => {
     el.dataset.mounted = "";
     const element = React.createElement(Boundary, { name: el.dataset.widget }, widgetElement(el, 0));
     const root = createRoot(el);
+    roots.set(el, root);
     root.render(React.createElement(Mounted, { onMount: resolve }, element));
   })));
   await mount(placeholders);
@@ -173,6 +222,7 @@ function markBroken(root) {
 let designScript = null;
 function drawDesigns() {
   if (!designScript && !document.querySelector("canvas.design")) return;
+  // build.rs rewrites the address to design.js's content address.
   designScript ??= import("/__devpage/design.js");
   designScript
     .then((designs) => designs.scan())
@@ -189,57 +239,212 @@ function drawDesigns() {
     });
 }
 
-// A page fetched again keeps the canvases it already has: each embedded
-// design still in the page keeps its drawing and its stream. They never leave
-// this document — a canvas moved between documents may lose its context. An
-// embed inside a widget is React's to make again; the design script carries
-// what it shows across that instead.
-function keepDesigns(swap) {
-  const outside = (embed) => !embed.closest("[data-widget]");
-  const kept = [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside);
-  swap();
-  for (const embed of [...document.querySelectorAll("#devpage-page .design-embed")].filter(outside)) {
-    // By selector: a problems bar can sit before the canvas.
-    const src = embed.querySelector("canvas.design")?.getAttribute("src");
-    const at = kept.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);
-    if (at >= 0) embed.replaceWith(kept.splice(at, 1)[0]);
+// What a swap keeps of the page shown. Each outermost widget whose key — what
+// it was mounted from — matches one in the fresh page stays as it is, state
+// and all: the fresh placeholder gives way to a marker, and the old element
+// takes the marker's place when the page is committed. Each embedded design
+// outside a widget keeps its canvas — its drawing and its stream — when the
+// fresh page embeds the same design. Kept elements never leave this document:
+// a canvas moved between documents may lose its context.
+function keepUnchanged(page, staging) {
+  const mounted = [...keys.keys()].filter((el) => page.contains(el));
+  const kept = [];
+  for (const placeholder of placeholdersIn(staging)) {
+    const key = keyOf(placeholder);
+    const at = mounted.findIndex((old) => keys.get(old) === key);
+    if (at < 0) continue;
+    const marker = document.createElement("template");
+    placeholder.replaceWith(marker);
+    kept.push([marker, mounted.splice(at, 1)[0]]);
   }
+  // Called in the commit, once the fresh page is mounted.
+  return () => {
+    const outside = (embed) => !embed.closest("[data-widget]");
+    const designs = [...page.querySelectorAll(".design-embed")].filter(outside);
+    for (const embed of [...staging.querySelectorAll(".design-embed")].filter(outside)) {
+      // By selector: a problems bar can sit before the canvas.
+      const src = embed.querySelector("canvas.design")?.getAttribute("src");
+      const at = designs.findIndex((old) => old.querySelector("canvas.design")?.getAttribute("src") === src);
+      if (at >= 0) embed.replaceWith(designs.splice(at, 1)[0]);
+    }
+    for (const [marker, old] of kept) marker.replaceWith(old);
+  };
 }
 
 // The frame a body was rendered in: its classes, less `show-comments`, which
-// this script adds while the comments are shown and no fetched page carries.
+// this script adds while the comments are shown and no fetched page carries;
+// and the devpage build that rendered it, so a page from a new build — a new
+// page script, a new stylesheet — is loaded whole.
 function frameOf(body) {
-  return [...body.classList].filter((name) => name !== "show-comments").sort().join(" ");
+  const classes = [...body.classList].filter((name) => name !== "show-comments").sort();
+  return [...classes, `build:${body.dataset.build}`].join(" ");
 }
 
-// Fetches a page of this document and swaps its content and sidebar in.
-async function load(url) {
-  const response = await fetch(url, { cache: "no-store" });
+// The page shown: its address and the ETag it was served with. A fetch that
+// finds the same ETag at the same address has nothing to swap. The page this
+// script was loaded with is in the browser's cache already: its ETag comes
+// from there, without asking the server.
+const pageKey = (url) => { const u = new URL(url, location.href); u.hash = ""; return u.href; };
+let shown = { url: pageKey(location.href), etag: null };
+const seeded = print ? Promise.resolve() : fetch(location.href, { cache: "only-if-cached", mode: "same-origin" })
+  .then((response) => { if (response.ok && shown.etag === null) shown.etag = response.headers.get("etag"); })
+  .catch(() => {});
+
+// Starts what a fetched page names in its head — its modules and the design
+// engine's wasm — here, so they download together before mounting asks for
+// them. A link this page has already is not added twice.
+function adoptPreloads(next) {
+  for (const link of next.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]')) {
+    const href = link.getAttribute("href");
+    const known = [...document.head.querySelectorAll(`link[rel="${link.rel}"]`)].some((have) => have.getAttribute("href") === href);
+    if (!known) document.head.append(document.importNode(link, true));
+  }
+}
+
+// ---- History --------------------------------------------------------------
+// The path shown — its pathname and query, not its #fragment: moving within
+// a page (a slide, a heading) is the browser's alone and fetches nothing.
+// The script restores the scroll itself: each history entry keeps the reader's
+// `scrollY` from when they left it.
+
+const pathOf = (url) => { const u = new URL(url, location.href); return u.pathname + u.search; };
+let shownPath = pathOf(location.href);
+if (!print) history.scrollRestoration = "manual";
+
+function remember() {
+  history.replaceState({ ...history.state, scrollY }, "");
+}
+
+// Scrolls to the element a #fragment names; false when there is none.
+function toFragment(hash) {
+  const id = decodeURIComponent(hash.slice(1));
+  const target = id ? document.getElementById(id) : null;
+  target?.scrollIntoView();
+  return !!target;
+}
+
+// ---- Swapping a page in ---------------------------------------------------
+// One path for every swap — a live update, a tab shown again, a link, back and
+// forward: fetch, stage, commit. The fresh page is mounted off-screen, inside
+// a hidden copy of the page's frame in this document, so widgets that measure
+// themselves can; the commit then puts it in place in one task, so no frame
+// ever shows a page half built. One load runs at a time: a newer one makes the
+// older one stale, and live updates that come during a load make one more
+// load after it.
+
+let loads = 0;
+let controller = null;
+let running = null;
+let again = false;
+
+// Loads `url` and swaps it in. `how` is "live" (the page shown, again: the
+// scroll stays), "push" (a link: pushed onto the history, then its #fragment
+// or the top) or "traverse" (back or forward: the history is there already,
+// and so is the scroll the reader left it at). Resolves true once swapped in
+// or found unchanged, false when it can't be (the caller lets the browser load
+// it), "navigating" when the page is loaded whole, and "stale" when a newer
+// load took over.
+function load(url, how = "live") {
+  const generation = ++loads;
+  controller?.abort();
+  controller = new AbortController();
+  const loading = swap(new URL(url, location.href), how, generation, controller.signal)
+    .catch((error) => {
+      if (error.name === "AbortError") return "stale";
+      console.error("devpage: the page couldn't be swapped in", error);
+      return false;
+    })
+    .finally(() => {
+      if (running !== loading) return;
+      running = null;
+      if (again) {
+        again = false;
+        load(location.href);
+      }
+    });
+  running = loading;
+  return loading;
+}
+
+// A live update or a catch-up: the page shown, loaded again — after the load
+// in flight, if there is one, however many come during it.
+function refresh() {
+  if (running) again = true;
+  else load(location.href);
+}
+
+async function swap(url, how, generation, signal) {
+  const stale = () => generation !== loads;
+  await seeded;
+  const response = await fetch(url, { cache: "no-cache", signal });
+  if (stale()) return "stale";
   if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) return false;
+  const etag = response.headers.get("etag");
+  if (etag && etag === shown.etag && pageKey(url) === shown.url) return true;
   const next = new DOMParser().parseFromString(await response.text(), "text/html");
+  if (stale()) return "stale";
   // A different frame — a fixed document file replacing its problem page, or
   // a document that changed kind — can't be swapped in part: load it whole.
   if (frameOf(next.body) !== frameOf(document.body)) {
-    location.assign(url);
+    if (how === "push") location.assign(url);
+    else location.replace(url);
     return "navigating";
   }
-  keepDesigns(() => {
-    for (const id of ["devpage-page", "devpage-nav", "devpage-navbar"]) {
-      const fresh = next.getElementById(id);
-      if (fresh) document.getElementById(id)?.replaceChildren(...fresh.childNodes);
-    }
-  });
+  adoptPreloads(next);
+  // The fresh page names its widgets' current versions.
+  const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
+  if (list) new Function(list.textContent)();
+
+  // Stage: the fresh content in a hidden copy of the page's frame.
+  const page = document.getElementById("devpage-page");
+  const fresh = next.getElementById("devpage-page");
+  const staging = document.createElement(page.tagName);
+  staging.className = fresh?.className ?? page.className;
+  staging.inert = true;
+  staging.style.cssText = `position: absolute; top: 0; left: 0; width: ${page.getBoundingClientRect().width}px; visibility: hidden; pointer-events: none;`;
+  if (fresh) staging.append(...fresh.childNodes);
+  document.body.append(staging);
+  const keep = keepUnchanged(page, staging);
+  showSlide(staging);
+  const drop = () => {
+    staging.remove();
+    unmountGone();
+  };
+  try {
+    await mountWidgets(staging);
+  } catch (error) {
+    drop();
+    throw error;
+  }
+  if (stale()) {
+    drop();
+    return "stale";
+  }
+
+  // Commit, in one task.
+  const scroll = scrollY;
+  keep();
+  page.className = staging.className;
+  page.replaceChildren(...staging.childNodes);
+  staging.remove();
+  for (const id of ["devpage-nav", "devpage-navbar"]) {
+    const part = next.getElementById(id);
+    if (part) document.getElementById(id)?.replaceChildren(...part.childNodes);
+  }
+  shown = { url: pageKey(url), etag };
+  if (how === "push") history.pushState(null, "", url);
+  shownPath = pathOf(url);
   document.getElementById("devpage-navbar")?.classList.remove("open");
   applyTheme();
   applyCommentMode();
   document.title = next.title;
-  // The fresh page names its widgets' current versions.
-  const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
-  if (list) new Function(list.textContent)();
-  await mountWidgets(document.getElementById("devpage-page"));
-  drawDesigns();
-  markBroken(document.getElementById("devpage-page"));
   showSlide();
+  markBroken(page);
+  if (how === "live") scrollTo(scrollX, scroll);
+  else if (how === "traverse" && typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
+  else if (!toFragment(url.hash)) scrollTo(0, 0);
+  unmountGone();
+  drawDesigns();
   loadComments();
   return true;
 }
@@ -254,27 +459,30 @@ document.addEventListener("click", async (event) => {
   const url = new URL(link.getAttribute("href"), location.href);
   if (url.origin !== location.origin || !url.pathname.endsWith(".md")) return;
   event.preventDefault();
-  if (url.pathname === location.pathname) {
+  remember();
+  if (pathOf(url) === shownPath) {
     if (url.hash) location.hash = url.hash;
     return;
   }
-  const loaded = await load(url);
-  // A page of another kind loads whole; touching history now would cancel it.
-  if (loaded === "navigating") return;
-  if (loaded) {
-    history.pushState(null, "", url);
-    if (url.hash) document.querySelector(url.hash)?.scrollIntoView();
-    else window.scrollTo(0, 0);
-  } else {
-    location.href = url;
-  }
+  if ((await load(url, "push")) === false) location.href = url;
 });
 
+// Back and forward: within the page shown, only the slide and the scroll
+// move; to another page, it is swapped in.
+window.addEventListener("popstate", () => {
+  if (pathOf(location.href) !== shownPath) {
+    load(location.href, "traverse");
+    return;
+  }
+  showSlide();
+  if (typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
+  else if (location.hash) toFragment(location.hash);
+});
 
 // ---------------------------------------------------------------------------
 // Comments: threads anchored to rendered text, kept by the server in
-// .devpage/comments/. Each element with a data-source is one Markdown file's
-// text — a page, a doc's chapter or a deck's slide.
+// .devpage/comments/. Each element in the page with a data-source is one
+// Markdown file's text — a page, a doc's chapter or a deck's slide.
 //
 // One text model serves both ends: a section's text is its text nodes in order
 // with every run of whitespace collapsed to one space. A new comment's quote,
@@ -282,7 +490,7 @@ document.addEventListener("click", async (event) => {
 // searching the same text, so nested lists, tables and code anchor the same
 // way they were quoted.
 
-const sources = () => [...document.querySelectorAll("[data-source]")];
+const sources = () => [...document.querySelectorAll("#devpage-page [data-source]")];
 const CONTEXT = 32;
 
 // The section's normalised text, and for each of its characters the text node
@@ -370,18 +578,18 @@ function panel() {
   return aside;
 }
 
-// Fetches every source's threads, then marks and lists them in one go; a
-// newer call that finishes first wins, so overlapping refreshes never mix.
+// Fetches every source's threads, all at once, then marks and lists them in
+// one go; a newer call that finishes first wins, so overlapping refreshes
+// never mix.
 let commentsGeneration = 0;
 async function loadComments() {
   if (!comments) return;
   const generation = ++commentsGeneration;
-  const fetched = [];
-  for (const section of sources()) {
+  const fetched = await Promise.all(sources().map(async (section) => {
     const page = section.dataset.source;
-    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-store" });
-    fetched.push({ section, page, threads: response.ok ? await response.json() : [] });
-  }
+    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
+    return { section, page, threads: response.ok ? await response.json() : [] };
+  }));
   if (generation !== commentsGeneration) return;
   document.querySelectorAll("mark.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
   sources().forEach((section) => section.normalize());
@@ -658,8 +866,6 @@ document.addEventListener("mouseup", (event) => {
 });
 // ---------------------------------------------------------------------------
 
-window.addEventListener("popstate", () => load(location.href));
-
 // The live-update stream, open only while the tab is visible.
 let stream = null;
 
@@ -670,7 +876,7 @@ function connect() {
     if (event.data.startsWith("comments ")) {
       if (sources().some((s) => s.dataset.source === event.data.slice(9))) loadComments();
     } else {
-      load(location.href);
+      refresh();
     }
   };
 }
@@ -686,16 +892,21 @@ document.addEventListener("visibilitychange", () => {
     disconnect();
   } else {
     connect();
-    load(location.href); // catch up on changes made while hidden
+    refresh(); // catch up on changes made while hidden
   }
 });
-window.addEventListener("pagehide", disconnect);
+window.addEventListener("pagehide", () => {
+  disconnect();
+  // A reload comes back to where the reader was.
+  if (!print) remember();
+});
 
 // A deck shows one slide at a time, scaled to the window; its number is the
-// address's #fragment.
-function showSlide() {
-  const slides = [...document.querySelectorAll(".deck .slide")];
-  if (!slides.length || print) return;
+// address's #fragment. `page` is the page shown, or a fresh one being staged.
+function showSlide(page = document.getElementById("devpage-page")) {
+  if (print || !page?.classList.contains("deck")) return;
+  const slides = [...page.children].filter((el) => el.classList.contains("slide"));
+  if (!slides.length) return;
   const index = Math.min(Math.max(parseInt(location.hash.slice(1)) || 1, 1), slides.length);
   const scale = Math.min(innerWidth / 1920, innerHeight / 1080);
   const left = (innerWidth - 1920 * scale) / 2, top = (innerHeight - 1080 * scale) / 2;
@@ -745,6 +956,7 @@ mountWidgets(document).catch((error) => console.error(error)).finally(() => {
   drawDesigns();
   markBroken(document);
   showSlide();
+  if (!print && typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
   followOutline();
   loadComments();
   // Print mode has no live connection; Chrome waits for this — every widget

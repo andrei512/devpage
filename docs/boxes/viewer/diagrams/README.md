@@ -27,7 +27,9 @@ browser, each one is rendered by the `Diagram`
 [system widget](../widgets/system-widgets/README.md#diagram), which hands it to
 **pele** — a Mermaid renderer built into the viewer (version 1.10.0, vendored at
 `assets/vendor/pele.js`; see [the vendored pele bundle](../vendored-pele/README.md))
-— and replaces the block with the SVG it returns. Diagrams are drawn when a
+— and replaces the block with the SVG it returns. A page with a diagram names
+the widget and pele in its head, so both arrive with the page; a page without
+one never loads pele. Diagrams are drawn when a
 page first loads and again every time its content is swapped in, by a live
 update or by following a link.
 

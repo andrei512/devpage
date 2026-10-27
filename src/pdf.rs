@@ -8,12 +8,21 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use chromiumoxide::browser::{Browser, BrowserConfig};
 use chromiumoxide::cdp::browser_protocol::page::PrintToPdfParams;
-use chromiumoxide::fetcher::{BrowserFetcher, BrowserFetcherOptions, BrowserKind};
+use chromiumoxide::fetcher::{
+    BrowserFetcher, BrowserFetcherOptions, BrowserHost, BrowserKind, BrowserVersion, BuildInfo,
+    Platform, Version,
+};
 use futures::StreamExt;
 use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind, Paper, Pdf};
 use crate::server;
+
+/// The version of chrome-headless-shell and Chrome for Testing devpage
+/// drives. Pinned, so finding the browser makes no network call: the cached
+/// copy is used, and only a missing one is downloaded, as that version's zip.
+/// It moves with chromiumoxide, whose DevTools protocol it must speak.
+pub(crate) const CHROME_VERSION: (u32, u32, u32, u32) = (156, 0, 8078, 47);
 
 /// Prints `document` to `output`.
 pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
@@ -56,18 +65,11 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     // prints it: every slide of a deck is shown in print, so an embedded
     // design on any slide is fitted and painted where it will print.
     let page = browser.new_page("about:blank").await?;
+    shot(&page).await?;
     page.emulate_media_type(chromiumoxide::page::MediaTypeParams::Print)
         .await?;
     page.goto(url.as_str()).await?;
-    // devpage.js marks the page ready once its diagrams are drawn; each
-    // embedded design marks its canvas once it is painted.
-    for _ in 0..400 {
-        let ready: bool = page.evaluate(READY).await?.into_value()?;
-        if ready {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    wait_ready(&page, &url).await?;
     let bytes = page.pdf(params).await.context("printing")?;
     std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))?;
 
@@ -79,9 +81,50 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
 }
 
 /// True once the page is ready to print: its diagrams drawn and every
-/// embedded design painted.
+/// embedded design that is laid out — on a slide being shown, or anywhere in
+/// print — painted, or settled showing its problems. A design on a hidden
+/// slide has no layout and never paints, so it doesn't count.
 pub(crate) const READY: &str = "document.documentElement.dataset.ready === 'true' \
-    && [...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')";
+    && [...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility()).every((c) => c.dataset.painted)";
+
+/// What a page that isn't ready still waits for, for the log.
+const MISSING: &str = "[document.documentElement.dataset.ready === 'true' ? null : 'its diagrams', \
+    ...[...document.querySelectorAll('canvas.design')] \
+        .filter((c) => c.checkVisibility() && !c.dataset.painted) \
+        .map((c) => `the design ${c.getAttribute('src')}`)] \
+    .filter(Boolean).join(', ')";
+
+/// Waits up to 20 s for `page`, showing `url`, to be [`READY`]. False when it
+/// never was: what it still waited for is logged, and the caller goes on with
+/// the page as it is.
+pub(crate) async fn wait_ready(page: &chromiumoxide::Page, url: &str) -> Result<bool> {
+    for _ in 0..400 {
+        if page.evaluate(READY).await?.into_value::<bool>()? {
+            return Ok(true);
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let missing: String = page.evaluate(MISSING).await?.into_value()?;
+    eprintln!("{url} wasn't ready after 20 s, still waiting for {missing}");
+    Ok(false)
+}
+
+/// The header a page devpage's own Chrome shoots — a slide's PNG, or
+/// `devpage pdf` — sends with every request it makes. A slide's PNG asked for
+/// with it is never drawn, only answered from the cache, so a slide showing
+/// its own PNG can't shoot itself without end.
+pub(crate) const SHOT_HEADER: &str = "X-Devpage-Shot";
+
+/// Marks every request `page` makes with [`SHOT_HEADER`].
+pub(crate) async fn shot(page: &chromiumoxide::Page) -> Result<()> {
+    use chromiumoxide::cdp::browser_protocol::network::{Headers, SetExtraHttpHeadersParams};
+    page.execute(SetExtraHttpHeadersParams::new(Headers::new(
+        serde_json::json!({ SHOT_HEADER: "1" }),
+    )))
+    .await?;
+    Ok(())
+}
 
 /// The file `devpage pdf` writes when `-o` names none: the document's title,
 /// with the characters a file name can't hold replaced by `-`.
@@ -170,19 +213,64 @@ async fn fetch(kind: BrowserKind, name: &str) -> Result<std::path::PathBuf> {
     } else {
         Path::new(&home).join(".cache/devpage").join(name)
     };
-    std::fs::create_dir_all(&cache)?;
+    install(kind, name, &cache, BrowserHost::current(kind)).await
+}
+
+/// Downloads `kind` at [`CHROME_VERSION`] from `host` into `cache` unless it
+/// is there already, and returns the program.
+async fn install(
+    kind: BrowserKind,
+    name: &str,
+    cache: &Path,
+    host: BrowserHost,
+) -> Result<std::path::PathBuf> {
+    let (major, minor, build, patch) = CHROME_VERSION;
+    let version = Version::exact(major, minor, build, patch);
+    let Some(platform) = platform() else {
+        bail!(
+            "{name} {version} has no build for {} on {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        );
+    };
+    let url = kind.download_url(platform, &BuildInfo::version(version.to_string()), &host);
+    std::fs::create_dir_all(cache)?;
     let fetcher = BrowserFetcher::new(
         BrowserFetcherOptions::builder()
-            .with_path(&cache)
+            .with_host(host)
+            .with_path(cache)
             .with_kind(kind)
+            .with_platform(platform)
+            .with_version(BrowserVersion::Version(version))
             .build()
             .map_err(anyhow::Error::msg)?,
     );
-    let info = fetcher
-        .fetch()
-        .await
-        .with_context(|| format!("downloading {name} into {}", cache.display()))?;
+    let info = fetcher.fetch().await.with_context(|| {
+        format!(
+            "downloading {name} {version} for {} from {url} into {}",
+            kind.folder(platform),
+            cache.display()
+        )
+    })?;
     Ok(info.executable_path)
+}
+
+/// The platform whose build of Chrome this machine runs, if Chrome for
+/// Testing has one the fetcher knows. There is none for Linux on Arm.
+fn platform() -> Option<Platform> {
+    if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+        Some(Platform::Linux)
+    } else if cfg!(all(target_os = "macos", target_arch = "x86_64")) {
+        Some(Platform::Mac)
+    } else if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+        Some(Platform::MacArm)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86")) {
+        Some(Platform::Win32)
+    } else if cfg!(all(target_os = "windows", target_arch = "x86_64")) {
+        Some(Platform::Win64)
+    } else {
+        None
+    }
 }
 
 /// The print call for a doc: its paper, and its header and footer, whose
@@ -217,6 +305,118 @@ fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Where the pinned Chrome's programs sit in a cache folder, on the
+    /// platforms the tests run on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn pinned_programs() -> [(BrowserKind, &'static str, std::path::PathBuf); 2] {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = format!("{major}.{minor}.{build}.{patch}");
+        let platform = cft_platform();
+        let folder = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac_arm"
+        } else {
+            "mac"
+        };
+        let folder = Path::new(&format!("{folder}-{version}")).to_path_buf();
+        let chrome = if cfg!(target_os = "linux") {
+            Path::new("chrome").to_path_buf()
+        } else {
+            Path::new("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
+                .to_path_buf()
+        };
+        [
+            (
+                BrowserKind::ChromeHeadlessShell,
+                "chrome-headless-shell",
+                folder
+                    .join(format!("chrome-headless-shell-{platform}"))
+                    .join("chrome-headless-shell"),
+            ),
+            (
+                BrowserKind::Chrome,
+                "chrome-for-testing",
+                folder.join(format!("chrome-{platform}")).join(chrome),
+            ),
+        ]
+    }
+
+    /// The cached copy is used with no network call: the host is an address
+    /// nothing listens on.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn the_pinned_chrome_already_in_the_cache_is_used_as_it_is() {
+        let caches = std::env::temp_dir().join(format!("devpage-pinned-{}", std::process::id()));
+        for (kind, name, program) in pinned_programs() {
+            let cache = caches.join(name);
+            let program = cache.join(program);
+            std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+            std::fs::write(&program, "").unwrap();
+            let nowhere = BrowserHost::single("http://127.0.0.1:9");
+            assert_eq!(install(kind, name, &cache, nowhere).await.unwrap(), program);
+        }
+        std::fs::remove_dir_all(&caches).ok();
+    }
+
+    /// A failed download says which browser, version, platform and address.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[tokio::test]
+    async fn a_failed_download_names_the_browser_version_platform_and_address() {
+        let cache =
+            std::env::temp_dir().join(format!("devpage-unreachable-{}", std::process::id()));
+        let nowhere = BrowserHost::single("http://127.0.0.1:9");
+        let error = install(
+            BrowserKind::ChromeHeadlessShell,
+            "chrome-headless-shell",
+            &cache,
+            nowhere,
+        )
+        .await
+        .unwrap_err();
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let platform = cft_platform();
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "downloading chrome-headless-shell {major}.{minor}.{build}.{patch} for {platform} \
+                 from http://127.0.0.1:9/chrome-for-testing-public/{major}.{minor}.{build}.{patch}/{platform}/chrome-headless-shell-{platform}.zip \
+                 into {}",
+                cache.display()
+            )
+        );
+        std::fs::remove_dir_all(&cache).ok();
+    }
+
+    /// Chrome for Testing's name for this machine's platform.
+    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    fn cft_platform() -> &'static str {
+        if cfg!(target_os = "linux") {
+            "linux64"
+        } else if cfg!(target_arch = "aarch64") {
+            "mac-arm64"
+        } else {
+            "mac-x64"
+        }
+    }
+
+    /// Both browsers' zips exist at [`CHROME_VERSION`] for every platform.
+    /// Needs the network; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn the_pinned_chrome_can_be_downloaded_for_every_platform() {
+        let (major, minor, build, patch) = CHROME_VERSION;
+        let version = BuildInfo::version(format!("{major}.{minor}.{build}.{patch}"));
+        let client = reqwest::Client::new();
+        for kind in [BrowserKind::ChromeHeadlessShell, BrowserKind::Chrome] {
+            for &platform in Platform::all() {
+                let url = kind.download_url(platform, &version, &BrowserHost::current(kind));
+                let response = client.head(&url).send().await.unwrap();
+                assert_eq!(response.status(), reqwest::StatusCode::OK, "{url}");
+            }
+        }
+    }
 
     #[test]
     fn the_default_file_name_is_the_title_made_safe() {
@@ -259,6 +459,28 @@ mod tests {
                 (numbers[2] - numbers[0], numbers[3] - numbers[1])
             })
             .collect()
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_design_with_problems_does_not_delay_a_pdf() {
+        let dir = std::env::temp_dir().join(format!("devpage-pdf-problems-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("broken.design"), "<Frame width={400} height={300}").unwrap();
+        std::fs::write(dir.join("doc.md"), "# Doc\n\n![Broken](broken.design)\n").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let document = Arc::new(Document::load(&dir.join("doc.md"), &dir).unwrap());
+        let output = dir.join("doc.pdf");
+        let started = std::time::Instant::now();
+        print(document, &output).await.unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(!pages(&std::fs::read(&output).unwrap()).is_empty());
     }
 
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
@@ -591,11 +813,42 @@ mod tests {
         tokio::task::JoinHandle<()>,
         Profile,
     ) {
+        let (browser, page, events, profile, _) = open_logged(dir, path).await;
+        (browser, page, events, profile)
+    }
+
+    /// Every request the server answered, as `(path, status)`, in order.
+    type Answered = Arc<std::sync::Mutex<Vec<(String, u16)>>>;
+
+    /// [`open`], also keeping every request the server answers.
+    async fn open_logged(
+        dir: &Path,
+        path: &str,
+    ) -> (
+        Browser,
+        chromiumoxide::Page,
+        tokio::task::JoinHandle<()>,
+        Profile,
+        Answered,
+    ) {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let answered = Answered::default();
+        let log = answered.clone();
+        let router = server::router(document, changes, Some(server::Identity::Local("T".into())))
+            .layer(axum::middleware::from_fn(
+                move |request: axum::extract::Request, next: axum::middleware::Next| {
+                    let log = log.clone();
+                    async move {
+                        let path = request.uri().path().to_string();
+                        let response = next.run(request).await;
+                        log.lock().unwrap().push((path, response.status().as_u16()));
+                        response
+                    }
+                },
+            ));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (browser, mut handler) =
@@ -618,7 +871,132 @@ mod tests {
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        (browser, page, events, profile)
+        (browser, page, events, profile, answered)
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_none() {
+        use chromiumoxide::cdp::browser_protocol::network::{
+            EnableParams, EventRequestWillBeSent, InitiatorType, ResourceType,
+        };
+        let dir = widget_folder(
+            "one-round-trip",
+            "# Home\n\n<Card />\n\n```mermaid\nflowchart LR\n  A --> B\n```\n\n![Checkout](checkout.design)\n",
+            &[
+                (
+                    "docs/widgets/Card.tsx",
+                    "import { label } from \"./label\";\nexport default function Card() { return <Tabs><Tab title={label}>x</Tab></Tabs>; }\n",
+                ),
+                ("docs/widgets/label.ts", "export const label = 'l';\n"),
+                ("docs/plain.md", "# Plain\n\nJust text.\n"),
+                ("docs/checkout.design", ""),
+            ],
+        );
+        // A plain page fetches neither pele nor React, nor any widget.
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/plain.md").await;
+        assert_eq!(
+            text(&page, "String(document.documentElement.dataset.ready)").await,
+            "true"
+        );
+        let log = answered.lock().unwrap().clone();
+        assert!(
+            log.iter()
+                .any(|(p, _)| p.starts_with("/__devpage/devpage.")),
+            "{log:?}"
+        );
+        assert!(
+            !log.iter()
+                .any(|(p, _)| p.contains("pele") || p.contains("react") || p.contains("widgets")),
+            "{log:?}"
+        );
+        let address = page.url().await.unwrap().unwrap();
+        let address = address.split("/docs/").next().unwrap().to_string();
+
+        // Cold — none of its modules fetched yet: every module the page
+        // imports was asked for by its head, not by a script.
+        let cold = browser.new_page("about:blank").await.unwrap();
+        cold.execute(EnableParams::default()).await.unwrap();
+        let mut sent = cold
+            .event_listener::<EventRequestWillBeSent>()
+            .await
+            .unwrap();
+        answered.lock().unwrap().clear();
+        cold.goto(format!("{address}/docs/README.md"))
+            .await
+            .unwrap();
+        for _ in 0..50 {
+            if text(&cold, "String(document.documentElement.dataset.ready)").await == "true" {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            text(
+                &cold,
+                "String(!!document.querySelector('.diagram svg') && !!document.querySelector('[data-widget=Card] .tabs'))"
+            )
+            .await,
+            "true",
+            "the diagram and the card drew"
+        );
+        let mut modules = Vec::new();
+        while let Ok(Some(event)) =
+            tokio::time::timeout(Duration::from_millis(200), sent.next()).await
+        {
+            if event.r#type == Some(ResourceType::Script)
+                && event.request.url.contains("/__devpage/")
+                && !event.request.url.contains("/__devpage/devpage.")
+            {
+                modules.push((event.request.url.clone(), event.initiator.r#type.clone()));
+            }
+        }
+        for name in [
+            "react.",
+            "pele.",
+            "Card.tsx",
+            "label.ts",
+            "Tabs.tsx",
+            "Tab.tsx",
+            "Diagram.tsx",
+            "design.",
+            "design-engine.",
+        ] {
+            assert!(
+                modules.iter().any(|(url, _)| url.contains(name)),
+                "{name} in {modules:?}"
+            );
+        }
+        let by_script: Vec<_> = modules
+            .iter()
+            .filter(|(_, initiator)| *initiator == InitiatorType::Script)
+            .collect();
+        assert!(by_script.is_empty(), "started by script: {by_script:#?}");
+        // Each downloaded once: the preload and the import agree.
+        let log = answered.lock().unwrap().clone();
+        for (url, _) in &modules {
+            let path = url[address.len()..].split('?').next().unwrap();
+            assert_eq!(
+                log.iter().filter(|(p, _)| p == path).count(),
+                1,
+                "{path} in {log:?}"
+            );
+        }
+
+        // A page loaded in place brings its preloads into the head.
+        assert_eq!(
+            text(
+                &page,
+                "load('/docs/README.md').then(() => [...document.head.querySelectorAll('link[rel=modulepreload]')].some((l) => l.href.includes('/pele.')) && !!document.querySelector('.diagram svg')).then(String)"
+            )
+            .await,
+            "true"
+        );
+        browser.close().await.ok();
+        events.abort();
     }
 
     async fn text(page: &chromiumoxide::Page, script: &str) -> String {
@@ -1051,6 +1429,490 @@ mod tests {
         assert_eq!(
             text(&page, "document.querySelector('.label').textContent").await,
             "after"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn an_edited_widget_rendered_by_name_reaches_open_pages() {
+        let dir = widget_folder(
+            "by-name",
+            "# W\n\n<Card />\n",
+            &[
+                (
+                    "docs/widgets/Card.tsx",
+                    "export default () => <div className=\"card\"><Badge /></div>;",
+                ),
+                (
+                    "docs/widgets/Badge.tsx",
+                    "export default () => <span className=\"badge\">before</span>;",
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(&page, "document.querySelector('.card .badge').textContent").await,
+            "before"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        // Badge's address moves; Card's, which names Badge only by name, doesn't.
+        std::fs::write(
+            dir.join("docs/widgets/Badge.tsx"),
+            "export default () => <span className=\"badge\">after</span>;",
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        assert_eq!(
+            text(&page, "document.querySelector('.card .badge').textContent").await,
+            "after"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_reload_downloads_nothing_again() {
+        let dir = widget_folder(
+            "reload",
+            "# W\n\n<Label />\n\n<Callout>c</Callout>\n\n```mermaid\nflowchart LR\n  a --> b\n```\n",
+            &[
+                (
+                    "docs/widgets/Label.tsx",
+                    "import { word } from \"./word\";\nexport default () => <span className=\"label\">{word}</span>;",
+                ),
+                ("docs/widgets/word.ts", "export const word = \"w\";"),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/README.md").await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "w"
+        );
+        let first = answered.lock().unwrap().len();
+        page.reload().await.unwrap();
+        for _ in 0..50 {
+            let ready: Option<String> = page
+                .evaluate("document.documentElement.dataset.ready ?? null")
+                .await
+                .ok()
+                .and_then(|v| v.into_value().ok());
+            if ready.as_deref() == Some("true") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(&page, "document.querySelector('.label').textContent").await,
+            "w"
+        );
+        // After the reload: the page and what may change revalidated (304),
+        // everything content-addressed taken from the cache unasked. The event
+        // stream reopens, as it must.
+        let again: Vec<(String, u16)> = answered.lock().unwrap()[first..]
+            .iter()
+            .filter(|(path, _)| path != "/__devpage/events" && path != "/favicon.ico")
+            .cloned()
+            .collect();
+        assert!(again.iter().all(|(_, status)| *status == 304), "{again:?}");
+        assert!(
+            again.iter().any(|(path, _)| path == "/docs/README.md"),
+            "the page itself is revalidated: {again:?}"
+        );
+        assert!(
+            !again
+                .iter()
+                .any(|(path, _)| path.starts_with("/__devpage/widgets/")
+                    || path.ends_with(".js")
+                    || path.ends_with(".css")),
+            "content-addressed files are never asked for again: {again:?}"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Samples every frame from now on into `window.sampled`: whether a slide
+    /// is shown, how many placeholders in the page are not mounted, how much
+    /// text the page shows, and the scroll position.
+    const SAMPLER: &str = "window.sampled = []; (function tick() {
+        const page = document.getElementById('devpage-page');
+        window.sampled.push({
+          slide: !!document.querySelector('#devpage-page .slide.shown'),
+          unmounted: page.querySelectorAll('[data-widget]:not([data-mounted]):not(style)').length,
+          text: page.innerText.trim().length,
+          y: scrollY,
+        });
+        requestAnimationFrame(tick);
+      })(); 0";
+
+    /// What the server answered since `from`, less the event stream.
+    fn since(answered: &Answered, from: usize) -> Vec<(String, u16)> {
+        answered.lock().unwrap()[from..]
+            .iter()
+            .filter(|(path, _)| path != "/__devpage/events" && path != "/favicon.ico")
+            .cloned()
+            .collect()
+    }
+
+    /// Polls `script` until it is true, for up to five seconds.
+    async fn until(page: &chromiumoxide::Page, script: &str) -> bool {
+        for _ in 0..50 {
+            if text(page, &format!("String(!!({script}))")).await == "true" {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        false
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_slide_change_fetches_nothing_and_every_frame_shows_a_slide() {
+        let dir = widget_folder(
+            "slide-change",
+            "# W\n",
+            &[
+                (
+                    "docs/talk.yml",
+                    "kind: slides\ntitle: T\nslides: [one.md, two.md, three.md]\n",
+                ),
+                ("docs/one.md", "# One\n\n<Callout>first</Callout>\n"),
+                ("docs/two.md", "# Two\n\nPress <Keys>→</Keys>\n"),
+                ("docs/three.md", "# Three\n"),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/talk.yml").await;
+        // The comments the page asked for on load have come.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        page.evaluate(SAMPLER).await.unwrap();
+        let from = answered.lock().unwrap().len();
+        for key in ["ArrowRight", "ArrowRight", "ArrowLeft"] {
+            page.evaluate(format!(
+                "document.dispatchEvent(new KeyboardEvent('keydown', {{ key: '{key}' }}))"
+            ))
+            .await
+            .unwrap();
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        }
+        page.evaluate("history.back()").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('.slide.shown').dataset.slide + location.hash"
+            )
+            .await,
+            "3#3"
+        );
+        assert_eq!(
+            since(&answered, from),
+            vec![],
+            "a slide change fetches nothing"
+        );
+        assert_eq!(
+            text(&page, "String(window.sampled.length > 5 && window.sampled.every((f) => f.slide && !f.unmounted))").await,
+            "true",
+            "every frame shows a slide"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn an_outline_click_scrolls_without_a_fetch() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let dir = widget_folder(
+            "outline-click",
+            "# W\n",
+            &[
+                (
+                    "docs/guide/devpage.yml",
+                    "kind: doc\ntitle: D\nchapters: [one.md]\n",
+                ),
+                (
+                    "docs/guide/one.md",
+                    &format!("# One\n\n{long}## Far down\n\n{long}"),
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/guide/devpage.yml").await;
+        let from = answered.lock().unwrap().len();
+        page.evaluate("[...document.querySelectorAll('.outline a')].find((a) => a.textContent === 'Far down').click()")
+            .await
+            .unwrap();
+        assert!(until(&page, "location.hash.endsWith('far-down') && scrollY > 500").await);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            since(&answered, from),
+            vec![],
+            "an outline click fetches nothing"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_live_update_keeps_unchanged_widgets_their_state_and_the_scroll() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let counter = "import { useState, useEffect } from \"react\";\nexport default function Counter() { const [n, setN] = useState(0); useEffect(() => () => { window.unmounted = (window.unmounted ?? 0) + 1; }, []); return <button className=\"counter\" onClick={() => setN((n) => n + 1)}>{n}</button>; }\n";
+        let readme = |text: &str| {
+            format!("# W\n\n{text}\n\n<Counter />\n\n<Callout>{text}</Callout>\n\n{long}")
+        };
+        let dir = widget_folder(
+            "keep",
+            &readme("before"),
+            &[("docs/widgets/Counter.tsx", counter)],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("document.querySelector('.counter').click(); document.querySelector('.counter').click(); window.counter = document.querySelector('.counter'); scrollTo(0, 600); 0")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "window.counter.textContent === '2' && scrollY === 600"
+            )
+            .await
+        );
+        page.evaluate(SAMPLER).await.unwrap();
+
+        // The text and the Callout change; the Counter's placeholder doesn't.
+        std::fs::write(dir.join("docs/README.md"), readme("after")).unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('.callout')?.textContent.includes('after')"
+            )
+            .await
+        );
+        assert_eq!(
+            text(&page, "[window.counter === document.querySelector('.counter'), window.counter.textContent, scrollY, window.unmounted ?? 0].join(' ')").await,
+            "true 2 600 0",
+            "the unchanged widget keeps its node and its state, and the page its scroll"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "String(window.sampled.every((f) => !f.unmounted && f.text > 0 && f.y === 600))"
+            )
+            .await,
+            "true",
+            "no frame shows an unmounted placeholder, an empty page or another scroll"
+        );
+
+        // An edited widget gets a new address: it mounts afresh, though its
+        // placeholder is the same, and the root it had is unmounted.
+        std::fs::write(
+            dir.join("docs/widgets/Counter.tsx"),
+            counter.replace("className=\"counter\"", "className=\"counter edited\""),
+        )
+        .unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        assert!(until(&page, "!!document.querySelector('.counter.edited')").await);
+        assert_eq!(
+            text(&page, "[window.counter.isConnected, document.querySelector('.counter').textContent, window.unmounted ?? 0].join(' ')").await,
+            "false 0 1"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_updates_during_a_load_make_one_more_load() {
+        let dir = widget_folder("coalesce", "# W\n\n<Callout>one</Callout>\n", &[]);
+        let (mut browser, page, events, _profile, answered) =
+            open_logged(&dir, "/docs/README.md").await;
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        std::fs::write(
+            dir.join("docs/README.md"),
+            "# W\n\n<Callout>two</Callout>\n",
+        )
+        .unwrap();
+        let from = answered.lock().unwrap().len();
+        page.evaluate("refresh(); refresh(); refresh(); refresh(); 0")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('.callout')?.textContent.includes('two')"
+            )
+            .await
+        );
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let pages = since(&answered, from)
+            .into_iter()
+            .filter(|(path, _)| path == "/docs/README.md")
+            .count();
+        assert_eq!(pages, 2, "the load, and one more after it");
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_link_swaps_in_a_whole_page_and_back_restores_the_scroll() {
+        let long = "A paragraph that takes room.\n\n".repeat(40);
+        let dir = widget_folder(
+            "navigate",
+            &format!("# W\n\n{long}[Other](other.md)\n\n{long}"),
+            &[
+                (
+                    "docs/other.md",
+                    "# Other\n\n<Label />\n\n<Callout>there</Callout>\n",
+                ),
+                (
+                    "docs/widgets/Label.tsx",
+                    "export default () => <span className=\"label\">label</span>;",
+                ),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("scrollTo(0, 900); 0").await.unwrap();
+        assert!(until(&page, "scrollY === 900").await);
+        page.evaluate(SAMPLER).await.unwrap();
+        page.evaluate("[...document.querySelectorAll('article a')].find((a) => a.textContent === 'Other').click()")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "!!document.querySelector('.label') && location.pathname.endsWith('/other.md')"
+            )
+            .await
+        );
+        assert_eq!(text(&page, "String(scrollY)").await, "0");
+        assert_eq!(
+            text(
+                &page,
+                "String(window.sampled.every((f) => !f.unmounted && f.text > 0))"
+            )
+            .await,
+            "true",
+            "no half-built frame"
+        );
+        page.evaluate("history.back()").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "location.pathname.endsWith('/README.md') && !document.querySelector('.label')"
+            )
+            .await
+        );
+        assert!(
+            until(&page, "scrollY === 900").await,
+            "back restores the scroll"
+        );
+        page.evaluate("history.forward()").await.unwrap();
+        assert!(until(&page, "!!document.querySelector('.label') && scrollY === 0").await);
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn comments_are_asked_for_each_page_source_at_once() {
+        let dir = widget_folder(
+            "comment-sources",
+            "# W\n",
+            &[
+                (
+                    "docs/talk.yml",
+                    "kind: slides\ntitle: T\nslides: [one.md, two.md, three.md]\n",
+                ),
+                (
+                    "docs/one.md",
+                    "# One\n\n<Callout>a</Callout>\n\nPress <Keys>→</Keys>\n",
+                ),
+                ("docs/two.md", "# Two\n\n<Callout>b</Callout>\n"),
+                ("docs/three.md", "# Three\n"),
+            ],
+        );
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/talk.yml").await;
+        // The comments the page asked for on load have come.
+        tokio::time::sleep(Duration::from_millis(1000)).await;
+        page.evaluate(
+            "window.asked = []; window.open_ = 0; window.peak = 0; const f = window.fetch;
+            window.fetch = async (url, options) => {
+              if (!String(url).includes('/__devpage/comments')) return f(url, options);
+              window.asked.push(decodeURIComponent(String(url).split('page=')[1]));
+              window.peak = Math.max(window.peak, ++window.open_);
+              try { return await f(url, options); } finally { window.open_--; }
+            }; loadComments(); 0",
+        )
+        .await
+        .unwrap();
+        assert!(until(&page, "window.asked.length >= 3 && window.open_ === 0").await);
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        assert_eq!(
+            text(&page, "window.asked.sort().join(',') + ' ' + window.peak").await,
+            "/docs/one.md,/docs/three.md,/docs/two.md 3",
+            "only the slides, all at once"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
+        let dir = widget_folder("untouched", "# W\n\n<Callout>c</Callout>\n", &[]);
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/README.md").await;
+        page.evaluate("window.kept = document.querySelector('#devpage-page article'); window.keptWidget = document.querySelector('.callout'); 0")
+            .await
+            .unwrap();
+        // Another file of the site changes; this page renders as it did.
+        std::fs::write(dir.join("docs/other.md"), "# Other\n").unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(
+            text(
+                &page,
+                "String(window.kept === document.querySelector('#devpage-page article') && window.keptWidget === document.querySelector('.callout'))"
+            )
+            .await,
+            "true"
+        );
+        // Its own file changes: the content is swapped.
+        std::fs::write(dir.join("docs/README.md"), "# W\n\n<Callout>d</Callout>\n").unwrap();
+        page.evaluate("load(location.href)").await.unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(
+            text(
+                &page,
+                "String(window.kept === document.querySelector('#devpage-page article')) + ':' + document.querySelector('.callout').textContent.endsWith('d')"
+            )
+            .await,
+            "false:true"
         );
         browser.close().await.ok();
         events.abort();

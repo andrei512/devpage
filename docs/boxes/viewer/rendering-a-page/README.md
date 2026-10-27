@@ -88,8 +88,8 @@ has this shape:
 
 ```html
 <html data-theme="light">
-  <head>  <!-- icon, theme script, import map, stylesheet, pele, devpage.js -->
-  <body class="site with-navbar">
+  <head>  <!-- icon, theme script, stylesheet, devpage.js, import map, load set -->
+  <body class="site with-navbar" data-build="…">
     <header id="devpage-navbar">  <!-- logo, title, links, switches -->
     <nav id="devpage-nav">        <!-- the sidebar tree -->
     <main id="devpage-page">
@@ -104,7 +104,9 @@ In detail:
   reader's stored choice, or the system's — before anything paints
   ([choosing a theme](../themes/README.md#choosing-a-theme));
 - `<body>`'s class names the frame: `site`, plus `with-navbar` and
-  `no-sidebar` as the document file says;
+  `no-sidebar` as the document file says; its `data-build` is devpage's
+  build id, so the page script loads a page from a new build whole
+  ([The page script](../page-script/README.md#swapping-a-page-in-place));
 - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
   title, its links and dropdowns with their icons drawn as inline SVG, then
   the comment-mode switch (unless comments are off) and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
@@ -115,14 +117,44 @@ In detail:
   theme selector (unless `theme-selector: false`) in
   `<div id="devpage-corner">`, top right;
 - `<main id="devpage-page"><article>` holds the rendered Markdown;
-- in `<head>`, an import map naming React (`react`, `react/jsx-runtime`,
-  `react-dom/client` → `/__devpage/react.js`) and `window.devpageWidgets`,
-  the document's widgets with the address of each
-  ([Widgets](../widgets/how-widgets-run/README.md));
-- the stylesheet and two scripts — pele, then `devpage.js` — are loaded from
+- in `<head>`, the stylesheet and the page script, `devpage.js` — `defer`, so
+  it is fetched with everything else the head names and runs once the page is
+  parsed, and `fetchpriority="high"`, so the modules don't queue ahead of
+  it — from their
+  [content addresses](../serving-pages/README.md#built-in-assets) under
   `/__devpage/`; with comments off `devpage.js` carries `data-no-comments`,
   and the script shows no threads and offers no comment
-  ([Turning comments off](../comments/README.md#turning-comments-off)).
+  ([Turning comments off](../comments/README.md#turning-comments-off));
+- then an import map naming React (`react`, `react/jsx-runtime`,
+  `react-dom/client` → React's content address,
+  `/__devpage/react.<hash>.js`) and pele (`pele` → `/__devpage/pele.<hash>.js`),
+  `window.devpageWidgets`, the document's widgets with the address of each
+  ([Widgets](../widgets/how-widgets-run/README.md)), and the page's
+  [load set](#the-load-set).
+
+### The load set
+
+Everything the page will load from devpage beyond its stylesheet and page
+script is named in its head, so the browser asks for all of it as soon as it
+reads the head — one round trip after the HTML, not one per import a script
+finds. `Widgets::head` in `src/widgets.rs` works it out from the rendered
+content:
+
+- each widget the content names (`data-widget`), and `Diagram` when it has a
+  `<pre lang="mermaid">`;
+- the widgets each of those renders by name — its compiled module's
+  `__devpageUses` — and theirs, in turn;
+- every helper a project widget's relative imports reach;
+- React, when there is any widget; pele, with a `Diagram`;
+- the design script and the engine's bindings (`design.js`,
+  `design-engine.js`), when the content embeds a design.
+
+Each is a `<link rel="modulepreload">` at exactly the address its import asks
+for — both come from `address` in `src/addresses.rs` — so nothing is
+downloaded twice. The engine's wasm, which is fetched rather than imported, is
+a `<link rel="preload" as="fetch" crossorigin fetchpriority="low">`. A page
+with none of these — plain Markdown — preloads nothing and never loads React
+or pele.
 
 Every id the frame uses starts with `devpage-` — `devpage-page`,
 `devpage-nav`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
@@ -139,4 +171,6 @@ is not, since raw HTML is allowed.
 
 Beyond the index, nothing is cached between requests: each page request
 re-reads the page, its site's document file and, to build the sidebar, every
-page the tree reaches.
+page the tree reaches. The browser keeps the page, but asks again each time:
+it is served `no-cache` with an ETag, the hash of its HTML, and answered
+`304` when it hasn't changed ([Caching](../serving-pages/README.md#caching)).

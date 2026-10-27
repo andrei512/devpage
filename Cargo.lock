@@ -18,6 +18,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2fb6cfd47bf496ff64095c20eaba0c201404ee38714d4142fcfa1dc334fcc7a"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5c1865780388bfa186411ab5f247819487fc4864c6e9c3106611fa347586e1"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -327,6 +342,27 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "brotli"
+version = "9.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6737ce8b81460bf9407909f73ff50bf13f7cb8577e1e76715f57ed0eba58ba44"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "6.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34c6783f42c21c952ad7112b354f0ba2f10760e9decea5b1b60523d6e270faaf"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -808,10 +844,12 @@ dependencies = [
  "async-tungstenite",
  "axum",
  "base64 0.22.1",
+ "brotli",
  "chromiumoxide",
  "clap",
  "comrak",
  "devpage-design",
+ "flate2",
  "futures",
  "globset",
  "ignore",
@@ -823,6 +861,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sha2",
  "syntect",
  "tokio",
  "tokio-stream",
@@ -834,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-design"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "guillotiere",
  "parley",
@@ -1157,17 +1196,9 @@ dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
  "memmap2",
- "objc2",
- "objc2-core-foundation",
- "objc2-core-text",
- "objc2-foundation",
  "parlance",
  "read-fonts",
- "roxmltree",
  "smallvec",
- "windows",
- "windows-core",
- "yeslogic-fontconfig-sys",
 ]
 
 [[package]]
@@ -2415,16 +2446,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "objc2-core-text"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cde0dfb48d25d2b4862161a4d5fcc0e3c24367869ad306b0c9ec0073bfed92d"
-dependencies = [
- "bitflags",
- "objc2-core-foundation",
-]
-
-[[package]]
 name = "objc2-encode"
 version = "4.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3660,15 +3681,6 @@ checksum = "93411e420bcd1a75ddd1dc3caf18c23155eda2c090631a85af21ba19e97093b5"
 dependencies = [
  "smallvec",
  "str_indices",
-]
-
-[[package]]
-name = "roxmltree"
-version = "0.21.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9da7f59328b09405b181fee1018925fad50f157afb43c0c0f5c522c256dd5907"
-dependencies = [
- "memchr",
 ]
 
 [[package]]
@@ -5456,17 +5468,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
 dependencies = [
  "linked-hash-map",
-]
-
-[[package]]
-name = "yeslogic-fontconfig-sys"
-version = "6.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d8b8abf912b9a29ff112e1671c97c33636903d13a69712037190e6805af4f76"
-dependencies = [
- "dlib",
- "once_cell",
- "pkg-config",
 ]
 
 [[package]]

@@ -13,6 +13,7 @@
 // drawing.
 let Applied, Design, Gpu, failure;
 try {
+  // build.rs rewrites both addresses to the files' content addresses.
   const engine = await import("/__devpage/design-engine.js");
   await engine.default({ module_or_path: "/__devpage/design-engine.wasm" });
   ({ Applied, Design, Gpu } = engine);
@@ -217,6 +218,7 @@ class Host {
       this.paint();
     } else if (applied === Applied.Problems) {
       this.showProblems(this.design.problems());
+      this.settle();
     }
   }
 
@@ -289,7 +291,9 @@ class Host {
   }
 
   // Paints on the next frame — once, however many changes arrive before it.
+  // Until then the canvas isn't painted: what it shows is about to change.
   paint() {
+    delete this.canvas.dataset.painted;
     if (this.frame) return;
     this.frame = requestAnimationFrame(() => {
       this.frame = 0;
@@ -305,7 +309,8 @@ class Host {
   }
 
   draw() {
-    if (!this.design || !this.canvas.isConnected || !this.fit()) return;
+    if (!this.design || !this.canvas.isConnected) return;
+    if (!this.fit()) return this.settle();
     // The bitmap matches the canvas's box on the screen, in device pixels.
     // The view is in CSS pixels, which a transform — a scaled slide — shrinks
     // on the screen: device pixels per view pixel are the screen's ratio
@@ -357,6 +362,14 @@ class Host {
 
   painted() {
     this.canvas.dataset.painted = "true";
+  }
+
+  // A design with problems and nothing valid to draw is as done as it will
+  // get: its problems bar is what shows, so whoever waits for the canvas to
+  // be painted — a PDF, a slide's PNG — goes on.
+  settle() {
+    if (this.frame || this.canvas.dataset.painted || !this.design?.problems().length) return;
+    this.canvas.dataset.painted = "problems";
   }
 
   // From a pointer event to the design's own pixels, through any transform
@@ -535,9 +548,8 @@ export function scan(root = document) {
       continue;
     }
     // The Markdown file the embed was written in: the nearest page, chapter
-    // or slide — not a widget around it, whose `data-source` is its own
-    // Markdown rather than an address.
-    const base = canvas.closest("[data-source]:not([data-widget])")?.dataset.source;
+    // or slide.
+    const base = canvas.closest("[data-source]")?.dataset.source;
     const path = address(canvas.getAttribute("src"), new URL(base ?? location.pathname, location.origin));
     const at = page ? -1 : carried.findIndex((state) => state.src === canvas.getAttribute("src"));
     const state = at >= 0 ? carried.splice(at, 1)[0] : null;

@@ -251,7 +251,9 @@ save costs the page's main thread under 1 ms instead of 6 to 17.
 The server keeps every design it has been asked for **resolved in memory** —
 its scene or its problems — with every file resolving it asked for, missing
 ones included, and the text of every file it read (`src/designs.rs`). When the
-[watcher](../live-updates/README.md#the-watcher) reports a changed file, the
+[watcher](../live-updates/README.md#the-watcher) reports a changed file —
+any file not under `.git` and not `.gitignore`d, unless a site's `watch`
+names it — the
 store forgets that file's text, and only the designs that asked for it are
 parsed and resolved again; their other files come from memory, and no other
 design is touched. A save can land while a design is being resolved, after
@@ -347,14 +349,19 @@ A page that embeds designs does the same for each `<canvas>` it holds, all
 through the page's one stream, closed while the tab is hidden like the
 [event stream](../live-updates/README.md#why-one-stream-per-tab) and closed
 when an in-place navigation leaves no design on the page. The page script
-loads the design script only on a page that has a design. An embedded
+loads the design script only on a page that has a design, and such a page
+names the design script, the engine's bindings and its wasm in its head, so
+the browser fetches all three alongside the page's other modules
+([the load set](../rendering-a-page/README.md#the-load-set)). An embedded
 design navigates inside its own canvas, with a back stack of its own, so the
 page around it stays where it is; and when the page fetches itself again, each
 embedded canvas still in it is kept with its drawing, and the stream changes
-only if the set of designs did. A canvas inside a widget is made again when
-React mounts the widget afresh; the design script hands the new canvas the
-old one's design and back stack, by its `src`, and reopens the stream so it
-gets its whole scene.
+only if the set of designs did. A canvas inside a widget is kept with the
+widget when the widget is unchanged, and made again when React mounts the
+widget afresh; the design script then hands the new canvas the old one's
+design and back stack, by its `src`, and reopens the stream so it gets its
+whole scene. A widget that leaves the page is unmounted, and its designs
+leave the stream.
 
 ## Failure modes
 

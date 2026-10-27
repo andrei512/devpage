@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 222 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 53 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 244 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 148 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 170 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,8 +27,9 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 53 tests marked `#[ignore]`, all drive Chrome, and one of them also
-calls GPT-Live.
+Of the 70 tests marked `#[ignore]`, 69 drive Chrome, and one of them also
+calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
+so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
@@ -59,10 +60,9 @@ Nine tests save a file and wait for devpage to hear of it through `notify`:
   `the_watch_list_follows_the_entry_file`,
   `a_sites_watch_list_narrows_only_its_own_folder`,
   `the_entrys_watch_list_does_not_quiet_another_folder` and
-  `widget_files_refresh_whatever_watch_says` (of the other two,
-  `ignored_files_and_files_outside_watch_do_not_refresh` expects no event and
-  `a_changed_file_reaches_the_design_store` waits for none, so both pass
-  either way);
+  `widget_files_refresh_whatever_watch_says` (of the others,
+  `ignored_files_and_files_outside_watch_do_not_refresh` expects no event,
+  and the rest feed made-up events, so they pass either way);
 - `server::the_entry_document_follows_its_file_without_a_restart`;
 - two Chrome tests in `comments::browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
@@ -75,6 +75,14 @@ about the change under test; run them where file events work before calling
 the suite green.
 
 ## By module
+
+### `addresses`
+
+*3 tests.*
+
+- Every built-in asset at its content address, the hash of its bytes; its bare name and a stale hash finding it, not as current.
+- An asset naming the others by their content addresses.
+- A system widget's address carrying its own version.
 
 ### `check`
 
@@ -115,7 +123,7 @@ In Chrome:
 
 ### `designs`
 
-*19 tests, 28 in Chrome.*
+*20 tests, 29 in Chrome.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
@@ -124,6 +132,7 @@ In Chrome:
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
 - Nothing outside the served folder read.
+- A design's PNG answering `304` from its scene without painting, until a design it uses changes.
 - A PNG, or `422` and the problems, and `404` for a design outside the served folder or missing.
 - A design as the entry document; the canvas page titled without `.design`.
 - The design service answering only `Watch`.
@@ -146,7 +155,7 @@ In Chrome:
 - The backdrop's link opening the design it shows on its canvas page; a small design not enlarged on its canvas page.
 - A doc printing its embedded design; a doc with eight embeds printing as fast as one with one.
 - Eight embedded designs painting through one stream while the page still loads; leaving the last design in place closing the stream.
-- An embed with problems surviving a page refetch.
+- An embed with problems surviving a page refetch; a swap keeping a design outside a widget's canvas and dropping a removed widget's design from the stream.
 - The canvas page's light/dark switch repainting what a design leaves transparent and remembered across a reload, and leaving the problems bar whole in light and dark; an embedded design painting again when the page switches theme.
 - A design inside a project widget on a slide not yet shown drawing once shown, inside the slide, and printing promptly.
 - An embed inside a widget keeping the design it navigated to, and its way back, across a page refetch.
@@ -209,10 +218,16 @@ In Chrome:
 
 ### `pdf`
 
-*2 tests, 16 in Chrome.*
+*4 tests, 27 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
+- The pinned Chrome and Chrome for Testing already in a cache folder used as they are, with no network call.
+- A failed download naming the browser, its version, the platform and the address.
+
+On the network:
+
+- Both browsers' zips at the pinned version answering `200` for every platform.
 
 In Chrome:
 
@@ -221,20 +236,29 @@ In Chrome:
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
 - The navbar folding into a menu on a narrow screen.
 - The fixture doc on A4 with its header and footer.
+- A doc embedding a design with problems printed without waiting for it.
 - The devpage talk one 16:9 page per slide.
-- A deck's keys.
+- A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
+- A doc's outline click scrolling without a fetch.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
-- Widgets mounting again after a live update and an edited widget or helper reaching open pages.
+- A plain page fetching neither pele nor React nor any widget; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
+- Widgets mounting again after a live update and an edited widget or helper reaching open pages, a widget rendered by name inside an unchanged one too.
+- A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
+- A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
+- A live update keeping an unchanged widget's node and state and the scroll, with no frame showing an unmounted placeholder; an edited widget mounting afresh and its old root unmounted.
+- Live updates during a load making one more load after it, not one each.
+- A link swapping in a page built off-screen, at the top, and back and forward restoring each page's scroll.
+- Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
 - A printed doc showing each widget's first render, terminal lines wrapping on paper.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
 
 ### `render`
 
-*16 tests.*
+*21 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -248,14 +272,19 @@ In Chrome:
 - Links kept for chapters and slides from other folders.
 - A one-file doc's title.
 - A page's title.
+- A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
+- The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading nothing, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
 
 ### `server`
 
-*14 tests.*
+*17 tests.*
 
 - A slide's PNG address answering `404` with the reason for a slide the deck doesn't have, a number written otherwise than plainly, and a file that isn't a deck.
-- Widgets served compiled, for the document they belong to, with versioned helper imports.
+- Widgets served compiled, for the document they belong to, each helper imported by its own address; `immutable` at the current version, `no-cache` at any other.
+- Every built-in asset `immutable` at its content address, its bare name and a stale hash answering `no-cache`, and the page naming them.
+- An asset sent as brotli or gzip as `Accept-Encoding` takes, each with its own ETag, and `304` for a holder of it.
+- A page, an image and a document file answering `304` to a strong or weakened ETag until they change; the event stream carrying none.
 - A page naming its widgets and carrying their placeholders, code left alone.
 - A site's page printing as a doc of one chapter.
 - `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back.
@@ -270,9 +299,20 @@ In Chrome:
 
 ### `slide_png`
 
-*1 test in Chrome.*
+*5 tests in Chrome.*
 
 - A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
+- A slide beside one with a design drawn in under 3 seconds, without waiting for the design; the design's own slide drawn with it painted.
+- A slide showing its own PNG answered promptly.
+- A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot, `508` there for one not drawn — until a change, after which the slide is drawn again.
+- Chrome closed when told, and started again for the next shot.
+
+### `validators`
+
+*2 tests.*
+
+- `If-None-Match` compared the weak way, as a list, and `*`.
+- Brotli preferred over gzip, and an encoding with `q=0` refused.
 
 ### `video`
 
@@ -306,7 +346,7 @@ In Chrome:
 
 ### `watch`
 
-*8 tests.*
+*12 tests.*
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
@@ -316,9 +356,16 @@ In Chrome:
 - Widget files refreshing whatever `watch` says.
 - A changed file reaching the design store, and none under `.devpage/`, handed over directly, without waiting on file-system events.
 
+Without waiting on file-system events, fed made-up `notify` events:
+
+- Paths under `target/`, `.git/`, a `.gitignore`d folder and `.devpage/` dropped before any listener hears of them or any is canonicalized.
+- A comment thread and a `.gitignore`d file a site's `watch` names still arriving.
+- A new `.gitignore` rule taking effect without a restart.
+- A burst of saves to one file sending one `change`.
+
 ### `widgets`
 
-*25 tests.*
+*27 tests.*
 
 - `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
@@ -326,10 +373,11 @@ In Chrome:
 - A `Tab` outside a `Tabs` reported at its page line.
 - Nested and inline widgets, an inline widget at the start of a line staying in its paragraph.
 - `Example`'s highlighted source.
-- TSX compiled with the automatic runtime, widget shims, `__devpageUses` and versioned relative imports.
+- TSX compiled with the automatic runtime, widget shims, `__devpageUses` and relative imports rewritten to the addresses given.
 - A compile error's line.
-- Compiles remembered until the source or version changes.
-- A folder's version moving when a helper changes.
+- Compiles remembered until the source or an import's address changes.
+- A version and compiled bytes made from one reading of the files, whatever is saved in between.
+- An edited helper changing its own version and its importers' — through another widget too — and no other widget's; a helper created, edited and removed after its importer was read moving the importer's version; the names a widget can render part of its version.
 - Lowercase files as helpers and a system widget's name as a problem.
 - A `Cards` icon drawn on the server and an unknown icon name as a problem.
 
