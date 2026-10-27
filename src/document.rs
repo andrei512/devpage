@@ -214,7 +214,7 @@ impl Slide {
     /// Reads a slide's notes from its file.
     fn read(file: PathBuf) -> Self {
         let source = std::fs::read_to_string(&file).unwrap_or_default();
-        let first = crate::widgets::notes(&source).into_iter().next();
+        let first = crate::markup::notes(&source).into_iter().next();
         let (notes, delivery) = match first {
             Some(note) => (Some(note.text), note.delivery),
             None => (None, None),
@@ -316,7 +316,7 @@ impl Document {
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
                 served,
-                title: crate::render::title(&text, &file),
+                title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
                     chapters: vec![base.join(&file_name)],
                     pdf: Pdf::default(),

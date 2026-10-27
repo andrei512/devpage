@@ -7,12 +7,15 @@ mod comments;
 mod designs;
 mod diagrams;
 mod document;
+mod external;
 mod highlight;
 mod icons;
 mod index;
+mod markup;
 mod nav;
 mod navbar;
 mod pdf;
+mod problem;
 mod render;
 mod search;
 mod server;
@@ -91,7 +94,7 @@ async fn main() -> Result<()> {
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served,
         )?;
-        let problems = check::document(&document, true).await;
+        let problems = check::document(&document, Some(&external::External::http(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -128,7 +131,9 @@ async fn main() -> Result<()> {
     let designs = designs::Designs::new(document.served.clone());
 
     let (changes, _) = broadcast::channel(16);
-    check::announce_on(changes.clone());
+    let preview = Arc::new(check::Preview::new(external::External::http(Some(
+        changes.clone(),
+    ))));
     let _watcher = watch::start(
         entry.clone(),
         index.clone(),
@@ -160,7 +165,15 @@ async fn main() -> Result<()> {
         Some(server::Identity::Header(cli.user_header))
     };
     let shots = slide_png::Shots::new(&changes);
-    let router = server::router_with_index(entry, index, designs, changes, comments, shots.clone());
+    let router = server::router_with_index(
+        entry,
+        index,
+        designs,
+        changes,
+        comments,
+        shots.clone(),
+        preview,
+    );
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

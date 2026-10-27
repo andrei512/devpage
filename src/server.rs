@@ -19,9 +19,11 @@ use tokio::sync::broadcast;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::BroadcastStream;
 
+use crate::check::Preview;
 use crate::comments::{Anchor, Store};
 use crate::designs::Designs;
 use crate::document::{self, Document, Entry, Kind};
+use crate::external::External;
 use crate::index::Index;
 use crate::render;
 use crate::slide_png::Shots;
@@ -37,6 +39,8 @@ struct AppState {
     designs: Designs,
     /// Slides as images: the Chrome that draws them and what it drew.
     shots: Shots,
+    /// The problems each page lists above itself.
+    preview: Arc<Preview>,
 }
 
 /// Comments on: where threads are kept, and who writes them.
@@ -96,6 +100,7 @@ pub fn router(
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let designs = Designs::new(document.served.clone());
     let shots = Shots::new(&changes);
+    let preview = Arc::new(Preview::new(External::http(Some(changes.clone()))));
     router_with_index(
         Arc::new(Entry::new(document)),
         index,
@@ -103,13 +108,14 @@ pub fn router(
         changes,
         comments,
         shots,
+        preview,
     )
 }
 
 /// The server, sharing the entry document and the index the watcher keeps
 /// current, logging every request. `comments` names who writes them, or is
 /// `None` when comments are off (`--no-comments`); `shots` draws its slides'
-/// PNGs.
+/// PNGs; `preview` finds the problems each page lists.
 pub fn router_with_index(
     entry: Arc<Entry>,
     index: Arc<Index>,
@@ -117,8 +123,9 @@ pub fn router_with_index(
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
     shots: Shots,
+    preview: Arc<Preview>,
 ) -> Router {
-    quiet(entry, index, designs, changes, comments, shots).layer(middleware::from_fn(log))
+    quiet(entry, index, designs, changes, comments, shots, preview).layer(middleware::from_fn(log))
 }
 
 /// The server for `devpage pdf` and `devpage video`, which serves only Chrome
@@ -134,6 +141,7 @@ pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> 
         changes,
         Some(Identity::Local(String::new())),
         shots,
+        Arc::new(Preview::new(External::http(None))),
     )
 }
 
@@ -144,6 +152,7 @@ fn quiet(
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
     shots: Shots,
+    preview: Arc<Preview>,
 ) -> Router {
     routes(AppState {
         comments: comments.map(|identity| {
@@ -157,6 +166,7 @@ fn quiet(
         index,
         changes,
         shots,
+        preview,
     })
 }
 
@@ -332,7 +342,7 @@ async fn file(
     let served = &entry.served;
     if document::kind_of(&file).is_some() {
         return match Document::load(&file, served) {
-            Ok(document) => show(&document, print, state.comments_on()),
+            Ok(document) => show(&document, print, state.comments_on(), &state.preview),
             Err(error) => {
                 Html(render::invalid(&entry, &file, &format!("{error:#}"))).into_response()
             }
@@ -355,7 +365,15 @@ async fn file(
             .map(|site| (Document::load(&site, served), site));
         return match site {
             Some((Ok(site), _)) => {
-                Html(render::page(&site, &file, &source, state.comments_on())).into_response()
+                let found = state.preview.problems(&site, std::slice::from_ref(&file));
+                Html(render::page(
+                    &site,
+                    &file,
+                    &source,
+                    state.comments_on(),
+                    &found,
+                ))
+                .into_response()
             }
             Some((Err(error), site)) => {
                 Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
@@ -370,7 +388,7 @@ async fn file(
                     {
                         doc.widgets = site.widgets;
                     }
-                    show(&doc, print, state.comments_on())
+                    show(&doc, print, state.comments_on(), &state.preview)
                 }
                 Err(error) => {
                     (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
@@ -463,15 +481,30 @@ async fn slide_png(
     response
 }
 
-/// A document as its kind: a site opens on its root page.
-fn show(document: &Document, print: bool, comments: bool) -> Response {
+/// A document as its kind: a site opens on its root page. Printed, a page
+/// lists no problems, so none are looked for.
+fn show(document: &Document, print: bool, comments: bool, preview: &Preview) -> Response {
+    let found = |pages: &[std::path::PathBuf]| {
+        if print {
+            Vec::new()
+        } else {
+            preview.problems(document, pages)
+        }
+    };
     match &document.kind {
         Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
         Kind::Doc { chapters, pdf } => {
-            Html(render::doc(document, chapters, pdf, print, comments)).into_response()
+            let found = found(chapters);
+            Html(render::doc(
+                document, chapters, pdf, print, comments, &found,
+            ))
+            .into_response()
         }
         Kind::Slides { slides, .. } => {
-            Html(render::slides(document, slides, print, comments)).into_response()
+            let files: Vec<std::path::PathBuf> =
+                slides.iter().map(|slide| slide.file.clone()).collect();
+            let found = found(&files);
+            Html(render::slides(document, slides, print, comments, &found)).into_response()
         }
         Kind::Design => Redirect::temporary(&document.entry()).into_response(),
     }
@@ -1034,6 +1067,7 @@ mod tests {
             changes.clone(),
             None,
             Shots::new(&changes),
+            crate::check::Preview::shared(),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -1302,6 +1336,7 @@ mod tests {
             changes.clone(),
             Some(Identity::Local("T".into())),
             Shots::new(&changes),
+            crate::check::Preview::shared(),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());

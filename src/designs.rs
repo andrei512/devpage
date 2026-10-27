@@ -950,6 +950,7 @@ mod tests {
             changes.clone(),
             Some(Identity::Local("T".into())),
             crate::slide_png::Shots::new(&changes),
+            crate::check::Preview::shared(),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -1134,7 +1135,7 @@ mod tests {
         )
         .unwrap();
         let document = Document::load(&dir.join("page.md"), &dir).unwrap();
-        let problems: Vec<String> = crate::check::document(&document, false)
+        let problems: Vec<String> = crate::check::document(&document, None)
             .await
             .iter()
             .map(|p| p.to_string())
@@ -1442,7 +1443,7 @@ mod tests {
         )
         .unwrap();
         let document = Document::load(&dir.join("page.md"), &dir).unwrap();
-        let problems = crate::check::document(&document, false).await;
+        let problems = crate::check::document(&document, None).await;
         assert_eq!(problems.len(), 1, "{problems:?}");
         let shown = problems[0].to_string();
         assert!(
@@ -1452,7 +1453,7 @@ mod tests {
         assert!(shown.contains("lable"), "{shown}");
 
         let design = Document::load(&dir.join("app/screen.design"), &dir).unwrap();
-        let problems = crate::check::document(&design, false).await;
+        let problems = crate::check::document(&design, None).await;
         assert_eq!(problems.len(), 1, "{problems:?}");
         assert!(
             problems[0].to_string().starts_with("app/screen.design:5:"),

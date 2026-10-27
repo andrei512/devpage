@@ -3,8 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::check::Problem;
 use crate::document::{Document, NavItem, NavLink};
+use crate::problem::Problem;
 use crate::{icons, nav};
 
 /// Where a navbar link goes: an address on the web as written, or a file in
