@@ -142,7 +142,7 @@ so whoever writes a slide's notes — an agent, usually — can look at the slid
 they are writing for. A number the deck doesn't have, or a file that isn't a
 deck, answers 404 with the reason.
 
-**When it is taken.** Once the slide's diagrams are drawn and every design on
+**When it is taken.** Once the slide's widgets have mounted and every design on
 the slide is painted — a design on another slide isn't shown, so it isn't
 waited for, and a design with problems and nothing valid to draw counts once
 its problems show. A slide that still isn't ready after 20 seconds is taken as

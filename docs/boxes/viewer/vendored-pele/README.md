@@ -1,7 +1,7 @@
 # The vendored pele bundle
 
 What pele is in devpage — a third-party JavaScript bundle copied into the
-repository that draws Mermaid diagrams in the browser — where it came from,
+repository that draws Mermaid diagrams on the server — where it came from,
 its version and licences, how devpage calls it, and how to upgrade it. It is a
 mechanism page under the [viewer](../README.md), for someone about to replace
 the bundle or change how diagrams are drawn; how to write a diagram is in
@@ -29,23 +29,31 @@ taken from.
 
 ## How devpage uses it
 
-`build.rs` builds the bundle into the binary as a module — it appends
-`export default pele;`, so the vendored file stays exactly as published — and
-devpage serves it at its content address, `/__devpage/pele.<hash>.js` — see
-[built-in assets](../serving-pages/README.md#built-in-assets). Every page's
-import map names it `pele`, and the `Diagram`
-[system widget](../widgets/system-widgets/README.md) (`assets/widgets/Diagram.tsx`)
-that every `<pre lang="mermaid">` block is mounted as imports it from there. So
-only a page with a diagram loads it, and that page preloads it from its head
-([the load set](../rendering-a-page/README.md#the-load-set)). One function of
-it is used: `pele.render(source)`
-returns an object whose `svg` string the widget renders, and a thrown error
-becomes the
-[diagram error block](../diagrams/README.md#when-a-diagram-fails). The bundle exports more — zoom
-controls, mounting, registering diagram types — and devpage calls none of it.
+The bundle is compiled into the binary (`include_str!` in `src/diagrams.rs`)
+and run by the server only: the [diagram engine](../diagrams/README.md#the-diagram-engine)
+loads it into QuickJS once, on its own thread, and draws every `mermaid` fence
+with it while it renders a page. It is not a [built-in asset](../serving-pages/README.md#built-in-assets):
+no page loads it, and the browser never runs it.
 
-pele colors its SVG with `--pele-*` CSS variables; `assets/style.css` sets
-them from devpage's theme tokens on every `.diagram`. The mapping is in
+QuickJS is a bare JavaScript engine, with no `URL`. pele uses `URL` for one
+thing — to lowercase the scheme and host of an `http:` or `https:` `click`
+target — and leaves a target out of the drawing when `new URL` throws, so the
+engine defines a small `URL` before loading the bundle: it parses
+`scheme://host/rest`, lowercases the scheme and host, and writes the address
+back with a space as `%20` and `/` as the path of a bare host, as a browser's
+would. Nothing else of the browser is there; pele finds no canvas to measure
+text with and sizes labels from its own table of character widths.
+
+One function of the bundle is used: `pele.render(source)` returns an object
+whose `svg` string goes into the page, and a thrown error becomes the
+[diagram error block](../diagrams/README.md#when-a-diagram-fails) and a
+[problem](../diagrams/README.md#checking-diagrams-before-committing). The
+bundle exports more — zoom controls, mounting, registering diagram types —
+and devpage calls none of it.
+
+pele colors its SVG with `--pele-*` CSS variables, which stay variables in the
+SVG; `assets/style.css` sets them from devpage's theme tokens on every
+`.diagram`. The mapping is in
 [How diagrams follow the theme](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams).
 
 ## Upgrading it
@@ -61,16 +69,17 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 2. Rebuild and restart
    The bundle is embedded in the binary, so a running devpage keeps
-   serving the old one until it is rebuilt and restarted (`cargo run -- docs`,
+   drawing with the old one until it is rebuilt and restarted (`cargo run -- docs`,
    or `cargo install --path .` again for an installed copy).
 
-3. Re-run the diagram check
-   Run the Node command in
-   [Diagrams](../diagrams/README.md#checking-a-diagram-before-committing)
-   over every page that holds a diagram, and confirm each diagram renders and
-   each one's `click` count equals its link count.
+3. Check every diagram
+   `devpage check` draws every diagram the docs reach with the new bundle and
+   reports each one that no longer parses; the tests in `src/diagrams.rs`
+   check that a `click` line still becomes a link, and that the engine's
+   `URL` is enough for an `https://` target.
 
-   $ grep -rl '```mermaid' docs
+   $ cargo run -- check docs
+   $ cargo test diagrams
 
 4. Re-check the `--pele-*` mapping
    List the variables the new bundle reads and compare them with the ones
@@ -83,7 +92,7 @@ There is no package manager step and no script; an upgrade is done by hand:
 
 5. Update the docs
    The pages that name the version — this page and
-   [Diagrams](../diagrams/README.md#checking-a-diagram-before-committing).
+   [Diagrams](../diagrams/README.md#writing-a-diagram).
 
 </Steps>
 

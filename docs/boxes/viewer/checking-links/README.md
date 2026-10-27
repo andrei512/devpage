@@ -2,7 +2,10 @@
 
 How devpage finds broken links: what counts as a problem, how the preview shows
 problems while you write, and how `devpage check` fails a test or a CI job on
-them. It is a task article under the [viewer](../README.md).
+them. It is a task article under the [viewer](../README.md). Links are most of
+what it checks, so the page keeps their name; a diagram that doesn't parse, a
+design with problems and a misplaced `<Notes>` are found and reported the same
+way.
 
 ## What is checked
 
@@ -20,6 +23,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 | An `http` or `https` address | answer with a status below 400, following redirects |
 | A comment thread | parse, for each file in the comment store |
 | A design a page links to or embeds | parse and resolve, with every design it imports — see [Designs](#designs) |
+| A Mermaid diagram | parse — see [Diagrams](#diagrams) |
 
 An external answer of 400 or above is a broken link at once. An address that
 doesn't answer within 10 seconds, or can't be connected to, may only be a slow
@@ -49,6 +53,17 @@ drawing is too big to paint is a problem too. A link to a design's PNG
 address, `x.design.png`, is checked as the design `x.design`
 ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
 
+### Diagrams
+
+Every `mermaid` fence on a page must be a diagram pele can draw. The server
+draws it while it renders the page, so the check sees exactly what a reader
+would ([Diagrams](../diagrams/README.md#checking-diagrams-before-committing));
+one that doesn't parse, or hits the engine's time or memory limit, is
+reported at its fence's line as `broken diagram — <pele's message>`, and the
+page shows the [error block](../diagrams/README.md#when-a-diagram-fails)
+where the diagram would be. The targets of a diagram's `click` lines are
+checked as links once it is drawn.
+
 ## In the preview
 
 While devpage serves a document, each page lists its own problems in a bar at
@@ -67,6 +82,7 @@ docs/boxes/viewer/README.md:42: broken link ../serving/README.md — no such fil
 docs/README.md:7: broken link design/devpage.yml — in docs/design/devpage.yml: chapter rollout.md does not exist
 docs/README.md:9: broken link talk/devpage.yml#9 — the deck has 3 slides
 docs/README.md:12: https://example.com/gone — 404 Not Found
+docs/planting.md:14: broken diagram — No diagram type detected for the given text.
 ```
 
 </Terminal>
@@ -109,6 +125,7 @@ if there was any and `0` if there were none. An external address that doesn't
 answer within 10 seconds, or can't be connected to, is asked once more with 30
 seconds to answer before it is reported; one that answers 400 or above is
 reported at once. It starts no server. Use it in a
-test or a CI job to keep the docs from shipping a broken link. devpage's own
+test or a CI job to keep the docs from shipping a broken link or a diagram
+that doesn't parse. devpage's own
 tests check devpage's docs the same way, external links aside, so the test
 suite needs no network.

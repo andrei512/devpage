@@ -124,7 +124,6 @@ addresses.
 | --- | --- | --- |
 | `style.css` | `assets/style.css` | `text/css` |
 | `devpage.js` | `assets/devpage.js` | `text/javascript` |
-| `pele.js` | `assets/vendor/pele.js`, served as a module: `build.rs` appends `export default pele;` | `text/javascript` |
 | `react.js` | `assets/vendor/react.js` | `text/javascript` |
 | `design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
 | `design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |

@@ -41,6 +41,12 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `Cargo.toml` pins it exactly (`=0.153.0`). | `src/widgets.rs` |
 
+## Diagrams
+
+| Crate | Locked version | Licence | What devpage uses it for | Where |
+| --- | --- | --- | --- | --- |
+| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `src/diagrams.rs` |
+
 ## Files, watching and search
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |

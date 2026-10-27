@@ -10,6 +10,10 @@ starting it. It is a task page under the [devpage landing page](README.md);
 - **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
   Check what you have with `cargo --version`; install or update Rust with
   [rustup](https://rustup.rs) (`rustup update`).
+- **A C compiler** — the one Rust itself links with is enough (Xcode's command
+  line tools on macOS, `build-essential` on Debian or Ubuntu): the JavaScript
+  engine that draws diagrams is built from its C source
+  ([Dependencies](boxes/engineering/dependencies/README.md#diagrams)).
 - **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
   machine: the first time it prints, it downloads chrome-headless-shell, at
   the version devpage pins, once into devpage's cache folder and uses that
@@ -33,12 +37,13 @@ need neither.
 </Callout>
 
 Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
-no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer and
+no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer
+(pele, and the QuickJS engine that runs it) and
 the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
 are compiled into the binary; the module is
 [vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), so
-installing devpage builds no WebAssembly. Diagrams are drawn by the reader's
-browser, and designs by the module. The engine's protobuf file is compiled
+installing devpage builds no WebAssembly. Diagrams are drawn by devpage
+itself, and designs by the module. The engine's protobuf file is compiled
 with a Rust library
 ([Dependencies](boxes/engineering/dependencies/README.md#devpage-design-the-design-engine)).
 The first build downloads the crates `devpage` and `devpage-design` use and

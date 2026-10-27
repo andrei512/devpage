@@ -19,7 +19,10 @@ server highlights code is in
 ## Diagrams
 
 pele draws its SVG with its own CSS variables, and the stylesheet sets them on
-every diagram from the theme tokens:
+every diagram from the theme tokens. The server draws the diagram
+([Diagrams](../../diagrams/README.md#writing-a-diagram)), but the variables stay
+variables in the SVG it puts in the page, so the browser resolves them against
+the theme shown:
 
 | pele variable | Theme token |
 | --- | --- |
