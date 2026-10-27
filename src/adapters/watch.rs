@@ -820,19 +820,37 @@ mod tests {
         dir.canonicalize().unwrap()
     }
 
-    /// The messages that arrive within a short while after `touch` runs.
+    /// The messages that arrive within 1.5 s after `touch` runs: long enough
+    /// for any it causes, so a test that expects none waits it out.
     async fn after(dir: &Path, touch: impl FnOnce()) -> Vec<String> {
         let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
-        after_with(dir, threads, |_| touch()).await
+        heard(dir, threads, |_| touch(), Duration::from_millis(1500), None).await
     }
 
-    /// The messages that arrive within a short while after `touch` runs,
-    /// with `threads` as the comment store the server writes through; `touch`
-    /// is given the bus, as a server would hold it.
-    async fn after_with(
+    /// The messages that arrive after `touch` runs, up to and including the
+    /// first that is `want`, for up to 10 s — a test that expects one goes on
+    /// the moment it arrives.
+    async fn until(dir: &Path, want: &str, touch: impl FnOnce()) -> Vec<String> {
+        let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
+        heard(
+            dir,
+            threads,
+            |_| touch(),
+            Duration::from_secs(10),
+            Some(want),
+        )
+        .await
+    }
+
+    /// What arrives after `touch` runs, with `threads` as the comment store
+    /// the server writes through; `touch` is given the bus, as a server would
+    /// hold it.
+    async fn heard(
         dir: &Path,
         threads: Arc<Yaml>,
         touch: impl FnOnce(&Changes),
+        within: Duration,
+        want: Option<&str>,
     ) -> Vec<String> {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
@@ -850,10 +868,25 @@ mod tests {
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch(&changes);
+        listen(&mut received, within, want).await
+    }
+
+    /// What `received` hears within `within`, stopping early at the first
+    /// message that is `want`.
+    async fn listen(
+        received: &mut crate::changes::Subscription,
+        within: Duration,
+        want: Option<&str>,
+    ) -> Vec<String> {
         let mut messages = Vec::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(1500);
+        let deadline = tokio::time::Instant::now() + within;
         while let Ok(Some(change)) = tokio::time::timeout_at(deadline, received.next()).await {
-            messages.push(change.message());
+            let message = change.message();
+            let done = want == Some(message.as_str());
+            messages.push(message);
+            if done {
+                break;
+            }
         }
         messages
     }
@@ -899,7 +932,7 @@ mod tests {
     #[tokio::test]
     async fn a_saved_page_refreshes_open_pages() {
         let dir = served("page", "kind: site\ntitle: T\nroot: README.md\n");
-        let messages = after(&dir, || {
+        let messages = until(&dir, "change", || {
             std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
         })
         .await;
@@ -925,23 +958,29 @@ mod tests {
         let dir = served("announced", "kind: site\ntitle: T\nroot: README.md\n");
         let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
         let store = threads.clone();
-        let messages = after_with(&dir, threads, |changes| {
-            let comments =
-                crate::comments::Comments::new(store, Arc::new(changes.clone()), Scope::root());
-            let anchor = crate::comments::Anchor {
-                quote: "x".into(),
-                prefix: String::new(),
-                suffix: String::new(),
-            };
-            let id = comments
-                .create("/docs/README.md", anchor, "Ana", "hi")
-                .unwrap();
-            // Then, by hand, a reply appended to the same thread file.
-            let file = dir.join(format!(".devpage/comments/docs/README.md/{id}.yml"));
-            std::thread::sleep(Duration::from_millis(200));
-            let text = std::fs::read_to_string(&file).unwrap();
-            std::fs::write(&file, text + "- author: Bo\n  at: x\n  text: by hand\n").unwrap();
-        })
+        let messages = heard(
+            &dir,
+            threads,
+            |changes| {
+                let comments =
+                    crate::comments::Comments::new(store, Arc::new(changes.clone()), Scope::root());
+                let anchor = crate::comments::Anchor {
+                    quote: "x".into(),
+                    prefix: String::new(),
+                    suffix: String::new(),
+                };
+                let id = comments
+                    .create("/docs/README.md", anchor, "Ana", "hi")
+                    .unwrap();
+                // Then, by hand, a reply appended to the same thread file.
+                let file = dir.join(format!(".devpage/comments/docs/README.md/{id}.yml"));
+                std::thread::sleep(Duration::from_millis(200));
+                let text = std::fs::read_to_string(&file).unwrap();
+                std::fs::write(&file, text + "- author: Bo\n  at: x\n  text: by hand\n").unwrap();
+            },
+            Duration::from_millis(1500),
+            None,
+        )
         .await;
         let comments: Vec<_> = messages
             .iter()
@@ -991,25 +1030,16 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.svg\"]\n",
         )
         .unwrap();
-        let drain = |received: &mut crate::changes::Subscription| {
-            received
-                .drain()
-                .iter()
-                .map(Change::message)
-                .collect::<Vec<_>>()
-        };
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let loud = Duration::from_secs(10);
+        let messages = listen(&mut received, loud, Some("change")).await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
 
         // Now Markdown is outside `watch`, and an SVG is in it.
         std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let messages = listen(&mut received, Duration::from_millis(800), None).await;
         assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
         std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap();
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let messages = listen(&mut received, loud, Some("change")).await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
     }
 
@@ -1029,19 +1059,19 @@ mod tests {
         })
         .await;
         assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
-        let loud = after(&dir, || {
+        let loud = until(&dir, "change", || {
             std::fs::write(dir.join("other/notes.txt"), "x").unwrap()
         })
         .await;
         assert!(loud.iter().any(|m| m == "change"), "{loud:?}");
         // The entry's own pages still refresh, and so does a doc in no site.
-        let entry = after(&dir, || {
+        let entry = until(&dir, "change", || {
             std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
         })
         .await;
         assert!(entry.iter().any(|m| m == "change"), "{entry:?}");
         std::fs::create_dir_all(dir.join("plan")).unwrap();
-        let loose = after(&dir, || {
+        let loose = until(&dir, "change", || {
             std::fs::write(dir.join("plan/design.md"), "# Plan").unwrap()
         })
         .await;
@@ -1055,7 +1085,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"*.svg\"]\n",
         );
         std::fs::create_dir_all(dir.join("examples")).unwrap();
-        let messages = after(&dir, || {
+        let messages = until(&dir, "change", || {
             std::fs::write(dir.join("examples/design.md"), "# Design").unwrap()
         })
         .await;
@@ -1075,7 +1105,7 @@ mod tests {
         })
         .await;
         assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
-        let loud = after(&dir, || {
+        let loud = until(&dir, "change", || {
             std::fs::write(dir.join("docs/widgets/format.ts"), "export const f = 1;").unwrap()
         })
         .await;

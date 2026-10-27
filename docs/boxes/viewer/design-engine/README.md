@@ -10,7 +10,7 @@ say is in [Designs](../designs/README.md).
 
 ```mermaid
 flowchart LR
-  files[".design files<br/>themes.yml"] --> parse["parse<br/>text → syntax tree"]
+  files[".design files<br/>themes.yml, images, fonts"] --> parse["parse<br/>text → syntax tree"]
   parse --> resolve["resolve<br/>imports, props, themes → scene"]
   resolve --> server["server<br/>scenes in memory"]
   server -->|"PNG request"| paint1["lay out + paint<br/>native, vello_cpu"]
@@ -84,8 +84,8 @@ imported design's tree with its props substituted, rooted at one node — the
 design's root, with the instance's own attributes applied to it. Resolving reports every problem
 it finds, not just the first: unknown elements, attributes and props, values
 of the wrong type, missing or out-of-folder imports, images and interaction
-targets, images that don't decode, designs that use themselves, and the
-[themes](#themes)' problems.
+targets, images that don't decode, fonts that can't be used, designs that use
+themselves, and the [themes](#themes)' problems.
 
 An `Image`'s file is decoded whole while resolving — a PNG or JPEG that starts
 right but is broken or cut short is a problem at its `src` — and goes with the
@@ -102,9 +102,35 @@ the pixels under it, in premultiplied alpha — and both backends draw those
 pixels; an `Image` still hugs the file's own size. Why 4,096 is
 [the GPU's image atlas](#the-gpus-image-atlas).
 
-Every path a node carries — an image's file, an interaction's target — is
-stored as an address in the served folder, worked out from the file it was
-written in. The canvas uses an interaction's target as it is, so it never
+### Font files
+
+A `Text`'s font is Inter, which the engine embeds, or a **font file**, read
+through `Files` like an image file and known the same way, by the SHA-256 of
+its bytes (`design/src/fonts.rs`). A `Text`'s `font` is a name, which the
+resolver looks up in the [themes](#themes)' merged `fonts` of the file that
+wrote it; the path there names a file, which is that font, or a folder, which
+is the `.ttf` and `.otf` files `Files` lists directly in it, italic and
+oblique faces passed over. Each file is checked as it is read:
+at most 4 MB (`fonts::MAX_FONT_BYTES`), one TrueType or OpenType font —
+neither WOFF, WOFF2 nor a collection — that parley's font collection reads,
+and in a folder, one family with one file per weight. The family's name, its
+weights and its weight axis come from the font's own tables, through
+`fontique`, the font collection parley lays text out with.
+
+A text's weight then picks the face: in a variable font, the weight axis set
+to it; among static files, the file of that weight. The text's node names the
+face's file by its id, and the scene carries each font file its texts use
+once, however many texts use it, under whatever names — a folder's other
+weights aren't carried. Why at most 4 MB is on
+[Fonts](../designs/README.md#fonts): every font file goes whole to each
+browser that shows the design.
+
+Every path a node carries — an image's file, a font file, an interaction's
+target — is stored as an address in the served folder, worked out from the
+file that wrote it. A value that reaches a design as a prop is read where it
+was written — a path from that file, a font name in its fonts — the instance,
+or the design whose default it is; so the resolver keeps, with each prop's
+value, the file that wrote it. The canvas uses an interaction's target as it is, so it never
 needs to know which file an instance came from.
 
 A node's **id** is the path of child positions from the root (`0.2.1`), which
@@ -126,12 +152,19 @@ top down, name by name in each theme, a lower file's names over a higher
 one's. Each reference becomes its two colors there and then, and a gradient
 string with references becomes two gradient strings, one per theme — so a
 value passed as a prop into a design in another folder carries its writer's
-colors, as a path is made relative to its writer's file. The engine reads
+colors, as a path is worked out from its writer's file. The engine reads
 `themes.yml` with `serde_yaml` and finds the line of a bad entry by its key,
 since YAML values carry no place. A reference to a name that both themes
 don't have after merging is a problem at the reference; a malformed
 `themes.yml` is one at its own line, reported once per resolve however many
 references read it.
+
+A `themes.yml`'s `fonts` — names to paths from that file — merge the same
+way, name by name, and set no default. They are read only when a `Text`
+names a font, so a design with no `font` reads no `themes.yml` for one. A
+name the merged fonts don't have is a problem at the `font`; a font that
+can't be used is one at its entry in the `themes.yml`, once per resolve
+however many texts use it.
 
 ## Layout
 
@@ -150,8 +183,17 @@ pass per level of such frames. `"fill"` needs auto layout to take space from,
 so on a child of a no-layout frame it is a problem, found while resolving.
 
 Text is measured, shaped and broken into lines with `parley`, over the Inter
-faces the engine embeds — regular, medium, semibold and bold — so the line breaks are
-the same natively and in WebAssembly. No system font is ever consulted.
+faces the engine embeds — regular, medium, semibold and bold — and the scene's
+font files, so the line breaks are the same natively and in WebAssembly. No
+system font is ever consulted. Before it lays a scene out, a renderer
+registers the scene's font files with parley's font collection, each under a
+family name of its own made from its id, so a text gets exactly the file its
+node names — never another font of the same family name, Inter included. A
+renderer keeps what it registered while the scenes it lays out use no other
+font files, and otherwise starts its collection again from Inter and the new
+scene's — so a server that has drawn a thousand fonts holds one scene's. A
+glyph run carries the run's point on a variable font's axes, which both
+backends draw at.
 
 ## Painting
 
@@ -278,7 +320,9 @@ The server keeps every design it has been asked for **resolved in memory** —
 its scene or its problems — with every file resolving it asked for, missing
 ones included, and the text of every file it read (`core/src/designs.rs`). A
 `themes.yml` a design's references read is one of its files like any other,
-and so is one that was looked for and isn't there. When the
+and so is one that was looked for and isn't there; so is a font file, and a
+font folder's listing, which any file created, changed or deleted directly in
+the folder makes the store forget. When the
 [watcher](../live-updates/README.md#the-watcher) reports a changed file —
 any file not under `.git` and not `.gitignore`d, unless a site's `watch`
 names it — the
@@ -323,11 +367,12 @@ unless it sits behind a proxy that offers more, and the page's
 holds one. For each design in the set:
 
 - the first update is the whole scene — every color in both themes, and
-  whether it is themed — with each image file it shows once;
+  whether it is themed — with each image file it shows and each font file
+  its texts use, once;
 - after a save, the server resolves the design again, compares the new scene
   with the one it last sent, and sends a **patch**: the nodes whose subtree
-  changed, each replaced by its id, and only the image files the scene it
-  last sent didn't have — a node shows a file by its id;
+  changed, each replaced by its id, and only the image and font files the
+  scene it last sent didn't have — a node names a file by its id;
 - when the design has problems, an update carries them instead, and the
   browser keeps the last scene it drew; once fixed, the next patch is against
   that last scene — an empty one when the fix restored it exactly — and any
@@ -347,7 +392,10 @@ The canvas page loads the WebAssembly module (`core/assets/design.js` does the
 page's part), opens the watch stream with `fetch`, reads the gRPC-Web frames
 off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
-one per canvas. The module lays out and paints on the GPU into a `<canvas>`
+one per canvas. A font file is checked once, when the first scene or patch
+carrying it arrives, and kept while the scene uses it, as an image file is
+decoded once; the canvas's renderer registers it before it next lays the
+scene out. The module lays out and paints on the GPU into a `<canvas>`
 sized to the screen's device pixels; one WebGPU device serves every canvas on
 the page, and a canvas keeps a vello renderer — its
 [image atlas](#the-gpus-image-atlas) — for as long as its drawings paint the
@@ -400,7 +448,11 @@ widget when the widget is unchanged, and made again when React mounts the
 widget afresh; the design script then hands the new canvas the old one's
 design and back stack, by its `src`, and reopens the stream so it gets its
 whole scene. A widget that leaves the page is unmounted, and its designs
-leave the stream.
+leave the stream. A widget can also put a design on the page, or take one
+off, after it mounted — `Tabs` shows only the open tab — so the page script
+watches the page for a design's canvas coming or going: one that appears is
+started then, loading the design script first if the page had no design yet,
+and one that goes leaves the stream.
 
 ## Failure modes
 

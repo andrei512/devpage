@@ -8,16 +8,16 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 334 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 80 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 347 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 91 in `devpage`, 159 in its
-core `devpage-core`, 75 in the engine `devpage-design`, 7 in
+`cargo test` runs every crate in the workspace: 91 in `devpage`, 160 in its
+core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
@@ -34,15 +34,17 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 80 tests marked `#[ignore]`, 79 drive Chrome, and one of them also
+Of the 84 tests marked `#[ignore]`, 83 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
-so it needs the network.
+all at once, so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
-They run in parallel. Run them with `--ignored` after changing the page
+They run in parallel, so the longest bounds the run: the `video` test that
+records a deck, which takes as long as its slides play. Run them with
+`--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
 `devpage pdf` or a slide's PNG. The two `video` tests drive Chrome for
 Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
@@ -87,6 +89,10 @@ platform's watcher:
 - two Chrome tests in `drive::server::comments_browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
+
+A test that expects a message goes on the moment it arrives, waiting up to
+10 s for it; one that expects none listens for 1.5 s, long enough for any the
+write would cause.
 
 Where the platform delivers no events to the test process — the watcher
 itself receives nothing, as can happen in some sandboxed or restricted sessions on
@@ -170,9 +176,10 @@ In Chrome:
 
 ### `designs`
 
-*10 tests in the store; 14 more through the server, and 31 in Chrome, in `drive::server`.*
+*11 tests in the store; 14 more through the server, and 35 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
+- A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
 - A drawing too big to paint a problem in the store and in what `devpage check` reads; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does.
@@ -191,6 +198,7 @@ In Chrome:
 
 - Embeds inside widgets on a page in a subfolder — in a `Callout`, a `Tab`, a `Steps` item and a `Callout` inside a `Steps` item — each finding its design beside the page.
 - The canvas on the GPU and on the CPU each matching the PNG by the engine's comparison, over the whole drawing and a margin of plain page around it.
+- A design mixing families — a variable font at weights from 300 to 900, a folder of static faces, a paragraph that wraps, and the embedded Inter — on the GPU and on the CPU, matching the PNG the same way; the examples, mixing Lora and Figtree, too.
 - On the GPU, as in the PNG: a file wider than the GPU's atlas, twelve distinct 2000-pixel files together, and a save swapping six of them for new ones; shadows drawn in pieces — square, sampled and disc corners, a pill, a thin box, ellipses in wedges.
 - A navigation from a design whose four 4,096-pixel images fill the GPU's atlas to one with an image of its own drawing the second as its PNG, on a canvas page and inside an embed.
 - A click navigating, back returning, an overlay opening and closing; an interaction inside an instance from another folder opening its own target.
@@ -545,24 +553,27 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design`
 
-*75 tests.*
+*86 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
-- `resolve`, 30: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none.
-- `render`, 31: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
-- `wire`, 3: a patch carrying only the nodes that changed; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused.
+- `resolve`, 36: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.
+- `render`, 33: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out once, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing too big being a problem; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs; the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design; a text laid out in its font, and in a variable one at its weight's point on the axis, which its glyph runs carry; a renderer that drew other fonts laying out as a fresh one, holding one scene's font files.
+- `wire`, 4: a patch carrying only the nodes that changed; a scene and a patch carrying both themes; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused; a font file the same, the browser keeping the one it checked.
+- `fonts`, 2: a font file knowing its family, its weight or its weight axis; a folder's italic faces passed over, and one of italic faces only a problem.
 - `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
 
-*7 tests.*
+*8 tests.*
 
 - A scene sized, painted and hit-tested.
+- A design in a font file, by its scene and by a patch bringing another weight, laid out and painted as the server paints its PNG, pixel for pixel.
 - The engine's atlas model and vello's own resolver, as the module ships it, agreeing on 4,000 random sets of images: whether they fit, the first left out, and each one's place.
 - The two agreeing on a real drawing's image files and shadows, replayed as the canvas replays it, and on the same drawing with too many files.
 - A patch before any scene, or garbage, doing nothing.
 - Problems keeping the scene until a patch clears them.
+- A theme switch painting the scene again in the other theme.
 - A click landing only on what a clip shows.
 
 ### `devpage-design-module`

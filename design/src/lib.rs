@@ -3,6 +3,7 @@
 //! in devpage and compiled to WebAssembly in the browser.
 
 pub mod atlas;
+pub mod fonts;
 pub mod parse;
 pub mod proto;
 pub mod render;

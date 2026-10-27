@@ -87,7 +87,7 @@ the docs from that release, and starts devpage deployed:
 
 ```dockerfile
 FROM rust:1.97-slim-bookworm AS build
-ARG DEVPAGE_VERSION=0.2.1
+ARG DEVPAGE_VERSION=0.2.2
 # The docs and licence come from the published crate's own source, so they
 # always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
@@ -155,9 +155,12 @@ devpage's own port is not published, as on a cluster: only the proxy is
 reachable.
 
 CI keeps this example working: `.github/workflows/deploy-example.yml` builds
-the image and brings the compose file up on every pull request, every push to
-main and weekly, then expects the docs to load, a design's PNG to come back as
-`image/png`, a comment to be accepted, and `devpage check docs` to pass inside
-the image. A second job installs devpage from the checkout in a bare
-`rust:1.97-slim-bookworm` with nothing added, as
-[Installing devpage](../../../installing.md) promises.
+the image and brings the compose file up on every pull request that touches
+`deploy/`, every push to main and weekly, then expects the docs to load, a
+design's PNG to come back as `image/png`, a comment to be accepted, and
+`devpage check docs` to pass inside the image. The image installs the
+released crate, so a change outside `deploy/` can't change what it tests.
+The `install` job of `.github/workflows/gates.yml` installs devpage from the
+checkout in a bare `rust:1.97-slim-bookworm` with nothing added, as
+[Installing devpage](../../../installing.md) promises
+([CI](../../engineering/sdlc/review-bars/README.md#ci)).

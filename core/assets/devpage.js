@@ -276,6 +276,25 @@ function drawDesigns() {
     });
 }
 
+// A widget can put a design on the page, or take one off, after it mounted —
+// `Tabs` shows only the open tab — so each canvas that comes or goes starts or
+// stops its design then, once per batch of changes.
+let designsChanged = false;
+const holdsDesign = (node) =>
+  node.nodeType === Node.ELEMENT_NODE && (node.matches("canvas.design") || node.querySelector("canvas.design"));
+new MutationObserver((records) => {
+  if (designsChanged) return;
+  for (const { addedNodes, removedNodes } of records) {
+    if (![...addedNodes, ...(designScript ? removedNodes : [])].some(holdsDesign)) continue;
+    designsChanged = true;
+    queueMicrotask(() => {
+      designsChanged = false;
+      drawDesigns();
+    });
+    return;
+  }
+}).observe(document.body, { childList: true, subtree: true });
+
 // What a swap keeps of the page shown. Each outermost widget whose key — what
 // it was mounted from — matches one in the fresh page stays as it is, state
 // and all: the fresh placeholder gives way to a marker, and the old element

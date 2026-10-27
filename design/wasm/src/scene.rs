@@ -30,9 +30,10 @@ pub fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
             Draw::Stroke(path, width, c) => {
                 v.stroke(&vello::kurbo::Stroke::new(*width as f64), t, *c, None, path)
             }
-            Draw::Glyphs(font, size, c, glyphs) => v
+            Draw::Glyphs(font, size, c, coords, glyphs) => v
                 .draw_glyphs(font)
                 .font_size(*size)
+                .normalized_coords(coords)
                 .transform(t)
                 .hint(true)
                 .brush(*c)
@@ -224,6 +225,9 @@ mod tests {
     impl devpage_design::Files for Sized {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             self.0.get(path).map(|s| s.clone().into_bytes())
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            self.0.list(path)
         }
         fn image(&self, path: &str) -> Option<Result<Arc<ImageFile>, String>> {
             let (size, _) = path.strip_suffix(".png")?.split_once('-')?;

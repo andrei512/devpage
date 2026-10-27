@@ -1,6 +1,6 @@
 [package]
 name = "devpage-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.97"
 description = "devpage's core: documents, rendering, link checking, comments and designs, with no I/O runtime"
@@ -19,7 +19,7 @@ serde_json = "1.0.154"
 serde_yaml = "0.9.34"
 syntect = "5.3.0"
 two-face = "0.5.2"
-devpage-design = { path = "../design", version = "0.2.1" }
+devpage-design = { path = "../design", version = "0.2.2" }
 sha2 = "0.10.9"
 tantivy = { version = "0.27", default-features = false, features = ["stemmer"] }
 # The diagram engine (`src/diagrams.rs`): QuickJS, built from its C source

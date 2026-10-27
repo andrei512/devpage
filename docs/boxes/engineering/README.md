@@ -10,7 +10,8 @@ Changes reach `main` through a flow of stages — design, prototype, plan, build
 review — each run by a skill the operator starts. The box docs on `main`
 describe the system as it is; a design not yet built waits on its own branch.
 Underneath sit the everyday mechanics of working on the code: a Rust build, its
-[tests](tests/README.md), and three gates, run by hand.
+[tests](tests/README.md), and three gates, run by hand and by CI on every
+pull request.
 
 ## Its parts
 
@@ -49,7 +50,7 @@ meanings.
 | **lane** | A related chain of tickets given to one fork, worked in its own worktree on its own branch off the design branch. Parallelism comes from running several. |
 | **ticket** | One step of a plan: a file in `docs/plan/` with `id`, `blocked-by` and `boxes` front-matter, saying what to build and its acceptance criteria. |
 | **design branch** | `design/<name>`: the branch holding one design update — docs that describe a system not yet built — and, as the build proceeds, its code. Merges into `main` through the one pull request of the change. |
-| **gate** | One of the three checks that must be green before any pull request opens: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. |
+| **gate** | One of the three checks that must be green before any pull request opens: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, `cargo test`. CI's `gates` workflow runs them too. |
 | **task bar** | The review bar for a ticket going into a design branch (and for a direct pull request): acceptance criteria pass, the touched boxes' constraints hold, gates green, the system still works. |
 | **drift bar** | The review bar for a design branch going into `main`: the code does what the docs claim, every expand–migrate–contract finished. |
 | **expand–migrate–contract** | Changing a contract that already has callers in three moves: add the new one beside the old, move callers across, delete the old. The system works at every step. |

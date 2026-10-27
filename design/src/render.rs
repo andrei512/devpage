@@ -6,7 +6,7 @@ use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout as Text,
     LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use taffy::prelude::*;
 
 use vello_cpu::kurbo::{
@@ -17,16 +17,12 @@ use vello_cpu::peniko::{
 };
 use vello_cpu::{Glyph, Pixmap, RenderContext, Resources};
 
+use crate::fonts::{self, FontFiles, FontId};
 use crate::resolve::{
     self, Align, Color, Fill, ImageFiles, ImageId, Kind, Layout, Node, Origin, Rgba, Scene,
     Size as DSize, TextAlign, Theme,
 };
 use crate::shadow::{self, Outline};
-
-/// Inter's ascender and descender, as fractions of the font size: how far a
-/// line's glyphs can reach above and below its baseline.
-const INTER_ASCENT: f64 = 0.969;
-const INTER_DESCENT: f64 = 0.242;
 
 /// The largest drawing a design may have, in pixels a side at 1×: far beyond
 /// any screen, and a PNG of it still fits in memory.
@@ -42,6 +38,11 @@ const FONTS: [&[u8]; 4] = [
 /// The fonts and text layout state a renderer keeps between paints.
 pub struct Renderer {
     fonts: FontContext,
+    /// The embedded Inter faces, each under one blob for the renderer's life.
+    inter: Vec<parley::fontique::Blob<u8>>,
+    /// The font files registered besides Inter — those of a scene laid out —
+    /// or `None` before anything is.
+    registered: Option<BTreeSet<FontId>>,
     layouts: LayoutContext<()>,
     /// While a display list is made: the image each image file is painted
     /// from in it, and every image it paints, in the order it first does,
@@ -102,7 +103,9 @@ pub enum Paint {
 pub enum Draw {
     Fill(BezPath, Paint),
     Stroke(BezPath, f32, PColor),
-    Glyphs(FontData, f32, PColor, Vec<Glyph>),
+    /// A glyph run: its font, size and color, its point on the font's
+    /// variation axes — empty for a static font — and its glyphs.
+    Glyphs(FontData, f32, PColor, Vec<i16>, Vec<Glyph>),
     PushClip(BezPath),
     /// A layer drawn at an opacity, cut to the path — or to the whole drawing.
     PushOpacity(f32, Option<BezPath>),
@@ -144,31 +147,65 @@ pub struct Drawing {
 
 impl Renderer {
     pub fn new() -> Renderer {
-        let mut fonts = FontContext {
+        let fonts = FontContext {
             collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
                 shared: false,
                 system_fonts: false,
             }),
             source_cache: parley::fontique::SourceCache::default(),
         };
-        for font in FONTS {
-            fonts
-                .collection
-                .register_fonts(parley::fontique::Blob::new(std::sync::Arc::new(font)), None);
-        }
-        Renderer {
+        let mut renderer = Renderer {
             fonts,
+            inter: FONTS
+                .iter()
+                .map(|font| parley::fontique::Blob::new(std::sync::Arc::new(*font)))
+                .collect(),
+            registered: None,
             layouts: LayoutContext::new(),
             blobs: HashMap::new(),
             painted: Vec::new(),
+        };
+        renderer.register(&FontFiles::new());
+        renderer
+    }
+
+    /// Makes the scene's font files available to layout, each under a
+    /// family name of its own. The collection keeps what it has while a
+    /// scene uses no other font file; otherwise it starts again from Inter
+    /// and this scene's, so it never holds more than one scene's fonts.
+    fn register(&mut self, files: &FontFiles) {
+        if let Some(registered) = &self.registered
+            && files.keys().all(|id| registered.contains(id))
+        {
+            return;
         }
+        let collection = &mut self.fonts.collection;
+        collection.clear();
+        for blob in &self.inter {
+            collection.register_fonts(blob.clone(), None);
+        }
+        for (id, file) in files {
+            let family = id.family();
+            collection.register_fonts(
+                file.blob.clone(),
+                Some(parley::fontique::FontInfoOverride {
+                    family_name: Some(&family),
+                    ..Default::default()
+                }),
+            );
+        }
+        self.registered = Some(files.keys().copied().collect());
     }
 
     fn text_layout(&mut self, text: &resolve::TextStyle, width: Option<f32>) -> Text<()> {
         let mut builder = self
             .layouts
             .ranged_builder(&mut self.fonts, &text.content, 1.0, true);
-        builder.push_default(StyleProperty::FontFamily(FontFamily::named("Inter")));
+        let family = match text.font {
+            Some(id) => id.family(),
+            None => fonts::INTER.to_string(),
+        };
+        builder.push_default(StyleProperty::FontFamily(FontFamily::named(&family)));
         builder.push_default(StyleProperty::FontSize(text.size));
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(
             text.weight as f32,
@@ -189,6 +226,7 @@ impl Renderer {
 
     /// Lays the scene out: every node's box, in tree order.
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
+        self.register(&scene.fonts);
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
         let mut texts = Vec::new();
         let mut hugs = Vec::new();
@@ -571,14 +609,15 @@ impl Renderer {
         if let Some(text) = &node.text {
             let layout = self.text_layout(text, Some(f.width + 0.5));
             for line in layout.lines() {
+                // The line's box, or as far as its fonts' ascenders and
+                // descenders reach past it.
                 let m = line.metrics();
-                let size = text.size as f64;
-                let baseline = f.y as f64 + m.baseline as f64;
+                let y = |v: f32| f.y as f64 + v as f64;
                 cover(KRect::new(
                     f.x as f64 + m.inline_min_coord as f64,
-                    (f.y as f64 + m.block_min_coord as f64).min(baseline - INTER_ASCENT * size),
+                    y(m.block_min_coord.min(m.content_block_min_coord)),
                     f.x as f64 + m.inline_max_coord as f64,
-                    (f.y as f64 + m.block_max_coord as f64).max(baseline + INTER_DESCENT * size),
+                    y(m.block_max_coord.max(m.content_block_max_coord)),
                 ));
                 for item in line.items() {
                     if let PositionedLayoutItem::GlyphRun(run) = item {
@@ -594,6 +633,11 @@ impl Renderer {
                             run.run().font().clone(),
                             run.run().font_size(),
                             color(text.color.get(theme)),
+                            run.run()
+                                .normalized_coords()
+                                .iter()
+                                .map(|c| c.to_bits())
+                                .collect(),
                             glyphs,
                         ));
                     }
@@ -656,11 +700,12 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
                 ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
                 ctx.stroke_path(path);
             }
-            Draw::Glyphs(font, size, c, glyphs) => {
+            Draw::Glyphs(font, size, c, coords, glyphs) => {
                 ctx.set_paint(*c);
                 let _ = ctx
                     .glyph_run(&mut resources, font)
                     .font_size(*size)
+                    .normalized_coords(coords)
                     .hint(true)
                     .fill_glyphs(glyphs.iter().copied());
             }
@@ -986,6 +1031,102 @@ mod tests {
         );
         assert_eq!(frames[1].height, 28.0);
         assert_eq!(frames[0].height, 48.0);
+    }
+
+    /// The repository's files a design can set text in, and one design.
+    struct Fonts(HashMap<String, Vec<u8>>);
+
+    impl crate::Files for Fonts {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.0.get(path).cloned()
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            resolve::listed(self.0.keys(), path)
+        }
+    }
+
+    fn with_fonts(source: &str) -> Scene {
+        let root = env!("CARGO_MANIFEST_DIR");
+        let read = |p: String| std::fs::read(p).unwrap();
+        let files = Fonts(
+            [
+                (
+                    "v.ttf".to_string(),
+                    read(format!(
+                        "{root}/../docs/designs/checkout/fonts/Figtree/Figtree-Variable.ttf"
+                    )),
+                ),
+                (
+                    "f/Inter-Regular.ttf".to_string(),
+                    read(format!("{root}/fonts/Inter-Regular.ttf")),
+                ),
+                (
+                    "themes.yml".to_string(),
+                    b"kind: themes\nfonts:\n  fig: ./v.ttf\n  inter: ./f\nlight: {}\ndark: {}\n"
+                        .to_vec(),
+                ),
+                ("a.design".to_string(), source.as_bytes().to_vec()),
+            ]
+            .into(),
+        );
+        resolve::resolve(&files, "a.design").unwrap()
+    }
+
+    /// A text is measured in its font, and a variable font at its weight:
+    /// its glyph runs carry the point on the weight axis, which a static
+    /// font's don't.
+    #[test]
+    fn a_text_is_laid_out_in_its_font_at_its_weight() {
+        let line = |font: &str, weight: u16| {
+            let s = with_fonts(&format!(
+                r#"<Frame><Text size={{40}} weight={{{weight}}}{font}>Mmmmm wwwww</Text></Frame>"#
+            ));
+            let mut r = Renderer::new();
+            let width = r.layout(&s)[1].width;
+            let (_, list) = r.display_list(&s, Theme::Light);
+            let coords: Vec<Vec<i16>> = list
+                .iter()
+                .filter_map(|d| match d {
+                    Draw::Glyphs(_, _, _, coords, _) => Some(coords.clone()),
+                    _ => None,
+                })
+                .collect();
+            (width, coords)
+        };
+        let (inter, coords) = line("", 400);
+        assert!(coords.iter().all(|c| c.is_empty()));
+        let (same, _) = line(r#" font="inter""#, 400);
+        assert_eq!(
+            same, inter,
+            "Inter from a folder measures as the embedded one"
+        );
+        let (light, light_coords) = line(r#" font="fig""#, 400);
+        let (heavy, heavy_coords) = line(r#" font="fig""#, 900);
+        assert_ne!(light, inter);
+        assert!(heavy > light, "{heavy} ≤ {light}");
+        assert!(!heavy_coords.is_empty() && heavy_coords.iter().all(|c| !c.is_empty()));
+        assert_ne!(light_coords, heavy_coords);
+    }
+
+    /// A renderer that laid out scenes in other fonts lays a scene out as a
+    /// fresh one does, and holds no more than one scene's font files.
+    #[test]
+    fn a_renderer_lays_out_as_a_fresh_one_whatever_it_drew_before() {
+        let a = with_fonts(
+            r#"<Frame width={120} layout="column"><Text width="fill" font="fig" weight={700}>Washed linen with a relaxed fit</Text></Frame>"#,
+        );
+        let b = with_fonts(
+            r#"<Frame width={120} layout="column"><Text width="fill" font="inter">Washed linen with a relaxed fit</Text></Frame>"#,
+        );
+        let mut used = Renderer::new();
+        for s in [&a, &b, &a, &b] {
+            assert_eq!(used.layout(s), Renderer::new().layout(s));
+            assert_eq!(used.registered.as_ref().unwrap().len(), 1);
+        }
+        let inter = scene(
+            r#"<Frame width={120} layout="column"><Text width="fill">Washed linen with a relaxed fit</Text></Frame>"#,
+        );
+        assert_eq!(used.layout(&inter), Renderer::new().layout(&inter));
     }
 
     fn frames(source: &str) -> Vec<Frame> {
@@ -1465,6 +1606,9 @@ mod tests {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             self.0.get(path).map(|s| s.clone().into_bytes())
         }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            self.0.list(path)
+        }
         fn image(&self, path: &str) -> Option<Result<std::sync::Arc<resolve::ImageFile>, String>> {
             let name = path.strip_suffix(".png")?;
             let (size, n) = name.split_once('-')?;
@@ -1679,6 +1823,7 @@ mod tests {
             "d",
             "viewBox",
             "src",
+            "font",
             "name",
         ];
         let values = [
@@ -1762,6 +1907,16 @@ mod examples {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             std::fs::read(self.0.join(path)).ok()
         }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            let mut names: Vec<String> = std::fs::read_dir(self.0.join(path))
+                .ok()?
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file())
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            Some(names)
+        }
     }
 
     fn repo() -> Repo {
@@ -1819,6 +1974,9 @@ mod examples {
             } else {
                 self.0.bytes(path)
             }
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            self.0.list(path)
         }
     }
 

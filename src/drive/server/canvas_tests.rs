@@ -277,11 +277,21 @@ async fn difference(
 async fn the_examples_match_their_pngs(webgpu: bool) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let address = serve(root, "docs/designs/checkout/checkout.design").await;
+    let paths = ["button", "checkout", "confirmation", "details"]
+        .map(|name| format!("/docs/designs/checkout/{name}.design"));
+    canvases_match_their_pngs(&address, &paths, webgpu).await;
+}
+
+/// Each design at `paths` on the canvas page, in each theme, on the GPU or
+/// the CPU, matches the server's PNG of it within the engine's tolerance.
+async fn canvases_match_their_pngs(address: &str, paths: &[String], webgpu: bool) {
     let (mut browser, events, _profile) = chrome().await;
     let mut failures = Vec::new();
-    for (theme, name) in ["light", "dark"].into_iter().flat_map(|theme| {
-        ["button", "checkout", "confirmation", "details"].map(|name| (theme, name))
-    }) {
+    for (theme, path) in ["light", "dark"]
+        .into_iter()
+        .flat_map(|theme| paths.iter().map(move |path| (theme, path)))
+    {
+        let name = path.as_str();
         let page = browser.new_page("about:blank").await.unwrap();
         // Room for the tallest example at 100%, at one device pixel per pixel.
         page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
@@ -295,7 +305,6 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
             .await
             .unwrap();
         }
-        let path = format!("/docs/designs/checkout/{name}.design");
         page.goto(format!("{address}{path}?theme={theme}"))
             .await
             .unwrap();
@@ -322,7 +331,7 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
         let shot = screenshot(&page, width, height, MARGIN as f64).await;
         let d = difference(
             &page,
-            &address,
+            address,
             &shot,
             &format!("{path}.png?theme={theme}"),
             MARGIN,
@@ -337,6 +346,58 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
     assert!(failures.is_empty(), "{failures:#?}");
     browser.close().await.ok();
     events.abort();
+}
+
+/// A design that mixes families — a variable font at weights from 300 to
+/// 900, a folder of static faces, and a paragraph that wraps — draws
+/// on the canvas, on the GPU and on the CPU, as the server's PNG: the same
+/// line breaks, the same glyphs.
+async fn font_files_match_their_pngs(webgpu: bool) {
+    let dir = folder(if webgpu { "fonts-gpu" } else { "fonts-cpu" });
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    std::fs::create_dir_all(dir.join("fonts/Static")).unwrap();
+    std::fs::copy(
+        root.join("docs/designs/checkout/fonts/Figtree/Figtree-Variable.ttf"),
+        dir.join("fonts/Figtree.ttf"),
+    )
+    .unwrap();
+    for face in ["Regular", "Bold"] {
+        std::fs::copy(
+            root.join(format!("design/fonts/Inter-{face}.ttf")),
+            dir.join(format!("fonts/Static/Inter-{face}.ttf")),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.join("themes.yml"),
+        "kind: themes\nfonts:\n  figtree: ./fonts/Figtree.ttf\n  inter: ./fonts/Static\nlight:\n  bg: \"#ffffff\"\n  text: \"#0f172a\"\ndark:\n  bg: \"#0f172a\"\n  text: \"#f1f5f9\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("type.design"),
+        r#"<Frame width={360} fill={theme.bg} layout="column" padding={16} gap={8}>
+  <Text font="figtree" size={28} weight={900} color={theme.text}>Heavy headline</Text>
+  <Text font="figtree" size={20} weight={300} color={theme.text}>Light subtitle</Text>
+  <Text font="figtree" width="fill" size={15} lineHeight={1.5} color={theme.text}>Washed linen with a relaxed fit, cut wide through the body and finished by hand. Machine wash cold, tumble dry low.</Text>
+  <Text font="inter" weight={700} color={theme.text}>Static bold face</Text>
+  <Text color={theme.text}>Inter, embedded</Text>
+</Frame>"#,
+    )
+    .unwrap();
+    let address = serve(&dir, "type.design").await;
+    canvases_match_their_pngs(&address, &["/type.design".to_string()], webgpu).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn font_files_on_the_gpu_match_the_png() {
+    font_files_match_their_pngs(true).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn font_files_on_the_cpu_match_the_png() {
+    font_files_match_their_pngs(false).await;
 }
 
 #[tokio::test]
@@ -633,7 +694,20 @@ async fn an_undone_typo_clears_the_problems() {
 #[tokio::test]
 #[ignore]
 async fn a_deleted_design_comes_back_when_written_again() {
-    let dir = folder("deleted");
+    a_deleted_design_comes_back_on("next.design").await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_deleted_embedded_design_comes_back_when_written_again() {
+    a_deleted_design_comes_back_on("page.md").await;
+}
+
+/// `next.design`, open on its canvas page or embedded in `page.md` (`at`),
+/// is deleted — the page shows its problem and keeps its one stream — and
+/// written again, when it draws again without a reload.
+async fn a_deleted_design_comes_back_on(at: &str) {
+    let dir = folder(&format!("deleted-{}", at.replace('.', "-")));
     std::fs::write(
         dir.join("page.md"),
         "# Page\n\nThe next screen:\n\n![Next](next.design)\n",
@@ -641,42 +715,40 @@ async fn a_deleted_design_comes_back_when_written_again() {
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
     let (mut browser, events, _profile) = chrome().await;
-    for at in ["next.design", "page.md"] {
-        let page = browser.new_page("about:blank").await.unwrap();
-        // Count the watch calls the page makes.
-        page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
-            "window.watchCalls = 0; const f = window.fetch; \
-             window.fetch = (url, ...rest) => { if (String(url).includes('/Watch')) window.watchCalls++; return f(url, ...rest); };",
-        ))
-        .await
-        .unwrap();
-        page.goto(format!("{address}/{at}")).await.unwrap();
-        until(
-            &page,
-            "document.querySelector('canvas.design')?.dataset.painted === 'true'",
-        )
-        .await;
-        let file = dir.join("next.design");
-        let source = std::fs::read_to_string(&file).unwrap();
-        std::fs::remove_file(&file).unwrap();
-        designs.changed(&file);
-        until(&page, "!!document.querySelector('.design-problems')").await;
-        let calls: u32 = eval(&page, "window.watchCalls").await;
-        // Deleted, it isn't asked for again and again: the one stream stays
-        // open for it. Long enough for three reconnects, were it reconnecting.
-        tokio::time::sleep(Duration::from_millis(3500)).await;
-        let later: u32 = eval(&page, "window.watchCalls").await;
-        assert_eq!(later, calls, "{at}: the page kept reopening its stream");
-        // The page fetched again — a branch switch touches every file — and
-        // the design written back: it draws again, without a reload.
-        if at == "page.md" {
-            page.evaluate("load(location.href)").await.ok();
-        }
-        std::fs::write(&file, source).unwrap();
-        designs.changed(&file);
-        until(&page, "!document.querySelector('.design-problems')").await;
-        page.close().await.ok();
+    let page = browser.new_page("about:blank").await.unwrap();
+    // Count the watch calls the page makes.
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+        "window.watchCalls = 0; const f = window.fetch; \
+         window.fetch = (url, ...rest) => { if (String(url).includes('/Watch')) window.watchCalls++; return f(url, ...rest); };",
+    ))
+    .await
+    .unwrap();
+    page.goto(format!("{address}/{at}")).await.unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    let file = dir.join("next.design");
+    let source = std::fs::read_to_string(&file).unwrap();
+    std::fs::remove_file(&file).unwrap();
+    designs.changed(&file);
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    let calls: u32 = eval(&page, "window.watchCalls").await;
+    // Deleted, it isn't asked for again and again: the one stream stays
+    // open for it. Long enough for three reconnects, were it reconnecting.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    let later: u32 = eval(&page, "window.watchCalls").await;
+    assert_eq!(later, calls, "{at}: the page kept reopening its stream");
+    // The page fetched again — a branch switch touches every file — and
+    // the design written back: it draws again, without a reload.
+    if at == "page.md" {
+        page.evaluate("load(location.href)").await.ok();
     }
+    std::fs::write(&file, source).unwrap();
+    designs.changed(&file);
+    until(&page, "!document.querySelector('.design-problems')").await;
+    page.close().await.ok();
     browser.close().await.ok();
     events.abort();
 }
@@ -1552,6 +1624,52 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
         0,
         "no embed reports a problem"
     );
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// A design that appears after the page has loaded — in a tab other than the
+/// first, which `Tabs` puts on the page only when it opens — draws when it
+/// appears, even on a page whose only design it is; closing the tab and
+/// opening it again draws it again.
+#[tokio::test]
+#[ignore]
+async fn a_design_in_a_tab_opened_later_draws_when_it_appears() {
+    let dir = folder("later-tab");
+    designs(&dir);
+    std::fs::write(
+        dir.join("page.md"),
+        "# Tabs\n\n<Tabs>\n<Tab title=\"Words\">\n\nNo design here.\n\n</Tab>\n<Tab title=\"Design\">\n\n![Button](button.design)\n\n</Tab>\n</Tabs>\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = browser
+        .new_page(format!("{address}/page.md").as_str())
+        .await
+        .unwrap();
+    until(&page, "document.documentElement.dataset.ready === 'true'").await;
+    assert_eq!(
+        eval::<usize>(&page, "document.querySelectorAll('canvas.design').length").await,
+        0,
+        "the second tab isn't on the page yet"
+    );
+    let open =
+        |n: usize| format!("document.querySelectorAll('.tabs-bar button')[{n}].click(); true");
+    eval::<bool>(&page, &open(1)).await;
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    eval::<bool>(&page, &open(0)).await;
+    until(&page, "!document.querySelector('canvas.design')").await;
+    eval::<bool>(&page, &open(1)).await;
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
     browser.close().await.ok();
     events.abort();
 }

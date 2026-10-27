@@ -3,7 +3,7 @@ import Button from "./button.design"
 <Frame name="Confirmation" width={390} height={844} fill={theme.background}
        layout="column" gap={16} padding={24} align="center" justify="center">
   <Ellipse width={72} height={72} fill={theme.success} />
-  <Text size={24} weight={700} color={theme.text}>Order placed</Text>
-  <Text size={16} color={theme.muted}>We'll email you when it ships.</Text>
+  <Text font="lora" size={24} weight={700} color={theme.text}>Order placed</Text>
+  <Text font="figtree" size={16} color={theme.muted}>We'll email you when it ships.</Text>
   <Button label="Back to cart" fill={theme.secondary} onClick="back" />
 </Frame>

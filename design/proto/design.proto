@@ -24,25 +24,34 @@ message Update {
   string path = 4;
 }
 
-// A whole scene: its tree, each distinct image file the tree shows, once,
-// however many nodes show it, and whether it is themed — whether any
-// `theme.` reference reached it.
+// A whole scene: its tree, each distinct image file the tree shows and font
+// file its texts are set in, once, however many nodes use it, and whether it
+// is themed — whether any `theme.` reference reached it.
 message Scene {
   Node root = 1;
   repeated ImageFile images = 2;
   bool themed = 3;
+  repeated FontFile fonts = 4;
 }
 
-// The nodes that changed, the image files they show that the scene last
-// sent didn't have — only those — and whether the scene is themed now.
+// The nodes that changed, the image and font files they use that the scene
+// last sent didn't have — only those — and whether the scene is themed now.
 message Patch {
   repeated Replace replace = 1;
   repeated ImageFile images = 2;
   bool themed = 3;
+  repeated FontFile fonts = 4;
 }
 
 // An image file's bytes, PNG or JPEG, and its id: the SHA-256 of the bytes.
 message ImageFile {
+  bytes id = 1;
+  bytes data = 2;
+}
+
+// A font file's bytes, TrueType or OpenType, and its id: the SHA-256 of the
+// bytes.
+message FontFile {
   bytes id = 1;
   bytes data = 2;
 }
@@ -157,6 +166,9 @@ message Text {
   Color color = 4;
   float line_height = 5;
   TextAlign align = 6;
+  // The id of the font file the text is set in, which the scene or a patch
+  // carries; empty for Inter, which the engine embeds.
+  bytes font = 7;
 }
 
 enum TextAlign {

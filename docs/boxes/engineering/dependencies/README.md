@@ -139,10 +139,18 @@ with `tonic-prost-build` — and, when the `server` feature is on, the
 of message types, and the proto ships inside the crate. `devpage` turns
 `server` on; `devpage-core` and the module leave it off.
 
+The top `Cargo.toml` builds the engine optimised in development builds too,
+with the crates it paints and encodes through — `vello_cpu`, `vello_common`,
+`fearless_simd`, `png` and `zlib-rs` — because its tests and the canvas's
+paint, encode and compare hundreds of pictures pixel by pixel: unoptimised,
+`cargo test -p devpage-design` takes about 14 s on an 18-core Mac; optimised,
+under half a second, and an edit to the engine rebuilds as fast as before.
+Debug assertions and overflow checks stay on.
+
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |
-| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces, and the glyph runs the display list draws. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render.rs` |
+| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces and a scene's font files, and the glyph runs the display list draws; through its `fontique`, reading a font file's family, weights and weight axis to check it. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render.rs`, `design/src/fonts.rs` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU; samples a shadow's shape before the painter blurs it. | `design/src/render.rs` |
 | `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; encoding test images. | `design/src/resolve.rs`, `design/src/render.rs` (tests) |
 | `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |
@@ -194,9 +202,15 @@ JavaScript that draws diagrams; the [vendored React bundle](../../viewer/vendore
 which widgets run with; the [vendored icons](../../viewer/vendored-icons/README.md),
 Lucide's icon set (ISC) and GitHub's mark (CC0); and the Inter typeface —
 regular, medium, semibold and bold, in `design/fonts/` — which the design
-engine embeds with `include_bytes!` and sets every design's text in. Inter is
+engine embeds with `include_bytes!` and sets a design's text in unless the
+design names a [font file](../../viewer/designs/README.md#fonts). Inter is
 under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
+
+The docs' checkout example sets its text in two variable fonts, Lora and
+Figtree, in `docs/designs/checkout/fonts/`. They are part of the docs, not of
+the binary, and are under the SIL Open Font License 1.1 too, whose text is
+beside each as `OFL.txt`.
 
 The error messages each failure produces are listed in the
 [configuration reference](../../viewer/configuration-reference/README.md#errors).
