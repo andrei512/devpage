@@ -155,7 +155,7 @@ In detail:
 Everything the page will load from devpage beyond its stylesheet and page
 script is named in its head, so the browser asks for all of it as soon as it
 reads the head — one round trip after the HTML, not one per import a script
-finds. `Widgets::head` in `src/widgets.rs` works it out from the rendered
+finds. `Widgets::head` in `src/widgets/mod.rs` works it out from the rendered
 content:
 
 - each widget the content names (`data-widget`);

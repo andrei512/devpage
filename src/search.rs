@@ -2057,8 +2057,10 @@ mod tests {
         assert_eq!(page.kind, PageKind::Chapter);
         assert_eq!(page.trail, ["How"]);
         assert_eq!(page.document.path, "/plan/plan.yml");
+        let plan = Document::load(&dir.join("plan/plan.yml"), &dir).unwrap();
         let html = crate::render::doc(
-            &Document::load(&dir.join("plan/plan.yml"), &dir).unwrap(),
+            &plan,
+            &crate::widgets::Widgets::of(&plan, &Default::default()),
             &[dir.join("plan/why.md"), dir.join("plan/how.md")],
             &Default::default(),
             false,

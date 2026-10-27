@@ -376,9 +376,13 @@ fn asked_version(query: Option<&str>) -> Option<&str> {
 
 /// A system widget, compiled from the TSX built into the binary: `immutable`
 /// at its current address, `no-cache` at any other.
-async fn system_widget(Path(name): Path<String>, RawQuery(query): RawQuery) -> Response {
+async fn system_widget(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    RawQuery(query): RawQuery,
+) -> Response {
     let stem = name.trim_end_matches(".tsx");
-    match crate::widgets::compile_system(stem) {
+    match state.index.modules().system(stem) {
         Some(module) => {
             let current = crate::addresses::system_widget_hash(stem)
                 .is_some_and(|hash| asked_version(query.as_deref()) == Some(hash));
@@ -413,7 +417,7 @@ async fn project_widget(
     // The version asked about and the bytes sent come from one reading of
     // the files: a save between the two can't be served as `immutable` under
     // the version before it.
-    let snapshot = crate::widgets::Snapshot::of(&document.served, &file);
+    let snapshot = state.index.modules().snapshot(&document.served, &file);
     let current = asked_version(query.as_deref()) == Some(snapshot.hash(&file, &known).as_str());
     // A helper this file imports that doesn't compile: the browser would only
     // say the import failed, so say why, here.
@@ -439,7 +443,7 @@ fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
             .filter_map(|file| crate::document::Document::load(&file, &entry.served).ok())
             .find(|document| document.widgets.as_deref() == Some(folder))
     };
-    crate::widgets::Widgets::of(owner.as_ref().unwrap_or(&entry))
+    crate::widgets::Widgets::of(owner.as_ref().unwrap_or(&entry), state.index.modules())
         .modules
         .into_keys()
         .collect()
@@ -1157,13 +1161,13 @@ mod tests {
             .to_string();
         let served = dir.canonicalize().unwrap();
         let docs = Document::load(&served.join("docs"), &served).unwrap();
-        let known: Vec<String> = crate::widgets::Widgets::of(&docs)
+        let known: Vec<String> = crate::widgets::Widgets::of(&docs, &Default::default())
             .modules
             .into_keys()
             .collect();
         let address = |file: &str| {
             crate::addresses::address(crate::addresses::Owned::Module {
-                snapshot: &crate::widgets::Snapshot::of(&served, &served.join(file)),
+                snapshot: &crate::widgets::Modules::default().snapshot(&served, &served.join(file)),
                 file: &served.join(file),
                 known: &known,
             })

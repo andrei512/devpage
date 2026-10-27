@@ -308,7 +308,6 @@ impl Listeners {
                 continue;
             }
             designs.changed(&path);
-            crate::widgets::forget(&path);
             index.changed(&path);
             searched.push(path.clone());
             // The entry's own file: re-read it, so `/` and `watch` follow it,

@@ -80,12 +80,12 @@ folder; only paths that survived sifting are. A thread file in the comment store
 (`.devpage/comments/<page>/<id>.yml`) sends `comments /<page>`; the comment
 store is watched whatever a site's `watch` says, and never refreshes pages
 itself; nothing else under `.devpage/` is looked at. Every other path is first
-handed to the design store — see [Designs](#designs) — and to the widgets'
-memory of the files they read, which forgets it so the next
-[widget address](../widgets/how-widgets-run/README.md#compiling) reads it
-again, and passed to the
+handed to the design store — see [Designs](#designs) — and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
-edited or deleted document file or `.gitignore` is reflected at once. The
+edited or deleted document file or `.gitignore` is reflected at once, and its
+module cache forgets the file so the next
+[widget address](../widgets/how-widgets-run/README.md#compiling) reads it
+again. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
 `watch` list follow the file — and refreshes whatever `watch` says. Once the
 burst is decided and any `change` sent, its paths go to the

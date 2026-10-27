@@ -12,6 +12,7 @@ use crate::check::Preview;
 use crate::document::{self, Document, Entry, Kind};
 use crate::index::Index;
 use crate::render;
+use crate::widgets::Widgets;
 
 /// What a path answers with.
 #[derive(Debug, PartialEq)]
@@ -149,8 +150,18 @@ impl Resolver<'_> {
             .map(|site| (Document::load(site, served), site))
         {
             Some((Ok(site), _)) => {
-                let found = self.preview.problems(&site, std::slice::from_ref(&file));
-                Answer::Html(render::page(&site, &file, &source, self.comments, &found))
+                let widgets = Widgets::of(&site, self.index.modules());
+                let found = self
+                    .preview
+                    .problems(&site, &widgets, std::slice::from_ref(&file));
+                Answer::Html(render::page(
+                    &site,
+                    &widgets,
+                    &file,
+                    &source,
+                    self.comments,
+                    &found,
+                ))
             }
             Some((Err(error), site)) => {
                 Answer::Html(render::invalid(&entry, site, &format!("{error:#}")))
@@ -199,17 +210,19 @@ impl Resolver<'_> {
     /// A document as its kind: a site opens on its root page. Printed, a
     /// page lists no problems, so none are looked for.
     fn show(&self, document: &Document, print: bool) -> Answer {
+        let widgets = Widgets::of(document, self.index.modules());
         let found = |pages: &[PathBuf]| {
             if print {
                 Vec::new()
             } else {
-                self.preview.problems(document, pages)
+                self.preview.problems(document, &widgets, pages)
             }
         };
         match &document.kind {
             Kind::Site { .. } | Kind::Design => self.redirect(document.entry()),
             Kind::Doc { chapters, pdf } => Answer::Html(render::doc(
                 document,
+                &widgets,
                 chapters,
                 pdf,
                 print,
@@ -220,6 +233,7 @@ impl Resolver<'_> {
                 let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
                 Answer::Html(render::slides(
                     document,
+                    &widgets,
                     slides,
                     print,
                     self.comments,
