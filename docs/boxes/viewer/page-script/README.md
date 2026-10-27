@@ -1,7 +1,7 @@
 # The page script
 
 What `assets/devpage.js` does in every open page: swapping a page in place,
-mounting widgets, listening to the live-update stream, following links without
+mounting widgets, keeping a site's sidebar mounted, listening to the live-update stream, following links without
 reloading, keeping the theme, driving the navbar, and letting hidden tabs go
 quiet. It is a mechanism page under [Live updates](../live-updates/README.md),
 for someone about to change the script.
@@ -72,8 +72,9 @@ way back — and is drawn again from the stream
 
 **Commit**, in one task, so no frame shows a page half built: the kept
 elements take their places, the fresh content replaces the children of
-`#devpage-page`, the fresh children replace those of `#devpage-nav` and
-`#devpage-navbar` — so the navbar's highlight follows the page — a link's
+`#devpage-page`, the mounted [sidebar](#the-sidebar) is given the fresh
+page's tree and address, the fresh children replace those of `#devpage-navbar`
+— so the navbar's highlight follows the page — and of a doc's outline, a link's
 address is pushed onto the history, the title is set, the slide is shown,
 broken links are marked, and the scroll is put where it belongs: kept for a
 live update, the reader's for back and forward, and the `#fragment` or the
@@ -105,6 +106,27 @@ script, `assets/design.js`, is loaded the first time a
 page has a design, and from then on starts every canvas not yet drawn and
 stops those gone.
 
+## The sidebar
+
+A site's sidebar is the `DevpageSidebar` widget
+([Navigation tree](../navigation-tree/README.md#rendering-the-sidebar)). On
+load, `mountSidebar` imports React and the widget — both named by the page's
+head — and **hydrates** `#devpage-nav` with it (`hydrateRoot`), from the tree
+the server put beside it as JSON (`#devpage-sidebar`). The server's markup is
+what the widget renders, so React adopts the existing nodes and changes none:
+nothing on screen moves when it takes over. The page marks itself ready once
+the sidebar and the content's widgets have mounted.
+
+The sidebar is mounted once and never unmounted while the tab shows the site.
+A swap waits for it to have mounted, so it never replaces nodes React is
+taking over; then, in the commit, it hands the widget the fresh page's tree
+and address inside `flushSync`, so React renders it in that same task: the
+highlight moves, and the new page's branch opens, in the frame that shows the
+new content, never one before or after. Everything else the widget holds —
+the branches open, the sidebar's scroll — stays. If the widget couldn't load,
+the sidebar stays as the server drew it, and each swap replaces its children
+as it does the navbar's.
+
 ## The live-update stream
 
 `connect()` opens an `EventSource` on
@@ -128,7 +150,8 @@ already handled — on a link to the same origin whose path ends in `.md`:
 
 - a link to the page already shown — the same path and query — only updates
   the `#fragment`, and fetches nothing — this is how a bare `#heading` link
-  or a doc's outline scrolls on the same page;
+  or a doc's outline scrolls on the same page; a link to the `#fragment`
+  already shown scrolls to it again, since setting it would not;
 - otherwise the target is loaded with `load`, which pushes it onto the
   history with `history.pushState` as it commits, and scrolls to the
   fragment, or to the top;
@@ -145,6 +168,15 @@ scroll, with no fetch. A reload comes back to the scroll it left.
 Every other link — other sites, non-Markdown files such as a doc's or deck's
 document file — is left to the browser and loads a whole new page. A site's
 title links to its root page, a Markdown file, so it swaps in place too.
+
+A [search result's](../search/README.md#landing-on-the-match) link carries
+the words it matched in `data-found`. Once its page is in place — swapped in,
+or the page shown already — the listener marks those words in the result's
+section and scrolls to the first; a result with none opens its page at the
+top, the page shown included. A result the browser loads whole hands its
+address and words to the new page in the tab's session storage, and the new
+page lands on them once it is ready. Every link followed, Escape, and back or
+forward to another address take the marks out.
 
 ## The theme
 

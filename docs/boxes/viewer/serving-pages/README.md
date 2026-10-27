@@ -13,7 +13,7 @@ served; [which document a file belongs to](../document-index/README.md) and
 flowchart LR
   req["GET /path"] --> route{"Route"}
   route -->|"/"| entry["The entry document"]
-  route -->|"/__devpage/…"| own["devpage's own:<br/>events, comments,<br/>widgets, assets"]
+  route -->|"/__devpage/…"| own["devpage's own:<br/>events, comments, search,<br/>widgets, assets"]
   route -->|"Watch, *.design.png"| designs["Designs:<br/>watch stream, PNG"]
   route -->|"anything else"| file["A file in the<br/>served folder"]
   click route href "#routes" "Routes"
@@ -30,6 +30,7 @@ flowchart LR
 | `/` | `307 Temporary Redirect` to the entry document as its file says now — a site's root page, or a doc's or deck's document file (or the Markdown file devpage was given); while the entry's file is invalid, the page saying why |
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/the-comment-store/README.md#the-requests); `404` with comments off |
+| `/__devpage/search?q=…` | the hits of a full-text search, as JSON, comments on or off — see [Search](../search/README.md#the-endpoint) |
 | `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the [built-in assets](#built-in-assets) |

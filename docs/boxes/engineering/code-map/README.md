@@ -15,7 +15,7 @@ Each part of the diagram opens the page that explains it.
 
 ```mermaid
 flowchart LR
-  main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, index.rs"]
+  main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, index.rs, search.rs"]
   main --> watch["Watching<br/>watch.rs"]
   main --> serve["Serving<br/>server.rs, comments.rs"]
   serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
@@ -39,10 +39,15 @@ flowchart LR
 | --- | --- |
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
-| `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site. |
-| `src/watch.rs` | Watches the served folder, keeps the index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
+| `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one. |
+| `src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
+| `src/watch.rs` | Watches the served folder, keeps the index and its search index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
+| `src/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
+| `src/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
+| `src/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
+| `src/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
 | `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes; the `Designs` gRPC service and its watch stream; the PNG route; the canvas page; design problems for `devpage check`. |
-| `src/server.rs` | The routes — the gRPC-Web watch route among them — request logging, the event stream, the comment requests and identity, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/server.rs` | The routes — the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, and the built-in assets, each sent compressed as the browser accepts. |
 | `build.rs` | The asset manifest — every built-in asset under its content address, compressed as brotli and gzip — and devpage's build id. |
 | `src/addresses.rs` | `address`, the one function that makes every address a page loads from devpage — built-in assets, system widgets, project widgets and their helpers — and the manifest `build.rs` made. |
 | `src/validators.rs` | The middleware that gives every response but the streams an ETag and answers `304`; `Accept-Encoding` negotiation. |
@@ -81,8 +86,9 @@ with an error before anything is served.
 
 2. Build the index and create the design store
    The index of the served folder's document files and `.gitignore` files
-   ([the index](../../viewer/document-index/README.md#the-index)); the watcher
-   and the server share it. Then the design store, empty: it resolves a design
+   ([the index](../../viewer/document-index/README.md#the-index)), with the
+   search index of their sections ([search](../../viewer/search/README.md));
+   the watcher and the server share it. Then the design store, empty: it resolves a design
    the first time one is asked for
    ([in the server](../../viewer/design-engine/README.md#in-the-server)), and
    the watcher and the server share it too.
@@ -94,7 +100,7 @@ with an error before anything is served.
    an external address finds it broken.
 
 4. Start the watcher
-   On the served folder, with the design store to hand changed paths to
+   On the watch set of the served folder, with the design store to hand changed paths to
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.
 

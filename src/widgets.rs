@@ -25,6 +25,10 @@ use crate::document::Document;
 /// The widgets devpage ships, compiled into the binary.
 pub const SYSTEM: &[(&str, &str)] = &[
     ("Callout", include_str!("../assets/widgets/Callout.tsx")),
+    (
+        SIDEBAR,
+        include_str!("../assets/widgets/DevpageSidebar.tsx"),
+    ),
     ("Cards", include_str!("../assets/widgets/Cards.tsx")),
     ("Diagram", include_str!("../assets/widgets/Diagram.tsx")),
     ("Example", include_str!("../assets/widgets/Example.tsx")),
@@ -35,6 +39,12 @@ pub const SYSTEM: &[(&str, &str)] = &[
     ("Tabs", include_str!("../assets/widgets/Tabs.tsx")),
     ("Terminal", include_str!("../assets/widgets/Terminal.tsx")),
 ];
+
+/// The widget that is a site's sidebar: devpage's own chrome, mounted by the
+/// page script on the sidebar the server rendered, never written in a page.
+/// Its `Devpage` prefix keeps it clear of a project's names: a project may
+/// have its own `Sidebar`.
+pub const SIDEBAR: &str = "DevpageSidebar";
 
 /// The tag that holds a slide's notes: devpage's own, never a widget. It is
 /// taken out of the page and its text kept (see [`notes`]).
@@ -133,17 +143,18 @@ impl Widgets {
         widgets
     }
 
-    /// What the `<head>` of a page whose rendered content is `content` needs:
-    /// the import map naming React and pele, the widgets the page script
-    /// loads, and the page's [load set](Self::load_set) — each module as a
-    /// `modulepreload` at the very address its import asks for, and the
-    /// design engine's wasm as a low-priority fetch — so the browser asks for
-    /// all of it at once, as soon as it reads the head.
-    pub fn head(&self, content: &str) -> String {
+    /// What the `<head>` of a page whose rendered content is `content`, in a
+    /// frame that mounts the widgets `chrome`, needs: the import map naming
+    /// React and pele, the widgets the page script loads, and the page's
+    /// [load set](Self::load_set) — each module as a `modulepreload` at the
+    /// very address its import asks for, and the design engine's wasm as a
+    /// low-priority fetch — so the browser asks for all of it at once, as
+    /// soon as it reads the head.
+    pub fn head(&self, content: &str, chrome: &[&str]) -> String {
         let modules = serde_json::to_string(&self.modules).unwrap_or_default();
         let react = address(Owned::Asset("react.js"));
         let pele = address(Owned::Asset("pele.js"));
-        let (preloads, fetches) = self.load_set(content);
+        let (preloads, fetches) = self.load_set(content, chrome);
         let mut links = String::new();
         for module in preloads {
             links.push_str(&format!("\n<link rel=\"modulepreload\" href=\"{module}\">"));
@@ -159,16 +170,18 @@ impl Widgets {
         )
     }
 
-    /// Everything a page whose rendered content is `content` loads from
-    /// devpage beyond its stylesheet and page script: the modules — React if
-    /// it has a widget; each widget it names, a Mermaid block being a
-    /// `Diagram`; the widgets each of those renders by name (its
+    /// Everything a page whose rendered content is `content`, in a frame that
+    /// mounts the widgets `chrome` — a site's sidebar, [`SIDEBAR`] — loads
+    /// from devpage beyond its stylesheet and page script: the modules —
+    /// React if it has a widget; each widget it names, a Mermaid block being
+    /// a `Diagram`, then the frame's; the widgets each of those renders by
+    /// name (its
     /// `__devpageUses`), and so on; every helper a project widget's imports
     /// reach; pele with a `Diagram`; the design script and engine with an
     /// embedded design — and what is fetched, not imported: the engine's
     /// wasm. Each is the address [`address`] makes, so it is the one the
     /// import asks for.
-    pub fn load_set(&self, content: &str) -> (Vec<String>, Vec<String>) {
+    pub fn load_set(&self, content: &str, chrome: &[&str]) -> (Vec<String>, Vec<String>) {
         let mut queue: Vec<String> = content
             .split("data-widget=\"")
             .skip(1)
@@ -178,6 +191,9 @@ impl Widgets {
         if content.contains("<pre lang=\"mermaid\">") {
             queue.push("Diagram".into());
         }
+        // The frame's own come after the content's: the server drew them
+        // already, so the reader waits on the content's first.
+        queue.extend(chrome.iter().map(|name| name.to_string()));
         let mut seen = std::collections::BTreeSet::new();
         let mut widgets = Vec::new();
         let mut helpers = Vec::new();
@@ -1576,6 +1592,36 @@ mod tests {
                 known: &known
             })
         );
+    }
+
+    #[test]
+    fn devpage_sidebar_is_reserved_and_a_project_sidebar_is_not() {
+        let dir = std::env::temp_dir().join(format!("devpage-wsidebar-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# T\n").unwrap();
+        for name in ["DevpageSidebar", "Sidebar"] {
+            std::fs::write(
+                dir.join(format!("widgets/{name}.tsx")),
+                "export default () => null;",
+            )
+            .unwrap();
+        }
+        let dir = dir.canonicalize().unwrap();
+        let widgets = Widgets::of(&Document::load(&dir, &dir).unwrap());
+        assert_eq!(
+            widgets.problems,
+            vec![
+                "widgets/DevpageSidebar.tsx — DevpageSidebar is a system widget's name".to_string()
+            ]
+        );
+        assert!(widgets.modules["DevpageSidebar"].starts_with("/__devpage/system-widgets/"));
+        assert!(widgets.modules["Sidebar"].starts_with("/__devpage/widgets/"));
     }
 
     #[test]

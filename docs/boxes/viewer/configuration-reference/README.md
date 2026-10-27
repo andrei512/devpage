@@ -85,7 +85,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `kind` | `site` | yes | Makes this file a site. |
 | `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`), or the whole tab title on a page titled like the site (trimmed, ignoring case). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
-| `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. Default: every file that no `.gitignore` excludes. |
+| `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. A `.gitignore`d file never refreshes, and is watched — so the index and designs hear of it — only in an ignored folder a pattern explicitly reaches into: its part before the first glob character is in that folder or is it (`build/*.svg` reaches into an ignored `build/`; `**/*.md` reaches into none) ([the watch set](../live-updates/README.md#the-watch-set)). Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
 | `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
@@ -130,6 +130,29 @@ default.
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
+
+## Front matter
+
+A page may open with YAML front matter: a `---` line first, the fields, and
+another `---` line. It is never shown — the page renders from what follows —
+and its title is still its first `# ` heading after it.
+
+```markdown
+---
+search: true
+description: How the outbox survives a restart.
+keywords: [retry, offline]
+---
+# The outbox
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `search` | boolean | `false` leaves the page out of [search](../search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
+| `description` | string | Words search finds the page by, weighted like its title. |
+| `keywords` | string or list of strings | The same. |
+
+Any other field is read by nothing and ignored.
 
 ## Errors
 

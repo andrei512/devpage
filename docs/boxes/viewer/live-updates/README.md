@@ -37,10 +37,12 @@ sequenceDiagram
 
 ## The watcher
 
-When devpage starts, `watch::start` in `src/watch.rs` watches the whole
-[served folder](../writing-a-document/README.md#the-served-folder), recursively,
-with the platform's recommended `notify` watcher. Its work happens in two
-steps:
+When devpage starts, `watch::start` in `src/watch.rs` plans the
+[watch set](#the-watch-set) of the
+[served folder](../writing-a-document/README.md#the-served-folder) — every
+folder in sight, and nothing out of sight — and has the
+[platform's watcher](#per-platform) watch it. Every event the platform
+reports goes to one handler, whose work happens in two steps:
 
 1. **Sifting, as each event arrives** (`Listeners::sift`). Accesses (a read,
    not a change) and errors are dropped, and so is every path that can't
@@ -50,7 +52,10 @@ steps:
    the `watch` list of the nearest site holding it names it. So a build
    rewriting `target/` costs one lookup per path in memory, and no listener
    hears of it. The `.gitignore` rules are the index's, so a changed
-   `.gitignore` takes effect on the next event, without a restart.
+   `.gitignore` takes effect on the next event, without a restart. With the
+   watch set, the platform reports almost nothing out of sight; sifting is
+   the backstop for the rest — a folder that went out of sight before the
+   next re-plan, and platforms that can't leave a subtree out.
 2. **Handling, a burst at a time** (`Listeners::changed`, on a thread of its
    own). The paths that survive go to a thread that waits for one, collects
    whatever else arrives within 50 ms (`BURST`), and handles each path of the
@@ -82,7 +87,10 @@ again, and passed to the
 [index](../document-index/README.md#the-index) (`Index::changed`), so a new,
 edited or deleted document file or `.gitignore` is reflected at once. The
 entry document's own file is re-read (`Entry::reload`) — so `/` and the
-`watch` list follow the file — and refreshes whatever `watch` says.
+`watch` list follow the file — and refreshes whatever `watch` says. Once the
+burst is decided and any `change` sent, its paths go to the
+[search index](../search/README.md#how-it-stays-current) (`Search::changed`),
+which reads everything published again when one of them can change it.
 
 ### What is out of sight
 
@@ -113,14 +121,103 @@ refreshed page comes back in a different frame — that problem page replaced
 by the fixed site, or a document that changed kind — the page script loads it
 whole rather than swapping its parts.
 
-The watcher lives for the whole run. Dropping it stops the platform's watcher
-and drops the event handler, which ends the burst thread.
+The watcher lives for the whole run. Dropping it (`Watch`) stops the
+platform's watcher and drops the event handler, which ends the burst thread.
 
-On macOS, `notify` watches through one FSEvents stream on the served folder,
-with no latency (`0.0`, no defer) and no way to leave a subtree out: a
-non-recursive watch is filtered in `notify`'s callback, not in the stream. So
-every change under the folder, `target/` included, still costs devpage one
-callback; sifting is what keeps that callback cheap.
+### The watch set
+
+**Nothing out of sight is watched.** Leaving a path out only after it is
+reported is not enough: on macOS, fseventsd does the work of delivering
+every event a watcher asks for, whatever devpage then drops. Measured on an
+M-series Mac, 400k file writes under `target/` of the devpage repo cost
+fseventsd 5.6 s of CPU with no devpage running, 9.6 s with one watching the
+whole folder, and 42.8 s with eight — about 4.5 s more per devpage, for
+events it threw away. So the watcher never asks for them.
+
+`WatchSet::plan` (`src/watch/set.rs`) splits the served folder, by the
+index's rules — [out of sight](#what-is-out-of-sight) is the same judgement
+sifting makes — into:
+
+- **deep folders** — the largest folders with nothing out of sight anywhere
+  under them, watched recursively;
+- **shallow folders** — folders in sight that hold something out of sight
+  (the served folder itself, usually), watched for their entries and the
+  files directly in them.
+
+It walks only what is in sight: an out-of-sight folder is never read. Only
+folders decide: an ignored file in a deep folder is still reported, and
+sifted. Two kinds of out-of-sight folder are watched anyway, since what is
+in them already gets past sifting:
+
+- `.devpage` is shallow, and its comment store, `.devpage/comments`, is in
+  sight; nothing else under `.devpage/` is watched.
+- An ignored folder a site's `watch` list explicitly reaches into. Each
+  pattern's literal prefix — its components before the first with a glob
+  character — joined to its site's folder decides: an ignored folder is
+  watched when the prefix is in it or is it, or when the prefix is an
+  ignored folder holding it. So `watch: ["build/*.svg"]` keeps `docs/build/`
+  and the folders under it watched, while `**/*.md` in `docs/devpage.yml`,
+  whose prefix is `docs/` itself, reaches into no ignored folder: it can
+  match `docs/build/out.md`, but nothing in `docs/build/` is watched, and
+  nothing at all in `target/`. The prefixes are every site's — the entry's
+  and every indexed site's.
+
+**Re-planning.** After each burst, the burst thread plans the set again and
+the platform applies only the difference — a folder no longer in the set
+stops being watched, a new one starts — when the burst holds:
+
+- a `.gitignore`, or a site's document file (its `watch` list), or the
+  entry's file;
+- a folder created in sight that the platform doesn't report on yet — on
+  macOS, one in a shallow folder — or a removed one holding a watched
+  folder;
+- a watched folder deleted and made again, even within one burst: the
+  platform judges what it reports on by the watches it holds, not by the
+  last plan, and a deleted folder's watch is gone with it — so the folder
+  made again counts as not reported on, is watched again, and what is
+  already in it is handled as changed (`rm -rf docs/guides && git checkout
+  docs/guides`). On macOS a deep folder's stream follows its path and goes
+  on reporting;
+- a folder created out of sight directly in a folder in sight: `cargo build`
+  in a nested crate creates `crate/target/`, which makes the crate's deep
+  folder shallow. This is judged from the path, as sifting is, before
+  sifting drops it; the build's events until the re-plan are dropped by
+  sifting.
+
+What is already in a folder the platform didn't report on before — the
+folder, the files directly in it, and for a deep folder everything under it,
+sifted as events are — is then handled as changed, so what was written there
+before its watch started is still heard of: a page's first comment thread is
+written into a new folder of the comment store at once.
+
+### Per platform
+
+- **macOS** (`src/watch/macos.rs`): devpage's own watcher, not `notify`'s,
+  since `notify` has one FSEvents stream for every path it watches and
+  filters a non-recursive watch in its callback, after fseventsd has
+  delivered the whole subtree. Each deep folder gets an FSEvents stream of
+  its own, so adding or removing one restarts nothing else: file events,
+  latency 50 ms (`BURST`), coalesced by fseventsd (no `NoDefer`), all on one
+  dispatch queue. Each shallow folder gets a kqueue watch (`EVFILT_VNODE`)
+  for its entries — added, removed, renamed, found by reading the folder
+  again — and so does each file directly in it, for writes, deletes and
+  renames; a symbolic link is watched itself, never what it points to. One
+  thread waits on the kqueue. kqueue holds a descriptor per
+  watched file and folder, so devpage raises its open-files limit to what
+  the system allows (at most 10240) when it starts watching.
+- **Linux** (`src/watch/inotify.rs`): `notify`'s inotify watcher,
+  non-recursive on every folder in sight — the shallow folders and every
+  folder of the deep ones. inotify watches a folder at a time anyway, so an
+  ignored folder gets no inotify watch at all, and a folder created in sight
+  is watched on the next re-plan. A folder an event says was removed or
+  renamed is no longer counted watched, with every folder under it, so the
+  next re-plan watches whatever has its name again.
+- **Elsewhere** (`src/watch/recursive.rs`): `notify`'s recommended watcher,
+  recursive on the whole served folder, as before the watch set: it reports
+  everything, and sifting drops what is out of sight.
+
+Every platform hands the same handler `notify` events, so sifting, bursts
+and the listeners are the same everywhere.
 
 ## The channel and the stream
 
@@ -182,8 +279,8 @@ back until it is shown.
   `change` makes an open page fetch itself — or, while it is loading, load
   once more after that; one that finds the page's ETag unchanged swaps
   nothing.
-- **The watcher reports an error.** `notify` hands the callback in
-  `src/watch.rs` either an event or an error, and an error is dropped
+- **The watcher reports an error.** The platform's watcher hands the
+  handler in `src/watch.rs` either an event or an error, and an error is dropped
   silently by `Listeners::sift` — nothing is logged and
   devpage keeps serving. A watch that has broken this way shows only as pages
   that stop refreshing while requests still work; restart devpage to start a

@@ -18,7 +18,8 @@ how to write props and content is on [Using widgets](../using-widgets/README.md)
 | [`Diagram`](#diagram) | — | Mermaid text |
 
 `Notes` is taken too, though it is not a widget: it holds a slide's
-[notes](../../making-slides/README.md#speaker-notes) and is never shown.
+[notes](../../making-slides/README.md#speaker-notes) and is never shown. So is
+[`DevpageSidebar`](#devpagesidebar), devpage's own chrome.
 
 ## Callout
 
@@ -168,3 +169,19 @@ flowchart LR
 ```
 
 </Example>
+
+## DevpageSidebar
+
+A site's sidebar: devpage's own chrome, not a widget for pages. devpage
+mounts it on every site page with a sidebar — a search box at its top,
+then the tree, collapsed, the branch to the page shown open, a chevron on
+every entry with children — and keeps it mounted as the reader moves between
+pages
+([Organizing navigation](../../organizing-navigation/README.md#opening-and-closing),
+[the search box](../../search/README.md#the-search-box),
+[how it is rendered](../../navigation-tree/README.md#rendering-the-sidebar)).
+
+Its name is reserved like every system widget's: a project's
+`DevpageSidebar.tsx` is a problem. The **`Devpage` prefix** marks the widgets
+that are devpage's own chrome, so their names stay clear of a project's: a
+project may have its own `Sidebar`.

@@ -152,7 +152,7 @@ fn active(document: &Document, current: &str) -> Option<String> {
     ) -> bool {
         for entry in groups.iter().flat_map(|group| &group.entries) {
             trail.push(document.url(&entry.file));
-            if trail.last().is_some_and(|url| url == current)
+            if (entry.home && trail.last().is_some_and(|url| url == current))
                 || path(document, &entry.children, current, trail)
             {
                 return true;

@@ -1,6 +1,7 @@
 //! The served folder's index: which files are document files and of what
-//! kind, and which paths its `.gitignore` files exclude. Built once at start
-//! and kept current by the watcher, so serving never scans folders.
+//! kind, and which paths its `.gitignore` files exclude — and, when asked
+//! for, the search index of their text. Built once at start and kept current
+//! by the watcher, so serving never scans folders.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -10,10 +11,13 @@ use ignore::WalkBuilder;
 use ignore::gitignore::Gitignore;
 
 use crate::document::{KindName, kind_of};
+use crate::search::Search;
 
 pub struct Index {
     served: PathBuf,
     inner: RwLock<Inner>,
+    /// The search index, when this one was built [`with_search`](Index::with_search).
+    search: Option<Search>,
 }
 
 #[derive(Default)]
@@ -30,9 +34,28 @@ impl Index {
         let index = Self {
             served: served.to_path_buf(),
             inner: RwLock::new(Inner::default()),
+            search: None,
         };
         index.scan(served);
         index
+    }
+
+    /// Adds the search index of what the document file `entry` publishes.
+    /// Only a server that answers searches needs it: `devpage check`, `pdf`
+    /// and `video` build none.
+    pub fn with_search(mut self, entry: &Path) -> Self {
+        self.search = Some(Search::build(&self, entry));
+        self
+    }
+
+    /// The search index, if this index was built with one.
+    pub fn search(&self) -> Option<&Search> {
+        self.search.as_ref()
+    }
+
+    /// The served folder.
+    pub fn served(&self) -> &Path {
+        &self.served
     }
 
     /// Whether `path` is out of sight: inside `.git` or `.devpage`, or

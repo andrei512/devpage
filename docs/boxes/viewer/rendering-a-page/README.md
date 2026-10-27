@@ -36,6 +36,7 @@ does the four steps below.
 | `extension.tasklist` | `- [ ]` / `- [x]` items |
 | `extension.footnotes` | `[^1]` footnotes |
 | `extension.header_id_prefix = ""` | every heading gets an id from its text, with no prefix |
+| `extension.front_matter_delimiter = "---"` | a page's [front matter](../configuration-reference/README.md#front-matter) is never shown |
 | `render.unsafe` | raw HTML passes through |
 | `render.github_pre_lang` | a fence's language is passed as a `lang` attribute — which the highlighter below then drops for every block except `mermaid` |
 
@@ -78,8 +79,9 @@ image is left as it is.
 file name without its extension.
 
 **Sidebar.** The [navigation tree](../navigation-tree/README.md) is built
-from the root page and rendered to nested lists, with the current page
-marked.
+from the root page and rendered to nested lists, collapsed but for the branch
+down to the current page, which is marked — the markup the `DevpageSidebar`
+widget takes over in the browser — with the tree beside it as JSON.
 
 ## The page frame
 
@@ -112,7 +114,10 @@ In detail:
   the comment-mode switch (unless comments are off) and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
 - `<nav id="devpage-nav">`, unless `sidebar: false`, holds the tree — after a link
   to the site's root page with its logo and title when there is no navbar
-  to hold it;
+  to hold it — and is followed by the tree as JSON
+  (`<script type="application/json" id="devpage-sidebar">`) and a small
+  script that opens, before the page paints, the branches the reader opened
+  ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar));
 - with no navbar, the comment-mode switch (unless comments are off) and the
   theme selector (unless `theme-selector: false`) in
   `<div id="devpage-corner">`, top right;
@@ -145,26 +150,32 @@ content:
 - the widgets each of those renders by name — its compiled module's
   `__devpageUses` — and theirs, in turn;
 - every helper a project widget's relative imports reach;
-- React, when there is any widget; pele, with a `Diagram`;
+- `DevpageSidebar`, on a site page with a sidebar, after the content's
+  widgets: the server has drawn the sidebar already;
+- React, when there is any widget — so on every site page with a sidebar;
+  pele, with a `Diagram`;
 - the design script and the engine's bindings (`design.js`,
   `design-engine.js`), when the content embeds a design.
 
 Each is a `<link rel="modulepreload">` at exactly the address its import asks
 for — both come from `address` in `src/addresses.rs` — so nothing is
 downloaded twice. The engine's wasm, which is fetched rather than imported, is
-a `<link rel="preload" as="fetch" crossorigin fetchpriority="low">`. A page
-with none of these — plain Markdown — preloads nothing and never loads React
-or pele.
+a `<link rel="preload" as="fetch" crossorigin fetchpriority="low">`. Plain
+Markdown on a site page with a sidebar preloads React and `DevpageSidebar`
+only; a doc's or deck's page with none of these, or a site's with
+`sidebar: false`, preloads nothing and never loads React or pele.
 
 Every id the frame uses starts with `devpage-` — `devpage-page`,
-`devpage-nav`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
+`devpage-nav`, `devpage-sidebar`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
 `devpage-comments-toggle` — and a heading whose text would give it one of
 them gets `-heading` added to its id. So a page can have a heading called
 *Comments*, *Page* or *Navigation* and it stays an ordinary heading, never
 styled or replaced as part of the frame.
 
-`devpage-navbar`, `devpage-nav` and `devpage-page` are what
-[live updates](../live-updates/README.md) replace in place. A doc's and a
+`devpage-navbar`, a doc's outline in `devpage-nav`, and `devpage-page` are
+what [live updates](../live-updates/README.md) replace in place; a site's
+sidebar stays mounted and is given the fresh tree
+([The page script](../page-script/README.md#the-sidebar)). A doc's and a
 deck's frames carry the same head — the logo's icon link and the theme script —
 and the theme corner. Titles and sidebar labels are HTML-escaped; the page body
 is not, since raw HTML is allowed.
