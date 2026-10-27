@@ -13,7 +13,7 @@ import { useEffect, useId, useRef, useState } from "react";
 // The search box at its top asks /__devpage/search as the reader types;
 // while it holds text, the hits take the tree's place, grouped by document,
 // this document's first. `/` or ⌘K / Ctrl+K focuses it; arrows move, Enter
-// opens a hit through the page swap, Escape clears it.
+// opens a hit through the page swap, Escape or the ⓧ button clears it.
 
 // `home`: the page's position; a second listing of a page is a plain link.
 type Entry = { label: string; href: string; home: boolean; children: Group[] };
@@ -188,14 +188,19 @@ function useSearch(documentPath: string) {
       else if (query.trim()) openOnArrival.current = true;
     } else if (event.key === "Escape") {
       event.preventDefault();
-      openOnArrival.current = false;
       if (!query) input.current?.blur();
-      setQuery("");
-      setFound({ query: "", hits: [] });
+      clear();
     }
   };
 
-  return { query, setQuery, groups, hits, fresh, selected, setSelected, input, hitLinks, onKeyDown };
+  // Empties the box and brings the tree back.
+  const clear = () => {
+    openOnArrival.current = false;
+    setQuery("");
+    setFound({ query: "", hits: [] });
+  };
+
+  return { query, setQuery, groups, hits, fresh, selected, setSelected, input, hitLinks, onKeyDown, clear };
 }
 
 // One hit: where it is — its page's place in the nav — then its heading, then
@@ -264,6 +269,10 @@ export default function DevpageSidebar({ document = "", document_path = "", curr
           onKeyDown={search.onKeyDown}
         />
         <kbd>/</kbd>
+        {search.query ? (
+          // Pressing it keeps the focus in the box, so typing goes on there.
+          <button type="button" className="clear" aria-label="Clear search" onMouseDown={(event) => event.preventDefault()} onClick={() => { search.clear(); search.input.current?.focus(); }} />
+        ) : null}
       </div>
       {search.groups ? (
         <div className="search-results" id={resultsId} role="listbox" aria-label="Search results">

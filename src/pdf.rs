@@ -2238,6 +2238,39 @@ mod tests {
             text(&page, &format!("[document.querySelector('{SEARCH_INPUT}').value, document.querySelectorAll('#devpage-nav .hit').length, document.querySelector('#devpage-nav a.current').textContent].join(' ')")).await,
             " 0 Retries"
         );
+
+        // The clear button shows only while the box holds text, and clears it
+        // as Escape does, leaving the focus in the box.
+        assert_eq!(
+            text(
+                &page,
+                "String(!!document.querySelector('#devpage-nav .search .clear'))"
+            )
+            .await,
+            "false"
+        );
+        input.type_str("outbox").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelectorAll('#devpage-nav .hit').length > 0"
+            )
+            .await
+        );
+        page.evaluate("document.querySelector('#devpage-nav .search .clear').click(); 0")
+            .await
+            .unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('#devpage-nav > ul').checkVisibility()"
+            )
+            .await
+        );
+        assert_eq!(
+            text(&page, &format!("[document.querySelector('{SEARCH_INPUT}').value, document.querySelectorAll('#devpage-nav .hit').length, document.activeElement === document.querySelector('{SEARCH_INPUT}'), !!document.querySelector('#devpage-nav .search .clear')].join(' ')")).await,
+            " 0 true false"
+        );
         browser.close().await.ok();
         events.abort();
         std::fs::remove_dir_all(&dir).ok();

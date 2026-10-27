@@ -169,6 +169,11 @@ words marked.
 | Enter | in the box | opens the selected hit — the first, unless moved; pressed before the text typed has its hits, opens the first once they come |
 | Escape | in the box | clears the box and brings the tree back; in an empty box, leaves it |
 
+**The clear button.** While the box holds text, a ⓧ button at its right end
+clears it and brings the tree back, as Escape does, leaving the focus in the
+box. An empty box shows the `/` hint there instead, so the server's markup —
+always empty — needs no button.
+
 **Opening a hit** is following its link, so a page of a site loads in place
 through the [page swap](../page-script/README.md#links-and-history) and lands
 on the heading — scrolled to again if it is the page and heading shown — while
