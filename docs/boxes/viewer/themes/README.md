@@ -42,7 +42,8 @@ Two font tokens, `--font` and `--font-mono`, are shared by both themes. A
 theme is a set of values for these tokens. A few colors are fixed rather than
 taken from a token: the text of the current sidebar entry (white); the red
 (`#d70015`) of diagram errors, comment errors, the problems bar and broken-link
-marks. How the tokens reach highlighted code and diagrams is on
+marks; the yellow (`#ffd60a`, half seen through) of the
+[words a search result found](../search/README.md#landing-on-the-match). How the tokens reach highlighted code and diagrams is on
 [How themes reach code and diagrams](how-themes-reach-code-and-diagrams/README.md).
 
 ## Choosing a theme
