@@ -49,9 +49,7 @@ The pages show no way to comment, every comment request answers `404`, and no
 `.devpage/` volume is needed
 ([Turning comments off](../comments/README.md#turning-comments-off)). The
 same image can serve both: add `--no-comments` to the command of the public
-deployment only. `--no-comments` arrives in the release after 0.2.0, so the
-[example image](#the-image) needs `DEVPAGE_VERSION` set to that release or
-later.
+deployment only. `--no-comments` arrived in 0.2.1.
 
 ## The auth proxy
 
@@ -89,11 +87,7 @@ the docs from that release, and starts devpage deployed:
 
 ```dockerfile
 FROM rust:1.97-slim-bookworm AS build
-# devpage 0.2.0 links fontconfig through its font library; later releases don't.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends pkg-config libfontconfig1-dev \
- && rm -rf /var/lib/apt/lists/*
-ARG DEVPAGE_VERSION=0.2.0
+ARG DEVPAGE_VERSION=0.2.1
 # The docs and licence come from the published crate's own source, so they
 # always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
@@ -102,7 +96,7 @@ RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
 FROM debian:bookworm-slim
 # ca-certificates: the link checker fetches https links.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates libfontconfig1 \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=build /devpage-src/docs /srv/docs
@@ -118,10 +112,6 @@ docs and the licence they link to come from that release's own source, which
 `cargo install` has just downloaded, so the docs always describe the binary
 beside them: a docs change reaches the image with the next release.
 
-- **Build packages.** Releases up to 0.2.0 link fontconfig, so the builder
-  installs `pkg-config` and `libfontconfig1-dev` and the runtime image
-  `libfontconfig1`
-  ([What you need](../../../installing.md#what-you-need)).
 - **`ca-certificates`.** `devpage check` fetches every external link over
   HTTPS and needs the system's root certificates.
 - **Same Debian.** The builder is Debian bookworm, like the runtime image, so
