@@ -95,6 +95,7 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
         changes.clone(),
         Some(server::Identity::Local("T".into())),
         crate::slide_png::Shots::new(&changes),
+        crate::check::Preview::shared(),
     );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();

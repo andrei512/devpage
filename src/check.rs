@@ -2,36 +2,15 @@
 //! reach a file in the served folder — and a heading on it, when it names one —
 //! every external address must answer, and every diagram must draw.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{LazyLock, Mutex, OnceLock};
-use std::time::Duration;
-
-use tokio::sync::broadcast;
+use std::sync::{Arc, Mutex};
 
 use crate::document::{Document, Kind};
 use crate::render;
 
-/// One broken thing, where it was found.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Problem {
-    /// The file it is in, from the top of the served folder.
-    pub file: String,
-    pub line: Option<usize>,
-    pub message: String,
-    /// The link as written, so the page can mark it where it stands.
-    pub target: Option<String>,
-}
-
-impl std::fmt::Display for Problem {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.line {
-            Some(line) => write!(f, "{}:{line}: {}", self.file, self.message),
-            None => write!(f, "{}: {}", self.file, self.message),
-        }
-    }
-}
+use crate::external::{External, Link};
+use crate::problem::Problem;
 
 /// The pages a document is made of.
 fn pages(document: &Document) -> Vec<PathBuf> {
@@ -45,7 +24,8 @@ fn pages(document: &Document) -> Vec<PathBuf> {
 
 /// Checks the document and every page and document reachable from it by
 /// links inside the served folder.
-pub async fn document(document: &Document, check_external: bool) -> Vec<Problem> {
+/// External links are checked when `checker` is given.
+pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Problem> {
     let mut external = Vec::new();
     let mut problems = internal(document, &mut external);
     if let Kind::Design = document.kind {
@@ -62,130 +42,13 @@ pub async fn document(document: &Document, check_external: bool) -> Vec<Problem>
                 }),
         );
     }
-    if check_external {
-        problems.extend(external_links(external).await);
+    if let Some(checker) = checker {
+        problems.extend(checker.check(external).await);
     }
     problems
 }
 
-/// One external link: the page it is on, its line, and the address.
-type External = (String, Option<usize>, String);
-
-/// The client every external check uses. It asks for HTML as a browser does —
-/// some sites answer other requests with an error a reader never sees.
-static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-    reqwest::Client::builder()
-        .user_agent(concat!("devpage/", env!("CARGO_PKG_VERSION")))
-        .default_headers(reqwest::header::HeaderMap::from_iter([(
-            reqwest::header::ACCEPT,
-            reqwest::header::HeaderValue::from_static("text/html,*/*;q=0.8"),
-        )]))
-        .build()
-        .expect("an HTTP client")
-});
-
-/// How long an external address gets to answer, and how the preview retries
-/// one that didn't. Milliseconds; tests shorten them.
-static FIRST_WAIT: AtomicU64 = AtomicU64::new(10_000);
-static RETRY_WAIT: AtomicU64 = AtomicU64::new(30_000);
-static RETRY_AFTER: AtomicU64 = AtomicU64::new(30_000);
-
-/// The preview reports an address that can't be reached only after this many
-/// failures in a row; one slow answer is the network, not a broken link.
-const FAILURES_BEFORE_A_PROBLEM: u32 = 3;
-
-#[cfg(test)]
-fn set_waits(first: u64, retry: u64, retry_after: u64) {
-    FIRST_WAIT.store(first, Ordering::Relaxed);
-    RETRY_WAIT.store(retry, Ordering::Relaxed);
-    RETRY_AFTER.store(retry_after, Ordering::Relaxed);
-}
-
-/// What asking an external address once found.
-enum Outcome {
-    /// A status below 400, following redirects.
-    Fine,
-    /// A definite answer of 400 or above: the link is broken.
-    Broken(String),
-    /// No answer in time, or no connection: maybe the network, maybe the site.
-    Unreachable(String),
-}
-
-fn seconds(millis: u64) -> String {
-    if millis.is_multiple_of(1000) {
-        format!("{} seconds", millis / 1000)
-    } else {
-        format!("{millis} ms")
-    }
-}
-
-/// Asks an address once, giving it `wait` milliseconds to answer.
-async fn ask(address: &str, wait: u64) -> Outcome {
-    match CLIENT
-        .get(address)
-        .timeout(Duration::from_millis(wait))
-        .send()
-        .await
-    {
-        Ok(response) if response.status().as_u16() < 400 => Outcome::Fine,
-        Ok(response) => Outcome::Broken(response.status().to_string()),
-        Err(error) if error.is_timeout() => {
-            Outcome::Unreachable(format!("no answer in {}", seconds(wait)))
-        }
-        // reqwest's own message repeats the address; the root cause says why.
-        Err(error) => {
-            let mut cause: &dyn std::error::Error = &error;
-            while let Some(source) = cause.source() {
-                cause = source;
-            }
-            Outcome::Unreachable(cause.to_string())
-        }
-    }
-}
-
-/// Why an external address is broken, for `devpage check`, or `None` when it
-/// answers. An address that can't be reached is asked once more, with longer
-/// to answer, before it counts as broken.
-async fn answer(address: &str) -> Option<String> {
-    match ask(address, FIRST_WAIT.load(Ordering::Relaxed)).await {
-        Outcome::Fine => None,
-        Outcome::Broken(why) => Some(why),
-        Outcome::Unreachable(_) => match ask(address, RETRY_WAIT.load(Ordering::Relaxed)).await {
-            Outcome::Fine => None,
-            Outcome::Broken(why) | Outcome::Unreachable(why) => Some(why),
-        },
-    }
-}
-
-/// Checks each external address once, however many pages link to it, and
-/// reports a problem for every link to a broken one.
-async fn external_links(links: Vec<External>) -> Vec<Problem> {
-    let mut by_address: HashMap<String, Vec<(String, Option<usize>)>> = HashMap::new();
-    for (file, line, address) in links {
-        by_address.entry(address).or_default().push((file, line));
-    }
-    let checks = by_address.into_iter().map(|(address, links)| async move {
-        let Some(why) = answer(&address).await else {
-            return Vec::new();
-        };
-        links
-            .into_iter()
-            .map(|(file, line)| Problem {
-                file,
-                line,
-                message: format!("{address} — {why}"),
-                target: Some(address.clone()),
-            })
-            .collect()
-    });
-    futures::future::join_all(checks)
-        .await
-        .into_iter()
-        .flatten()
-        .collect()
-}
-
-fn internal(document: &Document, external: &mut Vec<External>) -> Vec<Problem> {
+fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut checked = Vec::new();
@@ -274,7 +137,7 @@ fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem>
     let source = std::fs::read_to_string(page).unwrap_or_default();
     let file = document.url(page)[1..].to_string();
     // A slide's first `<Notes>` is its notes; a page has none.
-    crate::widgets::notes(&source)
+    crate::markup::notes(&source)
         .iter()
         .skip(usize::from(slide))
         .map(|note| Problem {
@@ -295,7 +158,7 @@ fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem>
 fn page_links_with(
     document: &Document,
     page: &Path,
-    external: &mut Vec<External>,
+    external: &mut Vec<Link>,
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
     let widgets = crate::widgets::Widgets::of(document);
@@ -439,7 +302,7 @@ fn page_links_with(
                     let Kind::Doc { chapters, pdf } = &linked.kind else {
                         unreachable!()
                     };
-                    let rendered = render::doc(&linked, chapters, pdf, true, true);
+                    let rendered = render::doc(&linked, chapters, pdf, true, true, &[]);
                     if !rendered.contains(&format!("id=\"{fragment}\"")) {
                         problems.push(Problem {
                             file: file.clone(),
@@ -580,130 +443,63 @@ fn relative(text: &str, served: &Path) -> String {
     text.replace(&format!("{}/", served.display()), "")
 }
 
-/// What the preview knows about each external address.
-enum Answer {
-    Pending,
-    Fine,
-    Broken(String),
-    /// Not reached this many times in a row; still being retried.
-    Unreachable(u32, String),
+/// The preview's checks: what each page shows above itself as it is served.
+/// One per devpage process, shared by every page.
+pub struct Preview {
+    external: Arc<External>,
+    /// Every problem printed on the terminal so far: each is printed once.
+    reported: Mutex<HashSet<Problem>>,
 }
 
-/// Every external address the preview has asked about, for as long as
-/// devpage runs.
-static EXTERNAL: LazyLock<Mutex<HashMap<String, Answer>>> = LazyLock::new(Mutex::default);
-
-/// Where the preview announces a broken external address, so open pages
-/// fetch themselves again and show it.
-static CHANGES: OnceLock<broadcast::Sender<String>> = OnceLock::new();
-
-/// Lets the preview's background checks refresh open pages.
-pub fn announce_on(changes: broadcast::Sender<String>) {
-    let _ = CHANGES.set(changes);
-}
-
-/// The problems on the given pages, for the preview: each is printed on the
-/// terminal the first time it is found, and returned for the page to list.
-/// External addresses are checked in the background: a definite error shows
-/// from the next render, which its answer triggers; an address that can't be
-/// reached is retried, and shows only after three failures in a row, until it
-/// answers again.
-pub fn preview(document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
-    static REPORTED: LazyLock<Mutex<HashSet<Problem>>> = LazyLock::new(Mutex::default);
-    let mut external = Vec::new();
-    let mut problems = widget_problems(document);
-    problems.extend(crate::navbar::problems(document));
-    problems.extend(crate::navbar::logo_problem(document));
-    problems.extend(
-        pages
-            .iter()
-            .flat_map(|page| page_links_with(document, page, &mut external).0),
-    );
-    // The pages of a deck are its slides; any other page is not one.
-    let slide = matches!(document.kind, Kind::Slides { .. });
-    problems.extend(
-        pages
-            .iter()
-            .flat_map(|page| notes_problems(document, page, slide)),
-    );
-    let mut answers = EXTERNAL
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    for (file, line, address) in external {
-        match answers.get(&address) {
-            Some(Answer::Broken(why)) => problems.push(Problem {
-                file,
-                line,
-                message: format!("{address} — {why}"),
-                target: Some(address),
-            }),
-            Some(Answer::Unreachable(failures, why)) if *failures >= FAILURES_BEFORE_A_PROBLEM => {
-                problems.push(Problem {
-                    file,
-                    line,
-                    message: format!(
-                        "{address} — {why}, {FAILURES_BEFORE_A_PROBLEM} times in a row"
-                    ),
-                    target: Some(address),
-                })
-            }
-            Some(Answer::Pending | Answer::Fine | Answer::Unreachable(..)) => {}
-            None => {
-                // Outside a runtime (a unit test rendering a page) nothing is
-                // checked in the background.
-                let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-                    continue;
-                };
-                answers.insert(address.clone(), Answer::Pending);
-                runtime.spawn(watch_address(address));
-            }
+impl Preview {
+    pub fn new(external: Arc<External>) -> Self {
+        Preview {
+            external,
+            reported: Mutex::default(),
         }
     }
-    drop(answers);
-    let mut reported = REPORTED
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    for problem in &problems {
-        if reported.insert(problem.clone()) {
-            eprintln!("{problem}");
-        }
-    }
-    problems
-}
 
-/// Asks an address in the background until it gives a definite answer,
-/// retrying one that can't be reached after a growing pause, and asks open
-/// pages to fetch themselves again whenever what they would show changes.
-async fn watch_address(address: String) {
-    let mut failures = 0;
-    loop {
-        let outcome = ask(&address, FIRST_WAIT.load(Ordering::Relaxed)).await;
-        let shown_before = failures >= FAILURES_BEFORE_A_PROBLEM;
-        let (answer, shown_now, done) = match outcome {
-            Outcome::Fine => (Answer::Fine, false, true),
-            Outcome::Broken(why) => (Answer::Broken(why), true, true),
-            Outcome::Unreachable(why) => {
-                failures += 1;
-                let shown = failures >= FAILURES_BEFORE_A_PROBLEM;
-                (Answer::Unreachable(failures, why), shown, false)
-            }
-        };
-        EXTERNAL
+    /// A preview asking the network, announcing on nothing — for tests that
+    /// serve pages.
+    #[cfg(test)]
+    pub fn shared() -> Arc<Self> {
+        Arc::new(Preview::new(External::http(None)))
+    }
+
+    /// The problems on the given pages: each is printed on the terminal the
+    /// first time it is found, and returned for the page to list. External
+    /// addresses are checked in the background: a definite error shows from
+    /// the next render, which its answer triggers; an address that can't be
+    /// reached is retried, and shows only after three failures in a row,
+    /// until it answers again.
+    pub fn problems(&self, document: &Document, pages: &[PathBuf]) -> Vec<Problem> {
+        let mut external = Vec::new();
+        let mut problems = widget_problems(document);
+        problems.extend(crate::navbar::problems(document));
+        problems.extend(crate::navbar::logo_problem(document));
+        problems.extend(
+            pages
+                .iter()
+                .flat_map(|page| page_links_with(document, page, &mut external).0),
+        );
+        // The pages of a deck are its slides; any other page is not one.
+        let slide = matches!(document.kind, Kind::Slides { .. });
+        problems.extend(
+            pages
+                .iter()
+                .flat_map(|page| notes_problems(document, page, slide)),
+        );
+        problems.extend(self.external.preview(external));
+        let mut reported = self
+            .reported
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(address.clone(), answer);
-        // A problem appeared or cleared: open pages show the difference.
-        if shown_now != shown_before
-            && let Some(changes) = CHANGES.get()
-        {
-            let _ = changes.send("change".into());
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for problem in &problems {
+            if reported.insert(problem.clone()) {
+                eprintln!("{problem}");
+            }
         }
-        if done {
-            return;
-        }
-        // 30 s, then 60 s, then every 120 s while it stays out of reach.
-        let pause = RETRY_AFTER.load(Ordering::Relaxed) << (failures - 1).min(2);
-        tokio::time::sleep(Duration::from_millis(pause)).await;
+        problems
     }
 }
 
@@ -774,7 +570,8 @@ mod tests {
         // In `devpage check`, and in the page's problems.
         for found in [
             internal(&doc, &mut Vec::new()),
-            preview(&doc, &[doc.base.join("README.md")]),
+            Preview::new(crate::external::External::http(None))
+                .problems(&doc, &[doc.base.join("README.md")]),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
             assert_eq!(found.len(), 1, "{found:#?}");
@@ -851,6 +648,9 @@ pub(crate) mod web {
 #[cfg(test)]
 mod external {
     use super::*;
+    use crate::external::{Http, Waits};
+    use std::time::Duration;
+    use tokio::sync::broadcast;
 
     fn folder(name: &str, page: &str) -> Document {
         let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
@@ -882,7 +682,7 @@ mod external {
         .unwrap();
         std::fs::write(top.join("CONTRIBUTING.md"), "# Contributing").unwrap();
         let site = Document::load(&docs, &top).unwrap();
-        let found: Vec<String> = document(&site, false)
+        let found: Vec<String> = document(&site, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -907,7 +707,7 @@ mod external {
             "# O\n\n## Topics\n\n- [P](x/p.md) — inside.\n- [Out](../outside.md) — not.\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -934,7 +734,7 @@ mod external {
             "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -963,7 +763,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md, b.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -998,7 +798,7 @@ mod external {
         )
         .unwrap();
         std::fs::write(doc.base.join("page.md"), "# Page\n\n<Notes>lost</Notes>\n").unwrap();
-        let mut found: Vec<String> = document(&doc, false)
+        let mut found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1040,7 +840,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1064,7 +864,7 @@ mod external {
             "kind: doc\ntitle: P\nchapters: [missing.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1087,7 +887,7 @@ mod external {
                 web.address
             ),
         );
-        let found: Vec<String> = document(&doc, true)
+        let found: Vec<String> = document(&doc, Some(&checker(300, 3000, 50)))
             .await
             .iter()
             .map(ToString::to_string)
@@ -1099,106 +899,52 @@ mod external {
         assert_eq!(hits.get("/ok"), Some(&1));
     }
 
-    #[tokio::test]
-    async fn check_asks_an_unreachable_address_again_before_reporting_it() {
-        set_waits(300, 3000, 50);
-        let web = web::start();
-        let doc = folder(
-            "check-retry",
-            &format!(
-                "# Home\n\n[slow]({0}/slow-800) [down]({0}/drop) [gone]({0}/gone)\n",
-                web.address
-            ),
-        );
-        let found: Vec<String> = document(&doc, true)
-            .await
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        // Slow but there: the second, longer wait gets its answer.
-        assert!(!found.iter().any(|p| p.contains("/slow-800")), "{found:#?}");
-        // Never there: reported after the second try.
-        assert!(found.iter().any(|p| p.contains("/drop")), "{found:#?}");
-        // A definite error is reported without asking again.
-        assert!(
-            found.iter().any(|p| p.contains("/gone — 404 Not Found")),
-            "{found:#?}"
-        );
-        let hits = web.hits.lock().unwrap();
-        assert_eq!(hits.get("/slow-800"), Some(&2));
-        assert_eq!(hits.get("/drop"), Some(&2));
-        assert_eq!(hits.get("/gone"), Some(&1));
+    /// The external-link checker over the network, with these waits in
+    /// milliseconds, announcing on nothing.
+    fn checker(first: u64, retry: u64, retry_after: u64) -> Arc<External> {
+        External::new(
+            Arc::new(Http::new()),
+            waits(first, retry, retry_after),
+            None,
+        )
     }
 
-    /// The live-update channel the preview announces on, shared by every test
-    /// in the process, since the preview's checks are process-wide.
-    fn listen() -> broadcast::Receiver<String> {
-        static SHARED: OnceLock<broadcast::Sender<String>> = OnceLock::new();
-        let sender = SHARED.get_or_init(|| broadcast::channel(64).0);
-        announce_on(sender.clone());
-        CHANGES.get().expect("announced").subscribe()
+    fn waits(first: u64, retry: u64, retry_after: u64) -> Waits {
+        Waits {
+            first: Duration::from_millis(first),
+            retry: Duration::from_millis(retry),
+            retry_after: Duration::from_millis(retry_after),
+        }
+    }
+
+    /// A preview asking the network with these waits, and the live-update
+    /// channel it announces on.
+    fn previewing(waits: Waits) -> (Preview, broadcast::Receiver<String>) {
+        let (changes, heard) = broadcast::channel(64);
+        let external = External::new(Arc::new(Http::new()), waits, Some(changes));
+        (Preview::new(external), heard)
+    }
+
+    /// The problems a fresh preview finds at once.
+    fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
+        Preview::new(checker(300, 3000, 50)).problems(doc, pages)
     }
 
     /// Renders until `done` holds of the problems found, or five seconds pass.
     async fn render_until(
+        preview: &Preview,
         doc: &Document,
         pages: &[PathBuf],
         done: impl Fn(&[Problem]) -> bool,
     ) -> Vec<Problem> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
-            let found = preview(doc, pages);
+            let found = preview.problems(doc, pages);
             if done(&found) || tokio::time::Instant::now() > deadline {
                 return found;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-    }
-
-    fn unreachable_count(address: &str) -> u32 {
-        match EXTERNAL.lock().unwrap().get(address) {
-            Some(Answer::Unreachable(failures, _)) => *failures,
-            _ => 0,
-        }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_preview_shows_an_unreachable_address_only_after_three_failures() {
-        set_waits(300, 3000, 50);
-        let web = web::start();
-        let flaky = format!("{}/flaky-3", web.address);
-        let doc = folder("preview-retry", &format!("# Home\n\n[f]({flaky})\n"));
-        let mut heard = listen();
-        let pages = [doc.base.join("README.md")];
-        assert!(preview(&doc, &pages).is_empty());
-
-        // One failure, or two, is the network: nothing to show.
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        while unreachable_count(&flaky) < 1 && tokio::time::Instant::now() < deadline {
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
-        assert_eq!(unreachable_count(&flaky), 1);
-        assert!(preview(&doc, &pages).is_empty());
-
-        // The third failure in a row is a problem, and open pages hear of it …
-        let found = render_until(&doc, &pages, |found| !found.is_empty()).await;
-        assert_eq!(found.len(), 1, "{found:#?}");
-        assert!(found[0].message.ends_with("3 times in a row"), "{found:#?}");
-        assert_eq!(unreachable_count(&flaky), 3);
-        assert_eq!(heard.try_recv().ok().as_deref(), Some("change"));
-
-        // … and when the address answers again, the problem goes, and they
-        // hear of that too.
-        let found = render_until(&doc, &pages, |found| found.is_empty()).await;
-        assert!(found.is_empty(), "{found:#?}");
-        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
-        let mut cleared = false;
-        while !cleared && tokio::time::Instant::now() < deadline {
-            cleared = heard.try_recv().is_ok();
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }
-        assert!(cleared, "no change announced when the problem cleared");
-        assert_eq!(web.hits.lock().unwrap().get("/flaky-3"), Some(&4));
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1208,11 +954,11 @@ mod external {
             "preview-external",
             &format!("# Home\n\n[a]({0}/missing) [b]({0}/ok)\n", web.address),
         );
-        let mut heard = listen();
+        let (preview, mut heard) = previewing(Waits::default());
         let pages = [doc.base.join("README.md")];
 
         // The first render holds nothing up: the answer isn't in yet.
-        assert!(preview(&doc, &pages).is_empty());
+        assert!(preview.problems(&doc, &pages).is_empty());
         // A broken address, once answered, asks open pages to fetch again …
         let message = tokio::time::timeout(Duration::from_secs(5), heard.recv())
             .await
@@ -1220,13 +966,13 @@ mod external {
             .unwrap();
         assert_eq!(message, "change");
         // … and the next render lists it, marking the link as written.
-        let found = render_until(&doc, &pages, |found| !found.is_empty()).await;
+        let found = render_until(&preview, &doc, &pages, |found| !found.is_empty()).await;
         assert_eq!(found.len(), 1, "{found:#?}");
         let missing = format!("{}/missing", web.address);
         assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
         assert_eq!(found[0].line, Some(3));
         // Each address is asked once for as long as devpage runs.
-        preview(&doc, &pages);
+        preview.problems(&doc, &pages);
         let hits = web.hits.lock().unwrap();
         assert_eq!(hits.get("/missing"), Some(&1));
         assert_eq!(hits.get("/ok"), Some(&1));
@@ -1243,7 +989,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1264,7 +1010,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1302,7 +1048,7 @@ mod external {
         // A helper that doesn't compile is a problem too.
         std::fs::write(doc.base.join("widgets/fmt.ts"), "export const x = ;").unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, false)
+        let found: Vec<String> = document(&doc, None)
             .await
             .iter()
             .map(ToString::to_string)

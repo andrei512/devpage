@@ -953,7 +953,7 @@ impl Search {
         let read = read(&source);
         let title = match unit.kind {
             PageKind::Slide => slide_title(&source, &read, unit.name.as_deref().unwrap_or("")),
-            _ => crate::render::title(&source, &unit.file),
+            _ => crate::markup::title(&source, &unit.file),
         };
         let url = match &unit.name {
             Some(name) => format!("{}#{name}", unit.address),
@@ -984,7 +984,7 @@ impl Search {
                     .flat_map(|s| [s.heading.as_str(), s.prose.as_str()])
                     .collect();
                 let code: Vec<&str> = read.sections.iter().map(|s| s.code.as_str()).collect();
-                let notes: Vec<String> = crate::widgets::notes(&source)
+                let notes: Vec<String> = crate::markup::notes(&source)
                     .into_iter()
                     .map(|note| note.text)
                     .collect();
@@ -1380,7 +1380,7 @@ fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
                 path: site.url(&site.path()),
             },
             None => Owner {
-                title: crate::render::title(&source, &file),
+                title: crate::markup::title(&source, &file),
                 path: address.clone(),
             },
         };
@@ -1473,7 +1473,7 @@ impl Walk<'_> {
                         .into_owned();
                     let trail = if scoped {
                         std::fs::read_to_string(chapter)
-                            .map(|source| vec![crate::render::title(&source, chapter)])
+                            .map(|source| vec![crate::markup::title(&source, chapter)])
                             .unwrap_or_default()
                     } else {
                         Vec::new()
@@ -2063,6 +2063,7 @@ mod tests {
             &Default::default(),
             false,
             true,
+            &[],
         );
         assert!(html.contains("id=\"how--context\""), "{html}");
         assert!(html.contains("id=\"how\""), "{html}");
@@ -2270,7 +2271,7 @@ mod tests {
         let front = FrontMatter::read(source);
         assert_eq!(front.search, Some(true));
         assert_eq!(front.meta, "All about otters. river swim");
-        assert_eq!(crate::render::title(source, Path::new("x.md")), "Otters");
+        assert_eq!(crate::markup::title(source, Path::new("x.md")), "Otters");
         let html = crate::render::markdown(source);
         assert!(!html.contains("search"), "{html}");
         assert!(html.contains("<h1"), "{html}");

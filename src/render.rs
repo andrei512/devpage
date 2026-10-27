@@ -6,10 +6,12 @@ use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
 use crate::addresses::{Owned, address};
-use crate::check;
 use crate::document::{Document, Paper, Pdf, Slide};
 use crate::highlight::Highlighter;
+use crate::markup::split_front_matter;
+pub use crate::markup::title;
 use crate::nav;
+use crate::problem::Problem;
 
 /// GitHub-flavoured Markdown with raw HTML allowed. Fenced code goes through
 /// `highlight::Highlighter`, which keeps the language only on Mermaid blocks
@@ -213,36 +215,6 @@ pub fn front_matter(source: &str) -> Option<&str> {
     split_front_matter(source).map(|(yaml, _)| yaml)
 }
 
-/// A page's front matter's YAML, and the page after it.
-fn split_front_matter(source: &str) -> Option<(&str, &str)> {
-    let rest = source
-        .strip_prefix("---\n")
-        .or_else(|| source.strip_prefix("---\r\n"))?;
-    let mut at = 0;
-    for line in rest.split_inclusive('\n') {
-        if line.trim_end() == "---" {
-            return Some((&rest[..at], &rest[at + line.len()..]));
-        }
-        at += line.len();
-    }
-    None
-}
-
-/// A page's title: its first level-one heading, or its file name.
-pub fn title(source: &str, path: &Path) -> String {
-    split_front_matter(source)
-        .map_or(source, |(_, page)| page)
-        .lines()
-        .find_map(|line| line.strip_prefix("# "))
-        .map(|heading| heading.trim().to_string())
-        .unwrap_or_else(|| {
-            path.file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned()
-        })
-}
-
 /// The page script's tag, for the head: deferred, so it is fetched with
 /// everything else the head names and runs once the page is parsed. In print mode it keeps no live connection and shows
 /// no controls; with comments off (`devpage --no-comments`) it shows no
@@ -264,7 +236,14 @@ fn page_script(print: bool, comments: bool) -> String {
 /// The whole page for one Markdown file: navigation, the rendered content and
 /// the scripts that mount its widgets and keep it live. `comments` is whether
 /// comments are on.
-pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> String {
+/// `found` is the page's problems, listed above it.
+pub fn page(
+    document: &Document,
+    file: &Path,
+    source: &str,
+    comments: bool,
+    found: &[Problem],
+) -> String {
     let current = document.url(file);
     let content = markdown_in(document, source);
     format!(
@@ -297,7 +276,7 @@ pub fn page(document: &Document, file: &Path, source: &str, comments: bool) -> S
         } else {
             String::new()
         },
-        problems = problems(document, &[file.to_path_buf()]),
+        problems = problems(found),
         widgets = crate::widgets::Widgets::of(document).head(
             &content,
             if document.sidebar {
@@ -318,6 +297,7 @@ pub fn doc(
     pdf: &Pdf,
     print: bool,
     comments: bool,
+    found: &[Problem],
 ) -> String {
     let mut content = String::new();
     let mut outline = String::new();
@@ -412,7 +392,7 @@ pub fn doc(
         problems = if print {
             String::new()
         } else {
-            problems(document, chapters)
+            problems(found)
         },
     )
 }
@@ -550,8 +530,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 }
 
 /// The page's problems, listed above it, with each broken link marked.
-fn problems(document: &Document, pages: &[PathBuf]) -> String {
-    let found = check::preview(document, pages);
+fn problems(found: &[Problem]) -> String {
     if found.is_empty() {
         return String::new();
     }
@@ -571,7 +550,13 @@ fn problems(document: &Document, pages: &[PathBuf]) -> String {
 
 /// A deck: every slide on its own 1920 × 1080 stage, scaled to the window as a
 /// whole, one shown at a time. In print mode each slide is one 16:9 page.
-pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool) -> String {
+pub fn slides(
+    document: &Document,
+    slides: &[Slide],
+    print: bool,
+    comments: bool,
+    found: &[Problem],
+) -> String {
     let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
     let mut content = String::new();
     for (index, slide) in files.iter().enumerate() {
@@ -615,7 +600,7 @@ pub fn slides(document: &Document, slides: &[Slide], print: bool, comments: bool
         problems = if print {
             String::new()
         } else {
-            problems(document, &files)
+            problems(found)
         },
     )
 }
@@ -1057,7 +1042,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false, true);
+        let html = doc(&document, chapters, pdf, false, true, &[]);
         let (context, rollout) = (
             html.find(">Context<").unwrap(),
             html.find(">Rollout<").unwrap(),
@@ -1068,7 +1053,7 @@ mod tests {
         assert!(html.contains("href=\"#b--rollout\""), "{html}");
         assert!(html.contains("href=\"https://x.y/a.md\""), "{html}");
         assert!(html.contains("size: A4"));
-        let print = doc(&document, chapters, pdf, true, true);
+        let print = doc(&document, chapters, pdf, true, true, &[]);
         assert!(!print.contains("class=\"outline\""));
         assert!(print.contains("data-print"));
     }
@@ -1088,7 +1073,7 @@ mod tests {
         let crate::document::Kind::Slides { slides: files, .. } = &document.kind else {
             panic!()
         };
-        let html = slides(&document, files, false, true);
+        let html = slides(&document, files, false, true, &[]);
         assert_eq!(html.matches("class=\"slide\"").count(), 2);
         assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
         assert!(html.contains("size: 1920px 1080px"));
@@ -1115,7 +1100,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false, true);
+        let html = doc(&document, chapters, pdf, false, true, &[]);
         // Served from `dir`, so addresses start at its top.
         let base = "";
         assert!(
@@ -1146,7 +1131,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
             panic!()
         };
-        let html = doc(&document, chapters, pdf, false, true);
+        let html = doc(&document, chapters, pdf, false, true, &[]);
         assert!(!html.contains("doc-title\">"), "{html}");
         assert_eq!(html.matches("<h1").count(), 1, "{html}");
         assert_eq!(
@@ -1186,7 +1171,7 @@ mod tests {
         let img = "<img class=\"logo\" src=\"/art/logo.svg\" alt=\"\">";
         // A site with no navbar: the logo heads the sidebar, on every page.
         let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-        let html = page(&site, &dir.join("page.md"), "# Page\n", true);
+        let html = page(&site, &dir.join("page.md"), "# Page\n", true, &[]);
         assert!(html.contains(icon), "{html}");
         assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
         // A doc: before its title in the outline.
@@ -1194,7 +1179,7 @@ mod tests {
         let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
             panic!()
         };
-        let html = doc(&plan, chapters, pdf, false, true);
+        let html = doc(&plan, chapters, pdf, false, true, &[]);
         assert!(html.contains(icon), "{html}");
         assert!(html.contains(&format!("{img}Plan</a>")), "{html}");
     }
@@ -1232,9 +1217,9 @@ mod tests {
         };
         let frames = |comments| {
             [
-                page(&site, &dir.join("README.md"), "# Home\n", comments),
-                doc(&doc_file, chapters, pdf, false, comments),
-                slides(&deck, files, false, comments),
+                page(&site, &dir.join("README.md"), "# Home\n", comments, &[]),
+                doc(&doc_file, chapters, pdf, false, comments, &[]),
+                slides(&deck, files, false, comments, &[]),
             ]
         };
         let script = format!(
@@ -1250,7 +1235,7 @@ mod tests {
             assert!(!html.contains("comment-mode"), "{html}");
         }
         // Print mode shows no controls either way, and stays print mode.
-        let print = slides(&deck, files, true, false);
+        let print = slides(&deck, files, true, false, &[]);
         assert!(print.contains("data-print") && !print.contains("data-no-comments"));
     }
 
@@ -1290,7 +1275,7 @@ mod tests {
             std::fs::write(dir.join(file), text).unwrap();
         }
         let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-        let html = page(&site, &dir.join("README.md"), readme, true);
+        let html = page(&site, &dir.join("README.md"), readme, true, &[]);
         (dir, html)
     }
 
@@ -1420,7 +1405,7 @@ mod tests {
             ],
         );
         let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-        let html = page(&site, &dir.join("deep.md"), "# Deep\n", true);
+        let html = page(&site, &dir.join("deep.md"), "# Deep\n", true, &[]);
         let nav = &html[html.find("<nav id=\"devpage-nav\"").unwrap()..];
         let nav = &nav[..nav.find("</nav>").unwrap() + 6];
         let url = |file: &str| site.url(&dir.join(file));
@@ -1512,7 +1497,7 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
         let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-        let html = page(&site, &dir.join("README.md"), "# Home\n", true);
+        let html = page(&site, &dir.join("README.md"), "# Home\n", true, &[]);
         assert!(!html.contains("devpage-nav"), "{html}");
         assert!(!html.contains("devpage-sidebar"), "{html}");
         assert!(linked(&html, "modulepreload").is_empty(), "{html}");

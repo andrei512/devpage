@@ -159,13 +159,13 @@ impl Store {
 
 /// The page's thread files that don't parse, as problems: listed on the page
 /// in the preview and reported by `devpage check`.
-pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::check::Problem> {
+pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::problem::Problem> {
     let store = Store::new(&document.served);
     let unparsable = store.read(&document.url(page)).map(|(_, broken)| broken);
     unparsable
         .unwrap_or_default()
         .into_iter()
-        .map(|(file, error)| crate::check::Problem {
+        .map(|(file, error)| crate::problem::Problem {
             file: file
                 .strip_prefix(&document.served)
                 .unwrap_or(&file)
@@ -415,6 +415,7 @@ mod browser {
             changes.clone(),
             Some(server::Identity::Local("Ana".into())),
             crate::slide_png::Shots::new(&changes),
+            crate::check::Preview::shared(),
         );
         tokio::spawn(async move {
             let _watcher = _watcher;
