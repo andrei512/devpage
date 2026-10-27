@@ -2,11 +2,7 @@
 # crates.io like anyone would, behind an auth proxy that names each reader.
 # It reads nothing from the build context: docker build deploy
 FROM rust:1.97-slim-bookworm AS build
-# devpage 0.2.0 links fontconfig through its font library; later releases don't.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends pkg-config libfontconfig1-dev \
- && rm -rf /var/lib/apt/lists/*
-ARG DEVPAGE_VERSION=0.2.0
+ARG DEVPAGE_VERSION=0.2.1
 # The docs and licence come from the published crate's own source, so they
 # always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
@@ -15,7 +11,7 @@ RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
 FROM debian:bookworm-slim
 # ca-certificates: the link checker fetches https links.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates libfontconfig1 \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=build /devpage-src/docs /srv/docs
