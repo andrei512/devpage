@@ -121,7 +121,10 @@ impl Options {
             index: Arc::new(Index::build(&document.served)),
             designs: Designs::new(document.served.path().to_path_buf()),
             shots: Shots::new(&changes),
-            preview: Arc::new(Preview::new(External::http(Some(changes.clone())))),
+            preview: Arc::new(Preview::new(
+                External::http(Some(changes.clone())),
+                Arc::new(crate::terminal::Terminal),
+            )),
             entry: Arc::new(Entry::new(document)),
             comments: Some(Identity::Local(String::new())),
             changes,
@@ -133,7 +136,10 @@ impl Options {
     /// Chrome: nothing logged, and problems announced to no one.
     pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
         Self {
-            preview: Arc::new(Preview::new(External::http(None))),
+            preview: Arc::new(Preview::new(
+                External::http(None),
+                Arc::new(crate::terminal::Terminal),
+            )),
             ..Self::new(document, changes)
         }
     }
@@ -916,7 +922,7 @@ mod tests {
         let router = router(Options {
             index: Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
             comments: None,
-            preview: crate::check::Preview::shared(),
+            preview: crate::check::testing::preview(),
             ..Options::new(document, changes)
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1061,7 +1067,7 @@ mod tests {
             index,
             designs,
             comments: Some(Identity::Local("T".into())),
-            preview: crate::check::Preview::shared(),
+            preview: crate::check::testing::preview(),
             ..Options::new(document, changes.clone())
         });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

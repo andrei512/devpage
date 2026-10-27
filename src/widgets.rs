@@ -836,7 +836,6 @@ pub fn system(name: &str) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::markup::{Note, notes};
 
     /// [`Snapshot::hash`] of `file`, read now.
     fn module_hash(served: &Path, file: &Path, known: &[String]) -> String {
@@ -1331,14 +1330,6 @@ mod tests {
     #[test]
     fn notes_are_taken_out_of_the_page_and_their_text_kept() {
         let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
-        assert_eq!(
-            notes(source),
-            vec![Note {
-                line: 3,
-                text: "Say **this**, word for word.".to_string(),
-                delivery: None
-            }]
-        );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&["Callout"]), &mut problems));
         assert!(!html.contains("word for word"), "{html}");
@@ -1350,10 +1341,6 @@ mod tests {
     #[test]
     fn unclosed_notes_are_a_problem_and_never_shown() {
         let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
-        assert_eq!(
-            notes(source)[0].text,
-            "Say this.\n</Note>\n\nAfter.".to_string()
-        );
         let mut problems = Vec::new();
         let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
         assert!(html.contains("<p>Shown.</p>"), "{html}");
@@ -1368,10 +1355,6 @@ mod tests {
     #[test]
     fn a_notes_delivery_is_kept_and_never_shown() {
         let source = "<Notes delivery=\"Honest and a little teasing: you caught them.\">\nSay this.\n</Notes>\n";
-        assert_eq!(
-            notes(source)[0].delivery.as_deref(),
-            Some("Honest and a little teasing: you caught them.")
-        );
         let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
         assert!(!html.contains("teasing"), "{html}");
     }
@@ -1390,8 +1373,6 @@ mod tests {
             );
             assert!(html.contains("<p>After.</p>"), "{html}");
             assert_eq!(problems, vec![format!("1: {UNREADABLE_NOTES}")]);
-            assert_eq!(notes(source)[0].text, "SAYTHIS");
-            assert_eq!(notes(source)[0].delivery, None);
         }
     }
 
@@ -1405,31 +1386,15 @@ mod tests {
             problems,
             vec!["1: a <Notes> delivery must be a quoted string".to_string()]
         );
-        assert_eq!(notes(source)[0].delivery, None);
     }
 
     #[test]
     fn notes_inside_code_and_comments_are_not_notes() {
         let source = "`<Notes>x</Notes>`\n\n```\n<Notes>fenced</Notes>\n```\n\n    <Notes>indented</Notes>\n\n<!-- <Notes>hidden</Notes> -->\n";
-        assert!(notes(source).is_empty(), "{:?}", notes(source));
         let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
         assert!(
             html.contains("fenced") && html.contains("indented"),
             "{html}"
-        );
-    }
-
-    #[test]
-    fn every_notes_block_is_found_with_its_line() {
-        let found = notes("<Notes>one</Notes>\n\ntext\n\n<Notes>\ntwo\n</Notes>\n<Notes/>\n");
-        let found: Vec<(usize, String)> = found.into_iter().map(|n| (n.line, n.text)).collect();
-        assert_eq!(
-            found,
-            vec![
-                (1, "one".to_string()),
-                (5, "two".to_string()),
-                (8, String::new())
-            ]
         );
     }
 

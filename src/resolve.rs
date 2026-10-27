@@ -279,7 +279,7 @@ mod tests {
     struct Served {
         entry: Entry,
         index: Index,
-        preview: Preview,
+        preview: std::sync::Arc<Preview>,
     }
 
     impl Served {
@@ -289,7 +289,7 @@ mod tests {
                     Document::load(&dir.join(entry), dir).unwrap(),
                 )),
                 index: Index::build(dir),
-                preview: Preview::new(crate::external::External::http(None)),
+                preview: crate::check::testing::preview(),
             }
         }
 

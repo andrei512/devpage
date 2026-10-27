@@ -22,6 +22,7 @@ mod search;
 mod served;
 mod server;
 mod slide_png;
+mod terminal;
 mod validators;
 mod video;
 mod watch;
@@ -133,9 +134,10 @@ async fn main() -> Result<()> {
     let designs = designs::Designs::new(document.served.path().to_path_buf());
 
     let (changes, _) = broadcast::channel(16);
-    let preview = Arc::new(check::Preview::new(external::External::http(Some(
-        changes.clone(),
-    ))));
+    let preview = Arc::new(check::Preview::new(
+        external::External::http(Some(changes.clone())),
+        Arc::new(terminal::Terminal),
+    ));
     let _watcher = watch::start(
         entry.clone(),
         index.clone(),

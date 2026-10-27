@@ -437,31 +437,32 @@ fn relative(text: &str, served: &Path) -> String {
     text.replace(&format!("{}/", served.display()), "")
 }
 
+/// Where the preview tells someone about a problem it has just found: the
+/// terminal in `devpage`, a recorder in tests.
+pub trait Report: Send + Sync {
+    fn problem(&self, problem: &Problem);
+}
+
 /// The preview's checks: what each page shows above itself as it is served.
 /// One per devpage process, shared by every page.
 pub struct Preview {
     external: Arc<External>,
-    /// Every problem printed on the terminal so far: each is printed once.
+    report: Arc<dyn Report>,
+    /// Every problem reported so far: each is reported once.
     reported: Mutex<HashSet<Problem>>,
 }
 
 impl Preview {
-    pub fn new(external: Arc<External>) -> Self {
+    pub fn new(external: Arc<External>, report: Arc<dyn Report>) -> Self {
         Preview {
             external,
+            report,
             reported: Mutex::default(),
         }
     }
 
-    /// A preview asking the network, announcing on nothing — for tests that
-    /// serve pages.
-    #[cfg(test)]
-    pub fn shared() -> Arc<Self> {
-        Arc::new(Preview::new(External::http(None)))
-    }
-
-    /// The problems on the given pages: each is printed on the terminal the
-    /// first time it is found, and returned for the page to list. External
+    /// The problems on the given pages: each is reported the first time it is
+    /// found, and returned for the page to list. External
     /// addresses are checked in the background: a definite error shows from
     /// the next render, which its answer triggers; an address that can't be
     /// reached is retried, and shows only after three failures in a row,
@@ -490,7 +491,7 @@ impl Preview {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         for problem in &problems {
             if reported.insert(problem.clone()) {
-                eprintln!("{problem}");
+                self.report.problem(problem);
             }
         }
         problems
@@ -505,6 +506,27 @@ fn attributes(html: &str, name: &str) -> Vec<String> {
         .filter_map(|rest| rest.split('"').next())
         .map(|value| value.replace("&amp;", "&"))
         .collect()
+}
+
+/// Previews for tests that serve pages.
+#[cfg(test)]
+pub mod testing {
+    use super::{Preview, Problem, Report};
+    use crate::external::External;
+    use std::sync::Arc;
+
+    /// Tells no one.
+    struct Silent;
+
+    impl Report for Silent {
+        fn problem(&self, _: &Problem) {}
+    }
+
+    /// A preview asking the network, announcing on nothing and reporting to
+    /// no one.
+    pub fn preview() -> Arc<Preview> {
+        Arc::new(Preview::new(External::http(None), Arc::new(Silent)))
+    }
 }
 
 #[cfg(test)]
@@ -564,8 +586,7 @@ mod tests {
         // In `devpage check`, and in the page's problems.
         for found in [
             internal(&doc, &mut Vec::new()),
-            Preview::new(crate::external::External::http(None))
-                .problems(&doc, &[doc.base.join("README.md")]),
+            testing::preview().problems(&doc, &[doc.base.join("README.md")]),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
             assert_eq!(found.len(), 1, "{found:#?}");
@@ -916,12 +937,12 @@ mod external {
     fn previewing(waits: Waits) -> (Preview, broadcast::Receiver<String>) {
         let (changes, heard) = broadcast::channel(64);
         let external = External::new(Arc::new(Http::new()), waits, Some(changes));
-        (Preview::new(external), heard)
+        (Preview::new(external, Arc::new(Recorder::default())), heard)
     }
 
     /// The problems a fresh preview finds at once.
     fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
-        Preview::new(checker(300, 3000, 50)).problems(doc, pages)
+        Preview::new(checker(300, 3000, 50), Arc::new(Recorder::default())).problems(doc, pages)
     }
 
     /// Renders until `done` holds of the problems found, or five seconds pass.
@@ -939,6 +960,30 @@ mod external {
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
+
+    /// A reporter that keeps what it is told, for tests.
+    #[derive(Default)]
+    struct Recorder(Mutex<Vec<String>>);
+
+    impl Report for Recorder {
+        fn problem(&self, problem: &Problem) {
+            self.0.lock().unwrap().push(problem.to_string());
+        }
+    }
+
+    #[test]
+    fn the_preview_reports_each_problem_once_to_its_reporter() {
+        let doc = folder("preview-report", "# Home\n\n[gone](gone.md)\n");
+        let recorder = Arc::new(Recorder::default());
+        let preview = Preview::new(checker(300, 3000, 50), recorder.clone());
+        let pages = [doc.base.join("README.md")];
+        assert_eq!(preview.problems(&doc, &pages).len(), 1);
+        assert_eq!(preview.problems(&doc, &pages).len(), 1);
+        assert_eq!(
+            *recorder.0.lock().unwrap(),
+            ["README.md:3: broken link gone.md — no such file"]
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
