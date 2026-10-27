@@ -11,11 +11,16 @@ PNG, so it can look at its work before anyone else does.
 ```jsx
 // button.design
 // A button: one line of text on a filled, rounded box.
-<Frame props={{ label: "Button", fill: "#2563eb" }}
+<Frame props={{ label: "Button", fill: theme.accent }}
        layout="row" padding={[12, 20]} radius={8} fill={fill}
-       justify="center" shadow={{ y: 2, blur: 6, color: "#1e3a8a33" }}>
+       justify="center" shadow={{ y: 2, blur: 6, color: theme.accentShadow }}>
   <Text size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>
 ```
+
+`theme.accent` is a color from `themes.yml` beside the design, which holds a
+light and a dark value for each name: a design on a dark page is drawn dark,
+and an embed has a switch of its own to see it the other way.
+`checkout.design.png?theme=dark` is the dark drawing.
 
 Teaches it: [Designs](../boxes/viewer/designs/README.md).

@@ -34,7 +34,7 @@ flowchart LR
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the [built-in assets](#built-in-assets) |
 | `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
-| `/{*path}.design.png` | the design at `path` painted as a PNG — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
+| `/{*path}.design.png` | the design at `path` painted as a PNG, in its light theme or, with `?theme=dark`, its dark one; `400` for any other `theme` — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
@@ -88,7 +88,10 @@ A `.design` file is shown on the canvas page: a frame holding a `<canvas>`,
 the light/dark switch in the corner with the head script that sets the theme
 before the page paints, and the design script, which draws it as the
 [design engine](../design-engine/README.md#in-the-browser) describes and runs
-the switch. It belongs to no site and has no sidebar, navbar or comments.
+the switch. `?theme=light` or `?theme=dark` on its address sets the theme for
+that view, in the head script too, so the page paints in it from the start,
+and leaves the switch's remembered choice alone; any other `theme` is passed
+over. It belongs to no site and has no sidebar, navbar or comments.
 
 ## Which document a file belongs to
 

@@ -27,8 +27,9 @@ arrives when a design needs it.
 ## Attributes
 
 Attributes are written as in JSX. A value is a string, or a number, boolean,
-array, object or prop in braces: `"row"`, `{16}`, `{true}`, `{[12, 20]}`,
-`{{ y: 4, blur: 12, color: "#0f172a33" }}`, `{label}`.
+array, object, prop or theme color in braces: `"row"`, `{16}`, `{true}`,
+`{[12, 20]}`, `{{ y: 4, blur: 12, color: "#0f172a33" }}`, `{label}`,
+`{theme.text}`.
 
 - A string is in double or single quotes, and has no escapes: a backslash is
   just a backslash, as in JSX.
@@ -59,7 +60,12 @@ Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 | `radius` | pixels from `0` up, or `[topLeft, topRight, bottomRight, bottomLeft]` | `0` |
 | `shadow` | `{ x, y, blur, spread, color }`, each optional: the box's shape, each corner's radius and the box itself widened by `spread`, moved by `x` and `y`, blurred by `blur` and drawn outside the box | none |
 
-A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`.
+A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`, the same in both
+themes, or `theme.<name>` in braces — `fill={theme.surface}` — the value
+`name` has in the theme the design is drawn in, from its
+[themes](../README.md#themes). A gradient names a theme's color inside its
+string, where a stop's color goes:
+`"linear-gradient(90deg, theme.accent 0%, #7c3aed 100%)"`.
 
 `Frame` lays out its children with Figma's auto layout, and can clip them:
 

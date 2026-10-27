@@ -10,8 +10,8 @@ say is in [Designs](../designs/README.md).
 
 ```mermaid
 flowchart LR
-  files[".design files"] --> parse["parse<br/>text → syntax tree"]
-  parse --> resolve["resolve<br/>imports, props → scene"]
+  files[".design files<br/>themes.yml"] --> parse["parse<br/>text → syntax tree"]
+  parse --> resolve["resolve<br/>imports, props, themes → scene"]
   resolve --> server["server<br/>scenes in memory"]
   server -->|"PNG request"| paint1["lay out + paint<br/>native, vello_cpu"]
   server -->|"Watch stream:<br/>scene, then patches"| wasm["lay out + paint<br/>WebAssembly, vello on WebGPU"]
@@ -60,8 +60,9 @@ The parser turns a file into a syntax tree: imports, then one element with its
 attributes and children, each carrying its line and column. It reads the JSX
 subset [Elements and attributes](../designs/elements-and-attributes/README.md#attributes) defines — strings in double
 or single quotes with no escapes, bare attributes as `true`, braced numbers,
-booleans and props, array and object literals, names with `-` in them, text
-with references in it, `//` comments — and nothing else. A file that doesn't
+booleans, props and `theme.<name>` colors, array and object literals, names
+with `-` in them, text with references in it, `//` comments — and nothing
+else. A file that doesn't
 parse gives one problem at the first place it went wrong; so does one nested
 more than 256 deep, or with a number past ±1,000,000, which keeps the parser's
 recursion and every later step finite. Numbers written inside a string — a
@@ -83,7 +84,8 @@ imported design's tree with its props substituted, rooted at one node — the
 design's root, with the instance's own attributes applied to it. Resolving reports every problem
 it finds, not just the first: unknown elements, attributes and props, values
 of the wrong type, missing or out-of-folder imports, images and interaction
-targets, images that don't decode, and designs that use themselves.
+targets, images that don't decode, designs that use themselves, and the
+[themes](#themes)' problems.
 
 An `Image`'s file is decoded whole while resolving — a PNG or JPEG that starts
 right but is broken or cut short is a problem at its `src` — and goes with the
@@ -108,6 +110,29 @@ needs to know which file an instance came from.
 A node's **id** is the path of child positions from the root (`0.2.1`), which
 is what [patches](#the-watch-stream) address.
 
+### Themes
+
+Every color in a scene holds two values, its light and its dark one; a `#`
+color holds the same value twice. A scene also says whether it is
+**themed** — whether any `theme.` reference reached it — which is what puts
+the switch on an embed's backdrop.
+
+A file's `theme.` references are bound as the file is read, before its props
+go anywhere: the resolver reads the `themes.yml` in the file's folder and in
+each folder above it, up to the top of the served folder, through `Files`,
+like any other file — every one of them, missing ones included, once per
+folder per resolve — and keeps those whose `kind` is `themes`. It merges them
+top down, name by name in each theme, a lower file's names over a higher
+one's. Each reference becomes its two colors there and then, and a gradient
+string with references becomes two gradient strings, one per theme — so a
+value passed as a prop into a design in another folder carries its writer's
+colors, as a path is made relative to its writer's file. The engine reads
+`themes.yml` with `serde_yaml` and finds the line of a bad entry by its key,
+since YAML values carry no place. A reference to a name that both themes
+don't have after merging is a problem at the reference; a malformed
+`themes.yml` is one at its own line, reported once per resolve however many
+references read it.
+
 ## Layout
 
 Auto layout is flexbox restricted to what Figma's auto layout does, so the
@@ -130,12 +155,13 @@ the same natively and in WebAssembly. No system font is ever consulted.
 
 ## Painting
 
-The painter walks the laid-out scene once and turns it into the engine's
-**display list**: an ordered list of drawing commands in canvas pixels —
+The painter walks the laid-out scene once, for one theme, and turns it into
+the engine's **display list**: an ordered list of drawing commands in canvas pixels —
 fills and gradients, strokes, rounded corners, blurred shadows, clip and
 opacity layers, layers that add what is in them to what is under them, vector
 paths, images and parley's glyph runs. Everything a
-drawing depends on is decided there. Two thin backends replay that one list,
+drawing depends on is decided there, the theme's value of each color
+included: a drawing is made for a theme, and the scene holds both. Two thin backends replay that one list,
 each translating a command into its library's call and nothing more:
 
 - **In the browser, on the GPU**: `vello` through `wgpu` on WebGPU, straight
@@ -153,8 +179,8 @@ backend can't show more than the drawing or less. A PNG is the drawing; the
 canvas page and an embed fit the drawing. A drawing more than 16,384 pixels a
 side is too big to paint, and that is the design's problem everywhere: the
 store, `devpage check` and the PNG route all lay a resolved design out once
-(`Renderer::drawing`) and report it, so the canvas never receives a drawing it
-can't paint.
+(`Renderer::drawing`) — a themed one in each theme — and report it, so the
+canvas never receives a drawing it can't paint.
 
 Both backends replay the
 [same display list](../constraints/a-design-has-one-renderer.md); they differ
@@ -250,7 +276,9 @@ save costs the page's main thread under 1 ms instead of 6 to 17.
 
 The server keeps every design it has been asked for **resolved in memory** —
 its scene or its problems — with every file resolving it asked for, missing
-ones included, and the text of every file it read (`src/designs.rs`). When the
+ones included, and the text of every file it read (`src/designs.rs`). A
+`themes.yml` a design's references read is one of its files like any other,
+and so is one that was looked for and isn't there. When the
 [watcher](../live-updates/README.md#the-watcher) reports a changed file —
 any file not under `.git` and not `.gitignore`d, unless a site's `watch`
 names it — the
@@ -261,8 +289,9 @@ the file was read: the store numbers each read, and keeps a result only if
 every file it was made from is still the read it saw — otherwise it resolves
 the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
-a change to it. Painting happens when a PNG is asked for, from the scene
-already in memory. `devpage check` and a page's problems bar read designs
+a change to it — a `themes.yml` written into a folder between a design and one
+above it, say. Painting happens when a PNG is asked for, in the theme it asks
+for, from the scene already in memory. `devpage check` and a page's problems bar read designs
 straight from disk instead, as they read pages. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
@@ -293,7 +322,8 @@ unless it sits behind a proxy that offers more, and the page's
 [event stream](../live-updates/README.md#the-channel-and-the-stream) already
 holds one. For each design in the set:
 
-- the first update is the whole scene, with each image file it shows once;
+- the first update is the whole scene — every color in both themes, and
+  whether it is themed — with each image file it shows once;
 - after a save, the server resolves the design again, compares the new scene
   with the one it last sent, and sends a **patch**: the nodes whose subtree
   changed, each replaced by its id, and only the image files the scene it
@@ -325,15 +355,24 @@ same images. On a slide, the 1920 × 1080 stage is scaled to the window by a
 transform the canvas's CSS size doesn't see, so the bitmap follows the
 canvas's box on the screen and the module paints at the view's zoom times that
 transform — the whole drawing shows, crisp, at any window size — and a click
-is taken back through the same transform before it is hit-tested. It lays out once per change of scene (`Renderer::drawing`) and
+is taken back through the same transform before it is hit-tested. It lays out once per change of scene or of theme (`Renderer::drawing`) and
 paints from that one display list on the GPU or the CPU alike, and paints only when
-the scene or the view does — a zoom, a pan, a resize — at most once per
+the scene, the theme or the view does — a zoom, a pan, a resize — at most once per
 animation frame.
 
+The design script tells the module which theme each canvas is drawn in: on
+the canvas page, the page's; in an embed, the page's until the reader turns
+the embed's own switch, and then the embed's own, kept in the page's memory
+only; in an overlay, the theme of the canvas it covers. Since the scene holds
+both values of every color, a switch is a new display list made in the
+browser — nothing is asked of the server. An embed's own switch sets
+`data-theme` on its backdrop, which the stylesheet gives the theme's tokens,
+so the backdrop and its controls turn with the design.
+
 On the GPU the module first fills the canvas with the page's own background,
-read from the page under it, so a design's transparent parts show the page;
-a theme switch changes that background, so every canvas paints again when the
-page's `data-theme` changes.
+read from the backdrop or page under it, so a design's transparent parts show
+it; a theme switch changes that background and the design's colors, so every
+canvas paints again when the page's `data-theme` changes.
 
 Without WebGPU the module paints with `vello_cpu` once per zoom level, and a
 pan only moves that painting on the canvas. Print mode always paints on the
