@@ -117,21 +117,10 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Some(Command::Server) => {
-            let config = drive::server_mode::Config::from_vars(|name| std::env::var(name).ok())?;
+            let config = drive::server_mode::Config::from_env()?;
+            let address = SocketAddr::new(config.host, config.port);
             let app = drive::server_mode::router(&config)?;
-            let host: IpAddr = std::env::var("DEVPAGE_HOST")
-                .ok()
-                .map(|h| h.parse())
-                .transpose()
-                .context("DEVPAGE_HOST")?
-                .unwrap_or(cli.host);
-            let port: u16 = std::env::var("DEVPAGE_PORT")
-                .ok()
-                .map(|p| p.parse())
-                .transpose()
-                .context("DEVPAGE_PORT")?
-                .unwrap_or(3030);
-            let listener = TcpListener::bind(SocketAddr::new(host, port)).await?;
+            let listener = TcpListener::bind(address).await?;
             println!("devpage server on http://{}", listener.local_addr()?);
             axum::serve(listener, app).await?;
             return Ok(());

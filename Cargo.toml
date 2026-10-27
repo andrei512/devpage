@@ -45,6 +45,10 @@ sha2 = "0.10.9"
 objc2-core-services = { version = "0.3.2", default-features = false, features = ["std", "FSEvents", "dispatch2"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFString"] }
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+
+# kqueue on macOS (`src/adapters/watch/macos.rs`), and the size of the volume
+# server mode's cache is on (`src/drive/server_mode/config.rs`).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
 [dev-dependencies]

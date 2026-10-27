@@ -2,21 +2,17 @@
 //! on a cache miss from its zip in the bucket.
 
 use std::sync::Arc;
-use std::time::SystemTime;
 
 use anyhow::Result;
-use axum::Router;
 use axum::body::Body;
 use axum::extract::{Path as UrlPath, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use devpage_core::cache::Entry;
 use devpage_core::document::Document;
 use tower::ServiceExt;
 
 use super::ServerMode;
-use super::api::unpack;
-use super::cache::{evict, size_of};
+use super::cache::Served;
 use crate::changes::Changes;
 use crate::server;
 
@@ -81,8 +77,8 @@ async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Reques
             return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
         }
     }
-    let router = match version_router(state, id, n).await {
-        Ok(router) => router,
+    let served = match version_router(state, id, n).await {
+        Ok(served) => served,
         Err(error) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
         }
@@ -99,51 +95,32 @@ async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Reques
     // A fresh request: the outer router's path parameters ride in the
     // extensions, and the version's router would read them as its own.
     parts.extensions = Default::default();
-    router
+    // Held until the version has answered: it is not evicted meanwhile.
+    served
+        .router
+        .clone()
         .oneshot(Request::from_parts(parts, Body::new(body)))
         .await
         .into_response()
 }
 
-/// Version `n`'s router: kept while it is in the cache, made on a miss from
-/// the zip in the bucket.
-async fn version_router(state: &ServerMode, id: &str, n: u64) -> Result<Router> {
+/// Version `n`'s router, held for one request: kept while it is in the
+/// cache, made on a miss from the zip in the bucket.
+async fn version_router(state: &ServerMode, id: &str, n: u64) -> Result<Served> {
     let key = (id.to_string(), n);
-    let cache = &state.cache;
-    if let Some(router) = cache.routers.lock().unwrap().get(&key).cloned() {
-        if let Some(entry) = cache.entries.lock().unwrap().get_mut(&key) {
-            entry.read = SystemTime::now();
-        }
-        return Ok(router);
-    }
-    let zip = state.bucket.get_version(id, n).await?;
-    let dir = cache.dir.join(id).join(n.to_string());
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir)?;
-    unpack(&zip, &dir)?;
-    let dir = dir.canonicalize()?;
-    let mount = format!("/d/{id}/v/{n}");
-    devpage_core::served::ServedFolder::mount_at(&dir, &mount);
-    let document = Document::load(&dir, &dir)?;
-    let mut options = server::Options::new(Arc::new(document), Changes::default());
-    options.comments = None;
-    // The served folder carries the mount, so every address the version's
-    // router makes — redirects included — is already under it.
-    let router = server::router(options);
-    cache
-        .routers
-        .lock()
-        .unwrap()
-        .insert(key.clone(), router.clone());
-    cache.entries.lock().unwrap().insert(
-        key.clone(),
-        Entry {
-            document: id.to_string(),
-            version: n,
-            bytes: size_of(&dir),
-            read: SystemTime::now(),
-        },
-    );
-    evict(cache, &key);
-    Ok(router)
+    let fetch = state.bucket.get_version(id, n);
+    state
+        .cache
+        .router(&key, fetch, |dir| {
+            let mount = format!("/d/{id}/v/{n}");
+            devpage_core::served::ServedFolder::mount_at(dir, &mount);
+            let document = Document::load(dir, dir)?;
+            let mut options = server::Options::new(Arc::new(document), Changes::default());
+            options.comments = None;
+            // The served folder carries the mount, so every address the
+            // version's router makes — redirects included — is already under
+            // it.
+            Ok(server::router(options))
+        })
+        .await
 }

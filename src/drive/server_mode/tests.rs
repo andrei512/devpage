@@ -1,12 +1,18 @@
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use axum::Router;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::StatusCode;
+use devpage_core::cache::Lru;
+use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
-use super::*;
+use super::cache::Cache;
+use super::{Config, config, router};
 
 fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
     let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -22,32 +28,63 @@ fn config(name: &str) -> Config {
     let dir = std::env::temp_dir().join(format!("devpage-server-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("bucket")).unwrap();
+    std::fs::create_dir_all(dir.join("data")).unwrap();
     Config {
+        host: std::net::IpAddr::from([127, 0, 0, 1]),
+        port: 0,
         data_dir: dir.join("data"),
         bucket_url: format!("file://{}", dir.join("bucket").display()),
         cache_max_bytes: 1 << 20,
+        cache_policy: config::Policy::Lru,
+        max_upload_bytes: 100 << 20,
+        user_header: None,
     }
 }
 
-#[test]
-fn the_environment_is_read_and_a_missing_variable_named() {
-    let vars = |pairs: &'static [(&'static str, &'static str)]| {
-        move |name: &str| {
-            pairs
-                .iter()
-                .find(|(k, _)| *k == name)
-                .map(|(_, v)| v.to_string())
-        }
-    };
-    let config = Config::from_vars(vars(&[
-        ("DEVPAGE_DATA_DIR", "/data"),
-        ("DEVPAGE_BUCKET_URL", "s3://b/p"),
-        ("DEVPAGE_CACHE_MAX_BYTES", "8GB"),
-    ]))
-    .unwrap();
-    assert_eq!(config.cache_max_bytes, 8 << 30);
-    let missing = Config::from_vars(vars(&[("DEVPAGE_DATA_DIR", "/data")])).unwrap_err();
-    assert_eq!(missing.to_string(), "DEVPAGE_BUCKET_URL is not set");
+fn bucket_dir(config: &Config) -> PathBuf {
+    PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap())
+}
+
+fn site(title: &str, text: &str) -> Vec<u8> {
+    zip_of(&[
+        (
+            "devpage.yml",
+            &format!("kind: site\ntitle: {title}\nroot: README.md\n"),
+        ),
+        ("README.md", &format!("# {title}\n\n{text}\n")),
+    ])
+}
+
+/// What `app` answers to `request`: its status and body as JSON, or as text
+/// in a JSON string when it isn't JSON.
+async fn ask(app: &Router, request: Request) -> (StatusCode, serde_json::Value) {
+    let response = app.clone().oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let value = serde_json::from_slice(&body)
+        .unwrap_or_else(|_| serde_json::Value::String(String::from_utf8_lossy(&body).into()));
+    (status, value)
+}
+
+fn post(path: &str, zip: Vec<u8>) -> Request {
+    Request::post(path).body(Body::from(zip)).unwrap()
+}
+
+fn get(path: &str) -> Request {
+    Request::get(path).body(Body::empty()).unwrap()
+}
+
+fn delete(path: &str) -> Request {
+    Request::delete(path).body(Body::empty()).unwrap()
+}
+
+/// Publishes `zip` as a new document: its id.
+async fn create(app: &Router, zip: Vec<u8>) -> String {
+    let (status, answer) = ask(app, post("/api/documents", zip)).await;
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+    answer["id"].as_str().unwrap().to_string()
 }
 
 #[tokio::test]
@@ -151,7 +188,8 @@ async fn a_published_zip_is_kept_in_the_bucket_and_served_at_its_link() {
 #[tokio::test]
 async fn past_its_limit_the_cache_evicts_and_a_read_fetches_again() {
     let mut config = config("evict");
-    config.cache_max_bytes = 100;
+    // Room for one version, not two.
+    config.cache_max_bytes = 150;
     let app = router(&config).unwrap();
     let mut ids = Vec::new();
     for title in ["One", "Two"] {
@@ -239,4 +277,408 @@ async fn a_zip_entry_outside_the_document_refuses_the_publish() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
+async fn an_upload_over_the_limit_is_refused_with_413() {
+    let mut config = config("too-big");
+    config.max_upload_bytes = 1000;
+    let app = router(&config).unwrap();
+    let zip = site_with_noise(5000);
+    let (status, _) = ask(&app, post("/api/documents", zip)).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    // Bigger than axum's own 2 MB default, under the limit: accepted.
+    config.max_upload_bytes = 10 << 20;
+    let app = router(&config).unwrap();
+    let zip = site_with_noise(3 << 20);
+    assert!(zip.len() > 2 << 20);
+    let (status, answer) = ask(&app, post("/api/documents", zip)).await;
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+}
+
+/// A site holding `bytes` of noise, stored uncompressed: a zip at least that
+/// big.
+fn site_with_noise(bytes: usize) -> Vec<u8> {
+    let mut noise = Vec::with_capacity(bytes);
+    let mut seed = 1u64;
+    for _ in 0..bytes {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1);
+        noise.push((seed >> 33) as u8);
+    }
+    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    out.start_file("devpage.yml", stored).unwrap();
+    out.write_all(b"kind: site\ntitle: Big\nroot: README.md\n")
+        .unwrap();
+    out.start_file("README.md", stored).unwrap();
+    out.write_all(b"# Big\n").unwrap();
+    out.start_file("noise.bin", stored).unwrap();
+    out.write_all(&noise).unwrap();
+    let zip = out.finish().unwrap().into_inner();
+    assert!(zip.len() > bytes);
+    zip
+}
+
+#[tokio::test]
+async fn with_a_user_header_a_write_needs_it_and_records_its_author() {
+    let mut config = config("authors");
+    config.user_header = Some("X-Forwarded-Email".into());
+    let app = router(&config).unwrap();
+    let (status, _) = ask(&app, post("/api/documents", site("A", "a"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let signed = |path: &str, zip: Vec<u8>| {
+        Request::post(path)
+            .header("X-Forwarded-Email", "ana@example.com")
+            .body(Body::from(zip))
+            .unwrap()
+    };
+    let (status, answer) = ask(&app, signed("/api/documents", site("A", "a"))).await;
+    assert_eq!(status, StatusCode::CREATED);
+    let id = answer["id"].as_str().unwrap().to_string();
+    let path = format!("/api/documents/{id}/versions");
+    let (status, _) = ask(&app, post(&path, site("A", "b"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = ask(&app, delete(&format!("/api/documents/{id}"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    // Reads need nothing.
+    let (status, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(document["versions"][0]["author"], "ana@example.com");
+
+    // Without the setting, every write is anonymous.
+    let app = router(&self::config("anonymous")).unwrap();
+    let id = create(&app, site("A", "a")).await;
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(document["versions"][0]["author"], "anonymous");
+}
+
+#[tokio::test]
+async fn documents_are_listed_and_read_with_their_versions() {
+    let app = router(&config("list")).unwrap();
+    let (_, listed) = ask(&app, get("/api/documents")).await;
+    assert_eq!(listed, serde_json::json!([]));
+    let launch = create(&app, site("Launch", "one")).await;
+    let path = format!("/api/documents/{launch}/versions");
+    let (status, answer) = ask(&app, post(&path, site("Launch, again", "two"))).await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(answer["version"], 2);
+    assert_eq!(answer["url"], format!("/d/{launch}"));
+    let other = create(&app, site("Other", "x")).await;
+
+    let (status, listed) = ask(&app, get("/api/documents")).await;
+    assert_eq!(status, StatusCode::OK);
+    let listed = listed.as_array().unwrap();
+    assert_eq!(listed.len(), 2);
+    let first = listed.iter().find(|d| d["id"] == launch).unwrap();
+    assert_eq!(first["kind"], "site");
+    assert_eq!(first["title"], "Launch, again");
+    assert_eq!(first["latest"], 2);
+    assert!(listed.iter().any(|d| d["id"] == other));
+
+    let (status, document) = ask(&app, get(&format!("/api/documents/{launch}"))).await;
+    assert_eq!(status, StatusCode::OK);
+    let versions = document["versions"].as_array().unwrap();
+    let numbers: Vec<_> = versions.iter().map(|v| v["number"].clone()).collect();
+    assert_eq!(numbers, [1, 2]);
+    assert_eq!(versions[0]["title"], "Launch");
+
+    // An id that is no document, or no id at all.
+    let missing = uuid::Uuid::new_v4();
+    for path in [
+        format!("/api/documents/{missing}"),
+        "/api/documents/..%2F..%2Fetc".to_string(),
+        "/api/documents/not-an-id".to_string(),
+    ] {
+        assert_eq!(
+            ask(&app, get(&path)).await.0,
+            StatusCode::NOT_FOUND,
+            "{path}"
+        );
+    }
+    let (status, _) = ask(
+        &app,
+        post(
+            &format!("/api/documents/{missing}/versions"),
+            site("X", "x"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn deleting_a_document_takes_it_from_the_store_the_bucket_and_the_cache() {
+    let config = config("delete");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Gone", "one")).await;
+    let path = format!("/api/documents/{id}/versions");
+    ask(&app, post(&path, site("Gone", "two"))).await;
+    assert_eq!(
+        ask(&app, get(&format!("/d/{id}/v/1/README.md"))).await.0,
+        StatusCode::OK
+    );
+    assert!(config.data_dir.join("cache").join(&id).exists());
+
+    let (status, _) = ask(&app, delete(&format!("/api/documents/{id}"))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        !bucket_dir(&config)
+            .join("documents")
+            .join(&id)
+            .join("versions/1.zip")
+            .exists()
+    );
+    assert!(
+        !bucket_dir(&config)
+            .join("documents")
+            .join(&id)
+            .join("versions/2.zip")
+            .exists()
+    );
+    assert!(!config.data_dir.join("cache").join(&id).exists());
+    assert_eq!(
+        ask(&app, get(&format!("/api/documents/{id}"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        ask(&app, get(&format!("/d/{id}/v/1/README.md"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        ask(&app, delete(&format!("/api/documents/{id}"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn deleting_the_latest_version_makes_the_one_before_it_latest() {
+    let config = config("delete-version");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Doc", "one")).await;
+    let path = format!("/api/documents/{id}/versions");
+    ask(&app, post(&path, site("Doc", "two"))).await;
+    ask(&app, get(&format!("/d/{id}/v/2/README.md"))).await;
+
+    let (status, _) = ask(&app, delete(&format!("/api/documents/{id}/versions/2"))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        !bucket_dir(&config)
+            .join(format!("documents/{id}/versions/2.zip"))
+            .exists()
+    );
+    assert!(!config.data_dir.join("cache").join(&id).join("2").exists());
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(document["latest"], 1);
+    assert_eq!(
+        ask(&app, get(&format!("/d/{id}/v/2/README.md"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+    // The next publish never takes the deleted number.
+    let (_, answer) = ask(&app, post(&path, site("Doc", "three"))).await;
+    assert_eq!(answer["version"], 3);
+    assert_eq!(
+        ask(&app, delete(&format!("/api/documents/{id}/versions/9")))
+            .await
+            .0,
+        StatusCode::NOT_FOUND
+    );
+
+    // Deleting the only one deletes the document.
+    let only = create(&app, site("Only", "one")).await;
+    let (status, _) = ask(&app, delete(&format!("/api/documents/{only}/versions/1"))).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(
+        ask(&app, get(&format!("/api/documents/{only}"))).await.0,
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_publishes_to_one_document_take_one_number_each() {
+    let config = config("concurrent");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Busy", "zero")).await;
+    let path = format!("/api/documents/{id}/versions");
+    let publishes = (0..8).map(|i| {
+        let (app, path) = (app.clone(), path.clone());
+        tokio::spawn(async move { ask(&app, post(&path, site("Busy", &format!("v{i}")))).await })
+    });
+    let mut numbers = Vec::new();
+    for publish in publishes {
+        let (status, answer) = publish.await.unwrap();
+        assert_eq!(status, StatusCode::CREATED, "{answer}");
+        numbers.push(answer["version"].as_u64().unwrap());
+    }
+    numbers.sort();
+    assert_eq!(numbers, (2..=9).collect::<Vec<_>>());
+    for n in 1..=9 {
+        assert!(
+            bucket_dir(&config)
+                .join(format!("documents/{id}/versions/{n}.zip"))
+                .exists()
+        );
+    }
+}
+
+/// [A version never changes](docs/boxes/viewer/server/constraints/a-version-never-changes.md):
+/// the bucket keeps the upload byte for byte, the store its sha-256, and a
+/// later publish leaves it as it was.
+#[tokio::test]
+async fn a_version_is_kept_byte_for_byte_and_never_changes() {
+    let config = config("never-changes");
+    let app = router(&config).unwrap();
+    let first = site("Fixed", "one");
+    let id = create(&app, first.clone()).await;
+    let kept = bucket_dir(&config).join(format!("documents/{id}/versions/1.zip"));
+    assert_eq!(std::fs::read(&kept).unwrap(), first);
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(
+        document["versions"][0]["sha256"],
+        format!("{:x}", Sha256::digest(&first))
+    );
+    assert_eq!(document["versions"][0]["size"], first.len());
+    let path = format!("/api/documents/{id}/versions");
+    ask(&app, post(&path, site("Fixed", "two"))).await;
+    assert_eq!(std::fs::read(&kept).unwrap(), first);
+}
+
+/// The first half of [the PVC is only a cache](docs/boxes/viewer/server/constraints/the-pvc-is-only-a-cache.md):
+/// with the cache deleted, a server started again renders every version
+/// from the bucket.
+#[tokio::test]
+async fn with_the_cache_deleted_every_version_renders_again_from_the_bucket() {
+    let config = config("refill");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Kept", "one")).await;
+    let path = format!("/api/documents/{id}/versions");
+    ask(&app, post(&path, site("Kept", "two"))).await;
+    for n in [1, 2] {
+        assert_eq!(
+            ask(&app, get(&format!("/d/{id}/v/{n}/README.md"))).await.0,
+            StatusCode::OK
+        );
+    }
+    drop(app);
+    std::fs::remove_dir_all(config.data_dir.join("cache")).unwrap();
+    let app = router(&config).unwrap();
+    for (n, text) in [(1, "one"), (2, "two")] {
+        let (status, html) = ask(&app, get(&format!("/d/{id}/v/{n}/README.md"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(html.as_str().unwrap().contains(text), "{html}");
+    }
+}
+
+/// A server started again keeps what the cache held: served from disk,
+/// without the bucket — and a publish leaves no scratch behind.
+#[tokio::test]
+async fn a_restarted_server_serves_what_its_cache_holds_without_the_bucket() {
+    let config = config("seeded");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Seeded", "one")).await;
+    assert_eq!(
+        ask(&app, get(&format!("/d/{id}/v/1/README.md"))).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        std::fs::read_dir(config.data_dir.join("scratch"))
+            .unwrap()
+            .count(),
+        0
+    );
+    drop(app);
+    // Something half-unpacked by the last run goes.
+    let partial = config.data_dir.join("cache").join(&id).join("7.partial-x");
+    std::fs::create_dir_all(&partial).unwrap();
+    std::fs::remove_file(bucket_dir(&config).join(format!("documents/{id}/versions/1.zip")))
+        .unwrap();
+    let app = router(&config).unwrap();
+    assert!(!partial.exists());
+    let (status, html) = ask(&app, get(&format!("/d/{id}/v/1/README.md"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+}
+
+fn cache(name: &str, limit: u64) -> Arc<Cache> {
+    let dir = std::env::temp_dir().join(format!("devpage-cache-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    Arc::new(Cache::open(&dir, limit, Box::new(Lru)).unwrap())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn misses_arriving_together_unpack_a_version_once() {
+    let cache = cache("together", 1 << 20);
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let makes = Arc::new(AtomicUsize::new(0));
+    let zip = site("Once", "one");
+    let misses = (0..8).map(|_| {
+        let (cache, fetches, makes, zip) =
+            (cache.clone(), fetches.clone(), makes.clone(), zip.clone());
+        tokio::spawn(async move {
+            let key = ("d".to_string(), 1);
+            let fetch = async move {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                Ok(zip)
+            };
+            let served = cache
+                .router(&key, fetch, |_| {
+                    makes.fetch_add(1, Ordering::SeqCst);
+                    Ok(Router::new())
+                })
+                .await
+                .unwrap();
+            drop(served);
+        })
+    });
+    for miss in misses {
+        miss.await.unwrap();
+    }
+    assert_eq!(fetches.load(Ordering::SeqCst), 1);
+    assert_eq!(makes.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn a_version_bigger_than_the_limit_is_served_without_being_cached() {
+    let cache = cache("oversize", 10);
+    let key = ("d".to_string(), 1);
+    let seen = Arc::new(std::sync::Mutex::new(PathBuf::new()));
+    let folder = seen.clone();
+    let served = cache
+        .router(
+            &key,
+            async { Ok(site("Big", "more than ten bytes")) },
+            move |dir| {
+                assert!(dir.join("README.md").is_file());
+                *folder.lock().unwrap() = dir.to_path_buf();
+                Ok(Router::new())
+            },
+        )
+        .await
+        .unwrap();
+    assert!(!cache.holds(&key));
+    assert_eq!(cache.size(), 0);
+    let dir = seen.lock().unwrap().clone();
+    assert!(dir.exists(), "there while it answers");
+    drop(served);
+    assert!(!dir.exists(), "deleted once it has");
+}
+
+#[tokio::test]
+async fn a_version_answering_a_request_is_never_evicted() {
+    let cache = cache("serving", 150);
+    let make = |_: &Path| Ok(Router::new());
+    let a = ("a".to_string(), 1);
+    let b = ("b".to_string(), 1);
+    let zip = || async { Ok(site("Sized", &"w".repeat(60))) };
+    let holding_a = cache.router(&a, zip(), make).await.unwrap();
+    let a_bytes = cache.size();
+    assert!(a_bytes * 2 > 150 && a_bytes <= 150, "{a_bytes}");
+    // b pushes the cache past its limit; a is the older, but answering.
+    drop(cache.router(&b, zip(), make).await.unwrap());
+    assert!(cache.holds(&a));
+    drop(holding_a);
+    // Once a isn't answering, the next insert lets it go.
+    let c = ("c".to_string(), 1);
+    drop(cache.router(&c, zip(), make).await.unwrap());
+    assert!(!cache.holds(&a));
 }
