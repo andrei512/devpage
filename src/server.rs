@@ -25,10 +25,10 @@ use tokio_stream::wrappers::BroadcastStream;
 use crate::check::Preview;
 use crate::comments::{Anchor, Store};
 use crate::designs::Designs;
-use crate::document::{self, Document, Entry, Kind};
+use crate::document::{Document, Entry};
 use crate::external::External;
 use crate::index::Index;
-use crate::render;
+use crate::resolve::{Answer, Resolver};
 use crate::slide_png::Shots;
 
 #[derive(Clone)]
@@ -91,73 +91,67 @@ impl Identity {
     }
 }
 
-/// The server for one entry document, with a fresh index of its served folder
-/// and its search index, as `devpage` serves it. `comments` names who writes
-/// them, or is `None` when comments are off.
-#[cfg(test)]
-pub fn router(
-    document: Arc<Document>,
-    changes: broadcast::Sender<String>,
-    comments: Option<Identity>,
-) -> Router {
-    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
-    let designs = Designs::new(document.served.clone());
-    let shots = Shots::new(&changes);
-    let preview = Arc::new(Preview::new(External::http(Some(changes.clone()))));
-    router_with_index(
-        Arc::new(Entry::new(document)),
+/// Everything a server is made of. [`Options::new`] serves one document
+/// the way tests and `devpage check` want it; a caller changes the fields it
+/// cares about with struct update syntax, so a new dependency never reaches
+/// every caller.
+pub struct Options {
+    /// The entry document, followed as its file changes.
+    pub entry: Arc<Entry>,
+    /// The documents of the served folder, and its search index if any.
+    pub index: Arc<Index>,
+    pub designs: Designs,
+    /// What tells open pages a watched file changed.
+    pub changes: broadcast::Sender<String>,
+    /// Who writes comments, or `None` when they are off (`--no-comments`).
+    pub comments: Option<Identity>,
+    /// The Chrome that draws slides as PNGs, and what it drew.
+    pub shots: Shots,
+    /// The problems each page lists.
+    pub preview: Arc<Preview>,
+    /// Whether every request is logged, as `devpage` does.
+    pub log: bool,
+}
+
+impl Options {
+    /// One document, with a fresh index of its served folder and no search
+    /// index, comments on as one local author, nothing logged.
+    pub fn new(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
+        Self {
+            index: Arc::new(Index::build(&document.served)),
+            designs: Designs::new(document.served.clone()),
+            shots: Shots::new(&changes),
+            preview: Arc::new(Preview::new(External::http(Some(changes.clone())))),
+            entry: Arc::new(Entry::new(document)),
+            comments: Some(Identity::Local(String::new())),
+            changes,
+            log: false,
+        }
+    }
+
+    /// The server for `devpage pdf` and `devpage video`, which serves only
+    /// Chrome: nothing logged, and problems announced to no one.
+    pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
+        Self {
+            preview: Arc::new(Preview::new(External::http(None))),
+            ..Self::new(document, changes)
+        }
+    }
+}
+
+/// The server `options` describe.
+pub fn router(options: Options) -> Router {
+    let Options {
+        entry,
         index,
         designs,
         changes,
         comments,
         shots,
         preview,
-    )
-}
-
-/// The server, sharing the entry document and the index the watcher keeps
-/// current, logging every request. `comments` names who writes them, or is
-/// `None` when comments are off (`--no-comments`); `shots` draws its slides'
-/// PNGs; `preview` finds the problems each page lists.
-pub fn router_with_index(
-    entry: Arc<Entry>,
-    index: Arc<Index>,
-    designs: Designs,
-    changes: broadcast::Sender<String>,
-    comments: Option<Identity>,
-    shots: Shots,
-    preview: Arc<Preview>,
-) -> Router {
-    quiet(entry, index, designs, changes, comments, shots, preview).layer(middleware::from_fn(log))
-}
-
-/// The server for `devpage pdf` and `devpage video`, which serves only Chrome
-/// and logs nothing.
-pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Router {
-    let index = Arc::new(Index::build(&document.served));
-    let designs = Designs::new(document.served.clone());
-    let shots = Shots::new(&changes);
-    quiet(
-        Arc::new(Entry::new(document)),
-        index,
-        designs,
-        changes,
-        Some(Identity::Local(String::new())),
-        shots,
-        Arc::new(Preview::new(External::http(None))),
-    )
-}
-
-fn quiet(
-    entry: Arc<Entry>,
-    index: Arc<Index>,
-    designs: Designs,
-    changes: broadcast::Sender<String>,
-    comments: Option<Identity>,
-    shots: Shots,
-    preview: Arc<Preview>,
-) -> Router {
-    routes(AppState {
+        log,
+    } = options;
+    let router = routes(AppState {
         comments: comments.map(|identity| {
             Arc::new(Comments {
                 store: Store::new(&entry.document().served),
@@ -170,7 +164,12 @@ fn quiet(
         changes,
         shots,
         preview,
-    })
+    });
+    if log {
+        router.layer(middleware::from_fn(log_request))
+    } else {
+        router
+    }
 }
 
 /// Every route, on `state`, logging nothing.
@@ -207,7 +206,7 @@ fn routes(state: AppState) -> Router {
 }
 
 /// Logs each request with its status and how long the response took to start.
-async fn log(request: Request, next: Next) -> Response {
+async fn log_request(request: Request, next: Next) -> Response {
     let (method, path) = (request.method().clone(), request.uri().path().to_string());
     let started = Instant::now();
     let response = next.run(request).await;
@@ -219,242 +218,113 @@ async fn log(request: Request, next: Next) -> Response {
     response
 }
 
-/// `/` leads to the entry document as its file says now — or, while the file
-/// is invalid, shows why.
-async fn home(State(state): State<AppState>) -> Response {
-    let entry = &state.entry;
-    match entry.error() {
-        Some(error) => {
-            Html(render::invalid(&entry.document(), entry.file(), &error)).into_response()
-        }
-        None => Redirect::temporary(&entry.document().entry()).into_response(),
+/// The resolver for a request: the server's documents, mounted at `/`.
+fn resolver(state: &AppState) -> Resolver<'_> {
+    Resolver {
+        entry: &state.entry,
+        index: &state.index,
+        preview: &state.preview,
+        comments: state.comments_on(),
+        mount: "",
     }
 }
 
-/// A document file opens as its kind; a Markdown file becomes a page of its
-/// nearest site, or a doc of one chapter; anything else is served as it is.
+/// `/`: whatever the resolver says the entry document leads to now.
+async fn home(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    let answer = resolver(&state).home();
+    respond(&state, &headers, answer).await
+}
+
+/// Any other path: answered as the resolver decides.
 async fn file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let print = query
-        .as_deref()
-        .is_some_and(|query| query.split('&').any(|pair| pair == "print"));
-    // A design's theme, as `?theme=` names it: its light one when it names
-    // none.
-    let theme = query
-        .as_deref()
-        .and_then(|query| {
-            query
-                .split('&')
-                .find_map(|pair| pair.strip_prefix("theme="))
-        })
-        .map(|name| devpage_design::Theme::named(name).ok_or(name));
-    // A design's PNG — unless a real file of that name is there, which is
-    // served as it is.
-    let real = state
-        .entry
-        .document()
-        .file(&path)
-        .is_some_and(|f| f.is_file());
-    if let Some(design) = path
-        .strip_suffix(".png")
-        .filter(|p| p.ends_with(".design") && !real)
-    {
-        // A design that isn't a file in the served folder is like any other
-        // path that isn't: 404, never its problems.
-        if !state
-            .entry
-            .document()
-            .file(design)
-            .is_some_and(|f| f.is_file())
-        {
-            return (
-                StatusCode::NOT_FOUND,
-                format!("{path} is not part of the served folder"),
-            )
-                .into_response();
-        }
-        let theme = match theme {
-            None => devpage_design::Theme::Light,
-            Some(Ok(theme)) => theme,
-            Some(Err(other)) => {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    format!("theme: expected light or dark, found \"{other}\""),
-                )
-                    .into_response();
+    let answer = resolver(&state).path(&path, query.as_deref());
+    respond(&state, &headers, answer).await
+}
+
+/// An answer as a response: the file's bytes read, the PNG drawn.
+async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Response {
+    match answer {
+        Answer::Html(html) => Html(html).into_response(),
+        Answer::Redirect(address) => Redirect::temporary(&address).into_response(),
+        Answer::NotFound(why) => (StatusCode::NOT_FOUND, why).into_response(),
+        Answer::BadRequest(why) => (StatusCode::BAD_REQUEST, why).into_response(),
+        Answer::Failed(why) => (StatusCode::INTERNAL_SERVER_ERROR, why).into_response(),
+        Answer::File(file) => match tokio::fs::read(&file).await {
+            Ok(bytes) => {
+                let mime = mime_guess::from_path(&file).first_or_octet_stream();
+                ([(header::CONTENT_TYPE, mime.to_string())], bytes).into_response()
             }
-        };
-        // The ETag comes from the scene, so a browser that has this PNG
-        // already is answered without painting it again.
-        let tag = state
-            .designs
-            .etag(design, theme)
-            .await
-            .map(|hash| crate::validators::strong(&hash));
-        if let Some(tag) = &tag
-            && crate::validators::already_has(&headers, tag)
-        {
-            let mut known = HeaderMap::new();
-            if let Ok(value) = tag.parse() {
-                known.insert(header::ETAG, value);
-            }
-            known.insert(
-                header::CACHE_CONTROL,
-                header::HeaderValue::from_static("no-cache"),
-            );
-            return crate::validators::not_modified(known);
-        }
-        return match state.designs.png(design.to_string(), theme).await {
-            Ok(png) => {
-                let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
-                if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
-                    response.headers_mut().insert(header::ETAG, tag);
-                }
-                response
-            }
-            Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),
-        };
-    }
-    let entry = state.entry.document();
-    if let Some((deck, n)) = path.strip_suffix(".png").and_then(|p| p.rsplit_once('/'))
-        && !real
-        && let Some(file) = entry.file(deck).filter(|file| file.is_file())
-        && file
-            .extension()
-            .is_some_and(|ext| ext == "yml" || ext == "yaml")
-    {
-        return slide_png(&state, &headers, deck, &file, n).await;
-    }
-    if path.ends_with(".design") && entry.file(&path).is_some_and(|f| f.is_file()) {
-        // An address that names a theme shows it; any other `theme` is
-        // passed over.
-        let theme = theme.and_then(Result::ok);
-        return Html(canvas::page(&path, theme)).into_response();
-    }
-    let Some(file) = entry.file(&path).filter(|file| file.is_file()) else {
-        return (
-            StatusCode::NOT_FOUND,
-            format!("{path} is not part of the served folder"),
-        )
-            .into_response();
-    };
-    let served = &entry.served;
-    if document::kind_of(&file).is_some() {
-        return match Document::load(&file, served) {
-            Ok(document) => show(&document, print, state.comments_on(), &state.preview),
-            Err(error) => {
-                Html(render::invalid(&entry, &file, &format!("{error:#}"))).into_response()
-            }
-        };
-    }
-    if file.extension().is_some_and(|ext| ext == "md") {
-        let source = match tokio::fs::read_to_string(&file).await {
-            Ok(source) => source,
-            Err(error) => {
-                return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
-            }
-        };
-        // A site is never printed: in print mode a Markdown file is a doc of
-        // one chapter, whatever site holds it — what `devpage pdf` prints.
-        // A page of a site whose file is invalid shows why, until it is fixed.
-        let site = state
-            .index
-            .site_for(&file)
-            .filter(|_| !print)
-            .map(|site| (Document::load(&site, served), site));
-        return match site {
-            Some((Ok(site), _)) => {
-                let found = state.preview.problems(&site, std::slice::from_ref(&file));
-                Html(render::page(
-                    &site,
-                    &file,
-                    &source,
-                    state.comments_on(),
-                    &found,
-                ))
-                .into_response()
-            }
-            Some((Err(error), site)) => {
-                Html(render::invalid(&entry, &site, &format!("{error:#}"))).into_response()
-            }
-            None => match Document::load(&file, served) {
-                Ok(mut doc) => {
-                    // A page keeps its site's widgets when printed on its own.
-                    if let Some(Ok(site)) = state
-                        .index
-                        .site_for(&file)
-                        .map(|site| Document::load(&site, served))
-                    {
-                        doc.widgets = site.widgets;
-                    }
-                    show(&doc, print, state.comments_on(), &state.preview)
-                }
-                Err(error) => {
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
-                }
-            },
-        };
-    }
-    match tokio::fs::read(&file).await {
-        Ok(bytes) => {
-            let mime = mime_guess::from_path(&file).first_or_octet_stream();
-            ([(header::CONTENT_TYPE, mime.to_string())], bytes).into_response()
-        }
-        Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+            Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
+        },
+        Answer::Canvas { design, theme } => Html(canvas::page(&design, theme)).into_response(),
+        Answer::DesignPng { design, theme } => design_png(state, headers, design, theme).await,
+        Answer::SlidePng { page, n } => slide_png(state, headers, &page, n).await,
     }
 }
 
-/// `<deck>.yml/<n>.png`: slide `n` of the deck at `file`, drawn by Chrome —
-/// or 404 when the file isn't a deck or has no slide `n`. A slide drawn since
-/// the last change comes from the cache, and is a 304 for a request that
-/// already holds it. Asked for by a page devpage's own Chrome is shooting, it
-/// is never drawn: the cache's copy, or 508.
-async fn slide_png(
+/// The design at `design` as a PNG in `theme`. The ETag comes from the
+/// scene, so a browser that has this PNG already is answered without
+/// painting it again.
+async fn design_png(
     state: &AppState,
     headers: &HeaderMap,
-    deck: &str,
-    file: &std::path::Path,
-    n: &str,
+    design: String,
+    theme: devpage_design::Theme,
 ) -> Response {
-    let not_found = |reason: String| (StatusCode::NOT_FOUND, reason).into_response();
-    let document = match Document::load(file, &state.entry.document().served) {
-        Ok(document) if matches!(document.kind, Kind::Slides { .. }) => document,
-        _ => return not_found(format!("{deck} is not a deck")),
-    };
-    let Kind::Slides { slides, .. } = &document.kind else {
-        unreachable!()
-    };
-    let count = slides.len();
-    // One address per slide: `2`, never `02`.
-    let Some(n) = n
-        .parse::<usize>()
-        .ok()
-        .filter(|i| (1..=count).contains(i) && i.to_string() == n)
-    else {
-        return not_found(format!(
-            "{deck} has {count} slide{}",
-            if count == 1 { "" } else { "s" }
-        ));
-    };
-    let url = document.entry();
+    let tag = state
+        .designs
+        .etag(&design, theme)
+        .await
+        .map(|hash| crate::validators::strong(&hash));
+    if let Some(tag) = &tag
+        && crate::validators::already_has(headers, tag)
+    {
+        let mut known = HeaderMap::new();
+        if let Ok(value) = tag.parse() {
+            known.insert(header::ETAG, value);
+        }
+        known.insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-cache"),
+        );
+        return crate::validators::not_modified(known);
+    }
+    match state.designs.png(design, theme).await {
+        Ok(png) => {
+            let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
+            if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
+                response.headers_mut().insert(header::ETAG, tag);
+            }
+            response
+        }
+        Err(problems) => (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response(),
+    }
+}
+
+/// Slide `n` of the deck whose page is at `page`, drawn by Chrome. A slide
+/// drawn since the last change comes from the cache, and is a 304 for a
+/// request that already holds it. Asked for by a page devpage's own Chrome
+/// is shooting, it is never drawn: the cache's copy, or 508.
+async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) -> Response {
     let shot = if headers.contains_key(crate::pdf::SHOT_HEADER) {
-        match state.shots.cached(&url, n) {
+        match state.shots.cached(page, n) {
             Some(shot) => shot,
             None => {
                 return (
                     StatusCode::LOOP_DETECTED,
-                    format!("{deck}/{n}.png isn't drawn inside another shot"),
+                    format!("{}/{n}.png isn't drawn inside another shot", &page[1..]),
                 )
                     .into_response();
             }
         }
     } else {
         let serving = state.clone();
-        match state.shots.png(&url, n, move || routes(serving)).await {
+        match state.shots.png(page, n, move || routes(serving)).await {
             Ok(shot) => shot,
             Err(error) => {
                 return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
@@ -482,35 +352,6 @@ async fn slide_png(
         );
     }
     response
-}
-
-/// A document as its kind: a site opens on its root page. Printed, a page
-/// lists no problems, so none are looked for.
-fn show(document: &Document, print: bool, comments: bool, preview: &Preview) -> Response {
-    let found = |pages: &[std::path::PathBuf]| {
-        if print {
-            Vec::new()
-        } else {
-            preview.problems(document, pages)
-        }
-    };
-    match &document.kind {
-        Kind::Site { .. } => Redirect::temporary(&document.entry()).into_response(),
-        Kind::Doc { chapters, pdf } => {
-            let found = found(chapters);
-            Html(render::doc(
-                document, chapters, pdf, print, comments, &found,
-            ))
-            .into_response()
-        }
-        Kind::Slides { slides, .. } => {
-            let files: Vec<std::path::PathBuf> =
-                slides.iter().map(|slide| slide.file.clone()).collect();
-            let found = found(&files);
-            Html(render::slides(document, slides, print, comments, &found)).into_response()
-        }
-        Kind::Design => Redirect::temporary(&document.entry()).into_response(),
-    }
 }
 
 /// Server-sent events: one "change" message per change to a watched file.
@@ -849,9 +690,15 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move {
-            axum::serve(listener, router(document, changes, comments))
-                .await
-                .unwrap()
+            axum::serve(
+                listener,
+                router(Options {
+                    comments,
+                    ..Options::new(document, changes)
+                }),
+            )
+            .await
+            .unwrap()
         });
         (address, root)
     }
@@ -1037,7 +884,10 @@ mod tests {
     async fn serve(dir: &std::path::Path, entry: &str) -> String {
         let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
         let (changes, _) = broadcast::channel(1);
-        let router = router(document, changes, Some(Identity::Local("T".into())));
+        let router = router(Options {
+            comments: Some(Identity::Local("T".into())),
+            ..Options::new(document, changes)
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1063,15 +913,12 @@ mod tests {
         .unwrap();
         let document = Arc::new(Document::load(&dir, &dir).unwrap());
         let (changes, _) = broadcast::channel(16);
-        let router = router_with_index(
-            Arc::new(Entry::new(document)),
-            Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
-            Designs::new(dir.clone()),
-            changes.clone(),
-            None,
-            Shots::new(&changes),
-            crate::check::Preview::shared(),
-        );
+        let router = router(Options {
+            index: Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
+            comments: None,
+            preview: crate::check::Preview::shared(),
+            ..Options::new(document, changes)
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1158,118 +1005,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_slide_png_names_a_slide_of_a_deck_or_is_not_found() {
-        let dir = served("slide-png");
-        let base = serve(&dir, "docs").await;
-        for (path, reason) in [
-            ("notes/talk.yml/2.png", "notes/talk.yml has 1 slide"),
-            ("notes/talk.yml/0.png", "notes/talk.yml has 1 slide"),
-            ("notes/talk.yml/01.png", "notes/talk.yml has 1 slide"),
-            ("notes/talk.yml/one.png", "notes/talk.yml has 1 slide"),
-            ("docs/devpage.yml/1.png", "docs/devpage.yml is not a deck"),
-            ("notes/ci.yml/1.png", "notes/ci.yml is not a deck"),
-            ("notes/broken.yml/1.png", "notes/broken.yml is not a deck"),
-            ("notes/gone.yml/1.png", "is not part of the served folder"),
-            ("../secret.md/1.png", "is not part of the served folder"),
-        ] {
-            let (status, body) = get(&format!("{base}/{path}")).await;
-            assert_eq!(status, 404, "{path}: {body}");
-            assert!(body.contains(reason), "{path}: {body}");
-        }
-    }
-
-    #[tokio::test]
-    async fn serves_a_folder_without_git_by_what_each_file_is() {
-        let dir = served("routes");
-        assert!(!dir.join(".git").exists());
-        let base = serve(&dir, "docs").await;
-
-        assert_eq!(
-            get(&format!("{base}/")).await,
-            (307, "/docs/README.md".into())
-        );
-        let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
-        assert_eq!(status, 200);
-        assert!(
-            page.contains("<nav id=\"devpage-nav\" data-sidebar="),
-            "a page of its nearest site"
-        );
-        assert!(page.contains("Step · Docs"), "{page}");
-
-        let (status, deck) = get(&format!("{base}/notes/talk.yml")).await;
-        assert_eq!(status, 200);
-        assert!(deck.contains("Talk"), "a document file opens as its kind");
-        assert!(!deck.contains("<nav id=\"devpage-nav\" data-sidebar="));
-
-        let (status, loose) = get(&format!("{base}/notes/loose.md")).await;
-        assert_eq!(status, 200);
-        assert!(
-            !loose.contains("<nav id=\"devpage-nav\" data-sidebar="),
-            "in no site: a doc of one chapter"
-        );
-        assert!(loose.contains("Loose"));
-
-        let (status, broken) = get(&format!("{base}/notes/broken.yml")).await;
-        assert_eq!(status, 200);
-        assert!(broken.contains("not a valid document"), "{broken}");
-        assert!(
-            broken.contains("chapter gone.md does not exist"),
-            "{broken}"
-        );
-
-        assert_eq!(
-            get(&format!("{base}/notes/ci.yml")).await,
-            (200, "on: push\n".into())
-        );
-    }
-
-    #[tokio::test]
-    async fn a_page_of_a_site_prints_as_a_doc_of_one_chapter() {
-        let dir = served("print-page");
-        let base = serve(&dir, "docs").await;
-        let (status, page) = get(&format!("{base}/docs/guide/step.md?print")).await;
-        assert_eq!(status, 200);
-        assert!(
-            page.contains("<body class=\"doc print\" data-build="),
-            "{page}"
-        );
-        assert!(page.contains("@page { size: A4;"), "{page}");
-        assert!(
-            !page.contains("<nav id=\"devpage-nav\" data-sidebar="),
-            "{page}"
-        );
-        let (_, on_screen) = get(&format!("{base}/docs/guide/step.md")).await;
-        assert!(
-            on_screen.contains("<nav id=\"devpage-nav\" data-sidebar="),
-            "still a site page on screen"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_sites_title_links_to_its_own_root_page() {
-        let dir = served("titles");
-        std::fs::create_dir_all(dir.join("other")).unwrap();
-        std::fs::write(dir.join("other/index.md"), "# Index\n").unwrap();
-        std::fs::write(dir.join("other/page.md"), "# Page\n").unwrap();
-        std::fs::write(
-            dir.join("other/devpage.yml"),
-            "kind: site\ntitle: Other\nroot: index.md\n",
-        )
-        .unwrap();
-        let base = serve(&dir, "docs").await;
-        let (_, page) = get(&format!("{base}/other/page.md")).await;
-        assert!(
-            page.contains("<a class=\"document-title\" href=\"/other/index.md\">Other</a>"),
-            "{page}"
-        );
-        let (_, home) = get(&format!("{base}/docs/guide/step.md")).await;
-        assert!(
-            home.contains("<a class=\"document-title\" href=\"/docs/README.md\">Docs</a>"),
-            "{home}"
-        );
-    }
-
-    #[tokio::test]
     async fn nothing_outside_the_served_folder_is_served() {
         let dir = served("outside");
         std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
@@ -1283,17 +1018,6 @@ mod tests {
             let (status, body) = get(&format!("{base}{path}")).await;
             assert_eq!(status, 404, "{path}: {body}");
         }
-    }
-
-    #[tokio::test]
-    async fn serves_a_folder_reached_through_a_symbolic_link() {
-        let dir = served("symlinked");
-        let link = dir.parent().unwrap().join("link");
-        std::os::unix::fs::symlink(&dir, &link).unwrap();
-        let base = serve(&link, "docs").await;
-        let (status, page) = get(&format!("{base}/docs/guide/step.md")).await;
-        assert_eq!(status, 200, "{page}");
-        assert_eq!(get(&format!("{base}/notes/ci.yml")).await.0, 200);
     }
 
     /// What `/` answers once a watched entry file settles: polls until
@@ -1322,7 +1046,7 @@ mod tests {
 
         let document = Arc::new(Document::load(&site, &dir).unwrap());
         let index = Arc::new(Index::build(&dir));
-        let entry = Arc::new(Entry::new(document));
+        let entry = Arc::new(Entry::new(document.clone()));
         let (changes, _) = broadcast::channel(16);
         let designs = Designs::new(dir.clone());
         let _watcher = crate::watch::start(
@@ -1332,15 +1056,14 @@ mod tests {
             changes.clone(),
         )
         .unwrap();
-        let router = router_with_index(
+        let router = router(Options {
             entry,
             index,
             designs,
-            changes.clone(),
-            Some(Identity::Local("T".into())),
-            Shots::new(&changes),
-            crate::check::Preview::shared(),
-        );
+            comments: Some(Identity::Local("T".into())),
+            preview: crate::check::Preview::shared(),
+            ..Options::new(document, changes.clone())
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
