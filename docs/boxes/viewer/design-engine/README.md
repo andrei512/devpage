@@ -106,9 +106,11 @@ pixels; an `Image` still hugs the file's own size. Why 4,096 is
 
 A `Text`'s font is Inter, which the engine embeds, or a **font file**, read
 through `Files` like an image file and known the same way, by the SHA-256 of
-its bytes (`design/src/fonts.rs`). A `font` that names a file is that font; one
-that names a folder is the `.ttf` and `.otf` files `Files` lists directly in
-it, italic and oblique faces passed over. Each file is checked as it is read:
+its bytes (`design/src/fonts.rs`). A `Text`'s `font` is a name, which the
+resolver looks up in the [themes](#themes)' merged `fonts` of the file that
+wrote it; the path there names a file, which is that font, or a folder, which
+is the `.ttf` and `.otf` files `Files` lists directly in it, italic and
+oblique faces passed over. Each file is checked as it is read:
 at most 4 MB (`fonts::MAX_FONT_BYTES`), one TrueType or OpenType font —
 neither WOFF, WOFF2 nor a collection — that parley's font collection reads,
 and in a folder, one family with one file per weight. The family's name, its
@@ -125,10 +127,10 @@ browser that shows the design.
 
 Every path a node carries — an image's file, a font file, an interaction's
 target — is stored as an address in the served folder, worked out from the
-file that wrote it. A path that reaches a design as a prop is worked out from
-the file that wrote the prop's value — the instance, or the design whose
-default it is — so the resolver keeps, with each prop's value, the file that
-wrote it. The canvas uses an interaction's target as it is, so it never
+file that wrote it. A value that reaches a design as a prop is read where it
+was written — a path from that file, a font name in its fonts — the instance,
+or the design whose default it is; so the resolver keeps, with each prop's
+value, the file that wrote it. The canvas uses an interaction's target as it is, so it never
 needs to know which file an instance came from.
 
 A node's **id** is the path of child positions from the root (`0.2.1`), which
@@ -157,14 +159,12 @@ don't have after merging is a problem at the reference; a malformed
 `themes.yml` is one at its own line, reported once per resolve however many
 references read it.
 
-A `themes.yml`'s `font` is a path from that file, merged the same way: the
-lowest file that sets `font` gives its folder's designs their font, and
-a file without one keeps the font from above. A `Text` without a `font` of
-its own reads the themes of the file it is written in for it — the same
-merged themes its colors come from — so a design with text reads every
-`themes.yml` above it, themed or not. A font the themes name that can't be
-used is a problem at the `font` line of the `themes.yml` that set it, once per
-resolve however many texts use it.
+A `themes.yml`'s `fonts` — names to paths from that file — merge the same
+way, name by name, and set no default. They are read only when a `Text`
+names a font, so a design with no `font` reads no `themes.yml` for one. A
+name the merged fonts don't have is a problem at the `font`; a font that
+can't be used is one at its entry in the `themes.yml`, once per resolve
+however many texts use it.
 
 ## Layout
 

@@ -1060,6 +1060,11 @@ mod tests {
                     "f/Inter-Regular.ttf".to_string(),
                     read(format!("{root}/fonts/Inter-Regular.ttf")),
                 ),
+                (
+                    "themes.yml".to_string(),
+                    b"kind: themes\nfonts:\n  fig: ./v.ttf\n  inter: ./f\nlight: {}\ndark: {}\n"
+                        .to_vec(),
+                ),
                 ("a.design".to_string(), source.as_bytes().to_vec()),
             ]
             .into(),
@@ -1090,13 +1095,13 @@ mod tests {
         };
         let (inter, coords) = line("", 400);
         assert!(coords.iter().all(|c| c.is_empty()));
-        let (same, _) = line(r#" font="./f""#, 400);
+        let (same, _) = line(r#" font="inter""#, 400);
         assert_eq!(
             same, inter,
             "Inter from a folder measures as the embedded one"
         );
-        let (light, light_coords) = line(r#" font="./v.ttf""#, 400);
-        let (heavy, heavy_coords) = line(r#" font="./v.ttf""#, 900);
+        let (light, light_coords) = line(r#" font="fig""#, 400);
+        let (heavy, heavy_coords) = line(r#" font="fig""#, 900);
         assert_ne!(light, inter);
         assert!(heavy > light, "{heavy} ≤ {light}");
         assert!(!heavy_coords.is_empty() && heavy_coords.iter().all(|c| !c.is_empty()));
@@ -1108,10 +1113,10 @@ mod tests {
     #[test]
     fn a_renderer_lays_out_as_a_fresh_one_whatever_it_drew_before() {
         let a = with_fonts(
-            r#"<Frame width={120} layout="column"><Text width="fill" font="./v.ttf" weight={700}>Washed linen with a relaxed fit</Text></Frame>"#,
+            r#"<Frame width={120} layout="column"><Text width="fill" font="fig" weight={700}>Washed linen with a relaxed fit</Text></Frame>"#,
         );
         let b = with_fonts(
-            r#"<Frame width={120} layout="column"><Text width="fill" font="./f">Washed linen with a relaxed fit</Text></Frame>"#,
+            r#"<Frame width={120} layout="column"><Text width="fill" font="inter">Washed linen with a relaxed fit</Text></Frame>"#,
         );
         let mut used = Renderer::new();
         for s in [&a, &b, &a, &b] {

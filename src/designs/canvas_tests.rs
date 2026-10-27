@@ -348,8 +348,8 @@ async fn canvases_match_their_pngs(address: &str, paths: &[String], webgpu: bool
     events.abort();
 }
 
-/// A design set in font files — the themes' variable font at weights from
-/// 300 to 900, a folder of static faces, and a paragraph that wraps — draws
+/// A design that mixes families — a variable font at weights from 300 to
+/// 900, a folder of static faces, and a paragraph that wraps — draws
 /// on the canvas, on the GPU and on the CPU, as the server's PNG: the same
 /// line breaks, the same glyphs.
 async fn font_files_match_their_pngs(webgpu: bool) {
@@ -370,16 +370,17 @@ async fn font_files_match_their_pngs(webgpu: bool) {
     }
     std::fs::write(
         dir.join("themes.yml"),
-        "kind: themes\nfont: ./fonts/Figtree.ttf\nlight:\n  bg: \"#ffffff\"\n  text: \"#0f172a\"\ndark:\n  bg: \"#0f172a\"\n  text: \"#f1f5f9\"\n",
+        "kind: themes\nfonts:\n  figtree: ./fonts/Figtree.ttf\n  inter: ./fonts/Static\nlight:\n  bg: \"#ffffff\"\n  text: \"#0f172a\"\ndark:\n  bg: \"#0f172a\"\n  text: \"#f1f5f9\"\n",
     )
     .unwrap();
     std::fs::write(
         dir.join("type.design"),
         r#"<Frame width={360} fill={theme.bg} layout="column" padding={16} gap={8}>
-  <Text size={28} weight={900} color={theme.text}>Heavy headline</Text>
-  <Text size={20} weight={300} color={theme.text}>Light subtitle</Text>
-  <Text width="fill" size={15} lineHeight={1.5} color={theme.text}>Washed linen with a relaxed fit, cut wide through the body and finished by hand. Machine wash cold, tumble dry low.</Text>
-  <Text font="./fonts/Static" weight={700} color={theme.text}>Static bold face</Text>
+  <Text font="figtree" size={28} weight={900} color={theme.text}>Heavy headline</Text>
+  <Text font="figtree" size={20} weight={300} color={theme.text}>Light subtitle</Text>
+  <Text font="figtree" width="fill" size={15} lineHeight={1.5} color={theme.text}>Washed linen with a relaxed fit, cut wide through the body and finished by hand. Machine wash cold, tumble dry low.</Text>
+  <Text font="inter" weight={700} color={theme.text}>Static bold face</Text>
+  <Text color={theme.text}>Inter, embedded</Text>
 </Frame>"#,
     )
     .unwrap();

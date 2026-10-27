@@ -318,9 +318,13 @@ mod tests {
             let files = Bytes(HashMap::from([
                 ("f.ttf".to_string(), figtree.clone()),
                 (
+                    "themes.yml".to_string(),
+                    b"kind: themes\nfonts:\n  figtree: ./f.ttf\nlight: {}\ndark: {}\n".to_vec(),
+                ),
+                (
                     "a.design".to_string(),
                     format!(
-                        r##"<Frame width={{160}} layout="column" padding={{8}} fill="#ffffff"><Text width="fill" font="./f.ttf" weight={{{weight}}}>Washed linen with a relaxed fit. Machine wash cold.</Text></Frame>"##
+                        r##"<Frame width={{160}} layout="column" padding={{8}} fill="#ffffff"><Text width="fill" font="figtree" weight={{{weight}}}>Washed linen with a relaxed fit. Machine wash cold.</Text></Frame>"##
                     )
                     .into_bytes(),
                 ),

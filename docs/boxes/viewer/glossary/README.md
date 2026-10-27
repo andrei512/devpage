@@ -123,7 +123,7 @@ A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its byte
 
 ## font
 
-What a design's text is set in: Inter, which devpage carries inside it and uses when nothing names another, or what a `font` names — a font file, or a folder of one family's font files — on a `Text` or in a `themes.yml`. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/README.md#fonts).
+What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/README.md#fonts).
 
 ## font file
 
@@ -287,11 +287,11 @@ A widget a project writes: one `.tsx` file in the folder its document file's `wi
 
 ## theme
 
-A set of color and font values. The page has two, light and dark, whose values are its tokens: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml` — its named colors, each with a value in either, and its font, which both share — and is drawn in the one of the same name as the page it is on. See [Themes](../designs/README.md#themes).
+A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/README.md#themes).
 
 ## themes.yml
 
-The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`, and optionally `font`, a path to the font both themes share. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names — and the font — it sets. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
+The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
 
 ## navbar
 

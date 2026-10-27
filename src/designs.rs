@@ -999,12 +999,12 @@ mod tests {
         std::fs::write(dir.join("app/fonts/Body/OFL.txt"), "licence").unwrap();
         std::fs::write(
             dir.join("app/themes.yml"),
-            "kind: themes\nfont: ./fonts/Body\nlight: {}\ndark: {}\n",
+            "kind: themes\nfonts:\n  body: ./fonts/Body\nlight: {}\ndark: {}\n",
         )
         .unwrap();
         std::fs::write(
             dir.join("app/set.design"),
-            "<Frame><Text>Hello</Text></Frame>",
+            r#"<Frame><Text font="body">Hello</Text></Frame>"#,
         )
         .unwrap();
         let designs = Designs::new(dir.clone());
@@ -1031,7 +1031,7 @@ mod tests {
         designs.changed(&dir.join("app/fonts/Body/Copy.ttf"));
         assert_eq!(updates.try_recv().unwrap(), "app/set.design");
         assert!(updates.try_recv().is_err());
-        let expected = "app/themes.yml:2:1: font: ./fonts/Body holds two files of weight 400: Body-Regular.ttf and Copy.ttf";
+        let expected = "app/themes.yml:3:3: fonts.body: ./fonts/Body holds two files of weight 400: Body-Regular.ttf and Copy.ttf";
         let problems = designs.resolve("app/set.design").unwrap_err();
         assert_eq!(problems[0].to_string(), expected);
         assert_eq!(

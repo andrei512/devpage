@@ -632,6 +632,10 @@ mod tests {
             ("f/Inter-Regular.ttf".to_string(), font("Regular")),
             ("f/Inter-Bold.ttf".to_string(), font("Bold")),
             (
+                "themes.yml".to_string(),
+                b"kind: themes\nfonts:\n  inter: ./f\nlight: {}\ndark: {}\n".to_vec(),
+            ),
+            (
                 "a.design".to_string(),
                 format!("<Frame layout=\"column\">{body}</Frame>").into_bytes(),
             ),
@@ -645,7 +649,7 @@ mod tests {
     /// one it checked; a node naming one never sent is refused.
     #[test]
     fn a_font_file_travels_once() {
-        let many = texts(&r#"<Text font="./f">a</Text>"#.repeat(20));
+        let many = texts(&r#"<Text font="inter">a</Text>"#.repeat(20));
         assert_eq!(many.fonts.len(), 1);
         let message = super::scene(&many).encode_to_vec().len();
         let size = font("Regular").len();
@@ -660,12 +664,12 @@ mod tests {
         )
         .unwrap();
         let held = browser.fonts.values().next().unwrap().clone();
-        let more = texts(&r#"<Text font="./f">a</Text>"#.repeat(21));
+        let more = texts(&r#"<Text font="inter">a</Text>"#.repeat(21));
         let p = patch(&many, &more);
         assert!(p.fonts.is_empty());
         apply(&mut browser, &p).unwrap();
         assert!(Arc::ptr_eq(browser.fonts.values().next().unwrap(), &held));
-        let bold = texts(r#"<Text font="./f">a</Text><Text font="./f" weight={700}>b</Text>"#);
+        let bold = texts(r#"<Text font="inter">a</Text><Text font="inter" weight={700}>b</Text>"#);
         let p = patch(&more, &bold);
         assert_eq!(p.fonts.len(), 1);
         apply(&mut browser, &p).unwrap();

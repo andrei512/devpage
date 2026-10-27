@@ -190,10 +190,10 @@ design names a [font file](../../viewer/designs/README.md#fonts). Inter is
 under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
 
-The docs' checkout example sets its text in Figtree, a variable font in
-`docs/designs/checkout/fonts/Figtree/`. It is part of the docs, not of the
-binary, and is under the SIL Open Font License 1.1 too, whose text is beside it
-as `OFL.txt`.
+The docs' checkout example sets its text in two variable fonts, Lora and
+Figtree, in `docs/designs/checkout/fonts/`. They are part of the docs, not of
+the binary, and are under the SIL Open Font License 1.1 too, whose text is
+beside each as `OFL.txt`.
 
 The error messages each failure produces are listed in the
 [configuration reference](../../viewer/configuration-reference/README.md#errors).

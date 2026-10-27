@@ -1,7 +1,9 @@
 # The checkout's colors in each theme — every theme.<name> its designs use —
-# and the font both themes set its text in.
+# and the fonts its texts name: Lora for headings, Figtree for the rest.
 kind: themes
-font: ./fonts/Figtree
+fonts:
+  figtree: ./fonts/Figtree
+  lora: ./fonts/Lora
 light:
   background: "#f8fafc"
   card: "#ffffff"

@@ -14,7 +14,7 @@ PNG, so it can look at its work before anyone else does.
 <Frame props={{ label: "Button", fill: theme.accent }}
        layout="row" padding={[12, 20]} radius={8} fill={fill}
        justify="center" shadow={{ y: 2, blur: 6, color: theme.accentShadow }}>
-  <Text size={16} weight={600} color="#ffffff">{label}</Text>
+  <Text font="figtree" size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>
 ```
 
@@ -23,9 +23,10 @@ light and a dark value for each name: a design on a dark page is drawn dark,
 and an embed has a switch of its own to see it the other way.
 `checkout.design.png?theme=dark` is the dark drawing.
 
-The same file names the font: `font: ./fonts/Figtree`, a font file checked
-into the repository beside the designs, so the checkout is set in Figtree
-rather than the Inter devpage carries — the same glyphs and line breaks on the
-canvas and in the PNG, whatever fonts the machine has.
+The same file names fonts — `figtree: ./fonts/Figtree`, font files checked
+into the repository beside the designs — and each `Text` picks one by name:
+the checkout sets its headings in Lora and the rest in Figtree, where a `Text`
+with no `font` gets the Inter devpage carries. The same glyphs and line breaks
+on the canvas and in the PNG, whatever fonts the machine has.
 
 Teaches it: [Designs](../boxes/viewer/designs/README.md).

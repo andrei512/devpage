@@ -82,7 +82,7 @@ string, where a stop's color goes:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
-| `font` | a path, relative to the file it is written in, to a `.ttf` or `.otf` file or a folder of one family's files — see [Fonts](../README.md#fonts) | the `font` of the nearest `themes.yml` that sets one, else Inter |
+| `font` | the name of a font, which the `fonts` of the `themes.yml` files above the file it is written in give a font file or folder — see [Fonts](../README.md#fonts) | none: Inter |
 | `size` | pixels from `0` up | `14` |
 | `weight` | `100` to `900` in steps of `100`, one the font has: Inter has `400`, `500`, `600` and `700`; a variable font, any its weight axis reaches; a folder, each of its files' | `400` |
 | `color` | a color | `#0f172a` |
@@ -90,9 +90,10 @@ string, where a stop's color goes:
 | `textAlign` | `"left"`, `"center"`, `"right"` | `"left"` |
 
 A text wraps at its width when it has one and runs on one line when it hugs.
-Its font is Inter, which devpage carries inside it, unless `font` or the
-design's `themes.yml` names a font file; either way the font is the same file
-on every machine, so a design looks the same everywhere and in every PNG.
+Its font is Inter, which devpage carries inside it, unless its `font` names
+another, a font file in the served folder; either way the font is the same
+file on every machine, so a design looks the same everywhere and in every
+PNG. Each `Text` names its own, so one design can mix several.
 
 `Vector` takes `d` (SVG path data) and `viewBox` (`"minX minY width
 height"`, the path's own bounds when left out). The path is scaled into the
