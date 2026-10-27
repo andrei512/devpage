@@ -60,11 +60,7 @@ async fn start() -> (String, Heard) {
     let dir = std::env::temp_dir().join(format!("devpage-mounted-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(dir.join("bucket")).unwrap();
-    let config = Config {
-        data_dir: dir.join("data"),
-        bucket_url: format!("file://{}", dir.join("bucket").display()),
-        cache_max_bytes: 1 << 30,
-    };
+    let config = Config::local(&dir.join("data"), &dir.join("bucket"), 1 << 30);
     let heard = Heard::default();
     let recording = heard.clone();
     let app = router(&config).unwrap().layer(axum::middleware::from_fn(

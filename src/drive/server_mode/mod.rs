@@ -1,0 +1,89 @@
+//! `devpage server`: documents published one at a time as zips, kept in the
+//! bucket, recorded in the store, and served from the cache on the PVC —
+//! each version through the same router a local devpage uses: the latest
+//! mounted at `/d/<id>`, every version at `/d/<id>/v/<n>`.
+
+mod api;
+mod cache;
+mod config;
+#[cfg(test)]
+mod tests;
+mod versions;
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use anyhow::Result;
+use axum::Router;
+use axum::extract::DefaultBodyLimit;
+use axum::routing::{any, delete, get, post};
+
+pub use config::Config;
+
+use crate::adapters::bucket::Bucket;
+use crate::adapters::sqlite::Sqlite;
+use crate::server;
+use cache::Cache;
+
+#[derive(Clone)]
+struct ServerMode {
+    store: Arc<Sqlite>,
+    bucket: Bucket,
+    cache: Arc<Cache>,
+    /// Where a publish unpacks its zip to check it, on the PVC.
+    scratch: PathBuf,
+    user_header: Option<String>,
+    /// One lock per document: its publishes and deletions happen one at a
+    /// time.
+    publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+}
+
+impl ServerMode {
+    fn publishing(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
+        self.publishing
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(id.to_string())
+            .or_default()
+            .clone()
+    }
+}
+
+/// The `devpage server` router for `config`.
+pub fn router(config: &Config) -> Result<Router> {
+    let scratch = config.data_dir.join("scratch");
+    // What a publish that stopped halfway left.
+    let _ = std::fs::remove_dir_all(&scratch);
+    std::fs::create_dir_all(&scratch)?;
+    let state = ServerMode {
+        store: Arc::new(Sqlite::open(&config.data_dir.join("store.db"))?),
+        bucket: Bucket::open(&config.bucket_url)?,
+        cache: Arc::new(Cache::open(
+            &config.data_dir.join("cache"),
+            config.cache_max_bytes,
+            config.cache_policy.eviction(),
+        )?),
+        scratch: scratch.canonicalize()?,
+        user_header: config.user_header.clone(),
+        publishing: Arc::default(),
+    };
+    let api = Router::new()
+        .route("/api/documents", post(api::create).get(api::list))
+        .route("/api/documents/{id}", get(api::get_one).delete(api::delete))
+        .route("/api/documents/{id}/versions", post(api::add_version))
+        .route(
+            "/api/documents/{id}/versions/{n}",
+            delete(api::delete_version),
+        )
+        .layer(DefaultBodyLimit::max(
+            usize::try_from(config.max_upload_bytes).unwrap_or(usize::MAX),
+        ));
+    Ok(Router::new()
+        .merge(api)
+        .route("/d/{id}", get(versions::to_folder))
+        .route("/d/{id}/", any(versions::latest_root))
+        .route("/d/{id}/{*rest}", any(versions::in_document))
+        .route("/__devpage/{asset}", get(server::asset))
+        .with_state(state))
+}

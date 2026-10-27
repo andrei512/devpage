@@ -488,11 +488,7 @@ async fn publish_creates_and_updates_a_document_on_a_real_server() {
     site(&dir);
     let data = dir.join("data");
     std::fs::create_dir_all(&data).unwrap();
-    let config = crate::drive::server_mode::Config {
-        data_dir: data.clone(),
-        bucket_url: format!("file://{}", dir.join("bucket").display()),
-        cache_max_bytes: 1 << 20,
-    };
+    let config = crate::drive::server_mode::Config::local(&data, &dir.join("bucket"), 1 << 20);
     std::fs::create_dir_all(dir.join("bucket")).unwrap();
     let app = crate::drive::server_mode::router(&config).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

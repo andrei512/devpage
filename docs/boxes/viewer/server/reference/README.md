@@ -36,16 +36,21 @@ already on the server.
 
 | Request | Does |
 | --- | --- |
-| `POST /api/documents` with a zip | Creates a document: `201 {id, version: 1, url}`. |
-| `POST /api/documents/<id>/versions` with a zip | Adds a version: `201 {version, url}`. |
-| `GET /api/documents` | Every document: id, kind, title, latest version. |
-| `GET /api/documents/<id>` | The document and its versions. |
-| `DELETE /api/documents/<id>` | Deletes it, its versions and its comments. |
-| `DELETE /api/documents/<id>/versions/<n>` | Deletes one version. |
+| `POST /api/documents?entry=<file>` with a zip | Creates a document: `201 {id, version: 1, url}`. |
+| `POST /api/documents/<id>/versions?entry=<file>` with a zip | Adds a version: `201 {version, url}`. |
+| `GET /api/documents` | Every document: `[{id, kind, title, latest}]`. |
+| `GET /api/documents/<id>` | The document and its versions: `{id, kind, title, latest, created, versions: [{number, kind, title, author, published, size, sha256}]}`. |
+| `DELETE /api/documents/<id>` | Deletes it, its versions and its comments: `204`. |
+| `DELETE /api/documents/<id>/versions/<n>` | Deletes one version: `204`. |
 | `GET /api/documents/<id>/comments` | Its threads, oldest first. |
 | `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version. |
 | `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies. |
 | `DELETE /api/documents/<id>/comments/<thread>` | Resolves it. |
+
+`entry` names the document file inside the zip — `devpage.yml`, a deck's
+`talk.yml`, a lone `notes.md` or `screen.design` — and is `devpage.yml` when
+left out; each version is served from its own. A version's number is never
+given again once deleted, so a link to it never shows something else.
 
 An upload whose check fails gets `422` with its problems; one over
 `DEVPAGE_MAX_UPLOAD_BYTES` gets `413`; a zip entry with `..`, an absolute path
