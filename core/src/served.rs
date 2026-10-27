@@ -4,23 +4,49 @@
 //! that lands outside the folder is refused. A leaf: it depends on nothing
 //! else in devpage.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
+
+static MOUNTS: LazyLock<Mutex<HashMap<PathBuf, String>>> = LazyLock::new(Mutex::default);
 
 /// The canonical folder devpage serves from, and the boundary around it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServedFolder(PathBuf);
+pub struct ServedFolder(PathBuf, String);
 
 impl ServedFolder {
     /// The served folder at `path`, made canonical; an error when it doesn't
     /// exist.
     pub fn new(path: &Path) -> std::io::Result<Self> {
-        path.canonicalize().map(Self)
+        path.canonicalize().map(Self::canonical)
     }
 
     /// A served folder at a path the caller already made canonical — the
     /// index and the design store are handed the document's.
     pub fn canonical(path: PathBuf) -> Self {
-        Self(path)
+        // PROTOTYPE: callers rebuild a served folder from a bare path in many
+        // places, so the mount is looked up by path rather than carried.
+        let mount = MOUNTS
+            .lock()
+            .unwrap()
+            .get(&path)
+            .cloned()
+            .unwrap_or_default();
+        Self(path, mount)
+    }
+
+    /// Serves the folder at canonical `path` under `mount` — `/d/<id>/v/<n>`
+    /// in server mode — wherever a served folder is made for it.
+    pub fn mount_at(path: &Path, mount: &str) {
+        MOUNTS
+            .lock()
+            .unwrap()
+            .insert(path.to_path_buf(), mount.to_string());
+    }
+
+    /// The prefix its addresses are under: empty at `/`.
+    pub fn mount(&self) -> &str {
+        &self.1
     }
 
     /// Its canonical path.
@@ -67,9 +93,16 @@ impl ServedFolder {
         path.strip_prefix(&self.0).ok()
     }
 
-    /// A file's address: its path from the top of the folder, after `/`.
+    /// A file's address: its path from the top of the folder, after `/` and
+    /// the mount prefix.
     pub fn url(&self, file: &Path) -> String {
-        format!("/{}", self.relative(file).unwrap_or(file).display())
+        format!("{}/{}", self.1, self.name(file))
+    }
+
+    /// A file's name: its path from the top of the folder, as problems and
+    /// labels show it.
+    pub fn name(&self, file: &Path) -> String {
+        self.relative(file).unwrap_or(file).display().to_string()
     }
 }
 

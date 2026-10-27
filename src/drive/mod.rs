@@ -3,6 +3,7 @@
 
 pub mod pdf;
 pub mod server;
+pub mod server_mode;
 pub mod slide_png;
 pub mod validators;
 pub mod video;

@@ -467,7 +467,7 @@ async fn project_widget(
     if let Some(error) = broken_import(&document, &snapshot, &file, &known) {
         return module_error(&error);
     }
-    let label = document.url(&file)[1..].to_string();
+    let label = document.name(&file);
     compiled(&label, snapshot.compile(&file, &known), current)
 }
 
@@ -508,7 +508,7 @@ fn broken_import(
             snapshot
                 .compile(&helper, known)
                 .err()
-                .map(|error| format!("{} does not compile: {error}", &document.url(&helper)[1..]))
+                .map(|error| format!("{} does not compile: {error}", document.name(&helper)))
         })
 }
 
@@ -556,7 +556,7 @@ fn compiled(label: &str, result: anyhow::Result<String>, current: bool) -> Respo
 /// content address; at its bare name or a stale hash, the current bytes with
 /// `no-cache`, so a page from an older build still loads. Sent brotli- or
 /// gzip-compressed when the browser takes it.
-async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
+pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
     let Some((asset, current)) = crate::addresses::asset(&name) else {
         return StatusCode::NOT_FOUND.into_response();
     };

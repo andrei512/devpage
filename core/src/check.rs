@@ -101,7 +101,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
             problems.extend(crate::navbar::problems(owner));
             let (files, web) = crate::navbar::reached(owner);
-            let file = owner.url(&owner.path())[1..].to_string();
+            let file = owner.name(&owner.path());
             external.extend(web.into_iter().map(|address| (file.clone(), None, address)));
             for target in files {
                 if target.extension().is_some_and(|ext| ext == "md") {
@@ -137,7 +137,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
 /// slide, and every one after the first on a slide.
 fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem> {
     let source = std::fs::read_to_string(page).unwrap_or_default();
-    let file = document.url(page)[1..].to_string();
+    let file = document.name(page);
     // A slide's first `<Notes>` is its notes; a page has none.
     crate::markup::notes(&source)
         .iter()
@@ -170,7 +170,7 @@ fn page_links_with(
         widgets.names(),
         &mut unknown,
     ));
-    let file = document.url(page)[1..].to_string();
+    let file = document.name(page);
     let mut problems = Vec::new();
     for found in unknown {
         let (line, message) = found.split_once(": ").unwrap_or(("", &found));
@@ -427,7 +427,7 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     for file in files {
         if let Err(error) = widgets.compile(&file) {
             problems.push(Problem {
-                file: document.url(&file)[1..].to_string(),
+                file: document.name(&file),
                 line: None,
                 message: format!("does not compile: {error}"),
                 target: None,
