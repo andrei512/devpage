@@ -22,9 +22,9 @@ every environment variable. It is the reference page of
 | `devpage download <id> [--version <n>] [-o <file>]` | Saves the PDF or PNG of the latest version, or of version `n`. |
 | `devpage delete <id> [--version <n>]` | Deletes the document, or one version. |
 
-Every command talks to the current context's server, and takes
-`--context <name>` to use another, and `--json`. `<id>` is a document's id on
-that server. Only `publish` reads files; every other command acts on a document
+The server commands — every one but `context` — talk to the current context's
+server, and take `--context <name>` to use another, and `--json`. `<id>` is a
+document's id on that server. Only `publish` reads files; every other command acts on a document
 already on the server.
 
 | File | Holds |
@@ -42,7 +42,7 @@ already on the server.
 | `GET /api/documents/<id>` | The document and its versions: `{id, kind, title, latest, created, versions: [{number, kind, title, author, published, size, sha256}]}`. |
 | `DELETE /api/documents/<id>` | Deletes it, its versions and its comments: `204`. |
 | `DELETE /api/documents/<id>/versions/<n>` | Deletes one version: `204`. |
-| `GET /api/documents/<id>/comments` | Its threads, oldest first: `[{id, page, version, detached, anchor, thread}]`. |
+| `GET /api/documents/<id>/comments` | Its threads, oldest first: `[{id, page, version, detached, detached_in, anchor, thread}]`. |
 | `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version: `201 {id, version}`. |
 | `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies: `201`. |
 | `DELETE /api/documents/<id>/comments/<thread>` | Resolves it: `204`. |
@@ -55,7 +55,8 @@ given again once deleted, so a link to it never shows something else.
 A thread's `page` is the Markdown file it is on, from the top of the
 document (`/chapters/rollout.md`) — the same in every version, so a thread
 carries from one to the next. `version` is the one it was started on;
-`detached` says its text is gone from the latest. `anchor` is
+`detached` says its text is gone from the latest, and `detached_in` is the
+version whose publish found it gone (`null` while it is attached). `anchor` is
 `{quote, prefix, suffix}` and `thread` its messages, `[{author, at, text}]`,
 as in the [comment store](../../comments/the-comment-store/README.md). The
 page at `/d/<id>/` reads and writes the same threads through its own comment
@@ -85,7 +86,7 @@ mount for the version menu, the banner and the download button.
 | --- | --- | --- |
 | `DEVPAGE_HOST` | `127.0.0.1` | The address to listen on; `0.0.0.0` in a container. |
 | `DEVPAGE_PORT` | `3030` | The port. |
-| `DEVPAGE_BUCKET_URL` | required | `s3://bucket/prefix` or `az://container/prefix`. |
+| `DEVPAGE_BUCKET_URL` | required | `s3://bucket/prefix` or `az://container/prefix`; or `file:///folder`, a local folder for trying server mode and for tests — never for a deploy, since a folder on the PVC is lost with it. |
 | `DEVPAGE_DATA_DIR` | required | The PVC's mount: the store and the cache. |
 | `DEVPAGE_CACHE_MAX_BYTES` | 80% of the PVC | The cache's limit ([the cache](../storage/README.md#the-cache)). |
 | `DEVPAGE_CACHE_POLICY` | `lru` | Which entries go when the cache is past its limit ([the eviction policy](../storage/README.md#the-eviction-policy)). |

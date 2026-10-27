@@ -53,7 +53,8 @@ chapters/rollout.md
 
 With `--json` each thread carries the
 [comment store's](../../comments/the-comment-store/README.md) fields plus its
-`id`, `page`, the `version` it was started on, and `detached`.
+`id`, `page`, the `version` it was started on, `detached`, and `detached_in`,
+the version its text left.
 
 ## Downloads
 

@@ -26,7 +26,9 @@ flowchart LR
 ## The bucket
 
 S3 or Azure Blob, named by one URL — `s3://bucket/prefix` or
-`az://container/prefix`. Each version is the zip as uploaded, at
+`az://container/prefix`. A `file:///folder` URL is a local folder instead, for
+trying server mode on one machine and for tests; on a deploy it would put the
+durable copy on the PVC. Each version is the zip as uploaded, at
 `documents/<id>/versions/<n>.zip`, written before the publish answers
 ([the PVC is only a cache](../constraints/the-pvc-is-only-a-cache.md)) and
 never written again ([a version never changes](../constraints/a-version-never-changes.md)).

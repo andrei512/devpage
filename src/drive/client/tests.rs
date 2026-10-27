@@ -101,7 +101,7 @@ async fn answer(State(fake): State<Fake>, request: Request) -> Response {
             },
             {
                 "id": "20261025T190344Z-0b91", "page": "/chapters/rollout.md", "version": 2,
-                "detached": true,
+                "detached": true, "detached_in": 3,
                 "anchor": { "quote": "retries are capped at five", "prefix": "", "suffix": "" },
                 "thread": [ { "author": "Bo", "at": "2026-10-25T19:03:44Z", "text": "Why five?" } ]
             }
@@ -377,7 +377,8 @@ async fn list_and_versions_print_text_and_json() {
 }
 
 /// Comments group by page, each thread with its quote in context and its
-/// messages; a detached one is marked so, in the latest version.
+/// messages; a detached one is marked so, with the version its text left —
+/// not the latest, which is 4 here.
 #[tokio::test]
 async fn comments_print_as_the_reading_page_shows_them() {
     let (fake, home) = fake("comments", None).await;
@@ -389,7 +390,7 @@ async fn comments_print_as_the_reading_page_shows_them() {
          \x20   …On reconnect, [the client retries every write] until the server acknowledges it.\n\
          \x20   Andrei Puni  18:15  Every write, or only the ones still in the outbox?\n\
          \x20   ana@…        18:40  Only the outbox. I'll fix the sentence.\n\
-         \x20 20261025T190344Z-0b91  detached in v4  \"retries are capped at five\"\n"
+         \x20 20261025T190344Z-0b91  detached in v3  \"retries are capped at five\"\n"
     );
     let json: serde_json::Value =
         serde_json::from_str(&ok(&home, served, &format!("comments {ID} --json")).await).unwrap();

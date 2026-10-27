@@ -49,8 +49,11 @@ contexts is two documents.
 
 Exactly what the document is made of — the same files
 [`devpage check`](../../checking-links/README.md) follows: the document file,
-its pages, chapters or slides, the project widgets they use, and every local
-image they link to. Drafts or secrets lying in the same folder are never sent.
+its pages, chapters or slides, the project widgets they use, every local
+image they link to, and every file a link reaches — the check follows links
+from page to page, so a document that links into the rest of a repository's
+docs carries them too. Drafts or secrets lying in the same folder that nothing
+links to are never sent.
 
 If a link is broken, the publish stops before uploading anything and lists the
 problems. The server runs the same check again on the files it received, so a
