@@ -1,7 +1,7 @@
 //! `devpage server`: documents published one at a time as zips, kept in the
 //! bucket, recorded in the store, and served from the cache on the PVC —
-//! each version through the same router a local devpage uses, mounted at
-//! `/d/<id>/v/<n>`.
+//! each version through the same router a local devpage uses: the latest
+//! mounted at `/d/<id>`, every version at `/d/<id>/v/<n>`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -14,9 +14,11 @@ use axum::body::{Body, Bytes};
 use axum::extract::{Path as UrlPath, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use devpage_core::cache::{Entry, Eviction, Lru};
 use devpage_core::document::{Document, Kind};
+use devpage_core::index::Index;
+use devpage_core::served::ServedFolder;
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
@@ -75,7 +77,9 @@ struct Cache {
     limit: u64,
     policy: Box<dyn Eviction>,
     entries: Mutex<HashMap<(String, u64), Entry>>,
-    routers: Mutex<HashMap<(String, u64), Router>>,
+    /// Each version's router, by the mount it serves it under: a version is
+    /// the latest at `/d/<id>` and itself at `/d/<id>/v/<n>`.
+    routers: Mutex<HashMap<(String, u64, String), Router>>,
 }
 
 #[derive(Clone)]
@@ -102,11 +106,10 @@ pub fn router(config: &Config) -> Result<Router> {
     Ok(Router::new()
         .route("/api/documents", post(create))
         .route("/api/documents/{id}/versions", post(add_version))
-        .route("/d/{id}", get(latest))
-        .route("/d/{id}/v/{n}", get(version_root))
-        .route("/d/{id}/v/{n}/{*rest}", get(version))
+        .route("/d/{id}", get(to_folder))
+        .route("/d/{id}/", any(latest_root))
+        .route("/d/{id}/{*rest}", any(in_document))
         .route("/__devpage/{asset}", get(server::asset))
-        .fallback(by_referer)
         .with_state(state))
 }
 
@@ -221,60 +224,60 @@ fn unpack(zip: &[u8], into: &Path) -> Result<()> {
     Ok(())
 }
 
-/// `/d/<id>`: the latest version's front page.
-async fn latest(
+/// `/d/<id>`: the document's folder, `/d/<id>/`, so that the links on its
+/// pages resolve inside it.
+async fn to_folder(UrlPath(id): UrlPath<String>) -> Response {
+    axum::response::Redirect::permanent(&format!("/d/{id}/")).into_response()
+}
+
+/// `/d/<id>/`: the latest version's front page.
+async fn latest_root(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
     request: Request,
 ) -> Response {
-    match state.store.latest(&id) {
-        Ok(Some(n)) => serve(&state, &id, n, "/", request).await,
+    latest(&state, &id, "/", request).await
+}
+
+/// Anything under `/d/<id>/`: under `v/<n>/`, version `n` — mounted there —
+/// and otherwise the latest version, mounted at `/d/<id>`, in place.
+async fn in_document(
+    State(state): State<ServerMode>,
+    UrlPath((id, rest)): UrlPath<(String, String)>,
+    request: Request,
+) -> Response {
+    if let Some((n, path)) = versioned(&rest) {
+        return serve(&state, &id, n, &format!("/d/{id}/v/{n}"), &path, request).await;
+    }
+    latest(&state, &id, &format!("/{rest}"), request).await
+}
+
+/// `v/<n>` or `v/<n>/<path>`: version `n`, and the path inside it.
+fn versioned(rest: &str) -> Option<(u64, String)> {
+    let after = rest.strip_prefix("v/")?;
+    let (n, path) = after.split_once('/').unwrap_or((after, ""));
+    Some((n.parse().ok()?, format!("/{path}")))
+}
+
+/// The request answered by the latest version, mounted at `/d/<id>`.
+async fn latest(state: &ServerMode, id: &str, path: &str, request: Request) -> Response {
+    match state.store.latest(id) {
+        Ok(Some(n)) => serve(state, id, n, &format!("/d/{id}"), path, request).await,
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
 
-async fn version_root(
-    State(state): State<ServerMode>,
-    UrlPath((id, n)): UrlPath<(String, u64)>,
+/// The request answered by version `n`'s router under `mount`, as if for
+/// `path`.
+async fn serve(
+    state: &ServerMode,
+    id: &str,
+    n: u64,
+    mount: &str,
+    path: &str,
     request: Request,
 ) -> Response {
-    serve(&state, &id, n, "/", request).await
-}
-
-async fn version(
-    State(state): State<ServerMode>,
-    UrlPath((id, n, rest)): UrlPath<(String, u64, String)>,
-    request: Request,
-) -> Response {
-    serve(&state, &id, n, &format!("/{rest}"), request).await
-}
-
-/// PROTOTYPE: a page's script and widgets ask absolute addresses —
-/// `/__devpage/events`, widgets, comments, the design stream — so each is
-/// sent to the version the asking page is.
-async fn by_referer(State(state): State<ServerMode>, request: Request) -> Response {
-    let from = request
-        .headers()
-        .get(axum::http::header::REFERER)
-        .and_then(|r| r.to_str().ok())
-        .and_then(|r| r.split_once("/d/").map(|(_, rest)| rest.to_string()));
-    let Some(from) = from else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let mut parts = from.split('/');
-    let (Some(id), Some("v"), Some(n)) = (parts.next(), parts.next(), parts.next()) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let Ok(n) = n.parse::<u64>() else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let (id, path) = (id.to_string(), request.uri().path().to_string());
-    serve(&state, &id, n, &path, request).await
-}
-
-/// The request answered by version `n`'s router, as if for `path`.
-async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Request) -> Response {
     match state.store.has(id, n) {
         Ok(true) => {}
         Ok(false) => return StatusCode::NOT_FOUND.into_response(),
@@ -282,7 +285,7 @@ async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Reques
             return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
         }
     }
-    let router = match version_router(state, id, n).await {
+    let router = match version_router(state, id, n, mount).await {
         Ok(router) => router,
         Err(error) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
@@ -306,36 +309,37 @@ async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Reques
         .into_response()
 }
 
-/// Version `n`'s router: kept while it is in the cache, made on a miss from
-/// the zip in the bucket.
-async fn version_router(state: &ServerMode, id: &str, n: u64) -> Result<Router> {
+/// Version `n`'s router under `mount`: kept while the version is in the
+/// cache, made on a miss — from the zip in the bucket when the version isn't
+/// unpacked yet.
+async fn version_router(state: &ServerMode, id: &str, n: u64, mount: &str) -> Result<Router> {
     let key = (id.to_string(), n);
+    let routed = (id.to_string(), n, mount.to_string());
     let cache = &state.cache;
-    if let Some(router) = cache.routers.lock().unwrap().get(&key).cloned() {
+    if let Some(router) = cache.routers.lock().unwrap().get(&routed).cloned() {
         if let Some(entry) = cache.entries.lock().unwrap().get_mut(&key) {
             entry.read = SystemTime::now();
         }
         return Ok(router);
     }
-    let zip = state.bucket.get_version(id, n).await?;
     let dir = cache.dir.join(id).join(n.to_string());
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir)?;
-    unpack(&zip, &dir)?;
-    let dir = dir.canonicalize()?;
-    let mount = format!("/d/{id}/v/{n}");
-    devpage_core::served::ServedFolder::mount_at(&dir, &mount);
-    let document = Document::load(&dir, &dir)?;
+    let unpacked = cache.entries.lock().unwrap().contains_key(&key);
+    if !unpacked {
+        let zip = state.bucket.get_version(id, n).await?;
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        unpack(&zip, &dir)?;
+    }
+    let served = ServedFolder::new(&dir)?.mounted(mount);
+    let document = Document::load(served.path(), &served)?;
+    let index = Index::build(&served).with_search(&document.path());
     let mut options = server::Options::new(Arc::new(document), Changes::default());
+    options.index = Arc::new(index);
     options.comments = None;
     // The served folder carries the mount, so every address the version's
     // router makes — redirects included — is already under it.
     let router = server::router(options);
-    cache
-        .routers
-        .lock()
-        .unwrap()
-        .insert(key.clone(), router.clone());
+    cache.routers.lock().unwrap().insert(routed, router.clone());
     cache.entries.lock().unwrap().insert(
         key.clone(),
         Entry {
@@ -356,7 +360,11 @@ fn evict(cache: &Cache, serving: &(String, u64)) {
         if &key == serving {
             continue;
         }
-        cache.routers.lock().unwrap().remove(&key);
+        cache
+            .routers
+            .lock()
+            .unwrap()
+            .retain(|(id, n, _), _| (id, n) != (&key.0, &key.1));
         cache.entries.lock().unwrap().remove(&key);
         let _ = std::fs::remove_dir_all(cache.dir.join(&key.0).join(key.1.to_string()));
     }
@@ -461,34 +469,44 @@ mod tests {
 
         // The cache is empty until a read; then the page renders from it.
         assert!(!config.data_dir.join("cache").join(&id).exists());
-        let home = app
-            .clone()
-            .oneshot(
-                Request::get(format!("/d/{id}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        // The front page leads to the root page, under the version's mount.
-        assert_eq!(home.status(), StatusCode::TEMPORARY_REDIRECT);
-        let location = home.headers()["location"].to_str().unwrap().to_string();
-        assert!(location.starts_with(&format!("/d/{id}/v/1/")), "{location}");
-        let page = app
-            .clone()
-            .oneshot(Request::get(&location).body(Body::empty()).unwrap())
-            .await
-            .unwrap();
-        let status = page.status();
-        let html = axum::body::to_bytes(page.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let html = String::from_utf8_lossy(&html);
-        assert_eq!(status, StatusCode::OK, "{location}: {html}");
+        let get = |path: String| {
+            let app = app.clone();
+            async move {
+                let response = app
+                    .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                let status = response.status();
+                let location = response
+                    .headers()
+                    .get("location")
+                    .map(|l| l.to_str().unwrap().to_string());
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                (
+                    status,
+                    location,
+                    String::from_utf8_lossy(&body).into_owned(),
+                )
+            }
+        };
+        // The link is the document's folder, and its front page leads to
+        // the root page — the latest version, in place, under `/d/<id>`.
+        let (status, location, _) = get(format!("/d/{id}")).await;
+        assert_eq!(status, StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(location.unwrap(), format!("/d/{id}/"));
+        let (status, location, _) = get(format!("/d/{id}/")).await;
+        assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(location.unwrap(), format!("/d/{id}/README.md"));
+        let (status, _, html) = get(format!("/d/{id}/README.md")).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
         assert!(html.contains("The plan."), "{html}");
+        assert!(html.contains(&format!(r#"data-mount="/d/{id}""#)), "{html}");
         assert!(config.data_dir.join("cache").join(&id).join("1").exists());
 
-        // A second publish is version 2, and the link now leads to it.
+        // A second publish is version 2: the link shows it, and version 1
+        // stays at its own address, under its own mount.
         let zip = zip_of(&[
             (
                 "devpage.yml",
@@ -506,17 +524,20 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::CREATED);
-        let home = app
-            .clone()
-            .oneshot(
-                Request::get(format!("/d/{id}"))
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        let location = home.headers()["location"].to_str().unwrap().to_string();
-        assert!(location.starts_with(&format!("/d/{id}/v/2/")), "{location}");
+        let (_, _, html) = get(format!("/d/{id}/README.md")).await;
+        assert!(html.contains("The new plan."), "{html}");
+        let (status, _, html) = get(format!("/d/{id}/v/1/README.md")).await;
+        assert_eq!(status, StatusCode::OK, "{html}");
+        assert!(html.contains("The plan."), "{html}");
+        assert!(
+            html.contains(&format!(r#"data-mount="/d/{id}/v/1""#)),
+            "{html}"
+        );
+        let (status, location, _) = get(format!("/d/{id}/v/1/")).await;
+        assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(location.unwrap(), format!("/d/{id}/v/1/README.md"));
+        let (status, _, _) = get(format!("/d/{id}/v/3/README.md")).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     /// Past its limit the cache lets the least recently read version go, and

@@ -39,9 +39,16 @@ const hosts = new Set();
 // Every canvas a scan has started.
 const started = new WeakSet();
 
-// A design's address in the served folder, from a link relative to `base`.
+// The prefix every address of this document is under: `/d/<id>/v/<n>` for a
+// version in server mode, empty everywhere else. The watch stream is asked
+// under it, and names each design by its path in the served folder, without
+// it.
+const mount = document.documentElement.dataset.mount ?? "";
+
+// A design's path in the served folder, from a link relative to `base`.
 function address(link, base) {
-  return decodeURIComponent(new URL(link, base).pathname).replace(/^\//, "");
+  const path = decodeURIComponent(new URL(link, base).pathname);
+  return (path.startsWith(`${mount}/`) ? path.slice(mount.length) : path).replace(/^\//, "");
 }
 
 // A varint, as protobuf writes one.
@@ -301,7 +308,7 @@ class Host {
 
   // The link to the canvas page, carrying the theme the embed shows.
   showLink() {
-    if (this.link) this.link.href = `/${this.path}?theme=${this.theme()}`;
+    if (this.link) this.link.href = `${mount}/${this.path}?theme=${this.theme()}`;
   }
 
   // The view: where the design sits and how large, in CSS pixels.
@@ -529,7 +536,7 @@ class Host {
     }
     if (verb === "navigate" && target) {
       // The canvas page keeps a theme its address named.
-      if (this.mode === "page") history.pushState(null, "", `/${target}${asked ? `?theme=${asked}` : ""}`);
+      if (this.mode === "page") history.pushState(null, "", `${mount}/${target}${asked ? `?theme=${asked}` : ""}`);
       else this.history.push(this.path);
       this.closeOverlay();
       this.open(target);
@@ -726,7 +733,7 @@ async function stream(paths, controller) {
 // Hands each update to the canvases showing its design; true when the stream
 // ended with devpage's trailers.
 async function read(paths, signal) {
-  const response = await fetch("/devpage.design.v1.Designs/Watch", {
+  const response = await fetch(`${mount}/devpage.design.v1.Designs/Watch`, {
     method: "POST",
     headers: { "content-type": "application/grpc-web+proto", "x-grpc-web": "1" },
     body: watchRequest(paths),

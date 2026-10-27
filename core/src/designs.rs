@@ -5,14 +5,14 @@
 
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use devpage_design::fonts::FontFile;
 use devpage_design::resolve::ImageFile;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
-use crate::served::ServedFolder;
+use crate::served::{Served, ServedFolder};
 
 /// A design resolved once: its scene or its problems, and every file the
 /// resolving asked for — missing ones included, so creating one counts.
@@ -287,10 +287,10 @@ pub fn address(path: &str) -> &str {
 }
 
 impl Designs {
-    /// The store for the served folder, which must be canonical.
-    pub fn new(served: PathBuf) -> Designs {
+    /// The store for the served folder.
+    pub fn new(served: impl Served) -> Designs {
         Designs(Arc::new(Store {
-            served: ServedFolder::canonical(served),
+            served: served.served(),
             renderer: Mutex::new(Renderer::new()),
             sources: Mutex::default(),
             reads: Default::default(),
@@ -396,8 +396,8 @@ impl Designs {
 
 /// The design at `path`'s problems, read straight from disk: what
 /// `devpage check` and a page's problems bar report.
-pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
-    let served = ServedFolder::canonical(served.as_ref().to_path_buf());
+pub fn problems(served: impl Served, path: &str) -> Vec<Problem> {
+    let served = served.served();
     struct Disk<'a>(&'a ServedFolder);
     impl Files for Disk<'_> {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
