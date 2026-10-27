@@ -18,7 +18,9 @@ use chromiumoxide::browser::Browser;
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
 use futures::StreamExt;
-use tokio::sync::{Semaphore, broadcast};
+use tokio::sync::Semaphore;
+
+use crate::changes::{Changes, Scope, Subscription};
 use tokio::task::JoinHandle;
 
 use crate::pdf::{Profile, shot, wait_ready};
@@ -52,8 +54,8 @@ struct Inner {
     chrome: tokio::sync::Mutex<Option<Chrome>>,
     turns: Semaphore,
     cache: Mutex<Cache>,
-    /// The server's change events, read on each use: any clears the cache.
-    changes: Mutex<broadcast::Receiver<String>>,
+    /// The server's changes, read on each use: any clears the cache.
+    changes: Mutex<Subscription>,
     used: Mutex<Instant>,
 }
 
@@ -78,12 +80,12 @@ struct Cache {
 
 impl Shots {
     /// No Chrome yet and nothing drawn; `changes` clears what will be.
-    pub fn new(changes: &broadcast::Sender<String>) -> Self {
+    pub fn new(changes: &Changes) -> Self {
         Self(Arc::new(Inner {
             chrome: tokio::sync::Mutex::new(None),
             turns: Semaphore::new(AT_ONCE as usize),
             cache: Mutex::new(Cache::default()),
-            changes: Mutex::new(changes.subscribe()),
+            changes: Mutex::new(changes.subscribe(Scope::root())),
             used: Mutex::new(Instant::now()),
         }))
     }
@@ -192,11 +194,7 @@ impl Inner {
     /// The cache's generation, after clearing it if a change arrived since
     /// the last look.
     fn generation(&self) -> u64 {
-        let mut changes = self.changes.lock().unwrap();
-        let mut changed = false;
-        while let Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) = changes.try_recv() {
-            changed = true;
-        }
+        let changed = self.changes.lock().unwrap().heard();
         let mut cache = self.cache.lock().unwrap();
         if changed {
             *cache = Cache {
@@ -309,6 +307,7 @@ async fn capture(browser: &Browser, url: &str) -> Result<(Vec<u8>, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::changes::Change;
     use crate::document::Document;
     use crate::server;
 
@@ -317,7 +316,7 @@ mod tests {
 
     /// A folder of `files`, served with `talk.yml` as its entry; its address
     /// and the channel that tells the server a file changed.
-    async fn deck(name: &str, files: &[(&str, &str)]) -> (String, broadcast::Sender<String>) {
+    async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
         let dir = std::env::temp_dir().join(format!("devpage-shots-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -328,7 +327,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(16);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: Some(server::Identity::Local("T".into())),
             ..server::Options::new(document, changes.clone())
@@ -449,7 +448,7 @@ mod tests {
             .canonicalize()
             .unwrap();
         std::fs::write(dir.join("one.md"), "# Changed\n").unwrap();
-        changes.send("change".into()).unwrap();
+        changes.publish(&Scope::root(), Change::Refresh);
         let changed = shot(Some(etag.clone()), false).await.unwrap();
         assert_eq!(changed.status(), 200);
         assert_ne!(changed.headers()["etag"], etag.as_str());
@@ -460,7 +459,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let shots = Shots::new(&changes);
         let dir = std::env::temp_dir().join(format!("devpage-shots-{}-close", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -478,7 +477,7 @@ mod tests {
         assert!(shots.running().await);
         shots.close().await;
         assert!(!shots.running().await);
-        changes.send("change".into()).unwrap();
+        changes.publish(&Scope::root(), Change::Refresh);
         shots.png("/talk.yml", 1, serve).await.unwrap();
         assert!(shots.running().await);
         shots.close().await;
@@ -502,7 +501,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: Some(server::Identity::Local("T".into())),
             ..server::Options::new(document, changes)

@@ -365,7 +365,6 @@ mod browser {
 
     use chromiumoxide::browser::{Browser, BrowserConfig};
     use futures::StreamExt;
-    use tokio::sync::broadcast;
 
     use super::*;
     use crate::document::Document;
@@ -399,7 +398,7 @@ mod browser {
         let document = Arc::new(Document::load(entry, root).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(16);
+        let changes = crate::changes::Changes::default();
         let index = Arc::new(crate::index::Index::build(&document.served));
         let entry = Arc::new(crate::document::Entry::new(document));
         let designs = crate::designs::Designs::new(entry.document().served.path().to_path_buf());

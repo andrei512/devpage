@@ -2,6 +2,7 @@
 //! written in Markdown — live in the browser, and prints them to PDF.
 
 mod addresses;
+mod changes;
 mod check;
 mod comments;
 mod designs;
@@ -35,7 +36,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
 
 use crate::document::{Document, Entry};
 use crate::index::Index;
@@ -133,7 +133,7 @@ async fn main() -> Result<()> {
 
     let designs = designs::Designs::new(document.served.path().to_path_buf());
 
-    let (changes, _) = broadcast::channel(16);
+    let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(
         external::External::http(Some(changes.clone())),
         Arc::new(terminal::Terminal),

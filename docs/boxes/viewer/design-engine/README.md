@@ -319,7 +319,7 @@ closes the stream and opens one for the new set, which starts again with each
 design's whole scene. One stream per page matters: a browser keeps at most six
 connections open to one address over HTTP/1.1, which is what devpage speaks
 unless it sits behind a proxy that offers more, and the page's
-[event stream](../live-updates/README.md#the-channel-and-the-stream) already
+[event stream](../live-updates/README.md#the-bus-and-the-stream) already
 holds one. For each design in the set:
 
 - the first update is the whole scene — every color in both themes, and

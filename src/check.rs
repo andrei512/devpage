@@ -685,9 +685,9 @@ mod external {
     fn widgets_of(document: &Document) -> Widgets {
         Widgets::of(document, &Modules::default())
     }
+    use crate::changes::{Change, Changes, Scope, Subscription};
     use crate::external::{Http, Waits};
     use std::time::Duration;
-    use tokio::sync::broadcast;
 
     fn folder(name: &str, page: &str) -> Document {
         let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
@@ -956,8 +956,9 @@ mod external {
 
     /// A preview asking the network with these waits, and the live-update
     /// channel it announces on.
-    fn previewing(waits: Waits) -> (Preview, broadcast::Receiver<String>) {
-        let (changes, heard) = broadcast::channel(64);
+    fn previewing(waits: Waits) -> (Preview, Subscription) {
+        let changes = Changes::default();
+        let heard = changes.subscribe(Scope::root());
         let external = External::new(Arc::new(Http::new()), waits, Some(changes));
         (Preview::new(external, Arc::new(Recorder::default())), heard)
     }
@@ -1025,11 +1026,10 @@ mod external {
         // The first render holds nothing up: the answer isn't in yet.
         assert!(preview.problems(&doc, &widgets_of(&doc), &pages).is_empty());
         // A broken address, once answered, asks open pages to fetch again …
-        let message = tokio::time::timeout(Duration::from_secs(5), heard.recv())
+        let change = tokio::time::timeout(Duration::from_secs(5), heard.next())
             .await
-            .expect("a change")
-            .unwrap();
-        assert_eq!(message, "change");
+            .expect("a change");
+        assert_eq!(change, Some(Change::Refresh));
         // … and the next render lists it, marking the link as written.
         let found = render_until(&preview, &doc, &pages, |found| !found.is_empty()).await;
         assert_eq!(found.len(), 1, "{found:#?}");

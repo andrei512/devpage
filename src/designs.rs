@@ -741,7 +741,7 @@ pub(crate) mod tests {
         let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let designs = Designs::new(dir.to_path_buf());
-        let changes = broadcast::channel(16).0;
+        let changes = crate::changes::Changes::default();
         let router = router(Options {
             index,
             designs: designs.clone(),

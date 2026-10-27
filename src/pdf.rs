@@ -13,7 +13,6 @@ use chromiumoxide::fetcher::{
     Platform, Version,
 };
 use futures::StreamExt;
-use tokio::sync::broadcast;
 
 use crate::document::{Document, Kind, Paper, Pdf};
 use crate::server;
@@ -44,7 +43,7 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let address = listener.local_addr()?;
-    let (changes, _) = broadcast::channel(1);
+    let changes = crate::changes::Changes::default();
     let url = format!("http://{address}{}?print", document.entry());
     let server = tokio::spawn(async move {
         axum::serve(
@@ -572,7 +571,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: Some(server::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
@@ -634,7 +633,7 @@ mod tests {
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: Some(server::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
@@ -707,7 +706,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs/talk.yml"), &dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: None,
             ..server::Options::new(document, changes)
@@ -759,7 +758,7 @@ mod tests {
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
             comments: Some(server::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
@@ -849,7 +848,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let answered = Answered::default();
         let log = answered.clone();
         let router = server::router(server::Options {

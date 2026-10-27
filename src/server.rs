@@ -18,10 +18,8 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
-use tokio::sync::broadcast;
-use tokio_stream::StreamExt;
-use tokio_stream::wrappers::BroadcastStream;
 
+use crate::changes::{Changes, Scope};
 use crate::check::Preview;
 use crate::comments::{Anchor, Store};
 use crate::designs::Designs;
@@ -35,7 +33,7 @@ use crate::slide_png::Shots;
 struct AppState {
     entry: Arc<Entry>,
     index: Arc<Index>,
-    changes: broadcast::Sender<String>,
+    changes: Changes,
     /// `None` when comments are off: the pages show none and every comment
     /// route answers 404.
     comments: Option<Arc<Comments>>,
@@ -101,8 +99,8 @@ pub struct Options {
     /// The documents of the served folder, and its search index if any.
     pub index: Arc<Index>,
     pub designs: Designs,
-    /// What tells open pages a watched file changed.
-    pub changes: broadcast::Sender<String>,
+    /// What tells open pages there is something new to show.
+    pub changes: Changes,
     /// Who writes comments, or `None` when they are off (`--no-comments`).
     pub comments: Option<Identity>,
     /// The Chrome that draws slides as PNGs, and what it drew.
@@ -116,7 +114,7 @@ pub struct Options {
 impl Options {
     /// One document, with a fresh index of its served folder and no search
     /// index, comments on as one local author, nothing logged.
-    pub fn new(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
+    pub fn new(document: Arc<Document>, changes: Changes) -> Self {
         Self {
             index: Arc::new(Index::build(&document.served)),
             designs: Designs::new(document.served.path().to_path_buf()),
@@ -134,7 +132,7 @@ impl Options {
 
     /// The server for `devpage pdf` and `devpage video`, which serves only
     /// Chrome: nothing logged, and problems announced to no one.
-    pub fn printing(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
+    pub fn printing(document: Arc<Document>, changes: Changes) -> Self {
         Self {
             preview: Arc::new(Preview::new(
                 External::http(None),
@@ -360,12 +358,16 @@ async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) 
     response
 }
 
-/// Server-sent events: one "change" message per change to a watched file.
+/// Server-sent events: one message per change the server's documents —
+/// mounted at `/` — hear on the change bus.
 async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    let stream = BroadcastStream::new(state.changes.subscribe())
-        .map(|message| Ok(Event::default().data(message.unwrap_or_else(|_| "change".into()))));
+    let heard = state.changes.subscribe(Scope::root());
+    let stream = futures::stream::unfold(heard, |mut heard| async move {
+        let change = heard.next().await?;
+        Some((Ok(Event::default().data(change.message())), heard))
+    });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
@@ -696,7 +698,7 @@ mod tests {
         )
         .unwrap();
         let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
-        let (changes, _) = broadcast::channel(16);
+        let changes = crate::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move {
@@ -893,7 +895,7 @@ mod tests {
     /// and returns the server's address.
     async fn serve(dir: &std::path::Path, entry: &str) -> String {
         let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
-        let (changes, _) = broadcast::channel(1);
+        let changes = crate::changes::Changes::default();
         let router = router(Options {
             comments: Some(Identity::Local("T".into())),
             ..Options::new(document, changes)
@@ -922,7 +924,7 @@ mod tests {
         )
         .unwrap();
         let document = Arc::new(Document::load(&dir, &dir).unwrap());
-        let (changes, _) = broadcast::channel(16);
+        let changes = crate::changes::Changes::default();
         let router = router(Options {
             index: Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
             comments: None,
@@ -1057,7 +1059,7 @@ mod tests {
         let document = Arc::new(Document::load(&site, &dir).unwrap());
         let index = Arc::new(Index::build(&dir));
         let entry = Arc::new(Entry::new(document.clone()));
-        let (changes, _) = broadcast::channel(16);
+        let changes = crate::changes::Changes::default();
         let designs = Designs::new(dir.clone());
         let _watcher = crate::watch::start(
             entry.clone(),
@@ -1383,5 +1385,51 @@ mod tests {
             .unwrap();
         assert_eq!(events.status(), 200);
         assert!(!events.headers().contains_key("etag"));
+    }
+
+    #[tokio::test]
+    async fn a_pages_event_stream_carries_only_its_documents_changes() {
+        use crate::changes::{Change, Changes, Scope};
+        let root = std::env::temp_dir().join(format!("devpage-events-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("a.md"), "# A\n").unwrap();
+        let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
+        let changes = Changes::default();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        let router = router(Options {
+            preview: crate::check::testing::preview(),
+            ..Options::new(document, changes.clone())
+        });
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        let mut events = reqwest::get(format!("{address}/__devpage/events"))
+            .await
+            .unwrap();
+        // The stream is open once its headers arrive; give the handler a
+        // moment to subscribe before anything is published.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Another mount's change never reaches it; its own, and one for
+        // every document, do — in order.
+        changes.publish(&Scope::Mount("/d/other".into()), Change::Refresh);
+        changes.publish(&Scope::root(), Change::Comments("/a.md".into()));
+        changes.publish(&Scope::Every, Change::Refresh);
+        let mut heard = String::new();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while heard.matches("data:").count() < 2 {
+            let chunk = tokio::time::timeout_at(deadline, events.chunk())
+                .await
+                .expect("two events")
+                .unwrap()
+                .expect("an open stream");
+            heard.push_str(&String::from_utf8_lossy(&chunk));
+        }
+        let data: Vec<&str> = heard
+            .lines()
+            .filter_map(|line| line.strip_prefix("data:"))
+            .map(str::trim)
+            .collect();
+        assert_eq!(data, ["comments /a.md", "change"]);
     }
 }
