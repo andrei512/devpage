@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 410 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 89 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 91 tests that drive Chrome or Docker, or call GPT-Live
 ```
 
 </Terminal>
@@ -23,8 +23,8 @@ core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 the code they test — the canvas's Chrome tests in
 `src/drive/server/canvas_tests.rs` and the comments' in
 `src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
-folder holds one test, [the search's quality](#the-searchs-quality), and
-fixtures — `tests/fixtures/sync-design`, a doc of three
+folder holds two, [the search's quality](#the-searchs-quality) and
+[the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
 a deck of three slides with notes that the live video test records, and
 `tests/fixtures/search-docs`, a frozen copy of devpage's docs that the
@@ -34,9 +34,10 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 89 tests marked `#[ignore]`, 88 drive Chrome, and one of them also
-calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
-all at once, so it needs the network.
+Of the 91 tests marked `#[ignore]`, 88 drive Chrome, and one of them also
+calls GPT-Live; two run the server deploy example in Docker; the last asks
+Google's server for the pinned Chrome's zips, all at once, so it needs the
+network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
@@ -441,6 +442,16 @@ every one, prints each query's rank, and holds the set's mean reciprocal rank
 and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
 ranking's result when they were set. A change to ranking that lowers either
 fails it; one that raises them raises the floor with it.
+
+### The restore of a deploy
+
+`tests/deploy_restore.rs`, two `--ignored` tests, one per kind of bucket:
+each brings up a server from `deploy/server/compose.yaml` — building the image
+from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
+two versions and starts a thread, deletes the server's volume, starts it on
+an empty one, and finds both versions, the thread, the latest at the link and
+version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
+on the example deploy. Without Litestream's restore it fails.
 
 ### `drive::server`
 

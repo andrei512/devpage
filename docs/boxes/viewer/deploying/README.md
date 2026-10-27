@@ -85,7 +85,7 @@ so the browser still gets its `304`.
 
 ## The image
 
-`deploy/Dockerfile` is an example image serving devpage's own docs. It installs
+`deploy/bundled/Dockerfile` is an example image serving devpage's own docs. It installs
 devpage from crates.io — the same `cargo install devpage` anyone runs — takes
 the docs from that release, and starts devpage deployed:
 
@@ -110,7 +110,7 @@ EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 ```
 
-Build it with `docker build deploy`; it reads nothing from the build context.
+Build it with `docker build deploy/bundled`; it reads nothing from the build context.
 `DEVPAGE_VERSION` picks the release (`--build-arg DEVPAGE_VERSION=…`). The
 docs and the licence they link to come from that release's own source, which
 `cargo install` has just downloaded, so the docs always describe the binary
@@ -141,14 +141,14 @@ run **one replica**: the store is files, written by one process.
 
 ## Trying it with Docker Compose
 
-`deploy/compose.yaml` runs the image behind a stand-in for the auth proxy — a
+`deploy/bundled/compose.yaml` runs the image behind a stand-in for the auth proxy — a
 Caddy server that sets `X-Forwarded-Email: dev@example.com` on every request —
 with the comment store on a named volume:
 
 <Terminal>
 
 ```text
-$ docker compose -f deploy/compose.yaml up --build
+$ docker compose -f deploy/bundled/compose.yaml up --build
 ```
 
 </Terminal>
@@ -160,10 +160,10 @@ reachable.
 
 CI keeps this example working: `.github/workflows/deploy-example.yml` builds
 the image and brings the compose file up on every pull request that touches
-`deploy/`, every push to main and weekly, then expects the docs to load, a
+`deploy/bundled/`, every push to main and weekly, then expects the docs to load, a
 design's PNG to come back as `image/png`, a comment to be accepted, and
 `devpage check docs` to pass inside the image. The image installs the
-released crate, so a change outside `deploy/` can't change what it tests.
+released crate, so a change outside `deploy/bundled/` can't change what it tests.
 The `install` job of `.github/workflows/gates.yml` installs devpage from the
 checkout in a bare `rust:1.97-slim-bookworm` with nothing added, as
 [Installing devpage](../../../installing.md) promises

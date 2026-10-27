@@ -28,28 +28,68 @@ flowchart LR
 ## The image
 
 `deploy/server/` holds an example to copy and change: a `Dockerfile`, the
-`litestream.yml` it uses, and a `compose.yaml` that tries it locally against
-MinIO.
+`litestream.yml` it uses, `devpage-server.sh`, which starts devpage under
+Litestream, and a `compose.yaml` that tries it locally against both kinds of
+bucket.
 
 ```dockerfile
-FROM rust:1.89-slim-bookworm AS build
-RUN cargo install devpage --version <version> --locked
+FROM rust:1.98.1-slim-bookworm AS release
+ARG DEVPAGE_VERSION
+RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked
 
-FROM litestream/litestream:<version> AS litestream
+FROM litestream/litestream:0.5.2 AS litestream
 
 FROM debian:bookworm-slim
-COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
+# ca-certificates, and the libraries chrome-headless-shell needs for PDF downloads
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libnss3 …
+COPY --from=release /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 COPY litestream.yml /etc/litestream.yml
-# chrome-headless-shell, for PDF and PNG downloads
-ENV DEVPAGE_HOST=0.0.0.0
+COPY devpage-server.sh /usr/local/bin/devpage-server
+ENV DEVPAGE_HOST=0.0.0.0 DEVPAGE_DATA_DIR=/data
+VOLUME /data
 EXPOSE 3030
-CMD ["litestream", "replicate", "-exec", "devpage server"]
+CMD ["devpage-server"]
 ```
 
-Litestream restores the store from the bucket when the PVC is empty, then runs
-`devpage server` and keeps the store replicated
-([how](../storage/README.md#the-store)).
+(The file itself also has a stage that builds devpage from a checkout of this
+repository, to try a change before it is released.)
+
+`devpage-server` points Litestream at the `store/` folder of
+`DEVPAGE_BUCKET_URL` — the same bucket, the same credentials — restores the
+store from there when the volume is empty, then runs `devpage server` and
+keeps the store replicated ([how](../storage/README.md#the-store)).
+
+- **Build it** with `docker build deploy/server --build-arg DEVPAGE_VERSION=<version>`,
+  naming a release of devpage that has `devpage server`.
+- **PDF downloads** need chrome-headless-shell, which devpage fetches when the
+  image is built. It has builds for x86-64 Linux only: an arm64 image serves
+  everything but PDFs.
+
+### Trying it locally
+
+`deploy/server/compose.yaml` runs two servers from this checkout, one per kind
+of bucket, each emulated — S3 by [RustFS](https://github.com/rustfs/rustfs),
+Azure Blob by [Azurite](https://github.com/Azure/Azurite) — each with its own
+volume:
+
+<Terminal>
+
+```text
+$ docker compose -f deploy/server/compose.yaml up --build --wait
+$ devpage context add local http://localhost:3031
+$ devpage context use local
+$ devpage publish docs
+```
+
+</Terminal>
+
+`localhost:3031` keeps its documents in RustFS and `localhost:3032` in
+Azurite. The same file is what
+[the PVC is only a cache](../constraints/the-pvc-is-only-a-cache.md) is
+checked against: `cargo test --test deploy_restore -- --ignored` publishes and
+comments on each server, deletes its volume, starts it on an empty one, and
+finds every document, version and comment.
 
 ## Configuration
 
