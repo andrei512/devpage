@@ -18,8 +18,8 @@ import { useEffect, useId, useRef, useState } from "react";
 // carries the words it matched (`data-found`): the page script marks them
 // where the row opens.
 
-// `home`: the page's position; a second listing of a page is a plain link.
-type Entry = { label: string; href: string; home: boolean; children: Group[] };
+// Each page is in the tree once, at its position.
+type Entry = { label: string; href: string; children: Group[] };
 type Group = { title: string | null; entries: Entry[] };
 type Title = { label: string; href: string; logo: string | null };
 type Props = { document?: string; document_path?: string; current?: string; title?: Title | null; groups?: Group[] };
@@ -65,7 +65,7 @@ function remember(document: string, href: string, open: boolean) {
   }
 }
 
-const isShown = (entry: Entry, current: string) => entry.home && entry.href === current;
+const isShown = (entry: Entry, current: string) => entry.href === current;
 
 const leadsTo = (entry: Entry, current: string): boolean =>
   isShown(entry, current) || entry.children.some((g) => g.entries.some((e) => leadsTo(e, current)));

@@ -110,8 +110,8 @@ Beside the sections, one **page record** per page holds what a page result
 shows: its title, address, kind, trail, document and **lede** — its first
 paragraph. The **trail** is the labels from the top of a site's navigation
 tree down to the page, the page's own label last — empty for the root page
-and for a page the tree doesn't list; a page listed twice has the trail to its
-position. In a doc of more than one chapter it is the chapter's title; a
+and for a page the tree doesn't list; a page is in the tree once, so it has
+one trail. In a doc of more than one chapter it is the chapter's title; a
 deck's slides have none.
 
 ## The query

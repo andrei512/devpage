@@ -13,14 +13,13 @@ use comrak::{Arena, Options, parse_document};
 use crate::document::Document;
 
 /// One entry of the tree: a page and its own children. A page listed more
-/// than once has one position, `home`: its shallowest listing, the first in
-/// reading order on a tie. Only there does it have children, and only there
-/// is it the page shown; elsewhere it is a plain link.
+/// than once is an entry only at its position: its shallowest listing, the
+/// first in reading order on a tie. Every other listing — the root page's
+/// among them — is left out of the tree.
 #[derive(Debug, PartialEq)]
 pub struct Entry {
     pub label: String,
     pub file: PathBuf,
-    pub home: bool,
     pub children: Vec<Group>,
 }
 
@@ -40,8 +39,9 @@ pub struct Topic {
     pub href: String,
 }
 
-/// The children of the root page, recursively. Each page is expanded only at
-/// its position (see [`Entry`]); the root's position is the top, so cycles end.
+/// The children of the root page, recursively. Each page is in the tree only
+/// at its position (see [`Entry`]); the root's position is the top, so cycles
+/// end.
 pub fn tree(document: &Document) -> Vec<Group> {
     let crate::document::Kind::Site { root } = &document.kind else {
         return Vec::new();
@@ -98,14 +98,16 @@ fn children(
         let home = homes
             .get(&file)
             .is_some_and(|(parent, at)| parent == page && *at == index);
+        if !home {
+            continue;
+        }
         let entry = Entry {
             label: topic.label,
-            children: if home && page_target {
+            children: if page_target {
                 children(document, &file, homes)
             } else {
                 Vec::new()
             },
-            home,
             file,
         };
         match groups.last_mut() {
@@ -238,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn a_page_listed_twice_has_its_position_at_its_shallowest_listing() {
+    fn a_page_listed_twice_is_in_the_tree_only_at_its_shallowest_listing() {
         let dir = std::env::temp_dir().join(format!("devpage-nav-home-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
@@ -269,15 +271,12 @@ mod tests {
         let [system, start] = &tree[0].entries[..] else {
             panic!("two top-level entries");
         };
-        assert!(start.home, "the top-level listing is the position");
-        assert_eq!(start.children[0].entries[0].label, "First");
-        let listed_again = &system.children[0].entries[0];
-        assert_eq!(listed_again.label, "Start");
-        assert!(!listed_again.home);
-        assert!(
-            listed_again.children.is_empty(),
-            "a second listing is a plain link"
+        assert_eq!(
+            start.label, "Start",
+            "the top-level listing is the position"
         );
+        assert_eq!(start.children[0].entries[0].label, "First");
+        assert!(system.children.is_empty(), "a second listing is left out");
     }
 
     #[test]
@@ -319,10 +318,10 @@ mod tests {
             .iter()
             .map(|e| e.label.as_str())
             .collect();
-        assert_eq!(under_guide, vec!["Back home", "Step"]);
-        assert!(
-            guide.children[0].entries[0].children.is_empty(),
-            "the root is not expanded again"
+        assert_eq!(
+            under_guide,
+            vec!["Step"],
+            "a link back to the root is left out"
         );
     }
 

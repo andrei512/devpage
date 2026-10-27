@@ -55,15 +55,15 @@ document as you type — `/` or ⌘K focuses it. Under them come the root page's
 Topics children; under each child, that page's own Topics
 children, and so on down.
 
-- **A page listed twice** appears in both places, but has one position: its
-  listing nearest the top of the tree, and of those the first. Only there does
-  it show its own children, get highlighted, and open its branch; anywhere
-  else it is a plain link. A link back up the tree, such as a child listing
-  its parent, therefore can't loop.
+- **A page is in the sidebar once.** Listed in several Topics sections, it
+  appears only at its listing nearest the top of the tree, and of those the
+  first; every other listing is left out of the sidebar, though the link stays
+  on the page. A link back up the tree, such as a child listing its parent or
+  the root page, is left out the same way.
 - **A page that no Topics section lists** is still served when something links
   to it, but has no place in the sidebar.
-- **The sidebar highlights** the page being shown at its position, or the
-  document title, on the root page.
+- **The sidebar highlights** the page being shown, or the document title, on
+  the root page.
 
 ## Opening and closing
 
@@ -89,24 +89,22 @@ reference.md       → Fields (fields.md)
 ```
 
 *Reference* is listed by the root page and by *Guide*. The root's listing is
-nearer the top, so it is the position — it shows the children — and the
-listing under *Guide* is a plain link:
+nearer the top, so *Reference* appears there, with its children, and not under
+*Guide*:
 
 ```mermaid
 flowchart TD
   title["Document title<br/>links to README.md"] --> guide["Guide"]
-  title --> ref1["Reference<br/>its position: expanded"]
+  title --> ref1["Reference"]
   guide --> step["Step"]
-  guide --> ref2["Reference<br/>listed again: a plain link"]
   ref1 --> fields["Fields"]
   click title href "../configuration-reference/README.md#site" "The root page"
   click guide href "#a-topics-section" "A Topics section"
-  click ref1 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are stopped"
-  click ref2 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are stopped"
+  click ref1 href "../navigation-tree/README.md#building-the-tree-and-stopping-cycles" "How repeats are left out"
 ```
 
-Both *Reference* entries link to the same page; while it is shown, only the
-one at its position is highlighted, and *Guide* stays closed.
+*Guide*'s page still links to *Reference* in its Topics section; only the
+sidebar leaves the repeat out.
 
 Because the tree is read from the files on every request, editing a Topics
 list changes the sidebar of every open page as soon as the file is saved,
