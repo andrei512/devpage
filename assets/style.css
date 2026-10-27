@@ -105,6 +105,35 @@ body {
 #devpage-nav a:hover { background: var(--border); }
 #devpage-nav a.current { background: var(--accent); color: #fff; }
 
+/* A sidebar entry with children: its link and a chevron on one row, its
+   children shown while it is open. */
+#devpage-nav .entry { display: flex; align-items: center; gap: 2px; }
+#devpage-nav .entry > a { flex: 1; min-width: 0; }
+#devpage-nav .chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+#devpage-nav .chevron:hover { background: var(--border); color: var(--text); }
+#devpage-nav .chevron::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateX(-1px) rotate(-45deg);
+}
+#devpage-nav li.open > .entry > .chevron::before { transform: translateY(-1px) rotate(45deg); }
+#devpage-nav li.branch:not(.open) > ul { display: none; }
+
 /* Content */
 
 main { flex: 1; min-width: 0; padding: 56px 48px 120px; }

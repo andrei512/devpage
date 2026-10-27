@@ -10,7 +10,7 @@ widget is in [Widgets](../widgets/README.md).
 
 | File | What it is |
 | --- | --- |
-| `assets/vendor/react.js` | React and react-dom **19.3.0**, production builds, bundled into one minified ES module (about 221 KB). |
+| `assets/vendor/react.js` | React and react-dom **19.3.0**, production builds, bundled into one minified ES module (about 222 KB). |
 | `assets/vendor/react.LICENSE` | Their licence: MIT, copyright Meta Platforms, Inc. and affiliates. |
 
 The bundle is built from the npm packages `react@19.3.0` and
@@ -21,8 +21,13 @@ import * as React from "react";
 export * from "react";
 export default React;
 export { jsx, jsxs, Fragment } from "react/jsx-runtime";
-export { createRoot } from "react-dom/client";
+export { createRoot, hydrateRoot } from "react-dom/client";
+export { flushSync } from "react-dom";
 ```
+
+`hydrateRoot` and `flushSync` are there for a site's sidebar, which React
+takes over from the server's markup and updates within a page swap's commit
+([The page script](../page-script/README.md#the-sidebar)).
 
 ## How devpage uses it
 
@@ -32,8 +37,8 @@ content address, `/__devpage/react.<hash>.js` — see
 import map points `react`, `react/jsx-runtime` and `react-dom/client` at it,
 so compiled widgets — whose JSX becomes `react/jsx-runtime` calls — and the page
 script's mounting code share one copy of React
-([Widgets](../widgets/how-widgets-run/README.md)). Only a page with a widget
-loads it, preloaded from that page's head
+([Widgets](../widgets/how-widgets-run/README.md)). Only a page with a widget —
+a site's sidebar is one — loads it, preloaded from that page's head
 ([the load set](../rendering-a-page/README.md#the-load-set)).
 
 ## Upgrading it

@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 244 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 70 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 247 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 72 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 170 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 173 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 70 tests marked `#[ignore]`, 69 drive Chrome, and one of them also
+Of the 72 tests marked `#[ignore]`, 71 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 27 in Chrome, 1 on the network.*
+*4 tests, 29 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -244,7 +244,7 @@ In Chrome:
 - A doc's outline above the text on a narrow screen.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
-- A plain page fetching neither pele nor React nor any widget; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
+- A plain page fetching neither pele nor any widget but its sidebar; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once; a page loaded in place bringing its preloads.
 - Widgets mounting again after a live update and an edited widget or helper reaching open pages, a widget rendered by name inside an unchanged one too.
 - A reload revalidating the page and what may change (`304`) and asking for nothing content-addressed.
 - A live update finding its page unchanged leaving the DOM untouched, and one that changed it swapping it.
@@ -255,10 +255,12 @@ In Chrome:
 - A comment anchored inside a widget.
 - A printed doc showing each widget's first render, terminal lines wrapping on paper.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
+- The sidebar at first paint collapsed with the branch to the page open, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
+- The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
 
 ### `render`
 
-*21 tests.*
+*23 tests.*
 
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -274,7 +276,8 @@ In Chrome:
 - A page's title.
 - A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
-- The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading nothing, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
+- The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
+- The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, no text between its elements, and the tree beside it as JSON; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
 
 ### `server`
 
@@ -365,7 +368,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `widgets`
 
-*27 tests.*
+*28 tests.*
 
 - `<Notes>` taken out of the page with its text kept, each one found with its line, none found in code or comments, and a project `Notes.tsx` a clash; an unclosed one a problem, running to the end of the page so none of it is shown; its `delivery` kept and never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
@@ -379,6 +382,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 - A version and compiled bytes made from one reading of the files, whatever is saved in between.
 - An edited helper changing its own version and its importers' — through another widget too — and no other widget's; a helper created, edited and removed after its importer was read moving the importer's version; the names a widget can render part of its version.
 - Lowercase files as helpers and a system widget's name as a problem.
+- A project `DevpageSidebar.tsx` a clash, and a project `Sidebar.tsx` a widget like any other.
 - A `Cards` icon drawn on the server and an unknown icon name as a problem.
 
 ## The design engine's crates

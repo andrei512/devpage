@@ -205,6 +205,52 @@ async function mountWidgets(root) {
   }
 }
 
+// ---- The sidebar ----------------------------------------------------------
+// A site's sidebar is the DevpageSidebar widget. The server renders its markup
+// and its tree as JSON (`#devpage-sidebar`); React takes the sidebar over from
+// that markup — hydrating it, so not a node changes — and it stays mounted
+// for as long as the tab shows the site: each page swapped in gives it that
+// page's tree and address, in the swap's commit.
+
+// What the sidebar shows, set in the commit; null until it has mounted, and
+// when it couldn't.
+let showInSidebar = null;
+
+const sidebarData = (doc) => {
+  const script = doc.getElementById("devpage-sidebar");
+  return script ? JSON.parse(script.textContent) : null;
+};
+
+async function mountSidebar() {
+  const nav = document.querySelector("#devpage-nav[data-sidebar]");
+  const data = sidebarData(document);
+  if (!nav || !data) return;
+  const [React, { hydrateRoot, flushSync }, module] = await Promise.all([
+    import("react"),
+    import("react-dom/client"),
+    loadWidget("DevpageSidebar"),
+  ]);
+  await new Promise((resolve) => {
+    function Sidebar() {
+      const [shown, setShown] = React.useState(data);
+      React.useEffect(() => {
+        showInSidebar = (next) => flushSync(() => setShown(next));
+        resolve();
+      }, []);
+      return React.createElement(module.default, shown);
+    }
+    hydrateRoot(nav, React.createElement(Sidebar), {
+      onRecoverableError: (error) => console.error("devpage: the sidebar's markup and DevpageSidebar differ", error),
+    });
+  });
+}
+
+// The sidebar is mounting: a swap waits for it, so it never replaces nodes
+// React is taking over.
+const sidebarMounted = print ? Promise.resolve() : mountSidebar().catch((error) => {
+  console.error("devpage: the sidebar stays as the server drew it", error);
+});
+
 // Marks every link and image the page's problems name, where it stands — in
 // the text and in diagrams. The problems bar lists their targets as written.
 function markBroken(root) {
@@ -416,6 +462,7 @@ async function swap(url, how, generation, signal) {
     drop();
     throw error;
   }
+  await sidebarMounted;
   if (stale()) {
     drop();
     return "stale";
@@ -427,7 +474,15 @@ async function swap(url, how, generation, signal) {
   page.className = staging.className;
   page.replaceChildren(...staging.childNodes);
   staging.remove();
+  // The sidebar stays mounted and is given the fresh page's tree; a doc's
+  // outline, the navbar, and a sidebar React couldn't take over are replaced.
+  const sidebar = sidebarData(next);
+  if (sidebar && showInSidebar) {
+    showInSidebar(sidebar);
+    document.getElementById("devpage-nav").dataset.sidebar = sidebar.document;
+  }
   for (const id of ["devpage-nav", "devpage-navbar"]) {
+    if (id === "devpage-nav" && sidebar && showInSidebar) continue;
     const part = next.getElementById(id);
     if (part) document.getElementById(id)?.replaceChildren(...part.childNodes);
   }
@@ -951,7 +1006,7 @@ function followOutline() {
 }
 
 drawDesigns();
-mountWidgets(document).catch((error) => console.error(error)).finally(() => {
+Promise.all([mountWidgets(document).catch((error) => console.error(error)), sidebarMounted]).finally(() => {
   // A widget's content mounts with it: designs it embeds exist only now.
   drawDesigns();
   markBroken(document);

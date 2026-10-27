@@ -3,9 +3,10 @@
 How `src/nav.rs` reads the sidebar tree out of the pages' `## Topics`
 sections — finding the section, taking each item's first link, resolving it to
 a file, grouping by `###` headings and stopping at pages already seen — and how
-`src/render.rs` turns the tree into the sidebar's HTML with the current page
-highlighted. It is a mechanism page under the [viewer](../README.md), for
-someone about to change either file; how to use Topics is in
+`src/render.rs` turns the tree into the sidebar's HTML — collapsed, the
+current page highlighted and its branch open — which the `DevpageSidebar`
+widget takes over in the browser. It is a mechanism page under the
+[viewer](../README.md), for someone about to change those files; how to use Topics is in
 [Organizing navigation](../organizing-navigation/README.md).
 
 ## The data
@@ -108,35 +109,75 @@ result is kept between requests.
 
 ## Rendering the sidebar
 
-`render::navigation` renders the groups as nested `<ul>` lists:
+The sidebar is the `DevpageSidebar` widget, devpage's own
+([Widgets](../widgets/system-widgets/README.md#devpagesidebar)). The server
+renders its first paint and the browser keeps it: `render::sidebar` writes the
+markup the widget renders, and the tree beside it as JSON, so React takes the
+sidebar over without changing a node.
+
+**The markup.** `render::tree` renders the groups as nested `<ul>` lists:
 
 - a group with a title becomes `<li class="group"><span>title</span></li>`
   before its entries;
-- each entry becomes `<li><a href="/path">label</a>`, followed by its
-  children's list, if any;
-- labels and group titles are HTML-escaped.
+- an entry with no children becomes `<li><a href="/path">label</a></li>`;
+- an entry with children is a **branch**: `<li class="branch">`, carrying its
+  address as `data-href`, holds a row — its link and a chevron button
+  (`aria-expanded`, labelled with the entry's label) — then its children's
+  list; the branch is `open` or not, and a closed branch's list is hidden;
+- labels and group titles are HTML-escaped, and no text sits between the
+  elements, since React renders none.
 
 For a root page listing *Getting started* and, under a *Guide* group, a page
-with children of its own, the sidebar reads:
+with children of its own, the sidebar on *Getting started* reads:
 
 ```html
-<ul>
-  <li><a href="/docs/getting-started.md" class="current">Getting started</a></li>
-  <li class="group"><span>Guide</span></li>
-  <li><a href="/docs/guide/README.md">Guide</a>
-    <ul>
-      <li><a href="/docs/guide/writing.md">Writing</a></li>
-    </ul>
-  </li>
-</ul>
+<nav id="devpage-nav" data-sidebar="/docs/README.md">
+  <a class="document-title" href="/docs/README.md">Docs</a>
+  <ul>
+    <li><a href="/docs/getting-started.md" class="current">Getting started</a></li>
+    <li class="group"><span>Guide</span></li>
+    <li class="branch" data-href="/docs/guide/README.md">
+      <div class="entry"><a href="/docs/guide/README.md">Guide</a><button type="button" class="chevron" aria-expanded="false" aria-label="Guide"></button></div>
+      <ul>
+        <li><a href="/docs/guide/writing.md">Writing</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
 ```
 
-The `href` is the file's address: `/` plus its path in the served folder.
-**Current-page highlighting** compares that with the requested page's own path
-built the same way: every matching entry gets `class="current"` — more than one
-when a page is listed twice. The document-title link above the tree (class
-`document-title`) gets `current` when the page is the root page.
+(laid out here for reading; the page carries it on one line). The `href` is
+the file's address: `/` plus its path in the served folder; `data-sidebar` is
+the document's own — its root page's. **Current-page highlighting** compares
+an entry's address with the requested page's own path built the same way:
+every matching entry gets `class="current"` — more than one when a page is
+listed twice. The document-title link above the tree (class `document-title`)
+gets `current` when the page is the root page.
 
-The sidebar is part of every page's HTML, inside `<nav id="devpage-nav">`, so a
-[live update](../live-updates/README.md) or an in-place link swaps it together
-with the content.
+**Collapsed, the current branch open.** A branch is open when the page shown
+is the entry itself or anywhere under it (`leads_to`), so the branch down to
+the page is open, the page's own children included, and every other branch
+is closed. An entry listed twice has children only where it is expanded, so
+a branch's address names one branch.
+
+**The tree as JSON.** After the `</nav>`,
+`<script type="application/json" id="devpage-sidebar">` holds what the widget
+renders: the document's address, the page shown, the title link (its label,
+address and logo) when the sidebar has one, and the groups — each entry its
+label, address and children. `<` is written `\u003c`, so no label can end the
+script.
+
+**What the reader opened.** The widget remembers which branches the reader
+opened, per document, in `localStorage` under `devpage-sidebar:` and the
+document's address. A small script after the JSON opens those branches before
+the page paints — exactly as the widget's first render will — so a reload
+shows them from the first frame, and React still takes over the same DOM.
+Without storage, nothing is remembered and the sidebar works the same.
+
+**Across page swaps.** The page script mounts the widget on the sidebar once
+and keeps it: each page swapped in — a link, back and forward, a
+[live update](../live-updates/README.md) — hands it that page's tree and
+address in the swap's commit, so the highlight moves and the new page's branch
+opens in the same frame as the content, while every branch the reader opened
+stays open ([The page script](../page-script/README.md#the-sidebar)). An edit
+to a Topics list reaches the open sidebar the same way.
