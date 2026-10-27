@@ -170,6 +170,7 @@ fn routes(state: AppState) -> Router {
         )
         .route("/__devpage/comments/reply", post(reply_comment))
         .route("/__devpage/comments/resolve", post(resolve_comment))
+        .route("/__devpage/search", get(search))
         .route("/__devpage/system-widgets/{name}", get(system_widget))
         .route("/__devpage/widgets/{*path}", get(project_widget))
         .route("/__devpage/{asset}", get(asset))
@@ -655,6 +656,24 @@ fn failed(error: anyhow::Error) -> Response {
     (StatusCode::BAD_REQUEST, format!("{error:#}")).into_response()
 }
 
+/// `?q=` of a search; none is an empty query.
+#[derive(Deserialize)]
+struct SearchQuery {
+    #[serde(default)]
+    q: String,
+}
+
+/// The hits of a search, as JSON, best first: `{"hits": [...]}`. Comments
+/// on or off; a server without a search index — printing's — finds nothing.
+async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
+    let hits = state
+        .index
+        .search()
+        .map(|search| search.search(&query.q))
+        .unwrap_or_default();
+    Json(serde_json::json!({ "hits": hits })).into_response()
+}
+
 async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
     let comments = match state.comments() {
         Ok(comments) => comments,
@@ -959,6 +978,63 @@ mod tests {
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         address
+    }
+
+    #[tokio::test]
+    async fn a_search_answers_hits_as_json_whether_comments_are_on_or_off() {
+        let dir = std::env::temp_dir().join(format!("devpage-search-route-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: a.md\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("a.md"), "# A\n\n## Topics\n\n- [Retries](b.md)\n").unwrap();
+        std::fs::write(
+            dir.join("b.md"),
+            "# Retries\n\n## The outbox\n\nThe client retries every write & read from its outbox.\n",
+        )
+        .unwrap();
+        let document = Arc::new(Document::load(&dir, &dir).unwrap());
+        let (changes, _) = broadcast::channel(16);
+        let router = router_with_index(
+            Arc::new(Entry::new(document)),
+            Arc::new(Index::build(&dir).with_search()),
+            Designs::new(dir.clone()),
+            changes.clone(),
+            None,
+            Shots::new(&changes),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+
+        // `q` as it goes in the address, already escaped.
+        let search = |q: &str| {
+            let url = format!("{address}/__devpage/search?q={q}");
+            async move {
+                let response = reqwest::get(url).await.unwrap();
+                assert_eq!(response.status(), 200);
+                response.json::<Value>().await.unwrap()
+            }
+        };
+        assert_eq!(
+            search("outbx").await,
+            json!({ "hits": [{
+                "title": "Retries",
+                "heading": "The outbox",
+                "url": "/b.md#the-outbox",
+                "snippet": "The client retries every write &amp; read from its <mark>outbox</mark>.",
+                "document": { "title": "T", "path": "/devpage.yml" },
+                "trail": ["Retries"],
+            }] })
+        );
+        assert_eq!(search("%20%20").await, json!({ "hits": [] }));
+        assert_eq!(search("").await, json!({ "hits": [] }));
+        let (status, _) = get(&format!("{address}/__devpage/search")).await;
+        assert_eq!(status, 200, "no q is an empty query");
     }
 
     async fn get(url: &str) -> (u16, String) {
