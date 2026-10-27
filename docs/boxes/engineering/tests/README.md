@@ -8,16 +8,16 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 285 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 77 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 299 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 79 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 211 in `devpage`, 66 in the
-engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
+`cargo test` runs every crate in the workspace: 215 in `devpage`, 75 in the
+engine `devpage-design`, 7 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
 in `src/designs/canvas_tests.rs`, a child module of `designs`. The `tests/`

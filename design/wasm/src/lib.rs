@@ -5,7 +5,7 @@
 use devpage_design::proto::{Update, update::Body};
 use devpage_design::render::{Drawing, Frame, paint_list};
 use devpage_design::resolve::Node;
-use devpage_design::{Renderer, Scene, wire};
+use devpage_design::{Renderer, Scene, Theme, wire};
 use prost::Message;
 use wasm_bindgen::prelude::*;
 
@@ -36,10 +36,12 @@ pub struct Design {
     /// The scene laid out and turned into its display list, once per change.
     /// The page sees only the drawing, with its top-left at `(0, 0)`.
     laid_out: Option<Drawing>,
-    /// Whether the scene changed since `laid_out` was made from it, which is
-    /// then kept for the next drawing to paint its images if they are the
-    /// same.
+    /// Whether the scene or the theme changed since `laid_out` was made,
+    /// which is then kept for the next drawing to paint its images if they
+    /// are the same.
     stale: bool,
+    /// The theme the page draws this design in.
+    theme: Theme,
 }
 
 /// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
@@ -84,7 +86,27 @@ impl Design {
             problems: Vec::new(),
             laid_out: None,
             stale: false,
+            theme: Theme::Light,
         }
+    }
+
+    /// Draws the design in its dark theme, or its light one; true when that
+    /// is a change, which the next paint shows. The scene holds both, so
+    /// nothing is asked of the server.
+    pub fn set_theme(&mut self, dark: bool) -> bool {
+        let theme = if dark { Theme::Dark } else { Theme::Light };
+        if theme == self.theme {
+            return false;
+        }
+        self.theme = theme;
+        self.stale = true;
+        true
+    }
+
+    /// Whether any `theme.` reference reached the scene: what puts an
+    /// embed's own theme switch on its backdrop.
+    pub fn themed(&self) -> bool {
+        self.scene.as_ref().is_some_and(|s| s.themed)
     }
 
     /// Applies one watch-stream message: a whole scene, a patch or problems.
@@ -177,7 +199,7 @@ impl Design {
             self.stale = false;
             let scene = self.scene.as_ref()?;
             let last = self.laid_out.take();
-            self.laid_out = self.engine.drawing(scene, last.as_ref()).ok();
+            self.laid_out = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
         }
         self.laid_out.as_ref()
     }
@@ -307,6 +329,7 @@ mod tests {
                     node: Some(wire::encode(&wider.root)),
                 }],
                 images: vec![],
+                themed: false,
             })),
             ..Default::default()
         }
@@ -317,12 +340,49 @@ mod tests {
     }
 
     #[test]
+    fn a_theme_switch_paints_the_scene_again_in_the_other_theme() {
+        let files = HashMap::from([
+            (
+                "themes.yml".to_string(),
+                "kind: themes\nlight:\n  bg: \"#ffffff\"\ndark:\n  bg: \"#000000\"\n".to_string(),
+            ),
+            (
+                "a.design".to_string(),
+                "<Frame width={10} height={10} fill={theme.bg} />".to_string(),
+            ),
+        ]);
+        let scene = devpage_design::resolve(&files, "a.design").unwrap();
+        let message = Update {
+            body: Some(Body::Scene(wire::scene(&scene))),
+            ..Default::default()
+        }
+        .encode_to_vec();
+        let mut design = Design::new();
+        assert!(!design.themed());
+        design.apply(&message);
+        assert!(design.themed());
+        assert_eq!(
+            &design.paint(1.0).unwrap().take()[..4],
+            &[255, 255, 255, 255]
+        );
+        assert!(design.set_theme(true));
+        assert!(!design.set_theme(true), "already dark");
+        assert_eq!(&design.paint(1.0).unwrap().take()[..4], &[0, 0, 0, 255]);
+        assert!(design.set_theme(false));
+        assert_eq!(
+            &design.paint(1.0).unwrap().take()[..4],
+            &[255, 255, 255, 255]
+        );
+    }
+
+    #[test]
     fn a_patch_before_any_scene_or_garbage_does_nothing() {
         let mut design = Design::new();
         let patch = Update {
             body: Some(Body::Patch(Patch {
                 replace: vec![],
                 images: vec![],
+                themed: false,
             })),
             ..Default::default()
         }

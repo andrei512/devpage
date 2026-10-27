@@ -109,9 +109,10 @@ fn embed_designs(html: &str) -> String {
                     .is_some_and(|p| p.ends_with(".design")) =>
             {
                 out.push_str(&format!(
-                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"{}\" role=\"img\" aria-label=\"{}\"></canvas></span>",
+                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"{}\" role=\"img\" aria-label=\"{}\"></canvas>{}</span>",
                     src.replace('"', "&quot;"),
-                    attribute("alt").unwrap_or_default().replace('"', "&quot;")
+                    attribute("alt").unwrap_or_default().replace('"', "&quot;"),
+                    crate::navbar::design_theme_toggle()
                 ));
             }
             _ => out.push_str(tag),
@@ -876,7 +877,10 @@ mod tests {
             markdown("Here:\n\n![The checkout](app/checkout.design)\n\n![A photo](photo.png)\n");
         assert!(
             html.contains(
-                "<span class=\"design-embed\"><canvas class=\"design\" src=\"app/checkout.design\" role=\"img\" aria-label=\"The checkout\"></canvas></span>"
+                &format!(
+                    "<span class=\"design-embed\"><canvas class=\"design\" src=\"app/checkout.design\" role=\"img\" aria-label=\"The checkout\"></canvas>{}</span>",
+                    crate::navbar::design_theme_toggle()
+                )
             ),
             "{html}"
         );

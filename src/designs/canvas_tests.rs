@@ -279,7 +279,9 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
     let address = serve(root, "docs/designs/checkout/checkout.design").await;
     let (mut browser, events, _profile) = chrome().await;
     let mut failures = Vec::new();
-    for name in ["button", "checkout", "confirmation", "details"] {
+    for (theme, name) in ["light", "dark"].into_iter().flat_map(|theme| {
+        ["button", "checkout", "confirmation", "details"].map(|name| (theme, name))
+    }) {
         let page = browser.new_page("about:blank").await.unwrap();
         // Room for the tallest example at 100%, at one device pixel per pixel.
         page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
@@ -294,7 +296,9 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
             .unwrap();
         }
         let path = format!("/docs/designs/checkout/{name}.design");
-        page.goto(format!("{address}{path}")).await.unwrap();
+        page.goto(format!("{address}{path}?theme={theme}"))
+            .await
+            .unwrap();
         until(
             &page,
             "document.querySelector('canvas.design')?.dataset.painted === 'true'",
@@ -316,10 +320,17 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
         tokio::time::sleep(Duration::from_millis(300)).await;
         const MARGIN: usize = 24;
         let shot = screenshot(&page, width, height, MARGIN as f64).await;
-        let d = difference(&page, &address, &shot, &format!("{path}.png"), MARGIN).await;
-        eprintln!("{backend} {name}: {d:?}");
+        let d = difference(
+            &page,
+            &address,
+            &shot,
+            &format!("{path}.png?theme={theme}"),
+            MARGIN,
+        )
+        .await;
+        eprintln!("{backend} {theme} {name}: {d:?}");
         if !d.is_some_and(|d| d.within_tolerance()) {
-            failures.push(format!("{backend} {name}: {d:?}"));
+            failures.push(format!("{backend} {theme} {name}: {d:?}"));
         }
         page.close().await.ok();
     }
@@ -803,10 +814,11 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     let address = serve(&dir, "notes/page.md").await;
     let (mut browser, events, _profile) = chrome().await;
     let page = embedded(&mut browser, &address, "/notes/page.md", 1280, 1000).await;
-    let link = "document.querySelector('.design-embed > a.design-open')";
+    let link = "document.querySelector('.design-embed a.design-open')";
+    let theme: String = eval(&page, "document.documentElement.dataset.theme").await;
     assert_eq!(
         eval::<String>(&page, &format!("{link}.getAttribute('href')")).await,
-        "/screen.design"
+        format!("/screen.design?theme={theme}")
     );
     // After a navigation inside the embed the link follows the design shown.
     let corner = on_screen(&page, "canvas.design", 300.0, 40.0).await;
@@ -815,7 +827,7 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     until_pixel(&page, corner, [0xfe, 0xf3, 0xc7]).await;
     assert_eq!(
         eval::<String>(&page, &format!("{link}.getAttribute('href')")).await,
-        "/next.design"
+        format!("/next.design?theme={theme}")
     );
     page.evaluate(format!("{link}.click()")).await.unwrap();
     until(
@@ -1102,6 +1114,171 @@ async fn the_canvas_page_switches_theme_and_paints_behind_the_design_in_it() {
     assert_eq!(
         eval::<String>(&page, "document.documentElement.dataset.theme").await,
         after
+    );
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// A design in red in its light theme and in blue in its dark one.
+fn themed(dir: &Path) {
+    std::fs::write(
+        dir.join("themes.yml"),
+        "kind: themes\nlight:\n  bg: \"#ff0000\"\ndark:\n  bg: \"#0000ff\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("tile.design"),
+        "<Frame width={120} height={80} fill={theme.bg} />",
+    )
+    .unwrap();
+}
+
+const RED: [u8; 3] = [255, 0, 0];
+const BLUE: [u8; 3] = [0, 0, 255];
+
+/// Opens a fresh tab whose remembered theme is `theme`.
+async fn tab_in(browser: &mut Browser, theme: &str) -> Page {
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
+        .await
+        .unwrap();
+    page.execute(AddScriptToEvaluateOnNewDocumentParams::new(format!(
+        "try {{ if (!sessionStorage.getItem('set')) {{ localStorage.setItem('devpage-theme', '{theme}'); sessionStorage.setItem('set', '1'); }} }} catch {{}}"
+    )))
+    .await
+    .unwrap();
+    page
+}
+
+/// On a dark page a themed embed is drawn dark; its own switch turns only
+/// it, design and backdrop, and is kept when the page switches; the Open
+/// link carries the theme it shows; and a design that isn't themed has no
+/// switch.
+#[tokio::test]
+#[ignore]
+async fn an_embed_follows_its_page_and_its_own_switch_turns_only_it() {
+    let dir = folder("theme-own");
+    themed(&dir);
+    std::fs::write(
+        dir.join("page.md"),
+        "# Page\n\n![One](tile.design)\n\n![Two](tile.design)\n\n![Plain](screen.design)\n",
+    )
+    .unwrap();
+    let address = serve(&dir, "page.md").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = tab_in(&mut browser, "dark").await;
+    page.goto(format!("{address}/page.md")).await.unwrap();
+    until(
+        &page,
+        "[...document.querySelectorAll('canvas.design')].every((c) => c.dataset.painted === 'true')",
+    )
+    .await;
+    let one = on_screen(&page, r#"canvas.design[aria-label="One"]"#, 60.0, 40.0).await;
+    let two = on_screen(&page, r#"canvas.design[aria-label="Two"]"#, 60.0, 40.0).await;
+    until_pixel(&page, one, BLUE).await;
+    until_pixel(&page, two, BLUE).await;
+    let shown = "[...document.querySelectorAll('.design-theme')].map((b) => !b.hidden)";
+    assert_eq!(eval::<Vec<bool>>(&page, shown).await, [true, true, false]);
+    let backdrop = |label: &str| {
+        format!("document.querySelector(\"canvas.design[aria-label='{label}']\").parentElement")
+    };
+    let backdrop_color =
+        |label: &str| format!("getComputedStyle({}).backgroundColor", backdrop(label));
+    let dark_backdrop: String = eval(&page, &backdrop_color("Two")).await;
+
+    // The first embed's own switch: only it turns light, backdrop and all.
+    page.evaluate(format!(
+        "{}.querySelector('.design-theme').click()",
+        backdrop("One")
+    ))
+    .await
+    .unwrap();
+    until_pixel(&page, one, RED).await;
+    assert_eq!(pixel(&page, two).await, BLUE);
+    assert_eq!(
+        eval::<String>(&page, "document.documentElement.dataset.theme").await,
+        "dark",
+        "the page is as it was"
+    );
+    assert_ne!(
+        eval::<String>(&page, &backdrop_color("One")).await,
+        dark_backdrop
+    );
+    let href = |label: &str| {
+        format!(
+            "{}.querySelector('a.design-open').getAttribute('href')",
+            backdrop(label)
+        )
+    };
+    assert_eq!(
+        eval::<String>(&page, &href("One")).await,
+        "/tile.design?theme=light"
+    );
+    assert_eq!(
+        eval::<String>(&page, &href("Two")).await,
+        "/tile.design?theme=dark"
+    );
+
+    // The page switches to light and back: the second embed follows it, the
+    // first stays where the reader put it.
+    for (theme, two_color) in [("light", RED), ("dark", BLUE)] {
+        page.find_element(".theme-toggle")
+            .await
+            .unwrap()
+            .click()
+            .await
+            .unwrap();
+        assert_eq!(
+            eval::<String>(&page, "document.documentElement.dataset.theme").await,
+            theme
+        );
+        until_pixel(&page, two, two_color).await;
+        assert_eq!(pixel(&page, one).await, RED, "after the page went {theme}");
+    }
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// `?theme=` on the canvas page's address shows that theme for the view and
+/// leaves the remembered choice alone.
+#[tokio::test]
+#[ignore]
+async fn the_canvas_page_shows_the_theme_its_address_names() {
+    let dir = folder("theme-address");
+    themed(&dir);
+    let address = serve(&dir, "tile.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = tab_in(&mut browser, "light").await;
+    page.goto(format!("{address}/tile.design?theme=dark"))
+        .await
+        .unwrap();
+    until(
+        &page,
+        "document.querySelector('canvas.design')?.dataset.painted === 'true'",
+    )
+    .await;
+    assert_eq!(
+        eval::<String>(&page, "document.documentElement.dataset.theme").await,
+        "dark"
+    );
+    let inside = on_screen(&page, "canvas.design", 60.0, 40.0).await;
+    until_pixel(&page, inside, BLUE).await;
+    assert_eq!(
+        eval::<String>(&page, "localStorage.getItem('devpage-theme')").await,
+        "light",
+        "the remembered choice is untouched"
+    );
+    // Its switch still switches, and is remembered.
+    page.find_element(".theme-toggle")
+        .await
+        .unwrap()
+        .click()
+        .await
+        .unwrap();
+    until_pixel(&page, inside, RED).await;
+    assert_eq!(
+        eval::<String>(&page, "localStorage.getItem('devpage-theme')").await,
+        "light"
     );
     browser.close().await.ok();
     events.abort();
@@ -1490,7 +1667,12 @@ fn painted_png(w: u32, h: u32, fill: &str) -> Vec<u8> {
     )]
     .into();
     let scene = devpage_design::resolve(&files, "p.design").unwrap();
-    devpage_design::png(&mut devpage_design::Renderer::new(), &scene).unwrap()
+    devpage_design::png(
+        &mut devpage_design::Renderer::new(),
+        &scene,
+        devpage_design::Theme::Light,
+    )
+    .unwrap()
 }
 
 /// How the GPU canvas of the design `name`, open on `page` at 100%, differs

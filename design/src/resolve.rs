@@ -1,7 +1,8 @@
 //! Syntax tree → scene: imports and props substituted, every attribute
 //! checked, typed and defaulted.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
@@ -9,12 +10,55 @@ use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 use crate::Problem;
 use crate::parse::{self, Child, Element, Pos, TextPart, Value};
 
+/// One color's value: straight-alpha RGBA.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Color {
+pub struct Rgba {
     pub r: u8,
     pub g: u8,
     pub b: u8,
     pub a: u8,
+}
+
+/// Which of a design's two themes it is drawn in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Theme {
+    #[default]
+    Light,
+    Dark,
+}
+
+impl Theme {
+    /// `"light"` or `"dark"` as a theme, as a PNG's `?theme=` names one.
+    pub fn named(name: &str) -> Option<Theme> {
+        match name {
+            "light" => Some(Theme::Light),
+            "dark" => Some(Theme::Dark),
+            _ => None,
+        }
+    }
+}
+
+/// A color in a scene: its value in each theme. A color written as `#…` has
+/// the same value in both; `theme.name` has the themes' two.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Color {
+    pub light: Rgba,
+    pub dark: Rgba,
+}
+
+impl Color {
+    /// The same value in both themes.
+    pub const fn fixed(c: Rgba) -> Color {
+        Color { light: c, dark: c }
+    }
+
+    /// The value in `theme`.
+    pub fn get(self, theme: Theme) -> Rgba {
+        match theme {
+            Theme::Light => self.light,
+            Theme::Dark => self.dark,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -417,12 +461,14 @@ impl Files for HashMap<String, String> {
 }
 
 /// A resolved design: its tree, each distinct image file its `Image`s show,
-/// and the files it was made from.
+/// the files it was made from, and whether it is **themed** — whether any
+/// `theme.` reference reached its nodes.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Scene {
     pub root: Node,
     pub images: ImageFiles,
     pub files: Vec<String>,
+    pub themed: bool,
 }
 
 /// A scene's image files by id, each decoded once however many `Image`s
@@ -447,6 +493,8 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         depth: 0,
         images: ImageFiles::new(),
         by_path: HashMap::new(),
+        themes: HashMap::new(),
+        themed: false,
     };
     let root = r.design(path, &[], None, "", None);
     if r.problems.is_empty() {
@@ -454,6 +502,7 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
             root: root.expect("no problems means a root"),
             images: r.images,
             files: r.read,
+            themed: r.themed,
         })
     } else {
         Err(r.problems)
@@ -474,7 +523,32 @@ struct Resolver<'a> {
     images: ImageFiles,
     /// Each image file read so far, by its path.
     by_path: HashMap<String, Result<ImageId, String>>,
+    /// The themes each folder's designs use, merged from every `themes.yml`
+    /// from that folder up, by folder: read once per resolve.
+    themes: HashMap<String, Rc<Themes>>,
+    /// Whether a `theme.` reference reached a node.
+    themed: bool,
 }
+
+/// The themes a folder's designs use: every `themes.yml` with `kind: themes`
+/// from the top of the served folder down to it, merged — a lower file's
+/// names over a higher one's, theme by theme.
+#[derive(Debug, Clone, Default)]
+struct Themes {
+    /// Whether any such file was found.
+    found: bool,
+    light: BTreeMap<String, Rgba>,
+    dark: BTreeMap<String, Rgba>,
+}
+
+/// One `themes.yml`'s two themes, as far as they are valid.
+struct ThemesFile {
+    light: BTreeMap<String, Rgba>,
+    dark: BTreeMap<String, Rgba>,
+}
+
+/// The file a folder's themes are in.
+pub const THEMES_FILE: &str = "themes.yml";
 
 /// How deep a resolved design's tree may nest, counting through instances:
 /// the parser's own limit for one file, and so far beyond any real design.
@@ -489,6 +563,268 @@ impl Resolver<'_> {
             pos,
             message,
         });
+    }
+
+    /// Binds every theme color written in `el` and the elements in it — in
+    /// `path`'s file — to that file's themes.
+    fn bind_element(&mut self, path: &str, el: &mut Element) {
+        for attr in &mut el.attrs {
+            self.bind(path, &mut attr.value);
+        }
+        for child in &mut el.children {
+            if let Child::Element(e) = child {
+                self.bind_element(path, e);
+            }
+        }
+    }
+
+    /// Binds a value written in `path` to `path`'s themes: `theme.name` to
+    /// its two colors, and a gradient naming theme colors to one gradient
+    /// per theme.
+    fn bind(&mut self, path: &str, value: &mut Value) {
+        match value {
+            Value::Theme(name, pos) => {
+                // A problem already when there is none; any color keeps
+                // the rest of the design checked.
+                let (light, dark) = self
+                    .theme_color(path, name, *pos)
+                    .map_or(("#0000".into(), "#0000".into()), |(l, d)| (hex(l), hex(d)));
+                *value = Value::Themed {
+                    light,
+                    dark,
+                    written: format!("theme.{name}"),
+                };
+            }
+            Value::Str(s, pos) if s.starts_with("linear-gradient(") && s.contains("theme.") => {
+                let (mut light, mut dark) = (String::new(), String::new());
+                let mut rest = s.as_str();
+                let mut col = pos.col + 1;
+                while let Some(at) = rest.find("theme.") {
+                    let before = &rest[..at];
+                    light.push_str(before);
+                    dark.push_str(before);
+                    col += before.chars().count() as u32;
+                    let after = &rest[at + "theme.".len()..];
+                    let len = after
+                        .find(|c: char| !(c.is_alphanumeric() || c == '_' || c == '-'))
+                        .unwrap_or(after.len());
+                    let name = &after[..len];
+                    let at_ref = Pos {
+                        line: pos.line,
+                        col,
+                    };
+                    match self.theme_color(path, name, at_ref) {
+                        Some((l, d)) => {
+                            light.push_str(&hex(l));
+                            dark.push_str(&hex(d));
+                        }
+                        // A problem already; any color keeps the rest checked.
+                        None => {
+                            light.push_str("#0000");
+                            dark.push_str("#0000");
+                        }
+                    }
+                    col += ("theme.".len() + name.chars().count()) as u32;
+                    rest = &after[len..];
+                }
+                light.push_str(rest);
+                dark.push_str(rest);
+                *value = Value::Themed {
+                    light,
+                    dark,
+                    written: format!("\"{s}\""),
+                };
+            }
+            Value::Array(items) => {
+                for item in items {
+                    self.bind(path, item);
+                }
+            }
+            Value::Object(fields) => {
+                for (_, v) in fields {
+                    self.bind(path, v);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The two colors of `theme.name`, written at `pos` in `path`, from the
+    /// themes of `path`'s folder — or `None`, with the problem reported.
+    fn theme_color(&mut self, path: &str, name: &str, pos: Pos) -> Option<(Rgba, Rgba)> {
+        let folder = path.rsplit_once('/').map_or("", |(folder, _)| folder);
+        let themes = self.themes(folder);
+        let problem = if !themes.found {
+            format!(
+                "theme.{name}: no {THEMES_FILE} with kind: themes in this design's folder or above it"
+            )
+        } else {
+            match (themes.light.get(name), themes.dark.get(name)) {
+                (Some(l), Some(d)) => return Some((*l, *d)),
+                (None, None) => {
+                    let mut names: Vec<&String> =
+                        themes.light.keys().chain(themes.dark.keys()).collect();
+                    names.sort();
+                    names.dedup();
+                    let names: Vec<&str> = names.iter().map(|n| n.as_str()).collect();
+                    if names.is_empty() {
+                        format!("theme.{name}: the themes have no colors")
+                    } else {
+                        format!(
+                            "theme.{name}: the themes have no {name}; they have {}",
+                            names.join(", ")
+                        )
+                    }
+                }
+                (Some(_), None) => format!(
+                    "theme.{name}: only the light theme has {name}; a name needs a color in both"
+                ),
+                (None, Some(_)) => format!(
+                    "theme.{name}: only the dark theme has {name}; a name needs a color in both"
+                ),
+            }
+        };
+        self.problem(path, pos, problem);
+        None
+    }
+
+    /// The themes the designs in `folder` use: its own `themes.yml` over
+    /// those of the folders above it, each read once per resolve — a missing
+    /// one too, so that creating it counts as a change.
+    fn themes(&mut self, folder: &str) -> Rc<Themes> {
+        if let Some(themes) = self.themes.get(folder) {
+            return themes.clone();
+        }
+        let above = match folder.rsplit_once('/') {
+            Some((parent, _)) => self.themes(parent),
+            None if folder.is_empty() => Rc::new(Themes::default()),
+            None => self.themes(""),
+        };
+        let file = if folder.is_empty() {
+            THEMES_FILE.to_string()
+        } else {
+            format!("{folder}/{THEMES_FILE}")
+        };
+        let themes = match self.themes_file(&file) {
+            None => above,
+            Some(own) => {
+                let mut merged = (*above).clone();
+                merged.found = true;
+                merged.light.extend(own.light);
+                merged.dark.extend(own.dark);
+                Rc::new(merged)
+            }
+        };
+        self.themes.insert(folder.to_string(), themes.clone());
+        themes
+    }
+
+    /// The themes in the file at `path`, as far as they are valid, with its
+    /// problems reported; `None` when there is no such file or it isn't a
+    /// themes file — its `kind` isn't `themes`.
+    fn themes_file(&mut self, path: &str) -> Option<ThemesFile> {
+        let text = self.files.read(path)?;
+        if !self.read.iter().any(|p| p == path) {
+            self.read.push(path.to_string());
+        }
+        let mut file = ThemesFile {
+            light: BTreeMap::new(),
+            dark: BTreeMap::new(),
+        };
+        let yaml: serde_yaml::Value = match serde_yaml::from_str(&text) {
+            Ok(yaml) => yaml,
+            Err(e) => {
+                // Only a file that says it is a themes file is ours to report.
+                if !text.lines().any(|l| l.trim() == "kind: themes") {
+                    return None;
+                }
+                let pos = e.location().map_or(Pos { line: 1, col: 1 }, |l| Pos {
+                    line: l.line() as u32,
+                    col: l.column() as u32,
+                });
+                self.problem(path, pos, format!("this themes file isn't valid YAML: {e}"));
+                return Some(file);
+            }
+        };
+        let serde_yaml::Value::Mapping(top) = yaml else {
+            return None;
+        };
+        if top.get("kind").and_then(|k| k.as_str()) != Some("themes") {
+            return None;
+        }
+        let start = Pos { line: 1, col: 1 };
+        for (key, value) in &top {
+            let key = key.as_str().unwrap_or_default();
+            let theme = match key {
+                "kind" => continue,
+                "light" => &mut file.light,
+                "dark" => &mut file.dark,
+                other => {
+                    let pos = key_pos(&text, None, other).unwrap_or(start);
+                    self.problem(
+                        path,
+                        pos,
+                        format!("{other}: a themes file has kind, light and dark only"),
+                    );
+                    continue;
+                }
+            };
+            let at = key_pos(&text, None, key).unwrap_or(start);
+            let serde_yaml::Value::Mapping(colors) = value else {
+                self.problem(
+                    path,
+                    at,
+                    format!("{key}: expected a map of names to colors, like surface: \"#ffffff\""),
+                );
+                continue;
+            };
+            for (name, color) in colors {
+                let Some(name) = name.as_str() else {
+                    self.problem(path, at, format!("{key}: a color's name is text"));
+                    continue;
+                };
+                let pos = key_pos(&text, Some(key), name).unwrap_or(at);
+                if name.is_empty()
+                    || name.starts_with(|c: char| c.is_ascii_digit() || c == '-')
+                    || !name
+                        .chars()
+                        .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+                {
+                    self.problem(
+                        path,
+                        pos,
+                        format!(
+                            "{key}.{name}: a name holds letters, digits, _ and -, and starts with a letter"
+                        ),
+                    );
+                    continue;
+                }
+                let value = match color {
+                    serde_yaml::Value::String(s) => rgba(s),
+                    serde_yaml::Value::Null => Err(
+                        "no color: write it in quotes, \"#rrggbb\", as YAML reads # as a comment"
+                            .to_string(),
+                    ),
+                    _ => Err("expected a color like \"#rrggbb\"".to_string()),
+                };
+                match value {
+                    Ok(c) => {
+                        theme.insert(name.to_string(), c);
+                    }
+                    Err(e) => self.problem(path, pos, format!("{key}.{name}: {e}")),
+                }
+            }
+        }
+        for needed in ["light", "dark"] {
+            if !top.contains_key(needed) {
+                self.problem(
+                    path,
+                    start,
+                    format!("a themes file has a light and a dark theme; this one has no {needed}"),
+                );
+            }
+        }
+        Some(file)
     }
 
     /// The root node of the design at `path`, with `args` given to its props.
@@ -516,7 +852,7 @@ impl Resolver<'_> {
         if !self.read.iter().any(|p| p == path) {
             self.read.push(path.to_string());
         }
-        let file = match parse::parse(&source) {
+        let mut file = match parse::parse(&source) {
             Ok(file) => file,
             Err(mut problem) => {
                 problem.file = path.to_string();
@@ -524,8 +860,22 @@ impl Resolver<'_> {
                 return None;
             }
         };
+        // Bound now, before any value leaves this file as a prop: a theme
+        // color is this file's, wherever it is used.
+        self.bind_element(path, &mut file.root);
         let mut imports = HashMap::new();
         for import in &file.imports {
+            if import.name == parse::THEME {
+                self.problem(
+                    path,
+                    import.pos,
+                    format!(
+                        "import {0} — {0} is the name of the design's themes",
+                        import.name
+                    ),
+                );
+                continue;
+            }
             if ELEMENTS.contains(&import.name.as_str()) {
                 self.problem(
                     path,
@@ -584,6 +934,16 @@ impl Resolver<'_> {
             match &attr.value {
                 Value::Object(fields) => {
                     for (k, v) in fields {
+                        if k == parse::THEME {
+                            self.problem(
+                                path,
+                                attr.pos,
+                                format!(
+                                    "props: {k} is the name of the design's themes, not a prop"
+                                ),
+                            );
+                            continue;
+                        }
                         props.insert(k.clone(), v.clone());
                     }
                 }
@@ -731,6 +1091,7 @@ impl Resolver<'_> {
                 },
                 v => v.clone(),
             };
+            self.themed |= has_theme(&value);
             self.fill_needs_layout(path, attr, &value, parent);
             self.place_needs_no_layout(path, attr, parent);
             self.attribute(path, &mut node, attr, value);
@@ -759,10 +1120,17 @@ impl Resolver<'_> {
                             match part {
                                 TextPart::Literal(s) => content.push_str(s),
                                 TextPart::Prop(p) => match props.get(p) {
-                                    Some(Value::Str(s)) => content.push_str(s),
+                                    Some(Value::Str(s, _)) => content.push_str(s),
                                     Some(Value::Num(n)) => content.push_str(&n.to_string()),
                                     _ => self.problem(path, *pos, format!("no text prop \"{p}\"")),
                                 },
+                                TextPart::Theme(name, at) => self.problem(
+                                    path,
+                                    *at,
+                                    format!(
+                                        "theme.{name} is a color, not text: give it to color={{theme.{name}}}"
+                                    ),
+                                ),
                             }
                         }
                     }
@@ -804,7 +1172,7 @@ impl Resolver<'_> {
     ) {
         if parent == Some(Layout::None)
             && matches!(attr.name.as_str(), "width" | "height")
-            && matches!(value, Value::Str(s) if s == "fill")
+            && matches!(value, Value::Str(s, _) if s == "fill")
         {
             self.problem(
                 path,
@@ -1052,12 +1420,12 @@ fn default_text() -> TextStyle {
         content: String::new(),
         size: 14.0,
         weight: 400,
-        color: Color {
+        color: Color::fixed(Rgba {
             r: 0x0f,
             g: 0x17,
             b: 0x2a,
             a: 255,
-        },
+        }),
         line_height: 1.4,
         align: TextAlign::Left,
     }
@@ -1184,20 +1552,58 @@ fn substitute(value: &Value, props: &Props) -> Value {
 
 fn show(v: &Value) -> String {
     match v {
-        Value::Str(s) => format!("\"{s}\""),
+        Value::Str(s, _) => format!("\"{s}\""),
         Value::Num(n) => n.to_string(),
         Value::Bool(b) => b.to_string(),
         Value::Array(_) => "an array".into(),
         Value::Object(_) => "an object".into(),
         Value::Prop(p) => p.clone(),
+        Value::Theme(name, _) => format!("theme.{name}"),
+        Value::Themed { written, .. } => written.clone(),
     }
 }
 
 fn str_of(v: &Value) -> Option<String> {
     match v {
-        Value::Str(s) => Some(s.clone()),
+        Value::Str(s, _) => Some(s.clone()),
         _ => None,
     }
+}
+
+/// Where `key` is written in a themes file's text: at the top level, or —
+/// with `under` — inside that top-level key's block. YAML's values carry no
+/// place, so a key is found by its text: on a line of its own, plain or in
+/// quotes.
+fn key_pos(text: &str, under: Option<&str>, key: &str) -> Option<Pos> {
+    let names = |line: &str, key: &str| {
+        let line = line.trim_start();
+        [
+            format!("{key}:"),
+            format!("\"{key}\":"),
+            format!("'{key}':"),
+        ]
+        .iter()
+        .any(|k| line.starts_with(k.as_str()))
+    };
+    let top = |line: &str| !line.starts_with([' ', '\t']) && !line.trim().is_empty();
+    let mut inside = under.is_none();
+    for (n, line) in text.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        let pos = Pos {
+            line: n as u32 + 1,
+            col: (line.len() - line.trim_start().len()) as u32 + 1,
+        };
+        match under {
+            None if top(line) && names(line, key) => return Some(pos),
+            None => {}
+            Some(block) if top(line) => inside = names(line, block),
+            Some(_) if inside && names(line, key) => return Some(pos),
+            Some(_) => {}
+        }
+    }
+    None
 }
 
 /// The built-in elements; an import can't take one of their names.
@@ -1227,8 +1633,8 @@ fn size(v: &Value) -> Result<Size, String> {
     match v {
         Value::Num(n) if *n >= 0.0 => Ok(Size::Px(*n as f32)),
         Value::Num(n) => Err(format!("expected pixels of 0 or more, found {n}")),
-        Value::Str(s) if s == "hug" => Ok(Size::Hug),
-        Value::Str(s) if s == "fill" => Ok(Size::Fill),
+        Value::Str(s, _) if s == "hug" => Ok(Size::Hug),
+        Value::Str(s, _) if s == "fill" => Ok(Size::Fill),
         other => Err(format!(
             "expected pixels, \"hug\" or \"fill\", found {}",
             show(other)
@@ -1247,10 +1653,26 @@ fn align(v: &Value, justify: bool) -> Result<Align, String> {
     }
 }
 
+/// A color: a `#…` one, the same in both themes, or a theme color bound to
+/// its file's themes.
 fn color(v: &Value) -> Result<Color, String> {
-    let Value::Str(s) = v else {
-        return Err(format!("expected a color, found {}", show(v)));
-    };
+    match v {
+        Value::Str(s, _) => rgba(s).map(Color::fixed),
+        Value::Themed { light, dark, .. } => Ok(Color {
+            light: rgba(light)?,
+            dark: rgba(dark)?,
+        }),
+        _ => Err(format!("expected a color, found {}", show(v))),
+    }
+}
+
+/// A `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` color.
+pub fn rgba(s: &str) -> Result<Rgba, String> {
+    if s.starts_with("theme.") {
+        return Err(format!(
+            "{s} is a theme color: write it in braces, {{{s}}}, not in quotes"
+        ));
+    }
     let hex = s.strip_prefix('#').ok_or("expected a color like #rrggbb")?;
     if !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err(format!("{s} is not a color"));
@@ -1260,25 +1682,25 @@ fn color(v: &Value) -> Result<Color, String> {
     };
     let dd = |i: usize| d(i, 1).map(|v| v * 17);
     match hex.len() {
-        3 => Ok(Color {
+        3 => Ok(Rgba {
             r: dd(0)?,
             g: dd(1)?,
             b: dd(2)?,
             a: 255,
         }),
-        4 => Ok(Color {
+        4 => Ok(Rgba {
             r: dd(0)?,
             g: dd(1)?,
             b: dd(2)?,
             a: dd(3)?,
         }),
-        6 => Ok(Color {
+        6 => Ok(Rgba {
             r: d(0, 2)?,
             g: d(2, 2)?,
             b: d(4, 2)?,
             a: 255,
         }),
-        8 => Ok(Color {
+        8 => Ok(Rgba {
             r: d(0, 2)?,
             g: d(2, 2)?,
             b: d(4, 2)?,
@@ -1288,15 +1710,56 @@ fn color(v: &Value) -> Result<Color, String> {
     }
 }
 
+/// `c` written as `#rrggbbaa`.
+fn hex(c: Rgba) -> String {
+    format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
+}
+
 fn fill(v: &Value) -> Result<Fill, String> {
-    let Value::Str(s) = v else {
-        return Err(format!("expected a color or a gradient, found {}", show(v)));
-    };
+    match v {
+        Value::Str(s, _) => fill_of(s),
+        // Each theme's string differs only in its colors, so the two fills
+        // have the same shape.
+        Value::Themed { light, dark, .. } => match (fill_of(light)?, fill_of(dark)?) {
+            (Fill::Solid(l), Fill::Solid(d)) => Ok(Fill::Solid(Color {
+                light: l.light,
+                dark: d.light,
+            })),
+            (
+                Fill::Linear { angle, stops: l },
+                Fill::Linear {
+                    stops: d,
+                    angle: dark_angle,
+                },
+            ) if angle == dark_angle && l.len() == d.len() => Ok(Fill::Linear {
+                angle,
+                stops: l
+                    .iter()
+                    .zip(&d)
+                    .map(|((l, at), (d, _))| {
+                        (
+                            Color {
+                                light: l.light,
+                                dark: d.light,
+                            },
+                            *at,
+                        )
+                    })
+                    .collect(),
+            }),
+            _ => Err(format!("{} is not the same fill in both themes", show(v))),
+        },
+        _ => Err(format!("expected a color or a gradient, found {}", show(v))),
+    }
+}
+
+/// A fill written as a string, its colors the same in both themes.
+fn fill_of(s: &str) -> Result<Fill, String> {
     let Some(inner) = s
         .strip_prefix("linear-gradient(")
         .and_then(|r| r.strip_suffix(')'))
     else {
-        return color(v).map(Fill::Solid);
+        return rgba(s).map(|c| Fill::Solid(Color::fixed(c)));
     };
     let wrong =
         || format!("expected \"linear-gradient(<angle>deg, <color> <stop>%, …)\", found \"{s}\"");
@@ -1311,12 +1774,22 @@ fn fill(v: &Value) -> Result<Fill, String> {
         let (c, at) = part.split_once(' ').ok_or_else(wrong)?;
         let at = at.trim().strip_suffix('%').ok_or_else(wrong)?;
         let at = parse::number(at)? as f32;
-        stops.push((color(&Value::Str(c.to_string()))?, at / 100.0));
+        stops.push((Color::fixed(rgba(c)?), at / 100.0));
     }
     if stops.len() < 2 {
         return Err(wrong());
     }
     Ok(Fill::Linear { angle, stops })
+}
+
+/// Whether a value holds a theme color, at any depth.
+fn has_theme(v: &Value) -> bool {
+    match v {
+        Value::Themed { .. } | Value::Theme(..) => true,
+        Value::Array(items) => items.iter().any(has_theme),
+        Value::Object(fields) => fields.iter().any(|(_, v)| has_theme(v)),
+        _ => false,
+    }
 }
 
 fn shadow(v: &Value) -> Result<Shadow, String> {
@@ -1328,12 +1801,12 @@ fn shadow(v: &Value) -> Result<Shadow, String> {
         y: 0.0,
         blur: 0.0,
         spread: 0.0,
-        color: Color {
+        color: Color::fixed(Rgba {
             r: 0,
             g: 0,
             b: 0,
             a: 64,
-        },
+        }),
         at: Origin::default(),
     };
     for (k, v) in fields {
@@ -1378,12 +1851,12 @@ mod tests {
         assert_eq!(button.opacity, 0.5);
         assert_eq!(
             button.fill,
-            Some(Fill::Solid(Color {
+            Some(Fill::Solid(Color::fixed(Rgba {
                 r: 0x25,
                 g: 0x63,
                 b: 0xeb,
                 a: 255
-            }))
+            })))
         );
         assert_eq!(button.children[0].text.as_ref().unwrap().content, "Pay");
         assert_eq!(scene.files, vec!["a/screen.design", "a/button.design"]);
@@ -2014,7 +2487,7 @@ mod tests {
         let root = &scene.root;
         assert_eq!(root.padding, [1.0, 2.0, 1.0, 2.0]);
         assert_eq!(root.radius, [1.0, 2.0, 3.0, 4.0]);
-        let c = |r, g, b, a| Color { r, g, b, a };
+        let c = |r, g, b, a| Color::fixed(Rgba { r, g, b, a });
         assert_eq!(
             root.fill,
             Some(Fill::Linear {
@@ -2176,5 +2649,268 @@ import B from "./b.design"
         );
         // x and y in a frame with no layout are fine.
         assert!(problems(r#"<Frame><Rect width={1} height={1} x={5} y={5} /></Frame>"#).is_empty());
+    }
+
+    const THEMES: &str = r##"kind: themes
+light:
+  surface: "#ffffff"
+  text: "#000"
+dark:
+  surface: "#0f172a"
+  text: "#f1f5f9"
+"##;
+
+    fn rgb(r: u8, g: u8, b: u8) -> Rgba {
+        Rgba { r, g, b, a: 255 }
+    }
+
+    #[test]
+    fn a_theme_color_has_a_value_in_each_theme() {
+        let fs = files(&[
+            ("themes.yml", THEMES),
+            (
+                "a.design",
+                r##"<Frame fill={theme.surface} stroke="#ff0000"
+       shadow={{ y: 2, color: theme.text }}>
+  <Text color={theme.text}>Hi</Text>
+  <Rect width={1} height={1} fill="linear-gradient(90deg, theme.surface 0%, #ff0000 100%)" />
+</Frame>"##,
+            ),
+        ]);
+        let scene = resolve(&fs, "a.design").unwrap();
+        assert!(scene.themed);
+        let surface = Color {
+            light: rgb(255, 255, 255),
+            dark: rgb(0x0f, 0x17, 0x2a),
+        };
+        let text = Color {
+            light: rgb(0, 0, 0),
+            dark: rgb(0xf1, 0xf5, 0xf9),
+        };
+        let root = &scene.root;
+        assert_eq!(root.fill, Some(Fill::Solid(surface)));
+        // A # color is the same in both.
+        assert_eq!(root.stroke, Some(Color::fixed(rgb(255, 0, 0))));
+        assert_eq!(root.shadow.as_ref().unwrap().color, text);
+        assert_eq!(root.children[0].text.as_ref().unwrap().color, text);
+        assert_eq!(
+            root.children[1].fill,
+            Some(Fill::Linear {
+                angle: 90.0,
+                stops: vec![(surface, 0.0), (Color::fixed(rgb(255, 0, 0)), 1.0)]
+            })
+        );
+        assert_eq!(scene.files, vec!["a.design", "themes.yml"]);
+        // A design with no theme color isn't themed, and reads no themes.
+        let plain = resolve(
+            &files(&[("themes.yml", THEMES), ("b.design", "<Frame />")]),
+            "b.design",
+        )
+        .unwrap();
+        assert!(!plain.themed);
+        assert_eq!(plain.files, vec!["b.design"]);
+    }
+
+    /// Files that record every path asked for.
+    struct Asked(HashMap<String, String>, std::cell::RefCell<Vec<String>>);
+
+    impl Files for Asked {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            self.1.borrow_mut().push(path.to_string());
+            self.0.bytes(path)
+        }
+    }
+
+    #[test]
+    fn the_nearest_themes_override_those_above_name_by_name() {
+        let fs = Asked(
+            files(&[
+                ("themes.yml", THEMES),
+                (
+                    "app/themes.yml",
+                    "kind: themes\nlight:\n  text: \"#111111\"\ndark: {}\n",
+                ),
+                // Another tool's file: passed over.
+                ("app/screens/themes.yml", "kind: tokens\nlight: 1\n"),
+                (
+                    "app/screens/a.design",
+                    "<Frame fill={theme.surface}><Text color={theme.text}>Hi</Text></Frame>",
+                ),
+            ]),
+            Default::default(),
+        );
+        let scene = resolve(&fs, "app/screens/a.design").unwrap();
+        assert_eq!(
+            scene.root.fill,
+            Some(Fill::Solid(Color {
+                light: rgb(255, 255, 255),
+                dark: rgb(0x0f, 0x17, 0x2a)
+            }))
+        );
+        // Light's text from app/, dark's from the top.
+        assert_eq!(
+            scene.root.children[0].text.as_ref().unwrap().color,
+            Color {
+                light: rgb(0x11, 0x11, 0x11),
+                dark: rgb(0xf1, 0xf5, 0xf9)
+            }
+        );
+        // Every candidate is asked for once, the missing and the passed-over
+        // ones too, so writing any of them counts as a change.
+        let mut asked = fs.1.borrow().clone();
+        asked.retain(|p| p.ends_with("themes.yml"));
+        assert_eq!(
+            asked,
+            vec!["app/screens/themes.yml", "app/themes.yml", "themes.yml"]
+                .into_iter()
+                .rev()
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_theme_color_belongs_to_the_file_that_wrote_it() {
+        let dark_red =
+            "kind: themes\nlight:\n  accent: \"#ff0000\"\ndark:\n  accent: \"#880000\"\n";
+        let blue = "kind: themes\nlight:\n  accent: \"#0000ff\"\ndark:\n  accent: \"#000088\"\n";
+        let fs = files(&[
+            ("kit/themes.yml", dark_red),
+            (
+                "kit/button.design",
+                "<Frame props={{ fill: theme.accent }} fill={fill} />",
+            ),
+            ("app/themes.yml", blue),
+            (
+                "app/screen.design",
+                "import Button from \"../kit/button.design\"\n<Frame layout=\"row\">\n  <Button />\n  <Button fill={theme.accent} />\n</Frame>",
+            ),
+        ]);
+        let scene = resolve(&fs, "app/screen.design").unwrap();
+        let fill = |n: usize| scene.root.children[n].fill.clone();
+        // The default is the kit's red; the color the screen passes, its blue.
+        assert_eq!(
+            fill(0),
+            Some(Fill::Solid(Color {
+                light: rgb(255, 0, 0),
+                dark: rgb(0x88, 0, 0)
+            }))
+        );
+        assert_eq!(
+            fill(1),
+            Some(Fill::Solid(Color {
+                light: rgb(0, 0, 255),
+                dark: rgb(0, 0, 0x88)
+            }))
+        );
+        assert!(scene.themed);
+    }
+
+    #[test]
+    fn a_theme_color_that_isnt_there_is_a_problem_at_the_reference() {
+        let one_sided = "kind: themes\nlight:\n  surface: \"#fff\"\n  edge: \"#000\"\ndark:\n  surface: \"#000\"\n";
+        let design = r##"<Frame fill={theme.srface}>
+  <Rect width={1} height={1} fill={theme.edge} />
+  <Rect width={1} height={1} fill="linear-gradient(90deg, #000 0%, theme.nope 100%)" />
+  <Text>{theme.surface}</Text>
+</Frame>"##;
+        let fs = files(&[("themes.yml", one_sided), ("a.design", design)]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec![
+                "a.design:1:14: theme.srface: the themes have no srface; they have edge, surface",
+                "a.design:2:36: theme.edge: only the light theme has edge; a name needs a color in both",
+                "a.design:3:68: theme.nope: the themes have no nope; they have edge, surface",
+                "a.design:4:10: theme.surface is a color, not text: give it to color={theme.surface}",
+            ]
+        );
+        // With no themes file above the design at all.
+        let fs = files(&[("a/a.design", "<Frame fill={theme.surface} />")]);
+        assert_eq!(
+            problems_in(&fs, "a/a.design"),
+            vec![
+                "a/a.design:1:14: theme.surface: no themes.yml with kind: themes in this design's folder or above it"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_malformed_themes_file_is_a_problem_at_its_line() {
+        let broken = r##"kind: themes
+# the light one
+light:
+  surface: "#ffff"
+  text: "#gg0000"
+  edge: #000
+  9lives: "#000"
+dark: "#000"
+colour: red
+"##;
+        let fs = files(&[
+            ("themes.yml", broken),
+            ("a.design", "<Frame fill={theme.surface} />"),
+        ]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec![
+                "themes.yml:5:3: light.text: #gg0000 is not a color",
+                "themes.yml:6:3: light.edge: no color: write it in quotes, \"#rrggbb\", as YAML reads # as a comment",
+                "themes.yml:7:3: light.9lives: a name holds letters, digits, _ and -, and starts with a letter",
+                "themes.yml:8:1: dark: expected a map of names to colors, like surface: \"#ffffff\"",
+                "themes.yml:9:1: colour: a themes file has kind, light and dark only",
+                "a.design:1:14: theme.surface: only the light theme has surface; a name needs a color in both",
+            ]
+        );
+        let fs = files(&[
+            ("themes.yml", "kind: themes\nlight: {}\n"),
+            ("a.design", "<Frame fill={theme.surface} />"),
+        ]);
+        assert_eq!(
+            problems_in(&fs, "a.design")[0],
+            "themes.yml:1:1: a themes file has a light and a dark theme; this one has no dark"
+        );
+        let fs = files(&[
+            ("themes.yml", "kind: themes\nlight: [\n"),
+            ("a.design", "<Frame fill={theme.surface} />"),
+        ]);
+        assert!(
+            problems_in(&fs, "a.design")[0]
+                .starts_with("themes.yml:3:1: this themes file isn't valid YAML: "),
+            "{:?}",
+            problems_in(&fs, "a.design")
+        );
+        // A file that doesn't say it is a themes file is someone else's.
+        let fs = files(&[("themes.yml", "light: [\n"), ("a.design", "<Frame />")]);
+        assert!(resolve(&fs, "a.design").is_ok());
+    }
+
+    #[test]
+    fn theme_is_no_props_or_imports_name() {
+        let fs = files(&[
+            ("themes.yml", THEMES),
+            ("b.design", "<Frame />"),
+            (
+                "a.design",
+                "import theme from \"./b.design\"\n<Frame props={{ theme: \"#fff\" }} fill={theme} />",
+            ),
+        ]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec![
+                "a.design:1:1: import theme — theme is the name of the design's themes",
+                "a.design:2:8: props: theme is the name of the design's themes, not a prop",
+                "a.design:2:34: fill: no prop \"theme\"",
+            ]
+        );
+        // In quotes it is a string, not a color.
+        let fs = files(&[
+            ("themes.yml", THEMES),
+            ("a.design", "<Frame fill=\"theme.surface\" />"),
+        ]);
+        assert_eq!(
+            problems_in(&fs, "a.design"),
+            vec![
+                "a.design:1:8: fill: theme.surface is a theme color: write it in braces, {theme.surface}, not in quotes"
+            ]
+        );
     }
 }

@@ -13,7 +13,7 @@ pub mod wire;
 use std::fmt;
 
 pub use render::Renderer;
-pub use resolve::{Files, Scene, resolve};
+pub use resolve::{Files, Scene, Theme, resolve};
 
 /// Something wrong with a design, at a place in one of its files.
 #[derive(Debug, Clone, PartialEq)]
@@ -33,10 +33,12 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Paints a scene's whole drawing at 1× and encodes it as a PNG, or says why
-/// it can't: see [`Renderer::drawing`].
-pub fn png(renderer: &mut Renderer, scene: &Scene) -> Result<Vec<u8>, String> {
-    let drawing = renderer.drawing(scene, None).map_err(|e| e.message)?;
+/// Paints a scene's whole drawing at 1× in `theme` and encodes it as a PNG,
+/// or says why it can't: see [`Renderer::drawing`].
+pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u8>, String> {
+    let drawing = renderer
+        .drawing(scene, theme, None)
+        .map_err(|e| e.message)?;
     render::paint_list(drawing.area, &drawing.list, 1.0)
         .into_png()
         .map_err(|e| format!("encoding the PNG: {e}"))

@@ -305,9 +305,28 @@ pub fn selector(document: &Document) -> String {
 /// The light/dark button itself, for a page that shows one.
 pub fn theme_toggle() -> String {
     format!(
-        "<button type=\"button\" class=\"theme-toggle\" title=\"Switch theme\" aria-label=\"Switch theme\"><span class=\"to-dark\">{}</span><span class=\"to-light\">{}</span></button>",
+        "<button type=\"button\" class=\"theme-toggle\" title=\"Switch theme\" aria-label=\"Switch theme\">{}</button>",
+        theme_icons()
+    )
+}
+
+/// The switch's two faces — a moon to switch to dark, a sun to switch to
+/// light — which the stylesheet shows one at a time: the page's switch and
+/// an embedded design's own.
+pub fn theme_icons() -> String {
+    format!(
+        "<span class=\"to-dark\">{}</span><span class=\"to-light\">{}</span>",
         icons::svg("moon").unwrap_or_default(),
         icons::svg("sun").unwrap_or_default()
+    )
+}
+
+/// An embedded design's own theme switch, hidden until the design script
+/// finds the design themed; it turns only that embed.
+pub fn design_theme_toggle() -> String {
+    format!(
+        "<button type=\"button\" class=\"design-theme\" hidden title=\"Switch this design's theme\" aria-label=\"Switch this design's theme\">{}</button>",
+        theme_icons()
     )
 }
 

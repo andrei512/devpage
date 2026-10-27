@@ -40,6 +40,9 @@ pub enum Child {
 pub enum TextPart {
     Literal(String),
     Prop(String),
+    /// `{theme.name}`, which is a color and so never text: written where it
+    /// is, so the resolver can say so there.
+    Theme(String, Pos),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,12 +54,27 @@ pub struct Attr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
-    Str(String),
+    /// A string, and where its opening quote is: a gradient names theme
+    /// colors inside one.
+    Str(String, Pos),
     Num(f64),
     Bool(bool),
     Array(Vec<Value>),
     Object(Vec<(String, Value)>),
     Prop(String),
+    /// `theme.name`, a color from the themes of the file it is written in,
+    /// and where `theme` starts.
+    Theme(String, Pos),
+    /// A theme color bound to the themes of the file that wrote it: the
+    /// value in each theme — a color, or a gradient with the theme's colors
+    /// in it — and the value as written, for problems. The resolver makes
+    /// these from `Theme`, and from strings that name theme colors, as it
+    /// reads a file; the parser never does.
+    Themed {
+        light: String,
+        dark: String,
+        written: String,
+    },
 }
 
 /// Parses a whole file, or gives the one problem where it first went wrong.
@@ -105,6 +123,10 @@ struct Parser {
 /// How deep elements, arrays and objects may nest in one file: far beyond any
 /// real design, and well inside the stack the parser recurses on.
 pub const MAX_DEPTH: usize = 256;
+
+/// The name a design writes its theme colors under, `theme.name`: no prop
+/// and no import may take it.
+pub const THEME: &str = "theme";
 
 /// The largest number a design may write, in either direction: far beyond any
 /// real design, and small enough that layout and painting stay finite.
@@ -325,10 +347,17 @@ impl Parser {
                     }
                     self.bump();
                     self.skip_space();
+                    let pos = self.pos();
                     let name = self.ident()?;
+                    let part = if name == THEME && self.peek() == Some('.') {
+                        self.bump();
+                        TextPart::Theme(self.ident()?, pos)
+                    } else {
+                        TextPart::Prop(name)
+                    };
                     self.skip_space();
                     self.expect('}')?;
-                    text.push(TextPart::Prop(name));
+                    text.push(part);
                 }
                 Some(c) => {
                     if text.is_empty() && literal.trim().is_empty() && !c.is_whitespace() {
@@ -343,7 +372,10 @@ impl Parser {
 
     fn attr_value(&mut self) -> Result<Value, Problem> {
         match self.peek() {
-            Some('"' | '\'') => Ok(Value::Str(self.string()?)),
+            Some('"' | '\'') => {
+                let pos = self.pos();
+                Ok(Value::Str(self.string()?, pos))
+            }
             Some('{') => {
                 self.bump();
                 self.skip_space();
@@ -371,7 +403,10 @@ impl Parser {
 
     fn value_inner(&mut self) -> Result<Value, Problem> {
         match self.peek() {
-            Some('"' | '\'') => Ok(Value::Str(self.string()?)),
+            Some('"' | '\'') => {
+                let pos = self.pos();
+                Ok(Value::Str(self.string()?, pos))
+            }
             Some('[') => {
                 self.bump();
                 let mut items = Vec::new();
@@ -431,10 +466,15 @@ impl Parser {
                     .map_err(|message| self.problem(&message))
             }
             _ => {
+                let pos = self.pos();
                 let name = self.ident()?;
                 Ok(match name.as_str() {
                     "true" => Value::Bool(true),
                     "false" => Value::Bool(false),
+                    THEME if self.peek() == Some('.') => {
+                        self.bump();
+                        Value::Theme(self.ident()?, pos)
+                    }
                     _ => Value::Prop(name),
                 })
             }
@@ -614,9 +654,15 @@ import Button from "./button.design"
             .unwrap();
         let attrs = &file.root.attrs;
         // No escapes: a backslash is itself, in either quote.
-        assert_eq!(attrs[0].value, Value::Str(r#"it\s "quoted""#.into()));
+        assert_eq!(
+            attrs[0].value,
+            Value::Str(r#"it\s "quoted""#.into(), Pos { line: 1, col: 13 })
+        );
         assert_eq!(attrs[1].name, "aria-label");
-        assert_eq!(attrs[1].value, Value::Str(r"a\nb".into()));
+        assert_eq!(
+            attrs[1].value,
+            Value::Str(r"a\nb".into(), Pos { line: 1, col: 40 })
+        );
         // A bare attribute is true.
         assert_eq!(attrs[2].value, Value::Bool(true));
         assert_eq!(attrs[3].name, "data-x");
@@ -677,6 +723,45 @@ import Button from "./button.design"
             "`-1000001` is too small: numbers go down to -1000000"
         );
         assert!(parse("<Frame x={-1000000} />").is_ok());
+    }
+
+    #[test]
+    fn a_theme_color_is_a_value_with_its_place() {
+        let file = parse(
+            "<Frame fill={theme.surface} shadow={{ color: theme.shadow-dark }}>\n  <Text>{theme.text}</Text>\n</Frame>",
+        )
+        .unwrap();
+        let root = &file.root;
+        assert_eq!(
+            root.attrs[0].value,
+            Value::Theme("surface".into(), Pos { line: 1, col: 14 })
+        );
+        assert_eq!(
+            root.attrs[1].value,
+            Value::Object(vec![(
+                "color".into(),
+                Value::Theme("shadow-dark".into(), Pos { line: 1, col: 46 })
+            )])
+        );
+        let Child::Element(text) = &root.children[0] else {
+            panic!()
+        };
+        assert_eq!(
+            text.children,
+            vec![Child::Text(
+                vec![TextPart::Theme("text".into(), Pos { line: 2, col: 10 })],
+                Pos { line: 2, col: 9 }
+            )]
+        );
+        // `theme` alone is a prop's name, which the resolver refuses.
+        assert_eq!(
+            parse("<Frame fill={theme} />").unwrap().root.attrs[0].value,
+            Value::Prop("theme".into())
+        );
+        assert_eq!(
+            parse("<Frame fill={theme.} />").unwrap_err().message,
+            "expected a name"
+        );
     }
 
     #[test]

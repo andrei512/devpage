@@ -1,6 +1,6 @@
 // A button: one line of text on a filled, rounded box.
-<Frame props={{ label: "Button", fill: "#2563eb" }}
+<Frame props={{ label: "Button", fill: theme.accent }}
        layout="row" padding={[12, 20]} radius={8} fill={fill}
-       justify="center" shadow={{ y: 2, blur: 6, color: "#1e3a8a33" }}>
+       justify="center" shadow={{ y: 2, blur: 6, color: theme.accentShadow }}>
   <Text size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>

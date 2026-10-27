@@ -79,7 +79,7 @@ One element of a resolved design — a frame, text, rectangle, ellipse, vector o
 
 ## scene
 
-A design resolved into one tree of nodes, imports and props substituted, ready to lay out and paint.
+A design resolved into one tree of nodes, imports, props and theme colors substituted, every color with its light and its dark value, ready to lay out and paint in either theme. A scene is **themed** when any `theme.` reference reached it.
 
 ## interaction
 
@@ -107,7 +107,7 @@ A design shown inside a page, written as an image of it — `![Checkout](checkou
 
 ## backdrop
 
-The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
+The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner — and, for a themed design, the embed's own theme switch beside it. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
 
 ## watch stream
 
@@ -271,7 +271,11 @@ A widget a project writes: one `.tsx` file in the folder its document file's `wi
 
 ## theme
 
-A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them.
+A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/README.md#themes).
+
+## themes.yml
+
+The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
 
 ## navbar
 

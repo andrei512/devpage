@@ -46,6 +46,11 @@ marks; the yellow (`#ffd60a`, half seen through) of the
 [words a search result found](../search/README.md#landing-on-the-match). How the tokens reach highlighted code and diagrams is on
 [How themes reach code and diagrams](how-themes-reach-code-and-diagrams/README.md).
 
+A [design](../designs/README.md) has light and dark themes of its own: the
+colors its `themes.yml` names, which it draws with instead of the tokens. It
+is drawn in the theme of the page it is shown on, so a dark page shows a dark
+design on a dark backdrop — see [Themes](../designs/README.md#themes).
+
 ## Choosing a theme
 
 Every page — a site's, a doc, a deck — has a theme switch in its top-right
@@ -54,7 +59,9 @@ the theme a click switches to — a moon in light, a sun in dark. Until the read
 clicks it, the page follows their system setting; after, the browser remembers
 the theme they switched to, for the address it was made on. A switch changes
 everything drawn from the tokens at once: the page, highlighted code, diagrams
-and widgets. On a site with a navbar the button sits at the right end of the
+and widgets — and every design on the page, in its own theme of the same
+name. An embedded design that uses its themes has a switch of its own on its
+backdrop, which turns that embed alone and isn't remembered. On a site with a navbar the button sits at the right end of the
 bar. It is never printed, and a deck hides it in fullscreen. A document file
 turns it off with `theme-selector: false`; the page then follows the system
 setting, as before the switch existed.

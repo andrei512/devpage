@@ -7,8 +7,10 @@
 // A canvas is `<canvas class="design" src="…">`. On the canvas page
 // (`body.design-page`) it fills the window and can be zoomed and panned, and a
 // navigation changes the address; embedded in a page it sits on a backdrop with a
-// link to its canvas page, and a navigation stays inside it. Either way a
-// design is drawn at its own size, scaled down only to fit, never enlarged.
+// link to its canvas page — and, for a themed design, a theme switch of its
+// own — and a navigation stays inside it. Either way a design is drawn at its
+// own size, scaled down only to fit, never enlarged, in the theme its page
+// shows unless the embed's own switch turned it.
 // The engine, or why it couldn't load: then every canvas says so instead of
 // drawing.
 let Applied, Design, Gpu, failure;
@@ -122,6 +124,13 @@ function room(backdrop) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// The theme the page shows: "light" or "dark".
+function pageTheme() {
+  const theme = document.documentElement.dataset.theme;
+  if (theme === "light" || theme === "dark") return theme;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
 // The opaque color the page shows behind `element`, as 0xRRGGBB: its
 // ancestors' backgrounds, translucent ones blended over those beneath.
 function background(element) {
@@ -150,18 +159,33 @@ class Host {
     this.cpu = null; // the CPU's last painting: { scale, bitmap }
     this.overlay = null;
     this.frame = 0;
+    // The theme an embed's own switch turned it to; until then, none — it
+    // follows the page. Never remembered.
+    this.own = null;
     if (mode === "embed") {
+      const backdrop = canvas.parentElement;
       // A canvas made again from the page's HTML comes with copies of what
       // the last one added beside it.
-      for (const stale of canvas.parentElement.querySelectorAll(":scope > a.design-open, :scope > .design-problems")) {
+      for (const stale of backdrop.querySelectorAll(":scope > .design-corner, :scope > .design-problems")) {
         stale.remove();
       }
+      delete backdrop.dataset.theme;
       canvas.removeAttribute("style");
+      // The corner: the embed's own theme switch, which the page renders
+      // hidden beside the canvas, then the link to the canvas page.
+      const corner = document.createElement("div");
+      corner.className = "design-corner";
+      this.toggle = backdrop.querySelector(":scope > button.design-theme");
+      if (this.toggle) {
+        corner.append(this.toggle);
+        this.toggle.addEventListener("click", () => this.switchTheme());
+      }
       this.link = document.createElement("a");
       this.link.className = "design-open";
       this.link.textContent = "Open";
       this.link.title = "Open this design on its own page";
-      canvas.parentElement.append(this.link);
+      corner.append(this.link);
+      backdrop.append(corner);
       // The backdrop's room can change after the design arrives — a widget
       // mounting around it, a slide being shown: fit it again then.
       this.resized = new ResizeObserver(() => this.paint());
@@ -199,7 +223,7 @@ class Host {
     this.path = path;
     this.cpu = null;
     this.view.fitted = true;
-    if (this.link) this.link.href = `/${path}`;
+    this.showLink();
     // A new scene starts empty, and the stream sends a design's whole scene
     // only when it opens: open it again, even if another canvas already
     // watches this design.
@@ -213,6 +237,7 @@ class Host {
   receive(message) {
     const applied = this.design.apply(message);
     if (applied === Applied.Changed) {
+      if (this.toggle) this.toggle.hidden = !this.design.themed();
       this.showProblems([]);
       this.cpu = null;
       this.paint();
@@ -253,6 +278,30 @@ class Host {
         return item;
       }),
     );
+  }
+
+  // The theme this canvas draws its design in: an overlay's is the canvas it
+  // covers; an embed's its own switch's, once turned, else the page's.
+  theme() {
+    if (this.mode === "overlay") return this.parent.theme();
+    return this.own ?? pageTheme();
+  }
+
+  // The embed's own switch: only this embed — design, overlay and backdrop,
+  // whose tokens follow its `data-theme` — turns to the other theme.
+  switchTheme() {
+    this.own = this.theme() === "dark" ? "light" : "dark";
+    this.canvas.parentElement.dataset.theme = this.own;
+    const label = this.own === "dark" ? "Switch this design to light" : "Switch this design to dark";
+    this.toggle.title = label;
+    this.toggle.setAttribute("aria-label", label);
+    this.paint();
+    this.overlay?.paint();
+  }
+
+  // The link to the canvas page, carrying the theme the embed shows.
+  showLink() {
+    if (this.link) this.link.href = `/${this.path}?theme=${this.theme()}`;
   }
 
   // The view: where the design sits and how large, in CSS pixels.
@@ -310,6 +359,9 @@ class Host {
 
   draw() {
     if (!this.design || !this.canvas.isConnected) return;
+    // The scene holds both themes: a switch is a new drawing, made here.
+    if (this.design.set_theme(this.theme() === "dark")) this.cpu = null;
+    this.showLink();
     if (!this.fit()) return this.settle();
     // The bitmap matches the canvas's box on the screen, in device pixels.
     // The view is in CSS pixels, which a transform — a scaled slide — shrinks
@@ -476,7 +528,8 @@ class Host {
       return;
     }
     if (verb === "navigate" && target) {
-      if (this.mode === "page") history.pushState(null, "", `/${target}`);
+      // The canvas page keeps a theme its address named.
+      if (this.mode === "page") history.pushState(null, "", `/${target}${asked ? `?theme=${asked}` : ""}`);
       else this.history.push(this.path);
       this.closeOverlay();
       this.open(target);
@@ -568,13 +621,21 @@ addEventListener("resize", () => {
   for (const host of hosts) host.paint();
 });
 
-// A theme switch changes the page's background, which the GPU paints behind
-// a design: every canvas paints again. On a page the page script switches the
-// theme; the canvas page has no page script, so this one runs its switch —
-// the same choice, kept under the same name.
+// A theme switch changes the designs' colors and the page's background,
+// which the GPU paints behind a design: every canvas paints again — but an
+// embed its own switch turned keeps its theme. On a page the page script
+// switches the theme; the canvas page has no page script, so this one runs
+// its switch — the same choice, kept under the same name.
 new MutationObserver(() => {
   for (const host of hosts) host.paint();
 }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+
+// The theme the canvas page's address names, `?theme=light` or `dark`: it
+// shows for this view, over the remembered choice, which it leaves alone.
+const asked = (() => {
+  const theme = new URLSearchParams(location.search).get("theme");
+  return theme === "light" || theme === "dark" ? theme : null;
+})();
 
 if (document.body.classList.contains("design-page")) {
   const system = matchMedia("(prefers-color-scheme: dark)");
@@ -586,7 +647,8 @@ if (document.body.classList.contains("design-page")) {
       return null;
     }
   };
-  const apply = (theme = saved()) => {
+  let chosen = asked;
+  const apply = (theme = chosen ?? saved()) => {
     document.documentElement.dataset.theme = theme || (system.matches ? "dark" : "light");
     const label = document.documentElement.dataset.theme === "dark" ? "Switch to light" : "Switch to dark";
     for (const button of document.querySelectorAll(".theme-toggle")) {
@@ -604,6 +666,7 @@ if (document.body.classList.contains("design-page")) {
     } catch {
       // Storage may be blocked; the switch still holds for this page.
     }
+    chosen = theme;
     apply(theme);
   });
 }

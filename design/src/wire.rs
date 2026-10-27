@@ -7,17 +7,33 @@ use std::sync::Arc;
 
 use crate::proto;
 use crate::resolve::{
-    Align, Color, Fill, Image, ImageFile, ImageFiles, ImageId, Kind, Layout, Node, Origin, Scene,
-    Shadow, Size, TextAlign, TextStyle, Vector,
+    Align, Color, Fill, Image, ImageFile, ImageFiles, ImageId, Kind, Layout, Node, Origin, Rgba,
+    Scene, Shadow, Size, TextAlign, TextStyle, Vector,
 };
 
-fn rgba(c: Color) -> u32 {
+fn word(c: Rgba) -> u32 {
     u32::from_be_bytes([c.r, c.g, c.b, c.a])
 }
 
-fn color(v: u32) -> Color {
+fn unword(v: u32) -> Rgba {
     let [r, g, b, a] = v.to_be_bytes();
-    Color { r, g, b, a }
+    Rgba { r, g, b, a }
+}
+
+fn rgba(c: Color) -> proto::Color {
+    proto::Color {
+        light: word(c.light),
+        dark: word(c.dark),
+    }
+}
+
+/// A color from the wire; one the stream left out is transparent.
+fn color(c: Option<proto::Color>) -> Color {
+    let c = c.unwrap_or_default();
+    Color {
+        light: unword(c.light),
+        dark: unword(c.dark),
+    }
 }
 
 fn size(s: Size) -> f32 {
@@ -83,7 +99,7 @@ pub fn encode(n: &Node) -> proto::Node {
                 stops: stops
                     .iter()
                     .map(|(c, at)| proto::Stop {
-                        color: rgba(*c),
+                        color: Some(rgba(*c)),
                         at: *at,
                     })
                     .collect(),
@@ -106,7 +122,7 @@ pub fn encode(n: &Node) -> proto::Node {
             y: s.y,
             blur: s.blur,
             spread: s.spread,
-            color: rgba(s.color),
+            color: Some(rgba(s.color)),
         }),
         clip: n.clip,
         layout: match n.layout {
@@ -122,7 +138,7 @@ pub fn encode(n: &Node) -> proto::Node {
             content: t.content.clone(),
             size: t.size,
             weight: t.weight as u32,
-            color: rgba(t.color),
+            color: Some(rgba(t.color)),
             line_height: t.line_height,
             align: match t.align {
                 TextAlign::Left => proto::TextAlign::Left,
@@ -161,14 +177,14 @@ pub fn decode(n: &proto::Node) -> Result<Node, String> {
         opacity: n.opacity,
         on_click: Some(n.on_click.clone()).filter(|s| !s.is_empty()),
         fill: match (&n.fill, &n.gradient) {
-            (Some(c), _) => Some(Fill::Solid(color(*c))),
+            (Some(c), _) => Some(Fill::Solid(color(Some(*c)))),
             (None, Some(g)) => Some(Fill::Linear {
                 angle: g.angle,
                 stops: g.stops.iter().map(|s| (color(s.color), s.at)).collect(),
             }),
             (None, None) => None,
         },
-        stroke: n.stroke.map(color),
+        stroke: n.stroke.map(|c| color(Some(c))),
         stroke_width: n.stroke_width,
         radius: four(&n.radius),
         shadow: n.shadow.as_ref().map(|s| Shadow {
@@ -222,6 +238,7 @@ pub fn scene(scene: &Scene) -> proto::Scene {
     proto::Scene {
         root: Some(encode(&scene.root)),
         images: scene.images.values().map(|f| file(f)).collect(),
+        themed: scene.themed,
     }
 }
 
@@ -243,6 +260,7 @@ pub fn patch(old: &Scene, new: &Scene) -> proto::Patch {
             .filter(|f| !old.images.contains_key(&f.id))
             .map(|f| file(f))
             .collect(),
+        themed: new.themed,
     }
 }
 
@@ -293,6 +311,7 @@ pub fn decode_scene(message: &proto::Scene, held: &ImageFiles) -> Result<Scene, 
         root,
         images,
         files: Vec::new(),
+        themed: message.themed,
     })
 }
 
@@ -338,6 +357,7 @@ pub fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<(), String> {
         *at = decode(node)?;
     }
     settle(&next.root, &mut next.images)?;
+    next.themed = patch.themed;
     *scene = next;
     Ok(())
 }
@@ -385,6 +405,40 @@ mod tests {
         let mut applied = decode_scene(&super::scene(&old), &ImageFiles::new()).unwrap();
         apply(&mut applied, &patch).unwrap();
         assert_eq!(applied.root, new.root);
+    }
+
+    /// Every color travels with both its values, and a scene and a patch
+    /// say whether it is themed.
+    #[test]
+    fn a_scene_carries_both_themes() {
+        let themed = |fill: &str| {
+            let files: HashMap<String, String> = [
+                (
+                    "themes.yml".to_string(),
+                    "kind: themes\nlight:\n  a: \"#ffffff\"\ndark:\n  a: \"#000000\"\n".to_string(),
+                ),
+                (
+                    "a.design".to_string(),
+                    format!(
+                        "<Frame fill={{{fill}}} stroke={{{fill}}} shadow={{{{ color: {fill} }}}}><Text color={{{fill}}}>Hi</Text><Rect fill=\"linear-gradient(0deg, theme.a 0%, #f00 100%)\" /></Frame>"
+                    ),
+                ),
+            ]
+            .into();
+            crate::resolve(&files, "a.design").unwrap()
+        };
+        let light_only = themed("\"#ffffff\"");
+        let both = themed("theme.a");
+        assert!(both.themed);
+        assert_eq!(decode(&encode(&both.root)).unwrap(), both.root);
+        let whole = decode_scene(&super::scene(&light_only), &ImageFiles::new()).unwrap();
+        assert!(whole.themed, "the gradient names theme.a");
+        let mut applied = whole;
+        apply(&mut applied, &patch(&light_only, &both)).unwrap();
+        assert_eq!(applied.root, both.root);
+        let plain = scene("<Frame />");
+        apply(&mut applied, &patch(&both, &plain)).unwrap();
+        assert!(!applied.themed);
     }
 
     /// Files as bytes, so a test can hold an image.
