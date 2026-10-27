@@ -1,4 +1,4 @@
-# Try the deployed devpage locally: docker compose -f deploy/compose.yaml up --build
+# Try the deployed devpage locally: docker compose -f deploy/bundled/compose.yaml up --build
 # then open http://localhost:8090. Only the proxy is published, as on a cluster.
 services:
   devpage:
