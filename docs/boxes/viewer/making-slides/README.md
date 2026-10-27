@@ -33,7 +33,7 @@ diagrams all work as on any page, with links and images relative to the
 slide's own file.
 
 **A real deck to copy.** [The devpage talk](../../../talks/devpage/devpage.yml)
-is thirteen slides made this way, a talk about devpage made with devpage, with
+is fourteen slides made this way, a talk about devpage made with devpage, with
 speaker notes on every slide. Each slide is one headline and one picture: the
 project widget `Slide` lays the slide out, and project widgets in
 `docs/widgets/` draw the pictures — `Hero` for the title, `AgentFiles`,

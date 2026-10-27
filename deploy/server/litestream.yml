@@ -1,0 +1,9 @@
+# Litestream keeps the store — one SQLite file — in the bucket beside the
+# version zips, and restores it from there onto an empty volume.
+# devpage-server sets the LITESTREAM_* variables from DEVPAGE_BUCKET_URL.
+dbs:
+  - path: ${DEVPAGE_DATA_DIR}/store.db
+    replica:
+      url: ${LITESTREAM_REPLICA_URL}
+      endpoint: ${LITESTREAM_ENDPOINT}
+      force-path-style: ${LITESTREAM_FORCE_PATH_STYLE}
