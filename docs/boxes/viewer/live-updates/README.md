@@ -148,14 +148,16 @@ in them already gets past sifting:
 
 - `.devpage` is shallow, and its comment store, `.devpage/comments`, is in
   sight; nothing else under `.devpage/` is watched.
-- An ignored folder a site's `watch` list can name something in. Each
+- An ignored folder a site's `watch` list explicitly reaches into. Each
   pattern's literal prefix — its components before the first with a glob
   character — joined to its site's folder decides: an ignored folder is
-  watched when it holds that prefix or the prefix holds it. So
-  `watch: ["build/*.svg"]` keeps `docs/build/` watched, and `**/*.md` in
-  `docs/devpage.yml` keeps every ignored folder under `docs/` watched;
-  nothing names `target/`. The prefixes are every site's — the entry's and
-  every indexed site's.
+  watched when the prefix is in it or is it, or when the prefix is an
+  ignored folder holding it. So `watch: ["build/*.svg"]` keeps `docs/build/`
+  and the folders under it watched, while `**/*.md` in `docs/devpage.yml`,
+  whose prefix is `docs/` itself, reaches into no ignored folder: it can
+  match `docs/build/out.md`, but nothing in `docs/build/` is watched, and
+  nothing at all in `target/`. The prefixes are every site's — the entry's
+  and every indexed site's.
 
 **Re-planning.** After each burst, the burst thread plans the set again and
 the platform applies only the difference — a folder no longer in the set
@@ -166,6 +168,13 @@ stops being watched, a new one starts — when the burst holds:
 - a folder created in sight that the platform doesn't report on yet — on
   macOS, one in a shallow folder — or a removed one holding a watched
   folder;
+- a watched folder deleted and made again, even within one burst: the
+  platform judges what it reports on by the watches it holds, not by the
+  last plan, and a deleted folder's watch is gone with it — so the folder
+  made again counts as not reported on, is watched again, and what is
+  already in it is handled as changed (`rm -rf docs/guides && git checkout
+  docs/guides`). On macOS a deep folder's stream follows its path and goes
+  on reporting;
 - a folder created out of sight directly in a folder in sight: `cargo build`
   in a nested crate creates `crate/target/`, which makes the crate's deep
   folder shallow. This is judged from the path, as sifting is, before
@@ -197,7 +206,9 @@ written into a new folder of the comment store at once.
   non-recursive on every folder in sight — the shallow folders and every
   folder of the deep ones. inotify watches a folder at a time anyway, so an
   ignored folder gets no inotify watch at all, and a folder created in sight
-  is watched on the next re-plan.
+  is watched on the next re-plan. A folder an event says was removed or
+  renamed is no longer counted watched, with every folder under it, so the
+  next re-plan watches whatever has its name again.
 - **Elsewhere** (`src/watch/recursive.rs`): `notify`'s recommended watcher,
   recursive on the whole served folder, as before the watch set: it reports
   everything, and sifting drops what is out of sight.

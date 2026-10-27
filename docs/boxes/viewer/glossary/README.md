@@ -155,7 +155,7 @@ An open page fetching itself again and swapping in its content and navigation, i
 
 ## out of sight
 
-A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` list can name something in. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
+A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
 
 ## watch set
 
