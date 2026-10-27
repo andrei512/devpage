@@ -34,7 +34,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/render.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
+| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/render/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
 
@@ -61,7 +61,7 @@ except where a code comment says so, and this page doesn't guess.
 | `libc` (macOS only) | 0.2.191 | MIT or Apache-2.0 | kqueue (`EVFILT_VNODE`) on the shallow folders and the files directly in them, and raising the open-files limit kqueue's descriptors count against. Already in the tree. | `src/adapters/watch/macos.rs` |
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/index.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
-| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search.rs` |
+| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
 | `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/server.rs` |
 
 ## Documents, comments and data
@@ -70,7 +70,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/server.rs` |
 | `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/drive/server.rs`, `core/src/render.rs`, `core/src/widgets/` |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/drive/server.rs`, `core/src/render/frame.rs`, `core/src/render/sidebar.rs`, `core/src/widgets/` |
 
 ## Links and Chrome
 

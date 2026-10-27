@@ -4,7 +4,7 @@ How a Markdown file becomes the HTML page a reader sees: comrak turns it into
 HTML with highlighted code, its diagrams are drawn, the title and sidebar are
 worked out, and the pieces go into the page frame. It is a mechanism page under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
-for someone about to change `core/src/render.rs`, `core/src/highlight.rs` or
+for someone about to change `core/src/render/`, `core/src/highlight.rs` or
 `core/src/diagrams.rs`.
 
 ```mermaid
@@ -29,7 +29,7 @@ does the steps below.
 ## Markdown to HTML
 
 `render::markdown` runs comrak with these options
-(`options()` in `core/src/render.rs`):
+(`options()` in `core/src/render/markdown.rs`):
 
 | Option | Effect |
 | --- | --- |

@@ -26,7 +26,7 @@ Each part of the diagram opens the page that explains it.
 flowchart LR
   main["main.rs<br/>commands, startup"] --> drive["Driving: src/drive/<br/>server.rs, pdf.rs, slide_png.rs, video.rs"]
   main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, http.rs, terminal.rs"]
-  drive --> core["The core: core/src/<br/>document.rs, index.rs, resolve.rs, render.rs,<br/>check.rs, comments/, designs.rs, widgets/"]
+  drive --> core["The core: core/src/<br/>document.rs, index.rs, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/"]
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
   click main href "#how-main-wires-it-together" "How main wires it together"
@@ -41,7 +41,7 @@ flowchart LR
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
 | `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `core/src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
-| `core/src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
+| `core/src/search/` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. `mod.rs` holds `Search` — `build`, `changed`, `search` — and the answer's types; `gather.rs` reads what is published into sections; `index.rs` is the schema and the indexing; `query.rs` turns a query into words and tantivy queries; `rank.rs` ranks sections and makes snippets. |
 | `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus for the documents at `/` — a thread file only when the server's comment store didn't just write it — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
 | `core/src/lib.rs` | The core crate's modules, and what it may not depend on. |
 | `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) scoped to the documents under one mount prefix, or to every document, and the `Publish` port a producer publishes them through. |
@@ -59,7 +59,7 @@ flowchart LR
 | `core/build.rs` | The asset manifest — every built-in asset under its content address, compressed as brotli and gzip — and devpage's build id. |
 | `core/src/addresses.rs` | `address`, the one function that makes every address a page loads from devpage — built-in assets, system widgets, project widgets and their helpers — and the manifest `core/build.rs` made. |
 | `src/drive/validators.rs` | The middleware that gives every response but the streams an ETag and answers `304`; `Accept-Encoding` negotiation. |
-| `core/src/render.rs` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar, from the problems it is given — rendering checks nothing itself; an invalid document file's page. |
+| `core/src/render/` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar, from the problems it is given — rendering checks nothing itself; an invalid document file's page. `markdown.rs` is Markdown to HTML; `frame.rs` the frame of each kind; `sidebar.rs` a site's sidebar. |
 | `core/src/markup.rs` | A page's Markdown read as text, before rendering: its front matter, its title, its `<Notes>`, and the scanner that finds widget tags outside code. A leaf: it uses nothing else in devpage. Its tests read notes from text alone. |
 | `core/src/served.rs` | `ServedFolder`: the served folder and the boundary around it — resolving a path, link or URL inside it with symbolic links followed, refusing what lands outside, and a file's address. Every check that a path lies inside the served folder goes through it. A leaf. |
 | `core/src/problem.rs` | `Problem`: one broken thing and where it was found, as checking, the navbar, widgets and comments report it. A leaf. |
