@@ -105,8 +105,6 @@ struct SidebarGroup {
 struct SidebarEntry {
     label: String,
     href: String,
-    /// Whether this is the page's position, not a second listing of it.
-    home: bool,
     children: Vec<SidebarGroup>,
 }
 
@@ -120,7 +118,6 @@ impl SidebarGroup {
                 .map(|entry| SidebarEntry {
                     label: entry.label.clone(),
                     href: document.url(&entry.file),
-                    home: entry.home,
                     children: entry
                         .children
                         .iter()
@@ -146,10 +143,9 @@ impl SidebarEntry {
 }
 
 impl SidebarEntry {
-    /// Whether this entry is the page shown: its position, never a second
-    /// listing of it.
+    /// Whether this entry is the page shown.
     fn is(&self, current: &str) -> bool {
-        self.home && self.href == current
+        self.href == current
     }
 }
 
