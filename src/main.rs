@@ -1,26 +1,22 @@
 //! devpage: serves the documents of a repository — sites, docs and slides
 //! written in Markdown — live in the browser, and prints them to PDF.
 
-mod addresses;
-mod check;
-mod comments;
-mod designs;
-mod diagrams;
-mod document;
-mod highlight;
-mod icons;
-mod index;
-mod nav;
-mod navbar;
-mod pdf;
-mod render;
-mod search;
-mod server;
-mod slide_png;
-mod validators;
-mod video;
-mod watch;
-mod widgets;
+// The code is arranged by role. The core — documents, rendering, checking,
+// comments, designs — is the `devpage-core` crate, which depends on no I/O
+// runtime; the binary plugs adapters into its ports and drives it.
+
+/// Driven adapters: what the core's ports are plugged into.
+mod adapters;
+/// Driving adapters: what drives the core — the HTTP server, Chrome.
+mod drive;
+
+// The core's modules and the binary's, each by its own name.
+use adapters::{changes, http, terminal, watch};
+use devpage_core::{
+    addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
+    resolve, served, widgets,
+};
+use drive::{pdf, server, slide_png, validators, video};
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -29,7 +25,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
 
 use crate::document::{Document, Entry};
 use crate::index::Index;
@@ -91,7 +86,7 @@ async fn main() -> Result<()> {
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served,
         )?;
-        let problems = check::document(&document, true).await;
+        let problems = check::document(&document, Some(&http::external(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -125,16 +120,38 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 
-    let designs = designs::Designs::new(document.served.clone());
+    let designs = designs::Designs::new(document.served.path().to_path_buf());
 
-    let (changes, _) = broadcast::channel(16);
-    check::announce_on(changes.clone());
-    let _watcher = watch::start(
-        entry.clone(),
-        index.clone(),
-        designs.clone(),
-        changes.clone(),
-    )?;
+    let changes = changes::Changes::default();
+    let preview = Arc::new(check::Preview::new(
+        http::external(Some(changes.clone())),
+        Arc::new(terminal::Terminal),
+    ));
+    // Who writes a comment — or no one: comments are off.
+    let comments = if cli.no_comments {
+        None
+    } else if cli.host.is_loopback() {
+        Some(server::Identity::Local(comments::local_author(
+            document.served.path(),
+        )))
+    } else {
+        Some(server::Identity::Header(cli.user_header))
+    };
+    let shots = slide_png::Shots::new(&changes);
+    let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
+    let options = server::Options {
+        entry,
+        index,
+        designs,
+        changes,
+        comments,
+        store: threads.clone(),
+        threads,
+        shots: shots.clone(),
+        preview,
+        log: true,
+    };
+    let _watcher = options.watch()?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -149,18 +166,7 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    // Who writes a comment — or no one: comments are off.
-    let comments = if cli.no_comments {
-        None
-    } else if cli.host.is_loopback() {
-        Some(server::Identity::Local(comments::local_author(
-            &document.served,
-        )))
-    } else {
-        Some(server::Identity::Header(cli.user_header))
-    };
-    let shots = slide_png::Shots::new(&changes);
-    let router = server::router_with_index(entry, index, designs, changes, comments, shots.clone());
+    let router = server::router(options);
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

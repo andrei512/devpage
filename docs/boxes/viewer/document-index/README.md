@@ -58,7 +58,7 @@ Of two sites in the same folder, the one whose file name sorts first wins.
 
 ## The index
 
-Finding the nearest site never scans folders. `src/index.rs` keeps an
+Finding the nearest site never scans folders. `core/src/index.rs` keeps an
 **index** of the served folder: every document file and its kind, and every
 `.gitignore`.
 
@@ -80,9 +80,9 @@ Finding the nearest site never scans folders. `src/index.rs` keeps an
 </Steps>
 
 `devpage` shares one index between the server and the watcher
-(`server::router_with_index`), built with the [search index](../search/README.md)
+(`server::Options`), built with the [search index](../search/README.md)
 of what the entry document publishes (`Index::with_search`). `devpage pdf`, a slide's PNG and
 `devpage video` serve through
-`server::printing`, which builds its own index, without search, has no
-watcher and logs nothing; `server::router`, which also builds its own index, exists only for
-the tests.
+`server::Options::printing`, which builds its own index, without search, has no
+watcher and logs nothing; `server::Options::new`, which builds the same, is
+what tests start from.

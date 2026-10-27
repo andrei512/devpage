@@ -1,5 +1,5 @@
 //! The vendored WebAssembly module: what it is built from, and the fingerprint
-//! that says whether `assets/vendor/` still holds a module built from the
+//! that says whether `core/assets/vendor/` still holds a module built from the
 //! sources as they are now.
 
 use std::collections::{BTreeSet, HashMap};
@@ -13,9 +13,9 @@ use sha2::{Digest, Sha256};
 pub const COMMAND: &str = "cargo run -p devpage-design-module";
 
 /// The vendored files, from the top of the repository.
-pub const MODULE: &str = "assets/vendor/design-engine.wasm";
-pub const BINDINGS: &str = "assets/vendor/design-engine.js";
-pub const FINGERPRINT: &str = "assets/vendor/design-engine.fingerprint";
+pub const MODULE: &str = "core/assets/vendor/design-engine.wasm";
+pub const BINDINGS: &str = "core/assets/vendor/design-engine.js";
+pub const FINGERPRINT: &str = "core/assets/vendor/design-engine.fingerprint";
 
 /// Folders whose every file goes into the module, or decides how it is built.
 const FOLDERS: &[&str] = &[
@@ -80,7 +80,7 @@ pub fn fingerprint(root: &Path) -> String {
     })
 }
 
-/// The fingerprint `assets/vendor/` records, if it records one.
+/// The fingerprint `core/assets/vendor/` records, if it records one.
 pub fn recorded(root: &Path) -> Option<String> {
     let text = fs::read_to_string(root.join(FINGERPRINT)).ok()?;
     text.lines()
@@ -192,7 +192,7 @@ mod tests {
         assert_eq!(
             recorded(&root).as_deref(),
             Some(now.as_str()),
-            "the vendored design engine in assets/vendor/ was built from other sources \
+            "the vendored design engine in core/assets/vendor/ was built from other sources \
              than these — rebuild it with `{COMMAND}`"
         );
         for file in [MODULE, BINDINGS] {

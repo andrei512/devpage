@@ -36,7 +36,7 @@ results, so the same code runs in two places.
   the GPU.
 
 The WebAssembly module and its JavaScript bindings are **vendored**: built
-once, committed under `assets/vendor/` like the
+once, committed under `core/assets/vendor/` like the
 [pele bundle](../vendored-pele/README.md), and compiled into the binary as
 [built-in assets](../serving-pages/README.md#built-in-assets), so an installed
 `devpage` is still one file and building devpage needs neither the
@@ -318,7 +318,7 @@ save costs the page's main thread under 1 ms instead of 6 to 17.
 
 The server keeps every design it has been asked for **resolved in memory** —
 its scene or its problems — with every file resolving it asked for, missing
-ones included, and the text of every file it read (`src/designs.rs`). A
+ones included, and the text of every file it read (`core/src/designs.rs`). A
 `themes.yml` a design's references read is one of its files like any other,
 and so is one that was looked for and isn't there; so is a font file, and a
 font folder's listing, which any file created, changed or deleted directly in
@@ -363,7 +363,7 @@ closes the stream and opens one for the new set, which starts again with each
 design's whole scene. One stream per page matters: a browser keeps at most six
 connections open to one address over HTTP/1.1, which is what devpage speaks
 unless it sits behind a proxy that offers more, and the page's
-[event stream](../live-updates/README.md#the-channel-and-the-stream) already
+[event stream](../live-updates/README.md#the-bus-and-the-stream) already
 holds one. For each design in the set:
 
 - the first update is the whole scene — every color in both themes, and
@@ -388,7 +388,7 @@ problems are not sent twice.
 
 ## In the browser
 
-The canvas page loads the WebAssembly module (`assets/design.js` does the
+The canvas page loads the WebAssembly module (`core/assets/design.js` does the
 page's part), opens the watch stream with `fetch`, reads the gRPC-Web frames
 off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps

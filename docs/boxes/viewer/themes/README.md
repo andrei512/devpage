@@ -13,7 +13,7 @@ switch, and on a page without one — the system setting
 (`prefers-color-scheme`). The chosen theme is set on the page as
 `data-theme="light"` or `data-theme="dark"` on `<html>`, before it paints, and
 every dark value hangs off that. The page's colors come from seven tokens,
-defined in `assets/style.css`:
+defined in `core/assets/style.css`:
 
 | Token | Used for | Light | Dark |
 | --- | --- | --- | --- |
@@ -72,7 +72,7 @@ setting, as before the switch existed.
 The themes can't be changed per document. A document file has no theme
 field — any field its kind doesn't have stops devpage with an error — and the
 stylesheet is compiled into the binary, so there is no custom stylesheet option
-and no way to add a third theme without changing `assets/style.css` and
+and no way to add a third theme without changing `core/assets/style.css` and
 rebuilding devpage.
 </Callout>
 

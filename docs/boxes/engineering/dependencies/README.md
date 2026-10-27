@@ -6,15 +6,18 @@ embeds. It is a reference page under
 [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
 
-devpage is a Cargo workspace of four crates: `devpage`, the binary, at the
-top; `devpage-design`, the [design engine](../../viewer/design-engine/README.md),
+devpage is a Cargo workspace of five crates: `devpage`, the binary, at the
+top; `devpage-core`, its [core](../code-map/README.md), in `core/`, which
+depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/design-engine/README.md),
 in `design/`; `devpage-design-wasm`, the engine built for the browser, in
 `design/wasm/`; and `devpage-design-module`, which builds that module into
-`assets/vendor/`, in `design/module/`. `devpage` and `devpage-design` are the
-two that are published, together, at a release
-([Release](../sdlc/stages/README.md#release)); the other two never are. Each
-crate's list is its `[dependencies]` and `[build-dependencies]`, and
-`devpage`'s `[dev-dependencies]`, marked below. The roles below say
+`core/assets/vendor/`, in `design/module/`. `devpage-design`, `devpage-core`
+and `devpage` are the three that are published, together and in that order,
+at a release ([Release](../sdlc/stages/README.md#release)); the other two
+never are. The tables below list `devpage`'s and `devpage-core`'s
+dependencies together: a path under `core/` is the core's, any other the
+binary's. Each crate's list is its `[dependencies]` and
+`[build-dependencies]`, and its `[dev-dependencies]`, marked below. The roles below say
 what each crate does in devpage. Why a crate was chosen over another is recorded nowhere,
 except where a code comment says so, and this page doesn't guess.
 
@@ -22,95 +25,101 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/server.rs`, `src/main.rs`, `src/pdf.rs`, `src/comments.rs` (tests) |
-| `tokio` (feature `full`) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channel that carries changes, background external-link checks, and reading files in handlers (`tokio::fs`). | `src/main.rs`, `src/server.rs`, `src/watch.rs`, `src/check.rs`, `src/pdf.rs`, `src/comments.rs` |
-| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends; `ReceiverStream` and the `Stream` trait, which make the design store's updates the watch stream's response. | `src/server.rs`, `src/designs.rs` |
+| `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/drive/server.rs`, `src/main.rs`, `src/drive/pdf.rs`, `src/drive/server/comments_browser.rs` (tests) |
+| `tokio` (feature `full`; the core's only as a dev dependency) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channels the change bus and the watch stream are made of, running background external-link checks and painting designs off the async threads, and reading files in handlers (`tokio::fs`); the runtime the core's async tests run on. | `src/main.rs`, `src/drive/server.rs`, `src/adapters/changes.rs`, `src/adapters/watch.rs`, `src/adapters/http.rs`, `src/drive/server/watch_stream.rs`, `src/drive/pdf.rs`, `core/src/` (tests) |
+| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `ReceiverStream` and the `Stream` trait, which make the design store's changes the watch stream's response, and the `Stream` the event route answers with. | `src/drive/server.rs`, `src/drive/server/watch_stream.rs` |
 | `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
 
 ## Markdown and code
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `src/render.rs`, `src/nav.rs`, `src/highlight.rs` |
-| `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `src/highlight.rs` |
-| `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `src/highlight.rs` |
+| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/render/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
+| `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
+| `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
 
 ## Widgets
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `Cargo.toml` pins it exactly (`=0.153.0`). | `src/widgets.rs` |
+| `oxc` (features `transformer`, `codegen`, `semantic`) | 0.153.0 | MIT | Compiling widgets from TSX to browser modules: parsing, finding the widget names a file uses without declaring (`semantic`), React's automatic JSX runtime and TypeScript stripping (`transformer`), and printing the module (`codegen`). Its `rust-version = 1.97` sets devpage's minimum Rust. `core/Cargo.toml` pins it exactly (`=0.153.0`). | `core/src/widgets/compile.rs` |
 
 ## Diagrams
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `src/diagrams.rs` |
+| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `core/src/diagrams.rs` |
 
 ## Files, watching and search
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `notify` | 8.2.1 | CC0-1.0 | The file watcher on Linux — its inotify watcher, non-recursive on every folder in sight — and, everywhere but macOS and Linux, its recommended watcher on the whole served folder; its event type is what every platform's watcher reports, on macOS too. | `src/watch.rs`, `src/watch/inotify.rs`, `src/watch/recursive.rs` |
-| `objc2-core-services` (macOS only; features `FSEvents`, `dispatch2`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The FSEvents binding: an FSEvents stream per deep folder, on a dispatch queue. `notify`'s own FSEvents watcher can't leave a subtree out (it filters in its callback, after fseventsd has delivered every event), so devpage drives FSEvents itself. Already in the tree through `notify`. | `src/watch/macos.rs` |
-| `objc2-core-foundation` (macOS only; features `CFArray`, `CFString`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The array of one path an FSEvents stream is created with. Already in the tree through `notify`. | `src/watch/macos.rs` |
-| `dispatch2` (macOS only) | 0.3.1 | Zlib or Apache-2.0 or MIT | The dispatch queue the FSEvents streams call back on, so no run-loop thread is needed. Already in the tree through `objc2-core-services`. | `src/watch/macos.rs` |
-| `libc` (macOS only) | 0.2.191 | MIT or Apache-2.0 | kqueue (`EVFILT_VNODE`) on the shallow folders and the files directly in them, and raising the open-files limit kqueue's descriptors count against. Already in the tree. | `src/watch/macos.rs` |
-| `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `src/index.rs` |
-| `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `src/document.rs` |
-| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `src/search.rs` |
-| `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/server.rs` |
+| `notify` | 8.2.1 | CC0-1.0 | The file watcher on Linux — its inotify watcher, non-recursive on every folder in sight — and, everywhere but macOS and Linux, its recommended watcher on the whole served folder; its event type is what every platform's watcher reports, on macOS too. | `src/adapters/watch.rs`, `src/adapters/watch/inotify.rs`, `src/adapters/watch/recursive.rs` |
+| `objc2-core-services` (macOS only; features `FSEvents`, `dispatch2`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The FSEvents binding: an FSEvents stream per deep folder, on a dispatch queue. `notify`'s own FSEvents watcher can't leave a subtree out (it filters in its callback, after fseventsd has delivered every event), so devpage drives FSEvents itself. Already in the tree through `notify`. | `src/adapters/watch/macos.rs` |
+| `objc2-core-foundation` (macOS only; features `CFArray`, `CFString`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The array of one path an FSEvents stream is created with. Already in the tree through `notify`. | `src/adapters/watch/macos.rs` |
+| `dispatch2` (macOS only) | 0.3.1 | Zlib or Apache-2.0 or MIT | The dispatch queue the FSEvents streams call back on, so no run-loop thread is needed. Already in the tree through `objc2-core-services`. | `src/adapters/watch/macos.rs` |
+| `libc` (macOS only) | 0.2.191 | MIT or Apache-2.0 | kqueue (`EVFILT_VNODE`) on the shallow folders and the files directly in them, and raising the open-files limit kqueue's descriptors count against. Already in the tree. | `src/adapters/watch/macos.rs` |
+| `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/index.rs` |
+| `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
+| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
+| `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/server.rs` |
 
 ## Documents, comments and data
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `src/document.rs`, `src/comments.rs`, `src/server.rs` |
-| `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `src/document.rs`, `src/comments.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/server.rs`, `src/render.rs`, `src/widgets.rs` |
+| `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/server.rs` |
+| `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/drive/server.rs`, `core/src/render/frame.rs`, `core/src/render/sidebar.rs`, `core/src/widgets/` |
 
 ## Links and Chrome
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one shared client, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/check.rs`, `src/server.rs` (tests) |
-| `futures` | 0.3.34 | MIT or Apache-2.0 | Running external-link checks at once (`join_all`) and driving chromiumoxide's event stream (`StreamExt`). | `src/check.rs`, `src/pdf.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
-| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/pdf.rs`, `src/slide_png.rs`, `src/video.rs`, `src/comments.rs` (tests), `src/designs/canvas_tests.rs` |
+| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/adapters/http.rs`, `src/drive/server.rs` (tests) |
+| `futures` | 0.3.34 | MIT or Apache-2.0 | The boxed futures of the core's `Ask` and `Background` ports, running external-link checks at once (`join_all`), and driving chromiumoxide's event stream (`StreamExt`). | `core/src/external.rs`, `src/adapters/http.rs`, `src/drive/pdf.rs`, `src/drive/server/comments_browser.rs` (tests), `src/drive/server/canvas_tests.rs` |
+| `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/drive/pdf.rs`, `src/drive/slide_png.rs`, `src/drive/video.rs`, `src/drive/server/comments_browser.rs` (tests), `src/drive/server/canvas_tests.rs` |
 
 ## Video
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `async-tungstenite` (features `tokio-runtime`, `tokio-rustls-native-certs`) | 0.32.1 | MIT | The WebSocket to GPT-Live for `devpage video`, over rustls with the system's root certificates. chromiumoxide already speaks DevTools through it, so it adds no crate. | `src/video/live.rs` |
-| `base64` | 0.22.1 | MIT or Apache-2.0 | The voice's PCM in GPT-Live's events and on its way into the page, and the finished mp4 on its way back out. | `src/video.rs`, `src/video/live.rs` |
+| `async-tungstenite` (features `tokio-runtime`, `tokio-rustls-native-certs`) | 0.32.1 | MIT | The WebSocket to GPT-Live for `devpage video`, over rustls with the system's root certificates. chromiumoxide already speaks DevTools through it, so it adds no crate. | `src/drive/video/live.rs` |
+| `base64` | 0.22.1 | MIT or Apache-2.0 | The voice's PCM in GPT-Live's events and on its way into the page, and the finished mp4 on its way back out. | `src/drive/video.rs`, `src/drive/video/live.rs` |
 
 ## Designs
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server`) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
-| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/designs.rs`, `src/server.rs` |
-| `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/server.rs` |
-| `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/server.rs` |
-| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/designs.rs` (tests) |
+| `devpage-design` (feature `server` in the binary only) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/server.rs`, `src/drive/server/watch_stream.rs` |
+| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/server/watch_stream.rs`, `src/drive/server.rs` |
+| `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/server.rs` |
+| `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/server.rs` |
+| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/drive/server/watch_stream.rs` (tests) |
 
 ## Caching
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `sha2` | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `build.rs`, `src/addresses.rs`, `src/widgets.rs`, `src/validators.rs` |
-| `brotli` (build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `build.rs`, `src/server.rs` (tests) |
-| `flate2` (build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `build.rs`, `src/server.rs` (tests) |
+| `sha2` (core; and its build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/modules.rs`, `src/drive/validators.rs` |
+| `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/server.rs` (tests) |
+| `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/server.rs` (tests) |
 
-`devpage`'s build script, `build.rs`, makes the asset manifest: each
+The core's build script, `core/build.rs`, makes the asset manifest: each
 [built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
 content's hash, so it is made again only when the asset changes, and the
-files of an asset's earlier versions are removed — and devpage's build id, a hash of everything the binary is built from.
-`src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
-binary embeds the vendored `assets/vendor/design-engine.wasm` and
-`assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
+files of an asset's earlier versions are removed — and devpage's build id, a hash of what the binary is built from. In a
+checkout that is the core's sources, assets and `Cargo.toml`, the binary's
+sources, assets, `Cargo.toml` and `Cargo.lock`, and the design crate's
+sources. A published `devpage-core` package holds only its own files, so a
+crates.io build hashes the core's sources, assets and `Cargo.toml` — whose
+version is devpage's, since the three crates are released at one version — and
+skips the rest.
+`core/src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
+binary embeds the vendored `core/assets/vendor/design-engine.wasm` and
+`core/assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
 and `design-engine.js`.
 
 ## Errors
@@ -128,7 +137,7 @@ compiles `design/proto/design.proto` with `protox` and generates the messages
 with `tonic-prost-build` — and, when the `server` feature is on, the
 `Designs` service's server side — so the server and the module share one set
 of message types, and the proto ships inside the crate. `devpage` turns
-`server` on; the module leaves it off.
+`server` on; `devpage-core` and the module leave it off.
 
 The top `Cargo.toml` builds the engine optimised in development builds too,
 with the crates it paints and encodes through — `vello_cpu`, `vello_common`,
@@ -169,7 +178,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 `cargo run -p devpage-design-module` builds `devpage-design-wasm` for
 `wasm32-unknown-unknown` with a nested `cargo build --profile wasm --locked`
 into `target/design-module/`, runs wasm-bindgen on the result, and writes the
-module and its bindings into `assets/vendor/` with
+module and its bindings into `core/assets/vendor/` with
 `design-engine.fingerprint`. The `wasm` profile in the top `Cargo.toml`
 inherits `release` and optimises for size (`opt-level = "s"`, `lto`, one
 codegen unit, stripped), because the page downloads the module. Its test

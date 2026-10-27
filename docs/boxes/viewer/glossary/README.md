@@ -61,6 +61,14 @@ The document devpage was started with, where `/` leads.
 
 The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to.
 
+## resolver
+
+What decides the answer to a request from the documents alone — a page, a redirect, a file's bytes, a design's or a slide's PNG, or an error with its reason — so the HTTP server only turns that answer into a response (`Resolver`, in `core/src/resolve.rs`). See [Routes](../serving-pages/README.md#routes).
+
+## mount prefix
+
+The address every document a server serves sits under, carried by every redirect the resolver answers with; empty, since `devpage` serves at `/`.
+
 ## design
 
 A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch.
@@ -193,6 +201,14 @@ The field at the top of a site's sidebar that searches the search index as the r
 
 An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed.
 
+## change bus
+
+What tells open pages there is something new to show: typed changes — a refresh, or the comments of a Markdown file — each published for a scope, by the watcher, the external-link checker and the server's comment writes (`Changes`). See [The bus and the stream](../live-updates/README.md#the-bus-and-the-stream).
+
+## scope
+
+Which open pages a change on the change bus is for: the documents under one mount prefix, or every document (`Scope`).
+
 ## out of sight
 
 A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
@@ -231,7 +247,7 @@ A comment whose quoted text is no longer on its page. It stays readable, listed 
 
 ## comment store
 
-`.devpage/comments/` at the top of the served folder: one YAML file per thread. Git never sees it — `.devpage/` ignores itself.
+Where threads are kept, behind the `Store` interface — list, create, reply, resolve. On disk it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. See [The comment store](../comments/the-comment-store/README.md).
 
 ## author
 
@@ -251,7 +267,7 @@ A fenced code block whose language is `mermaid`, drawn by the server as SVG in t
 
 ## diagram engine
 
-pele running in QuickJS on a thread of its own in the server, with a cache of what it drew and limits on each drawing's time and memory (`src/diagrams.rs`). See [The diagram engine](../diagrams/README.md#the-diagram-engine).
+pele running in QuickJS on a thread of its own in the server, with a cache of what it drew and limits on each drawing's time and memory (`core/src/diagrams.rs`). See [The diagram engine](../diagrams/README.md#the-diagram-engine).
 
 ## print mode
 
@@ -268,6 +284,10 @@ An address that changes exactly when the bytes it serves would: a built-in asset
 ## load set
 
 Everything a page loads from devpage beyond its stylesheet and page script — its widgets' modules, those they render by name, their helpers, React, the design script and engine — named in its `<head>` at their content addresses, so the browser asks for all of it at once. The code uses the same words (`Widgets::load_set`). See [The load set](../rendering-a-page/README.md#the-load-set).
+
+## module cache
+
+What devpage has read and compiled of the widget files it serves, with each one's version, held by the served folder's index and forgotten file by file as files change (`Modules`). See [How widgets run](../widgets/how-widgets-run/README.md).
 
 ## build id
 
@@ -299,4 +319,4 @@ A site's bar across the top: its title, then the links, dropdowns and icons its 
 
 ## token
 
-A CSS custom property in `assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from.
+A CSS custom property in `core/assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from.

@@ -39,6 +39,16 @@ flowchart LR
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
+**Who decides.** What every route from `/` down answers with — a page, a
+redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
+`500` with the reason — is decided by the **resolver** (`core/src/resolve.rs`) from
+the documents alone: the entry document, the index, the problems each page
+lists and whether comments are on. The HTTP server only turns its answer into
+a response, reading the file's bytes or drawing the PNG it names, so every
+route is tested without a socket. The resolver takes a **mount prefix** that
+every redirect it answers with carries; `devpage` mounts at `/`, so the prefix
+is empty.
+
 A query of `?print` renders a doc's or deck's document file in **print mode**,
 the page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).
 A site is never printed, so on a Markdown file `?print` always renders it as a
@@ -112,7 +122,7 @@ is unknown.
 
 ## Built-in assets
 
-The page's own files are built into the binary by `build.rs`, each under its
+The page's own files are built into the binary by `core/build.rs`, each under its
 **content address**: its name with the first 16 hex digits of the SHA-256 of
 its bytes put before the extension — `/__devpage/devpage.<hash>.js`. An asset
 that names another — `devpage.js` imports `design.js`, which imports
@@ -122,16 +132,16 @@ addresses.
 
 | Asset | Source | Content type |
 | --- | --- | --- |
-| `style.css` | `assets/style.css` | `text/css` |
-| `devpage.js` | `assets/devpage.js` | `text/javascript` |
-| `react.js` | `assets/vendor/react.js` | `text/javascript` |
-| `design.js` | `assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
-| `design-engine.js` | `assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
-| `design-engine.wasm` | `assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
+| `style.css` | `core/assets/style.css` | `text/css` |
+| `devpage.js` | `core/assets/devpage.js` | `text/javascript` |
+| `react.js` | `core/assets/vendor/react.js` | `text/javascript` |
+| `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
+| `design-engine.js` | `core/assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
+| `design-engine.wasm` | `core/assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
 
 Every address a page loads from devpage — these, and the
 [widgets'](../widgets/how-widgets-run/README.md#compiling) — is made by one
-function, `address` in `src/addresses.rs`, so the page's tags, its import map,
+function, `address` in `core/src/addresses.rs`, so the page's tags, its import map,
 its widget list, its [preloads](../rendering-a-page/README.md#the-load-set) and
 the imports inside a compiled widget never name the same
 file two ways. An asset is also asked for by its bare name (`devpage.js`) or

@@ -4,8 +4,8 @@ How a Markdown file becomes the HTML page a reader sees: comrak turns it into
 HTML with highlighted code, its diagrams are drawn, the title and sidebar are
 worked out, and the pieces go into the page frame. It is a mechanism page under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
-for someone about to change `src/render.rs`, `src/highlight.rs` or
-`src/diagrams.rs`.
+for someone about to change `core/src/render/`, `core/src/highlight.rs` or
+`core/src/diagrams.rs`.
 
 ```mermaid
 flowchart LR
@@ -29,7 +29,7 @@ does the steps below.
 ## Markdown to HTML
 
 `render::markdown` runs comrak with these options
-(`options()` in `src/render.rs`):
+(`options()` in `core/src/render/markdown.rs`):
 
 | Option | Effect |
 | --- | --- |
@@ -58,7 +58,7 @@ image is left as it is.
 ## Highlighted code
 
 `render::markdown` also plugs in a code-fence highlighter,
-`highlight::Highlighter` in `src/highlight.rs`, through comrak's `Plugins`
+`highlight::Highlighter` in `core/src/highlight.rs`, through comrak's `Plugins`
 (`SyntaxHighlighterAdapter`). For each fenced block it:
 
 - takes the first word of the info string as the language and looks it up
@@ -68,7 +68,7 @@ image is left as it is.
 - if found, and the language isn't `mermaid`, emits syntect's class-based
   HTML (`ClassStyle::SpacedPrefixed { prefix: "hl-" }`): nested spans such
   as `<span class="hl-keyword hl-operator hl-arithmetic hl-rust">`, colored by the
-  `--syntax-*` tokens in `assets/style.css` (see
+  `--syntax-*` tokens in `core/assets/style.css` (see
   [Themes](../themes/README.md#the-tokens));
 - otherwise — no language, an unknown one, `mermaid`, or a highlighting
   error partway through — writes the code HTML-escaped and unhighlighted;
@@ -155,7 +155,7 @@ In detail:
 Everything the page will load from devpage beyond its stylesheet and page
 script is named in its head, so the browser asks for all of it as soon as it
 reads the head — one round trip after the HTML, not one per import a script
-finds. `Widgets::head` in `src/widgets.rs` works it out from the rendered
+finds. `Widgets::head` in `core/src/widgets/mod.rs` works it out from the rendered
 content:
 
 - each widget the content names (`data-widget`);
@@ -169,7 +169,7 @@ content:
   `design-engine.js`), when the content embeds a design.
 
 Each is a `<link rel="modulepreload">` at exactly the address its import asks
-for — both come from `address` in `src/addresses.rs` — so nothing is
+for — both come from `address` in `core/src/addresses.rs` — so nothing is
 downloaded twice. The engine's wasm, which is fetched rather than imported, is
 a `<link rel="preload" as="fetch" crossorigin fetchpriority="low">`. Plain
 Markdown on a site page with a sidebar preloads React and `DevpageSidebar`
