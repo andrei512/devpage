@@ -44,25 +44,17 @@ async fn open_off(
     let index = Arc::new(crate::index::Index::build(&document.served));
     let entry = Arc::new(crate::document::Entry::new(document));
     let designs = crate::designs::Designs::new(entry.document().served.path().to_path_buf());
-    let threads = Arc::new(yaml::Yaml::new(&entry.document().served));
-    let _watcher = crate::watch::start(
-        entry.clone(),
-        index.clone(),
-        designs.clone(),
-        changes.clone(),
-        threads.clone(),
-    )
-    .unwrap();
     let document = entry.document();
-    let router = server::router(server::Options {
+    let options = server::Options {
         entry,
         index,
         designs,
         comments: Some(server::Identity::Local("Ana".into())),
-        store: threads,
         preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes.clone())
-    });
+    };
+    let _watcher = options.watch().unwrap();
+    let router = server::router(options);
     tokio::spawn(async move {
         let _watcher = _watcher;
         axum::serve(listener, router).await.ok();

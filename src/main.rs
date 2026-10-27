@@ -127,16 +127,31 @@ async fn main() -> Result<()> {
         http::external(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
-    // One comment store for the server and the watcher, so the watcher knows
-    // the threads the server wrote — and announced — itself.
+    // Who writes a comment — or no one: comments are off.
+    let comments = if cli.no_comments {
+        None
+    } else if cli.host.is_loopback() {
+        Some(server::Identity::Local(comments::local_author(
+            document.served.path(),
+        )))
+    } else {
+        Some(server::Identity::Header(cli.user_header))
+    };
+    let shots = slide_png::Shots::new(&changes);
     let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
-    let _watcher = watch::start(
-        entry.clone(),
-        index.clone(),
-        designs.clone(),
-        changes.clone(),
-        threads.clone(),
-    )?;
+    let options = server::Options {
+        entry,
+        index,
+        designs,
+        changes,
+        comments,
+        store: threads.clone(),
+        threads,
+        shots: shots.clone(),
+        preview,
+        log: true,
+    };
+    let _watcher = options.watch()?;
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -151,28 +166,7 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    // Who writes a comment — or no one: comments are off.
-    let comments = if cli.no_comments {
-        None
-    } else if cli.host.is_loopback() {
-        Some(server::Identity::Local(comments::local_author(
-            document.served.path(),
-        )))
-    } else {
-        Some(server::Identity::Header(cli.user_header))
-    };
-    let shots = slide_png::Shots::new(&changes);
-    let router = server::router(server::Options {
-        entry,
-        index,
-        designs,
-        changes,
-        comments,
-        store: threads,
-        shots: shots.clone(),
-        preview,
-        log: true,
-    });
+    let router = server::router(options);
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

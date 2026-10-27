@@ -111,9 +111,12 @@ pub struct Options {
     pub changes: Changes,
     /// Who writes comments, or `None` when they are off (`--no-comments`).
     pub comments: Option<Identity>,
-    /// Where threads are kept: the served folder's YAML files unless a
-    /// caller gives another store — the watcher's, so it knows the server's
-    /// own writes, or one in memory.
+    /// The served folder's thread files. [`Options::watch`] follows them with
+    /// this same value, so the watcher knows the threads the server wrote —
+    /// and announced — itself.
+    pub threads: Arc<comments::yaml::Yaml>,
+    /// Where threads are kept: [`Options::threads`] unless a caller gives
+    /// another store, such as one in memory.
     pub store: Arc<dyn comments::Store>,
     /// The Chrome that draws slides as PNGs, and what it drew.
     pub shots: Shots,
@@ -127,6 +130,7 @@ impl Options {
     /// One document, with a fresh index of its served folder and no search
     /// index, comments on as one local author, nothing logged.
     pub fn new(document: Arc<Document>, changes: Changes) -> Self {
+        let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
         Self {
             index: Arc::new(Index::build(&document.served)),
             designs: Designs::new(document.served.path().to_path_buf()),
@@ -135,7 +139,8 @@ impl Options {
                 crate::http::external(Some(changes.clone())),
                 Arc::new(crate::terminal::Terminal),
             )),
-            store: Arc::new(comments::yaml::Yaml::new(&document.served)),
+            store: threads.clone(),
+            threads,
             entry: Arc::new(Entry::new(document)),
             comments: Some(Identity::Local(String::new())),
             changes,
@@ -156,6 +161,21 @@ impl Options {
     }
 }
 
+impl Options {
+    /// Starts the watcher these options' server pairs with: the same entry
+    /// document, index, design store and change bus, and the same thread
+    /// files, so a thread the server wrote is announced once, by the server.
+    pub fn watch(&self) -> anyhow::Result<crate::watch::Watch> {
+        crate::watch::start(
+            self.entry.clone(),
+            self.index.clone(),
+            self.designs.clone(),
+            self.changes.clone(),
+            self.threads.clone(),
+        )
+    }
+}
+
 /// The server `options` describe.
 pub fn router(options: Options) -> Router {
     let Options {
@@ -164,6 +184,7 @@ pub fn router(options: Options) -> Router {
         designs,
         changes,
         comments,
+        threads: _,
         store,
         shots,
         preview,
@@ -802,6 +823,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_server_and_the_watcher_its_options_start_announce_a_write_once() {
+        use crate::changes::{Change, Scope};
+        let dir = std::env::temp_dir().join(format!("devpage-paired-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(dir.join("a.md"), "# A\n\nThe client retries every write.\n").unwrap();
+        let document = Arc::new(Document::load(&dir.join("a.md"), &dir).unwrap());
+        let changes = crate::changes::Changes::default();
+        let options = Options {
+            preview: crate::check::testing::preview(),
+            ..Options::new(document, changes.clone())
+        };
+        let _watcher = options.watch().unwrap();
+        let router = router(options);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
+        // Let the watcher settle on the new `.devpage/` before listening.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+
+        let mut heard = changes.subscribe(Scope::root());
+        let created = reqwest::Client::new()
+            .post(format!("{address}/__devpage/comments"))
+            .json(&new_thread())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(created.status(), 200);
+        // Long past the watcher's burst: its echo of the write would be here.
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        let page = Change::Comments("/a.md".into());
+        let announced = heard.drain().into_iter().filter(|c| *c == page).count();
+        assert_eq!(announced, 1, "the server's announcement, and no echo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
     async fn each_write_reaches_open_pages_without_a_watcher() {
         use crate::changes::{Change, Scope};
         let (address, _, changes) =
@@ -1126,24 +1185,16 @@ mod tests {
         let entry = Arc::new(Entry::new(document.clone()));
         let changes = crate::changes::Changes::default();
         let designs = Designs::new(dir.clone());
-        let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
-        let _watcher = crate::watch::start(
-            entry.clone(),
-            index.clone(),
-            designs.clone(),
-            changes.clone(),
-            threads.clone(),
-        )
-        .unwrap();
-        let router = router(Options {
+        let options = Options {
             entry,
             index,
             designs,
             comments: Some(Identity::Local("T".into())),
-            store: threads,
             preview: crate::check::testing::preview(),
             ..Options::new(document, changes.clone())
-        });
+        };
+        let _watcher = options.watch().unwrap();
+        let router = router(options);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });

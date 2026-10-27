@@ -122,24 +122,30 @@ with an error before anything is served.
    ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream)).
    The link checker gets it too, through its `Publish` port, and publishes a
    refresh for every document when a background check of an external address
-   changes what pages show.
+   changes what pages show; the server's comment writes publish each page's
+   comments on it as they land.
 
-4. Start the watcher
-   On the watch set of the served folder, with the design store to hand changed paths to
+4. Gather the server's parts
+   Every part above, in one `server::Options`, with the identity — local,
+   `git config user.name`, on a loopback address, and the `--user-header`
+   header otherwise; none with `--no-comments`, and the server has comments
+   off — and the served folder's thread files, which are both the server's
+   comment store and what the watcher follows.
+
+5. Start the watcher
+   `Options::watch`, on the watch set of the served folder, with the same
+   index, design store, bus and thread files as the server, so a thread the
+   server wrote is announced once
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.
 
-5. Bind the address
+6. Bind the address
    Exactly `--port`, or the first free port from 3030 up, on `--host` —
    `127.0.0.1` by default ([the address](../../viewer/serving-pages/README.md#the-address)).
-   The identity is local — `git config user.name` — on a loopback address, and
-   the `--user-header` header otherwise; with `--no-comments` there is none,
-   and the server has comments off.
 
-6. Print the address and serve
+7. Print the address and serve
    `<title> → http://<host>:<port>` — `localhost` for a loopback address — then
-   serve until devpage is stopped (`server::router`, given every part above
-   in one `server::Options`,
+   serve until devpage is stopped (`server::router(options)`,
    [routes](../../viewer/serving-pages/README.md#routes)).
 
 </Steps>

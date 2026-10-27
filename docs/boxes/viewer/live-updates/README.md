@@ -229,8 +229,9 @@ The change bus (`Changes` in `src/adapters/changes.rs`) carries typed changes: a
 published for a **scope** — the documents served under one mount prefix (`/`
 for everything a local devpage serves), or every document, which is how the
 external-link checker announces an answer any page may link to. `src/main.rs`
-makes one bus and hands it to its producers — the watcher and the external-link
-checker — and to its subscribers. Publishing with no one subscribed is not an
+makes one bus and hands it to its producers — the watcher, the external-link
+checker, and the server, whose comment writes each publish that page's
+`Comments` as they land — and to its subscribers. Publishing with no one subscribed is not an
 error.
 
 The watcher decides a burst in two halves: `Listeners::forget` has every cache
