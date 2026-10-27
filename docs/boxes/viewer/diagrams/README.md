@@ -139,8 +139,8 @@ devpage runs pele in QuickJS, a JavaScript engine compiled into the binary
   thread of its own — the diagram thread — owns it, with pele loaded once,
   and draws each diagram it is sent over a channel; the page being rendered
   waits for the answers. Loading pele takes some tens of milliseconds, so
-  serving starts the thread before the first page is asked for; drawing a
-  diagram takes about a millisecond.
+  devpage starts the thread as it starts, whatever the command, before the
+  first page is asked for; drawing a diagram takes about a millisecond.
 - **The cache.** Each drawing — or pele's error — is kept by the diagram's
   source, so a page rendered again, by a live update or another reader,
   draws only the diagrams whose text changed. A binary carries one pele, so
