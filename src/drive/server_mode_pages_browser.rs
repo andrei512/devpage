@@ -236,3 +236,81 @@ async fn a_docs_download_button_saves_its_pdf_printed_once() {
         second.elapsed()
     );
 }
+
+/// The old version's banner sits above the page, not over it, and the
+/// version bar leaves the end of a long sidebar in sight.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "drives Chrome"]
+async fn the_banner_and_the_version_bar_cover_nothing() {
+    use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+    let base = start("cover").await;
+    let id = publish(&base, None, doc("The first plan.")).await;
+    publish(&base, Some(&id), doc("The second plan.")).await;
+    let mut files = vec![(
+        "devpage.yml".to_string(),
+        "kind: site\ntitle: Long site\nroot: README.md\n".to_string(),
+    )];
+    let mut readme = "# Home\n\n## Topics\n\n".to_string();
+    for i in 1..=40 {
+        readme += &format!("- [Page {i}](p{i}.md) — page {i}\n");
+        files.push((format!("p{i}.md"), format!("# Page {i}\n")));
+    }
+    files.push(("README.md".into(), readme));
+    let files: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let site = publish(&base, None, zip_of(&files)).await;
+    publish(&base, Some(&site), zip_of(&files)).await;
+    let (browser, events) = chrome().await;
+    const SHOWN: &str = "!!document.querySelector('#devpage-versions summary')
+        && !!document.getElementById('devpage-version-banner')";
+
+    // A doc, wide and narrow: the banner ends where the page begins.
+    for (width, height) in [(1400, 900), (800, 600)] {
+        let page = open(&browser, &format!("{base}/d/{id}/v/1/")).await;
+        page.execute(SetDeviceMetricsOverrideParams::new(
+            width, height, 1.0, false,
+        ))
+        .await
+        .unwrap();
+        until(&page, SHOWN).await;
+        let gap: f64 = eval(
+            &page,
+            "document.getElementById('devpage-page').getBoundingClientRect().top
+             - document.getElementById('devpage-version-banner').getBoundingClientRect().bottom",
+        )
+        .await;
+        assert!(
+            gap >= 0.0,
+            "at {width}px the banner covers the page by {}px",
+            -gap
+        );
+        page.close().await.ok();
+    }
+
+    // A site with a long sidebar, scrolled to its end: its last link is
+    // above the version bar.
+    let page = open(&browser, &format!("{base}/d/{site}/v/1/")).await;
+    page.execute(SetDeviceMetricsOverrideParams::new(1400, 700, 1.0, false))
+        .await
+        .unwrap();
+    until(&page, SHOWN).await;
+    let gap: f64 = eval(
+        &page,
+        "(() => { const nav = document.getElementById('devpage-nav');
+           nav.scrollTop = nav.scrollHeight;
+           const links = nav.querySelectorAll('a');
+           return document.getElementById('devpage-versions').getBoundingClientRect().top
+             - links[links.length - 1].getBoundingClientRect().bottom; })()",
+    )
+    .await;
+    assert!(
+        gap >= 0.0,
+        "the version bar covers the sidebar's last link by {}px",
+        -gap
+    );
+    page.close().await.ok();
+    drop(browser);
+    events.abort();
+}

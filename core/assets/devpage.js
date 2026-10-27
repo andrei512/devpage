@@ -1352,9 +1352,11 @@ function showVersions(info) {
     parts.push(download);
   }
   bar.replaceChildren(...parts);
+  document.body.classList.add("with-versions");
 
   let banner = document.getElementById("devpage-version-banner");
   const old = info.pinned && info.version !== info.latest;
+  document.body.classList.toggle("with-version-banner", old);
   if (!old) {
     banner?.remove();
     return;

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 use dispatch2::{DispatchQueue, DispatchRetained};
@@ -70,7 +71,21 @@ impl Platform {
                 fresh.push((folder.clone(), false));
             }
         }
-        self.streams.retain(|folder, _| set.deep.contains(folder));
+        let (kept, gone): (BTreeMap<_, _>, BTreeMap<_, _>) = std::mem::take(&mut self.streams)
+            .into_iter()
+            .partition(|(folder, _)| set.deep.contains(folder));
+        self.streams = kept;
+        // Stopped first, so a save from here on is the new watches' to report.
+        let since = std::time::SystemTime::now() - HANDOVER;
+        let folders: Vec<PathBuf> = gone.into_keys().collect();
+        for folder in &folders {
+            for file in recent(folder, &set, since) {
+                (self.handler)(Ok(notify::Event::new(EventKind::Modify(ModifyKind::Data(
+                    DataChange::Any,
+                )))
+                .add_path(file)));
+            }
+        }
         for folder in self.set.shallow.difference(&set.shallow) {
             self.kqueue.unwatch(folder);
         }
@@ -90,6 +105,45 @@ impl Platform {
         let mut folders = self.set.deep.iter().chain(&self.set.shallow);
         folders.any(|folder| folder.starts_with(path))
     }
+}
+
+/// How far back a stopped stream's folder is looked over. fseventsd holds
+/// each event for a stream's latency, [`BURST`], before handing it over —
+/// longer on a loaded machine — and stopping a stream discards what it
+/// hasn't handed over, so a file saved just before its folder passes from a
+/// stream to other watches would never be heard of. Flushing the stream
+/// doesn't help: fseventsd hasn't given it the event yet.
+const HANDOVER: Duration = Duration::from_secs(1);
+
+/// The files under `folder` that are in sight in `set` — under one of its
+/// deep folders, or directly in one of its shallow ones — and were modified
+/// since `since`: what a stream over `folder` may have held when it stopped.
+/// A file reported again is one more refresh; one missed is a page that
+/// never updates.
+fn recent(folder: &Path, set: &WatchSet, since: std::time::SystemTime) -> Vec<PathBuf> {
+    let deep = |path: &Path| set.deep.iter().any(|deep| path.starts_with(deep));
+    let mut found = Vec::new();
+    let mut folders = vec![folder.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let shallow = set.shallow.contains(&folder);
+        if !shallow && !deep(&folder) && !set.shallow.iter().any(|s| s.starts_with(&folder)) {
+            continue;
+        }
+        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+            let path = entry.path();
+            let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if metadata.is_dir() {
+                folders.push(path);
+            } else if (shallow || deep(&path))
+                && metadata.modified().is_ok_and(|modified| modified >= since)
+            {
+                found.push(path);
+            }
+        }
+    }
+    found
 }
 
 /// kqueue holds a descriptor per watched file and folder, and a shell's
@@ -641,4 +695,65 @@ fn lock(watches: &Mutex<Watches>) -> std::sync::MutexGuard<'_, Watches> {
     watches
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::time::Instant;
+
+    use super::*;
+
+    /// A file saved just before its folder passes from a stream to kqueue is
+    /// still heard of: the stream hands over what fseventsd held for its
+    /// latency before it stops.
+    #[test]
+    fn a_save_just_before_a_folder_leaves_its_stream_is_heard() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-macos-handover-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let file = dir.join("a.md");
+        std::fs::write(&file, "# A").unwrap();
+
+        let (heard, hearing) = mpsc::channel::<PathBuf>();
+        let heard = Mutex::new(heard);
+        let handler: Handler = Arc::new(move |event: notify::Result<notify::Event>| {
+            if let Ok(event) = event {
+                for path in event.paths {
+                    let _ = heard.lock().unwrap().send(path);
+                }
+            }
+        });
+        let mut platform = Platform::new(&dir, handler).unwrap();
+        let deep = WatchSet {
+            deep: [dir.clone()].into(),
+            shallow: Default::default(),
+        };
+        platform.apply(deep);
+        // Let the stream start reporting, and drain what it said on starting.
+        std::thread::sleep(Duration::from_millis(300));
+        while hearing.try_recv().is_ok() {}
+
+        std::fs::write(&file, "# Changed").unwrap();
+        platform.apply(WatchSet {
+            deep: Default::default(),
+            shallow: [dir.clone()].into(),
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut found = false;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            match hearing.recv_timeout(left) {
+                Ok(path) if path == file => {
+                    found = true;
+                    break;
+                }
+                Ok(_) => {}
+                Err(_) => break,
+            }
+        }
+        assert!(found, "the save was lost when the stream stopped");
+    }
 }
