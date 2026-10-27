@@ -1225,9 +1225,16 @@ mod external {
         let missing = format!("{}/missing", web.address);
         assert_eq!(found[0].target.as_deref(), Some(missing.as_str()));
         assert_eq!(found[0].line, Some(3));
-        // Each address is asked once for as long as devpage runs.
+        // Each address is asked once for as long as devpage runs — the good
+        // one may still be on its way when the broken one's answer is in.
         preview(&doc, &pages);
-        let hits = web.hits.lock().unwrap();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while !web.hits.lock().unwrap().contains_key("/ok")
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        let hits = web.hits.lock().unwrap().clone();
         assert_eq!(hits.get("/missing"), Some(&1));
         assert_eq!(hits.get("/ok"), Some(&1));
     }
