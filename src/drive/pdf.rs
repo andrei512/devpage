@@ -1961,6 +1961,7 @@ mod tests {
                 ),
                 ("docs/guide/step.md", "# Step\n"),
                 ("docs/guide/leaf.md", "# Leaf\n"),
+                ("docs/guide/more.md", "# More\n"),
                 (
                     "docs/fields.md",
                     "# Fields\n\n## Topics\n\n- [Field](field.md)\n",
@@ -2169,17 +2170,19 @@ mod tests {
             "{fetched:?}"
         );
 
-        // A live update that edits the tree reaches the mounted sidebar.
+        // A live update that edits the tree reaches the mounted sidebar. The
+        // page it adds is listed nowhere else: a page already in the tree
+        // keeps its first, shallowest place.
         std::fs::write(
             dir.join("docs/guide/README.md"),
-            "# Guide\n\n## Topics\n\n- [Step](step.md)\n- [Deep](deep.md)\n- [Field](../field.md)\n",
+            "# Guide\n\n## Topics\n\n- [Step](step.md)\n- [Deep](deep.md)\n- [More](more.md)\n",
         )
         .unwrap();
         page.evaluate("load(location.href)").await.unwrap();
         assert!(
             until(
                 &page,
-                "[...document.querySelectorAll('#devpage-nav li[data-href$=\"/guide/README.md\"] a')].some((a) => a.textContent === 'Field')"
+                "[...document.querySelectorAll('#devpage-nav li[data-href$=\"/guide/README.md\"] a')].some((a) => a.textContent === 'More')"
             )
             .await
         );
