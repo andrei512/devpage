@@ -149,6 +149,14 @@ One page in a sidebar tree, labelled with its Topics link's text.
 
 A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar.
 
+## search index
+
+The full-text index of every in-sight document's sections — pages, chapters and slides split at their headings — held in memory and kept current by the watcher. The code calls it `Search`. See [Search](../search/README.md).
+
+## hit
+
+One section a search found: its title, heading, address with the heading's anchor, a snippet with the matched words marked, its document, and its trail through the nav. See [The endpoint](../search/README.md#the-endpoint).
+
 ## live update
 
 An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed.

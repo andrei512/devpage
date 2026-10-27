@@ -161,6 +161,7 @@ impl Listeners {
             changes,
         } = self;
         let mut refresh = false;
+        let mut searched = Vec::new();
         for path in paths {
             let path = canonical(path);
             let Ok(relative) = path.strip_prefix(served) else {
@@ -181,6 +182,7 @@ impl Listeners {
             designs.changed(&path);
             crate::widgets::forget(&path);
             index.changed(&path);
+            searched.push(path.clone());
             // The entry's own file: re-read it, so `/` and `watch` follow it,
             // and refresh open pages whatever `watch` says.
             if path == entry.file() {
@@ -192,6 +194,10 @@ impl Listeners {
         }
         if refresh {
             let _ = changes.send("change".into());
+        }
+        // After the pages hear, so indexing text never holds up a refresh.
+        if let Some(search) = index.search() {
+            search.changed(index, &searched);
         }
     }
 }
@@ -372,6 +378,35 @@ mod tests {
         let rule = dir.join("docs/.gitignore");
         listeners.changed(&listeners.sift(written(&[rule])));
         assert_eq!(listeners.sift(written(&[draft])), Vec::<PathBuf>::new());
+    }
+
+    #[test]
+    fn the_search_index_hears_of_saved_and_deleted_pages() {
+        let dir = served("search", "kind: site\ntitle: T\nroot: README.md\n");
+        let page = dir.join("docs/guide.md");
+        std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
+        let mut listeners = listeners(&dir, broadcast::channel(64).0);
+        listeners.index = Arc::new(Index::build(&dir).with_search());
+        let found = |word: &str| {
+            let search = listeners.index.search().unwrap();
+            search
+                .search(word)
+                .into_iter()
+                .map(|hit| hit.url)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(found("otter"), ["/docs/guide.md#guide"]);
+
+        std::fs::write(&page, "# Guide\n\nA beaver builds.\n").unwrap();
+        listeners.changed(&listeners.sift(written(std::slice::from_ref(&page))));
+        assert_eq!(found("beaver"), ["/docs/guide.md#guide"]);
+        assert!(found("otter").is_empty());
+
+        std::fs::remove_file(&page).unwrap();
+        let mut removed = notify::Event::new(EventKind::Remove(RemoveKind::File));
+        removed.paths = vec![page];
+        listeners.changed(&listeners.sift(Ok(removed)));
+        assert!(found("beaver").is_empty());
     }
 
     #[test]

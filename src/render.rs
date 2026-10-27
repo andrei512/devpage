@@ -14,7 +14,7 @@ use crate::nav;
 /// GitHub-flavoured Markdown with raw HTML allowed. Fenced code goes through
 /// `highlight::Highlighter`, which keeps the language only on Mermaid blocks
 /// (`<pre lang="mermaid">`), so the page can find and draw them.
-fn options() -> Options<'static> {
+pub(crate) fn options() -> Options<'static> {
     let mut options = Options::default();
     options.extension.table = true;
     options.extension.strikethrough = true;
