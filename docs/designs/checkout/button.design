@@ -2,5 +2,5 @@
 <Frame props={{ label: "Button", fill: theme.accent }}
        layout="row" padding={[12, 20]} radius={8} fill={fill}
        justify="center" shadow={{ y: 2, blur: 6, color: theme.accentShadow }}>
-  <Text size={16} weight={600} color="#ffffff">{label}</Text>
+  <Text font="figtree" size={16} weight={600} color="#ffffff">{label}</Text>
 </Frame>
