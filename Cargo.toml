@@ -40,6 +40,14 @@ tonic-web = "0.14.6"
 tower = "0.5"
 sha2 = "0.10.9"
 
+# The macOS watcher (`src/watch/macos.rs`): FSEvents streams on a dispatch
+# queue, and kqueue.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-services = { version = "0.3.2", default-features = false, features = ["std", "FSEvents", "dispatch2"] }
+objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFString"] }
+dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+libc = "0.2.191"
+
 [dev-dependencies]
 prost = "0.14.4"
 brotli = "9.1.0"

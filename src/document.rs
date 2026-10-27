@@ -248,6 +248,9 @@ pub struct Document {
     pub served: PathBuf,
     /// A site's `watch` list: when set, only matching files refresh pages.
     watch: Option<GlobSet>,
+    /// Where each `watch` pattern can match: its literal prefix — the
+    /// components before the first with a glob character — joined to `base`.
+    watch_roots: Vec<PathBuf>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
     /// A site's navbar, in order; empty when it has none.
@@ -302,6 +305,7 @@ impl Document {
                 base,
                 file_name,
                 watch: None,
+                watch_roots: Vec::new(),
                 widgets: None,
                 navbar: Vec::new(),
                 sidebar: true,
@@ -320,6 +324,7 @@ impl Document {
                 base,
                 file_name,
                 watch: None,
+                watch_roots: Vec::new(),
                 widgets: None,
                 navbar: Vec::new(),
                 sidebar: true,
@@ -340,6 +345,7 @@ impl Document {
             }
         };
         let mut watch = None;
+        let mut watch_roots = Vec::new();
         let widget_folder;
         let mut nav_items = Vec::new();
         let mut show_sidebar = true;
@@ -373,6 +379,10 @@ impl Document {
                         );
                     }
                     watch = Some(set.build()?);
+                    watch_roots = patterns
+                        .iter()
+                        .map(|pattern| base.join(literal_prefix(pattern)))
+                        .collect();
                 }
                 (title, Kind::Site { root })
             }
@@ -440,6 +450,7 @@ impl Document {
             file_name,
             served,
             watch,
+            watch_roots,
             widgets,
             navbar: nav_items,
             sidebar: show_sidebar,
@@ -503,6 +514,26 @@ impl Document {
     pub fn names(&self, file: &Path) -> bool {
         self.watch.is_some() && self.watches(file)
     }
+
+    /// The folders a site's `watch` patterns can name files in: each
+    /// pattern's literal prefix in the site's folder. Empty without a list.
+    pub fn watch_roots(&self) -> &[PathBuf] {
+        &self.watch_roots
+    }
+}
+
+/// A glob pattern's components before the first one with a glob character:
+/// `build/*.svg` gives `build`, `**/*.md` gives nothing.
+fn literal_prefix(pattern: &str) -> PathBuf {
+    Path::new(pattern)
+        .components()
+        .take_while(|part| {
+            !part
+                .as_os_str()
+                .to_string_lossy()
+                .contains(['*', '?', '[', '{'])
+        })
+        .collect()
 }
 
 /// The document devpage was started with, re-read whenever its file changes,
