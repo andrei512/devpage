@@ -47,7 +47,10 @@ on it as a library, and writes the two files and
 `assets/vendor/design-engine.fingerprint`
 ([Dependencies](../dependencies/README.md#devpage-design-module-the-modules-builder)).
 The target is the one `rust-toolchain.toml` names, so rustup adds it in a
-checkout; nothing else needs it. The fingerprint is a SHA-256 of everything
+checkout; nothing else needs it. `rust-toolchain.toml` also pins the Rust
+version, 1.98.1, so a checkout, CI and the vendored module all build with
+the same compiler: a newer `stable` on one machine can't turn a deprecation
+into a clippy failure on another. The fingerprint is a SHA-256 of everything
 the module is built from: every file in `design/src/`, `design/fonts/`,
 `design/proto/`, `design/wasm/src/` and `design/module/src/`, the three crates'
 `Cargo.toml` and `design/build.rs`, the `wasm` profile, and the locked version
