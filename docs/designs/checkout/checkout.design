@@ -1,38 +1,38 @@
 // The cart: a product row, a promotion banner and the pay button.
 import Button from "./button.design"
 
-<Frame name="Checkout" width={390} height={844} fill="#f8fafc"
+<Frame name="Checkout" width={390} height={844} fill={theme.background}
        layout="column" gap={16} padding={24}>
   <Frame name="Header" width="fill" layout="row" align="center" gap={12}>
     <Image src="./logo.png" width={32} height={32} radius={8} />
-    <Text size={28} weight={700}>Your cart</Text>
+    <Text size={28} weight={700} color={theme.text}>Your cart</Text>
   </Frame>
   <Frame name="Item" width="fill" layout="row" align="center" gap={16}
-         padding={16} radius={12} fill="#ffffff" stroke="#e2e8f0" strokeWidth={1}>
+         padding={16} radius={12} fill={theme.card} stroke={theme.border} strokeWidth={1}>
     <Frame name="Photo" width={64} height={64}>
       <Frame name="Crop" width={64} height={64} radius={8} clip>
         <Image src="./shirt.jpg" width={64} height={64} />
       </Frame>
       <Ellipse x={52} y={-4} width={16} height={16} fill="#ef4444"
-               stroke="#ffffff" strokeWidth={2} />
+               stroke={theme.card} strokeWidth={2} />
     </Frame>
     <Frame width="fill" layout="column" gap={4}>
-      <Text size={16} weight={500}>Linen shirt</Text>
-      <Text size={14} color="#64748b">Size M · Sand</Text>
+      <Text size={16} weight={500} color={theme.text}>Linen shirt</Text>
+      <Text size={14} color={theme.muted}>Size M · Sand</Text>
     </Frame>
     <Vector name="Details" d="M12 2a10 10 0 1 0 0 20a10 10 0 1 0 0-20zm-1 8h2v7h-2zm0-4h2v2h-2z"
-            viewBox="0 0 24 24" width={20} height={20} fill="#64748b"
+            viewBox="0 0 24 24" width={20} height={20} fill={theme.muted}
             onClick="overlay ./details.design" />
-    <Text size={16} weight={600}>$42</Text>
+    <Text size={16} weight={600} color={theme.text}>$42</Text>
   </Frame>
-  <Rect name="Divider" width="fill" height={1} fill="#e2e8f0" />
+  <Rect name="Divider" width="fill" height={1} fill={theme.border} />
   <Frame name="Total" width="fill" layout="row" justify="space-between">
-    <Text size={16} color="#64748b">Total</Text>
-    <Text size={16} weight={700} textAlign="right">$42.00</Text>
+    <Text size={16} color={theme.muted}>Total</Text>
+    <Text size={16} weight={700} textAlign="right" color={theme.text}>$42.00</Text>
   </Frame>
   <Frame name="Promotion" width="fill" layout="column" padding={[12, 16]}
          radius={[12, 12, 4, 4]}
-         fill="linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)">
+         fill="linear-gradient(135deg, theme.accent 0%, #7c3aed 100%)">
     <Text width="fill" size={14} weight={500} color="#ffffff" textAlign="center">
       Free shipping on orders over $40
     </Text>

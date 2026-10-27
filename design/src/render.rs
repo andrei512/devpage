@@ -1768,8 +1768,10 @@ mod examples {
         Repo(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(".."))
     }
 
-    /// Each example design, painted natively, matches its reference PNG in
-    /// `design/testdata/` within the tolerance [`matches`] applies. After a deliberate change to
+    /// Each example design, painted natively in each theme, matches its
+    /// reference PNG in `design/testdata/` — `<name>.png` in the light theme,
+    /// `<name>-dark.png` in the dark one — within the tolerance [`matches`]
+    /// applies. After a deliberate change to
     /// how designs look, `DEVPAGE_UPDATE_REFERENCES=1 cargo test` rewrites
     /// them — and the diff shows the new drawings for review.
     #[test]
@@ -1777,28 +1779,32 @@ mod examples {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata");
         let update = std::env::var_os("DEVPAGE_UPDATE_REFERENCES").is_some();
         let mut renderer = Renderer::new();
-        for name in ["button", "checkout", "confirmation", "details"] {
-            let path = format!("docs/designs/checkout/{name}.design");
-            let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
-            let png = crate::png(&mut renderer, &scene, Theme::Light).unwrap();
-            let reference = dir.join(format!("{name}.png"));
-            if update {
-                std::fs::write(&reference, &png).unwrap();
-                continue;
-            }
-            let expected = resolve::decode(&std::fs::read(&reference).unwrap()).unwrap();
-            let painted = resolve::decode(&png).unwrap();
-            assert_eq!(
-                (painted.width, painted.height),
-                (expected.width, expected.height),
-                "{name}"
-            );
-            if let Err(d) = matches(
-                painted.data.data(),
-                expected.data.data(),
-                painted.width as usize,
-            ) {
-                panic!("{name}: {d:?}");
+        for (theme, suffix) in [(Theme::Light, ""), (Theme::Dark, "-dark")] {
+            for name in ["button", "checkout", "confirmation", "details"] {
+                let path = format!("docs/designs/checkout/{name}.design");
+                let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
+                assert!(scene.themed, "{name}");
+                let png = crate::png(&mut renderer, &scene, theme).unwrap();
+                let name = format!("{name}{suffix}");
+                let reference = dir.join(format!("{name}.png"));
+                if update {
+                    std::fs::write(&reference, &png).unwrap();
+                    continue;
+                }
+                let expected = resolve::decode(&std::fs::read(&reference).unwrap()).unwrap();
+                let painted = resolve::decode(&png).unwrap();
+                assert_eq!(
+                    (painted.width, painted.height),
+                    (expected.width, expected.height),
+                    "{name}"
+                );
+                if let Err(d) = matches(
+                    painted.data.data(),
+                    expected.data.data(),
+                    painted.width as usize,
+                ) {
+                    panic!("{name}: {d:?}");
+                }
             }
         }
     }
@@ -1832,12 +1838,12 @@ mod examples {
         let whole = paint(&repo());
         for (part, hidden) in [
             (
-                r##"<Rect name="Divider" width="fill" height={1} fill="#e2e8f0" />"##,
-                r##"<Rect name="Divider" width="fill" height={1} fill="#f8fafc" />"##,
+                r##"<Rect name="Divider" width="fill" height={1} fill={theme.border} />"##,
+                r##"<Rect name="Divider" width="fill" height={1} fill={theme.background} />"##,
             ),
             (
-                r##"viewBox="0 0 24 24" width={20} height={20} fill="#64748b""##,
-                r##"viewBox="0 0 24 24" width={20} height={20} fill="#ffffff""##,
+                r##"viewBox="0 0 24 24" width={20} height={20} fill={theme.muted}"##,
+                r##"viewBox="0 0 24 24" width={20} height={20} fill={theme.card}"##,
             ),
         ] {
             assert!(original.contains(part), "{part}");

@@ -1,21 +1,21 @@
 // The product's details, shown over the cart.
 <Frame name="Details" width={320} layout="column" gap={12} padding={20}
-       radius={16} fill="#ffffff"
-       shadow={{ x: 0, y: 8, blur: 24, spread: 0, color: "#0f172a40" }}>
+       radius={16} fill={theme.card} stroke={theme.border}
+       shadow={{ x: 0, y: 8, blur: 24, spread: 0, color: theme.shadow }}>
   <Frame width="fill" layout="row" justify="space-between" align="center">
-    <Text size={18} weight={600}>Linen shirt</Text>
-    <Frame name="Close" width={28} height={28} radius={14} fill="#f1f5f9"
+    <Text size={18} weight={600} color={theme.text}>Linen shirt</Text>
+    <Frame name="Close" width={28} height={28} radius={14} fill={theme.subtle}
            layout="row" align="center" justify="center" onClick="close">
       <Vector d="M6 6L18 18M18 6L6 18" viewBox="0 0 24 24" width={14} height={14}
-              stroke="#334155" strokeWidth={2} />
+              stroke={theme.icon} strokeWidth={2} />
     </Frame>
   </Frame>
-  <Text width="fill" size={14} lineHeight={1.5} color="#475569">
+  <Text width="fill" size={14} lineHeight={1.5} color={theme.body}>
     Washed linen with a relaxed fit. Machine wash cold, tumble dry low.
   </Text>
   <Frame name="Colors" layout="row" gap={8} align="end" opacity={0.8}>
-    <Ellipse width={20} height={20} fill="#d6c7a1" />
-    <Ellipse width={20} height={20} fill="#64748b" />
-    <Ellipse width={20} height={20} fill="#0f172a" />
+    <Ellipse width={20} height={20} fill="#d6c7a1" stroke={theme.border} />
+    <Ellipse width={20} height={20} fill="#64748b" stroke={theme.border} />
+    <Ellipse width={20} height={20} fill="#0f172a" stroke={theme.border} />
   </Frame>
 </Frame>
