@@ -161,6 +161,10 @@ The full-text index of every in-sight document's sections — pages, chapters an
 
 One section a search found: its title, heading, address with the heading's anchor, a snippet with the matched words marked, its document, and its trail through the nav. See [The endpoint](../search/README.md#the-endpoint).
 
+## search box
+
+The field at the top of a site's sidebar that searches the search index as the reader types; while it holds text, its hits take the tree's place. `/` or ⌘K / Ctrl+K focuses it. See [The search box](../search/README.md#the-search-box).
+
 ## live update
 
 An open page fetching itself again and swapping in its content and navigation, in place, after a watched file changed.

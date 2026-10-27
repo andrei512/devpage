@@ -1948,6 +1948,15 @@ mod tests {
             "Guide,Deep"
         );
         assert_eq!(
+            text(
+                &page,
+                "String(window.before.nodes.some((n) => n.matches('.search input')))"
+            )
+            .await,
+            "true",
+            "the search box is drawn with the sidebar"
+        );
+        assert_eq!(
             text(&page, SAME_AS_BEFORE).await,
             "true true true",
             "React takes the sidebar over without changing it"
@@ -2093,6 +2102,217 @@ mod tests {
             text(&page, "String(window.nav === document.getElementById('devpage-nav') && window.fields === document.querySelector('#devpage-nav li[data-href$=\"/fields.md\"]'))").await,
             "true"
         );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A site whose *Retries* page has *The outbox* far down it, and another
+    /// site, *Elsewhere*, titled *Outbox*: a search for `outbox` ranks
+    /// Elsewhere's page first.
+    fn search_folder(name: &str) -> std::path::PathBuf {
+        let filler = "Words to scroll past.\n\n".repeat(80);
+        widget_folder(
+            name,
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Retries](retries.md)\n",
+            &[
+                ("docs/guide.md", "# Guide\n\nRead on.\n"),
+                (
+                    "docs/retries.md",
+                    &format!(
+                        "# Retries\n\n{filler}## The outbox\n\nThe client keeps every write in its outbox.\n\n{filler}"
+                    ),
+                ),
+                (
+                    "other/devpage.yml",
+                    "kind: site\ntitle: Elsewhere\nroot: README.md\n",
+                ),
+                ("other/README.md", "# Outbox\n\nAn outbox, elsewhere.\n"),
+            ],
+        )
+    }
+
+    /// The sidebar's search box.
+    const SEARCH_INPUT: &str = "#devpage-nav .search input";
+
+    /// The hits shown, by heading, in order.
+    const HITS: &str = "[...document.querySelectorAll('#devpage-nav .hit .hit-heading')].map((h) => h.textContent).join(',')";
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn typing_in_the_sidebar_search_shows_hits_by_document_and_enter_lands_on_the_heading() {
+        let dir = search_folder("search-typing");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/guide.md").await;
+        desktop(&page).await;
+        page.evaluate("window.nav = document.getElementById('devpage-nav'); window.marker = 1; 0")
+            .await
+            .unwrap();
+        let input = page.find_element(SEARCH_INPUT).await.unwrap();
+        input.click().await.unwrap();
+        input.type_str("outbox").await.unwrap();
+        // Results replace the tree, grouped by document, the current
+        // document's first though the other's hit ranks higher.
+        assert!(
+            until(&page, &format!("{HITS} === 'The outbox,Outbox'")).await,
+            "{}",
+            text(&page, HITS).await
+        );
+        assert_eq!(
+            text(&page, "[...document.querySelectorAll('#devpage-nav .search-document')].map((d) => d.textContent).join(',')").await,
+            "W,Elsewhere"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "getComputedStyle(document.querySelector('#devpage-nav > ul')).display"
+            )
+            .await,
+            "none",
+            "the tree is hidden while the box holds text"
+        );
+        assert_eq!(
+            text(&page, "[...document.querySelectorAll('#devpage-nav .hit')[0].querySelectorAll('.hit-snippet mark')].map((m) => m.textContent).join(',')").await,
+            "outbox",
+            "the snippet marks the matched word"
+        );
+        assert_eq!(
+            text(
+                &page,
+                "document.querySelector('#devpage-nav .hit.selected .hit-heading').textContent"
+            )
+            .await,
+            "The outbox"
+        );
+        // Arrows move the selection, round and back.
+        input.press_key("ArrowDown").await.unwrap();
+        assert!(until(&page, "document.querySelector('#devpage-nav .hit.selected .hit-heading').textContent === 'Outbox'").await);
+        input.press_key("ArrowUp").await.unwrap();
+        assert!(until(&page, "document.querySelector('#devpage-nav .hit.selected .hit-heading').textContent === 'The outbox'").await);
+
+        // Enter opens it through the page swap, landing on the heading; the
+        // sidebar keeps its text and its hits.
+        input.press_key("Enter").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "location.pathname + location.hash === '/docs/retries.md#the-outbox'"
+            )
+            .await
+        );
+        assert!(
+            until(
+                &page,
+                "Math.abs(document.getElementById('the-outbox').getBoundingClientRect().top) < 2"
+            )
+            .await
+        );
+        assert_eq!(
+            text(&page, &format!("[window.marker, window.nav === document.getElementById('devpage-nav'), document.querySelector('{SEARCH_INPUT}').value, {HITS}].join(' ')")).await,
+            "1 true outbox The outbox,Outbox",
+            "swapped in, not loaded: the text and the hits stay"
+        );
+
+        // Enter again, scrolled away, lands on it again.
+        page.evaluate("scrollTo(0, 0); 0").await.unwrap();
+        input.press_key("Enter").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "Math.abs(document.getElementById('the-outbox').getBoundingClientRect().top) < 2"
+            )
+            .await
+        );
+
+        // Escape clears the box and brings the tree back, highlighting the
+        // page now shown.
+        input.press_key("Escape").await.unwrap();
+        assert!(
+            until(
+                &page,
+                "document.querySelector('#devpage-nav > ul').checkVisibility()"
+            )
+            .await
+        );
+        assert_eq!(
+            text(&page, &format!("[document.querySelector('{SEARCH_INPUT}').value, document.querySelectorAll('#devpage-nav .hit').length, document.querySelector('#devpage-nav a.current').textContent].join(' ')")).await,
+            " 0 Retries"
+        );
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn slash_and_command_k_focus_the_sidebar_search() {
+        let dir = search_folder("search-keys");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/guide.md").await;
+        let focused =
+            format!("document.activeElement === document.querySelector('{SEARCH_INPUT}')");
+        assert_eq!(text(&page, &format!("String({focused})")).await, "false");
+        page.find_element("body")
+            .await
+            .unwrap()
+            .press_key("/")
+            .await
+            .unwrap();
+        assert!(until(&page, &focused).await);
+        assert_eq!(
+            text(
+                &page,
+                &format!("document.querySelector('{SEARCH_INPUT}').value")
+            )
+            .await,
+            "",
+            "the / focuses, and isn't typed"
+        );
+        for modifier in ["metaKey", "ctrlKey"] {
+            page.evaluate("document.activeElement.blur(); 0")
+                .await
+                .unwrap();
+            assert_eq!(text(&page, &format!("String({focused})")).await, "false");
+            page.evaluate(format!(
+                "document.body.dispatchEvent(new KeyboardEvent('keydown', {{ key: 'k', {modifier}: true, bubbles: true }})); 0"
+            ))
+            .await
+            .unwrap();
+            assert!(until(&page, &focused).await, "{modifier}");
+        }
+        browser.close().await.ok();
+        events.abort();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_slow_earlier_search_never_replaces_a_later_ones_hits() {
+        let dir = search_folder("search-stale");
+        let (mut browser, page, events, _profile) = open(&dir, "/docs/guide.md").await;
+        desktop(&page).await;
+        // The search for `guide` answers late, and ignores being aborted.
+        page.evaluate(
+            "window.asked = []; const fetch_ = window.fetch;
+            window.fetch = (url, options) => {
+              if (!String(url).includes('/__devpage/search')) return fetch_(url, options);
+              window.asked.push(String(url));
+              const answer = fetch_(url);
+              return String(url).includes('q=guide') ? answer.then((r) => new Promise((done) => setTimeout(() => done(r), 1500))) : answer;
+            }; 0",
+        )
+        .await
+        .unwrap();
+        let input = page.find_element(SEARCH_INPUT).await.unwrap();
+        input.click().await.unwrap();
+        input.type_str("guide").await.unwrap();
+        assert!(until(&page, "window.asked.some((u) => u.includes('q=guide'))").await);
+        input.press_key("Escape").await.unwrap();
+        input.type_str("outbox").await.unwrap();
+        assert!(until(&page, &format!("{HITS} === 'The outbox,Outbox'")).await);
+        tokio::time::sleep(Duration::from_millis(2000)).await;
+        assert_eq!(text(&page, HITS).await, "The outbox,Outbox");
         browser.close().await.ok();
         events.abort();
         std::fs::remove_dir_all(&dir).ok();

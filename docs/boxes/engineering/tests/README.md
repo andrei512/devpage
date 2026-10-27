@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 247 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 72 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 259 tests in the four crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 75 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 173 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 185 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
@@ -27,7 +27,7 @@ a deck of three slides with notes that the live video test records. Route tests 
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 72 tests marked `#[ignore]`, 71 drive Chrome, and one of them also
+Of the 75 tests marked `#[ignore]`, 74 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -218,7 +218,7 @@ In Chrome:
 
 ### `pdf`
 
-*4 tests, 29 in Chrome, 1 on the network.*
+*4 tests, 32 in Chrome, 1 on the network.*
 
 - The default file name made safe.
 - A site refused.
@@ -255,8 +255,9 @@ In Chrome:
 - A comment anchored inside a widget.
 - A printed doc showing each widget's first render, terminal lines wrapping on paper.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
-- The sidebar at first paint collapsed with the branch to the page open, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
+- The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
+- The sidebar's search box: typing showing hits in the tree's place, grouped by document with the one shown first, the matched words marked; arrows moving the selection; Enter opening the hit through the page swap and landing on its heading — again when scrolled away — the box keeping its text and hits; Escape clearing it and bringing the tree back. `/`, ⌘K and Ctrl+K focusing it, the `/` not typed. A slow answer to earlier text never replacing a later one's hits.
 
 ### `render`
 
@@ -277,7 +278,7 @@ In Chrome:
 - A site page's tab title naming the site once when the page is titled like it, whatever the case.
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
 - The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
-- The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, no text between its elements, and the tree beside it as JSON; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
+- The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, the empty search box between the title and the tree, no text between its elements, and the tree beside it as JSON with the document file's address; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
 
 ### `server`
 

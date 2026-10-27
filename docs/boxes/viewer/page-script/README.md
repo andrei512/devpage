@@ -150,7 +150,8 @@ already handled — on a link to the same origin whose path ends in `.md`:
 
 - a link to the page already shown — the same path and query — only updates
   the `#fragment`, and fetches nothing — this is how a bare `#heading` link
-  or a doc's outline scrolls on the same page;
+  or a doc's outline scrolls on the same page; a link to the `#fragment`
+  already shown scrolls to it again, since setting it would not;
 - otherwise the target is loaded with `load`, which pushes it onto the
   history with `history.pushState` as it commits, and scrolls to the
   fragment, or to the top;

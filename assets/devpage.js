@@ -516,7 +516,9 @@ document.addEventListener("click", async (event) => {
   event.preventDefault();
   remember();
   if (pathOf(url) === shownPath) {
-    if (url.hash) location.hash = url.hash;
+    // The #fragment shown already is scrolled to again: setting it is no move.
+    if (url.hash && url.hash === location.hash) toFragment(url.hash);
+    else if (url.hash) location.hash = url.hash;
     return;
   }
   if ((await load(url, "push")) === false) location.href = url;

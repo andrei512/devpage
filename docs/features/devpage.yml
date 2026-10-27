@@ -16,6 +16,7 @@ chapters:
   - notes.md
   - video.md
   - navigation.md
+  - search.md
   - deploying.md
 pdf:
   header: devpage features
