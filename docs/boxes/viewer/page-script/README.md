@@ -129,7 +129,8 @@ as it does the navbar's.
 ## The live-update stream
 
 `connect()` opens an `EventSource` on
-`/__devpage/events`. Each `change` message loads the page the tab shows again
+`/__devpage/events`, under the page's
+[mount](../serving-pages/README.md#routes) when it has one. Each `change` message loads the page the tab shows again
 and swaps it in — unless it renders as it did, which a change to another page
 usually leaves it — or, while a load is in flight, asks for one more after it;
 a `comments` message for a file the tab shows fetches its threads again. A

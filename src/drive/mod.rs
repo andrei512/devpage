@@ -9,3 +9,6 @@ pub mod server_mode;
 pub mod slide_png;
 pub mod validators;
 pub mod video;
+
+#[cfg(test)]
+mod server_mode_browser;

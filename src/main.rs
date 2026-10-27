@@ -153,7 +153,7 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 
-    let designs = designs::Designs::new(document.served.path().to_path_buf());
+    let designs = designs::Designs::new(&document.served);
 
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(

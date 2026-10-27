@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
 
-use crate::served::ServedFolder;
+use crate::served::{Served, ServedFolder};
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -269,8 +269,8 @@ pub struct Document {
 impl Document {
     /// Loads a document file, `devpage.yml` in a folder, a Markdown file or a
     /// design, which must lie inside the served folder `served`.
-    pub fn load(path: &Path, served: impl AsRef<Path>) -> Result<Self> {
-        let served = served.as_ref();
+    pub fn load(path: &Path, served: impl Served) -> Result<Self> {
+        let served = served.served();
         let file = if path.is_dir() {
             path.join("devpage.yml")
         } else {
@@ -278,8 +278,8 @@ impl Document {
         };
         let text = std::fs::read_to_string(&file)
             .with_context(|| format!("reading {}", file.display()))?;
-        let served =
-            ServedFolder::new(served).with_context(|| format!("reading {}", served.display()))?;
+        std::fs::metadata(served.path())
+            .with_context(|| format!("reading {}", served.path().display()))?;
         // A bare file name has an empty parent, which means the current folder.
         let parent = file.parent().filter(|p| !p.as_os_str().is_empty());
         let parent = parent.unwrap_or(Path::new("."));

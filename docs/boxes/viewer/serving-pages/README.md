@@ -45,9 +45,21 @@ redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
 the documents alone: the entry document, the index, the problems each page
 lists and whether comments are on. The HTTP server only turns its answer into
 a response, reading the file's bytes or drawing the PNG it names, so every
-route is tested without a socket. The resolver takes a **mount prefix** that
-every redirect it answers with carries; `devpage` mounts at `/`, so the prefix
-is empty.
+route is tested without a socket.
+
+**The mount.** The served folder carries a **mount prefix** — empty for
+`devpage` and bundled mode, `/d/<id>` for a document's latest version and
+`/d/<id>/v/<n>` for version `n` in [server mode](../server/README.md). It is
+set once, where devpage starts serving a folder, and every document, index,
+design store and widget snapshot is loaded from that same served folder, so
+every address a page carries starts with it: its links, sidebar and navbar,
+its widgets and their helpers, the redirects the resolver answers with, and
+the page script's endpoints — the events, comments, search and the design
+watch stream. Only the [built-in assets](#built-in-assets) are outside it, the
+same for every document. The page's `<html>` carries the prefix as
+`data-mount`; the scripts ask their endpoints under it, and name a page or a
+design to the server by its path in the served folder, without it — the path
+the server sees once the prefix is taken off.
 
 A query of `?print` renders a doc's or deck's document file in **print mode**,
 the page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).

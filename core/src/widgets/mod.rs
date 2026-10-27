@@ -23,6 +23,7 @@ pub use tags::expand;
 
 use crate::addresses::{Owned, address};
 use crate::document::Document;
+use crate::served::ServedFolder;
 
 /// The widgets devpage ships, compiled into the binary.
 pub const SYSTEM: &[(&str, &str)] = &[
@@ -63,7 +64,7 @@ pub struct Widgets {
     /// Where its modules are read and compiled.
     cache: Modules,
     /// The served folder, and each project widget's file, by name.
-    served: PathBuf,
+    served: ServedFolder,
     files: BTreeMap<String, PathBuf>,
     /// Every name in `modules`: what a project widget can render by name.
     known: Vec<String>,
@@ -82,11 +83,13 @@ impl Widgets {
             ..Self::default()
         };
         for (name, _) in SYSTEM {
-            widgets
-                .modules
-                .insert(name.to_string(), address(Owned::SystemWidget(name)));
+            let mount = document.served.mount();
+            widgets.modules.insert(
+                name.to_string(),
+                address(Owned::SystemWidget { name, mount }),
+            );
         }
-        widgets.served = document.served.path().to_path_buf();
+        widgets.served = document.served.clone();
         widgets.known = widgets.modules.keys().cloned().collect();
         let Some(folder) = &document.widgets else {
             return widgets;
@@ -109,22 +112,21 @@ impl Widgets {
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let url = document.url(&file);
+            let label = document.name(&file);
             if !name.starts_with(|c: char| c.is_ascii_uppercase()) {
                 // A lowercase .tsx is a helper a widget imports, not a widget.
                 continue;
             }
             if SYSTEM.iter().any(|(system, _)| *system == name) {
-                widgets.problems.push(format!(
-                    "{} — {name} is a system widget's name",
-                    url.trim_start_matches('/')
-                ));
+                widgets
+                    .problems
+                    .push(format!("{} — {name} is a system widget's name", label));
                 continue;
             }
             if name == NOTES {
                 widgets.problems.push(format!(
                     "{} — {NOTES} is devpage's tag for a slide's notes",
-                    url.trim_start_matches('/')
+                    label
                 ));
                 continue;
             }
