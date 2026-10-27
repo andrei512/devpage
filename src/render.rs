@@ -649,7 +649,8 @@ fn site_class(document: &Document) -> String {
 
 /// A site's sidebar, unless it sets `sidebar: false`: its title — left to the
 /// navbar when there is one — then the tree its Topics sections form,
-/// collapsed but for the branch down to the page shown. It is the markup
+/// collapsed but for the branch down to the page shown, under the search box.
+/// It is the markup
 /// [`DevpageSidebar`](crate::widgets::SIDEBAR) renders from the same tree,
 /// which follows it as JSON: the page script has React take the sidebar over
 /// without changing a node. Before the page paints, a small script opens the
@@ -681,8 +682,7 @@ fn sidebar(document: &Document, current: &str) -> String {
             escape(&title.label)
         ));
     }
-    // The search box goes here, at the top of the sidebar, as it does in
-    // `DevpageSidebar`.
+    html.push_str(SEARCH_BOX);
     let groups: Vec<SidebarGroup> = groups
         .iter()
         .map(|g| SidebarGroup::of(document, g))
@@ -691,6 +691,7 @@ fn sidebar(document: &Document, current: &str) -> String {
     html.push_str("</nav>");
     let data = SidebarData {
         document: document.entry(),
+        document_path: document.url(&document.path()),
         current: current.to_string(),
         title,
         groups,
@@ -705,6 +706,10 @@ fn sidebar(document: &Document, current: &str) -> String {
     html
 }
 
+/// The search box at the top of the sidebar, as `DevpageSidebar` renders it
+/// before anything is typed: the field, and the `/` that focuses it.
+const SEARCH_BOX: &str = "<div class=\"search\"><input type=\"search\" placeholder=\"Search\" aria-label=\"Search the documents\" autocomplete=\"off\" spellcheck=\"false\" role=\"combobox\" aria-expanded=\"false\" aria-autocomplete=\"list\" value=\"\"><kbd>/</kbd></div>";
+
 /// Opens, before the page paints, the entries the reader opened on another
 /// visit to the document, which `DevpageSidebar` keeps in `localStorage`
 /// under `devpage-sidebar:` and the document's address. It changes only what
@@ -712,11 +717,13 @@ fn sidebar(document: &Document, current: &str) -> String {
 const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage-nav\");let opened;try{opened=JSON.parse(localStorage.getItem(\"devpage-sidebar:\"+nav.dataset.sidebar))}catch{}if(!Array.isArray(opened))return;for(const li of nav.querySelectorAll(\"li.branch:not(.open)\"))if(opened.includes(li.dataset.href)){li.classList.add(\"open\");li.querySelector(\".chevron\").setAttribute(\"aria-expanded\",\"true\")}})()";
 
 /// What `DevpageSidebar` renders: the document it belongs to (its address,
-/// which keys what the reader opened), the page shown, the title link when
-/// the sidebar has one, and the tree.
+/// which keys what the reader opened, and its document file's, which a
+/// search hit names it by), the page shown, the title link when the sidebar
+/// has one, and the tree.
 #[derive(serde::Serialize)]
 struct SidebarData {
     document: String,
+    document_path: String,
     current: String,
     title: Option<SidebarTitle>,
     groups: Vec<SidebarGroup>,
@@ -1398,6 +1405,15 @@ mod tests {
             )),
             "{nav}"
         );
+        // The search box sits between the title and the tree, empty.
+        let search = nav
+            .find("<div class=\"search\"><input type=\"search\"")
+            .unwrap();
+        assert!(
+            nav.find("class=\"document-title").unwrap() < search
+                && search < nav.find("<ul>").unwrap(),
+            "{nav}"
+        );
         // The tree, as JSON, for DevpageSidebar to take the sidebar over from.
         let data = html
             .split("<script type=\"application/json\" id=\"devpage-sidebar\">")
@@ -1406,6 +1422,7 @@ mod tests {
             .unwrap();
         let data: serde_json::Value = serde_json::from_str(data).unwrap();
         assert_eq!(data["document"], site.entry());
+        assert_eq!(data["document_path"], site.url(&dir.join("devpage.yml")));
         assert_eq!(data["current"], url("deep.md"));
         assert_eq!(data["title"]["label"], "S");
         assert_eq!(data["groups"][1]["title"], "Reference");

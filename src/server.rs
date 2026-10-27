@@ -84,15 +84,16 @@ impl Identity {
     }
 }
 
-/// The server for one entry document, with a fresh index of its served folder.
-/// `comments` names who writes them, or is `None` when comments are off.
+/// The server for one entry document, with a fresh index of its served folder
+/// and its search index, as `devpage` serves it. `comments` names who writes
+/// them, or is `None` when comments are off.
 #[cfg(test)]
 pub fn router(
     document: Arc<Document>,
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
 ) -> Router {
-    let index = Arc::new(Index::build(&document.served));
+    let index = Arc::new(Index::build(&document.served).with_search());
     let designs = Designs::new(document.served.clone());
     let shots = Shots::new(&changes);
     router_with_index(

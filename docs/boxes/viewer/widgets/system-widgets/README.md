@@ -173,10 +173,12 @@ flowchart LR
 ## DevpageSidebar
 
 A site's sidebar: devpage's own chrome, not a widget for pages. devpage
-mounts it on every site page with a sidebar — collapsed, the branch to the
-page shown open, a chevron on every entry with children — and keeps it
-mounted as the reader moves between pages
+mounts it on every site page with a sidebar — a search box at its top,
+then the tree, collapsed, the branch to the page shown open, a chevron on
+every entry with children — and keeps it mounted as the reader moves between
+pages
 ([Organizing navigation](../../organizing-navigation/README.md#opening-and-closing),
+[the search box](../../search/README.md#the-search-box),
 [how it is rendered](../../navigation-tree/README.md#rendering-the-sidebar)).
 
 Its name is reserved like every system widget's: a project's

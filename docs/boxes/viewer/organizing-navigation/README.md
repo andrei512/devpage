@@ -49,8 +49,10 @@ list — never change the sidebar. Use them freely to link across the tree.
 
 ## How the tree grows
 
-The sidebar starts with the site's title, which links to the root page. Under it
-come the root page's Topics children; under each child, that page's own Topics
+The sidebar starts with the site's title, which links to the root page, and a
+[search box](../search/README.md#the-search-box) that finds any section of any
+document as you type — `/` or ⌘K focuses it. Under them come the root page's
+Topics children; under each child, that page's own Topics
 children, and so on down.
 
 - **A page listed twice** appears in both places, but only its first

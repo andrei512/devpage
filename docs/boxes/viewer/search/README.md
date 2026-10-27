@@ -2,9 +2,11 @@
 
 How the viewer finds text: `src/search.rs` keeps a full-text index of every
 in-sight document's sections in memory, ranks a query's matches with BM25 and
-answers `GET /__devpage/search?q=…` with them as JSON. It is a mechanism page
-under the [viewer](../README.md), for someone about to change what is indexed,
-how it ranks or what the endpoint answers.
+answers `GET /__devpage/search?q=…` with them as JSON, which the search box
+at the top of a site's sidebar shows as the reader types. It is a mechanism
+page under the [viewer](../README.md), for someone about to change what is
+indexed, how it ranks, what the endpoint answers or how the search box
+behaves.
 
 ```mermaid
 flowchart LR
@@ -13,11 +15,13 @@ flowchart LR
   save["A saved file"] -. "the watcher" .-> search
   query["GET /__devpage/search?q="] --> search
   search --> hits["Hits as JSON,<br/>best first"]
+  hits --> box["The search box<br/>in the sidebar"]
   click docs href "../document-index/README.md#the-index" "The index"
   click sections href "#what-is-indexed" "What is indexed"
   click save href "#how-it-stays-current" "How it stays current"
   click query href "#the-endpoint" "The endpoint"
   click hits href "#the-endpoint" "The endpoint"
+  click box href "#the-search-box" "The search box"
 ```
 
 ## What is indexed
@@ -130,3 +134,44 @@ search index, and finds nothing.
 
 The index is written by one thread with a 15 MB memory arena, the least
 tantivy allows; it is most of what search adds to devpage's memory.
+
+## The search box
+
+A site's sidebar ([`DevpageSidebar`](../widgets/system-widgets/README.md#devpagesidebar))
+opens with a search box, between the site's title and the tree; a site with
+`sidebar: false` has none, nor does a doc or a deck. The server draws it with
+the sidebar (`render::SEARCH_BOX`), empty, so React takes it over without a
+change ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar)).
+
+**As the reader types**, the box asks the endpoint for the text typed, once
+typing pauses for 60 ms. While it holds text, the hits take the tree's place:
+the hits last answered stay until the next answer replaces them, so the tree
+never flashes back between keystrokes. An answer to anything but the latest
+request — an earlier text, or text since cleared — is dropped, and the request
+it was is aborted, so a slow earlier answer never replaces a later one. An
+answer of no hits says so.
+
+**Grouped by document.** Hits are grouped by their document, under its title,
+each group in the endpoint's order; the groups follow their best hit, except
+that the document shown — the sidebar's own, matched by its document file's
+address (`document_path`) — comes first. Each hit shows its place in the nav
+(its trail, or its page's title when it has none), its heading — the page's
+title for the text before the first heading — and its snippet, the matched
+words marked.
+
+**The keys:**
+
+| Key | Where | What it does |
+| --- | --- | --- |
+| `/` | anywhere but a text field | focuses the box, its text selected |
+| ⌘K / Ctrl+K | anywhere | the same |
+| ↓ ↑ | in the box | moves the selected hit, round from the last to the first; the mouse moving over a hit selects it too |
+| Enter | in the box | opens the selected hit — the first, unless moved; pressed before the text typed has its hits, opens the first once they come |
+| Escape | in the box | clears the box and brings the tree back; in an empty box, leaves it |
+
+**Opening a hit** is following its link, so a page of a site loads in place
+through the [page swap](../page-script/README.md#links-and-history) and lands
+on the heading — scrolled to again if it is the page and heading shown — while
+a doc's chapter or a deck's slide loads its document whole. The sidebar stays
+mounted across the swap, so the box keeps its text and its hits, and the
+reader can move to the next hit and open it in turn.

@@ -71,7 +71,7 @@ Each card opens the page that explains it.
 - (list-tree) [Organizing navigation](organizing-navigation/README.md) — How Topics sections build a site's sidebar.
 - (palette) [Themes](themes/README.md) — The light and dark tokens behind the page, its code and its diagrams.
 - (refresh-cw) [Live updates](live-updates/README.md) — From a saved file to a swapped page.
-- (search) [Search](search/README.md) — Every section of every document, ranked, as JSON.
+- (search) [Search](search/README.md) — Every section of every document, ranked, in the sidebar as you type.
 
 </Cards>
 
@@ -148,8 +148,8 @@ Each card opens the page that explains it.
 - [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
   from Topics sections, resolved, grouped and kept free of cycles.
 - [Search](search/README.md) — the full-text index of every document's
-  sections: what is indexed, how it ranks, how it stays current, and
-  `/__devpage/search`.
+  sections: what is indexed, how it ranks, how it stays current,
+  `/__devpage/search`, and the search box in the sidebar.
 - [The vendored pele bundle](vendored-pele/README.md) — the third-party
   diagram renderer built into devpage: its source, version, licences and how
   to upgrade it.

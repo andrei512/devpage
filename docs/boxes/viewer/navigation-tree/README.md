@@ -115,7 +115,10 @@ renders its first paint and the browser keeps it: `render::sidebar` writes the
 markup the widget renders, and the tree beside it as JSON, so React takes the
 sidebar over without changing a node.
 
-**The markup.** `render::tree` renders the groups as nested `<ul>` lists:
+**The markup.** Under the title link comes the
+[search box](../search/README.md#the-search-box) — `render::SEARCH_BOX`, a
+`<div class="search">` holding the empty field and the `/` that focuses it —
+then the tree. `render::tree` renders the groups as nested `<ul>` lists:
 
 - a group with a title becomes `<li class="group"><span>title</span></li>`
   before its entries;
@@ -133,6 +136,7 @@ with children of its own, the sidebar on *Getting started* reads:
 ```html
 <nav id="devpage-nav" data-sidebar="/docs/README.md">
   <a class="document-title" href="/docs/README.md">Docs</a>
+  <div class="search"><input type="search" placeholder="Search" …><kbd>/</kbd></div>
   <ul>
     <li><a href="/docs/getting-started.md" class="current">Getting started</a></li>
     <li class="group"><span>Guide</span></li>
@@ -162,7 +166,9 @@ a branch's address names one branch.
 
 **The tree as JSON.** After the `</nav>`,
 `<script type="application/json" id="devpage-sidebar">` holds what the widget
-renders: the document's address, the page shown, the title link (its label,
+renders: the document's address, its document file's address
+(`document_path`, which [search hits](../search/README.md#the-endpoint) name
+it by), the page shown, the title link (its label,
 address and logo) when the sidebar has one, and the groups — each entry its
 label, address and children. `<` is written `\u003c`, so no label can end the
 script.
