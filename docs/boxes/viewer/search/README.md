@@ -144,20 +144,24 @@ the sidebar (`render::SEARCH_BOX`), empty, so React takes it over without a
 change ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar)).
 
 **As the reader types**, the box asks the endpoint for the text typed, once
-typing pauses for 60 ms. While it holds text, the hits take the tree's place:
-the hits last answered stay until the next answer replaces them, so the tree
-never flashes back between keystrokes. An answer to anything but the latest
-request — an earlier text, or text since cleared — is dropped, and the request
-it was is aborted, so a slow earlier answer never replaces a later one. An
-answer of no hits says so.
+typing pauses for 60 ms. While it holds text, the results take the tree's
+place: the results last answered stay until the next answer replaces them, so
+the tree never flashes back between keystrokes. An answer to anything but the
+latest request — an earlier text, or text since cleared — is dropped, and the
+request it was is aborted, so a slow earlier answer never replaces a later
+one. An answer of no pages says so.
 
-**Grouped by document.** Hits are grouped by their document, under its title,
-each group in the endpoint's order; the groups follow their best hit, except
-that the document shown — the sidebar's own, matched by its document file's
-address (`document_path`) — comes first. Each hit shows its place in the nav
-(its trail, or its page's title when it has none), its heading — the page's
-title for the text before the first heading — and its snippet, the matched
-words marked.
+**Grouped by page**, in the endpoint's order, each page is a group of rows:
+
+| Row | Shows | Opens |
+| --- | --- | --- |
+| the page's | where it is — its document's title when that isn't this sidebar's, then its trail without its own label — and its title; its lede too when it was found by its title (`title_match`) | the page, at its top |
+| a section's, under it | its heading — the page's title for the text before the first heading — and its snippet, the matched words marked | the page, at the section's first matched word ([Landing on the match](#landing-on-the-match)) |
+| *N more in this page*, last, when the page has `more` | | the page, at its top |
+
+A page's sections and its more row stand indented under its row, on a rule, as
+the tree's children do. A label that would say again what the row says — a
+document's title over a page of the same title — is left out.
 
 **The keys:**
 
@@ -165,18 +169,49 @@ words marked.
 | --- | --- | --- |
 | `/` | anywhere but a text field | focuses the box, its text selected |
 | ⌘K / Ctrl+K | anywhere | the same |
-| ↓ ↑ | in the box | moves the selected hit, round from the last to the first; the mouse moving over a hit selects it too |
-| Enter | in the box | opens the selected hit — the first, unless moved; pressed before the text typed has its hits, opens the first once they come |
+| ↓ ↑ | in the box | moves the selected row through every row, round from the last to the first; the mouse moving over a row selects it too |
+| Enter | in the box | opens the selected row; pressed before the text typed has its results, opens the first selected once they come |
 | Escape | in the box | clears the box and brings the tree back; in an empty box, leaves it |
+| Escape | anywhere | takes the [found words' marks](#landing-on-the-match) out |
+
+The row selected first is the best page's own when it was found by its title,
+otherwise that page's best section.
 
 **The clear button.** While the box holds text, a ⓧ button at its right end
 clears it and brings the tree back, as Escape does, leaving the focus in the
 box. An empty box shows the `/` hint there instead, so the server's markup —
 always empty — needs no button.
 
-**Opening a hit** is following its link, so a page of a site loads in place
-through the [page swap](../page-script/README.md#links-and-history) and lands
-on the heading — scrolled to again if it is the page and heading shown — while
-a doc's chapter or a deck's slide loads its document whole. The sidebar stays
-mounted across the swap, so the box keeps its text and its hits, and the
-reader can move to the next hit and open it in turn.
+**Opening a row** is following its link, so a page of a site loads in place
+through the [page swap](../page-script/README.md#links-and-history), while
+another site's page, a doc's chapter or a deck's slide loads its document
+whole. The sidebar stays mounted across the swap, so the box keeps its text
+and its results, and the reader can move to the next row and open it in turn.
+
+## Landing on the match
+
+A row's link carries the words it matched — a section's `words`, as they
+appear in its text; none for a page's row or a more row — in `data-found`,
+and the [page script](../page-script/README.md#links-and-history) does the
+rest once the page is in place (`land` in `assets/devpage.js`):
+
+- It marks every whole-word occurrence of those words, in any case, in the
+  section the link's `#fragment` names — from that heading to the next heading
+  of any level, the heading itself left out; a deck's slide whole; a chapter's
+  text before its first heading when the `#fragment` names the chapter — each
+  in `<mark class="devpage-found">`. Marking never enters code (`pre`,
+  `code`), diagrams and designs (`svg`, `canvas`), or a widget's own DOM
+  (`[data-widget]`), which React owns.
+- It scrolls the first mark to the middle of the window — on a deck, the
+  slide shows as its `#fragment` says. When nothing is marked the page stays
+  where the link put it: the heading, or the top.
+- A page's row and a more row open the page at its top, with nothing marked —
+  the page shown included, which is scrolled to its top and given the address
+  without a `#fragment`.
+
+The marks stay until Escape, pressed anywhere, or the next navigation: a link
+followed, or back and forward to another address. Taking them out joins each
+word back into the text around it, so the page's text is as it was. A result
+loaded whole lands the same way once the new page is ready: the link hands its
+address and words over in the tab's session storage (`devpage-found`), which
+the new page reads once and clears; blocked storage opens it unmarked.

@@ -203,24 +203,21 @@ body {
 #devpage-nav .search:focus-within kbd,
 #devpage-nav .search input:not(:placeholder-shown) + kbd { display: none; }
 
-#devpage-nav .search-group + .search-group { margin-top: 14px; }
-#devpage-nav .search-document {
-  margin: 0 0 4px;
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-#devpage-nav a.hit { padding: 6px 8px; scroll-margin: 8px; }
+/* The results, grouped by page: the page's row, then its sections and the
+   more row under it, indented on a rule as the tree's children are. */
+#devpage-nav .search-page + .search-page { margin-top: 6px; }
+#devpage-nav .search-sections { margin: 0 0 2px 6px; padding-left: 8px; border-left: 1px solid var(--border); }
+#devpage-nav a.hit { padding: 5px 8px; scroll-margin: 8px; }
 #devpage-nav a.hit:hover { background: none; }
 #devpage-nav a.hit.selected { background: var(--border); }
 #devpage-nav .hit-place,
-#devpage-nav .hit-heading { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#devpage-nav .hit-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #devpage-nav .hit-place { font-size: 12px; color: var(--muted); }
-#devpage-nav .hit-heading { font-weight: 600; }
-#devpage-nav .hit-snippet {
+#devpage-nav .hit-page .hit-label { font-weight: 600; }
+#devpage-nav .hit-section .hit-label { font-weight: 500; }
+#devpage-nav .hit-more .hit-label { font-size: 13px; color: var(--muted); }
+#devpage-nav .hit-snippet,
+#devpage-nav .hit-lede {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -377,6 +374,17 @@ body.slides { display: block; background: var(--background); overflow: hidden; }
   }
   .deck .slide:not(:last-child) { break-after: page; }
   body.slides, .deck { margin: 0; padding: 0; }
+}
+
+/* The words a search result matched, marked in its section where it lands
+   until Escape or the next navigation: one yellow, half seen through, in
+   both themes. */
+mark.devpage-found {
+  --found: color-mix(in srgb, #ffd60a 55%, transparent);
+  background: var(--found);
+  color: inherit;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px var(--found);
 }
 
 /* Comments: highlighted anchors, and threads beside the text on a wide page

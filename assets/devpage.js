@@ -507,26 +507,45 @@ async function swap(url, how, generation, signal) {
 // Links to other Markdown pages of this document load in place — in the text
 // and in diagrams, where a Mermaid `click node href "…"` line becomes an SVG
 // link. An SVG link's `href` property is not a string, so the attribute is
-// resolved against the page instead.
+// resolved against the page instead. A search result's link carries the words
+// it matched (`data-found`): where it opens, they are marked (`land`) — after
+// a whole load too, handed over in the tab's session storage.
 document.addEventListener("click", async (event) => {
   const link = event.target.closest("a[href]");
   if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey) return;
   const url = new URL(link.getAttribute("href"), location.href);
-  if (url.origin !== location.origin || !url.pathname.endsWith(".md")) return;
+  if (url.origin !== location.origin) return;
+  const found = link.dataset.found ? JSON.parse(link.dataset.found) : null;
+  clearFound();
+  if (!url.pathname.endsWith(".md")) {
+    if (found) handOver(url, found);
+    return;
+  }
   event.preventDefault();
   remember();
   if (pathOf(url) === shownPath) {
     // The #fragment shown already is scrolled to again: setting it is no move.
     if (url.hash && url.hash === location.hash) toFragment(url.hash);
     else if (url.hash) location.hash = url.hash;
+    else if (found) {
+      // A page's own result opens it at its top.
+      if (url.href !== location.href) history.pushState(null, "", url);
+      scrollTo(0, 0);
+    }
+    if (found) land(url, found);
     return;
   }
-  if ((await load(url, "push")) === false) location.href = url;
+  const loaded = await load(url, "push");
+  if (found && loaded === true) land(url, found);
+  if (found && (loaded === false || loaded === "navigating")) handOver(url, found);
+  if (loaded === false) location.href = url;
 });
 
 // Back and forward: within the page shown, only the slide and the scroll
-// move; to another page, it is swapped in.
+// move; to another page, it is swapped in. Either way, it is a move away from
+// the words marked.
 window.addEventListener("popstate", () => {
+  if (location.href !== foundAt) clearFound();
   if (pathOf(location.href) !== shownPath) {
     load(location.href, "traverse");
     return;
@@ -535,6 +554,141 @@ window.addEventListener("popstate", () => {
   if (typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
   else if (location.hash) toFragment(location.hash);
 });
+
+// ---- Landing on a search result -------------------------------------------
+// Opening a search result marks the words it matched in its section — from
+// the heading its #fragment names to the next heading of any level, the
+// heading left out; a deck's slide whole; a chapter's text, or the page's,
+// before its first heading when the #fragment names a chapter or nothing —
+// and scrolls the first of them to the middle of the window. A result with
+// no words, a page's own, marks nothing. The marks stay until Escape or the
+// next navigation.
+
+// What marking never enters: code, diagrams, designs, widgets' own DOM.
+const UNMARKED = "pre, code, svg, canvas, script, style, [data-widget], .design-embed, .problems, mark.devpage-found";
+const HEADING = /^H[1-6]$/;
+
+// The address the words were marked at; a move to another takes them out.
+let foundAt = null;
+
+function land(url, words) {
+  clearFound();
+  foundAt = url.href;
+  const page = document.getElementById("devpage-page");
+  if (!page || !words.length) return;
+  markFound(sectionText(page, url.hash), words);
+  if (!page.classList.contains("deck")) firstFound()?.scrollIntoView({ block: "center" });
+}
+
+const firstFound = () => document.querySelector("#devpage-page mark.devpage-found");
+
+// The text nodes of the section a #fragment names, outside what marking
+// never enters.
+function sectionText(page, hash) {
+  const deck = page.classList.contains("deck");
+  let root = page;
+  let start = null;
+  if (deck) {
+    const slides = [...page.children].filter((el) => el.classList.contains("slide"));
+    root = slides[Math.min(Math.max(parseInt(hash.slice(1)) || 1, 1), slides.length) - 1];
+  } else {
+    const target = hash.length > 1 ? document.getElementById(decodeURIComponent(hash.slice(1))) : null;
+    if (target && HEADING.test(target.tagName)) start = target;
+    else if (target && page.contains(target)) root = target;
+  }
+  if (!root) return [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+    acceptNode: (node) => (node.nodeType === Node.ELEMENT_NODE && node.matches(UNMARKED) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+  });
+  const texts = [];
+  let inside = !start;
+  let heading = null;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      if (deck || !HEADING.test(node.tagName)) continue;
+      if (inside) break;
+      inside = node === start;
+      heading = node;
+    } else if (inside && !heading?.contains(node)) {
+      texts.push(node);
+    }
+  }
+  return texts;
+}
+
+// Wraps every whole-word occurrence of the words, in any case, in the text
+// nodes given in `<mark class="devpage-found">`.
+function markFound(texts, words) {
+  const escaped = words.filter(Boolean).sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!escaped.length) return;
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${escaped.join("|")})(?![\\p{L}\\p{N}_])`, "giu");
+  for (const text of texts) {
+    // From the last, so `text` keeps the part before each match.
+    for (const match of [...text.data.matchAll(pattern)].reverse()) {
+      const word = text.splitText(match.index);
+      word.splitText(match[0].length);
+      const mark = document.createElement("mark");
+      mark.className = "devpage-found";
+      word.replaceWith(mark);
+      mark.append(word);
+    }
+  }
+}
+
+// Takes the marks out, joining each word's text back into the text around it.
+function clearFound() {
+  foundAt = null;
+  for (const mark of document.querySelectorAll("mark.devpage-found")) {
+    const word = mark.firstChild;
+    if (mark.childNodes.length !== 1 || word.nodeType !== Node.TEXT_NODE) {
+      mark.replaceWith(...mark.childNodes);
+      continue;
+    }
+    const before = mark.previousSibling;
+    const text = before?.nodeType === Node.TEXT_NODE ? before : word;
+    if (text === before) text.appendData(word.data);
+    mark.replaceWith(...(text === word ? [word] : []));
+    const after = text.nextSibling;
+    if (after?.nodeType === Node.TEXT_NODE) {
+      text.appendData(after.data);
+      after.remove();
+    }
+  }
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") clearFound();
+});
+
+// A result loaded whole — another site's page, a doc's chapter, a deck's
+// slide — lands once the new page is ready.
+const HANDED_OVER = "devpage-found";
+
+function handOver(url, words) {
+  try {
+    sessionStorage.setItem(HANDED_OVER, JSON.stringify({ url: url.href, words }));
+  } catch {
+    // Storage may be blocked: the result opens without its words marked.
+  }
+}
+
+function landHandedOver() {
+  try {
+    const handed = JSON.parse(sessionStorage.getItem(HANDED_OVER));
+    sessionStorage.removeItem(HANDED_OVER);
+    if (handed?.url !== location.href) return;
+    land(new URL(handed.url), handed.words);
+    // Until the page has loaded, the browser may scroll to its #fragment
+    // again: the first word is scrolled to once it has.
+    if (document.readyState !== "complete") {
+      addEventListener("load", () => requestAnimationFrame(() => {
+        if (foundAt === handed.url) firstFound()?.scrollIntoView({ block: "center" });
+      }), { once: true });
+    }
+  } catch {
+    // Nothing handed over, or storage is blocked.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Comments: threads anchored to rendered text, kept by the server in
@@ -1014,6 +1168,7 @@ Promise.all([mountWidgets(document).catch((error) => console.error(error)), side
   markBroken(document);
   showSlide();
   if (!print && typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
+  if (!print) landHandedOver();
   followOutline();
   loadComments();
   // Print mode has no live connection; Chrome waits for this — every widget

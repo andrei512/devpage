@@ -169,6 +169,15 @@ Every other link — other sites, non-Markdown files such as a doc's or deck's
 document file — is left to the browser and loads a whole new page. A site's
 title links to its root page, a Markdown file, so it swaps in place too.
 
+A [search result's](../search/README.md#landing-on-the-match) link carries
+the words it matched in `data-found`. Once its page is in place — swapped in,
+or the page shown already — the listener marks those words in the result's
+section and scrolls to the first; a result with none opens its page at the
+top, the page shown included. A result the browser loads whole hands its
+address and words to the new page in the tab's session storage, and the new
+page lands on them once it is ready. Every link followed, Escape, and back or
+forward to another address take the marks out.
+
 ## The theme
 
 It keeps the theme the page's head chose current: a click on
