@@ -11,7 +11,7 @@ on that page.
 | Element | Draws | Children |
 | --- | --- | --- |
 | `Frame` | a box: fill, stroke, corners, shadow; lays out and clips its children | any elements |
-| `Text` | a run of text in the bundled typeface | text and `{prop}` only |
+| `Text` | a run of text in one font: Inter, or a font file in the served folder | text and `{prop}` only |
 | `Rect` | a rectangle | none |
 | `Ellipse` | an ellipse filling its box | none |
 | `Vector` | an SVG path, `d="M…"`, scaled from its `viewBox` into its box | none |
@@ -82,15 +82,18 @@ string, where a stop's color goes:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
+| `font` | the name of a font, which the `fonts` of the `themes.yml` files above the file it is written in give a font file or folder — see [Fonts](../README.md#fonts) | none: Inter |
 | `size` | pixels from `0` up | `14` |
-| `weight` | `400`, `500`, `600` or `700` | `400` |
+| `weight` | `100` to `900` in steps of `100`, one the font has: Inter has `400`, `500`, `600` and `700`; a variable font, any its weight axis reaches; a folder, each of its files' | `400` |
 | `color` | a color | `#0f172a` |
 | `lineHeight` | a multiple of the size, from `0` up | `1.4` |
 | `textAlign` | `"left"`, `"center"`, `"right"` | `"left"` |
 
 A text wraps at its width when it has one and runs on one line when it hugs.
-Text is set in Inter, which devpage carries inside it, so a design looks the
-same on every machine and in every PNG.
+Its font is Inter, which devpage carries inside it, unless its `font` names
+another, a font file in the served folder; either way the font is the same
+file on every machine, so a design looks the same everywhere and in every
+PNG. Each `Text` names its own, so one design can mix several.
 
 `Vector` takes `d` (SVG path data) and `viewBox` (`"minX minY width
 height"`, the path's own bounds when left out). The path is scaled into the

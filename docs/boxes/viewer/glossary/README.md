@@ -79,7 +79,7 @@ One element of a resolved design — a frame, text, rectangle, ellipse, vector o
 
 ## scene
 
-A design resolved into one tree of nodes, imports, props and theme colors substituted, every color with its light and its dark value, ready to lay out and paint in either theme. A scene is **themed** when any `theme.` reference reached it.
+A design resolved into one tree of nodes, imports, props and theme colors substituted, every color with its light and its dark value, with the image files and font files its nodes use, ready to lay out and paint in either theme. A scene is **themed** when any `theme.` reference reached it.
 
 ## interaction
 
@@ -115,11 +115,19 @@ A page's one gRPC-Web call, `Watch`, naming every design the page shows and carr
 
 ## patch
 
-An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
+An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files and font files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
 
 ## image file
 
 A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its bytes — so a scene holds, decodes and sends it once however many nodes show it. See [Resolving](../design-engine/README.md#resolving).
+
+## font
+
+What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/README.md#fonts).
+
+## font file
+
+A `.ttf` or `.otf` file of one font, at most 4 MB, in the served folder, that a design's text is set in; known by its content, like an image file, so a scene holds, checks and sends it once however many texts use it. See [Font files](../design-engine/README.md#font-files).
 
 ## page
 
@@ -283,7 +291,7 @@ A set of values for the color and font tokens. There are two, light and dark: by
 
 ## themes.yml
 
-The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
+The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
 
 ## navbar
 

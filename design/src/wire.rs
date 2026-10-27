@@ -1,10 +1,12 @@
 //! Scenes on the wire: a scene to its `proto::Scene` and back, and the patch
-//! between two scenes. Each image file travels once: a scene carries every
-//! one its nodes show, a patch only those the scene before it didn't have.
+//! between two scenes. Each image file and font file travels once: a scene
+//! carries every one its nodes use, a patch only those the scene before it
+//! didn't have.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
+use crate::fonts::{FontFile, FontFiles, FontId};
 use crate::proto;
 use crate::resolve::{
     Align, Color, Fill, Image, ImageFile, ImageFiles, ImageId, Kind, Layout, Node, Origin, Rgba,
@@ -135,6 +137,7 @@ pub fn encode(n: &Node) -> proto::Node {
         align: align(n.align) as i32,
         justify: align(n.justify) as i32,
         text: n.text.as_ref().map(|t| proto::Text {
+            font: t.font.map(|id| id.0.to_vec()).unwrap_or_default(),
             content: t.content.clone(),
             size: t.size,
             weight: t.weight as u32,
@@ -155,6 +158,13 @@ fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
         .try_into()
         .map(ImageId)
         .map_err(|_| format!("an image file id of {} bytes, not 32", bytes.len()))
+}
+
+fn font_id(bytes: &[u8]) -> Result<FontId, String> {
+    bytes
+        .try_into()
+        .map(FontId)
+        .map_err(|_| format!("a font file id of {} bytes, not 32", bytes.len()))
 }
 
 /// A node from the wire, or why it isn't one.
@@ -205,18 +215,26 @@ pub fn decode(n: &proto::Node) -> Result<Node, String> {
         padding: four(&n.padding),
         align: unalign(n.align),
         justify: unalign(n.justify),
-        text: n.text.as_ref().map(|t| TextStyle {
-            content: t.content.clone(),
-            size: t.size,
-            weight: t.weight as u16,
-            color: color(t.color),
-            line_height: t.line_height,
-            align: match proto::TextAlign::try_from(t.align).unwrap_or(proto::TextAlign::Left) {
-                proto::TextAlign::Left => TextAlign::Left,
-                proto::TextAlign::Center => TextAlign::Center,
-                proto::TextAlign::Right => TextAlign::Right,
-            },
-        }),
+        text: match &n.text {
+            Some(t) => Some(TextStyle {
+                font: if t.font.is_empty() {
+                    None
+                } else {
+                    Some(font_id(&t.font)?)
+                },
+                content: t.content.clone(),
+                size: t.size,
+                weight: t.weight as u16,
+                color: color(t.color),
+                line_height: t.line_height,
+                align: match proto::TextAlign::try_from(t.align).unwrap_or(proto::TextAlign::Left) {
+                    proto::TextAlign::Left => TextAlign::Left,
+                    proto::TextAlign::Center => TextAlign::Center,
+                    proto::TextAlign::Right => TextAlign::Right,
+                },
+            }),
+            None => None,
+        },
         vector: n.vector.as_ref().map(|v| Vector {
             d: v.d.clone(),
             view_box: four(&v.view_box),
@@ -238,7 +256,15 @@ pub fn scene(scene: &Scene) -> proto::Scene {
     proto::Scene {
         root: Some(encode(&scene.root)),
         images: scene.images.values().map(|f| file(f)).collect(),
+        fonts: scene.fonts.values().map(|f| font_file(f)).collect(),
         themed: scene.themed,
+    }
+}
+
+fn font_file(f: &FontFile) -> proto::FontFile {
+    proto::FontFile {
+        id: f.id.0.to_vec(),
+        data: f.bytes.to_vec(),
     }
 }
 
@@ -259,6 +285,12 @@ pub fn patch(old: &Scene, new: &Scene) -> proto::Patch {
             .values()
             .filter(|f| !old.images.contains_key(&f.id))
             .map(|f| file(f))
+            .collect(),
+        fonts: new
+            .fonts
+            .values()
+            .filter(|f| !old.fonts.contains_key(&f.id))
+            .map(|f| font_file(f))
             .collect(),
         themed: new.themed,
     }
@@ -281,35 +313,66 @@ fn files(files: &[proto::ImageFile], held: &ImageFiles) -> Result<ImageFiles, St
     Ok(out)
 }
 
-/// Keeps only the image files `root` shows, and says if it shows one that
-/// isn't there.
-fn settle(root: &Node, images: &mut ImageFiles) -> Result<(), String> {
-    fn shown(n: &Node, out: &mut BTreeSet<ImageId>) {
+/// The font files `files` carries, checked — each taken from `held` instead
+/// when it is already there, so a file is checked once however often it is
+/// sent.
+fn font_files(files: &[proto::FontFile], held: &FontFiles) -> Result<FontFiles, String> {
+    let mut out = FontFiles::new();
+    for f in files {
+        let id = font_id(&f.id)?;
+        let checked = match held.get(&id) {
+            Some(known) => known.clone(),
+            // The server checked the same bytes, so they pass here too.
+            None => Arc::new(
+                FontFile::with_id(id, f.data.clone()).map_err(|e| format!("a font file {e}"))?,
+            ),
+        };
+        out.insert(id, checked);
+    }
+    Ok(out)
+}
+
+/// Keeps only the image and font files `root` uses, and says if it uses one
+/// that isn't there.
+fn settle(root: &Node, images: &mut ImageFiles, fonts: &mut FontFiles) -> Result<(), String> {
+    fn used(n: &Node, images: &mut BTreeSet<ImageId>, fonts: &mut BTreeSet<FontId>) {
         if let Some(i) = &n.image {
-            out.insert(i.id);
+            images.insert(i.id);
+        }
+        if let Some(font) = n.text.as_ref().and_then(|t| t.font) {
+            fonts.insert(font);
         }
         for c in &n.children {
-            shown(c, out);
+            used(c, images, fonts);
         }
     }
-    let mut ids = BTreeSet::new();
-    shown(root, &mut ids);
-    if let Some(missing) = ids.iter().find(|id| !images.contains_key(id)) {
+    let (mut image_ids, mut font_ids) = (BTreeSet::new(), BTreeSet::new());
+    used(root, &mut image_ids, &mut font_ids);
+    if let Some(missing) = image_ids.iter().find(|id| !images.contains_key(id)) {
         return Err(format!("the stream never sent the image file {missing:?}"));
     }
-    images.retain(|id, _| ids.contains(id));
+    if let Some(missing) = font_ids.iter().find(|id| !fonts.contains_key(id)) {
+        return Err(format!("the stream never sent the font file {missing:?}"));
+    }
+    images.retain(|id, _| image_ids.contains(id));
+    fonts.retain(|id, _| font_ids.contains(id));
     Ok(())
 }
 
-/// The scene a stream message carries; image files in `held` aren't decoded
-/// again.
-pub fn decode_scene(message: &proto::Scene, held: &ImageFiles) -> Result<Scene, String> {
+/// The scene a stream message carries; image and font files `held` already
+/// has aren't decoded or checked again.
+pub fn decode_scene(
+    message: &proto::Scene,
+    held: (&ImageFiles, &FontFiles),
+) -> Result<Scene, String> {
     let root = decode(message.root.as_ref().ok_or("a scene with no root")?)?;
-    let mut images = files(&message.images, held)?;
-    settle(&root, &mut images)?;
+    let mut images = files(&message.images, held.0)?;
+    let mut fonts = font_files(&message.fonts, held.1)?;
+    settle(&root, &mut images, &mut fonts)?;
     Ok(Scene {
         root,
         images,
+        fonts,
         files: Vec::new(),
         themed: message.themed,
     })
@@ -351,12 +414,14 @@ pub fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<(), String> {
     let mut next = scene.clone();
     let added = files(&patch.images, &scene.images)?;
     next.images.extend(added);
+    let added = font_files(&patch.fonts, &scene.fonts)?;
+    next.fonts.extend(added);
     for r in &patch.replace {
         let node = r.node.as_ref().ok_or("a replacement with no node")?;
         let at = find(&mut next.root, &r.id).ok_or_else(|| format!("no node {}", r.id))?;
         *at = decode(node)?;
     }
-    settle(&next.root, &mut next.images)?;
+    settle(&next.root, &mut next.images, &mut next.fonts)?;
     next.themed = patch.themed;
     *scene = next;
     Ok(())
@@ -402,7 +467,8 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["0.1.0"]
         );
-        let mut applied = decode_scene(&super::scene(&old), &ImageFiles::new()).unwrap();
+        let mut applied =
+            decode_scene(&super::scene(&old), (&ImageFiles::new(), &FontFiles::new())).unwrap();
         apply(&mut applied, &patch).unwrap();
         assert_eq!(applied.root, new.root);
     }
@@ -431,7 +497,11 @@ mod tests {
         let both = themed("theme.a");
         assert!(both.themed);
         assert_eq!(decode(&encode(&both.root)).unwrap(), both.root);
-        let whole = decode_scene(&super::scene(&light_only), &ImageFiles::new()).unwrap();
+        let whole = decode_scene(
+            &super::scene(&light_only),
+            (&ImageFiles::new(), &FontFiles::new()),
+        )
+        .unwrap();
         assert!(whole.themed, "the gradient names theme.a");
         let mut applied = whole;
         apply(&mut applied, &patch(&light_only, &both)).unwrap();
@@ -447,6 +517,9 @@ mod tests {
     impl Files for Mem {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
             self.0.get(path).cloned()
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            crate::resolve::listed(self.0.keys(), path)
         }
     }
 
@@ -512,7 +585,11 @@ mod tests {
         assert_eq!(more.images.len(), 1, "copy.jpg is shirt.jpg's bytes");
         let p = patch(&fifty, &more);
         assert!(p.images.is_empty());
-        let mut browser = decode_scene(&super::scene(&fifty), &ImageFiles::new()).unwrap();
+        let mut browser = decode_scene(
+            &super::scene(&fifty),
+            (&ImageFiles::new(), &FontFiles::new()),
+        )
+        .unwrap();
         let held = browser.images.values().next().unwrap().clone();
         apply(&mut browser, &p).unwrap();
         assert_eq!(browser.root, more.root);
@@ -529,12 +606,90 @@ mod tests {
         // A patch whose nodes show a file never sent is refused.
         let mut lacking = p.clone();
         lacking.images.clear();
-        let mut kept = decode_scene(&super::scene(&more), &ImageFiles::new()).unwrap();
+        let mut kept = decode_scene(
+            &super::scene(&more),
+            (&ImageFiles::new(), &FontFiles::new()),
+        )
+        .unwrap();
         assert!(
             apply(&mut kept, &lacking)
                 .unwrap_err()
                 .contains("never sent")
         );
         assert_eq!(kept.root, more.root, "a refused patch leaves the scene");
+    }
+
+    fn font(name: &str) -> Vec<u8> {
+        std::fs::read(format!(
+            "{}/fonts/Inter-{name}.ttf",
+            env!("CARGO_MANIFEST_DIR")
+        ))
+        .unwrap()
+    }
+
+    fn texts(body: &str) -> Scene {
+        let fs = Mem([
+            ("f/Inter-Regular.ttf".to_string(), font("Regular")),
+            ("f/Inter-Bold.ttf".to_string(), font("Bold")),
+            (
+                "themes.yml".to_string(),
+                b"kind: themes\nfonts:\n  inter: ./f\nlight: {}\ndark: {}\n".to_vec(),
+            ),
+            (
+                "a.design".to_string(),
+                format!("<Frame layout=\"column\">{body}</Frame>").into_bytes(),
+            ),
+        ]
+        .into());
+        crate::resolve(&fs, "a.design").unwrap()
+    }
+
+    /// A font file used by many texts travels once, with the scene; a patch
+    /// carries one only when the browser doesn't have it yet, which keeps the
+    /// one it checked; a node naming one never sent is refused.
+    #[test]
+    fn a_font_file_travels_once() {
+        let many = texts(&r#"<Text font="inter">a</Text>"#.repeat(20));
+        assert_eq!(many.fonts.len(), 1);
+        let message = super::scene(&many).encode_to_vec().len();
+        let size = font("Regular").len();
+        assert!(
+            message < size + 20 * 200,
+            "{message} bytes for one {size}-byte font file"
+        );
+        assert_eq!(decode(&encode(&many.root)).unwrap(), many.root);
+        let mut browser = decode_scene(
+            &super::scene(&many),
+            (&ImageFiles::new(), &FontFiles::new()),
+        )
+        .unwrap();
+        let held = browser.fonts.values().next().unwrap().clone();
+        let more = texts(&r#"<Text font="inter">a</Text>"#.repeat(21));
+        let p = patch(&many, &more);
+        assert!(p.fonts.is_empty());
+        apply(&mut browser, &p).unwrap();
+        assert!(Arc::ptr_eq(browser.fonts.values().next().unwrap(), &held));
+        let bold = texts(r#"<Text font="inter">a</Text><Text font="inter" weight={700}>b</Text>"#);
+        let p = patch(&more, &bold);
+        assert_eq!(p.fonts.len(), 1);
+        apply(&mut browser, &p).unwrap();
+        assert_eq!(browser.root, bold.root);
+        assert_eq!(browser.fonts.len(), 2);
+        let mut lacking = patch(&more, &bold);
+        lacking.fonts.clear();
+        let mut kept = decode_scene(
+            &super::scene(&more),
+            (&ImageFiles::new(), &FontFiles::new()),
+        )
+        .unwrap();
+        assert!(
+            apply(&mut kept, &lacking)
+                .unwrap_err()
+                .contains("never sent the font file")
+        );
+        // Back to Inter: the scene no longer holds the font files.
+        let plain = texts("<Text>a</Text>");
+        apply(&mut browser, &patch(&bold, &plain)).unwrap();
+        assert!(browser.fonts.is_empty());
     }
 }
