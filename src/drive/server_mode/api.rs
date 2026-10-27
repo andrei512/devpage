@@ -176,6 +176,7 @@ async fn publish(
         },
     )?;
     eprintln!("published {id} v{version} by {author}");
+    state.announce(id);
     Ok(version)
 }
 
@@ -280,6 +281,7 @@ pub async fn delete(
     }
     state.cache.remove_document(&id);
     eprintln!("deleted {id} by {author}");
+    state.announce(&id);
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -303,6 +305,7 @@ pub async fn delete_version(
     if deleted == Deleted::Document {
         state.cache.remove_document(&id);
     }
+    state.announce(&id);
     eprintln!("deleted {id} v{n} by {author}");
     Ok(StatusCode::NO_CONTENT.into_response())
 }

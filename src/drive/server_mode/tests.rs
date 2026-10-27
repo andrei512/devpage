@@ -14,7 +14,7 @@ use tower::ServiceExt;
 use super::cache::Cache;
 use super::{Config, router};
 
-fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
+pub(super) fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
     let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for (name, text) in files {
         out.start_file(*name, zip::write::SimpleFileOptions::default())
@@ -24,7 +24,7 @@ fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
     out.finish().unwrap().into_inner()
 }
 
-fn config(name: &str) -> Config {
+pub(super) fn config(name: &str) -> Config {
     let dir = std::env::temp_dir().join(format!("devpage-server-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     Config::local(&dir.join("data"), &dir.join("bucket"), 1 << 20)
@@ -34,7 +34,7 @@ fn bucket_dir(config: &Config) -> PathBuf {
     PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap())
 }
 
-fn site(title: &str, text: &str) -> Vec<u8> {
+pub(super) fn site(title: &str, text: &str) -> Vec<u8> {
     zip_of(&[
         (
             "devpage.yml",
@@ -46,7 +46,7 @@ fn site(title: &str, text: &str) -> Vec<u8> {
 
 /// What `app` answers to `request`: its status and body as JSON, or as text
 /// in a JSON string when it isn't JSON.
-async fn ask(app: &Router, request: Request) -> (StatusCode, serde_json::Value) {
+pub(super) async fn ask(app: &Router, request: Request) -> (StatusCode, serde_json::Value) {
     let response = app.clone().oneshot(request).await.unwrap();
     let status = response.status();
     let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -57,20 +57,20 @@ async fn ask(app: &Router, request: Request) -> (StatusCode, serde_json::Value) 
     (status, value)
 }
 
-fn post(path: &str, zip: Vec<u8>) -> Request {
+pub(super) fn post(path: &str, zip: Vec<u8>) -> Request {
     Request::post(path).body(Body::from(zip)).unwrap()
 }
 
-fn get(path: &str) -> Request {
+pub(super) fn get(path: &str) -> Request {
     Request::get(path).body(Body::empty()).unwrap()
 }
 
-fn delete(path: &str) -> Request {
+pub(super) fn delete(path: &str) -> Request {
     Request::delete(path).body(Body::empty()).unwrap()
 }
 
 /// Publishes `zip` as a new document: its id.
-async fn create(app: &Router, zip: Vec<u8>) -> String {
+pub(super) async fn create(app: &Router, zip: Vec<u8>) -> String {
     let (status, answer) = ask(app, post("/api/documents", zip)).await;
     assert_eq!(status, StatusCode::CREATED, "{answer}");
     answer["id"].as_str().unwrap().to_string()
@@ -600,7 +600,7 @@ async fn a_restarted_server_serves_what_its_cache_holds_without_the_bucket() {
     assert_eq!(status, StatusCode::OK, "{html}");
 }
 
-fn cache(name: &str, limit: u64) -> Arc<Cache> {
+pub(super) fn cache(name: &str, limit: u64) -> Arc<Cache> {
     let dir = std::env::temp_dir().join(format!("devpage-cache-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     Arc::new(Cache::open(&dir, limit, Box::new(Lru)).unwrap())

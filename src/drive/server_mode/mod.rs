@@ -6,6 +6,9 @@
 mod api;
 mod cache;
 mod config;
+mod pages;
+#[cfg(test)]
+mod pages_tests;
 #[cfg(test)]
 mod tests;
 mod versions;
@@ -23,6 +26,7 @@ pub use config::Config;
 
 use crate::adapters::bucket::Bucket;
 use crate::adapters::sqlite::Sqlite;
+use crate::changes::{Change, Changes, Scope};
 use crate::server;
 use cache::Cache;
 
@@ -37,6 +41,10 @@ struct ServerMode {
     /// One lock per document: its publishes and deletions happen one at a
     /// time.
     publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// Each document's change bus, shared by every router serving its latest
+    /// version at `/d/<id>`: a publish tells all of them, so a page open
+    /// there swaps in the new version whichever version it loaded.
+    buses: Arc<Mutex<HashMap<String, Changes>>>,
 }
 
 impl ServerMode {
@@ -47,6 +55,21 @@ impl ServerMode {
             .entry(id.to_string())
             .or_default()
             .clone()
+    }
+
+    /// The change bus of document `id`'s latest version.
+    fn bus(&self, id: &str) -> Changes {
+        self.buses
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Tells every page open at `/d/<id>` that its latest version changed.
+    fn announce(&self, id: &str) {
+        self.bus(id).publish(&Scope::root(), Change::Refresh);
     }
 }
 
@@ -67,6 +90,7 @@ pub fn router(config: &Config) -> Result<Router> {
         scratch: scratch.canonicalize()?,
         user_header: config.user_header.clone(),
         publishing: Arc::default(),
+        buses: Arc::default(),
     };
     let api = Router::new()
         .route("/api/documents", post(api::create).get(api::list))
@@ -81,6 +105,7 @@ pub fn router(config: &Config) -> Result<Router> {
         ));
     Ok(Router::new()
         .merge(api)
+        .route("/", get(pages::front))
         .route("/d/{id}", get(versions::to_folder))
         .route("/d/{id}/", any(versions::latest_root))
         .route("/d/{id}/{*rest}", any(versions::in_document))

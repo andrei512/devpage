@@ -1,5 +1,5 @@
 //! The cache on the PVC: versions unpacked from their zips, each with the
-//! router that serves it, bounded by a limit past which the eviction policy
+//! router that serves it and the downloads rendered from it, bounded by a limit past which the eviction policy
 //! chooses what goes. Everything in it is a copy of a version in the bucket,
 //! and a version never changes, so nothing in it is ever stale.
 
@@ -40,9 +40,20 @@ struct State {
     serving: HashMap<Key, usize>,
 }
 
+/// A version's download beside its folder: `<n>.download.<extension>`, so it
+/// is counted with the version and goes with it.
+fn download_of(name: &str) -> Option<u64> {
+    if name.ends_with(".partial") {
+        return None;
+    }
+    name.split_once(".download.")?.0.parse().ok()
+}
+
 /// A version's router, held while it answers one request.
 pub struct Served {
     pub router: Router,
+    /// The version's unpacked files.
+    pub folder: PathBuf,
     cache: Arc<Cache>,
     key: Key,
     /// A version bigger than the cache's limit, unpacked for this request
@@ -77,6 +88,7 @@ impl Cache {
         std::fs::create_dir_all(dir).context("the cache's folder")?;
         let dir = dir.canonicalize()?;
         let mut entries = HashMap::new();
+        let mut downloads = Vec::new();
         for document in std::fs::read_dir(&dir)?.filter_map(|e| e.ok()) {
             if !document.path().is_dir() {
                 continue;
@@ -100,10 +112,25 @@ impl Cache {
                             },
                         );
                     }
+                    _ if download_of(&name).is_some() && version.path().is_file() => {
+                        downloads.push((id.clone(), name, version.path()));
+                    }
                     _ => {
                         let _ = std::fs::remove_dir_all(version.path());
                         let _ = std::fs::remove_file(version.path());
                     }
+                }
+            }
+        }
+        // A download counts with its version, and without one is left over.
+        for (id, name, file) in downloads {
+            let key = (id, download_of(&name).unwrap_or_default());
+            match entries.get_mut(&key) {
+                Some(entry) => {
+                    entry.bytes += std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
+                }
+                None => {
+                    let _ = std::fs::remove_file(&file);
                 }
             }
         }
@@ -196,6 +223,7 @@ impl Cache {
     fn served(self: &Arc<Self>, router: Router, key: &Key) -> Served {
         Served {
             router,
+            folder: self.folder(key),
             cache: self.clone(),
             key: key.clone(),
             uncached: None,
@@ -243,6 +271,7 @@ impl Cache {
                 return match router {
                     Ok(router) => Ok(Served {
                         router,
+                        folder: partial.clone(),
                         cache: self.clone(),
                         key: key.clone(),
                         uncached: Some(partial),
@@ -291,7 +320,7 @@ impl Cache {
             }
             state.routers.retain(|(routed, _), _| *routed != key);
             if let Some(entry) = state.entries.remove(&key) {
-                let _ = std::fs::remove_dir_all(self.folder(&key));
+                self.delete(&key);
                 eprintln!(
                     "cache: evicted {} v{} ({} bytes)",
                     key.0, key.1, entry.bytes
@@ -307,7 +336,88 @@ impl Cache {
         let mut state = self.state();
         state.routers.retain(|(routed, _), _| routed != key);
         state.entries.remove(key);
+        self.delete(key);
+    }
+
+    /// Deletes version `key`'s folder and its downloads from disk.
+    fn delete(&self, key: &Key) {
         let _ = std::fs::remove_dir_all(self.folder(key));
+        let prefix = format!("{}.download.", key.1);
+        for file in std::fs::read_dir(self.dir.join(&key.0))
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+        {
+            if file.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(file.path());
+            }
+        }
+    }
+
+    /// Version `served`'s download as `extension` — rendered by `render`
+    /// from its folder the first time, then read from beside it, its bytes
+    /// counted with the version. A version served uncached renders it each
+    /// time and keeps nothing.
+    pub async fn download<F>(
+        &self,
+        served: &Served,
+        extension: &str,
+        render: impl FnOnce(PathBuf) -> F,
+    ) -> Result<Vec<u8>>
+    where
+        F: Future<Output = Result<Vec<u8>>>,
+    {
+        if served.uncached.is_some() {
+            return render(served.folder.clone()).await;
+        }
+        let key = &served.key;
+        let file = self
+            .dir
+            .join(&key.0)
+            .join(format!("{}.download.{extension}", key.1));
+        let making = (format!("{}.download", key.0), key.1);
+        let lock = self
+            .making
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(making.clone())
+            .or_default()
+            .clone();
+        let _making = lock.lock().await;
+        let bytes = self.rendered(served, &file, render).await;
+        self.making
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(&making);
+        bytes
+    }
+
+    /// The download at `file`, or rendered into it.
+    async fn rendered<F>(
+        &self,
+        served: &Served,
+        file: &Path,
+        render: impl FnOnce(PathBuf) -> F,
+    ) -> Result<Vec<u8>>
+    where
+        F: Future<Output = Result<Vec<u8>>>,
+    {
+        let key = &served.key;
+        if let Ok(bytes) = std::fs::read(file) {
+            eprintln!("cache: hit {} v{} download", key.0, key.1);
+            return Ok(bytes);
+        }
+        eprintln!("cache: miss {} v{} download", key.0, key.1);
+        let bytes = render(served.folder.clone()).await?;
+        let mut partial = file.as_os_str().to_owned();
+        partial.push(".partial");
+        std::fs::write(&partial, &bytes)?;
+        std::fs::rename(&partial, file)?;
+        if let Some(entry) = self.state().entries.get_mut(key) {
+            entry.bytes += bytes.len() as u64;
+        }
+        self.evict();
+        Ok(bytes)
     }
 
     /// Forgets every version of `document` and deletes them from disk.
