@@ -21,6 +21,8 @@ type Group = { title: string | null; entries: Entry[] };
 type Title = { label: string; href: string; logo: string | null };
 type Props = { document?: string; document_path?: string; current?: string; title?: Title | null; groups?: Group[] };
 type Hit = { title: string; heading: string; url: string; snippet: string; document: { title: string; path: string }; trail: string[] };
+type Section = { heading: string; url: string; snippet: string };
+type Page = { title: string; document: { title: string; path: string }; trail: string[]; sections: Section[] };
 // What the server answered, and for which query.
 type Found = { query: string; hits: Hit[] };
 
@@ -127,7 +129,11 @@ function useSearch(documentPath: string) {
     const timer = setTimeout(async () => {
       try {
         const response = await fetch(`/__devpage/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
-        const { hits } = await response.json();
+        const { pages } = (await response.json()) as { pages: Page[] };
+        // Each section the server found, in its page's order, as a hit.
+        const hits: Hit[] = pages.flatMap((page) =>
+          page.sections.map((section) => ({ ...section, title: page.title, document: page.document, trail: page.trail })),
+        );
         if (generation !== asked.current) return;
         setFound({ query, hits });
         setSelected(0);

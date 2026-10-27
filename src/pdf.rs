@@ -2108,13 +2108,13 @@ mod tests {
     }
 
     /// A site whose *Retries* page has *The outbox* far down it, and another
-    /// site, *Elsewhere*, titled *Outbox*: a search for `outbox` ranks
-    /// Elsewhere's page first.
+    /// site its Topics reach, *Elsewhere*, titled *Outbox*: a search for
+    /// `outbox` ranks Elsewhere's page first.
     fn search_folder(name: &str) -> std::path::PathBuf {
         let filler = "Words to scroll past.\n\n".repeat(80);
         widget_folder(
             name,
-            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Retries](retries.md)\n",
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Retries](retries.md)\n- [Elsewhere](../other/devpage.yml)\n",
             &[
                 ("docs/guide.md", "# Guide\n\nRead on.\n"),
                 (

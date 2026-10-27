@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 259 tests in the four crates; needs no network and no Chrome
+$ cargo test                  # 271 tests in the four crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 75 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,14 +16,17 @@ $ cargo test -- --ignored     # the 75 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 185 in `devpage`, 66 in the
+`cargo test` runs every crate in the workspace: 197 in `devpage`, 66 in the
 engine `devpage-design`, 6 in `devpage-design-wasm`, whose tests run
 natively, and 2 in `devpage-design-module`. Tests are written as
 `#[cfg(test)]` modules beside the code they test — the canvas's Chrome tests
-in `src/designs/canvas_tests.rs`, a child module of `designs`; the `tests/`
-folder holds only fixtures — `tests/fixtures/sync-design`, a doc of three
-chapters that the doc and PDF tests load, and `tests/fixtures/narrated-talk`,
-a deck of three slides with notes that the live video test records. Route tests start the real router on
+in `src/designs/canvas_tests.rs`, a child module of `designs`. The `tests/`
+folder holds one test, [the search's quality](#the-searchs-quality), and
+fixtures — `tests/fixtures/sync-design`, a doc of three
+chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
+a deck of three slides with notes that the live video test records, and
+`tests/fixtures/search-docs`, a frozen copy of devpage's docs that the
+search's quality is measured on. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
@@ -279,6 +282,36 @@ In Chrome:
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
 - The load set in the head: a diagram page preloading `Diagram`, pele and React; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
 - The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, the empty search box between the title and the tree, no text between its elements, and the tree beside it as JSON with the document file's address; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
+
+### `search`
+
+*20 tests.*
+
+- Only what the served document publishes searched: a page no nav lists and a page out of sight never; front matter's `search: true` putting one in, `search: false` taking one out.
+- A file that is both a page and a chapter found once, as the chapter; a doc's chapters and a deck's slides at their own addresses, a slide by its notes.
+- A page result's title, address, kind, trail, document and lede; a section's heading, path, address, snippet and words.
+- A page whose title is the query first, as a title match — the title as typed, in any case, or its start.
+- A typo finding a word the index lacks, never one it holds; the last word matched while typed, a word followed by a space whole.
+- Every word required, any word when no section holds them all; stopwords not required, a query of them alone finding them; a quoted phrase in a row; a `-word` left out.
+- Three sections per page and a count of the rest; ten pages at most.
+- A diagram's labels as prose, its source not text; code found by its identifiers whole and by their parts, never in a snippet; a widget's text attributes as prose, its others not.
+- Front matter read, never shown, and its keywords searched.
+- An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
+- Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
+- Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
+
+### The search's quality
+
+`tests/search_quality.rs`, one test: it starts the real `devpage` on a free
+port over `tests/fixtures/search-docs` — a frozen copy of devpage's docs, out
+of reach of devpage's own search — and asks its search endpoint 46 queries a
+reader would type: a page's title, a word a section is about, a typo, a word
+being typed, a code identifier, a quoted phrase, a word left out. Each names
+the address it must find first, in the top three pages, or never. It asserts
+every one, prints each query's rank, and holds the set's mean reciprocal rank
+and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
+ranking's result when they were set. A change to ranking that lowers either
+fails it; one that raises them raises the floor with it.
 
 ### `server`
 

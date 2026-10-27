@@ -172,7 +172,7 @@ position, so a branch's address names one branch.
 **The tree as JSON.** After the `</nav>`,
 `<script type="application/json" id="devpage-sidebar">` holds what the widget
 renders: the document's address, its document file's address
-(`document_path`, which [search hits](../search/README.md#the-endpoint) name
+(`document_path`, which [search results](../search/README.md#the-endpoint) name
 it by), the page shown, the title link (its label,
 address and logo) when the sidebar has one, and the groups — each entry its
 label, address and children. `<` is written `\u003c`, so no label can end the

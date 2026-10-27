@@ -1,8 +1,9 @@
 # Search
 
-A site's sidebar opens with a search box over every document in the served
-folder — every page, chapter and slide, split at its headings. Hits come as you
-type, grouped by document with the one you are reading first, the matched
+A site's sidebar opens with a search box over everything the site publishes
+— every page its nav reaches, and every chapter and slide of the documents it
+links, split at their headings; a page whose title you type comes first. Hits
+come as you type, grouped by document with the one you are reading first, the matched
 words marked; the last word matches as you type it, and a typo still finds
 it.
 

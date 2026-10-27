@@ -40,11 +40,11 @@ impl Index {
         index
     }
 
-    /// Adds the search index of every document this one holds. Only a
-    /// server that answers searches needs it: `devpage check`, `pdf` and
-    /// `video` build none.
-    pub fn with_search(mut self) -> Self {
-        self.search = Some(Search::build(&self));
+    /// Adds the search index of what the document file `entry` publishes.
+    /// Only a server that answers searches needs it: `devpage check`, `pdf`
+    /// and `video` build none.
+    pub fn with_search(mut self, entry: &Path) -> Self {
+        self.search = Some(Search::build(&self, entry));
         self
     }
 

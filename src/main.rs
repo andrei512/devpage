@@ -120,7 +120,7 @@ async fn main() -> Result<()> {
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served)?);
-    let index = Arc::new(Index::build(&document.served).with_search());
+    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 
     let designs = designs::Designs::new(document.served.clone());

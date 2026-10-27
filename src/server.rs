@@ -93,7 +93,7 @@ pub fn router(
     changes: broadcast::Sender<String>,
     comments: Option<Identity>,
 ) -> Router {
-    let index = Arc::new(Index::build(&document.served).with_search());
+    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let designs = Designs::new(document.served.clone());
     let shots = Shots::new(&changes);
     router_with_index(
@@ -664,15 +664,16 @@ struct SearchQuery {
     q: String,
 }
 
-/// The hits of a search, as JSON, best first: `{"hits": [...]}`. Comments
-/// on or off; a server without a search index — printing's — finds nothing.
+/// The pages a search finds, as JSON, best first: `{"pages": [...]}`.
+/// Comments on or off; a server without a search index — printing's — finds
+/// nothing.
 async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
-    let hits = state
+    let answer = state
         .index
         .search()
         .map(|search| search.search(&query.q))
         .unwrap_or_default();
-    Json(serde_json::json!({ "hits": hits })).into_response()
+    Json(answer).into_response()
 }
 
 async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
@@ -982,7 +983,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_search_answers_hits_as_json_whether_comments_are_on_or_off() {
+    async fn a_search_answers_pages_as_json_whether_comments_are_on_or_off() {
         let dir = std::env::temp_dir().join(format!("devpage-search-route-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1002,7 +1003,7 @@ mod tests {
         let (changes, _) = broadcast::channel(16);
         let router = router_with_index(
             Arc::new(Entry::new(document)),
-            Arc::new(Index::build(&dir).with_search()),
+            Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
             Designs::new(dir.clone()),
             changes.clone(),
             None,
@@ -1023,17 +1024,26 @@ mod tests {
         };
         assert_eq!(
             search("outbx").await,
-            json!({ "hits": [{
+            json!({ "pages": [{
                 "title": "Retries",
-                "heading": "The outbox",
-                "url": "/b.md#the-outbox",
-                "snippet": "The client retries every write &amp; read from its <mark>outbox</mark>.",
-                "document": { "title": "T", "path": "/devpage.yml" },
+                "url": "/b.md",
                 "trail": ["Retries"],
+                "document": { "title": "T", "path": "/devpage.yml" },
+                "kind": "page",
+                "title_match": false,
+                "lede": "The client retries every write & read from its outbox.",
+                "sections": [{
+                    "heading": "The outbox",
+                    "path": ["Retries", "The outbox"],
+                    "url": "/b.md#the-outbox",
+                    "snippet": "The client retries every write &amp; read from its <mark>outbox</mark>.",
+                    "words": ["outbox"],
+                }],
+                "more": 0,
             }] })
         );
-        assert_eq!(search("%20%20").await, json!({ "hits": [] }));
-        assert_eq!(search("").await, json!({ "hits": [] }));
+        assert_eq!(search("%20%20").await, json!({ "pages": [] }));
+        assert_eq!(search("").await, json!({ "pages": [] }));
         let (status, _) = get(&format!("{address}/__devpage/search")).await;
         assert_eq!(status, 200, "no q is an empty query");
     }

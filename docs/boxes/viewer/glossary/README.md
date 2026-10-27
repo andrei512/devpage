@@ -155,11 +155,27 @@ An entry with children in the sidebar. Its chevron opens and closes it; the bran
 
 ## search index
 
-The full-text index of every in-sight document's sections — pages, chapters and slides split at their headings — held in memory and kept current by the watcher. The code calls it `Search`. See [Search](../search/README.md).
+The full-text index of the sections of everything the served document publishes — the pages its nav reaches and the chapters and slides of the documents those reach, split at their headings — held in memory and kept current by the watcher. The code calls it `Search`. See [Search](../search/README.md).
+
+## page result
+
+One page a search found: its title, address, kind (`page`, `chapter` or `slide`), trail, document and lede, its best sections and a count of the rest. The code calls it `PageResult`. See [The endpoint](../search/README.md#the-endpoint).
+
+## section result
+
+One section of a page result: its heading, its path of headings, its address with the heading's anchor, a snippet of its prose with the matched words marked, and those words as its text spells them. The code calls it `SectionResult`.
 
 ## hit
 
-One section a search found: its title, heading, address with the heading's anchor, a snippet with the matched words marked, its document, and its trail through the nav. See [The endpoint](../search/README.md#the-endpoint).
+One section result as the search box shows it: its page's title and trail, its heading and its snippet. See [The search box](../search/README.md#the-search-box).
+
+## title match
+
+A page whose title the query is — the same words but stopwords, the last perhaps still being typed. It comes first, and opens at its top. See [Ranking](../search/README.md#ranking).
+
+## front matter
+
+YAML between `---` lines at the very top of a page, never shown. Search reads `search`, `description` and `keywords` from it. See [Front matter](../configuration-reference/README.md#front-matter).
 
 ## search box
 
