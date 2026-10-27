@@ -383,16 +383,23 @@ mod tests {
     #[test]
     fn the_search_index_hears_of_saved_and_deleted_pages() {
         let dir = served("search", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(
+            dir.join("docs/README.md"),
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n",
+        )
+        .unwrap();
         let page = dir.join("docs/guide.md");
         std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
         let mut listeners = listeners(&dir, broadcast::channel(64).0);
-        listeners.index = Arc::new(Index::build(&dir).with_search());
+        listeners.index = Arc::new(Index::build(&dir).with_search(&dir.join("docs/devpage.yml")));
         let found = |word: &str| {
             let search = listeners.index.search().unwrap();
             search
                 .search(word)
+                .pages
                 .into_iter()
-                .map(|hit| hit.url)
+                .flat_map(|page| page.sections)
+                .map(|section| section.url)
                 .collect::<Vec<_>>()
         };
         assert_eq!(found("otter"), ["/docs/guide.md#guide"]);

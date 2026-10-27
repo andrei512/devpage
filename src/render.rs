@@ -22,6 +22,9 @@ pub(crate) fn options() -> Options<'static> {
     options.extension.tasklist = true;
     options.extension.footnotes = true;
     options.extension.header_id_prefix = Some(String::new());
+    // A page may open with YAML front matter between `---` lines; it is
+    // never shown (see `front_matter`).
+    options.extension.front_matter_delimiter = Some("---".to_string());
     options.render.r#unsafe = true;
     options.render.github_pre_lang = true;
     options
@@ -202,9 +205,31 @@ pub fn tab_title(page: &str, site: &str) -> String {
     }
 }
 
+/// The YAML of a page's front matter: what lies between a `---` on its first
+/// line and the next line that is `---`, if the page opens with one.
+pub fn front_matter(source: &str) -> Option<&str> {
+    split_front_matter(source).map(|(yaml, _)| yaml)
+}
+
+/// A page's front matter's YAML, and the page after it.
+fn split_front_matter(source: &str) -> Option<(&str, &str)> {
+    let rest = source
+        .strip_prefix("---\n")
+        .or_else(|| source.strip_prefix("---\r\n"))?;
+    let mut at = 0;
+    for line in rest.split_inclusive('\n') {
+        if line.trim_end() == "---" {
+            return Some((&rest[..at], &rest[at + line.len()..]));
+        }
+        at += line.len();
+    }
+    None
+}
+
 /// A page's title: its first level-one heading, or its file name.
 pub fn title(source: &str, path: &Path) -> String {
-    source
+    split_front_matter(source)
+        .map_or(source, |(_, page)| page)
         .lines()
         .find_map(|line| line.strip_prefix("# "))
         .map(|heading| heading.trim().to_string())

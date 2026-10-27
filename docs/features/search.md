@@ -1,11 +1,12 @@
 # Search
 
-A site's sidebar opens with a search box over every document in the served
-folder — every page, chapter and slide, split at its headings. Results come as you
-type, grouped by page — the page, then its best sections with the matched
-words marked, then how many more it holds; the last word matches as you type
-it, and a typo still finds it. Opening a section lands on the first word it
-matched, every one of them marked in it until Escape.
+A site's sidebar opens with a search box over everything the site publishes
+— every page its nav reaches, and every chapter and slide of the documents it
+links, split at their headings. Results come as you type, grouped by page — the
+page, then its best sections with the matched words marked, then how many more
+it holds; a page whose title you type comes first. The last word matches as
+you type it, and a typo still finds it. Opening a section lands on the first
+word it matched, every one of them marked in it until Escape.
 
 | Key | What it does |
 | --- | --- |

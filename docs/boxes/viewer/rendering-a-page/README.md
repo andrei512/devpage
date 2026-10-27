@@ -36,6 +36,7 @@ does the four steps below.
 | `extension.tasklist` | `- [ ]` / `- [x]` items |
 | `extension.footnotes` | `[^1]` footnotes |
 | `extension.header_id_prefix = ""` | every heading gets an id from its text, with no prefix |
+| `extension.front_matter_delimiter = "---"` | a page's [front matter](../configuration-reference/README.md#front-matter) is never shown |
 | `render.unsafe` | raw HTML passes through |
 | `render.github_pre_lang` | a fence's language is passed as a `lang` attribute — which the highlighter below then drops for every block except `mermaid` |
 

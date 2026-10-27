@@ -1,0 +1,27 @@
+# The devpage talk: what devpage is and why a developer would use it, as a
+# deck made with devpage — every slide uses what it describes. Half lesson,
+# half pitch, in plain English for readers who don't speak it natively. Its
+# design, slide by slide, is docs/boxes/showcase/README.md.
+kind: slides
+title: devpage
+logo: ../../logo.svg
+widgets: ../../widgets
+audience: Software developers who use AI coding agents. Many are not native English speakers.
+goal: They understand what devpage is, why it helps them, and try it today.
+tone: Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never salesy.
+pronounce:
+  - Say "devpage" as "dev page".
+slides:
+  - title.md
+  - agents-write.md
+  - hard-to-read.md
+  - scattered.md
+  - one-command.md
+  - live.md
+  - comments.md
+  - kinds.md
+  - designs.md
+  - sees.md
+  - share.md
+  - one-more.md
+  - start.md

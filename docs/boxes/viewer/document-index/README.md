@@ -81,7 +81,7 @@ Finding the nearest site never scans folders. `src/index.rs` keeps an
 
 `devpage` shares one index between the server and the watcher
 (`server::router_with_index`), built with the [search index](../search/README.md)
-of every document's sections (`Index::with_search`). `devpage pdf`, a slide's PNG and
+of what the entry document publishes (`Index::with_search`). `devpage pdf`, a slide's PNG and
 `devpage video` serve through
 `server::printing`, which builds its own index, without search, has no
 watcher and logs nothing; `server::router`, which also builds its own index, exists only for

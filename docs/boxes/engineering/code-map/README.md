@@ -40,7 +40,7 @@ flowchart LR
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf` and `video`; wires the parts together and picks the address. |
 | `src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc; the served folder and path safety; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one. |
-| `src/search.rs` | The search index: every in-sight document's sections in tantivy, in memory, kept current as paths change; a query's hits, best first, with their snippets. |
+| `src/search.rs` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. |
 | `src/watch.rs` | Watches the served folder, keeps the index and its search index current, sends `change` or `comments /<page>` on the change channel, and hands every changed path to the design store and to the widgets' memory of the files they read. |
 | `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes; the `Designs` gRPC service and its watch stream; the PNG route; the canvas page; design problems for `devpage check`. |
 | `src/server.rs` | The routes — the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, and the built-in assets, each sent compressed as the browser accepts. |

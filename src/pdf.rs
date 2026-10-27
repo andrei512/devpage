@@ -2116,14 +2116,14 @@ mod tests {
 
     /// A site whose *Retries* page has *The outbox* far down it — the word
     /// far down that section, in prose, in code and in a widget — then
-    /// *Later*, which has it too; another site, *Elsewhere*, titled
-    /// *Outbox*; and a doc, *Notes*, whose *Drain* section has the word far
-    /// down it.
+    /// *Later*, which has it too; another site its Topics reach,
+    /// *Elsewhere*, titled *Outbox*; and a doc, *Notes*, whose *Drain*
+    /// section has the word far down it.
     fn search_folder(name: &str) -> std::path::PathBuf {
         let filler = "Words to scroll past.\n\n".repeat(40);
         widget_folder(
             name,
-            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Retries](retries.md)\n",
+            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n- [Retries](retries.md)\n- [Elsewhere](../other/devpage.yml)\n",
             &[
                 ("docs/guide.md", "# Guide\n\nRead on.\n"),
                 (
