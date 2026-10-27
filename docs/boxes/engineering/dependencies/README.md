@@ -24,7 +24,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/server.rs`, `src/main.rs`, `src/pdf.rs`, `src/comments.rs` (tests) |
 | `tokio` (feature `full`) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channel that carries changes, background external-link checks, and reading files in handlers (`tokio::fs`). | `src/main.rs`, `src/server.rs`, `src/watch.rs`, `src/external.rs`, `src/pdf.rs`, `src/comments.rs` |
-| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends; `ReceiverStream` and the `Stream` trait, which make the design store's updates the watch stream's response. | `src/server.rs`, `src/designs.rs` |
+| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `BroadcastStream`, which turns a subscription to the change channel into the stream the event route sends; `ReceiverStream` and the `Stream` trait, which make the design store's updates the watch stream's response. | `src/server.rs`, `src/server/watch_stream.rs` |
 | `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
 
 ## Markdown and code
@@ -88,11 +88,11 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server`) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs` |
-| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/designs.rs`, `src/server.rs` |
+| `devpage-design` (feature `server`) | 0.2.1 (path `design/`, published beside devpage; 0.2.1 is its first release that links no fontconfig, so devpage requires it) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side. | `src/designs.rs`, `src/server.rs`, `src/server/watch_stream.rs` |
+| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/server/watch_stream.rs`, `src/server.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/server.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/server.rs` |
-| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/designs.rs` (tests) |
+| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/server/watch_stream.rs` (tests) |
 
 ## Caching
 

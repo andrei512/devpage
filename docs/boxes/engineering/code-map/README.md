@@ -48,8 +48,10 @@ flowchart LR
 | `src/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
 | `src/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
-| `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes; the `Designs` gRPC service and its watch stream; the PNG route; the canvas page; design problems for `devpage check`. |
+| `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes, and the changes it announces; a design's PNG; design problems for `devpage check`. No transport: the watch stream and the canvas page are the server's. |
 | `src/server.rs` | The routes — the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/server/watch_stream.rs` | The `Designs` gRPC service: the watch stream that sends each design a page shows — its scene, then what changed, or its problems — as the design store announces changes. |
+| `src/server/canvas.rs` | The canvas page: one design alone in the window, drawn by the design script. |
 | `build.rs` | The asset manifest — every built-in asset under its content address, compressed as brotli and gzip — and devpage's build id. |
 | `src/addresses.rs` | `address`, the one function that makes every address a page loads from devpage — built-in assets, system widgets, project widgets and their helpers — and the manifest `build.rs` made. |
 | `src/validators.rs` | The middleware that gives every response but the streams an ETag and answers `304`; `Accept-Encoding` negotiation. |
