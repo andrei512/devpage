@@ -1,25 +1,53 @@
 //! Watches the served folder: keeps the index current, tells open pages a
 //! watched file changed, tells them a comment thread changed, and tells the
-//! design store every file that changed and isn't out of sight.
+//! design store every file that changed and isn't out of sight. Only what is
+//! in sight is watched (the watch set, `set.rs`), through the platform's
+//! watcher: `macos.rs`, `inotify.rs`, or `recursive.rs` elsewhere.
+
+mod set;
+
+#[cfg(target_os = "linux")]
+mod inotify;
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+mod recursive;
+
+#[cfg(target_os = "linux")]
+use inotify::Platform;
+#[cfg(target_os = "macos")]
+use macos::Platform;
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+use recursive::Platform;
 
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::hash::Hash;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use notify::event::{CreateKind, EventKind, RemoveKind};
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::broadcast;
 
 use crate::designs::Designs;
-use crate::document::{Document, Entry};
+use crate::document::{Document, Entry, KindName};
 use crate::index::Index;
+use set::WatchSet;
 use std::path::{Path, PathBuf};
 
 /// How long a burst of file events is collected before it is handled: each
 /// path once, and at most one `change` for the whole burst.
 const BURST: Duration = Duration::from_millis(50);
+
+/// What the platform's watcher calls with each event, from any thread.
+type Handler = Arc<dyn Fn(notify::Result<notify::Event>) + Send + Sync>;
+
+/// A running watch. Dropping it stops the platform's watcher, and with it
+/// the thread handling its events.
+pub struct Watch {
+    _platform: Arc<Mutex<Platform>>,
+}
 
 /// Starts watching. A change to a watched file sends `change`; a change to a
 /// comment thread sends `comments /<page>`, whatever the site's `watch` says.
@@ -27,15 +55,15 @@ const BURST: Duration = Duration::from_millis(50);
 /// named by its site's `watch` — is dropped as it arrives, before any
 /// listener hears of it. Every other changed file outside `.devpage/` also
 /// goes to the design store, whatever `watch` says, since any file may be
-/// part of a design. The returned watcher stops when dropped, and so does
-/// the thread handling its events.
+/// part of a design.
 pub fn start(
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
     changes: broadcast::Sender<String>,
-) -> Result<RecommendedWatcher> {
+) -> Result<Watch> {
     let root = entry.document().served.clone();
+    let set = WatchSet::plan(&root, &index, &entry);
     let listeners = Listeners {
         served: root.clone(),
         entry,
@@ -43,37 +71,80 @@ pub fn start(
         designs,
         changes,
     };
-    let mut watcher = notify::recommended_watcher(intake(listeners))?;
-    watcher.watch(&root, RecursiveMode::Recursive)?;
-    Ok(watcher)
+    let watching = Arc::new(OnceLock::new());
+    let mut platform = Platform::new(&root, intake(listeners, watching.clone()))?;
+    platform.apply(set);
+    let platform = Arc::new(Mutex::new(platform));
+    let _ = watching.set(Arc::downgrade(&platform));
+    Ok(Watch {
+        _platform: platform,
+    })
+}
+
+/// The platform's watcher, once started, for the burst thread to re-plan.
+type Watching = Arc<OnceLock<Weak<Mutex<Platform>>>>;
+
+/// What the handler passes the burst thread.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum Arrival {
+    /// A path that survived sifting.
+    Changed(PathBuf),
+    /// A folder created out of sight directly in a folder in sight: the
+    /// watch set may have to leave it out.
+    Hidden(PathBuf),
 }
 
 /// The handler for the platform's watcher: it sifts each event's paths as
 /// they arrive and passes the survivors to a thread that handles them in
-/// bursts. The thread ends when the handler is dropped.
-fn intake(listeners: Listeners) -> impl FnMut(notify::Result<notify::Event>) + Send + 'static {
+/// bursts, re-planning the watch set when a burst changes it. The thread
+/// ends when the handler is dropped.
+fn intake(listeners: Listeners, watching: Watching) -> Handler {
     let listeners = Arc::new(listeners);
-    let (paths, arriving) = mpsc::channel::<PathBuf>();
-    let handler = {
+    let (arrivals, arriving) = mpsc::channel::<Arrival>();
+    let handler: Handler = {
         let listeners = listeners.clone();
-        move |event: notify::Result<notify::Event>| {
-            for path in listeners.sift(event) {
-                let _ = paths.send(path);
+        Arc::new(move |event: notify::Result<notify::Event>| {
+            #[cfg(test)]
+            tests::record(&event);
+            if let Ok(event) = &event {
+                for folder in listeners.hidden(event) {
+                    let _ = arrivals.send(Arrival::Hidden(folder));
+                }
             }
-        }
+            for path in listeners.sift(event) {
+                let _ = arrivals.send(Arrival::Changed(path));
+            }
+        })
     };
     std::thread::spawn(move || {
         while let Some(burst) = next_burst(&arriving) {
-            listeners.changed(&burst);
+            let mut hidden = false;
+            let paths: Vec<PathBuf> = burst
+                .into_iter()
+                .filter_map(|arrival| match arrival {
+                    Arrival::Changed(path) => Some(path),
+                    Arrival::Hidden(_) => {
+                        hidden = true;
+                        None
+                    }
+                })
+                .collect();
+            listeners.changed(&paths);
+            if let Some(platform) = watching.get().and_then(Weak::upgrade) {
+                let mut platform = platform.lock().unwrap_or_else(|p| p.into_inner());
+                if hidden || listeners.reshapes(&platform, &paths) {
+                    listeners.replan(&mut platform);
+                }
+            }
         }
     });
     handler
 }
 
-/// Waits for a path, then collects whatever else arrives within [`BURST`],
-/// each path once, in the order it first arrived. `None` once every sender
-/// is gone and nothing is left.
-fn next_burst(arriving: &mpsc::Receiver<PathBuf>) -> Option<Vec<PathBuf>> {
+/// Waits for an arrival, then collects whatever else arrives within
+/// [`BURST`], each once, in the order it first arrived. `None` once every
+/// sender is gone and nothing is left.
+fn next_burst<T: Clone + Eq + Hash>(arriving: &mpsc::Receiver<T>) -> Option<Vec<T>> {
     let first = arriving.recv().ok()?;
     let deadline = Instant::now() + BURST;
     let mut seen = HashSet::from([first.clone()]);
@@ -136,6 +207,61 @@ impl Listeners {
             return false;
         }
         !self.index.ignored(path, is_dir) || self.named_by_watch(path)
+    }
+
+    /// The folders `event` says were created out of sight directly in a
+    /// folder in sight — a build's first `target/` — judged from the path
+    /// alone, as sifting is.
+    fn hidden(&self, event: &notify::Event) -> Vec<PathBuf> {
+        if event.kind != EventKind::Create(CreateKind::Folder) {
+            return Vec::new();
+        }
+        event
+            .paths
+            .iter()
+            .filter(|path| {
+                !self.can_matter(path, true)
+                    && path.parent().is_some_and(|parent| {
+                        parent.starts_with(&self.served) && self.can_matter(parent, true)
+                    })
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the burst of `paths` can change the watch set: a `.gitignore`
+    /// or a site's document file changed, a folder the platform doesn't
+    /// report on appeared, or one holding a watched folder went away.
+    fn reshapes(&self, platform: &Platform, paths: &[PathBuf]) -> bool {
+        paths.iter().any(|path| {
+            let document_file = path
+                .extension()
+                .is_some_and(|ext| ext == "yml" || ext == "yaml");
+            path.file_name().is_some_and(|name| name == ".gitignore")
+                || path == self.entry.file()
+                || self.index.kind(path) == Some(KindName::Site)
+                || (document_file && !path.exists())
+                || if path.is_dir() {
+                    !platform.covers(path)
+                } else {
+                    platform.watches_within(path)
+                }
+        })
+    }
+
+    /// Plans the watch set again and has the platform watch it. What is
+    /// already in a folder the platform didn't report on before is handled
+    /// as changed — a thread written into a new comment folder before its
+    /// watch started still reaches its page.
+    fn replan(&self, platform: &mut Platform) {
+        let mut found = Vec::new();
+        for (folder, deep) in platform.apply(WatchSet::plan(&self.served, &self.index, &self.entry))
+        {
+            within(&folder, deep, &mut found);
+            found.push(folder);
+        }
+        found.retain(|path| self.can_matter(path, path.is_dir()));
+        self.changed(&found);
     }
 
     /// Whether the `watch` list of the nearest site holding `path` names it.
@@ -202,6 +328,18 @@ impl Listeners {
     }
 }
 
+/// The files and folders directly in `folder`, and when `deep` everything
+/// under it, not following symbolic links.
+fn within(folder: &Path, deep: bool, found: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(folder).into_iter().flatten().flatten() {
+        let path = entry.path();
+        if deep && entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+            within(&path, deep, found);
+        }
+        found.push(path);
+    }
+}
+
 /// `path` canonicalized, or as reported when it can't be (a deleted file).
 /// Only paths that survived sifting get here.
 fn canonical(path: &Path) -> PathBuf {
@@ -258,6 +396,216 @@ mod tests {
     thread_local! {
         /// How many paths this thread has canonicalized.
         pub static CANONICALIZED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    /// Every path a handler was handed, by any watcher in any test, before
+    /// sifting: what the platform reported.
+    static RAW: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    pub fn record(event: &notify::Result<notify::Event>) {
+        if let Ok(event) = event {
+            RAW.lock().unwrap().extend(event.paths.iter().cloned());
+        }
+    }
+
+    /// How many paths the platform has reported in `folder`, or that are it.
+    fn raw(folder: &Path) -> usize {
+        RAW.lock()
+            .unwrap()
+            .iter()
+            .filter(|path| path.starts_with(folder))
+            .count()
+    }
+
+    /// Starts watching the served folder `dir`, started on `docs/`, and
+    /// lets the platform's watcher settle.
+    async fn watching(dir: &Path) -> Watch {
+        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let watch = start(
+            Arc::new(Entry::new(document)),
+            Arc::new(Index::build(dir)),
+            Designs::new(dir.to_path_buf()),
+            broadcast::channel(64).0,
+        )
+        .unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        watch
+    }
+
+    /// Waits until the platform has reported something in `folder` since
+    /// `before`, and says whether it did within two seconds.
+    async fn reported(folder: &Path, before: usize) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if raw(folder) > before {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    /// Writes a few files in `folder`, making it first.
+    fn write_in(folder: &Path) {
+        std::fs::create_dir_all(folder).unwrap();
+        for n in 0..20 {
+            std::fs::write(folder.join(format!("f{n}")), "x").unwrap();
+        }
+    }
+
+    #[tokio::test]
+    async fn writes_out_of_sight_are_never_reported() {
+        let dir = served("unseen", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
+        std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+        std::fs::create_dir_all(dir.join(".git/objects")).unwrap();
+        let _watch = watching(&dir).await;
+        write_in(&dir.join("target/debug"));
+        write_in(&dir.join("target/debug/deps"));
+        write_in(&dir.join(".git/objects/ab"));
+        // Something in sight, so the quiet below is the platform's, not a stall.
+        let before = raw(&dir.join("docs/README.md"));
+        std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
+        assert!(reported(&dir.join("docs/README.md"), before).await);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(raw(&dir.join("target")), 0);
+        assert_eq!(raw(&dir.join(".git")), 0);
+    }
+
+    #[tokio::test]
+    async fn writes_in_sight_are_reported_shallow_and_deep() {
+        let dir = served("seen", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
+        std::fs::create_dir_all(dir.join("target")).unwrap();
+        std::fs::write(dir.join("notes.md"), "# Notes").unwrap();
+        let _watch = watching(&dir).await;
+
+        // A file directly in the served folder, which is shallow.
+        let notes = dir.join("notes.md");
+        std::fs::write(&notes, "# Changed").unwrap();
+        assert!(reported(&notes, 0).await, "a file in a shallow folder");
+        // A file in a deep folder.
+        std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
+        assert!(
+            reported(&dir.join("docs/README.md"), 0).await,
+            "a deep folder"
+        );
+        // A new file directly in the served folder.
+        let new = dir.join("new.md");
+        std::fs::write(&new, "# New").unwrap();
+        assert!(reported(&new, 0).await, "a new file in a shallow folder");
+        // A new folder in sight, then a file in it.
+        std::fs::create_dir(dir.join("plan")).unwrap();
+        assert!(reported(&dir.join("plan"), 0).await, "a new folder");
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let page = dir.join("plan/design.md");
+        std::fs::write(&page, "# Plan").unwrap();
+        assert!(reported(&page, 0).await, "a file in a new folder");
+    }
+
+    #[tokio::test]
+    async fn a_new_gitignore_rule_stops_a_folders_events() {
+        let dir = served("gen", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
+        std::fs::create_dir(dir.join("gen")).unwrap();
+        let _watch = watching(&dir).await;
+        write_in(&dir.join("gen"));
+        assert!(reported(&dir.join("gen/f19"), 0).await);
+
+        std::fs::write(dir.join(".gitignore"), "/target/\n/gen/\n").unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let before = raw(&dir.join("gen"));
+        write_in(&dir.join("gen"));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(raw(&dir.join("gen")), before);
+    }
+
+    #[tokio::test]
+    async fn a_nested_build_folder_stops_its_events_once_made() {
+        let dir = served("crate", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join("crate/src")).unwrap();
+        std::fs::write(dir.join("crate/.gitignore"), "target/\n").unwrap();
+        let _watch = watching(&dir).await;
+        // `cargo build` in the crate: its first writes may still be reported.
+        write_in(&dir.join("crate/target/debug"));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let before = raw(&dir.join("crate/target"));
+        write_in(&dir.join("crate/target/debug"));
+        write_in(&dir.join("crate/target/release"));
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        assert_eq!(raw(&dir.join("crate/target")), before);
+        // The rest of the crate is still watched.
+        std::fs::write(dir.join("crate/src/lib.rs"), "").unwrap();
+        assert!(reported(&dir.join("crate/src/lib.rs"), 0).await);
+    }
+
+    #[tokio::test]
+    async fn a_folder_deleted_and_made_again_in_one_burst_is_watched_again() {
+        let dir = served("again", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(dir.join(".gitignore"), "/crate/target/\n").unwrap();
+        // `crate/` holds something out of sight, so it is watched shallow.
+        std::fs::create_dir_all(dir.join("crate/target")).unwrap();
+        std::fs::write(dir.join("crate/a.md"), "# A").unwrap();
+        let _watch = watching(&dir).await;
+        std::fs::remove_dir_all(dir.join("crate")).unwrap();
+        std::fs::create_dir_all(dir.join("crate/target")).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        for n in 0..3 {
+            let later = dir.join(format!("crate/later{n}.md"));
+            std::fs::write(&later, "# Later").unwrap();
+            assert!(reported(&later, 0).await, "crate/later{n}.md");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_deep_folder_deleted_and_made_again_is_watched_again() {
+        let dir = served("checkout", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
+        std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
+        let _watch = watching(&dir).await;
+        // `rm -rf docs/guides && git checkout docs/guides`
+        std::fs::remove_dir_all(dir.join("docs/guides")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
+        std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        for later in ["docs/guides/later.md", "docs/guides/deep/later.md"] {
+            let later = dir.join(later);
+            std::fs::write(&later, "# Later").unwrap();
+            assert!(reported(&later, 0).await, "{}", later.display());
+        }
+    }
+
+    #[tokio::test]
+    async fn the_comment_store_is_reported_and_the_rest_of_devpage_is_not() {
+        let dir = served("store", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join(".devpage/comments/docs/README.md")).unwrap();
+        std::fs::create_dir_all(dir.join(".devpage/cache")).unwrap();
+        let _watch = watching(&dir).await;
+        write_in(&dir.join(".devpage/cache"));
+        let thread = dir.join(".devpage/comments/docs/README.md/20261025T000000Z-abcd.yml");
+        std::fs::write(&thread, "thread: []\n").unwrap();
+        assert!(reported(&thread, 0).await);
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(raw(&dir.join(".devpage/cache")), 0);
+    }
+
+    #[tokio::test]
+    async fn an_ignored_folder_a_watch_pattern_names_is_watched() {
+        let dir = served(
+            "build",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"build/*.svg\"]\n",
+        );
+        std::fs::write(dir.join("docs/.gitignore"), "build/\nout/\n").unwrap();
+        std::fs::create_dir_all(dir.join("out")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/out")).unwrap();
+        let _watch = watching(&dir).await;
+        let chart = dir.join("docs/build/chart.svg");
+        std::fs::write(&chart, "<svg/>").unwrap();
+        assert!(reported(&chart, 0).await);
+        // `docs/out/` is ignored too, and no pattern reaches into it.
+        write_in(&dir.join("docs/out"));
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert_eq!(raw(&dir.join("docs/out")), 0);
     }
 
     /// The listeners of the served folder `dir`, started on `docs/`.
@@ -420,7 +768,7 @@ mod tests {
     fn a_burst_of_changes_to_one_file_sends_one_change() {
         let dir = served("burst", "kind: site\ntitle: T\nroot: README.md\n");
         let (changes, mut received) = broadcast::channel(64);
-        let mut handler = intake(listeners(&dir, changes));
+        let handler = intake(listeners(&dir, changes), Arc::default());
         // Saves trickling in, as an editor or a build writes, within one burst.
         for _ in 0..5 {
             handler(written(&[dir.join("docs/README.md")]));
