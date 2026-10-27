@@ -11,6 +11,12 @@ const print = document.currentScript.hasAttribute("data-print");
 // Comments are off in print mode and on a page served with `--no-comments`:
 // no threads, no toggle, no way to start one.
 const comments = !print && !document.currentScript.hasAttribute("data-no-comments");
+// The prefix every address of this document is under: `/d/<id>/v/<n>` for a
+// version in server mode, empty everywhere else. The page asks its server's
+// endpoints under it, and names a page to its server by its address without
+// it — the path the server sees.
+const mount = document.documentElement.dataset.mount ?? "";
+const unmounted = (address) => (address.startsWith(`${mount}/`) ? address.slice(mount.length) : address);
 
 // ---- Widgets --------------------------------------------------------------
 // The server leaves each widget as a placeholder carrying its name, its props'
@@ -807,8 +813,8 @@ async function loadComments() {
   if (!comments) return;
   const generation = ++commentsGeneration;
   const fetched = await Promise.all(sources().map(async (section) => {
-    const page = section.dataset.source;
-    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
+    const page = unmounted(section.dataset.source);
+    const response = await fetch(`${mount}/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
     return { section, page, threads: response.ok ? await response.json() : [] };
   }));
   if (generation !== commentsGeneration) return;
@@ -950,7 +956,7 @@ function editor(label, submit, extra = [], cancel = null) {
 
 // Sends a write; returns the server's refusal as text, or nothing.
 async function send(action, body, card) {
-  const response = await fetch(action ? `/__devpage/comments/${action}` : "/__devpage/comments", {
+  const response = await fetch(`${mount}/__devpage/comments${action ? `/${action}` : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -978,7 +984,7 @@ function compose(section, anchor, near) {
     layoutComments();
   };
   card.append(quote, editor("Comment", async (text) => {
-    const refused = await send("", { page: section.dataset.source, anchor, text });
+    const refused = await send("", { page: unmounted(section.dataset.source), anchor, text });
     if (!refused) close();
     return refused;
   }, [], close));
@@ -1092,10 +1098,10 @@ let stream = null;
 
 function connect() {
   if (stream) return;
-  stream = new EventSource("/__devpage/events");
+  stream = new EventSource(`${mount}/__devpage/events`);
   stream.onmessage = (event) => {
     if (event.data.startsWith("comments ")) {
-      if (sources().some((s) => s.dataset.source === event.data.slice(9))) loadComments();
+      if (sources().some((s) => unmounted(s.dataset.source) === event.data.slice(9))) loadComments();
     } else {
       refresh();
     }

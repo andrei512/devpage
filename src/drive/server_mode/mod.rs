@@ -1,7 +1,7 @@
 //! `devpage server`: documents published one at a time as zips, kept in the
 //! bucket, recorded in the store, and served from the cache on the PVC —
-//! each version through the same router a local devpage uses, mounted at
-//! `/d/<id>/v/<n>`.
+//! each version through the same router a local devpage uses: the latest
+//! mounted at `/d/<id>`, every version at `/d/<id>/v/<n>`.
 
 mod api;
 mod cache;
@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
-use axum::routing::{delete, get, post};
+use axum::routing::{any, delete, get, post};
 
 pub use config::Config;
 
@@ -81,10 +81,9 @@ pub fn router(config: &Config) -> Result<Router> {
         ));
     Ok(Router::new()
         .merge(api)
-        .route("/d/{id}", get(versions::latest))
-        .route("/d/{id}/v/{n}", get(versions::version_root))
-        .route("/d/{id}/v/{n}/{*rest}", get(versions::version))
+        .route("/d/{id}", get(versions::to_folder))
+        .route("/d/{id}/", any(versions::latest_root))
+        .route("/d/{id}/{*rest}", any(versions::in_document))
         .route("/__devpage/{asset}", get(server::asset))
-        .fallback(versions::by_referer)
         .with_state(state))
 }

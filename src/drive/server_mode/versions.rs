@@ -1,6 +1,8 @@
-//! Serving a version: the request handed to that version's own router, made
-//! on a cache miss from its zip in the bucket.
+//! Serving a version: the request handed to that version's own router under
+//! its mount — the latest at `/d/<id>`, every version at `/d/<id>/v/<n>` —
+//! made on a cache miss from its zip in the bucket.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -8,7 +10,10 @@ use axum::body::Body;
 use axum::extract::{Path as UrlPath, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use devpage_core::check::Preview;
 use devpage_core::document::Document;
+use devpage_core::index::Index;
+use devpage_core::served::ServedFolder;
 use tower::ServiceExt;
 
 use super::ServerMode;
@@ -16,68 +21,68 @@ use super::cache::Served;
 use crate::changes::Changes;
 use crate::server;
 
-/// `/d/<id>`: the latest version's front page.
-pub async fn latest(
+/// `/d/<id>`: the document's folder, `/d/<id>/`, so that the links on its
+/// pages resolve inside it.
+pub async fn to_folder(UrlPath(id): UrlPath<String>) -> Response {
+    axum::response::Redirect::permanent(&format!("/d/{id}/")).into_response()
+}
+
+/// `/d/<id>/`: the latest version's front page.
+pub async fn latest_root(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
     request: Request,
 ) -> Response {
-    match state.store.latest(&id) {
-        Ok(Some(n)) => serve(&state, &id, n, "/", request).await,
+    latest(&state, &id, "/", request).await
+}
+
+/// Anything under `/d/<id>/`: under `v/<n>/`, version `n` — mounted there —
+/// and otherwise the latest version, mounted at `/d/<id>`, in place.
+pub async fn in_document(
+    State(state): State<ServerMode>,
+    UrlPath((id, rest)): UrlPath<(String, String)>,
+    request: Request,
+) -> Response {
+    if let Some((n, path)) = versioned(&rest) {
+        return serve(&state, &id, n, &format!("/d/{id}/v/{n}"), &path, request).await;
+    }
+    latest(&state, &id, &format!("/{rest}"), request).await
+}
+
+/// `v/<n>` or `v/<n>/<path>`: version `n`, and the path inside it.
+fn versioned(rest: &str) -> Option<(u64, String)> {
+    let after = rest.strip_prefix("v/")?;
+    let (n, path) = after.split_once('/').unwrap_or((after, ""));
+    Some((n.parse().ok()?, format!("/{path}")))
+}
+
+/// The request answered by the latest version, mounted at `/d/<id>`.
+async fn latest(state: &ServerMode, id: &str, path: &str, request: Request) -> Response {
+    match state.store.latest(id) {
+        Ok(Some(n)) => serve(state, id, n, &format!("/d/{id}"), path, request).await,
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
     }
 }
 
-pub async fn version_root(
-    State(state): State<ServerMode>,
-    UrlPath((id, n)): UrlPath<(String, u64)>,
+/// The request answered by version `n`'s router under `mount`, as if for
+/// `path`.
+async fn serve(
+    state: &ServerMode,
+    id: &str,
+    n: u64,
+    mount: &str,
+    path: &str,
     request: Request,
 ) -> Response {
-    serve(&state, &id, n, "/", request).await
-}
-
-pub async fn version(
-    State(state): State<ServerMode>,
-    UrlPath((id, n, rest)): UrlPath<(String, u64, String)>,
-    request: Request,
-) -> Response {
-    serve(&state, &id, n, &format!("/{rest}"), request).await
-}
-
-/// PROTOTYPE: a page's script and widgets ask absolute addresses —
-/// `/__devpage/events`, widgets, comments, the design stream — so each is
-/// sent to the version the asking page is.
-pub async fn by_referer(State(state): State<ServerMode>, request: Request) -> Response {
-    let from = request
-        .headers()
-        .get(axum::http::header::REFERER)
-        .and_then(|r| r.to_str().ok())
-        .and_then(|r| r.split_once("/d/").map(|(_, rest)| rest.to_string()));
-    let Some(from) = from else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let mut parts = from.split('/');
-    let (Some(id), Some("v"), Some(n)) = (parts.next(), parts.next(), parts.next()) else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let Ok(n) = n.parse::<u64>() else {
-        return StatusCode::NOT_FOUND.into_response();
-    };
-    let (id, path) = (id.to_string(), request.uri().path().to_string());
-    serve(&state, &id, n, &path, request).await
-}
-
-/// The request answered by version `n`'s router, as if for `path`.
-async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Request) -> Response {
-    match state.store.has(id, n) {
-        Ok(true) => {}
-        Ok(false) => return StatusCode::NOT_FOUND.into_response(),
+    let entry = match state.store.entry(id, n) {
+        Ok(Some(entry)) => entry,
+        Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response();
         }
-    }
-    let served = match version_router(state, id, n).await {
+    };
+    let served = match version_router(state, id, n, mount, &entry).await {
         Ok(served) => served,
         Err(error) => {
             return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
@@ -104,19 +109,34 @@ async fn serve(state: &ServerMode, id: &str, n: u64, path: &str, request: Reques
         .into_response()
 }
 
-/// Version `n`'s router, held for one request: kept while it is in the
-/// cache, made on a miss from the zip in the bucket.
-async fn version_router(state: &ServerMode, id: &str, n: u64) -> Result<Served> {
+/// Version `n`'s router under `mount`, held for one request: kept while the
+/// version is in the cache, made on a miss — from the zip in the bucket when
+/// the version isn't unpacked yet. `entry` is its document file, from the
+/// top of the zip.
+async fn version_router(
+    state: &ServerMode,
+    id: &str,
+    n: u64,
+    mount: &str,
+    entry: &str,
+) -> Result<Served> {
     let key = (id.to_string(), n);
     let fetch = state.bucket.get_version(id, n);
     state
         .cache
-        .router(&key, fetch, |dir| {
-            let mount = format!("/d/{id}/v/{n}");
-            devpage_core::served::ServedFolder::mount_at(dir, &mount);
-            let document = Document::load(dir, dir)?;
+        .router(&key, mount, fetch, |dir: &Path| {
+            let served = ServedFolder::new(dir)?.mounted(mount);
+            let document = Document::load(&served.path().join(entry), &served)?;
+            let index = Index::build(&served).with_search(&document.path());
             let mut options = server::Options::new(Arc::new(document), Changes::default());
+            options.index = Arc::new(index);
             options.comments = None;
+            // External addresses are the CLI's to ask, before it uploads: a
+            // published page never waits on the internet.
+            options.preview = Arc::new(Preview::new(
+                crate::http::offline(),
+                Arc::new(crate::terminal::Terminal),
+            ));
             // The served folder carries the mount, so every address the
             // version's router makes — redirects included — is already under
             // it.

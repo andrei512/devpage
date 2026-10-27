@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Result, bail};
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use devpage_core::document::{Document, Kind};
@@ -72,15 +72,41 @@ fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refused> {
         .ok_or_else(|| Refused::Unauthorized(header.clone()))
 }
 
+/// A publish's query: `?entry=<path>`, the document file inside the zip —
+/// `devpage.yml` when it is left out.
+#[derive(serde::Deserialize)]
+pub struct Published {
+    entry: Option<String>,
+}
+
+impl Published {
+    /// The entry, checked to be a path inside the zip.
+    fn entry(&self) -> Result<String, Refused> {
+        let entry = self.entry.as_deref().unwrap_or("devpage.yml");
+        let inside = !entry.is_empty()
+            && Path::new(entry)
+                .components()
+                .all(|c| matches!(c, std::path::Component::Normal(_)));
+        if !inside {
+            return Err(Refused::Unprocessable(format!(
+                "entry {entry}: not a path inside the document"
+            )));
+        }
+        Ok(entry.to_string())
+    }
+}
+
 /// `POST /api/documents`: a zip becomes version 1 of a new document.
 pub async fn create(
     State(state): State<ServerMode>,
+    Query(query): Query<Published>,
     headers: HeaderMap,
     zip: Bytes,
 ) -> Result<Response, Refused> {
     let author = author(&state, &headers)?;
+    let entry = query.entry()?;
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let version = publish(&state, &id, &author, zip.to_vec()).await?;
+    let version = publish(&state, &id, &entry, &author, zip.to_vec()).await?;
     Ok(published(&id, version, true))
 }
 
@@ -88,15 +114,17 @@ pub async fn create(
 pub async fn add_version(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
+    Query(query): Query<Published>,
     headers: HeaderMap,
     zip: Bytes,
 ) -> Result<Response, Refused> {
     let author = author(&state, &headers)?;
+    let entry = query.entry()?;
     let id = document_id(&id)?;
     if state.store.latest(&id)?.is_none() {
         return Err(Refused::NotFound);
     }
-    let version = publish(&state, &id, &author, zip.to_vec()).await?;
+    let version = publish(&state, &id, &entry, &author, zip.to_vec()).await?;
     Ok(published(&id, version, false))
 }
 
@@ -113,13 +141,19 @@ fn published(id: &str, version: u64, created: bool) -> Response {
 /// Checks the zip, keeps it in the bucket, then records it as the
 /// document's next version — a new document's first. One publish to a
 /// document at a time, so each takes the number after the last.
-async fn publish(state: &ServerMode, id: &str, author: &str, zip: Vec<u8>) -> Result<u64, Refused> {
+async fn publish(
+    state: &ServerMode,
+    id: &str,
+    entry: &str,
+    author: &str,
+    zip: Vec<u8>,
+) -> Result<u64, Refused> {
     // Unpacked once to read and check it; the bucket keeps the zip unchanged.
     let scratch = state
         .scratch
         .join(uuid::Uuid::new_v4().simple().to_string());
     std::fs::create_dir_all(&scratch).map_err(anyhow::Error::from)?;
-    let checked = check(&zip, &scratch).await;
+    let checked = check(&zip, entry, &scratch).await;
     let _ = std::fs::remove_dir_all(&scratch);
     let (kind, title) = checked.map_err(|e| Refused::Unprocessable(format!("{e:#}")))?;
     let sha256 = format!("{:x}", Sha256::digest(&zip));
@@ -133,6 +167,7 @@ async fn publish(state: &ServerMode, id: &str, author: &str, zip: Vec<u8>) -> Re
         id,
         version,
         &Publish {
+            entry,
             kind,
             title: &title,
             author,
@@ -145,13 +180,17 @@ async fn publish(state: &ServerMode, id: &str, author: &str, zip: Vec<u8>) -> Re
 }
 
 /// What the zip is — its kind and title — or why it can't be published:
-/// an entry outside it, no document, or a broken link inside it. External
-/// addresses aren't asked: the CLI asks them before uploading, so a publish
-/// never waits on the internet.
-async fn check(zip: &[u8], scratch: &Path) -> Result<(&'static str, String)> {
+/// a file outside it, no document at `entry`, or a broken link inside it.
+/// External addresses aren't asked: the CLI asks them before uploading, so a
+/// publish never waits on the internet.
+async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str, String)> {
     unpack(zip, scratch)?;
     let scratch = scratch.canonicalize()?;
-    let document = Document::load(&scratch, &scratch)?;
+    let file = scratch.join(entry);
+    if !file.is_file() {
+        bail!("{entry}: no such file in the zip");
+    }
+    let document = Document::load(&file, &scratch)?;
     let problems = devpage_core::check::document(&document, None).await;
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();

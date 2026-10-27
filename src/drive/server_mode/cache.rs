@@ -32,8 +32,10 @@ pub struct Cache {
 struct State {
     /// Every version on disk, with when it was last read.
     entries: HashMap<Key, Entry>,
-    /// The router of each version read since the server started.
-    routers: HashMap<Key, Router>,
+    /// The router of each version read since the server started, by the
+    /// mount it serves it under: a version is the latest at `/d/<id>` and
+    /// itself at `/d/<id>/v/<n>`.
+    routers: HashMap<(Key, String), Router>,
     /// How many requests each version is answering now: never evicted.
     serving: HashMap<Key, usize>,
 }
@@ -145,19 +147,20 @@ impl Cache {
         self.state().entries.contains_key(key)
     }
 
-    /// The router of version `key`: kept, made from what is on disk, or —
-    /// on a miss — made from the zip `fetch` gives, unpacked into the cache.
-    /// `make` builds a router from a version's unpacked folder.
+    /// The router of version `key` under `mount`: kept, made from what is on
+    /// disk, or — on a miss — made from the zip `fetch` gives, unpacked into
+    /// the cache. `make` builds a router from a version's unpacked folder.
     pub async fn router<F>(
         self: &Arc<Self>,
         key: &Key,
+        mount: &str,
         fetch: F,
         make: impl Fn(&Path) -> Result<Router>,
     ) -> Result<Served>
     where
         F: Future<Output = Result<Vec<u8>>>,
     {
-        if let Some(served) = self.kept(key) {
+        if let Some(served) = self.kept(key, mount) {
             return Ok(served);
         }
         let lock = self
@@ -168,7 +171,7 @@ impl Cache {
             .or_default()
             .clone();
         let _making = lock.lock().await;
-        let served = self.make(key, fetch, make).await;
+        let served = self.make(key, mount, fetch, make).await;
         self.making
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -177,9 +180,12 @@ impl Cache {
     }
 
     /// A version already served since start: a hit.
-    fn kept(self: &Arc<Self>, key: &Key) -> Option<Served> {
+    fn kept(self: &Arc<Self>, key: &Key, mount: &str) -> Option<Served> {
         let mut state = self.state();
-        let router = state.routers.get(key)?.clone();
+        let router = state
+            .routers
+            .get(&(key.clone(), mount.to_string()))?
+            .clone();
         if let Some(entry) = state.entries.get_mut(key) {
             entry.read = SystemTime::now();
         }
@@ -199,6 +205,7 @@ impl Cache {
     async fn make<F>(
         self: &Arc<Self>,
         key: &Key,
+        mount: &str,
         fetch: F,
         make: impl Fn(&Path) -> Result<Router>,
     ) -> Result<Served>
@@ -206,7 +213,7 @@ impl Cache {
         F: Future<Output = Result<Vec<u8>>>,
     {
         // Another request made it while this one waited.
-        if let Some(served) = self.kept(key) {
+        if let Some(served) = self.kept(key, mount) {
             return Ok(served);
         }
         let folder = self.folder(key);
@@ -261,7 +268,9 @@ impl Cache {
         let router = make(&folder.canonicalize()?)?;
         {
             let mut state = self.state();
-            state.routers.insert(key.clone(), router.clone());
+            state
+                .routers
+                .insert((key.clone(), mount.to_string()), router.clone());
             if let Some(entry) = state.entries.get_mut(key) {
                 entry.read = SystemTime::now();
             }
@@ -280,7 +289,7 @@ impl Cache {
             if state.serving.contains_key(&key) {
                 continue;
             }
-            state.routers.remove(&key);
+            state.routers.retain(|(routed, _), _| *routed != key);
             if let Some(entry) = state.entries.remove(&key) {
                 let _ = std::fs::remove_dir_all(self.folder(&key));
                 eprintln!(
@@ -296,7 +305,7 @@ impl Cache {
     /// Forgets version `key` and deletes it from disk.
     pub fn remove(&self, key: &Key) {
         let mut state = self.state();
-        state.routers.remove(key);
+        state.routers.retain(|(routed, _), _| routed != key);
         state.entries.remove(key);
         let _ = std::fs::remove_dir_all(self.folder(key));
     }
@@ -304,7 +313,7 @@ impl Cache {
     /// Forgets every version of `document` and deletes them from disk.
     pub fn remove_document(&self, document: &str) {
         let mut state = self.state();
-        state.routers.retain(|key, _| key.0 != document);
+        state.routers.retain(|(key, _), _| key.0 != document);
         state.entries.retain(|key, _| key.0 != document);
         let _ = std::fs::remove_dir_all(self.dir.join(document));
     }

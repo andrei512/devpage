@@ -12,7 +12,7 @@ use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
 use super::cache::Cache;
-use super::{Config, config, router};
+use super::{Config, router};
 
 fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
     let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -27,18 +27,7 @@ fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
 fn config(name: &str) -> Config {
     let dir = std::env::temp_dir().join(format!("devpage-server-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("bucket")).unwrap();
-    std::fs::create_dir_all(dir.join("data")).unwrap();
-    Config {
-        host: std::net::IpAddr::from([127, 0, 0, 1]),
-        port: 0,
-        data_dir: dir.join("data"),
-        bucket_url: format!("file://{}", dir.join("bucket").display()),
-        cache_max_bytes: 1 << 20,
-        cache_policy: config::Policy::Lru,
-        max_upload_bytes: 100 << 20,
-        user_header: None,
-    }
+    Config::local(&dir.join("data"), &dir.join("bucket"), 1 << 20)
 }
 
 fn bucket_dir(config: &Config) -> PathBuf {
@@ -125,34 +114,44 @@ async fn a_published_zip_is_kept_in_the_bucket_and_served_at_its_link() {
 
     // The cache is empty until a read; then the page renders from it.
     assert!(!config.data_dir.join("cache").join(&id).exists());
-    let home = app
-        .clone()
-        .oneshot(
-            Request::get(format!("/d/{id}"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    // The front page leads to the root page, under the version's mount.
-    assert_eq!(home.status(), StatusCode::TEMPORARY_REDIRECT);
-    let location = home.headers()["location"].to_str().unwrap().to_string();
-    assert!(location.starts_with(&format!("/d/{id}/v/1/")), "{location}");
-    let page = app
-        .clone()
-        .oneshot(Request::get(&location).body(Body::empty()).unwrap())
-        .await
-        .unwrap();
-    let status = page.status();
-    let html = axum::body::to_bytes(page.into_body(), usize::MAX)
-        .await
-        .unwrap();
-    let html = String::from_utf8_lossy(&html);
-    assert_eq!(status, StatusCode::OK, "{location}: {html}");
+    let get = |path: String| {
+        let app = app.clone();
+        async move {
+            let response = app
+                .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            let status = response.status();
+            let location = response
+                .headers()
+                .get("location")
+                .map(|l| l.to_str().unwrap().to_string());
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            (
+                status,
+                location,
+                String::from_utf8_lossy(&body).into_owned(),
+            )
+        }
+    };
+    // The link is the document's folder, and its front page leads to
+    // the root page — the latest version, in place, under `/d/<id>`.
+    let (status, location, _) = get(format!("/d/{id}")).await;
+    assert_eq!(status, StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(location.unwrap(), format!("/d/{id}/"));
+    let (status, location, _) = get(format!("/d/{id}/")).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(location.unwrap(), format!("/d/{id}/README.md"));
+    let (status, _, html) = get(format!("/d/{id}/README.md")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
     assert!(html.contains("The plan."), "{html}");
+    assert!(html.contains(&format!(r#"data-mount="/d/{id}""#)), "{html}");
     assert!(config.data_dir.join("cache").join(&id).join("1").exists());
 
-    // A second publish is version 2, and the link now leads to it.
+    // A second publish is version 2: the link shows it, and version 1
+    // stays at its own address, under its own mount.
     let zip = zip_of(&[
         (
             "devpage.yml",
@@ -170,17 +169,20 @@ async fn a_published_zip_is_kept_in_the_bucket_and_served_at_its_link() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::CREATED);
-    let home = app
-        .clone()
-        .oneshot(
-            Request::get(format!("/d/{id}"))
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let location = home.headers()["location"].to_str().unwrap().to_string();
-    assert!(location.starts_with(&format!("/d/{id}/v/2/")), "{location}");
+    let (_, _, html) = get(format!("/d/{id}/README.md")).await;
+    assert!(html.contains("The new plan."), "{html}");
+    let (status, _, html) = get(format!("/d/{id}/v/1/README.md")).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.contains("The plan."), "{html}");
+    assert!(
+        html.contains(&format!(r#"data-mount="/d/{id}/v/1""#)),
+        "{html}"
+    );
+    let (status, location, _) = get(format!("/d/{id}/v/1/")).await;
+    assert_eq!(status, StatusCode::TEMPORARY_REDIRECT);
+    assert_eq!(location.unwrap(), format!("/d/{id}/v/1/README.md"));
+    let (status, _, _) = get(format!("/d/{id}/v/3/README.md")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
 /// Past its limit the cache lets the least recently read version go, and
@@ -621,7 +623,7 @@ async fn misses_arriving_together_unpack_a_version_once() {
                 Ok(zip)
             };
             let served = cache
-                .router(&key, fetch, |_| {
+                .router(&key, "/d/d", fetch, |_| {
                     makes.fetch_add(1, Ordering::SeqCst);
                     Ok(Router::new())
                 })
@@ -646,8 +648,9 @@ async fn a_version_bigger_than_the_limit_is_served_without_being_cached() {
     let served = cache
         .router(
             &key,
+            "/d/d",
             async { Ok(site("Big", "more than ten bytes")) },
-            move |dir| {
+            move |dir: &Path| {
                 assert!(dir.join("README.md").is_file());
                 *folder.lock().unwrap() = dir.to_path_buf();
                 Ok(Router::new())
@@ -670,15 +673,113 @@ async fn a_version_answering_a_request_is_never_evicted() {
     let a = ("a".to_string(), 1);
     let b = ("b".to_string(), 1);
     let zip = || async { Ok(site("Sized", &"w".repeat(60))) };
-    let holding_a = cache.router(&a, zip(), make).await.unwrap();
+    let holding_a = cache.router(&a, "/d/a", zip(), make).await.unwrap();
     let a_bytes = cache.size();
     assert!(a_bytes * 2 > 150 && a_bytes <= 150, "{a_bytes}");
     // b pushes the cache past its limit; a is the older, but answering.
-    drop(cache.router(&b, zip(), make).await.unwrap());
+    drop(cache.router(&b, "/d/b", zip(), make).await.unwrap());
     assert!(cache.holds(&a));
     drop(holding_a);
     // Once a isn't answering, the next insert lets it go.
     let c = ("c".to_string(), 1);
-    drop(cache.router(&c, zip(), make).await.unwrap());
+    drop(cache.router(&c, "/d/c", zip(), make).await.unwrap());
     assert!(!cache.holds(&a));
+}
+
+/// A publish names its document file with `?entry=`: a deck or a lone
+/// Markdown file, not only a `devpage.yml`, checked and served from it.
+#[tokio::test]
+async fn a_publish_names_its_document_file_and_the_version_is_served_from_it() {
+    let app = router(&config("entry")).unwrap();
+    let zip = zip_of(&[
+        ("notes.md", "# Notes\n\nThe notes.\n"),
+        ("stray.md", "# Stray\n\n[gone](gone.md)\n"),
+    ]);
+    let (status, answer) = ask(&app, post("/api/documents?entry=notes.md", zip.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+    let id = answer["id"].as_str().unwrap().to_string();
+    let (status, html) = ask(&app, get(&format!("/d/{id}/notes.md"))).await;
+    assert_eq!(status, StatusCode::OK, "{html}");
+    assert!(html.as_str().unwrap().contains("The notes."), "{html}");
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(document["kind"], "doc");
+    assert_eq!(document["title"], "Notes");
+
+    // No `devpage.yml` in it: without an entry, there is no document.
+    let (status, answer) = ask(&app, post("/api/documents", zip.clone())).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(answer.as_str().unwrap().contains("devpage.yml"), "{answer}");
+    for entry in ["../notes.md", "/etc/passwd", "a/../notes.md", ""] {
+        let (status, _) = ask(
+            &app,
+            post(&format!("/api/documents?entry={entry}"), zip.clone()),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{entry}");
+    }
+}
+
+/// A published page lists no problem for an external address, and asks
+/// none: external addresses are the CLI's to check.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_published_page_asks_no_external_address() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let app = router(&config("offline")).unwrap();
+    let id = create(
+        &app,
+        site("Out", &format!("[away](http://{address}/missing)")),
+    )
+    .await;
+    for _ in 0..3 {
+        let (status, html) = ask(&app, get(&format!("/d/{id}/README.md"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(!html.as_str().unwrap().contains("missing —"), "{html}");
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    assert!(listener.accept().is_err(), "nothing connected");
+}
+
+/// Evicting a version drops its routers under both mounts: the latest at
+/// `/d/<id>` and itself at `/d/<id>/v/<n>` are both made again.
+#[tokio::test]
+async fn an_evicted_version_is_made_again_under_both_its_mounts() {
+    let cache = cache("mounts", 150);
+    let makes = Arc::new(AtomicUsize::new(0));
+    let make = |makes: Arc<AtomicUsize>| {
+        move |_: &Path| {
+            makes.fetch_add(1, Ordering::SeqCst);
+            Ok(Router::new())
+        }
+    };
+    let zip = || async { Ok(site("Sized", &"w".repeat(60))) };
+    let a = ("a".to_string(), 1);
+    for mount in ["/d/a", "/d/a/v/1"] {
+        drop(
+            cache
+                .router(&a, mount, zip(), make(makes.clone()))
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(makes.load(Ordering::SeqCst), 2);
+    // b pushes a out.
+    let b = ("b".to_string(), 1);
+    drop(
+        cache
+            .router(&b, "/d/b", zip(), make(makes.clone()))
+            .await
+            .unwrap(),
+    );
+    assert!(!cache.holds(&a));
+    for mount in ["/d/a", "/d/a/v/1"] {
+        drop(
+            cache
+                .router(&a, mount, zip(), make(makes.clone()))
+                .await
+                .unwrap(),
+        );
+    }
+    assert_eq!(makes.load(Ordering::SeqCst), 5, "both made again");
 }

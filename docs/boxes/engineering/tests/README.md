@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 347 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 395 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 85 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 91 in `devpage`, 160 in its
+`cargo test` runs every crate in the workspace: 136 in `devpage`, 163 in its
 core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -34,7 +34,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 84 tests marked `#[ignore]`, 83 drive Chrome, and one of them also
+Of the 85 tests marked `#[ignore]`, 84 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 all at once, so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -128,6 +128,20 @@ the suite green.
 
 - `devpage check` asking each external address once and reporting every link to it.
 - The preview checking in the background and refreshing open pages.
+
+### `adapters::sqlite`
+
+*3 tests.*
+
+- A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
+- Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
+- Deleting a document deleting its versions and nothing else.
+
+### `cache`
+
+*2 tests.*
+
+- The least recently read versions going, oldest first, until the cache is at 90% of its limit; nothing going under it.
 
 ### `changes`
 
@@ -296,6 +310,17 @@ In Chrome:
 - The tree stopping at a cycle.
 - A Topics entry outside the site or to a missing file is a problem.
 
+### `drive::client`
+
+*17 tests.*
+
+- The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
+- A broken link stopping `publish` before any request, in text and `--json`.
+- `publish` remembering the document per context in `published.yml`, adding a version the second time; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
+- Contexts added, used and listed, the current one marked; `DEVPAGE_CONTEXT`; no context saying how to add one; a token command's output sent as the bearer token and stored nowhere.
+- `list`, `versions`, `comments` (grouped by page, a detached thread marked), `reply`, `resolve`, `download` and `delete` against a fake server answering the API, in text and `--json`; every command parsing as the reference writes it.
+- `publish` against a real `devpage server` on a `file://` bucket: version 1, then version 2 of the same document, kept in the bucket with exactly the checked files, its link rendering.
+
 ### `drive::pdf`
 
 *4 tests, 35 in Chrome, 1 on the network.*
@@ -436,6 +461,21 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A thread on a page outside the served folder refused.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Nothing outside the served folder served, through HTTP's percent-decoding.
+
+### `drive::server_mode`
+
+*19 tests, and 5 of its configuration.*
+
+- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
+- A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
+- A publish naming its document file with `?entry=`, served from it, and an entry outside the zip refused; a broken link or a zip entry outside the document refusing the publish with `422`.
+- An upload over the limit refused with `413`, one over axum's own 2 MB default and under the limit accepted.
+- With a user header, a write without it refused with `401` and each version recording its author; without one, every write `anonymous`.
+- Documents listed and read with their versions; a document deleted from the store, the bucket and the cache; deleting the latest version making the one before it latest; an id that is no UUID naming no document.
+- Concurrent publishes to one document taking one number each.
+- With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
+- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
+- A published page asking no external address.
 
 ### `drive::slide_png`
 

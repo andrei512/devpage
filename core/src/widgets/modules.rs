@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use super::compile::{compile, relative_imports};
 use super::{SYSTEM, system};
 use crate::addresses::{Owned, address};
-use crate::served::ServedFolder;
+use crate::served::{Served, ServedFolder};
 
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]
@@ -59,8 +59,8 @@ impl Modules {
     /// Reads `file` and every module its relative imports reach inside the
     /// served folder `served`, each once. A file that resolves outside the
     /// folder — through `..` or a symbolic link — is never read.
-    pub fn snapshot(&self, served: impl AsRef<Path>, file: &Path) -> Snapshot {
-        let served = ServedFolder::canonical(served.as_ref().to_path_buf());
+    pub fn snapshot(&self, served: impl Served, file: &Path) -> Snapshot {
+        let served = served.served();
         let mut reads = BTreeMap::new();
         let mut queue = vec![file.to_path_buf()];
         while let Some(next) = queue.pop() {
@@ -223,8 +223,8 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// The served folder the snapshot was read in.
-    pub fn served(&self) -> &Path {
-        self.served.path()
+    pub fn served(&self) -> &ServedFolder {
+        &self.served
     }
 
     /// `file` and every module its relative imports reach, as read: `file`

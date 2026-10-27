@@ -33,6 +33,9 @@ pub struct VersionRow {
 
 /// What a publish records.
 pub struct Publish<'a> {
+    /// The document file, from the top of the zip: `devpage.yml`,
+    /// `talk.yml`, `notes.md`, `screen.design`…
+    pub entry: &'a str,
     pub kind: &'a str,
     pub title: &'a str,
     pub author: &'a str,
@@ -67,6 +70,8 @@ impl Sqlite {
              CREATE TABLE IF NOT EXISTS versions (
                document TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
                number INTEGER NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL,
+               -- The document file, from the top of the zip.
+               entry TEXT NOT NULL,
                author TEXT NOT NULL, published TEXT NOT NULL, size INTEGER NOT NULL,
                sha256 TEXT NOT NULL, PRIMARY KEY (document, number));",
         )?;
@@ -123,11 +128,13 @@ impl Sqlite {
             )?;
         }
         tx.execute(
-            "INSERT INTO versions (document, number, kind, title, author, published, size, sha256)
-             VALUES (?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?6, ?7)",
+            "INSERT INTO versions
+               (document, number, entry, kind, title, author, published, size, sha256)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), ?7, ?8)",
             params![
                 id,
                 number as i64,
+                publish.entry,
                 publish.kind,
                 publish.title,
                 publish.author,
@@ -150,17 +157,16 @@ impl Sqlite {
             .map(|n| n as u64))
     }
 
-    /// Whether version `n` of the document exists.
-    pub fn has(&self, id: &str, n: u64) -> Result<bool> {
+    /// Version `n`'s document file, when the version exists.
+    pub fn entry(&self, id: &str, n: u64) -> Result<Option<String>> {
         Ok(self
             .connection()
             .query_row(
-                "SELECT 1 FROM versions WHERE document = ?1 AND number = ?2",
+                "SELECT entry FROM versions WHERE document = ?1 AND number = ?2",
                 params![id, n as i64],
-                |_| Ok(()),
+                |row| row.get(0),
             )
-            .optional()?
-            .is_some())
+            .optional()?)
     }
 
     /// Every document, oldest first.
@@ -290,6 +296,7 @@ mod tests {
 
     fn publish(title: &str) -> Publish<'_> {
         Publish {
+            entry: "notes.md",
             kind: "doc",
             title,
             author: "ana@example.com",
@@ -333,7 +340,8 @@ mod tests {
         store.record("e", 1, &publish("Else")).unwrap();
         assert_eq!(store.delete("d").unwrap(), Some(vec![1, 2]));
         assert_eq!(store.delete("d").unwrap(), None);
-        assert!(!store.has("d", 1).unwrap());
+        assert_eq!(store.entry("d", 1).unwrap(), None);
+        assert_eq!(store.entry("e", 1).unwrap().as_deref(), Some("notes.md"));
         let listed: Vec<String> = store.list().unwrap().into_iter().map(|d| d.id).collect();
         assert_eq!(listed, ["e"]);
     }

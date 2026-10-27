@@ -101,7 +101,7 @@ pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
         .filter(|unit| unit.kind != PageKind::Page || !parts.contains(&unit.file))
         .filter(|unit| unit.kind != PageKind::Page || seen.insert(unit.file.clone()))
         .collect();
-    for file in markdown_files(index, index.served()) {
+    for file in markdown_files(index, index.served().path()) {
         if seen.contains(&file) || parts.contains(&file) {
             continue;
         }
@@ -114,10 +114,7 @@ pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
         let site = index
             .site_for(&file)
             .and_then(|site| Document::load(&site, index.served()).ok());
-        let address = format!(
-            "/{}",
-            file.strip_prefix(index.served()).unwrap_or(&file).display()
-        );
+        let address = index.served().url(&file);
         let document = match site {
             Some(site) => Owner {
                 title: site.title.clone(),

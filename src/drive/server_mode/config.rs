@@ -159,6 +159,26 @@ impl Config {
     }
 }
 
+/// A server for tests: on 127.0.0.1 with the defaults, its data in
+/// `data_dir` and its bucket the folder `bucket`, both created.
+#[cfg(test)]
+impl Config {
+    pub fn local(data_dir: &Path, bucket: &Path, cache_max_bytes: u64) -> Config {
+        std::fs::create_dir_all(data_dir).unwrap();
+        std::fs::create_dir_all(bucket).unwrap();
+        Config {
+            host: IpAddr::from([127, 0, 0, 1]),
+            port: 0,
+            data_dir: data_dir.to_path_buf(),
+            bucket_url: format!("file://{}", bucket.display()),
+            cache_max_bytes,
+            cache_policy: Policy::Lru,
+            max_upload_bytes: 100 << 20,
+            user_header: None,
+        }
+    }
+}
+
 /// `8GB`, `512MB`, `100KB` or a number of bytes.
 pub fn bytes(text: &str) -> Result<u64> {
     let text = text.trim();

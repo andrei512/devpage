@@ -1,7 +1,8 @@
 //! The network and the runtime behind the core's external-link checker:
 //! [`Http`] asks an address over HTTP, [`Tokio`] runs the preview's
 //! background asking on devpage's runtime, and [`external`] puts them
-//! together with the default waits.
+//! together with the default waits; [`offline`] is the checker that asks
+//! nothing, for server mode's pages.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +21,31 @@ pub fn external(changes: Option<Changes>) -> Arc<External> {
         Waits::default(),
         changes.map(|changes| Arc::new(changes) as _),
     )
+}
+
+/// The checker server mode's pages use: it asks no address. A publish's
+/// external addresses are the CLI's to ask, before it uploads, so a page
+/// served from the cluster never waits on the internet.
+pub fn offline() -> Arc<External> {
+    External::new(
+        Arc::new(Http::new()),
+        Arc::new(Nowhere),
+        Waits::default(),
+        None,
+    )
+}
+
+/// Runs nothing: a preview with it never asks in the background.
+struct Nowhere;
+
+impl Background for Nowhere {
+    fn spawn(&self, _: BoxFuture<'static, ()>) -> bool {
+        false
+    }
+
+    fn sleep(&self, pause: Duration) -> BoxFuture<'static, ()> {
+        Box::pin(tokio::time::sleep(pause))
+    }
 }
 
 /// Runs on the tokio runtime the caller is on.
