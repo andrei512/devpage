@@ -746,6 +746,8 @@ struct SidebarGroup {
 struct SidebarEntry {
     label: String,
     href: String,
+    /// Whether this is the page's position, not a second listing of it.
+    home: bool,
     children: Vec<SidebarGroup>,
 }
 
@@ -759,6 +761,7 @@ impl SidebarGroup {
                 .map(|entry| SidebarEntry {
                     label: entry.label.clone(),
                     href: document.url(&entry.file),
+                    home: entry.home,
                     children: entry
                         .children
                         .iter()
@@ -774,12 +777,20 @@ impl SidebarEntry {
     /// Whether the page shown is this entry or under it: the entries open
     /// when a page is shown.
     fn leads_to(&self, current: &str) -> bool {
-        self.href == current
+        self.is(current)
             || self
                 .children
                 .iter()
                 .flat_map(|g| &g.entries)
                 .any(|e| e.leads_to(current))
+    }
+}
+
+impl SidebarEntry {
+    /// Whether this entry is the page shown: its position, never a second
+    /// listing of it.
+    fn is(&self, current: &str) -> bool {
+        self.home && self.href == current
     }
 }
 
@@ -802,7 +813,7 @@ fn tree(groups: &[SidebarGroup], current: &str, html: &mut String) {
         for entry in &group.entries {
             let href = escape(&entry.href);
             let label = escape(&entry.label);
-            let class = if entry.href == current {
+            let class = if entry.is(current) {
                 " class=\"current\""
             } else {
                 ""

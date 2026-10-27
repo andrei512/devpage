@@ -60,7 +60,7 @@ Each entry has these fields:
 
 The **trail** is the labels from the top of a site's [navigation tree](../navigation-tree/README.md)
 down to the page, the page's own label last — empty for the root page and for
-a page the tree doesn't list; a page listed twice keeps its first place. In a
+a page the tree doesn't list; a page listed twice has the trail to its position. In a
 doc of more than one chapter it is the chapter's title; a deck's slides have
 none.
 

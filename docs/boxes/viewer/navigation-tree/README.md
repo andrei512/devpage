@@ -2,7 +2,7 @@
 
 How `src/nav.rs` reads the sidebar tree out of the pages' `## Topics`
 sections — finding the section, taking each item's first link, resolving it to
-a file, grouping by `###` headings and stopping at pages already seen — and how
+a file, grouping by `###` headings and giving each page one position — and how
 `src/render.rs` turns the tree into the sidebar's HTML — collapsed, the
 current page highlighted and its branch open — which the `DevpageSidebar`
 widget takes over in the browser. It is a mechanism page under the
@@ -86,20 +86,25 @@ link it is, a page outside the site's folder as the Topics problem above. The
 
 ## Building the tree and stopping cycles
 
-`tree` starts with a set `seen` holding the root page, then calls `children`
-on the root. `children` reads the page from disk (an unreadable page has no
-children), and for each resolved topic:
+A page listed in several Topics sections appears at each, but has one
+**position** (`Entry::home`): its shallowest listing, and of those the first
+in reading order. `homes` finds every page's position first, level by level
+from the root page (breadth first, in list order), remembering for each file
+the page listing it and the listing's index; the root page is its own
+position, so a listing of it is never one.
 
-- for a page, inserts the file into `seen`; if it was **not** there before,
-  the entry's children are built recursively, otherwise the entry gets none;
-  a document entry never has children;
+Then `tree` calls `children` on the root. `children` reads the page from disk
+(an unreadable page has no children), and for each resolved topic:
+
+- marks the entry `home` when this listing is the file's position; a page at
+  its position gets its children built recursively, any other listing gets
+  none; a document entry never has children;
 - appends the entry to the last group if that group has the same title, or
   starts a new group.
 
-`seen` is shared by the whole walk, which is depth-first in list order. So a
-page appears wherever it is listed, but only its first appearance in that order
-is expanded, and a link back up to an ancestor — or to the root — ends there.
-This is the case the test `builds_the_tree_and_stops_at_cycles` covers.
+So a link back up to an ancestor — or to the root — is a plain link, and the
+walk ends. The tests `builds_the_tree_and_stops_at_cycles` and
+`a_page_listed_twice_has_its_position_at_its_shallowest_listing` cover this.
 
 Grouping compares with the *last* group only, so the same `###` title appearing
 twice, with another group between, gives two separate groups.
@@ -154,15 +159,15 @@ with children of its own, the sidebar on *Getting started* reads:
 the file's address: `/` plus its path in the served folder; `data-sidebar` is
 the document's own — its root page's. **Current-page highlighting** compares
 an entry's address with the requested page's own path built the same way:
-every matching entry gets `class="current"` — more than one when a page is
-listed twice. The document-title link above the tree (class `document-title`)
+the entry at the page's position gets `class="current"`, never a second
+listing of it. The document-title link above the tree (class `document-title`)
 gets `current` when the page is the root page.
 
 **Collapsed, the current branch open.** A branch is open when the page shown
-is the entry itself or anywhere under it (`leads_to`), so the branch down to
-the page is open, the page's own children included, and every other branch
-is closed. An entry listed twice has children only where it is expanded, so
-a branch's address names one branch.
+is the entry at its position or anywhere under it (`leads_to`), so the branch
+down to the page's position is open, the page's own children included, and
+every other branch is closed. An entry listed twice has children only at its
+position, so a branch's address names one branch.
 
 **The tree as JSON.** After the `</nav>`,
 `<script type="application/json" id="devpage-sidebar">` holds what the widget

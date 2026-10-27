@@ -15,7 +15,8 @@ import { useEffect, useId, useRef, useState } from "react";
 // this document's first. `/` or ⌘K / Ctrl+K focuses it; arrows move, Enter
 // opens a hit through the page swap, Escape clears it.
 
-type Entry = { label: string; href: string; children: Group[] };
+// `home`: the page's position; a second listing of a page is a plain link.
+type Entry = { label: string; href: string; home: boolean; children: Group[] };
 type Group = { title: string | null; entries: Entry[] };
 type Title = { label: string; href: string; logo: string | null };
 type Props = { document?: string; document_path?: string; current?: string; title?: Title | null; groups?: Group[] };
@@ -46,8 +47,10 @@ function remember(document: string, href: string, open: boolean) {
   }
 }
 
+const isShown = (entry: Entry, current: string) => entry.home && entry.href === current;
+
 const leadsTo = (entry: Entry, current: string): boolean =>
-  entry.href === current || entry.children.some((g) => g.entries.some((e) => leadsTo(e, current)));
+  isShown(entry, current) || entry.children.some((g) => g.entries.some((e) => leadsTo(e, current)));
 
 // The addresses of the entries open when `current` is shown: those it is,
 // or is under, that have children.
@@ -64,7 +67,7 @@ function Tree({ groups, current, open, toggle, hidden = false }: { groups: Group
       {groups.flatMap((group, g) => [
         group.title !== null ? <li key={`group ${g}`} className="group"><span>{group.title}</span></li> : null,
         ...group.entries.map((entry, i) => {
-          const link = <a href={entry.href} className={entry.href === current ? "current" : undefined}>{entry.label}</a>;
+          const link = <a href={entry.href} className={isShown(entry, current) ? "current" : undefined}>{entry.label}</a>;
           if (!entry.children.length) return <li key={`${g} ${i}`}>{link}</li>;
           const isOpen = open.has(entry.href);
           return (

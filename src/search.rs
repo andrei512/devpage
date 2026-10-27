@@ -618,7 +618,7 @@ fn markdown_files(index: &Index, folder: &Path) -> Vec<PathBuf> {
 }
 
 /// Each page in a site's nav, with the labels from the top of the tree down
-/// to it; a page listed twice keeps its first place.
+/// to it; a page listed twice has the trail to its position.
 fn trails(document: &Document) -> BTreeMap<PathBuf, Vec<String>> {
     fn walk(
         groups: &[crate::nav::Group],
@@ -629,7 +629,9 @@ fn trails(document: &Document) -> BTreeMap<PathBuf, Vec<String>> {
             let mut trail = above.to_vec();
             trail.push(entry.label.clone());
             walk(&entry.children, &trail, out);
-            out.entry(entry.file.clone()).or_insert(trail);
+            if entry.home {
+                out.entry(entry.file.clone()).or_insert(trail);
+            }
         }
     }
     let mut out = BTreeMap::new();
