@@ -59,7 +59,7 @@ pub fn document_id(id: &str) -> Result<String, Refused> {
 
 /// Who is writing: the value of `DEVPAGE_USER_HEADER`, which a write must
 /// carry when it is set; `anonymous` when it isn't.
-fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refused> {
+pub(super) fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refused> {
     let Some(header) = &state.user_header else {
         return Ok("anonymous".into());
     };
@@ -153,9 +153,12 @@ async fn publish(
         .scratch
         .join(uuid::Uuid::new_v4().simple().to_string());
     std::fs::create_dir_all(&scratch).map_err(anyhow::Error::from)?;
-    let checked = check(&zip, entry, &scratch).await;
-    let _ = std::fs::remove_dir_all(&scratch);
-    let (kind, title) = checked.map_err(|e| Refused::Unprocessable(format!("{e:#}")))?;
+    // Kept until the publish is done: re-anchoring reads the new version's
+    // pages from it.
+    let _scratch = Scratch(scratch.clone());
+    let (kind, title) = check(&zip, entry, &scratch)
+        .await
+        .map_err(|e| Refused::Unprocessable(format!("{e:#}")))?;
     let sha256 = format!("{:x}", Sha256::digest(&zip));
     let size = zip.len() as u64;
 
@@ -176,7 +179,17 @@ async fn publish(
         },
     )?;
     eprintln!("published {id} v{version} by {author}");
+    super::comments::carry(state, id, version, &scratch).await?;
     Ok(version)
+}
+
+/// A publish's scratch folder, removed however the publish ends.
+struct Scratch(std::path::PathBuf);
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 /// What the zip is — its kind and title — or why it can't be published:

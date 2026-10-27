@@ -87,7 +87,11 @@ impl Yaml {
                         .unwrap_or_default()
                         .to_string_lossy()
                         .into_owned();
-                    listed.push(Listed { id, thread });
+                    listed.push(Listed {
+                        id,
+                        thread,
+                        detached: false,
+                    });
                 }
                 Err(error) => broken.push((path, format!("{error:#}"))),
             }

@@ -5,6 +5,9 @@
 
 mod api;
 mod cache;
+mod comments;
+#[cfg(test)]
+mod comments_tests;
 mod config;
 #[cfg(test)]
 mod tests;
@@ -23,6 +26,7 @@ pub use config::Config;
 
 use crate::adapters::bucket::Bucket;
 use crate::adapters::sqlite::Sqlite;
+use crate::changes::Changes;
 use crate::server;
 use cache::Cache;
 
@@ -37,11 +41,25 @@ struct ServerMode {
     /// One lock per document: its publishes and deletions happen one at a
     /// time.
     publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// One change bus per document, which every router of its versions
+    /// announces on and its open pages hear: a comment written through the
+    /// API reaches the page as one written on it does.
+    buses: Arc<Mutex<HashMap<String, Changes>>>,
 }
 
 impl ServerMode {
     fn publishing(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
         self.publishing
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .entry(id.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// The document's change bus.
+    fn changes(&self, id: &str) -> Changes {
+        self.buses
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .entry(id.to_string())
@@ -67,6 +85,7 @@ pub fn router(config: &Config) -> Result<Router> {
         scratch: scratch.canonicalize()?,
         user_header: config.user_header.clone(),
         publishing: Arc::default(),
+        buses: Arc::default(),
     };
     let api = Router::new()
         .route("/api/documents", post(api::create).get(api::list))
@@ -75,6 +94,18 @@ pub fn router(config: &Config) -> Result<Router> {
         .route(
             "/api/documents/{id}/versions/{n}",
             delete(api::delete_version),
+        )
+        .route(
+            "/api/documents/{id}/comments",
+            get(comments::list).post(comments::create),
+        )
+        .route(
+            "/api/documents/{id}/comments/{thread}",
+            delete(comments::resolve),
+        )
+        .route(
+            "/api/documents/{id}/comments/{thread}/replies",
+            post(comments::reply),
         )
         .layer(DefaultBodyLimit::max(
             usize::try_from(config.max_upload_bytes).unwrap_or(usize::MAX),

@@ -829,7 +829,9 @@ async function loadComments() {
     for (const thread of threads) {
       const card = threadCard(page, thread);
       const model = textModel(section);
-      const at = find(model, thread.anchor);
+      // A thread whose text the server found gone from this version stays
+      // detached, even where its words happen to appear again.
+      const at = thread.detached ? null : find(model, thread.anchor);
       if (!at) {
         detached.push(card);
         continue;
