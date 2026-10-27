@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 347 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 371 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 91 in `devpage`, 160 in its
+`cargo test` runs every crate in the workspace: 113 in `devpage`, 162 in its
 core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -295,6 +295,17 @@ In Chrome:
 - Links and `###` groups read from the Topics section only.
 - The tree stopping at a cycle.
 - A Topics entry outside the site or to a missing file is a problem.
+
+### `drive::client`
+
+*17 tests.*
+
+- The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
+- A broken link stopping `publish` before any request, in text and `--json`.
+- `publish` remembering the document per context in `published.yml`, adding a version the second time; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
+- Contexts added, used and listed, the current one marked; `DEVPAGE_CONTEXT`; no context saying how to add one; a token command's output sent as the bearer token and stored nowhere.
+- `list`, `versions`, `comments` (grouped by page, a detached thread marked), `reply`, `resolve`, `download` and `delete` against a fake server answering the API, in text and `--json`; every command parsing as the reference writes it.
+- `publish` against a real `devpage server` on a `file://` bucket: version 1, then version 2 of the same document, kept in the bucket with exactly the checked files, its link rendering.
 
 ### `drive::pdf`
 

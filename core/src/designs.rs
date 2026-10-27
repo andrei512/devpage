@@ -419,6 +419,39 @@ pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
     .unwrap_or_default()
 }
 
+/// Every file the design at `path` is made of, read straight from disk: the
+/// design itself, its imports, images, themes and fonts — what resolving it
+/// reads, whether or not it resolves. Folders it lists are not files; the
+/// fonts it then reads from them are.
+pub fn files(served: &ServedFolder, path: &str) -> Vec<PathBuf> {
+    struct Recording<'a> {
+        served: &'a ServedFolder,
+        read: RefCell<Vec<PathBuf>>,
+    }
+    impl Files for Recording<'_> {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            let file = self.served.file(&self.served.path().join(path))?;
+            let bytes = std::fs::read(&file).ok();
+            self.read.borrow_mut().push(file);
+            bytes
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            names(&self.served.folder(&self.served.path().join(path))?)
+        }
+    }
+    let recording = Recording {
+        served,
+        read: RefCell::new(Vec::new()),
+    };
+    let path = address(path);
+    let _ = guarded(
+        path,
+        || devpage_design::resolve(&recording, path),
+        |p| vec![p],
+    );
+    recording.read.into_inner()
+}
+
 /// Whether the design at `path` can be drawn at all — in each theme, when
 /// it is themed: a drawing too big to paint is the design's problem
 /// everywhere — on its canvas, in its PNG and in `devpage check` — not only

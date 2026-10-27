@@ -1,6 +1,8 @@
 //! The driving adapters: the HTTP server that answers the browser, and the
-//! Chrome that prints PDFs, takes slide PNGs and records videos.
+//! Chrome that prints PDFs, takes slide PNGs and records videos, and the
+//! command line that talks to a devpage server.
 
+pub mod client;
 pub mod pdf;
 pub mod server;
 pub mod server_mode;
