@@ -286,14 +286,16 @@ impl Sqlite {
 }
 
 /// A thread as `GET /api/documents/<id>/comments` lists it: the comment
-/// store's fields, its page, the version it was started on, and whether its
-/// text is gone from the latest version.
+/// store's fields, its page, the version it was started on, whether its
+/// text is gone from the latest version, and the version it left.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ThreadRow {
     pub id: String,
     pub page: String,
     pub version: u64,
     pub detached: bool,
+    /// The version whose publish found its text gone; `None` while attached.
+    pub detached_in: Option<u64>,
     pub anchor: Anchor,
     pub thread: Vec<Message>,
 }
@@ -303,7 +305,7 @@ impl Sqlite {
     pub fn threads(&self, document: &str, page: Option<&str>) -> Result<Vec<ThreadRow>> {
         let connection = self.connection();
         let mut statement = connection.prepare(
-            "SELECT id, page, version, detached_in IS NOT NULL, quote, prefix, suffix
+            "SELECT id, page, version, detached_in, quote, prefix, suffix
              FROM threads WHERE document = ?1 AND (?2 IS NULL OR page = ?2) ORDER BY rowid",
         )?;
         let threads: Vec<ThreadRow> = statement
@@ -312,7 +314,8 @@ impl Sqlite {
                     id: row.get(0)?,
                     page: row.get(1)?,
                     version: row.get::<_, i64>(2)? as u64,
-                    detached: row.get(3)?,
+                    detached: row.get::<_, Option<i64>>(3)?.is_some(),
+                    detached_in: row.get::<_, Option<i64>>(3)?.map(|n| n as u64),
                     anchor: Anchor {
                         quote: row.get(4)?,
                         prefix: row.get(5)?,

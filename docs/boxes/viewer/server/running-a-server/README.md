@@ -1,7 +1,7 @@
 # Running a server
 
 How to deploy `devpage server`: what it needs, the example image to copy, its
-environment, and the proxy you may put in front. It is a task article under
+environment, running it on Kubernetes, and the proxy you may put in front. It is a task article under
 [Server mode](../README.md); every variable is in the
 [reference](../reference/README.md#environment).
 
@@ -29,8 +29,8 @@ flowchart LR
 
 `deploy/server/` holds an example to copy and change: a `Dockerfile`, the
 `litestream.yml` it uses, `devpage-server.sh`, which starts devpage under
-Litestream, and a `compose.yaml` that tries it locally against both kinds of
-bucket.
+Litestream, a `compose.yaml` that tries it locally against both kinds of
+bucket, and a `kubernetes.yaml` to [deploy it](#on-kubernetes).
 
 ```dockerfile
 FROM rust:1.98.1-slim-bookworm AS release
@@ -105,8 +105,30 @@ DEVPAGE_CACHE_MAX_BYTES=8GB                    # optional: 80% of the PVC by def
 ```
 
 devpage checks the environment before it listens: a variable that is missing,
-malformed or meant for bundled mode stops it with the variable's name, never
-its value.
+malformed or unknown — any `DEVPAGE_*` variable devpage doesn't read — stops
+it with the variable's name, never its value.
+
+## On Kubernetes
+
+`deploy/server/kubernetes.yaml` is the example to copy: a StatefulSet of one,
+its PVC, a Service, and a Secret the environment comes from.
+
+```sh
+docker build deploy/server --build-arg DEVPAGE_VERSION=<version> -t <registry>/devpage-server:<version>
+kubectl apply -f deploy/server/kubernetes.yaml
+```
+
+- **A StatefulSet with `replicas: 1`** — never more
+  ([one replica](../constraints/one-replica.md)) — so the pod keeps its PVC
+  across restarts, and a rollout replaces the pod rather than running two.
+- **The PVC comes from its `volumeClaimTemplates`**, mounted at
+  `DEVPAGE_DATA_DIR`. The cache takes 80% of it; size it from the cache's
+  logged hits and misses. Deleting it costs nothing but a refill.
+- **The Secret** holds `DEVPAGE_BUCKET_URL` and, without workload identity,
+  the bucket's keys. With IRSA, EKS Pod Identity or Azure Workload Identity,
+  leave the keys out and annotate the pod's service account instead.
+- **The Service** is for your proxy or ingress; keep devpage itself off the
+  internet.
 
 ## Your proxy
 

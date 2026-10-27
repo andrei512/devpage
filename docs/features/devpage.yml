@@ -18,6 +18,7 @@ chapters:
   - navigation.md
   - search.md
   - deploying.md
+  - server.md
 pdf:
   header: devpage features
   footer: "Page {page} of {pages}"

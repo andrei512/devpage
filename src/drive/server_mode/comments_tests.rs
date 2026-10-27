@@ -357,6 +357,9 @@ async fn each_publish_carries_the_threads_onto_the_new_version() {
     assert_eq!(moved["anchor"]["suffix"], ", twice. ");
     assert_eq!(by_id(&gone)["detached"], true);
     assert_eq!(by_id(&page_gone)["detached"], true);
+    assert_eq!(by_id(&gone)["detached_in"], 2);
+    assert_eq!(by_id(&page_gone)["detached_in"], 2);
+    assert_eq!(kept["detached_in"], serde_json::Value::Null);
     // Each still says the version it was started on.
     assert!(all.iter().all(|t| t["version"] == 1), "{all:?}");
 
@@ -399,10 +402,10 @@ async fn each_publish_carries_the_threads_onto_the_new_version() {
     .await;
     assert_eq!(by_id(&gone)["detached"], true);
     let all = threads(&app, &id).await;
-    assert_eq!(
-        all.iter().find(|t| t["id"] == gone.as_str()).unwrap()["detached"],
-        true
-    );
+    let gone = all.iter().find(|t| t["id"] == gone.as_str()).unwrap();
+    assert_eq!(gone["detached"], true);
+    // … and it still says the version its text left, not the latest.
+    assert_eq!(gone["detached_in"], 2);
 }
 
 #[tokio::test]

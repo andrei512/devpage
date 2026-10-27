@@ -4,7 +4,7 @@
 
 Server mode runs as exactly one process. Its store is one SQLite file with one
 writer, and its cache belongs to that process. Nothing in devpage coordinates
-two servers, and the example deploy is a StatefulSet of one.
+two servers, and the example Kubernetes deploy is a StatefulSet of one.
 
 </Callout>
 
@@ -18,4 +18,5 @@ never comes, and whose bugs would lose comments.
 ## Check
 
 There is no database option but SQLite, and no cross-process locking or cache
-invalidation in the code. The example deploy sets one replica.
+invalidation in the code. `deploy/server/kubernetes.yaml` sets `replicas: 1`,
+and `deploy/server/compose.yaml` runs one server per bucket.

@@ -410,7 +410,7 @@ fn threads_text(threads: &[Thread], latest: u64) -> String {
         let _ = writeln!(text, "{}", page.trim_start_matches('/'));
         for thread in threads {
             let place = if thread.detached {
-                format!("detached in v{latest}")
+                format!("detached in v{}", thread.detached_in.unwrap_or(latest))
             } else {
                 format!("on v{}", thread.version)
             };

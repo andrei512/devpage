@@ -51,8 +51,8 @@ pub struct Version {
 }
 
 /// A thread, as `GET /api/documents/<id>/comments` answers: the comment
-/// store's fields, its page, the version it was started on, and whether its
-/// text is gone from the latest version.
+/// store's fields, its page, the version it was started on, whether its
+/// text is gone from the latest version, and the version it left.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Thread {
     pub id: String,
@@ -60,6 +60,8 @@ pub struct Thread {
     pub version: u64,
     #[serde(default)]
     pub detached: bool,
+    #[serde(default)]
+    pub detached_in: Option<u64>,
     pub anchor: devpage_core::comments::Anchor,
     pub thread: Vec<devpage_core::comments::Message>,
 }
