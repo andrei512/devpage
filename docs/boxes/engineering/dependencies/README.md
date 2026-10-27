@@ -130,6 +130,14 @@ with `tonic-prost-build` — and, when the `server` feature is on, the
 of message types, and the proto ships inside the crate. `devpage` turns
 `server` on; the module leaves it off.
 
+The top `Cargo.toml` builds the engine optimised in development builds too,
+with the crates it paints and encodes through — `vello_cpu`, `vello_common`,
+`fearless_simd`, `png` and `zlib-rs` — because its tests and the canvas's
+paint, encode and compare hundreds of pictures pixel by pixel: unoptimised,
+`cargo test -p devpage-design` takes about 14 s on an 18-core Mac; optimised,
+under half a second, and an edit to the engine rebuilds as fast as before.
+Debug assertions and overflow checks stay on.
+
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |

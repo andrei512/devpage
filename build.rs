@@ -55,7 +55,9 @@ fn main() {
         println!("cargo::rerun-if-changed={input}");
     }
 
-    let mut done: Vec<(&str, String)> = Vec::new();
+    // Each asset, rewritten and hashed: name, content type, hash, content
+    // address and bytes.
+    let mut hashed_assets: Vec<(&str, &str, String, String, Vec<u8>)> = Vec::new();
     let mut table = String::new();
     // Every file this build writes; any other in `OUT_DIR` is left from an
     // earlier version of an asset, and is removed.
@@ -63,7 +65,7 @@ fn main() {
     for (name, source, mime) in ASSETS {
         let mut bytes = std::fs::read(source).unwrap_or_else(|e| panic!("{source}: {e}"));
         if !name.ends_with(".wasm") {
-            for (earlier, hashed) in &done {
+            for (earlier, _, _, hashed, _) in &hashed_assets {
                 bytes = replace(
                     &bytes,
                     format!("\"/__devpage/{earlier}\"").as_bytes(),
@@ -84,12 +86,25 @@ fn main() {
             .split_once('.')
             .expect("an asset name has an extension");
         let hashed = format!("{stem}.{hash}.{ext}");
-        let identity = out.join(&hashed);
-        write_if_new(&identity, &bytes, |b| b.to_vec());
+        hashed_assets.push((name, mime, hash, hashed, bytes));
+    }
+
+    // Compressing is most of the build script's time, brotli at its best
+    // most of all: every asset's two variants at once, each on a thread.
+    std::thread::scope(|scope| {
+        for (_, _, _, hashed, bytes) in &hashed_assets {
+            write_if_new(&out.join(hashed), bytes, |b| b.to_vec());
+            let brotli = out.join(format!("{hashed}.br"));
+            scope.spawn(move || write_if_new(&brotli, bytes, compress_brotli));
+            let gzip = out.join(format!("{hashed}.gz"));
+            scope.spawn(move || write_if_new(&gzip, bytes, compress_gzip));
+        }
+    });
+
+    for (name, mime, hash, hashed, bytes) in &hashed_assets {
+        let identity = out.join(hashed);
         let brotli = out.join(format!("{hashed}.br"));
-        write_if_new(&brotli, &bytes, compress_brotli);
         let gzip = out.join(format!("{hashed}.gz"));
-        write_if_new(&gzip, &bytes, compress_gzip);
         written.extend([identity.clone(), brotli.clone(), gzip.clone()]);
         // A variant no smaller than the original isn't worth sending.
         let variant = |file: &Path| {
@@ -109,7 +124,6 @@ fn main() {
             variant(&gzip),
         )
         .unwrap();
-        done.push((name, hashed));
     }
 
     let mut build = Sha256::new();
@@ -153,7 +167,10 @@ fn write_if_new(file: &Path, bytes: &[u8], make: impl Fn(&[u8]) -> Vec<u8>) {
     if file.exists() {
         return;
     }
-    let partial = file.with_extension("partial");
+    // Beside the file under its whole name: the brotli and gzip variants of
+    // one asset are written at once.
+    let mut partial = file.as_os_str().to_owned();
+    partial.push(".partial");
     std::fs::write(&partial, make(bytes)).expect("writing an asset");
     std::fs::rename(&partial, file).expect("writing an asset");
 }

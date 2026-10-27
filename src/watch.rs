@@ -793,8 +793,25 @@ mod tests {
         dir.canonicalize().unwrap()
     }
 
-    /// The messages that arrive within a short while after `touch` runs.
+    /// The messages that arrive within 1.5 s after `touch` runs: long enough
+    /// for any it causes, so a test that expects none waits it out.
     async fn after(dir: &Path, touch: impl FnOnce()) -> Vec<String> {
+        heard(dir, touch, Duration::from_millis(1500), None).await
+    }
+
+    /// The messages that arrive after `touch` runs, up to and including the
+    /// first that is `want`, for up to 10 s — a test that expects one goes on
+    /// the moment it arrives.
+    async fn until(dir: &Path, want: &str, touch: impl FnOnce()) -> Vec<String> {
+        heard(dir, touch, Duration::from_secs(10), Some(want)).await
+    }
+
+    async fn heard(
+        dir: &Path,
+        touch: impl FnOnce(),
+        within: Duration,
+        want: Option<&str>,
+    ) -> Vec<String> {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let (changes, mut received) = broadcast::channel(64);
@@ -803,10 +820,24 @@ mod tests {
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch();
+        listen(&mut received, within, want).await
+    }
+
+    /// What `received` hears within `within`, stopping early at the first
+    /// message that is `want`.
+    async fn listen(
+        received: &mut broadcast::Receiver<String>,
+        within: Duration,
+        want: Option<&str>,
+    ) -> Vec<String> {
         let mut messages = Vec::new();
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(1500);
+        let deadline = tokio::time::Instant::now() + within;
         while let Ok(Ok(message)) = tokio::time::timeout_at(deadline, received.recv()).await {
+            let done = want == Some(message.as_str());
             messages.push(message);
+            if done {
+                break;
+            }
         }
         messages
     }
@@ -850,7 +881,7 @@ mod tests {
     #[tokio::test]
     async fn a_saved_page_refreshes_open_pages() {
         let dir = served("page", "kind: site\ntitle: T\nroot: README.md\n");
-        let messages = after(&dir, || {
+        let messages = until(&dir, "change", || {
             std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
         })
         .await;
@@ -910,25 +941,16 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.svg\"]\n",
         )
         .unwrap();
-        let drain = |received: &mut broadcast::Receiver<String>| {
-            let mut messages = Vec::new();
-            while let Ok(message) = received.try_recv() {
-                messages.push(message);
-            }
-            messages
-        };
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let loud = Duration::from_secs(10);
+        let messages = listen(&mut received, loud, Some("change")).await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
 
         // Now Markdown is outside `watch`, and an SVG is in it.
         std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap();
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let messages = listen(&mut received, Duration::from_millis(800), None).await;
         assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
         std::fs::write(dir.join("docs/logo.svg"), "<svg/>").unwrap();
-        tokio::time::sleep(Duration::from_millis(800)).await;
-        let messages = drain(&mut received);
+        let messages = listen(&mut received, loud, Some("change")).await;
         assert!(messages.iter().any(|m| m == "change"), "{messages:?}");
     }
 
@@ -948,19 +970,19 @@ mod tests {
         })
         .await;
         assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
-        let loud = after(&dir, || {
+        let loud = until(&dir, "change", || {
             std::fs::write(dir.join("other/notes.txt"), "x").unwrap()
         })
         .await;
         assert!(loud.iter().any(|m| m == "change"), "{loud:?}");
         // The entry's own pages still refresh, and so does a doc in no site.
-        let entry = after(&dir, || {
+        let entry = until(&dir, "change", || {
             std::fs::write(dir.join("docs/README.md"), "# Changed").unwrap()
         })
         .await;
         assert!(entry.iter().any(|m| m == "change"), "{entry:?}");
         std::fs::create_dir_all(dir.join("plan")).unwrap();
-        let loose = after(&dir, || {
+        let loose = until(&dir, "change", || {
             std::fs::write(dir.join("plan/design.md"), "# Plan").unwrap()
         })
         .await;
@@ -974,7 +996,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"*.svg\"]\n",
         );
         std::fs::create_dir_all(dir.join("examples")).unwrap();
-        let messages = after(&dir, || {
+        let messages = until(&dir, "change", || {
             std::fs::write(dir.join("examples/design.md"), "# Design").unwrap()
         })
         .await;
@@ -994,7 +1016,7 @@ mod tests {
         })
         .await;
         assert!(!quiet.iter().any(|m| m == "change"), "{quiet:?}");
-        let loud = after(&dir, || {
+        let loud = until(&dir, "change", || {
             std::fs::write(dir.join("docs/widgets/format.ts"), "export const f = 1;").unwrap()
         })
         .await;

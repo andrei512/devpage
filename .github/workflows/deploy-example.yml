@@ -1,11 +1,16 @@
-# Keeps the example deployment and the install page true: the image in
-# deploy/ builds and serves, and a checkout installs with only what
-# docs/installing.md lists. GitHub-hosted runners only: this repository is
-# public and never uses a self-hosted runner.
+# Keeps the example deployment true: the image in deploy/ builds and serves.
+# It installs the released crate from crates.io, so a change outside deploy/
+# can't change it: it runs on a pull request that touches deploy/ or this
+# file, on every push to main, and every Monday for what moves under it.
+# GitHub-hosted runners only: this repository is public and never uses a
+# self-hosted runner.
 name: deploy example
 
 on:
   pull_request:
+    paths:
+      - deploy/**
+      - .github/workflows/deploy-example.yml
   push:
     branches: [main]
   schedule:
@@ -40,11 +45,3 @@ jobs:
         if: failure()
         run: docker compose -f deploy/compose.yaml logs
 
-  install:
-    runs-on: ubuntu-latest
-    container: rust:1.97-slim-bookworm
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install from the checkout with nothing added
-        run: cargo install --path . --locked
-      - run: devpage --version

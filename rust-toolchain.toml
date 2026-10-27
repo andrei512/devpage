@@ -1,6 +1,6 @@
 # The browser target is used only by `cargo run -p devpage-design-module`, which
 # rebuilds the vendored design engine in assets/vendor/; building devpage never
-# needs it.
+# needs it. The version is pinned so a checkout and CI build with one compiler.
 [toolchain]
-channel = "stable"
+channel = "1.98.1"
 targets = ["wasm32-unknown-unknown"]

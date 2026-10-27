@@ -77,10 +77,53 @@ flate2 = "1.1.10"
 sha2 = "0.10.9"
 
 # build.rs compresses the built-in assets with brotli at its best, which is
-# slow unoptimised; optimise it in development builds too.
+# slow unoptimised; optimise it in development builds too, and in release
+# builds — `cargo install` among them — where a build script's dependencies
+# are otherwise unoptimised.
 [profile.dev.package.brotli]
+opt-level = 3
+
+[profile.release.package.brotli]
 opt-level = 3
 
 # QuickJS draws every diagram a page has; unoptimised it is many times slower.
 [profile.dev.package.rquickjs-sys]
+opt-level = 3
+
+# The engine paints and compares pictures pixel by pixel — on the CPU through
+# vello_cpu and its SIMD layer, to and from PNGs compressed by zlib-rs — and
+# its tests, and the canvas's, paint hundreds.
+# Unoptimised they take many times longer; optimised, an edit to the engine
+# rebuilds about as fast. Debug assertions and overflow checks stay on.
+[profile.dev.package.devpage-design]
+opt-level = 3
+
+[profile.dev.package.vello_cpu]
+opt-level = 3
+
+[profile.dev.package.vello_common]
+opt-level = 3
+
+[profile.dev.package.fearless_simd]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.zlib-rs]
+opt-level = 3
+
+[profile.dev.package.sha2]
+opt-level = 3
+
+[profile.dev.package.memchr]
+opt-level = 3
+
+[profile.dev.package.comrak]
+opt-level = 3
+
+[profile.dev.package.onig_sys]
+opt-level = 3
+
+[profile.dev.package.syntect]
 opt-level = 3

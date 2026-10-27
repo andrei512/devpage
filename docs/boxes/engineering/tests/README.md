@@ -9,7 +9,7 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                  # 320 tests in the four crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 83 tests that drive Chrome or call GPT-Live
+$ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
@@ -30,15 +30,17 @@ search's quality is measured on. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`; external-link tests
 point the checker at a local web server, so the suite needs no network.
 
-Of the 82 tests marked `#[ignore]`, 81 drive Chrome, and one of them also
+Of the 84 tests marked `#[ignore]`, 83 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
-so it needs the network.
+all at once, so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
-They run in parallel. Run them with `--ignored` after changing the page
+They run in parallel, so the longest bounds the run: the `video` test that
+records a deck, which takes as long as its slides play. Run them with
+`--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
 `devpage pdf` or a slide's PNG. The two `video` tests drive Chrome for
 Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
@@ -80,6 +82,10 @@ platform's watcher:
 - two Chrome tests in `comments::browser` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
+
+A test that expects a message goes on the moment it arrives, waiting up to
+10 s for it; one that expects none listens for 1.5 s, long enough for any the
+write would cause.
 
 Where the platform delivers no events to the test process — the watcher
 itself receives nothing, as can happen in some sandboxed or restricted sessions on
