@@ -12,3 +12,5 @@ pub mod video;
 
 #[cfg(test)]
 mod server_mode_browser;
+#[cfg(test)]
+mod server_mode_pages_browser;

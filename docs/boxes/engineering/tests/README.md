@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 395 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 85 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 401 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 88 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 136 in `devpage`, 163 in its
+`cargo test` runs every crate in the workspace: 142 in `devpage`, 163 in its
 core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -34,7 +34,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 85 tests marked `#[ignore]`, 84 drive Chrome, and one of them also
+Of the 88 tests marked `#[ignore]`, 87 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 all at once, so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -464,7 +464,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*19 tests, and 5 of its configuration.*
+*25 tests, and 5 of its configuration; 4 in Chrome.*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -476,6 +476,10 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
+- The front page saying how to connect and listing no documents; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
+- A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
+- A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.
+- In Chrome: a page at the link swapping in each new version, its version menu following; an old version's banner linking to the latest, its menu listing every version, and a publish leaving it unchanged; a doc's download button saving its PDF, printed once and then read from the cache; every request a published page makes staying under its mount.
 
 ### `drive::slide_png`
 

@@ -1104,6 +1104,7 @@ function connect() {
       if (sources().some((s) => unmounted(s.dataset.source) === event.data.slice(9))) loadComments();
     } else {
       refresh();
+      loadVersions();
     }
   };
 }
@@ -1120,6 +1121,7 @@ document.addEventListener("visibilitychange", () => {
   } else {
     connect();
     refresh(); // catch up on changes made while hidden
+    loadVersions();
   }
 });
 window.addEventListener("pagehide", () => {
@@ -1187,6 +1189,7 @@ Promise.all([mountWidgets(document).catch((error) => console.error(error)), side
   if (!print) landHandedOver();
   followOutline();
   loadComments();
+  loadVersions();
   // Print mode has no live connection; Chrome waits for this — every widget
   // mounted — before printing.
   document.documentElement.dataset.ready = "true";
@@ -1292,3 +1295,75 @@ document.addEventListener("keydown", (event) => {
     entries[(at - 1 + entries.length) % entries.length]?.focus();
   }
 });
+
+// ---- Versions ---------------------------------------------------------------
+// A page a devpage server serves under a published document's mount asks it
+// which version the page shows: a menu of every version, the download of the
+// one shown, and — on an old version — a banner linking to the latest. A
+// local page has no mount and asks nothing; a mount with no versions answers
+// 404 and shows nothing.
+
+async function loadVersions() {
+  if (print || !mount) return;
+  let info;
+  try {
+    const response = await fetch(`${mount}/__devpage/versions`, { cache: "no-cache" });
+    if (!response.ok) return;
+    info = await response.json();
+  } catch {
+    return;
+  }
+  showVersions(info);
+}
+
+function showVersions(info) {
+  let bar = document.getElementById("devpage-versions");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "devpage-versions";
+    document.body.append(bar);
+  }
+  const menu = document.createElement("details");
+  menu.className = "version-menu";
+  const summary = document.createElement("summary");
+  summary.textContent = `Version ${info.version}${info.version === info.latest ? " · latest" : ""}`;
+  const list = document.createElement("ul");
+  for (const version of info.versions) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = version.url;
+    link.textContent = `Version ${version.number}`;
+    if (version.number === info.version) link.setAttribute("aria-current", "page");
+    const when = document.createElement("span");
+    when.textContent = ` ${version.published} · ${version.author}`;
+    item.append(link, when);
+    list.append(item);
+  }
+  menu.append(summary, list);
+  const parts = [menu];
+  if (info.download) {
+    const download = document.createElement("a");
+    download.className = "version-download";
+    download.href = info.download.url;
+    download.setAttribute("download", "");
+    download.textContent = `Download ${info.download.format}`;
+    parts.push(download);
+  }
+  bar.replaceChildren(...parts);
+
+  let banner = document.getElementById("devpage-version-banner");
+  const old = info.pinned && info.version !== info.latest;
+  if (!old) {
+    banner?.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "devpage-version-banner";
+    document.body.prepend(banner);
+  }
+  const latest = document.createElement("a");
+  latest.href = info.latest_url;
+  latest.textContent = `the latest is version ${info.latest}`;
+  banner.replaceChildren(`You are reading version ${info.version}; `, latest, ".");
+}
