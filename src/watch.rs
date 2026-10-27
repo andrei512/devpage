@@ -534,6 +534,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_folder_deleted_and_made_again_in_one_burst_is_watched_again() {
+        let dir = served("again", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::write(dir.join(".gitignore"), "/crate/target/\n").unwrap();
+        // `crate/` holds something out of sight, so it is watched shallow.
+        std::fs::create_dir_all(dir.join("crate/target")).unwrap();
+        std::fs::write(dir.join("crate/a.md"), "# A").unwrap();
+        let _watch = watching(&dir).await;
+        std::fs::remove_dir_all(dir.join("crate")).unwrap();
+        std::fs::create_dir_all(dir.join("crate/target")).unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        for n in 0..3 {
+            let later = dir.join(format!("crate/later{n}.md"));
+            std::fs::write(&later, "# Later").unwrap();
+            assert!(reported(&later, 0).await, "crate/later{n}.md");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_deep_folder_deleted_and_made_again_is_watched_again() {
+        let dir = served("checkout", "kind: site\ntitle: T\nroot: README.md\n");
+        std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
+        std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
+        let _watch = watching(&dir).await;
+        // `rm -rf docs/guides && git checkout docs/guides`
+        std::fs::remove_dir_all(dir.join("docs/guides")).unwrap();
+        std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
+        std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        for later in ["docs/guides/later.md", "docs/guides/deep/later.md"] {
+            let later = dir.join(later);
+            std::fs::write(&later, "# Later").unwrap();
+            assert!(reported(&later, 0).await, "{}", later.display());
+        }
+    }
+
+    #[tokio::test]
     async fn the_comment_store_is_reported_and_the_rest_of_devpage_is_not() {
         let dir = served("store", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::create_dir_all(dir.join(".devpage/comments/docs/README.md")).unwrap();

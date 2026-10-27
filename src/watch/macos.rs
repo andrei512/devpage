@@ -78,10 +78,11 @@ impl Platform {
         fresh
     }
 
-    /// Whether changes in `folder` are already reported.
+    /// Whether changes in `folder` are already reported: by a stream, which
+    /// follows its path, or by a kqueue watch still open — a shallow folder
+    /// deleted lost its watch, even if a folder has its name again.
     pub fn covers(&self, folder: &Path) -> bool {
-        self.set.shallow.contains(folder)
-            || self.set.deep.iter().any(|deep| folder.starts_with(deep))
+        self.kqueue.watches(folder) || self.set.deep.iter().any(|deep| folder.starts_with(deep))
     }
 
     /// Whether a watched folder is `path` or inside it.
@@ -309,6 +310,11 @@ impl Kqueue {
     /// wasn't and now is.
     fn watch(&self, folder: &Path) -> bool {
         lock(&self.watches).folder(folder)
+    }
+
+    /// Whether a shallow folder is watched now.
+    fn watches(&self, folder: &Path) -> bool {
+        lock(&self.watches).folders.contains_key(folder)
     }
 
     fn unwatch(&self, folder: &Path) {

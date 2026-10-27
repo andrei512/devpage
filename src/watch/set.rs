@@ -78,7 +78,9 @@ impl Sight<'_> {
 
     /// Whether `folder` is watched: in sight by the index's rules, or one of
     /// the two exceptions — `.devpage` and its comment store, and an ignored
-    /// folder a `watch` pattern's literal prefix holds or is held by.
+    /// folder a `watch` pattern reaches into: its literal prefix is in the
+    /// folder or is it, or is an ignored folder holding it. A prefix above
+    /// every ignored folder — `**/*.md` — reaches into none.
     fn in_sight(&self, folder: &Path) -> bool {
         let Ok(relative) = folder.strip_prefix(self.served) else {
             return false;
@@ -92,10 +94,10 @@ impl Sight<'_> {
             return false;
         }
         !self.index.ignored(folder, true)
-            || self
-                .roots
-                .iter()
-                .any(|root| root.starts_with(folder) || folder.starts_with(root))
+            || self.roots.iter().any(|root| {
+                root.starts_with(folder)
+                    || (folder.starts_with(root) && self.index.ignored(root, true))
+            })
     }
 }
 
@@ -221,5 +223,35 @@ mod tests {
         std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
         // `build/` is named; `out/` and `target/` are not.
         assert_eq!(plan(&dir), set(&dir, &["docs/build"], &["", "docs"]));
+    }
+
+    #[test]
+    fn a_pattern_that_only_matches_into_an_ignored_folder_does_not_watch_it() {
+        let dir = served(
+            "glob",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
+            &[
+                "docs/.gitignore",
+                "docs/build/out.md",
+                "docs/guides/a.md",
+                ".gitignore",
+                "target/x",
+            ],
+        );
+        std::fs::write(dir.join("docs/.gitignore"), "build/\n").unwrap();
+        std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
+        // `**/*.md` can match in `docs/build/`, but reaches into no ignored folder.
+        assert_eq!(plan(&dir), set(&dir, &["docs/guides"], &["", "docs"]));
+    }
+
+    #[test]
+    fn a_pattern_reaching_into_an_ignored_folder_watches_the_folders_under_it() {
+        let dir = served(
+            "under",
+            "kind: site\ntitle: T\nroot: README.md\nwatch: [\"build/**/*.svg\"]\n",
+            &["docs/.gitignore", "docs/build/deep/chart.svg"],
+        );
+        std::fs::write(dir.join("docs/.gitignore"), "build/\n").unwrap();
+        assert_eq!(plan(&dir), set(&dir, &[""], &[]));
     }
 }
