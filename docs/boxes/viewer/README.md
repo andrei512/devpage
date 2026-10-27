@@ -83,6 +83,7 @@ Each card opens the page that explains it.
 - (printer) [Printing to PDF](pdf/README.md) — `devpage pdf` has Chrome print a doc or a deck as it shows.
 - (video) [Making a video](making-a-video/README.md) — `devpage video` records a deck, each slide's notes read aloud by GPT-Live.
 - (server) [Deploying devpage](deploying/README.md) — For a team, behind the auth proxy you already run.
+- (cloud-upload) [Server mode](server/README.md) — `devpage server`: publish a document, keep every version, share one link.
 
 </Cards>
 
@@ -127,6 +128,9 @@ Each card opens the page that explains it.
   rules.
 - [Deploying devpage](deploying/README.md) — the example image, the auth
   proxy that names readers, and trying it with Docker Compose.
+- [Server mode](server/README.md) — `devpage server`: documents published as
+  zips, their versions, the CLI's contexts, the API, and storage in SQLite, a
+  bucket and a bounded cache.
 - [Diagrams](diagrams/README.md) — Mermaid diagrams: writing them, making
   their nodes links, checking them, what errors look like, and how the server
   draws them.

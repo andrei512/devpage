@@ -7,6 +7,10 @@ whole thing on your machine with Docker Compose — and how to serve a public
 site, which runs with comments off. It is a task article under the
 [viewer](../README.md).
 
+This is the **bundled** way to deploy: the documents are in the image, as in a
+repository. To publish documents one at a time and keep their versions, see
+[Server mode](../server/README.md).
+
 ```mermaid
 flowchart LR
   reader["Reader's browser"] --> proxy["Auth proxy<br/>sets X-Forwarded-Email"]
