@@ -47,7 +47,7 @@ so it never clashes with a project's widgets: a project may have its own
 - **Query:** words matched with BM25; the last word as a prefix (so results
   come while typing); fuzzy (Levenshtein 1 for words of 4+ letters, 2 for
   8+). Tokenizer: tantivy's default with lowercasing and English stemming.
-- **`GET /_devpage/search?q=…`** returns JSON: hits (title, heading, URL with
+- **`GET /__devpage/search?q=…`** returns JSON: hits (title, heading, URL with
   anchor, snippet with the matched words marked, document title and path,
   nav trail), best first, at most 50. Served whatever `--no-comments` says;
   never serves anything outside the served folder or out of sight.

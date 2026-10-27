@@ -10,7 +10,7 @@ Read [the plan](README.md) first; it is the design.
 2. Built at start beside the document index; kept current by the watcher
    (`src/watch.rs` `Listeners::changed` — hook in where the index hears of a
    change). Out-of-sight files never indexed.
-3. `GET /_devpage/search?q=…` (`src/server.rs`) returning the JSON in the
+3. `GET /__devpage/search?q=…` (`src/server.rs`) returning the JSON in the
    plan. Empty or whitespace `q`: empty hits.
 
 ## Docs (same commit as the code)
