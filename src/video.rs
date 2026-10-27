@@ -78,10 +78,7 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
         .enumerate()
         .filter(|(_, slide)| slide.notes.as_deref().is_none_or(|n| n.trim().is_empty()))
         .map(|(i, slide)| {
-            let file = slide
-                .file
-                .strip_prefix(&document.served)
-                .unwrap_or(&slide.file);
+            let file = document.served.relative(&slide.file).unwrap_or(&slide.file);
             format!("{} ({})", i + 1, file.display())
         })
         .collect();

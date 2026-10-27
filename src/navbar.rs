@@ -96,9 +96,7 @@ pub fn problems(document: &Document) -> Vec<Problem> {
     }
     for link in links(document) {
         if let Some(path) = target(document, &link.target).file {
-            let inside = path
-                .canonicalize()
-                .is_ok_and(|real| real.is_file() && real.starts_with(&document.served));
+            let inside = document.served.file(&path).is_some();
             if !inside {
                 problems.push(Problem {
                     file: file.clone(),
@@ -120,10 +118,7 @@ pub fn reached(document: &Document) -> (Vec<PathBuf>, Vec<String>) {
     for link in links(document) {
         match target(document, &link.target).file {
             Some(path) => {
-                if let Ok(real) = path.canonicalize()
-                    && real.is_file()
-                    && real.starts_with(&document.served)
-                {
+                if let Some(real) = document.served.file(&path) {
                     files.push(real);
                 }
             }

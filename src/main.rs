@@ -19,6 +19,7 @@ mod problem;
 mod render;
 mod resolve;
 mod search;
+mod served;
 mod server;
 mod slide_png;
 mod validators;
@@ -129,7 +130,7 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 
-    let designs = designs::Designs::new(document.served.clone());
+    let designs = designs::Designs::new(document.served.path().to_path_buf());
 
     let (changes, _) = broadcast::channel(16);
     let preview = Arc::new(check::Preview::new(external::External::http(Some(
@@ -160,7 +161,7 @@ async fn main() -> Result<()> {
         None
     } else if cli.host.is_loopback() {
         Some(server::Identity::Local(comments::local_author(
-            &document.served,
+            document.served.path(),
         )))
     } else {
         Some(server::Identity::Header(cli.user_header))

@@ -119,7 +119,7 @@ impl Options {
     pub fn new(document: Arc<Document>, changes: broadcast::Sender<String>) -> Self {
         Self {
             index: Arc::new(Index::build(&document.served)),
-            designs: Designs::new(document.served.clone()),
+            designs: Designs::new(document.served.path().to_path_buf()),
             shots: Shots::new(&changes),
             preview: Arc::new(Preview::new(External::http(Some(changes.clone())))),
             entry: Arc::new(Entry::new(document)),

@@ -33,6 +33,7 @@ use tokio::sync::broadcast;
 use crate::designs::Designs;
 use crate::document::{Document, Entry, KindName};
 use crate::index::Index;
+use crate::served::ServedFolder;
 use set::WatchSet;
 use std::path::{Path, PathBuf};
 
@@ -63,7 +64,7 @@ pub fn start(
     changes: broadcast::Sender<String>,
 ) -> Result<Watch> {
     let root = entry.document().served.clone();
-    let set = WatchSet::plan(&root, &index, &entry);
+    let set = WatchSet::plan(root.path(), &index, &entry);
     let listeners = Listeners {
         served: root.clone(),
         entry,
@@ -72,7 +73,7 @@ pub fn start(
         changes,
     };
     let watching = Arc::new(OnceLock::new());
-    let mut platform = Platform::new(&root, intake(listeners, watching.clone()))?;
+    let mut platform = Platform::new(root.path(), intake(listeners, watching.clone()))?;
     platform.apply(set);
     let platform = Arc::new(Mutex::new(platform));
     let _ = watching.set(Arc::downgrade(&platform));
@@ -160,7 +161,7 @@ fn next_burst<T: Clone + Eq + Hash>(arriving: &mpsc::Receiver<T>) -> Option<Vec<
 /// Who hears about files that change: open pages, the index and the design
 /// store.
 struct Listeners {
-    served: PathBuf,
+    served: ServedFolder,
     entry: Arc<Entry>,
     index: Arc<Index>,
     designs: Designs,
@@ -195,7 +196,7 @@ impl Listeners {
     /// matters; nothing else under `.devpage/` does. A path not under the
     /// served folder as reported is kept, to be judged once canonical.
     fn can_matter(&self, path: &Path, is_dir: bool) -> bool {
-        let Ok(relative) = path.strip_prefix(&self.served) else {
+        let Some(relative) = self.served.relative(path) else {
             return true;
         };
         if relative.starts_with(".devpage/comments") {
@@ -222,7 +223,7 @@ impl Listeners {
             .filter(|path| {
                 !self.can_matter(path, true)
                     && path.parent().is_some_and(|parent| {
-                        parent.starts_with(&self.served) && self.can_matter(parent, true)
+                        self.served.contains(parent) && self.can_matter(parent, true)
                     })
             })
             .cloned()
@@ -255,7 +256,8 @@ impl Listeners {
     /// watch started still reaches its page.
     fn replan(&self, platform: &mut Platform) {
         let mut found = Vec::new();
-        for (folder, deep) in platform.apply(WatchSet::plan(&self.served, &self.index, &self.entry))
+        for (folder, deep) in
+            platform.apply(WatchSet::plan(self.served.path(), &self.index, &self.entry))
         {
             within(&folder, deep, &mut found);
             found.push(folder);
@@ -290,7 +292,7 @@ impl Listeners {
         let mut searched = Vec::new();
         for path in paths {
             let path = canonical(path);
-            let Ok(relative) = path.strip_prefix(served) else {
+            let Some(relative) = served.relative(&path) else {
                 continue;
             };
             // A thread changed: tell the pages showing its page to fetch comments.
@@ -612,7 +614,7 @@ mod tests {
     fn listeners(dir: &Path, changes: broadcast::Sender<String>) -> Listeners {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         Listeners {
-            served: dir.to_path_buf(),
+            served: ServedFolder::canonical(dir.to_path_buf()),
             entry: Arc::new(Entry::new(document)),
             index: Arc::new(Index::build(dir)),
             designs: Designs::new(dir.to_path_buf()),
@@ -825,7 +827,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
         let designs = Designs::new(dir.clone());
         let listeners = Listeners {
-            served: dir.clone(),
+            served: ServedFolder::canonical(dir.clone()),
             entry: Arc::new(Entry::new(document)),
             index: Arc::new(Index::build(&dir)),
             designs: designs.clone(),

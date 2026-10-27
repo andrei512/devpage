@@ -140,8 +140,7 @@ pub fn resolve(document: &Document, page: &Path, href: &str) -> Target {
     let path = href.split('#').next().unwrap_or(href);
     let Some(target) = page
         .parent()
-        .and_then(|folder| folder.join(path).canonicalize().ok())
-        .filter(|target| target.starts_with(&document.served) && target.is_file())
+        .and_then(|folder| document.served.file(&folder.join(path)))
     else {
         return Target::Problem(format!("Topics entry {href} — no such file"));
     };
