@@ -408,15 +408,15 @@ mod browser {
             changes.clone(),
         )
         .unwrap();
-        let router = server::router_with_index(
+        let document = entry.document();
+        let router = server::router(server::Options {
             entry,
             index,
             designs,
-            changes.clone(),
-            Some(server::Identity::Local("Ana".into())),
-            crate::slide_png::Shots::new(&changes),
-            crate::check::Preview::shared(),
-        );
+            comments: Some(server::Identity::Local("Ana".into())),
+            preview: crate::check::Preview::shared(),
+            ..server::Options::new(document, changes.clone())
+        });
         tokio::spawn(async move {
             let _watcher = _watcher;
             axum::serve(listener, router).await.ok();

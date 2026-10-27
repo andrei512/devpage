@@ -412,9 +412,9 @@ fn lines(problems: &[Problem]) -> String {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::document::{Document, Entry};
+    use crate::document::Document;
     use crate::index::Index;
-    use crate::server::{Identity, router_with_index};
+    use crate::server::{Identity, Options, router};
 
     pub(crate) const BUTTON: &str = r##"<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]} fill="#2563eb">
   <Text color="#ffffff">{label}</Text>
@@ -745,15 +745,13 @@ pub(crate) mod tests {
         let index = Arc::new(Index::build(dir));
         let designs = Designs::new(dir.to_path_buf());
         let changes = broadcast::channel(16).0;
-        let router = router_with_index(
-            Arc::new(Entry::new(document)),
+        let router = router(Options {
             index,
-            designs.clone(),
-            changes.clone(),
-            Some(Identity::Local("T".into())),
-            crate::slide_png::Shots::new(&changes),
-            crate::check::Preview::shared(),
-        );
+            designs: designs.clone(),
+            comments: Some(Identity::Local("T".into())),
+            preview: crate::check::Preview::shared(),
+            ..Options::new(document, changes)
+        });
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });

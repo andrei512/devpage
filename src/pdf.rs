@@ -47,9 +47,12 @@ pub async fn print(document: Arc<Document>, output: &Path) -> Result<()> {
     let (changes, _) = broadcast::channel(1);
     let url = format!("http://{address}{}?print", document.entry());
     let server = tokio::spawn(async move {
-        axum::serve(listener, server::printing(document, changes))
-            .await
-            .ok();
+        axum::serve(
+            listener,
+            server::router(server::Options::printing(document, changes)),
+        )
+        .await
+        .ok();
     });
 
     let profile = Profile::new();
@@ -570,7 +573,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes)
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -629,7 +635,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes)
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -699,7 +708,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, None);
+        let router = server::router(server::Options {
+            comments: None,
+            ..server::Options::new(document, changes)
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -748,7 +760,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes)
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (mut browser, mut handler) =
@@ -837,18 +852,21 @@ mod tests {
         let (changes, _) = broadcast::channel(1);
         let answered = Answered::default();
         let log = answered.clone();
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())))
-            .layer(axum::middleware::from_fn(
-                move |request: axum::extract::Request, next: axum::middleware::Next| {
-                    let log = log.clone();
-                    async move {
-                        let path = request.uri().path().to_string();
-                        let response = next.run(request).await;
-                        log.lock().unwrap().push((path, response.status().as_u16()));
-                        response
-                    }
-                },
-            ));
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes)
+        })
+        .layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let log = log.clone();
+                async move {
+                    let path = request.uri().path().to_string();
+                    let response = next.run(request).await;
+                    log.lock().unwrap().push((path, response.status().as_u16()));
+                    response
+                }
+            },
+        ));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let profile = Profile::new();
         let (browser, mut handler) =

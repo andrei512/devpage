@@ -17,7 +17,7 @@ Each part of the diagram opens the page that explains it.
 flowchart LR
   main["main.rs<br/>commands, startup"] --> load["Loading<br/>document.rs, index.rs, search.rs"]
   main --> watch["Watching<br/>watch.rs"]
-  main --> serve["Serving<br/>server.rs, comments.rs"]
+  main --> serve["Serving<br/>server.rs, resolve.rs, comments.rs"]
   serve --> render["Rendering<br/>render.rs, nav.rs, highlight.rs,<br/>widgets.rs, navbar.rs, icons.rs"]
   render --> diagrams["Diagrams<br/>diagrams.rs"]
   main --> other["Checking, printing<br/>check.rs, external.rs, pdf.rs"]
@@ -49,7 +49,8 @@ flowchart LR
 | `src/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
 | `src/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
 | `src/designs.rs` | The design store — every design asked for, resolved in memory with the files it read, resolved again only when one of them changes, and the changes it announces; a design's PNG; design problems for `devpage check`. No transport: the watch stream and the canvas page are the server's. |
-| `src/server.rs` | The routes — the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/server.rs` | The HTTP adapter: one router built from one `Options` value — the routes, the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, the canvas page and drawing the PNGs the resolver names, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/resolve.rs` | The resolver: what a path in the served folder answers with — a page, a redirect, a file, a design's or a slide's PNG, or why there is none — decided from the documents alone, under a mount prefix. |
 | `src/server/watch_stream.rs` | The `Designs` gRPC service: the watch stream that sends each design a page shows — its scene, then what changed, or its problems — as the design store announces changes. |
 | `src/server/canvas.rs` | The canvas page: one design alone in the window, drawn by the design script. |
 | `build.rs` | The asset manifest — every built-in asset under its content address, compressed as brotli and gzip — and devpage's build id. |
@@ -124,7 +125,8 @@ with an error before anything is served.
 
 6. Print the address and serve
    `<title> → http://<host>:<port>` — `localhost` for a loopback address — then
-   serve until devpage is stopped (`server::router_with_index`,
+   serve until devpage is stopped (`server::router`, given every part above
+   in one `server::Options`,
    [routes](../../viewer/serving-pages/README.md#routes)).
 
 </Steps>

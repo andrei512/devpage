@@ -17,6 +17,7 @@ mod navbar;
 mod pdf;
 mod problem;
 mod render;
+mod resolve;
 mod search;
 mod server;
 mod slide_png;
@@ -165,15 +166,16 @@ async fn main() -> Result<()> {
         Some(server::Identity::Header(cli.user_header))
     };
     let shots = slide_png::Shots::new(&changes);
-    let router = server::router_with_index(
+    let router = server::router(server::Options {
         entry,
         index,
         designs,
         changes,
         comments,
-        shots.clone(),
+        shots: shots.clone(),
         preview,
-    );
+        log: true,
+    });
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

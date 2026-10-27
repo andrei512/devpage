@@ -39,6 +39,16 @@ flowchart LR
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
+**Who decides.** What every route from `/` down answers with — a page, a
+redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
+`500` with the reason — is decided by the **resolver** (`src/resolve.rs`) from
+the documents alone: the entry document, the index, the problems each page
+lists and whether comments are on. The HTTP server only turns its answer into
+a response, reading the file's bytes or drawing the PNG it names, so every
+route is tested without a socket. The resolver takes a **mount prefix** that
+every redirect it answers with carries; `devpage` mounts at `/`, so the prefix
+is empty.
+
 A query of `?print` renders a doc's or deck's document file in **print mode**,
 the page `devpage pdf` has Chrome print ([Printing to PDF](../pdf/README.md)).
 A site is never printed, so on a Markdown file `?print` always renders it as a

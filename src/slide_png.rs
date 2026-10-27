@@ -329,11 +329,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(16);
-        let router = server::router(
-            document,
-            changes.clone(),
-            Some(server::Identity::Local("T".into())),
-        );
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes.clone())
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         (format!("http://{address}"), changes)
     }
@@ -474,7 +473,7 @@ mod tests {
         .unwrap();
         let dir = dir.canonicalize().unwrap();
         let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
-        let serve = || server::printing(document.clone(), changes.clone());
+        let serve = || server::router(server::Options::printing(document.clone(), changes.clone()));
         shots.png("/talk.yml", 1, serve).await.unwrap();
         assert!(shots.running().await);
         shots.close().await;
@@ -504,7 +503,10 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let (changes, _) = broadcast::channel(1);
-        let router = server::router(document, changes, Some(server::Identity::Local("T".into())));
+        let router = server::router(server::Options {
+            comments: Some(server::Identity::Local("T".into())),
+            ..server::Options::new(document, changes)
+        });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
 
         let response = reqwest::get(format!("http://{address}/talk.yml/2.png"))

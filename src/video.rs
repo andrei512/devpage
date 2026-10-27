@@ -176,9 +176,12 @@ async fn film<V: Voice>(
     let url = format!("http://{}{}", listener.local_addr()?, document.entry());
     let (changes, _) = broadcast::channel(1);
     let server = tokio::spawn(async move {
-        axum::serve(listener, server::printing(document, changes))
-            .await
-            .ok();
+        axum::serve(
+            listener,
+            server::router(server::Options::printing(document, changes)),
+        )
+        .await
+        .ok();
     });
     let profile = Profile::new();
     let config = profile
