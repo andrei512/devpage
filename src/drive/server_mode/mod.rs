@@ -5,6 +5,9 @@
 
 mod api;
 mod cache;
+mod comments;
+#[cfg(test)]
+mod comments_tests;
 mod config;
 mod pages;
 #[cfg(test)]
@@ -43,7 +46,9 @@ struct ServerMode {
     publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     /// Each document's change bus, shared by every router serving its latest
     /// version at `/d/<id>`: a publish tells all of them, so a page open
-    /// there swaps in the new version whichever version it loaded.
+    /// there swaps in the new version whichever version it loaded; and a
+    /// comment written through the API reaches those pages as one written on
+    /// them does.
     buses: Arc<Mutex<HashMap<String, Changes>>>,
 }
 
@@ -99,6 +104,18 @@ pub fn router(config: &Config) -> Result<Router> {
         .route(
             "/api/documents/{id}/versions/{n}",
             delete(api::delete_version),
+        )
+        .route(
+            "/api/documents/{id}/comments",
+            get(comments::list).post(comments::create),
+        )
+        .route(
+            "/api/documents/{id}/comments/{thread}",
+            delete(comments::resolve),
+        )
+        .route(
+            "/api/documents/{id}/comments/{thread}/replies",
+            post(comments::reply),
         )
         .layer(DefaultBodyLimit::max(
             usize::try_from(config.max_upload_bytes).unwrap_or(usize::MAX),

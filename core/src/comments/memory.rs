@@ -36,6 +36,7 @@ impl Store for Memory {
             .map(|(id, thread)| Listed {
                 id: id.clone(),
                 thread: thread.clone(),
+                detached: false,
             })
             .collect())
     }

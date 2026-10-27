@@ -18,8 +18,9 @@ use tower::ServiceExt;
 
 use super::ServerMode;
 use super::cache::Served;
+use crate::adapters::sqlite::DocumentThreads;
 use crate::changes::Changes;
-use crate::server;
+use crate::server::{self, Identity};
 
 /// `/d/<id>`: the document's folder, `/d/<id>/`, so that the links on its
 /// pages resolve inside it.
@@ -129,9 +130,11 @@ pub(super) async fn version_router(
 ) -> Result<Served> {
     let key = (id.to_string(), n);
     let fetch = state.bucket.get_version(id, n);
-    // The latest version's pages hear the document's publishes; a version's
-    // own pages never change.
-    let changes = if mount == format!("/d/{id}") {
+    // The latest version's pages hear the document's publishes and its
+    // comments, and show and take them; a version's own pages, behind their
+    // banner, never change and are read as they were.
+    let latest = mount == format!("/d/{id}");
+    let changes = if latest {
         state.bus(id)
     } else {
         Changes::default()
@@ -145,6 +148,17 @@ pub(super) async fn version_router(
             let mut options = server::Options::new(Arc::new(document), changes.clone());
             options.index = Arc::new(index);
             options.comments = None;
+            if latest {
+                options.store = Arc::new(DocumentThreads {
+                    store: state.store.clone(),
+                    document: id.to_string(),
+                    version: n,
+                });
+                options.comments = Some(match &state.user_header {
+                    Some(header) => Identity::Header(header.clone()),
+                    None => Identity::Local("anonymous".into()),
+                });
+            }
             // External addresses are the CLI's to ask, before it uploads: a
             // published page never waits on the internet.
             options.preview = Arc::new(Preview::new(

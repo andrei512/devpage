@@ -3,8 +3,11 @@
 //! and [`Comments`] is what the server writes through: every write it makes
 //! announces itself on the change bus, so open pages hear it whatever keeps
 //! the threads. The YAML files under `.devpage/comments/` are one store
-//! ([`yaml`]); tests keep threads in memory ([`memory`]).
+//! ([`yaml`]); tests keep threads in memory ([`memory`]). Where a store
+//! keeps threads across versions of a document, [`anchor`] carries each one
+//! onto the next version's text.
 
+pub mod anchor;
 pub mod yaml;
 
 #[cfg(any(test, feature = "testing"))]
@@ -49,6 +52,11 @@ pub struct Listed {
     pub id: String,
     #[serde(flatten)]
     pub thread: Thread,
+    /// Its text is gone from the version shown: the page lists it among the
+    /// detached comments wherever its quote may still appear. Only a store
+    /// that keeps threads across versions sets it.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub detached: bool,
 }
 
 /// The comment store port: where one served folder's threads are kept. A
@@ -116,19 +124,19 @@ impl Comments {
 /// A new thread's id: the UTC time it was started, to the second, and four
 /// hex digits from the clock's nanoseconds — so a page's threads list oldest
 /// first — with when it was started.
-fn new_id() -> (String, String) {
+pub fn new_id() -> (String, String) {
     let (stamp, nanos) = now();
     let id = format!("{}-{:04x}", stamp.replace(['-', ':'], ""), nanos & 0xffff);
     (id, stamp)
 }
 
 /// Whether `id` can be a thread's: letters, digits and dashes, never empty.
-fn is_id(id: &str) -> bool {
+pub fn is_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 /// Whether `page` stays inside the served folder: only plain path parts.
-fn is_page(page: &str) -> bool {
+pub fn is_page(page: &str) -> bool {
     Path::new(page.trim_start_matches('/'))
         .components()
         .all(|part| matches!(part, std::path::Component::Normal(_)))

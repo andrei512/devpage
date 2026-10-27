@@ -42,15 +42,24 @@ already on the server.
 | `GET /api/documents/<id>` | The document and its versions: `{id, kind, title, latest, created, versions: [{number, kind, title, author, published, size, sha256}]}`. |
 | `DELETE /api/documents/<id>` | Deletes it, its versions and its comments: `204`. |
 | `DELETE /api/documents/<id>/versions/<n>` | Deletes one version: `204`. |
-| `GET /api/documents/<id>/comments` | Its threads, oldest first. |
-| `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version. |
-| `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies. |
-| `DELETE /api/documents/<id>/comments/<thread>` | Resolves it. |
+| `GET /api/documents/<id>/comments` | Its threads, oldest first: `[{id, page, version, detached, anchor, thread}]`. |
+| `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version: `201 {id, version}`. |
+| `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies: `201`. |
+| `DELETE /api/documents/<id>/comments/<thread>` | Resolves it: `204`. |
 
 `entry` names the document file inside the zip — `devpage.yml`, a deck's
 `talk.yml`, a lone `notes.md` or `screen.design` — and is `devpage.yml` when
 left out; each version is served from its own. A version's number is never
 given again once deleted, so a link to it never shows something else.
+
+A thread's `page` is the Markdown file it is on, from the top of the
+document (`/chapters/rollout.md`) — the same in every version, so a thread
+carries from one to the next. `version` is the one it was started on;
+`detached` says its text is gone from the latest. `anchor` is
+`{quote, prefix, suffix}` and `thread` its messages, `[{author, at, text}]`,
+as in the [comment store](../../comments/the-comment-store/README.md). The
+page at `/d/<id>/` reads and writes the same threads through its own comment
+requests.
 
 An upload whose check fails gets `422` with its problems; one over
 `DEVPAGE_MAX_UPLOAD_BYTES` gets `413`; a zip entry with `..`, an absolute path

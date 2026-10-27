@@ -25,6 +25,8 @@ link.
 Readers comment as they do on any devpage —
 [comment mode](../../comments/README.md), a quote or a paragraph, replies.
 Comments belong to the document, not to a version, and follow the latest:
+they are shown and taken on `/d/<id>/`, while an earlier version is shown as
+it was.
 
 - **On each publish**, every open thread re-anchors on the new version by its
   quote and the text around it.

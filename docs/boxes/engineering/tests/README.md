@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 401 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 88 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 410 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 89 tests that drive Chrome or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 142 in `devpage`, 163 in its
+`cargo test` runs every crate in the workspace: 146 in `devpage`, 168 in its
 core `devpage-core`, 86 in the engine `devpage-design`, 8 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -34,7 +34,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 88 tests marked `#[ignore]`, 87 drive Chrome, and one of them also
+Of the 89 tests marked `#[ignore]`, 88 drive Chrome, and one of them also
 calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
 all at once, so it needs the network.
 All but the two `video` tests drive chrome-headless-shell through
@@ -131,7 +131,7 @@ the suite green.
 
 ### `adapters::sqlite`
 
-*3 tests.*
+*3 tests; its threads are tested through `drive::server_mode`.*
 
 - A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
 - Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
@@ -168,7 +168,7 @@ the suite green.
 
 ### `comments`
 
-*8 tests — 4 of the port, 4 of its YAML adapter; 6 in Chrome, in `drive::server::comments_browser`.*
+*13 tests — 4 of the port, 4 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::server::comments_browser`, and 1 on a published document.*
 
 - A page that climbs out of the served folder and a made-up id refused.
 - Every write announcing its page once, and a failed one nothing.
@@ -178,6 +178,7 @@ the suite green.
 - A thread file exactly the YAML it always was.
 - A thread file that doesn't parse named and left alone.
 - Only a change the store didn't make itself left for the watcher to announce.
+- A page's text read as the page script reads it — tags gone, entities decoded, white space squeezed, scripts and styles left out; a quote with its context keeping its anchor, one whose context changed taking its new context, counted in characters, and one that is gone detached.
 
 In Chrome:
 
@@ -461,10 +462,11 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A thread on a page outside the served folder refused.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Nothing outside the served folder served, through HTTP's percent-decoding.
+- On a published document, a thread made on the page listed by the API on the page's own path; one started through the API marked on the open page; after a publish that removes its quote, that thread listed under *Detached comments* and the other still marked.
 
 ### `drive::server_mode`
 
-*25 tests, and 5 of its configuration; 4 in Chrome.*
+*29 tests, and 5 of its configuration; 4 in Chrome.*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -476,6 +478,10 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
+- A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
+- With a user header, every comment write — the API's and the page's — needing it and carrying its author.
+- Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.
+- Deleting a document deleting its threads.
 - The front page saying how to connect and listing no documents; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
 - A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
 - A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.
