@@ -1,5 +1,5 @@
 # The design engine's WebAssembly module and bindings beside this file were
 # built from the sources with this fingerprint. Rebuild them with
 # `cargo run -p devpage-design-module`; a test fails when the sources no longer match.
-sources 4843a77010122e20c4dab6b3ccea6822e29d4df8575ca5edaf78e78a962a81a6
+sources 7314758200962e4927fccba2268731f6efedf13e4f57b620c55818fee912d826
 rustc rustc 1.98.1 (48a229cea 2026-09-01)
