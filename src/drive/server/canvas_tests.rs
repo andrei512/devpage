@@ -2112,3 +2112,465 @@ async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_wid
     browser.close().await.ok();
     events.abort();
 }
+
+/// A design 100,000 pixels tall: a thousand rows of 400 × 100, each with a
+/// line of text, its row `edited` saying "Edited".
+fn huge(dir: &Path, edited: Option<usize>) {
+    let rows: String = (0..1000)
+        .map(|i| {
+            let text = if Some(i) == edited {
+                "Edited".to_string()
+            } else {
+                format!("Row {i}")
+            };
+            format!(
+                "<Frame width={{400}} height={{100}} fill=\"#{:06x}\" padding={{20}}><Text size={{24}} color=\"#000000\">{text}</Text></Frame>\n",
+                0x808080 + (i * 2_654_435) % 0x7f7f7f
+            )
+        })
+        .collect();
+    std::fs::write(
+        dir.join("huge.design"),
+        format!("<Frame layout=\"column\" fill=\"#ffffff\">\n{rows}</Frame>\n"),
+    )
+    .unwrap();
+}
+
+/// A page for the canvas tests, `width` × `height` at one device pixel per
+/// pixel, on the GPU or the CPU.
+async fn canvas_page(browser: &mut Browser, webgpu: bool, width: i64, height: i64) -> Page {
+    let page = browser.new_page("about:blank").await.unwrap();
+    page.execute(SetDeviceMetricsOverrideParams::new(
+        width, height, 1.0, false,
+    ))
+    .await
+    .unwrap();
+    if !webgpu {
+        page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
+            "delete Navigator.prototype.gpu;",
+        ))
+        .await
+        .unwrap();
+    }
+    page
+}
+
+const PAINTED: &str = "document.querySelector('canvas.design')?.dataset.painted === 'true'";
+
+/// The canvas's numbers: `dataset.<name>` as a number.
+async fn number(page: &Page, name: &str) -> f64 {
+    eval::<String>(
+        page,
+        &format!("document.querySelector('canvas.design').dataset.{name} ?? '0'"),
+    )
+    .await
+    .parse()
+    .unwrap()
+}
+
+/// Zooms the canvas page to `to` about the design point `(x, y)`, with ⌘ and
+/// the wheel, and waits until the canvas is painted at that zoom. The view
+/// the canvas shows is at a scale to a 1/1024th, so the wheel goes again
+/// until it is there.
+async fn zoom_to(page: &Page, to: f64, x: f64, y: f64) {
+    let shown = || async {
+        let view: String = eval(page, "document.querySelector('canvas.design').dataset.view").await;
+        view.split(',').next().unwrap().parse::<f64>().unwrap()
+    };
+    for _ in 0..4 {
+        let zoom = shown().await;
+        if (zoom - to).abs() < 0.001 {
+            break;
+        }
+        let pointer = on_screen(page, "canvas.design", x, y).await;
+        page.evaluate(format!(
+            "document.querySelector('canvas.design').dispatchEvent(new WheelEvent('wheel', \
+             {{ deltaY: {}, metaKey: true, clientX: {}, clientY: {}, bubbles: true, cancelable: true }}))",
+            -100.0 * (to / zoom).ln(),
+            pointer.x,
+            pointer.y
+        ))
+        .await
+        .unwrap();
+        let before = zoom;
+        until(
+            page,
+            &format!(
+                "document.querySelector('canvas.design').dataset.view.split(',')[0] != {before}"
+            ),
+        )
+        .await;
+    }
+    until(
+        page,
+        &format!(
+            "(() => {{ const c = document.querySelector('canvas.design'); \
+             return Math.abs(c.dataset.view.split(',')[0] - {to}) < 0.001 && c.dataset.painted === 'true'; }})()"
+        ),
+    )
+    .await;
+}
+
+/// On a design 100,000 pixels tall, shown at 100%, the canvas paints the
+/// tiles of its view and no others: a handful of the 782 the drawing has at
+/// that scale.
+async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
+    let dir = folder(if webgpu {
+        "huge-view-gpu"
+    } else {
+        "huge-view-cpu"
+    });
+    huge(&dir, None);
+    let address = serve(&dir, "huge.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
+    page.goto(format!("{address}/huge.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    let fitted = number(&page, "tiles").await;
+    zoom_to(&page, 1.0, 200.0, 0.0).await;
+    let tiles = number(&page, "tiles").await;
+    eprintln!("webgpu {webgpu}: {fitted} tiles fitted, {tiles} at 100%");
+    // The view at 100%: two columns, four rows of 256; fitted, one column of
+    // four.
+    assert!(fitted <= 4.0, "{fitted}");
+    assert!(tiles - fitted <= 10.0, "{tiles}");
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_huge_design_paints_only_the_tiles_of_its_view_on_the_gpu() {
+    a_huge_design_paints_only_the_tiles_of_its_view(true).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_huge_design_paints_only_the_tiles_of_its_view_on_the_cpu() {
+    a_huge_design_paints_only_the_tiles_of_its_view(false).await;
+}
+
+/// The frames of a pan, `n` of them back and forth by 30 pixels with the
+/// wheel, each waited for: how long each took to make, in milliseconds, and
+/// how many tiles the canvas painted meanwhile.
+async fn pan_frames(page: &Page, n: usize) -> (Vec<f64>, f64) {
+    let [tiles, frames]: [serde_json::Value; 2] = eval(
+        page,
+        &format!(
+            "(async () => {{
+              const c = document.querySelector('canvas.design');
+              const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+              await frame();
+              const before = Number(c.dataset.tiles);
+              const times = [];
+              for (let i = 0; i < {n}; i++) {{
+                c.dispatchEvent(new WheelEvent('wheel', {{ deltaX: i % 2 ? -30 : 30, deltaY: 0, bubbles: true, cancelable: true }}));
+                await frame();
+                times.push(Number(c.dataset.frame));
+              }}
+              return [Number(c.dataset.tiles) - before, times];
+            }})()"
+        ),
+    )
+    .await;
+    let frames = frames
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_f64().unwrap())
+        .collect();
+    (frames, tiles.as_f64().unwrap())
+}
+
+fn median(mut v: Vec<f64>) -> f64 {
+    v.sort_by(f64::total_cmp);
+    v[v.len() / 2]
+}
+
+/// A pan only moves tiles already painted: it paints none, and a frame of it
+/// costs as much on a design 100,000 pixels tall as on one of 400 × 300.
+async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(webgpu: bool) {
+    let dir = folder(if webgpu { "pan-gpu" } else { "pan-cpu" });
+    huge(&dir, None);
+    let address = serve(&dir, "huge.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let mut medians = Vec::new();
+    for name in ["screen", "huge"] {
+        let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
+        page.goto(format!("{address}/{name}.design")).await.unwrap();
+        until(&page, PAINTED).await;
+        if name == "huge" {
+            zoom_to(&page, 1.0, 200.0, 0.0).await;
+        }
+        let (frames, painted) = pan_frames(&page, 60).await;
+        let m = median(frames.clone());
+        eprintln!(
+            "webgpu {webgpu}, {name}: median frame {m:.3} ms, max {:.3} ms, {painted} tiles painted",
+            frames.iter().copied().fold(0.0, f64::max)
+        );
+        assert_eq!(painted, 0.0, "{name}: a pan painted tiles");
+        medians.push(m);
+        page.close().await.ok();
+    }
+    // The same work, give or take the machine's noise.
+    assert!(
+        medians[1] <= medians[0] * 2.0 + 0.5,
+        "a pan on the huge design took {} ms a frame, on the small one {}",
+        medians[1],
+        medians[0]
+    );
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_gpu() {
+    a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(true).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_cpu() {
+    a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(false).await;
+}
+
+/// The window, as it shows the canvas page, against the engine painting the
+/// same area of the checkout at the canvas's scale with `vello_cpu`, laid
+/// over the page's background: the same by the engine's rule. Returns the
+/// screenshot's pixels.
+async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> Vec<u8> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let scene = super::Designs::new(root.to_path_buf())
+        .resolve("docs/designs/checkout/checkout.design")
+        .unwrap();
+    let drawing = devpage_design::Renderer::new()
+        .drawing(&scene, devpage_design::Theme::Light, None)
+        .unwrap();
+    let [k, ox, oy]: [f64; 3] = serde_json::from_str(&format!(
+        "[{}]",
+        eval::<String>(page, "document.querySelector('canvas.design').dataset.view").await
+    ))
+    .unwrap();
+    // The window's area in the design, as a square `side` device pixels
+    // across from the window's top-left, its rows past the window dropped.
+    let area = drawing.area();
+    let side = width.max(height);
+    let rect = devpage_design::tiles::square(
+        (area.x as f64 - ox / k, area.y as f64 - oy / k),
+        devpage_design::tiles::TILE as f64 * k / side as f64,
+        0,
+        0,
+    );
+    let pixmap = render::paint_area(&drawing.list, rect, k);
+    assert_eq!(pixmap.width() as usize, side);
+    let mut expected: Vec<u8> = pixmap
+        .data_as_u8_slice()
+        .chunks(4 * side)
+        .take(height)
+        .flat_map(|row| row[..4 * width].to_vec())
+        .collect();
+    devpage_design::tiles::unpremultiply(&mut expected);
+    let background: [f64; 3] = eval(
+        page,
+        "getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number)",
+    )
+    .await;
+    for px in expected.chunks_mut(4) {
+        let alpha = px[3] as f64 / 255.0;
+        for c in 0..3 {
+            px[c] = (px[c] as f64 * alpha + background[c] * (1.0 - alpha)).round() as u8;
+        }
+        px[3] = 255;
+    }
+    // The page's own controls over the canvas aren't the design.
+    page.evaluate(
+        "for (const e of document.querySelectorAll('.theme-toggle')) e.style.visibility = 'hidden'",
+    )
+    .await
+    .unwrap();
+    let shot = page
+        .screenshot(
+            CaptureScreenshotParams::builder()
+                .clip(Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: width as f64,
+                    height: height as f64,
+                    scale: 1.0,
+                })
+                .build(),
+        )
+        .await
+        .unwrap();
+    let (mut seen, w, h) = render::pixels(&shot).unwrap();
+    assert_eq!((w as usize, h as usize), (width, height));
+    for px in seen.chunks_mut(4) {
+        px[3] = 255;
+    }
+    let d = render::compare(&seen, &expected, width).unwrap();
+    assert!(d.within_tolerance(), "at {k}×: {d:?}");
+    seen
+}
+
+/// Zoomed in 4× into the checkout, the canvas on the GPU and the one on the
+/// CPU each show what the engine paints there at 4× — sharp, not a smaller
+/// painting stretched — and so agree with each other.
+#[tokio::test]
+#[ignore]
+async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let address = serve(root, "docs/designs/checkout/checkout.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let mut shots = Vec::new();
+    for webgpu in [true, false] {
+        let page = canvas_page(&mut browser, webgpu, 800, 600).await;
+        page.goto(format!(
+            "{address}/docs/designs/checkout/checkout.design?theme=light"
+        ))
+        .await
+        .unwrap();
+        until(&page, PAINTED).await;
+        zoom_to(&page, 4.0, 100.0, 100.0).await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        shots.push(zoomed_against_the_engine(&page, 800, 600).await);
+        page.close().await.ok();
+    }
+    let d = render::compare(&shots[0], &shots[1], 800).unwrap();
+    assert!(d.within_tolerance(), "the GPU and the CPU: {d:?}");
+    browser.close().await.ok();
+    events.abort();
+}
+
+/// An edit to one row of the 100,000-pixel design, shown at 100%, repaints
+/// only the tiles that row touches; an edit to a row out of view repaints
+/// none.
+async fn an_edit_repaints_only_the_tiles_around_it(webgpu: bool) {
+    let dir = folder(if webgpu { "edit-gpu" } else { "edit-cpu" });
+    huge(&dir, None);
+    let (address, designs) = serve_designs(&dir, "huge.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
+    page.goto(format!("{address}/huge.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    zoom_to(&page, 1.0, 200.0, 0.0).await;
+    let before = number(&page, "tiles").await;
+    // Row 1, at the top of the view.
+    huge(&dir, Some(1));
+    designs.changed(&dir.join("huge.design"));
+    until(
+        &page,
+        &format!(
+            "Number(document.querySelector('canvas.design').dataset.tiles) > {before} && {PAINTED}"
+        ),
+    )
+    .await;
+    let after = number(&page, "tiles").await;
+    // Row 900, far below it.
+    huge(&dir, Some(900));
+    designs.changed(&dir.join("huge.design"));
+    // The row 1 text back, in view: its tile again.
+    until(
+        &page,
+        &format!(
+            "Number(document.querySelector('canvas.design').dataset.tiles) > {after} && {PAINTED}"
+        ),
+    )
+    .await;
+    let last = number(&page, "tiles").await;
+    eprintln!(
+        "webgpu {webgpu}: {before} tiles, {after} after an edit in view, {last} after one out of it"
+    );
+    // Row 1's text lies in one tile.
+    assert_eq!(after - before, 1.0);
+    // Row 1 changed back and row 900 is out of view: one tile again.
+    assert_eq!(last - after, 1.0);
+    browser.close().await.ok();
+    events.abort();
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_edit_repaints_only_the_tiles_around_it_on_the_gpu() {
+    an_edit_repaints_only_the_tiles_around_it(true).await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_edit_repaints_only_the_tiles_around_it_on_the_cpu() {
+    an_edit_repaints_only_the_tiles_around_it(false).await;
+}
+
+/// A page without WebGPU paints its tiles in a worker, which loads the engine
+/// after the page: a canvas whose scene arrives — and is handed to the worker
+/// — while the worker is still loading the engine paints all the same. The
+/// worker's requests for the engine are held two seconds to make sure.
+#[tokio::test]
+#[ignore]
+async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded() {
+    use chromiumoxide::cdp::browser_protocol::fetch::{
+        ContinueRequestParams, EnableParams, EventRequestPaused, RequestPattern,
+    };
+    use chromiumoxide::cdp::browser_protocol::network::SetCacheDisabledParams;
+    let dir = folder("worker-late");
+    let address = serve(&dir, "screen.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = canvas_page(&mut browser, false, 800, 600).await;
+    page.execute(SetCacheDisabledParams::new(true))
+        .await
+        .unwrap();
+    let mut paused = page.event_listener::<EventRequestPaused>().await.unwrap();
+    page.execute(
+        EnableParams::builder()
+            .pattern(RequestPattern {
+                url_pattern: Some("*/__devpage/design*".into()),
+                resource_type: None,
+                request_stage: None,
+            })
+            .build(),
+    )
+    .await
+    .unwrap();
+    let held = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let holder = {
+        let (page, held) = (page.clone(), held.clone());
+        tokio::spawn(async move {
+            let mut worker = false;
+            while let Some(event) = paused.next().await {
+                let url = event.request.url.clone();
+                let id = event.request_id.clone();
+                let hold = worker && url.contains("design-engine");
+                worker |= url.contains("design-worker");
+                let page = page.clone();
+                let held = held.clone();
+                tokio::spawn(async move {
+                    if hold {
+                        held.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                    }
+                    page.execute(ContinueRequestParams::new(id)).await.ok();
+                });
+            }
+        })
+    };
+    let start = std::time::Instant::now();
+    page.goto(format!("{address}/screen.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    let backend: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.backend",
+    )
+    .await;
+    assert_eq!(backend, "cpu");
+    assert!(
+        held.load(std::sync::atomic::Ordering::Relaxed) > 0,
+        "the worker's requests for the engine were never seen"
+    );
+    assert!(start.elapsed() >= Duration::from_secs(2));
+    // The screen's own background, painted from the worker's tiles.
+    let at = on_screen(&page, "canvas.design", 390.0, 290.0).await;
+    assert_eq!(pixel(&page, at).await, [0xf8, 0xfa, 0xfc]);
+    holder.abort();
+    browser.close().await.ok();
+    events.abort();
+}

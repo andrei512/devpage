@@ -17,6 +17,10 @@ use devpage_design::tiles::{Cache, Key, Level};
 /// A tile's side, in device pixels.
 const TILE: u32 = devpage_design::tiles::TILE;
 
+/// The most tiles a canvas keeps: more than a 4K screen at a device pixel
+/// ratio of 2 shows, about 160, so a view never evicts its own tiles.
+pub const CAP: usize = 384;
+
 /// A painted tile: its texture, and what binds it to the compositor.
 struct Tile {
     _texture: wgpu::Texture,
@@ -123,13 +127,24 @@ pub struct Target {
     pipeline: wgpu::RenderPipeline,
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    /// The tiles painted so far, by theme, level, column and row.
+    /// The tiles painted so far, by theme, level, column and row, at most
+    /// `CAP` of them.
     tiles: Cache<Tile>,
-    /// The generation of the design the tiles were painted from.
-    generation: Option<u32>,
+    /// The design the tiles were painted from.
+    design: Option<u32>,
+    /// How many tiles the canvas has painted, for the tests.
+    painted: u32,
     /// The renderer for the images the canvas's drawing paints, by their
     /// blobs, in the order it first paints them: what its atlas holds.
     vello: Option<(Vec<u64>, vello::Renderer)>,
+}
+
+#[wasm_bindgen]
+impl Target {
+    /// How many tiles this canvas has painted.
+    pub fn painted(&self) -> u32 {
+        self.painted
+    }
 }
 
 fn error(e: impl std::fmt::Display) -> JsValue {
@@ -181,8 +196,9 @@ impl Gpu {
             pipeline,
             layout,
             sampler,
-            tiles: Cache::new(usize::MAX),
-            generation: None,
+            tiles: Cache::new(CAP),
+            design: None,
+            painted: 0,
             vello: None,
         })
     }
@@ -210,35 +226,26 @@ impl Gpu {
     ) -> i32 {
         let (width, height) = (width.max(1), height.max(1));
         let theme = design.theme();
-        let generation = design.generation();
-        let Some(laid_out) = design.laid_out() else {
-            return -1;
-        };
-        let blobs: Vec<u64> = laid_out.images.iter().map(|i| i.data.id()).collect();
-        let images = laid_out.images.clone();
-        // What the design shows changed: every tile is stale, and shown
-        // until it is painted again.
-        if target.generation != Some(generation) {
-            target.generation = Some(generation);
-            target.tiles.damage_all(devpage_design::Theme::Light);
-            target.tiles.damage_all(devpage_design::Theme::Dark);
+        // Another design: none of the tiles are its.
+        if target.design != Some(design.id()) {
+            target.design = Some(design.id());
+            target.tiles.clear();
         }
-        if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
-            // A fresh atlas for other images, given every image of the
-            // drawing in its order first, so it holds them as the engine
-            // placed them; and the tiles painted from the old one go.
-            match vello::Renderer::new(&self.device, vello::RendererOptions::default()) {
-                Ok(mut renderer) => {
-                    self.prime(&mut renderer, &images);
-                    target.vello = Some((blobs, renderer));
-                    target.tiles.clear();
+        // What the updates since the last frame changed: the tiles over it
+        // go stale, and are shown until they are painted again.
+        for (theme, damage) in design.drain_damage() {
+            match damage {
+                crate::Damage::All => target.tiles.damage_all(theme),
+                crate::Damage::Rects { origin, rects } => {
+                    target.tiles.damage(theme, origin, &rects)
                 }
-                Err(_) => return -1,
             }
         }
-        let Some(list) = design.laid_out().map(|d| &d.list) else {
+        let Some(drawing) = design.laid_out() else {
             return -1;
         };
+        let design_images = drawing.images.clone();
+        let list = &drawing.list;
         let level = Level::of(zoom as f64);
         let scale = level.scale();
         let side = TILE as f64;
@@ -278,7 +285,22 @@ impl Gpu {
             d(a).total_cmp(&d(b))
         });
         let mut painted = 0;
-        if settled {
+        if settled && !missing.is_empty() {
+            let images = &design_images;
+            let blobs: Vec<u64> = images.iter().map(|i| i.data.id()).collect();
+            if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
+                // A fresh atlas for other images, given every image of the
+                // drawing in its order first, so it holds them as the engine
+                // placed them. Tiles already painted are textures of their
+                // own, and keep.
+                match vello::Renderer::new(&self.device, vello::RendererOptions::default()) {
+                    Ok(mut renderer) => {
+                        self.prime(&mut renderer, images);
+                        target.vello = Some((blobs, renderer));
+                    }
+                    Err(_) => return -1,
+                }
+            }
             for &(c, r) in missing.iter().take(budget as usize) {
                 let area = devpage_design::tiles::tile_rect(list, scale, c as u32, r as u32);
                 let mut gpu = crate::scene::Vello {
@@ -330,6 +352,7 @@ impl Gpu {
                     1,
                 );
                 painted += 1;
+                target.painted += 1;
             }
         }
         let left = missing.len() as i32 - painted;
@@ -371,7 +394,8 @@ impl Gpu {
                 lv,
             ));
         }
-        quads.sort_by_key(|q| (q.2 == level, std::cmp::Reverse(q.2.0)));
+        // Coarser levels under finer ones, the view's own on top.
+        quads.sort_by_key(|q| (q.2 == level, q.2.0));
         target.surface.configure(
             &self.device,
             &wgpu::SurfaceConfiguration {

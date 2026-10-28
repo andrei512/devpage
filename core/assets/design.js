@@ -39,17 +39,28 @@ const TILE = 256;
 const SETTLE = 150;
 // How many tiles the GPU paints in one frame.
 const TILES_PER_FRAME = 6;
+// The most tiles a canvas keeps on the CPU: more than a 4K screen at a device
+// pixel ratio of 2 shows, so a view never evicts its own. The GPU keeps as
+// many (`gpu::CAP`).
+const CAP = 384;
+const THEMES = ["light", "dark"];
 const hosts = new Set();
 // Each host by its id, for the worker's answers.
 const byId = new Map();
 let nextId = 1;
-// The worker that paints tiles on the CPU, when the page has no WebGPU.
+// Each tile asked of the worker, numbered.
+let nextTicket = 1;
+// The worker that paints tiles on the CPU, made when the first canvas that
+// can't use WebGPU needs it.
 let worker = null;
-if (!gpu && !failure) {
-  worker = new Worker("/__devpage/design-worker.js", { type: "module" });
-  worker.onmessage = ({ data }) => {
-    if (data.kind === "tile") byId.get(data.id)?.tilePainted(data);
-  };
+function cpuWorker() {
+  if (!worker) {
+    worker = new Worker("/__devpage/design-worker.js", { type: "module" });
+    worker.onmessage = ({ data }) => {
+      if (data.kind === "tile") byId.get(data.id)?.tilePainted(data);
+    };
+  }
+  return worker;
 }
 // Every canvas a scan has started.
 const started = new WeakSet();
@@ -173,10 +184,13 @@ class Host {
     this.view = { zoom, x: 0, y: 0, fitted: true };
     this.id = nextId++;
     byId.set(this.id, this);
-    // The CPU's tiles, by theme, scale, column and row, and those asked for.
+    // The CPU's tiles, by theme, scale, column and row, least recently used
+    // first; those asked of the worker, with the damage count they were asked
+    // at; how many damages there have been, and how many tiles painted.
     this.tiles = new Map();
-    this.pending = new Set();
-    this.generation = 0;
+    this.pending = new Map();
+    this.damages = 0;
+    this.tilesPainted = 0;
     this.overlay = null;
     this.frame = 0;
     // The theme an embed's own switch turned it to; until then, none — it
@@ -232,6 +246,7 @@ class Host {
       }
     }
     this.context = this.target ? null : this.canvas.getContext("2d");
+    this.worker = this.target ? null : cpuWorker();
     this.canvas.dataset.backend = this.target ? "gpu" : "cpu";
   }
 
@@ -240,7 +255,7 @@ class Host {
   open(path) {
     this.design?.free();
     this.design = new Design();
-    worker?.postMessage({ kind: "open", id: this.id });
+    this.worker?.postMessage({ kind: "open", id: this.id });
     this.forget();
     this.path = path;
     this.view.fitted = true;
@@ -257,11 +272,14 @@ class Host {
   // brings it back.
   receive(message) {
     const applied = this.design.apply(message);
-    worker?.postMessage({ kind: "apply", id: this.id, message });
+    if (this.worker) {
+      this.worker.postMessage({ kind: "apply", id: this.id, message });
+      // On the GPU the compositor takes the damage itself.
+      this.damage(this.design.take_damage());
+    }
     if (applied === Applied.Changed) {
       if (this.toggle) this.toggle.hidden = !this.design.themed();
       this.showProblems([]);
-      this.generation++;
       this.paint();
     } else if (applied === Applied.Problems) {
       this.showProblems(this.design.problems());
@@ -277,7 +295,7 @@ class Host {
     // The scene lives in the module's memory, not in JavaScript's.
     this.design?.free();
     this.design = null;
-    worker?.postMessage({ kind: "close", id: this.id });
+    this.worker?.postMessage({ kind: "close", id: this.id });
     this.forget();
     byId.delete(this.id);
     rewatch();
@@ -385,8 +403,7 @@ class Host {
   draw() {
     if (!this.design || !this.canvas.isConnected) return;
     // The scene holds both themes: a switch is a new drawing, made here.
-    const dark = this.theme() === "dark";
-    if (this.design.set_theme(dark)) worker?.postMessage({ kind: "theme", id: this.id, dark });
+    this.design.set_theme(this.theme() === "dark");
     this.showLink();
     if (!this.fit()) return this.settle();
     // The bitmap matches the canvas's box on the screen, in device pixels.
@@ -399,79 +416,130 @@ class Host {
     const ratio = (window.devicePixelRatio || 1) * this.scaled();
     if (this.canvas.width !== width) this.canvas.width = width;
     if (this.canvas.height !== height) this.canvas.height = height;
+    // What is shown: the scale tiles are painted at — the view's in device
+    // pixels, to a 1/1024th — and the drawing's top-left on a whole device
+    // pixel, so a tile at the view's own scale lands pixel for pixel. Clicks
+    // are taken back through the same.
     const { zoom, x, y } = this.view;
-    this.canvas.dataset.view = `${zoom},${x},${y}`;
+    const k = Math.max(1, Math.round(zoom * ratio * 1024)) / 1024;
+    const ox = Math.round(x * ratio);
+    const oy = Math.round(y * ratio);
+    this.shown = { k, ox, oy };
+    this.canvas.dataset.view = `${k / ratio},${ox / ratio},${oy / ratio}`;
     this.canvas.dataset.size = this.design.size().join(",");
+    // The compositor places the view's cached tiles every frame; tiles still
+    // to paint at this scale are painted once a zoom settles, and the canvas
+    // is painted when none are left.
+    const settled = performance.now() - (this.zoomed ?? 0) > SETTLE;
+    const started = performance.now();
+    let left;
     if (this.target) {
-      // The compositor places the view's cached tiles every frame; tiles
-      // still to paint at this zoom are painted once it settles, a few a
-      // frame, and the canvas is painted when none are left.
       const behind = background(this.canvas.parentElement);
-      const settled = performance.now() - (this.zoomed ?? 0) > SETTLE;
-      const left = gpu.draw(this.target, this.design, width, height, zoom * ratio, x * ratio, y * ratio, behind, settled, TILES_PER_FRAME);
-      if (left === 0) this.painted();
-      else if (left > 0) {
-        if (settled) this.paint();
-        else {
-          clearTimeout(this.settling);
-          this.settling = setTimeout(() => this.paint(), SETTLE);
-        }
-      }
-      return;
+      left = gpu.draw(this.target, this.design, width, height, k, ox, oy, behind, settled, TILES_PER_FRAME);
+      this.tilesPainted = this.target.painted();
+    } else {
+      left = this.drawCpu(width, height, settled);
     }
-    this.drawCpu(ratio, width, height);
+    // For the tests: how long the frame took, and how many tiles the canvas
+    // has painted.
+    this.canvas.dataset.frame = String(performance.now() - started);
+    this.canvas.dataset.tiles = String(this.tilesPainted);
+    if (left === 0) this.painted();
+    else if (left > 0 && !settled) {
+      clearTimeout(this.settling);
+      this.settling = setTimeout(() => this.paint(), SETTLE);
+    } else if (left > 0 && this.target) this.paint();
   }
 
   // The CPU composites the view from tiles a worker paints with vello_cpu:
-  // the cached tiles of this theme, at any scale, moved and scaled; once the
-  // zoom settles, the missing or stale tiles of the view at its own scale are
-  // asked for, and each is swapped in when it arrives.
-  drawCpu(ratio, width, height) {
+  // the cached tiles of this theme, at any scale, moved and scaled, the
+  // view's own scale on top; once a zoom settles, the missing or stale tiles
+  // of the view are asked for, and each is swapped in when it arrives.
+  // Returns how many tiles of the view are still to paint.
+  drawCpu(width, height, settled) {
     const [w, h] = this.design.size();
-    const { zoom, x, y } = this.view;
-    const scale = Math.max(1, Math.round(zoom * ratio * 1024)) / 1024;
+    const { k, ox, oy } = this.shown;
     const theme = this.theme();
-    const ox = Math.round(x * ratio);
-    const oy = Math.round(y * ratio);
-    const cols = Math.ceil((w * scale) / TILE);
-    const rows = Math.ceil((h * scale) / TILE);
-    const k = zoom * ratio;
+    const cols = Math.ceil((w * k) / TILE);
+    const rows = Math.ceil((h * k) / TILE);
     this.context.clearRect(0, 0, width, height);
     const shown = [...this.tiles.values()].filter((tile) => tile.theme === theme);
-    shown.sort((a, b) => (a.scale === scale) - (b.scale === scale) || a.scale - b.scale);
+    shown.sort((a, b) => (a.scale === k) - (b.scale === k) || a.scale - b.scale);
     for (const tile of shown) {
       const side = (TILE / tile.scale) * k;
-      this.context.drawImage(tile.bitmap, ox + tile.col * side, oy + tile.row * side, side, side);
+      const [tx, ty] = [ox + tile.col * side, oy + tile.row * side];
+      if (tx > width || ty > height || tx + side < 0 || ty + side < 0) continue;
+      this.context.drawImage(tile.bitmap, tx, ty, side, side);
     }
     const missing = [];
     for (let row = Math.max(0, Math.floor(-oy / TILE)); row < Math.min(rows, Math.ceil((height - oy) / TILE)); row++) {
       for (let col = Math.max(0, Math.floor(-ox / TILE)); col < Math.min(cols, Math.ceil((width - ox) / TILE)); col++) {
-        const tile = this.tiles.get(`${theme}:${scale}:${col}:${row}`);
-        if (!tile || tile.generation !== this.generation) missing.push({ col, row });
+        const key = `${theme}:${k}:${col}:${row}`;
+        const tile = this.tiles.get(key);
+        if (tile) {
+          // In use: the most recently used goes last.
+          this.tiles.delete(key);
+          this.tiles.set(key, tile);
+        }
+        if (!tile || tile.stale) missing.push({ key, col, row });
       }
     }
-    if (!missing.length) return this.painted();
-    if (performance.now() - (this.zoomed ?? 0) <= SETTLE) {
-      clearTimeout(this.settling);
-      this.settling = setTimeout(() => this.paint(), SETTLE);
-      return;
+    if (settled) {
+      for (const { key, col, row } of missing) {
+        if (this.pending.has(key)) continue;
+        const ticket = nextTicket++;
+        this.pending.set(key, { ticket, damages: this.damages });
+        this.worker.postMessage({ kind: "tile", id: this.id, ticket, key, dark: theme === "dark", theme, scale: k, col, row });
+      }
     }
-    for (const { col, row } of missing) {
-      const key = `${theme}:${scale}:${col}:${row}`;
-      if (this.pending.has(key)) continue;
-      this.pending.add(key);
-      worker.postMessage({ kind: "tile", id: this.id, key, theme, scale, col, row, generation: this.generation });
-    }
+    return missing.length;
   }
 
-  // A tile the worker painted: kept, and the view composited again.
-  async tilePainted({ key, theme, scale, col, row, generation, rgba }) {
+  // A tile the worker painted: kept — stale already if damage came after it
+  // was asked for — and the view composited again.
+  async tilePainted({ ticket, key, theme, scale, col, row, rgba }) {
+    // Only the answer to the request still pending: not one for the design
+    // this canvas showed before.
+    const asked = this.pending.get(key);
+    if (asked?.ticket !== ticket) return;
     this.pending.delete(key);
-    if (!rgba || generation !== this.generation) return this.paint();
+    if (!rgba) return this.paint();
     const bitmap = await createImageBitmap(new ImageData(new Uint8ClampedArray(rgba), TILE, TILE));
+    if (!this.design) return bitmap.close();
     this.tiles.get(key)?.bitmap.close();
-    this.tiles.set(key, { theme, scale, col, row, generation, bitmap });
+    this.tiles.delete(key);
+    this.tiles.set(key, { theme, scale, col, row, bitmap, stale: asked.damages !== this.damages });
+    this.tilesPainted++;
+    for (const [old, tile] of this.tiles) {
+      if (this.tiles.size <= CAP) break;
+      tile.bitmap.close();
+      this.tiles.delete(old);
+    }
     this.paint();
+  }
+
+  // Marks stale the CPU's tiles an update damaged: `flat` is the module's
+  // damage — per theme, its theme, whether every tile, the drawing's
+  // top-left, the number of rects and the rects.
+  damage(flat) {
+    if (!flat.length) return;
+    this.damages++;
+    for (let at = 0; at < flat.length; ) {
+      const theme = THEMES[flat[at]];
+      const all = flat[at + 1] === 1;
+      const [x, y, n] = [flat[at + 2], flat[at + 3], flat[at + 4]];
+      const rects = [];
+      for (let i = 0; i < n; i++) rects.push(flat.subarray(at + 5 + 4 * i, at + 9 + 4 * i));
+      at += 5 + 4 * n;
+      for (const tile of this.tiles.values()) {
+        if (tile.theme !== theme) continue;
+        const side = TILE / tile.scale;
+        const [x0, y0] = [x + tile.col * side, y + tile.row * side];
+        if (all || rects.some((r) => r[0] < x0 + side && r[2] > x0 && r[1] < y0 + side && r[3] > y0)) {
+          tile.stale = true;
+        }
+      }
+    }
   }
 
   // Drops every tile: another design.
@@ -479,7 +547,6 @@ class Host {
     for (const tile of this.tiles.values()) tile.bitmap.close();
     this.tiles.clear();
     this.pending.clear();
-    this.generation++;
   }
 
   painted() {
@@ -498,6 +565,12 @@ class Host {
   // the canvas is shown under.
   point(event) {
     const box = this.canvas.getBoundingClientRect();
+    if (this.shown) {
+      // In device pixels, as the compositor placed the drawing.
+      const { k, ox, oy } = this.shown;
+      const device = this.canvas.width / box.width || 1;
+      return [((event.clientX - box.left) * device - ox) / k, ((event.clientY - box.top) * device - oy) / k];
+    }
     const scale = this.scaled();
     const { zoom, x, y } = this.view;
     return [((event.clientX - box.left) / scale - x) / zoom, ((event.clientY - box.top) / scale - y) / zoom];

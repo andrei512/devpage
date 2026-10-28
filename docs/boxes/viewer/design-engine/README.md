@@ -531,9 +531,15 @@ frame, nearest the view's middle first, at the zoom's real resolution, a few
 each frame, and each is swapped in when it is ready. Until then the view
 shows what the cache has — the stale tile, or the same place at another
 scale, stretched — so nothing flashes, and a view is sharp once its zoom
-settles. A canvas's tiles are capped, least recently used dropped first; a
-switch of theme keeps the other theme's tiles, so switching back paints
-nothing.
+settles. The view is shown at the scale tiles are painted at — the zoom in
+device pixels, to a 1/1024th — with the drawing's top-left on a whole device
+pixel, so a tile at the view's own scale lands pixel for pixel, and a click
+is taken back through the same. A canvas keeps at most 384 tiles — more than
+a 4K screen at twice its pixels shows — least recently used dropped first.
+Each update to the design marks stale only the tiles its
+[damage](#tiles) overlaps, in each theme it has been drawn in; another
+design — a navigation — starts with none. A switch of theme keeps the other
+theme's drawing and its tiles, so switching back makes and paints nothing.
 
 - **On the GPU**: tiles are painted by `vello` through `wgpu` on WebGPU, each
   into a texture of its own, and composited by one textured-quad pass over
@@ -545,8 +551,11 @@ nothing.
   [image atlas](#the-gpus-image-atlas) — for as long as its drawings paint
   the same images.
 - **On the CPU**, without WebGPU: tiles are painted by `vello_cpu` in a
-  worker, off the page's main thread — the worker holds its own copy of each
-  design, fed the same stream messages — and composited into a 2D canvas.
+  worker, off the page's main thread, made when the first canvas without
+  WebGPU needs it — the worker holds its own copy of each design, fed the
+  same stream messages, while the page's own copy says which tiles an update
+  made stale — and composited into a 2D canvas. Messages that reach the
+  worker while it is still loading the engine wait for it.
   The same tiles, the same scales, no whole-design bitmap and no cap on the
   zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
   which Chrome prints reliably.

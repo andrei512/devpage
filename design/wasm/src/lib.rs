@@ -25,26 +25,53 @@ pub enum Applied {
     Problems = 2,
 }
 
-/// One canvas's design: its scene, its problems, and its layout while the
-/// scene stands.
+/// One canvas's design: its scene, its problems, its drawing in each theme
+/// it has been shown in — each updated by every patch — and the damage those
+/// updates did, until the canvas takes it.
 #[wasm_bindgen]
 pub struct Design {
     engine: Renderer,
+    /// Which design this is, among every one the page has made: a canvas's
+    /// tiles are of one design.
+    id: u32,
     scene: Option<Scene>,
     problems: Vec<String>,
-    /// The scene laid out and made into its display list in `theme`,
-    /// updated by each patch; `None` before a scene, or when the scene can't
-    /// be drawn — the server reports that as the design's problem.
-    drawing: Option<Drawing>,
-    /// The scene or the theme changed in a way a patch doesn't carry: the
-    /// next drawing is made afresh, after the last one.
-    stale: bool,
-    /// How many times the scene has changed: a canvas's tiles are of one
-    /// generation.
-    generation: u32,
+    /// The scene laid out and made into its display list, in the light theme
+    /// and the dark one; `None` before it is first shown in that theme, or
+    /// when the scene can't be drawn — the server reports that as the
+    /// design's problem.
+    drawings: [Option<Drawing>; 2],
+    /// Whether a theme's drawing must be made afresh: a whole scene arrived.
+    stale: [bool; 2],
+    /// What changed since the canvas last took it, per theme.
+    damage: Vec<(Theme, Damage)>,
     /// The theme the page draws this design in.
     theme: Theme,
 }
+
+/// What an update did to the tiles of one theme of a design.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Damage {
+    /// Every tile: a new scene, or the drawing's top-left moved.
+    All,
+    /// The tiles over these rects, in the design's coordinates, of a
+    /// drawing whose top-left is `origin`.
+    Rects {
+        origin: (f64, f64),
+        rects: Vec<vello::kurbo::Rect>,
+    },
+}
+
+fn index(theme: Theme) -> usize {
+    match theme {
+        Theme::Light => 0,
+        Theme::Dark => 1,
+    }
+}
+
+const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
+
+static NEXT_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
 /// A CPU painting: premultiplied alpha already undone, ready for `ImageData`.
 #[wasm_bindgen]
@@ -84,26 +111,48 @@ impl Design {
     pub fn new() -> Design {
         Design {
             engine: Renderer::new(),
+            id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             scene: None,
             problems: Vec::new(),
-            drawing: None,
-            stale: false,
-            generation: 0,
+            drawings: [None, None],
+            stale: [false, false],
+            damage: Vec::new(),
             theme: Theme::Light,
         }
     }
 
     /// Draws the design in its dark theme, or its light one; true when that
-    /// is a change, which the next paint shows. The scene holds both, so
-    /// nothing is asked of the server.
+    /// is a change, which the next paint shows. The scene holds both, and
+    /// the drawing in the other theme is kept, so switching back makes
+    /// nothing and its tiles are still good.
     pub fn set_theme(&mut self, dark: bool) -> bool {
         let theme = if dark { Theme::Dark } else { Theme::Light };
         if theme == self.theme {
             return false;
         }
         self.theme = theme;
-        self.stale = true;
         true
+    }
+
+    /// The damage since the last call, flat for the page: per theme, its
+    /// theme (0 light, 1 dark), 1 when every tile is stale or else 0, the
+    /// drawing's top-left `x` and `y`, the number of rects, and each rect's
+    /// `x0, y0, x1, y1` in the design's coordinates.
+    pub fn take_damage(&mut self) -> Vec<f64> {
+        let mut out = Vec::new();
+        for (theme, damage) in self.damage.drain(..) {
+            out.push(index(theme) as f64);
+            match damage {
+                Damage::All => out.extend([1.0, 0.0, 0.0, 0.0]),
+                Damage::Rects { origin, rects } => {
+                    out.extend([0.0, origin.0, origin.1, rects.len() as f64]);
+                    for r in rects {
+                        out.extend([r.x0, r.y0, r.x1, r.y1]);
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Whether any `theme.` reference reached the scene: what puts an
@@ -128,19 +177,40 @@ impl Design {
                     .unwrap_or_default();
                 wire::decode_scene(&whole, (&images, &fonts)).map(|scene| {
                     self.scene = Some(scene);
-                    self.stale = true;
+                    self.stale = [true, true];
+                    for theme in THEMES {
+                        self.damage.push((theme, Damage::All));
+                    }
                 })
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
                 Some(scene) => {
                     let old = scene.clone();
                     wire::apply(scene, &patch).map(|()| {
-                        // The drawing follows the patch, by what it changed.
-                        if let Some(d) = self.drawing.as_mut()
-                            && !self.stale
-                            && d.update(&mut self.engine, &old, scene).is_err()
-                        {
-                            self.drawing = None;
+                        // Each drawing follows the patch, by what it changed.
+                        for theme in THEMES {
+                            let i = index(theme);
+                            let Some(d) = self.drawings[i].as_mut() else {
+                                continue;
+                            };
+                            if self.stale[i] {
+                                continue;
+                            }
+                            let damage = match d.update(&mut self.engine, &old, scene) {
+                                Ok(damage) if damage.all => Damage::All,
+                                Ok(damage) => {
+                                    let a = d.area();
+                                    Damage::Rects {
+                                        origin: (a.x as f64, a.y as f64),
+                                        rects: damage.rects,
+                                    }
+                                }
+                                Err(_) => {
+                                    self.drawings[i] = None;
+                                    Damage::All
+                                }
+                            };
+                            self.damage.push((theme, damage));
                         }
                     })
                 }
@@ -159,7 +229,6 @@ impl Design {
             return Applied::Problems;
         }
         self.problems.clear();
-        self.generation += 1;
         Applied::Changed
     }
 
@@ -206,21 +275,38 @@ impl Design {
     }
 
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    fn generation(&self) -> u32 {
-        self.generation
+    fn id(&self) -> u32 {
+        self.id
     }
 
-    /// The drawing — made afresh after a whole scene or a theme switch,
-    /// painting the last drawing's images when it paints the same ones, so
-    /// the GPU keeps them.
+    /// The damage since it was last taken.
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn drain_damage(&mut self) -> Vec<(Theme, Damage)> {
+        std::mem::take(&mut self.damage)
+    }
+
+    /// The drawing in the theme it is shown in — made afresh after a whole
+    /// scene, or the first time that theme is shown, painting the last
+    /// drawing's images when it paints the same ones, so the GPU keeps them.
     fn laid_out(&mut self) -> Option<&Drawing> {
-        if self.stale || self.drawing.is_none() {
-            self.stale = false;
+        let i = index(self.theme);
+        if self.stale[i] || self.drawings[i].is_none() {
+            self.stale[i] = false;
             let scene = self.scene.as_ref()?;
-            let last = self.drawing.take();
-            self.drawing = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
+            let last = self.drawings[i]
+                .take()
+                .or_else(|| self.drawings[1 - i].take());
+            let made = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
+            // The other theme's drawing, taken to share its images' blobs,
+            // goes back.
+            if let Some(last) = last
+                && last.theme() != self.theme
+            {
+                self.drawings[1 - i] = Some(last);
+            }
+            self.drawings[i] = made;
         }
-        self.drawing.as_ref()
+        self.drawings[i].as_ref()
     }
 }
 
@@ -438,6 +524,78 @@ mod tests {
             &design.paint(1.0).unwrap().take()[..4],
             &[255, 255, 255, 255]
         );
+    }
+
+    /// A whole scene damages every tile of both themes; a patch damages, in
+    /// each theme the design has been drawn in, only where the node it
+    /// changed was and is; a theme switched back to keeps its drawing.
+    #[test]
+    fn a_patch_damages_only_what_it_changed() {
+        let source = |fill: &str| {
+            HashMap::from([(
+                "a.design".to_string(),
+                format!(
+                    r##"<Frame width={{400}} height={{2000}} fill="#ffffff">
+  <Rect x={{10}} y={{10}} width={{50}} height={{50}} fill="#000000" />
+  <Rect x={{10}} y={{1500}} width={{50}} height={{50}} fill="{fill}" />
+</Frame>"##
+                ),
+            )])
+        };
+        let first = devpage_design::resolve(&source("#ff0000"), "a.design").unwrap();
+        let second = devpage_design::resolve(&source("#00ff00"), "a.design").unwrap();
+        let mut design = Design::new();
+        let whole = Update {
+            body: Some(Body::Scene(wire::scene(&first))),
+            ..Default::default()
+        };
+        design.apply(&whole.encode_to_vec());
+        assert_eq!(
+            design.drain_damage(),
+            vec![(Theme::Light, Damage::All), (Theme::Dark, Damage::All)]
+        );
+        design.laid_out().unwrap();
+        let patch = Update {
+            body: Some(Body::Patch(wire::patch(&first, &second))),
+            ..Default::default()
+        };
+        assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
+        let damage = design.drain_damage();
+        assert_eq!(
+            damage.len(),
+            1,
+            "only the light theme was drawn: {damage:?}"
+        );
+        let (Theme::Light, Damage::Rects { origin, rects }) = &damage[0] else {
+            panic!("{damage:?}");
+        };
+        assert_eq!(*origin, (0.0, 0.0));
+        assert!(!rects.is_empty());
+        for r in rects {
+            assert!(r.y0 >= 1490.0 && r.y1 <= 1560.0, "{r:?}");
+        }
+        // The flat form the page reads: theme, all, top-left, count, rects.
+        let back = Update {
+            body: Some(Body::Patch(wire::patch(&second, &first))),
+            ..Default::default()
+        };
+        design.apply(&back.encode_to_vec());
+        let flat = design.take_damage();
+        assert_eq!(&flat[..4], &[0.0, 0.0, 0.0, 0.0]);
+        assert_eq!(flat.len(), 5 + 4 * flat[4] as usize);
+        assert!(
+            flat[5..]
+                .chunks(4)
+                .all(|r| r[1] >= 1490.0 && r[3] <= 1560.0)
+        );
+        assert!(design.take_damage().is_empty());
+        // Dark, then light again: the light drawing is the one kept.
+        assert!(design.set_theme(true));
+        design.laid_out().unwrap();
+        assert!(design.drawings[0].is_some() && design.drawings[1].is_some());
+        assert!(design.set_theme(false));
+        let kept = design.drawings[0].as_ref().unwrap() as *const Drawing;
+        assert!(std::ptr::eq(design.laid_out().unwrap(), kept));
     }
 
     #[test]
