@@ -177,6 +177,17 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         Walk { sums: self, stack }
     }
 
+    /// Every item, last first.
+    pub fn rev(&self) -> impl Iterator<Item = (&K, &V)> {
+        let mut stack = Vec::new();
+        let mut at = self.root;
+        while let Some(i) = at {
+            stack.push(i);
+            at = self.node(i).right;
+        }
+        Back { sums: self, stack }
+    }
+
     fn node(&self, i: u32) -> &Node<K, V> {
         self.nodes[i as usize].as_ref().expect("a live node")
     }
@@ -293,6 +304,25 @@ impl<'a, K: Ord + Clone, V: Item> Iterator for Walk<'a, K, V> {
         while let Some(j) = at {
             self.stack.push(j);
             at = self.sums.node(j).left;
+        }
+        Some((&n.key, &n.value))
+    }
+}
+
+struct Back<'a, K, V: Item> {
+    sums: &'a Sums<K, V>,
+    stack: Vec<u32>,
+}
+
+impl<'a, K: Ord + Clone, V: Item> Iterator for Back<'a, K, V> {
+    type Item = (&'a K, &'a V);
+    fn next(&mut self) -> Option<Self::Item> {
+        let i = self.stack.pop()?;
+        let n = self.sums.node(i);
+        let mut at = n.left;
+        while let Some(j) = at {
+            self.stack.push(j);
+            at = self.sums.node(j).right;
         }
         Some((&n.key, &n.value))
     }

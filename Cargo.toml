@@ -1,6 +1,6 @@
 [package]
 name = "devpage"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 default-run = "devpage"
 rust-version = "1.97"
@@ -28,8 +28,8 @@ serde_json = "1.0.154"
 serde_yaml = "0.9.34"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
-devpage-core = { path = "core", version = "0.2.2" }
-devpage-design = { path = "design", version = "0.2.2", features = ["server"] }
+devpage-core = { path = "core", version = "0.2.3" }
+devpage-design = { path = "design", version = "0.2.3", features = ["server"] }
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"] }
 tonic-web = "0.14.6"
 tower = "0.5"
@@ -53,7 +53,7 @@ dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
 libc = "0.2.191"
 
 [dev-dependencies]
-devpage-core = { path = "core", version = "0.2.1", features = ["testing"] }
+devpage-core = { path = "core", version = "0.2.3", features = ["testing"] }
 prost = "0.14.4"
 brotli = "9.1.0"
 flate2 = "1.1.10"
