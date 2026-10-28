@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 use crate::Problem;
 use crate::fonts::{self, Family, FontFile, FontFiles, FontId};
@@ -1455,8 +1455,7 @@ impl Resolver<'_> {
             },
             ("d", Kind::Vector) => match str_of(&value) {
                 Some(d) => match path_numbers(&d).map_err(|e| e.to_string()).and_then(|()| {
-                    vello_cpu::kurbo::BezPath::from_svg(&d)
-                        .map_err(|e| format!("not SVG path data: {e}"))
+                    kurbo::BezPath::from_svg(&d).map_err(|e| format!("not SVG path data: {e}"))
                 }) {
                     Ok(_) => {
                         let view_box = node.vector.as_ref().map(|v| v.view_box);
@@ -1860,8 +1859,8 @@ fn path_numbers(d: &str) -> Result<(), String> {
 
 /// A path's own bounds, the view box of a `Vector` that names none.
 fn bounds(d: &str) -> [f32; 4] {
-    use vello_cpu::kurbo::Shape;
-    let b = vello_cpu::kurbo::BezPath::from_svg(d)
+    use kurbo::Shape;
+    let b = kurbo::BezPath::from_svg(d)
         .map(|p| p.bounding_box())
         .unwrap_or_default();
     [

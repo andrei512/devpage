@@ -1,15 +1,18 @@
-//! The `vello_cpu` backend: any area of a display list painted into a
-//! pixmap, for tiles and the PNG.
+//! The `vello_cpu` backend — an adapter of [`crate::display::Target`]: any
+//! area of a display list painted into a pixmap, and a tile's straight-alpha
+//! pixels, for the server's tiles, the PNG and a browser without WebGPU.
 
 use std::collections::HashMap;
 
-use vello_cpu::kurbo::{Affine, BezPath, Rect as KRect, Shape};
-use vello_cpu::peniko::{BlendMode, Compose, ImageBrush, Mix};
+use kurbo::{Affine, BezPath, Rect as KRect, Shape};
+use peniko::{BlendMode, Compose, ImageBrush, Mix};
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
-use super::*;
+use crate::display::List;
+use crate::render::{Draw, Paint};
 #[cfg(test)]
 use crate::resolve::{Scene, Theme};
+use crate::tiles::tile_rect;
 
 /// The `vello_cpu` backend of [`crate::display::paint`].
 pub struct Cpu<'a> {
@@ -45,7 +48,7 @@ impl crate::display::Target for Cpu<'_> {
             }
             Draw::Stroke(path, width, c) => {
                 ctx.set_paint(*c);
-                ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
+                ctx.set_stroke(kurbo::Stroke::new(*width as f64));
                 ctx.stroke_path(path);
             }
             Draw::Glyphs(font, size, c, coords, glyphs) => {
@@ -55,7 +58,11 @@ impl crate::display::Target for Cpu<'_> {
                     .font_size(*size)
                     .normalized_coords(coords)
                     .hint(true)
-                    .fill_glyphs(glyphs.iter().copied());
+                    .fill_glyphs(glyphs.iter().map(|g| vello_cpu::Glyph {
+                        id: g.id,
+                        x: g.x,
+                        y: g.y,
+                    }));
             }
         }
     }
@@ -122,10 +129,37 @@ pub fn paint_area(list: &crate::display::List, area: KRect, scale: f64) -> Pixma
 }
 
 #[cfg(test)]
-impl Renderer {
+impl crate::render::Renderer {
     /// The scene's whole drawing painted with `vello_cpu` at `scale`.
     pub fn paint(&mut self, scene: &Scene, theme: Theme, scale: f32) -> Pixmap {
         let d = self.drawing(scene, theme, None).expect("drawable");
-        paint_area(&d.list, frame_rect(d.area()), scale as f64)
+        let a = d.area();
+        let area = KRect::new(
+            a.x as f64,
+            a.y as f64,
+            (a.x + a.width) as f64,
+            (a.y + a.height) as f64,
+        );
+        paint_area(&d.list, area, scale as f64)
+    }
+}
+
+/// A tile's pixels, straight RGBA, `TILE` a side.
+pub fn tile(list: &List, scale: f64, col: u32, row: u32) -> Vec<u8> {
+    let pixmap = paint_area(list, tile_rect(list, scale, col, row), scale);
+    let mut rgba = pixmap.data_as_u8_slice().to_vec();
+    unpremultiply(&mut rgba);
+    rgba
+}
+
+/// Straight alpha from premultiplied, rounding as the PNG encoder does.
+pub fn unpremultiply(rgba: &mut [u8]) {
+    for px in rgba.as_chunks_mut::<4>().0 {
+        let a = px[3] as u32;
+        if a != 0 && a != 255 {
+            for c in &mut px[..3] {
+                *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+            }
+        }
     }
 }

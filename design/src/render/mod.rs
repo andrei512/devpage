@@ -2,8 +2,7 @@
 //! paints each node's own commands ([`painter`]) into a [`Drawing`]
 //! ([`drawing`]): its display list in chunks under property trees, kept and
 //! brought up to date by what changes ([`update`]). A backend paints any area
-//! of it through [`crate::display::paint`] — `vello_cpu` here ([`cpu`]), for
-//! the PNG and tiles; [`compare`] says whether two drawings agree.
+//! of it through [`crate::display::paint`].
 //! This module holds the renderer — its fonts and text shaping — and the
 //! commands' types.
 
@@ -14,15 +13,12 @@ use parley::{
 use std::collections::{BTreeSet, HashMap};
 use taffy::prelude::*;
 
-use vello_cpu::Glyph;
-use vello_cpu::kurbo::{Affine, BezPath, Rect as KRect};
-use vello_cpu::peniko::{Color as PColor, FontData, Gradient, ImageData};
+use kurbo::{Affine, BezPath, Rect as KRect};
+use peniko::{Color as PColor, FontData, Gradient, ImageData};
 
 use crate::fonts::{self, FontFiles, FontId};
 use crate::resolve::{self, ImageId, Origin, TextAlign};
 
-mod compare;
-mod cpu;
 mod drawing;
 #[cfg(test)]
 mod examples;
@@ -32,8 +28,6 @@ mod painter;
 pub(crate) mod testing;
 mod update;
 
-pub use compare::{CLUSTER, Difference, EDGE, SHARE, compare, matches, pixels};
-pub use cpu::{Cpu, paint_area};
 use drawing::*;
 pub use drawing::{Damage, Drawing};
 use layout::*;
@@ -75,6 +69,15 @@ pub struct Frame {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+/// One glyph of a run: its id in its font and where its origin sits, in the
+/// run's coordinates.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Glyph {
+    pub id: u32,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// What a `Draw::Fill` covers its path with.

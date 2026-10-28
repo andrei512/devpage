@@ -1,5 +1,7 @@
 //! The engine end to end on the repository's example designs and on one
 //! 100,000 pixels tall: against their reference PNGs, and tile by tile.
+use crate::compare::*;
+use crate::cpu::*;
 use std::path::PathBuf;
 
 use std::collections::HashMap;
@@ -71,9 +73,9 @@ fn tiles_paint_the_examples_as_the_whole_drawing() {
             // One paint of the whole drawing, and its first tile.
             let drawing = renderer.drawing(&scene, theme, None).unwrap();
             let one = paint_area(&drawing.list, frame_rect(drawing.area()), 1.0);
-            let mut tile = crate::tiles::tile(&drawing.list, 1.0, 0, 0);
+            let mut tile = crate::cpu::tile(&drawing.list, 1.0, 0, 0);
             let mut whole = one.data_as_u8_slice().to_vec();
-            crate::tiles::unpremultiply(&mut whole);
+            crate::cpu::unpremultiply(&mut whole);
             let side = crate::tiles::TILE as usize;
             for y in 0..side.min(h as usize) {
                 let n = side.min(w as usize) * 4;
@@ -111,7 +113,7 @@ fn a_design_100000_pixels_tall_has_a_png() {
     assert_eq!((list.area.width, list.area.height), (400.0, 100_000.0));
     let t = std::time::Instant::now();
     let mut png = Vec::new();
-    crate::tiles::png(list, &mut png).unwrap();
+    crate::bands::png(list, &mut png).unwrap();
     eprintln!(
         "built {built:?}, png {:?}, {} bytes",
         t.elapsed(),

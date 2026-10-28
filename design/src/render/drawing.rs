@@ -3,8 +3,8 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use vello_cpu::kurbo::{Rect as KRect, Vec2};
-use vello_cpu::peniko::ImageData;
+use kurbo::{Rect as KRect, Vec2};
+use peniko::ImageData;
 
 use crate::display::{Blend, Builder, Chunk, Clip, Effect, Id, List, Order, Transform};
 use crate::resolve::{self, ImageId, Node, Origin, Scene, Theme};

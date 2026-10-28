@@ -1,3 +1,4 @@
+use crate::compare::*;
 use std::collections::HashMap;
 
 use crate::render::testing::*;
@@ -311,7 +312,7 @@ fn no_input_makes_the_engine_panic() {
                     // tile painted: a drawing a million pixels a side is
                     // drawable, and painting all of it is not the point.
                     if let Ok(d) = r.drawing(&s, Theme::Light, None) {
-                        let _ = crate::tiles::tile(&d.list, 1.0, 0, 0);
+                        let _ = crate::cpu::tile(&d.list, 1.0, 0, 0);
                     }
                 }
             }

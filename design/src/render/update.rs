@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use vello_cpu::kurbo::Rect as KRect;
+use kurbo::Rect as KRect;
 
 use crate::display::Order;
 use crate::resolve::{Node, Scene};

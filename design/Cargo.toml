@@ -10,6 +10,12 @@ repository = "https://github.com/andrei512/devpage"
 [dependencies]
 parley = { version = "0.12.0", default-features = false, features = ["std"] }
 taffy = { version = "0.15.1", default-features = false, features = ["std", "taffy_tree", "flexbox", "content_size"] }
+# Geometry and colour values: the core's own vocabulary, shared with both
+# paint backends (vello_cpu here, vello in the module), so depended on
+# directly rather than through a backend's re-exports.
+kurbo = "0.13.1"
+peniko = "0.6.1"
+# The CPU paint backend (`cpu`), the only rasterizer the crate links.
 vello_cpu = "0.3.0"
 prost = "0.14.4"
 png = "0.18.1"

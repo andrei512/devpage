@@ -3,11 +3,8 @@
 
 use parley::PositionedLayoutItem;
 
-use vello_cpu::Glyph;
-use vello_cpu::kurbo::{
-    Affine, BezPath, Ellipse as KEllipse, Rect as KRect, RoundedRect, Shape, Vec2,
-};
-use vello_cpu::peniko::{Color as PColor, Gradient};
+use kurbo::{Affine, BezPath, Ellipse as KEllipse, Rect as KRect, RoundedRect, Shape, Vec2};
+use peniko::{Color as PColor, Gradient};
 
 use crate::display::Builder;
 use crate::resolve::{Color, Fill, Kind, Node, Rgba, Scene, Theme};

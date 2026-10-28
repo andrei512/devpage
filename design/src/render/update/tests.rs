@@ -1,3 +1,4 @@
+use crate::cpu::*;
 use std::collections::HashMap;
 
 use crate::render::testing::*;
@@ -38,8 +39,8 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
     }
     let fresh = r.drawing(&new, Theme::Light, None).unwrap();
     for row in [0, 195, 196, 390] {
-        let a = crate::tiles::tile(&live.list, 1.0, 0, row);
-        let b = crate::tiles::tile(&fresh.list, 1.0, 0, row);
+        let a = crate::cpu::tile(&live.list, 1.0, 0, row);
+        let b = crate::cpu::tile(&fresh.list, 1.0, 0, row);
         assert!(a == b, "tile row {row}");
     }
 }
@@ -186,8 +187,7 @@ fn a_row_that_grows_moves_the_rows_after_it() {
     assert_eq!(d.area(), fresh.area());
     for row in 0..d.area().height as u32 / 256 + 1 {
         assert!(
-            crate::tiles::tile(&d.list, 1.0, 0, row)
-                == crate::tiles::tile(&fresh.list, 1.0, 0, row),
+            crate::cpu::tile(&d.list, 1.0, 0, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
             "row {row}"
         );
     }
