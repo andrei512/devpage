@@ -28,6 +28,11 @@ const ASSETS: &[(&str, &str, &str)] = &[
         "assets/vendor/design-engine.js",
         "text/javascript",
     ),
+    (
+        "design-worker.js",
+        "assets/design-worker.js",
+        "text/javascript",
+    ),
     ("design.js", "assets/design.js", "text/javascript"),
     ("react.js", "assets/vendor/react.js", "text/javascript"),
     ("style.css", "assets/style.css", "text/css"),

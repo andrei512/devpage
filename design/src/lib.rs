@@ -3,12 +3,14 @@
 //! in devpage and compiled to WebAssembly in the browser.
 
 pub mod atlas;
+pub mod display;
 pub mod fonts;
 pub mod parse;
 pub mod proto;
 pub mod render;
 pub mod resolve;
 pub mod shadow;
+pub mod tiles;
 pub mod wire;
 
 use std::fmt;
@@ -40,7 +42,8 @@ pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u
     let drawing = renderer
         .drawing(scene, theme, None)
         .map_err(|e| e.message)?;
-    render::paint_list(drawing.area, &drawing.list, 1.0)
-        .into_png()
-        .map_err(|e| format!("encoding the PNG: {e}"))
+    let list = renderer.chunked(scene, &drawing.frames, theme);
+    let mut png = Vec::new();
+    tiles::png(&list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
+    Ok(png)
 }

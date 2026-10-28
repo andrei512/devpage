@@ -33,9 +33,24 @@ if (!print && !failure) {
   }
 }
 
-// The largest bitmap the CPU paints, per side, however far a reader zooms in.
-const MAX_BITMAP = 8192;
+// A tile's side, in device pixels.
+const TILE = 256;
+// How long a zoom is still before its tiles are painted at its resolution.
+const SETTLE = 150;
+// How many tiles the GPU paints in one frame.
+const TILES_PER_FRAME = 6;
 const hosts = new Set();
+// Each host by its id, for the worker's answers.
+const byId = new Map();
+let nextId = 1;
+// The worker that paints tiles on the CPU, when the page has no WebGPU.
+let worker = null;
+if (!gpu && !failure) {
+  worker = new Worker("/__devpage/design-worker.js", { type: "module" });
+  worker.onmessage = ({ data }) => {
+    if (data.kind === "tile") byId.get(data.id)?.tilePainted(data);
+  };
+}
 // Every canvas a scan has started.
 const started = new WeakSet();
 
@@ -156,7 +171,12 @@ class Host {
     this.path = path;
     this.history = []; // an embed's own back stack
     this.view = { zoom, x: 0, y: 0, fitted: true };
-    this.cpu = null; // the CPU's last painting: { scale, bitmap }
+    this.id = nextId++;
+    byId.set(this.id, this);
+    // The CPU's tiles, by theme, scale, column and row, and those asked for.
+    this.tiles = new Map();
+    this.pending = new Set();
+    this.generation = 0;
     this.overlay = null;
     this.frame = 0;
     // The theme an embed's own switch turned it to; until then, none — it
@@ -220,8 +240,9 @@ class Host {
   open(path) {
     this.design?.free();
     this.design = new Design();
+    worker?.postMessage({ kind: "open", id: this.id });
+    this.forget();
     this.path = path;
-    this.cpu = null;
     this.view.fitted = true;
     this.showLink();
     // A new scene starts empty, and the stream sends a design's whole scene
@@ -236,10 +257,11 @@ class Host {
   // brings it back.
   receive(message) {
     const applied = this.design.apply(message);
+    worker?.postMessage({ kind: "apply", id: this.id, message });
     if (applied === Applied.Changed) {
       if (this.toggle) this.toggle.hidden = !this.design.themed();
       this.showProblems([]);
-      this.cpu = null;
+      this.generation++;
       this.paint();
     } else if (applied === Applied.Problems) {
       this.showProblems(this.design.problems());
@@ -255,6 +277,9 @@ class Host {
     // The scene lives in the module's memory, not in JavaScript's.
     this.design?.free();
     this.design = null;
+    worker?.postMessage({ kind: "close", id: this.id });
+    this.forget();
+    byId.delete(this.id);
     rewatch();
   }
 
@@ -360,7 +385,8 @@ class Host {
   draw() {
     if (!this.design || !this.canvas.isConnected) return;
     // The scene holds both themes: a switch is a new drawing, made here.
-    if (this.design.set_theme(this.theme() === "dark")) this.cpu = null;
+    const dark = this.theme() === "dark";
+    if (this.design.set_theme(dark)) worker?.postMessage({ kind: "theme", id: this.id, dark });
     this.showLink();
     if (!this.fit()) return this.settle();
     // The bitmap matches the canvas's box on the screen, in device pixels.
@@ -377,39 +403,83 @@ class Host {
     this.canvas.dataset.view = `${zoom},${x},${y}`;
     this.canvas.dataset.size = this.design.size().join(",");
     if (this.target) {
+      // The compositor places the view's cached tiles every frame; tiles
+      // still to paint at this zoom are painted once it settles, a few a
+      // frame, and the canvas is painted when none are left.
       const behind = background(this.canvas.parentElement);
-      if (gpu.draw(this.target, this.design, width, height, zoom * ratio, x * ratio, y * ratio, behind)) this.painted();
+      const settled = performance.now() - (this.zoomed ?? 0) > SETTLE;
+      const left = gpu.draw(this.target, this.design, width, height, zoom * ratio, x * ratio, y * ratio, behind, settled, TILES_PER_FRAME);
+      if (left === 0) this.painted();
+      else if (left > 0) {
+        if (settled) this.paint();
+        else {
+          clearTimeout(this.settling);
+          this.settling = setTimeout(() => this.paint(), SETTLE);
+        }
+      }
       return;
     }
     this.drawCpu(ratio, width, height);
   }
 
-  // The CPU paints the whole design once per zoom level; a pan only moves the
-  // painting.
+  // The CPU composites the view from tiles a worker paints with vello_cpu:
+  // the cached tiles of this theme, at any scale, moved and scaled; once the
+  // zoom settles, the missing or stale tiles of the view at its own scale are
+  // asked for, and each is swapped in when it arrives.
   drawCpu(ratio, width, height) {
     const [w, h] = this.design.size();
     const { zoom, x, y } = this.view;
-    const scale = Math.min(zoom * ratio, MAX_BITMAP / w, MAX_BITMAP / h);
-    const show = (bitmap) => {
-      this.context.clearRect(0, 0, width, height);
-      this.context.drawImage(bitmap, x * ratio, y * ratio, w * zoom * ratio, h * zoom * ratio);
-    };
-    if (this.cpu) show(this.cpu.bitmap);
-    if (this.cpu?.scale === scale) return this.painted();
-    clearTimeout(this.repaint);
-    // While zooming, the last painting is stretched until the zoom settles.
-    this.repaint = setTimeout(
-      async () => {
-        const pixels = this.design.paint(scale);
-        if (!pixels) return;
-        const image = new ImageData(new Uint8ClampedArray(pixels.take()), pixels.width, pixels.height);
-        pixels.free();
-        this.cpu = { scale, bitmap: await createImageBitmap(image) };
-        show(this.cpu.bitmap);
-        this.painted();
-      },
-      this.cpu ? 120 : 0,
-    );
+    const scale = Math.max(1, Math.round(zoom * ratio * 1024)) / 1024;
+    const theme = this.theme();
+    const ox = Math.round(x * ratio);
+    const oy = Math.round(y * ratio);
+    const cols = Math.ceil((w * scale) / TILE);
+    const rows = Math.ceil((h * scale) / TILE);
+    const k = zoom * ratio;
+    this.context.clearRect(0, 0, width, height);
+    const shown = [...this.tiles.values()].filter((tile) => tile.theme === theme);
+    shown.sort((a, b) => (a.scale === scale) - (b.scale === scale) || a.scale - b.scale);
+    for (const tile of shown) {
+      const side = (TILE / tile.scale) * k;
+      this.context.drawImage(tile.bitmap, ox + tile.col * side, oy + tile.row * side, side, side);
+    }
+    const missing = [];
+    for (let row = Math.max(0, Math.floor(-oy / TILE)); row < Math.min(rows, Math.ceil((height - oy) / TILE)); row++) {
+      for (let col = Math.max(0, Math.floor(-ox / TILE)); col < Math.min(cols, Math.ceil((width - ox) / TILE)); col++) {
+        const tile = this.tiles.get(`${theme}:${scale}:${col}:${row}`);
+        if (!tile || tile.generation !== this.generation) missing.push({ col, row });
+      }
+    }
+    if (!missing.length) return this.painted();
+    if (performance.now() - (this.zoomed ?? 0) <= SETTLE) {
+      clearTimeout(this.settling);
+      this.settling = setTimeout(() => this.paint(), SETTLE);
+      return;
+    }
+    for (const { col, row } of missing) {
+      const key = `${theme}:${scale}:${col}:${row}`;
+      if (this.pending.has(key)) continue;
+      this.pending.add(key);
+      worker.postMessage({ kind: "tile", id: this.id, key, theme, scale, col, row, generation: this.generation });
+    }
+  }
+
+  // A tile the worker painted: kept, and the view composited again.
+  async tilePainted({ key, theme, scale, col, row, generation, rgba }) {
+    this.pending.delete(key);
+    if (!rgba || generation !== this.generation) return this.paint();
+    const bitmap = await createImageBitmap(new ImageData(new Uint8ClampedArray(rgba), TILE, TILE));
+    this.tiles.get(key)?.bitmap.close();
+    this.tiles.set(key, { theme, scale, col, row, generation, bitmap });
+    this.paint();
+  }
+
+  // Drops every tile: another design.
+  forget() {
+    for (const tile of this.tiles.values()) tile.bitmap.close();
+    this.tiles.clear();
+    this.pending.clear();
+    this.generation++;
   }
 
   painted() {
@@ -512,6 +582,7 @@ class Host {
     this.view.y = py - (py - this.view.y) * k;
     this.view.zoom = zoom;
     this.view.fitted = false;
+    this.zoomed = performance.now();
     this.paint();
   }
 

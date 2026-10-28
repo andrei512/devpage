@@ -335,13 +335,47 @@ async fn design_png(
         );
         return crate::validators::not_modified(known);
     }
+    // The PNG streams band by band as it is painted; the problems, if any,
+    // are known before the first byte.
     let designs = state.designs.clone();
-    let painted = tokio::task::spawn_blocking(move || designs.png(&design, theme))
+    let (first, started) = tokio::sync::oneshot::channel::<Result<(), String>>();
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<axum::body::Bytes, std::io::Error>>(4);
+    tokio::task::spawn_blocking(move || {
+        struct Sink {
+            tx: tokio::sync::mpsc::Sender<Result<axum::body::Bytes, std::io::Error>>,
+            first: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
+        }
+        impl std::io::Write for Sink {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                if let Some(first) = self.first.take() {
+                    let _ = first.send(Ok(()));
+                }
+                self.tx
+                    .blocking_send(Ok(axum::body::Bytes::copy_from_slice(buf)))
+                    .map_err(|_| std::io::Error::other("the client went away"))?;
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut sink = Sink {
+            tx,
+            first: Some(first),
+        };
+        let result = designs.png_to(&design, theme, &mut sink);
+        if let Some(first) = sink.first.take() {
+            let _ = first.send(result);
+        }
+    });
+    match started
         .await
-        .expect("painting");
-    match painted {
-        Ok(png) => {
-            let mut response = ([(header::CONTENT_TYPE, "image/png")], png).into_response();
+        .unwrap_or_else(|_| Err("painting stopped".into()))
+    {
+        Ok(()) => {
+            let body =
+                axum::body::Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+            let mut response = ([(header::CONTENT_TYPE, "image/png")], body).into_response();
             if let Some(tag) = tag.and_then(|tag| tag.parse().ok()) {
                 response.headers_mut().insert(header::ETAG, tag);
             }
@@ -1391,7 +1425,11 @@ mod tests {
             let address = crate::addresses::address(crate::addresses::Owned::Asset(asset.name));
             if !matches!(
                 asset.name,
-                "design.js" | "design-engine.js" | "design-engine.wasm" | "react.js"
+                "design.js"
+                    | "design-worker.js"
+                    | "design-engine.js"
+                    | "design-engine.wasm"
+                    | "react.js"
             ) {
                 assert!(page.contains(&address), "{} not in {page}", asset.name);
             }

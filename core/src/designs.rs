@@ -380,6 +380,27 @@ impl Designs {
         Some(crate::addresses::hash(text.as_bytes()))
     }
 
+    /// The design at `path` as a PNG in `theme`, written to `out` band by
+    /// band as it is painted — or its problems one per line, before anything
+    /// is written. Painting blocks.
+    pub fn png_to(&self, path: &str, theme: Theme, out: impl std::io::Write) -> Result<(), String> {
+        let scene = self.resolve(path).map_err(|problems| lines(&problems))?;
+        let mut renderer = lock(&self.0.renderer);
+        guarded(
+            path,
+            || {
+                let drawing = renderer
+                    .drawing(&scene, theme, None)
+                    .map_err(|e| e.message)?;
+                let list = renderer.chunked(&scene, &drawing.frames, theme);
+                drop(renderer);
+                devpage_design::tiles::png(&list, out).map_err(|e| format!("writing the PNG: {e}"))
+            },
+            |p| p.message,
+        )
+        .map_err(|e| format!("{}: {e}", address(path)))
+    }
+
     /// The design at `path` painted as a PNG in `theme`, or its problems one
     /// per line. Painting blocks.
     pub fn png(&self, path: &str, theme: Theme) -> Result<Vec<u8>, String> {
@@ -544,22 +565,42 @@ mod tests {
     }
 
     #[test]
-    fn a_drawing_too_big_to_paint_is_a_problem_everywhere() {
-        let dir = served("too-big");
+    fn a_design_100000_pixels_tall_streams_its_png_in_bands() {
+        let dir = served("huge");
+        let rows: String = (0..1000)
+            .map(|i| {
+                format!(
+                    "<Frame width={{400}} height={{100}} fill=\"#{:06x}\" />",
+                    i * 997
+                )
+            })
+            .collect();
         std::fs::write(
             dir.join("app/huge.design"),
-            r##"<Frame width={20000} height={10} fill="#000000" />"##,
+            format!("<Frame layout=\"column\">{rows}</Frame>"),
         )
         .unwrap();
-        let expected = "app/huge.design:1:1: the drawing is 20000×10 pixels; a design draws at most 16384 a side";
-        // In the store, which the canvas's stream and the PNG read…
         let designs = Designs::new(dir.clone());
-        let found = designs.resolve("app/huge.design").unwrap_err();
-        assert_eq!(found[0].to_string(), expected);
-        // …and in what `devpage check` reads from disk.
-        let found = problems(&dir, "/app/huge.design");
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].to_string(), expected);
+        assert!(designs.resolve("app/huge.design").is_ok());
+        assert!(problems(&dir, "/app/huge.design").is_empty());
+        /// Counts what is written, and the most written at once.
+        #[derive(Default)]
+        struct Count(usize, usize);
+        impl std::io::Write for Count {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0 += b.len();
+                self.1 = self.1.max(b.len());
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut count = Count::default();
+        designs
+            .png_to("app/huge.design", Theme::Light, &mut count)
+            .unwrap();
+        assert!(count.0 > 0 && count.1 < 1 << 20, "{} {}", count.0, count.1);
     }
 
     /// Images that don't fit the GPU's atlas together are a problem at the
