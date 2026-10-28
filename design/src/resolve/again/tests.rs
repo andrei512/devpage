@@ -62,7 +62,7 @@ impl Model {
 
     fn card(&self) -> String {
         format!(
-            "<Frame props={{{{ label: \"Card\" }}}} width={{120}} height={{30}} fill=\"{}\" radius={{{}}} shadow={{{{ y: 2, blur: 4, color: \"#00000033\" }}}}>\n  <Text>{{label}}</Text>\n</Frame>\n",
+            "<Frame props={{{{ label: \"Card\", tint: theme.accent }}}} width={{120}} height={{30}} fill=\"{}\" radius={{{}}} shadow={{{{ y: 2, blur: 4, color: \"#00000033\" }}}}>\n  <Text>{{label}}</Text>\n  <Rect x={{100}} y={{0}} width={{10}} height={{4}} fill={{tint}} />\n</Frame>\n",
             self.card_fill, self.card_radius
         )
     }
@@ -304,7 +304,9 @@ fn a_component_or_a_theme_reaches_only_what_uses_it() {
     let Outcome::Changed(_, applied) = res.update(&saves, &["themes.yml".to_string()]) else {
         panic!()
     };
-    assert_eq!(applied.changed.len(), m.rows.len() - cards);
+    // Every plain row's fill, and each card's tint: a theme color among its
+    // design's props defaults, which the theme change reaches through it.
+    assert_eq!(applied.changed.len(), m.rows.len());
     same(
         res.scene(),
         &crate::resolve(&saves, "screen.design").unwrap(),

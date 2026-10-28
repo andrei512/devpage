@@ -22,7 +22,6 @@ impl Renderer {
         let changes = Changes::of(d, new, applied);
         let mut damage = Damage::default();
         let mut images = false;
-        let mut hugs: Vec<(Order, NodeId, bool, bool)> = Vec::new();
         // What is gone: subtrees removed, moved away or made again — their
         // layout nodes, chunks, records and property-tree nodes.
         for order in &changes.removed {
@@ -31,47 +30,13 @@ impl Renderer {
         // What is placed, parents before children and siblings in order, so
         // the siblings before each are in the layout tree already.
         for order in &changes.added {
-            self.place(d, new, order, &mut hugs);
+            self.place(d, new, order);
         }
         for order in &changes.attrs {
             restyle(d, new, order);
         }
-        // The frames that hug their children and lie on a changed node's
-        // path: only their extent can have changed. Innermost first.
-        let mut seen = BTreeSet::new();
-        for order in changes.touched() {
-            for k in (0..=order.len()).rev() {
-                let at = &order[..k];
-                if !seen.insert(at.to_vec()) {
-                    continue;
-                }
-                let node = find_node(&new.root, at);
-                let parent = (k > 0).then(|| find_node(&new.root, &order[..k - 1]));
-                if let Some((w, h)) = hugs_of(node, parent)
-                    && let Some(&(Owner::Top, id)) = d.laid.nodes.get(at)
-                {
-                    hugs.push((at.to_vec(), id, w, h));
-                }
-            }
-        }
-        hugs.sort_by_key(|h| std::cmp::Reverse(h.0.len()));
-        let mut once = std::collections::HashSet::new();
-        hugs.retain(|h| once.insert(h.1));
-        let hugs: Vec<(NodeId, bool, bool)> =
-            hugs.into_iter().map(|(_, id, w, h)| (id, w, h)).collect();
-        // Each starts from no size, as in a fresh layout, so it settles where
-        // a fresh one does.
-        for &(id, w, h) in &hugs {
-            let mut style = d.laid.top.style(id).expect("style").clone();
-            if w {
-                style.size.width = Dimension::auto();
-            }
-            if h {
-                style.size.height = Dimension::auto();
-            }
-            d.laid.top.set_style(id, style).expect("style");
-        }
-        d.laid.settle_top(self, &hugs);
+        // Every frame with children is a run, which hugs them itself.
+        d.laid.settle_top(self);
         // Only the changed nodes' paths are walked, and below them only
         // what moved, changed size or was made again.
         let mut path: HashMap<Order, BTreeSet<OrderKey>> = HashMap::new();
@@ -84,26 +49,33 @@ impl Renderer {
         }
         let attrs: BTreeSet<Order> = changes.attrs.iter().cloned().collect();
         let dirty = |o: &Order| attrs.contains(o);
-        self.blobs = std::mem::take(&mut d.blobs);
-        let (t, c) = (d.list.root_transform, d.list.root_clip);
-        // A parent in auto layout whose children came or went: they may all
-        // have moved.
-        let reflow: BTreeSet<Order> = changes
-            .added
+        // The nodes whose attributes that place or cut their children
+        // changed; a node's look alone reaches none of them.
+        let placing: BTreeSet<Order> = applied
+            .changed
             .iter()
-            .chain(&changes.removed)
-            .filter(|o| !o.is_empty())
-            .map(|o| o[..o.len() - 1].to_vec())
-            .filter(|p| {
-                new.at(p)
-                    .is_some_and(|n| n.layout != crate::resolve::Layout::None)
-                    && !d.laid.run_of.contains_key(p)
+            .filter_map(|(id, old)| {
+                let o = new.ids.get(id)?;
+                let n = new.at(o)?;
+                let moves = old.layout != n.layout
+                    || old.gap != n.gap
+                    || old.padding != n.padding
+                    || old.align != n.align
+                    || old.justify != n.justify
+                    || old.width != n.width
+                    || old.height != n.height
+                    || old.clip != n.clip
+                    || old.radius != n.radius;
+                moves.then(|| o.clone())
             })
             .collect();
+        let relaid = |o: &Order| placing.contains(o);
+        self.blobs = std::mem::take(&mut d.blobs);
+        let (t, c) = (d.list.root_transform, d.list.root_clip);
         let mut walk = Walk {
             scene: new,
             dirty: &dirty,
-            reflow: Some(&reflow),
+            relaid: &relaid,
             path: Some(&path),
             damage: Some(&mut damage),
             fresh: None,
@@ -197,7 +169,10 @@ impl Changes {
                 continue;
             }
             let node = new.at(o).expect("indexed");
-            if leafy(old) != leafy(node) {
+            // A frame turning to no layout, or from it, is another kind of
+            // run — a free one, or one along a line: made again.
+            let free = |n: &Node| n.layout == crate::resolve::Layout::None;
+            if leafy(old) != leafy(node) || (free(old) != free(node) && !node.children.is_empty()) {
                 removed.insert(o.clone());
                 added.insert(o.clone());
                 continue;
@@ -230,11 +205,15 @@ impl Changes {
             if old.layout != node.layout || old.justify != node.justify {
                 maybe.insert(o.clone());
             }
+            // A child turning `"fill"` along its run, or no longer, is laid
+            // out another way in it: placed again.
             if !o.is_empty()
                 && let Some(p) = new.at(&o[..o.len() - 1])
                 && ((along(p, old) == fill) != (along(p, node) == fill))
+                && !under(&added, o)
             {
-                maybe.insert(o[..o.len() - 1].to_vec());
+                removed.insert(o.clone());
+                added.insert(o.clone());
             }
         }
         for o in added.iter().chain(&removed) {
@@ -380,6 +359,9 @@ impl Renderer {
         let parent = (!order.is_empty()).then(|| order[..order.len() - 1].to_vec());
         let run = parent.as_ref().and_then(|p| d.laid.run_of.get(p).copied());
         let key = order.last().cloned();
+        if !order.is_empty() {
+            d.laid.sens_drop(&new.root, order);
+        }
         // Where a run's child started: what follows it moves from there.
         if let (Some(rid), Some(k)) = (run, &key)
             && let Some(&drid) = d.shown.get(&rid)
@@ -397,9 +379,9 @@ impl Renderer {
         {
             d.list.place_child(drid, k.clone(), None);
         }
-        let Some(&(_, gone)) = d.laid.nodes.get(order) else {
+        if !d.laid.nodes.contains_key(order) {
             return images;
-        };
+        }
         // The layout's records of everything under it, its runs freed.
         let nodes: Vec<Order> = d
             .laid
@@ -421,7 +403,6 @@ impl Renderer {
             }
             return images;
         }
-        let parent = parent.expect("not the root");
         match (run, key) {
             (Some(rid), Some(k)) => {
                 let r = d.laid.runs.get_mut(rid);
@@ -431,60 +412,9 @@ impl Renderer {
                 let laid = &mut d.laid;
                 laid.runs.touch(&mut laid.top, rid, k);
             }
-            _ => {
-                let (p_owner, pid) = d.laid.nodes[&parent];
-                let tree = d.laid.tree_mut(p_owner);
-                tree.remove_child(pid, gone).expect("child");
-                remove_subtree(tree, gone);
-                if tree.child_count(pid) == 0 {
-                    // A frame left with no children is laid out as a leaf,
-                    // which never clears the list of absolutely placed
-                    // children taffy kept for it — the ones just removed:
-                    // it is made afresh.
-                    let node = find_node(&new.root, &parent);
-                    let up = (!parent.is_empty())
-                        .then(|| find_node(&new.root, &parent[..parent.len() - 1]));
-                    let fresh = tree.new_leaf(style_of(node, up)).expect("node");
-                    if parent.is_empty() {
-                        d.laid.root = fresh;
-                    } else {
-                        let grand = &parent[..parent.len() - 1];
-                        match d.laid.run_of.get(grand).copied() {
-                            Some(grid) => {
-                                // The frame is a run's child: its one-item
-                                // container holds it.
-                                let k = parent.last().expect("a key").clone();
-                                let r = d.laid.runs.get_mut(grid);
-                                let wrap = r.children[&k].wrap;
-                                r.tree
-                                    .replace_child_at_index(wrap, 0, fresh)
-                                    .expect("child");
-                                r.children.get_mut(&k).expect("a child").node = fresh;
-                            }
-                            None => {
-                                let gid = d.laid.nodes[grand].1;
-                                let tree = d.laid.tree_mut(p_owner);
-                                let i = tree
-                                    .children(gid)
-                                    .expect("children")
-                                    .iter()
-                                    .position(|&c| c == pid)
-                                    .expect("a child of its parent");
-                                tree.replace_child_at_index(gid, i, fresh).expect("child");
-                            }
-                        }
-                    }
-                    d.laid.nodes.insert(parent.clone(), (p_owner, fresh));
-                    let _ = d.laid.tree_mut(p_owner).remove(pid);
-                }
-                if let Some(k) = d.inside(p_owner, &parent)
-                    && let Owner::Run(p) = p_owner
-                {
-                    self.rehug(d, new, p, &k);
-                    let laid = &mut d.laid;
-                    laid.runs.touch(&mut laid.top, p, k);
-                }
-            }
+            // A frame that loses its last child stops being a run and is
+            // made again whole: every parent here is one.
+            _ => unreachable!("a child taken from a frame that isn't a run"),
         }
         for rid in freed {
             d.laid.runs.free(rid);
@@ -492,27 +422,22 @@ impl Renderer {
         images
     }
 
-    /// Puts the subtree at `order` in the layout: a run's child into its
-    /// run, anything else into its parent's tree; the frames in the drawing's
-    /// own tree that hug, to `hugs`.
-    fn place(
-        &mut self,
-        d: &mut Drawing,
-        new: &Scene,
-        order: &Order,
-        hugs: &mut Vec<(Order, NodeId, bool, bool)>,
-    ) {
+    /// Puts the subtree at `order` in the layout: into its parent's run —
+    /// every frame with children is one — or as a new root.
+    fn place(&mut self, d: &mut Drawing, new: &Scene, order: &Order) {
         let node = find_node(&new.root, order);
         if order.is_empty() {
-            let mut laid = Laid::build(self, new);
-            let fresh = std::mem::take(&mut laid.hugs);
-            hugs.extend(fresh.into_iter().map(|(id, w, h)| (Vec::new(), id, w, h)));
-            d.laid = laid;
+            d.laid = Laid::build(self, new);
             return;
         }
         let parent_order = order[..order.len() - 1].to_vec();
         let parent = find_node(&new.root, &parent_order);
         let key = order.last().expect("a key").clone();
+        let (w, h) = d.laid.sens_build(node, order.clone());
+        if w || h {
+            d.laid
+                .sens_settle(&new.root, &parent_order, (w as isize, h as isize));
+        }
         if let Some(&rid) = d.laid.run_of.get(&parent_order) {
             let mut run = d.laid.runs.take(rid);
             d.laid.add_child(
@@ -529,72 +454,9 @@ impl Renderer {
             laid.runs.touch(&mut laid.top, rid, key);
             return;
         }
-        let (owner, pid) = d.laid.nodes[&parent_order];
-        let inside = d.inside(owner, &parent_order);
-        let mut tree = std::mem::replace(d.laid.tree_mut(owner), TaffyTree::new());
-        let mut hug = Vec::new();
-        let id = d.laid.build_node(
-            &mut tree,
-            owner,
-            inside.clone(),
-            node,
-            Some(parent),
-            &mut hug,
-            &new.images,
-            order.clone(),
-        );
-        let place = parent.children.rank(&key);
-        tree.insert_child_at_index(pid, place, id).expect("child");
-        *d.laid.tree_mut(owner) = tree;
-        match (owner, inside) {
-            (Owner::Run(p), Some(k)) => {
-                self.rehug(d, new, p, &k);
-                let laid = &mut d.laid;
-                laid.runs.touch(&mut laid.top, p, k);
-            }
-            _ => hugs.extend(hug.into_iter().map(|(id, w, h)| (order.clone(), id, w, h))),
-        }
-    }
-
-    /// The frames that hug in run `rid`'s child `key`, found again.
-    fn rehug(&mut self, d: &mut Drawing, new: &Scene, rid: u32, key: &OrderKey) {
-        let mut o = d.laid.runs.get(rid).order.clone();
-        o.push(key.clone());
-        let mut out = Vec::new();
-        fn walk(
-            d: &Drawing,
-            node: &Node,
-            parent: Option<&Node>,
-            o: &mut Order,
-            rid: u32,
-            out: &mut Vec<(NodeId, bool, bool)>,
-        ) {
-            let Some(&(owner, id)) = d.laid.nodes.get(o) else {
-                return;
-            };
-            if owner != Owner::Run(rid) {
-                return;
-            }
-            if let Some((w, h)) = hugs_of(node, parent) {
-                out.push((id, w, h));
-            }
-            if d.laid.run_of.contains_key(o) {
-                return;
-            }
-            for (k, c) in node.children.entries() {
-                o.push(k.clone());
-                walk(d, c, Some(node), o, rid, out);
-                o.pop();
-            }
-        }
-        let item = find_node(&new.root, &o);
-        let parent = find_node(&new.root, &o[..o.len() - 1]);
-        walk(d, item, Some(parent), &mut o, rid, &mut out);
-        // Innermost first, as a fresh build lists them.
-        out.reverse();
-        if let Some(c) = d.laid.runs.get_mut(rid).children.get_mut(key) {
-            c.hugs = out;
-        }
+        // A frame that gains its first child becomes a run, and is made
+        // again whole: every parent here is one.
+        unreachable!("a child placed under a frame that isn't a run");
     }
 }
 
@@ -607,21 +469,18 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
         return;
     };
     let style = style_of(node, parent);
+    d.laid.sens_settle(&new.root, order, (0, 0));
     if let Some(&rid) = d.laid.run_of.get(order) {
-        d.laid.runs.get_mut(rid).set(node);
+        // Its children are laid out again only along a new direction; its
+        // leaf, restyled below, is measured again.
+        let run = d.laid.runs.get_mut(rid);
+        run.set(node);
+        run.hug = hugs_by_extent(node, parent).unwrap_or((false, false));
     }
     let tree = d.laid.tree_mut(owner);
     tree.set_style(id, style).expect("style");
     if let Some(leaf) = leaf_of(node, &new.images) {
         tree.set_node_context(id, Some(Some(leaf))).expect("leaf");
-    }
-    if let Some(&rid) = d.laid.run_of.get(order) {
-        // Its children are laid out again under how it now sets them.
-        let keys: Vec<OrderKey> = d.laid.runs.get(rid).children.keys().cloned().collect();
-        let laid = &mut d.laid;
-        for k in keys {
-            laid.runs.touch(&mut laid.top, rid, k);
-        }
     }
     if let Some(p) = parent
         && let Some(&rid) = d.laid.run_of.get(&order[..order.len() - 1])
@@ -629,9 +488,11 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
         let k = order.last().expect("a key").clone();
         let row = d.laid.runs.get(rid).row;
         let across = if row { node.height } else { node.width };
-        if let Some(c) = d.laid.runs.get_mut(rid).children.get_mut(&k) {
-            c.stretch = across == crate::resolve::Size::Fill;
-        }
+        let sens = d.laid.sensitive(order);
+        d.laid
+            .runs
+            .get_mut(rid)
+            .classify(&k, across == crate::resolve::Size::Fill, sens);
         let _ = p;
         let laid = &mut d.laid;
         laid.runs.touch(&mut laid.top, rid, k);
@@ -645,5 +506,10 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
     }
 }
 
+/// What an edit costs, by the kind of frame it is in.
+#[cfg(test)]
+mod costs {
+    mod tests;
+}
 #[cfg(test)]
 mod tests;

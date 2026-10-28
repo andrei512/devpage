@@ -74,8 +74,8 @@ module of the core names an adapter or a rasterizer.
 | `ids` | core | Element ids kept across saves: a new parse matched against the last. |
 | `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, children under their keys, and the index from id to place. |
 | `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene. |
-| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs), its children each laid out on their own, their sizes in prefix sums under each constraint the run was asked under (`layout/run`) — and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
-| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own, placed by the run's prefix sums, and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
@@ -120,7 +120,11 @@ lines around it change:
   comparing each element whole — its name, its own attributes and everything
   in it, so a row inserted before a run of rows alike but for their text is
   that row, not a shift of them all — so an element inserted, removed or
-  moved costs the elements it touched, not the list —
+  moved costs the elements it touched, not the list. Myers' diff costs the
+  list's length times the edits, so past 256 edits in one list — a save that
+  rewrote it — the list is matched by a histogram diff instead, which anchors
+  on elements that occur once on each side and recurses between the anchors,
+  near-linear however many edits there are; never by position —
   and then, among what is left, an unmatched element with an unmatched one of
   the same name in the same place, as an edit of it;
 - a matched element's children are matched the same way; an element left
@@ -214,9 +218,19 @@ the change can reach is resolved again:
   resolved again with its subtree, since its props reach all of it; an import
   that names another file resolves its instances again;
 - a `themes.yml`, a font file or folder, or an image: the nodes that read it —
-  the store keeps, for each, the nodes that do.
+  the store keeps, for each, the nodes that do. A theme color among a
+  design's `props` defaults is read by the instance, since any node in it
+  may read that prop: a change to the themes resolves the instance again
+  with its subtree — for the design's own root, the design whole, as for
+  any change to its own `props` defaults.
 
-What was resolved again is the patch: no scene is compared with another.
+What was resolved again is the patch: no scene is compared with another,
+with two exceptions that change the whole design and are resolved whole and
+compared: a change to the design's own `props` defaults, which every node
+may read, and its root element replaced. A third is a safety net, not a
+path: if resolving the parts again ever fails where resolving the whole
+doesn't, the whole is taken and compared, and counted — the tests hold that
+count at zero.
 Resolving again costs what the change reached, beside reading the file that
 was saved: the saved file is parsed, matched against its last parse and
 walked beside it to find what changed — linear in that file, and nothing in
@@ -271,11 +285,13 @@ is placed, sized and rounded against its own parent frame, never a farther
 ancestor, so what a frame holds lays out the same wherever the frame is.
 
 Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
-it as Figma does: as far as its children's furthest right and bottom edges. It
-lays out, sets each hugging no-layout frame to its children's extent —
-innermost first, measured before taffy rounds boxes to whole pixels, so a
-frame's size never depends on where it sits — and lays out again until nothing changes, which takes one
-pass per level of such frames. `"fill"` needs auto layout to take space from,
+it as Figma does: as far as its children's furthest right and bottom edges,
+measured before taffy rounds boxes to whole pixels, so a frame's size never
+depends on where it sits. Its children are laid out against its box, which
+grows to their extent, and again while it grows, to the fixed point. Along an
+axis it doesn't hug, it is what it is given, or its padding. A frame with no
+layout is never smaller than its padding along either axis, as every other
+box is. `"fill"` needs auto layout to take space from,
 so on a child of a no-layout frame it is a problem, found while resolving.
 
 ### Layout boundaries and runs
@@ -285,14 +301,24 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
 - A **layout boundary** is a node whose own content can't change its size: a
   fixed `width` and `height`. An edit inside one lays out the boundary's own
   subtree; its size can't move, so nothing outside it is laid out again.
-- A **run** is an auto-layout frame whose children each take their own size
-  and are set one after another: none of them is `"fill"` along its
-  direction and its `justify` isn't `"space-between"`. A child of a run is
+- A **run** is an auto-layout frame — every one — whose children are set one
+  after another. A child of a run is
   laid out on its own — across, in the room the frame gives it — and its
   place along the direction is the sum of the sizes and gaps before it, kept
   in a tree of prefix sums. A child whose size changes updates the sums in log
   time and moves no sibling: a sibling's place is read from the sums when it
-  is painted, hit or rounded. A run that hugs takes its length from the sums
+  is painted, hit or rounded. `"space-between"` spreads the free room as one
+  more gap after each child, and the sums count children, so a place is still
+  a sum. `"fill"` children share the free room — the frame's length less the
+  sums of the others, in log time — resolved as flexbox resolves it, against
+  each one's least size, over the fill children only; a change of the free
+  room lays out again the fill children whose size it changes, and no other
+  sibling. The share is found by flexbox itself, in a tree of the run's
+  own: a proxy for each fill child, measured by laying the child out in its
+  container, beside one spacer as long as every other child and gap and as
+  broad as the broadest — so a run with fill children that hugs is as long
+  as flexbox makes such a container under the room it is given, each fill
+  child counting its basis. A run that hugs takes its length from the sums
   and its breadth from the largest child, kept in a counted set; `justify`
   `"center"` or `"end"` is one offset for every child. The sums are exact —
   kept in 64-bit floats — where taffy adds its items' sizes one by one in
@@ -301,12 +327,26 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
   breadth is within a thousandth of a pixel of its line's is the line's
   broadest and sits at its start, whatever the last bit of its size measured
   under another of the run's constraints.
-- A frame whose children share its room — a `"fill"` child, or
-  `"space-between"` — is laid out by `taffy` over all its children when one
-  of them changes size, since each one's place depends on all of them.
+- A frame with no layout is a **space**: each child laid out on its own at its
+  `x` and `y`, which no sibling moves; a frame that hugs takes its size from
+  the furthest right and bottom of its children, kept in counted sets; its
+  children are indexed in the frame's own coordinates, so the frame moving
+  moves one entry.
+- What changes a child's room changes the child, and only then is the child
+  laid out again: a run's new breadth reaches only the children that
+  stretch across it, a new free room only the `"fill"` children it resizes,
+  and a frame's own look — its fill, stroke, radius, shadow, opacity, clip —
+  reaches no child at all. A node's room reaches its size only along an axis
+  it doesn't fix: a fixed width, or height, takes nothing from the room
+  along it, whatever is inside — so a card of a fixed width holding text
+  that wraps is laid out once, wherever its frame grows. A new `align` moves
+  every child across that doesn't fill its line: each is placed again, and
+  nothing inside it, which sits in its own coordinates.
 
-So an edit to one item of a list costs the item and log time in the list,
-however many items it has.
+So an edit costs the nodes whose own box or look it changes, plus log time in
+each run or space on their way to the root — however many siblings they
+have. A place a run reads from its sums, or a box rounded when it is read,
+is not a change.
 
 Text is measured, shaped and broken into lines with `parley`, over the Inter
 faces the engine embeds — regular, medium, semibold and bold — and the scene's
@@ -360,6 +400,11 @@ nesting would:
   shadow's color's alpha), or added to what is under it, color and alpha
   alike, within a bound (a shadow's pieces) — each with the clip it is drawn
   inside.
+
+A frame with children always has an effect and a clip of its own — at no
+opacity and with no shape when it has neither, which paint as no layer — so
+its opacity or its clip coming or going changes them in place, and what its
+children are drawn under still names them.
 
 A shadow's layers are made as property-tree nodes too, as its commands are
 built (`design/src/display/chunk.rs`), so no command opens or closes anything.
@@ -466,8 +511,9 @@ proportional to it:
    nodes are freed; a moved one keeps them and takes a new order key;
 2. layout runs again only where the patch can reach: inside the
    [boundary](#layout-boundaries-and-runs) around each dirty node, and past
-   it only while a box's size changed — in a run, by the prefix sums; in any
-   other frame, from `taffy`'s caches. The tree is laid out unrounded, and only
+   it only while a box's size changed — every frame with children is a run,
+   along a line by the prefix sums, or free by its counted extent. The tree
+   is laid out unrounded, and only
    the boxes visited are rounded to whole pixels, each edge where taffy's own
    pass would put it — measured, as that pass measures, from the box's parent,
    which is its containing block whether it is in the flow or placed

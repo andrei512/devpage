@@ -12,8 +12,10 @@ checked: the rule, why it holds, and how a breach shows.
 <Callout kind="note" title="The rule">
 
 A design has no size limit. Painting a view of a design costs what the view
-shows, and applying an edit costs what the edit changed — never the size of
-the whole design, nor the number of siblings beside what changed. The one
+shows, and applying an edit costs what the edit changed — the nodes whose
+own box or look it changes, plus log time in each frame on their way to the
+root — never the size of the whole design, nor the number of siblings beside
+what changed. The one
 step that stays linear is reading the file that was saved: parsing it and
 matching its elements against the last parse. Nothing that paints a frame, a tile or a PNG band, applies
 a patch or answers a click walks every node or every command; it asks the

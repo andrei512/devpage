@@ -274,6 +274,77 @@ fn a_drawing_is_laid_out_as_the_layout_lays_it_out() {
 /// each location rounded where taffy's pass rounds it, summed down the
 /// tree — which is what the engine's rounding of only the boxes it reads
 /// must give, box for box.
+/// Each box of `ours` the box taffy gives it, rounded — or, where an edge
+/// differs, one whose unrounded edge in taffy's tree lies within a
+/// thousandth of a pixel of a rounding boundary: where prefix sums and
+/// taffy's own one-by-one sums of sizes that aren't exact in single
+/// precision round to either side.
+fn agrees(ours: &[Frame], s: &Scene) -> Result<(), String> {
+    let whole = rounded_whole(s);
+    if ours.len() != whole.len() {
+        return Err(format!("{} boxes, taffy {}", ours.len(), whole.len()));
+    }
+    let raw = unrounded_whole(s);
+    let near = |v: f32| ((v - v.floor()) - 0.5).abs() < 1e-3;
+    for (i, ((a, b), r)) in ours.iter().zip(&whole).zip(&raw).enumerate() {
+        let edges = [
+            (a.x, b.x, r.0),
+            (a.y, b.y, r.1),
+            (a.x + a.width, b.x + b.width, r.2),
+            (a.y + a.height, b.y + b.height, r.3),
+        ];
+        if edges.iter().any(|&(o, t, raw)| o != t && !near(raw)) {
+            let all: Vec<usize> = ours
+                .iter()
+                .zip(&whole)
+                .enumerate()
+                .filter(|(_, (a, b))| a != b)
+                .map(|(i, _)| i)
+                .collect();
+            let last = *all.last().unwrap();
+            return Err(format!(
+                "box {i}: ours {a:?} taffy {b:?}; differing {all:?}; last ours {:?} taffy {:?}",
+                ours[last], whole[last]
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Every box's unrounded edges in a taffy tree of the whole scene: left,
+/// top, right, bottom.
+fn unrounded_whole(s: &Scene) -> Vec<(f32, f32, f32, f32)> {
+    let mut r = Renderer::new();
+    r.register(&s.fonts);
+    let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
+    let mut hugs = Vec::new();
+    let root = build_plain(&mut tree, &s.root, None, &mut hugs, &s.images);
+    r.settle_in(
+        &mut Runs::default(),
+        &mut tree,
+        root,
+        Size::MAX_CONTENT,
+        &hugs,
+    );
+    fn go(
+        tree: &TaffyTree<Option<Leaf>>,
+        id: NodeId,
+        x: f32,
+        y: f32,
+        out: &mut Vec<(f32, f32, f32, f32)>,
+    ) {
+        let l = tree.unrounded_layout(id);
+        let (x, y) = (x + l.location.x, y + l.location.y);
+        out.push((x, y, x + l.size.width, y + l.size.height));
+        for child in tree.children(id).expect("children") {
+            go(tree, child, x, y, out);
+        }
+    }
+    let mut out = Vec::new();
+    go(&tree, root, 0.0, 0.0, &mut out);
+    out
+}
+
 fn rounded_whole(s: &Scene) -> Vec<Frame> {
     let mut r = Renderer::new();
     r.register(&s.fonts);
@@ -481,10 +552,14 @@ fn random_runs_lay_out_as_taffy_does() {
         let Ok(s) = resolve::resolve(&files, "a.design") else {
             continue;
         };
-        let whole = rounded_whole(&s);
-        assert_eq!(r.layout(&s), whole, "case {case}: {source}");
+        if let Err(e) = agrees(&r.layout(&s), &s) {
+            std::fs::write("/private/tmp/claude-501/-Users-andrei-projects-morph/51641adb-85d1-43f2-bcf1-b8b7caa2762a/scratchpad/case.design", &source).ok();
+            panic!("case {case}: {e}\n{source}");
+        }
         let d = r.drawing(&s, Theme::Light, None).unwrap();
-        assert_eq!(d.frames(), whole, "case {case}: {source}");
+        if let Err(e) = agrees(&d.frames(), &s) {
+            panic!("case {case}, drawn: {e}\n{source}");
+        }
         laid += 1;
     }
     assert!(laid > 250, "only {laid} of the trees resolved");
