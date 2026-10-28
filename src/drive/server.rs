@@ -1435,6 +1435,9 @@ mod tests {
                 asset.name,
                 "design.js"
                     | "design-worker.js"
+                    | "design-stream.js"
+                    | "design-tiles.js"
+                    | "design-canvas.js"
                     | "design-engine.js"
                     | "design-engine.wasm"
                     | "react.js"

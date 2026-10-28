@@ -111,7 +111,7 @@ async fn a_png_in_either_theme() {
         assert_eq!(response.status(), 200, "{query}");
         tags.push(response.headers()["etag"].to_str().unwrap().to_string());
         let png = response.bytes().await.unwrap();
-        let (pixels, _, _) = devpage_design::render::pixels(&png).unwrap();
+        let (pixels, _, _) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!(pixels[..4], [value, value, value, 255], "{query}");
     }
     assert_eq!(tags[0], tags[1]);

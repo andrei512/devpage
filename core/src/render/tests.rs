@@ -599,6 +599,9 @@ fn a_design_page_preloads_the_design_chain_and_its_wasm_last() {
                 mount: ""
             }),
             address(Owned::Asset("design.js")),
+            address(Owned::Asset("design-stream.js")),
+            address(Owned::Asset("design-canvas.js")),
+            address(Owned::Asset("design-tiles.js")),
             address(Owned::Asset("design-engine.js"))
         ]
     );
