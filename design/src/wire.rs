@@ -382,55 +382,200 @@ pub fn decode_scene(
 /// attributes or number of children changed, by id.
 pub fn diff(old: &Node, new: &Node) -> Vec<proto::Replace> {
     let mut out = Vec::new();
-    walk(old, new, "0", &mut out);
+    walk(old, new, &mut vec![0], &mut |order, new| {
+        out.push(proto::Replace {
+            id: id(order),
+            node: Some(encode(new)),
+        })
+    });
     out
 }
 
-fn walk(old: &Node, new: &Node, id: &str, out: &mut Vec<proto::Replace>) {
+/// The subtrees the patch from `old` to `new` replaces: each one's id and the
+/// node it replaces — what [`crate::Drawing::update`] brings a drawing
+/// across, so a drawing kept beside the last scene follows the very patch a
+/// canvas gets.
+pub fn replaced(old: &Node, new: &Node) -> Vec<Replaced> {
+    let mut out = Vec::new();
+    let mut olds = Vec::new();
+    walk(old, new, &mut vec![0], &mut |order, _| {
+        olds.push(order.to_vec())
+    });
+    for order in olds {
+        let mut at = old;
+        for &i in &order[1..] {
+            at = &at.children[i as usize];
+        }
+        out.push(Replaced {
+            id: order,
+            old: at.clone(),
+        });
+    }
+    out
+}
+
+/// A subtree a patch replaced: its id, as the path of child positions from
+/// the root, and the node that was there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Replaced {
+    pub id: Vec<u32>,
+    pub old: Node,
+}
+
+fn id(order: &[u32]) -> String {
+    order
+        .iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// The path of child positions an id names, from the root's `0`.
+fn order(id: &str) -> Option<Vec<u32>> {
+    let order: Option<Vec<u32>> = id.split('.').map(|s| s.parse().ok()).collect();
+    order.filter(|o| o.first() == Some(&0))
+}
+
+fn walk(old: &Node, new: &Node, order: &mut Vec<u32>, out: &mut impl FnMut(&[u32], &Node)) {
     if old == new {
         return;
     }
-    let same_shell = old.children.len() == new.children.len() && {
-        let (mut a, mut b) = (old.clone(), new.clone());
-        a.children.clear();
-        b.children.clear();
-        a == b
-    };
-    if !same_shell {
-        out.push(proto::Replace {
-            id: id.to_string(),
-            node: Some(encode(new)),
-        });
+    if old.children.len() != new.children.len() || !old.same_own(new) {
+        out(order, new);
         return;
     }
     for (i, (o, n)) in old.children.iter().zip(&new.children).enumerate() {
-        walk(o, n, &format!("{id}.{i}"), out);
+        order.push(i as u32);
+        walk(o, n, order, out);
+        order.pop();
     }
 }
 
-/// Applies a patch to `scene`, or says why it can't — leaving the scene as it
-/// was.
-pub fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<(), String> {
-    let mut next = scene.clone();
-    let added = files(&patch.images, &scene.images)?;
-    next.images.extend(added);
-    let added = font_files(&patch.fonts, &scene.fonts)?;
-    next.fonts.extend(added);
+/// How many nodes of a scene show each image file and are set in each font
+/// file: what lets a patch drop the files no node uses any more without
+/// walking the scene.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct Uses {
+    images: std::collections::HashMap<ImageId, usize>,
+    fonts: std::collections::HashMap<FontId, usize>,
+}
+
+impl Uses {
+    /// The files `root` and every node under it use.
+    pub fn of(root: &Node) -> Uses {
+        let mut uses = Uses::default();
+        uses.add(root);
+        uses
+    }
+
+    fn add(&mut self, n: &Node) {
+        if let Some(i) = &n.image {
+            *self.images.entry(i.id).or_default() += 1;
+        }
+        if let Some(font) = n.text.as_ref().and_then(|t| t.font) {
+            *self.fonts.entry(font).or_default() += 1;
+        }
+        for c in &n.children {
+            self.add(c);
+        }
+    }
+
+    fn take(&mut self, n: &Node) {
+        let less = |count: Option<&mut usize>| {
+            if let Some(c) = count {
+                *c -= 1;
+            }
+        };
+        if let Some(i) = &n.image {
+            less(self.images.get_mut(&i.id));
+        }
+        if let Some(font) = n.text.as_ref().and_then(|t| t.font) {
+            less(self.fonts.get_mut(&font));
+        }
+        for c in &n.children {
+            self.take(c);
+        }
+    }
+}
+
+/// Applies a patch to `scene`, whose files `uses` counts, or says why it
+/// can't — leaving both as they were. Everything is checked before anything
+/// changes, and the work is the patch's: the replaced subtrees and the files
+/// it carries, never the rest of the scene. Returns what it replaced.
+pub fn apply(
+    scene: &mut Scene,
+    uses: &mut Uses,
+    patch: &proto::Patch,
+) -> Result<Vec<Replaced>, String> {
+    let images = files(&patch.images, &scene.images)?;
+    let fonts = font_files(&patch.fonts, &scene.fonts)?;
+    let mut nodes = Vec::new();
     for r in &patch.replace {
         let node = r.node.as_ref().ok_or("a replacement with no node")?;
-        let at = find(&mut next.root, &r.id).ok_or_else(|| format!("no node {}", r.id))?;
-        *at = decode(node)?;
+        let at = order(&r.id)
+            .filter(|o| found(&scene.root, o))
+            .ok_or_else(|| format!("no node {}", r.id))?;
+        if nodes
+            .iter()
+            .any(|(o, _): &(Vec<u32>, Node)| o.starts_with(&at) || at.starts_with(o))
+        {
+            return Err(format!("{} is replaced twice", r.id));
+        }
+        nodes.push((at, decode(node)?));
     }
-    settle(&next.root, &mut next.images, &mut next.fonts)?;
-    next.themed = patch.themed;
-    *scene = next;
-    Ok(())
+    // Every file a new subtree uses is held or arrives with the patch.
+    let mut fresh = Uses::default();
+    for (_, n) in &nodes {
+        fresh.add(n);
+    }
+    if let Some(missing) = fresh
+        .images
+        .keys()
+        .find(|id| !scene.images.contains_key(id) && !images.contains_key(id))
+    {
+        return Err(format!("the stream never sent the image file {missing:?}"));
+    }
+    if let Some(missing) = fresh
+        .fonts
+        .keys()
+        .find(|id| !scene.fonts.contains_key(id) && !fonts.contains_key(id))
+    {
+        return Err(format!("the stream never sent the font file {missing:?}"));
+    }
+    scene.images.extend(images);
+    scene.fonts.extend(fonts);
+    let mut out = Vec::new();
+    for (at, node) in nodes {
+        let place = find(&mut scene.root, &at).expect("found above");
+        uses.add(&node);
+        let old = std::mem::replace(place, node);
+        uses.take(&old);
+        out.push(Replaced { id: at, old });
+    }
+    // The files no node uses any more go.
+    uses.images.retain(|_, c| *c > 0);
+    uses.fonts.retain(|_, c| *c > 0);
+    scene.images.retain(|id, _| uses.images.contains_key(id));
+    scene.fonts.retain(|id, _| uses.fonts.contains_key(id));
+    scene.themed = patch.themed;
+    Ok(out)
 }
 
-fn find<'a>(root: &'a mut Node, id: &str) -> Option<&'a mut Node> {
+fn found(root: &Node, order: &[u32]) -> bool {
     let mut at = root;
-    for step in id.split('.').skip(1) {
-        at = at.children.get_mut(step.parse::<usize>().ok()?)?;
+    for &i in &order[1..] {
+        match at.children.get(i as usize) {
+            Some(c) => at = c,
+            None => return false,
+        }
+    }
+    true
+}
+
+fn find<'a>(root: &'a mut Node, order: &[u32]) -> Option<&'a mut Node> {
+    let mut at = root;
+    for &i in &order[1..] {
+        at = at.children.get_mut(i as usize)?;
     }
     Some(at)
 }
@@ -442,6 +587,48 @@ mod tests {
     use prost::Message;
 
     use super::*;
+
+    /// A patch applied as a canvas applies it, its files counted afresh.
+    fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<Vec<Replaced>, String> {
+        let mut uses = Uses::of(&scene.root);
+        let replaced = super::apply(scene, &mut uses, patch)?;
+        assert_eq!(uses, Uses::of(&scene.root), "the counts follow the patch");
+        Ok(replaced)
+    }
+
+    /// A patch hands back what it replaced, and one that can't be applied
+    /// — a node that isn't there, a node replaced twice — changes nothing,
+    /// not even the files it carried.
+    #[test]
+    fn a_patch_returns_what_it_replaced_or_changes_nothing() {
+        let old = scene(r##"<Frame layout="column"><Text>One</Text><Text>Two</Text></Frame>"##);
+        let new = scene(r##"<Frame layout="column"><Text>One</Text><Text>Too</Text></Frame>"##);
+        let mut held =
+            decode_scene(&super::scene(&old), (&ImageFiles::new(), &FontFiles::new())).unwrap();
+        let replaced = apply(&mut held, &patch(&old, &new)).unwrap();
+        assert_eq!(replaced, super::replaced(&old.root, &new.root));
+        assert_eq!(replaced.len(), 1);
+        assert_eq!(replaced[0].id, vec![0, 1]);
+        assert_eq!(replaced[0].old, old.root.children[1]);
+        assert_eq!(held.root, new.root);
+        for bad in [
+            vec![("0.7", &new.root.children[0])],
+            vec![("0", &new.root), ("0.1", &new.root.children[1])],
+            vec![("x", &new.root)],
+        ] {
+            let mut p = patch(&new, &old);
+            p.replace = bad
+                .into_iter()
+                .map(|(id, n)| proto::Replace {
+                    id: id.into(),
+                    node: Some(encode(n)),
+                })
+                .collect();
+            let before = held.clone();
+            assert!(apply(&mut held, &p).is_err());
+            assert!(held == before, "a refused patch leaves the scene");
+        }
+    }
     use crate::Files;
 
     fn scene(src: &str) -> Scene {

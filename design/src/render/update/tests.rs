@@ -31,7 +31,7 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
     let mut r = Renderer::new();
     let mut live = r.drawing(&old, Theme::Light, None).unwrap();
     let t = std::time::Instant::now();
-    let damage = live.update(&mut r, &old, &new).unwrap();
+    let damage = live.update_between(&mut r, &old, &new).unwrap();
     eprintln!("update {:?}, damage {damage:?}", t.elapsed());
     assert!(!damage.all && !damage.rects.is_empty());
     for d in &damage.rects {
@@ -89,7 +89,7 @@ fn an_update_paints_as_a_fresh_drawing() {
     ];
     let mut live = r.drawing(&steps[0], Theme::Light, None).unwrap();
     for (n, pair) in steps.windows(2).enumerate() {
-        let damage = live.update(&mut r, &pair[0], &pair[1]).unwrap();
+        let damage = live.update_between(&mut r, &pair[0], &pair[1]).unwrap();
         let fresh = r.drawing(&pair[1], Theme::Light, None).unwrap();
         assert_eq!(live.area(), fresh.area(), "step {n}");
         assert_eq!(live.frames(), fresh.frames(), "step {n}");
@@ -145,7 +145,7 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
     for n in 0..12 {
         let (old, new) = if n % 2 == 0 { (&a, &b) } else { (&b, &a) };
         let t = std::time::Instant::now();
-        let damage = d.update(&mut r, old, new).unwrap();
+        let damage = d.update_between(&mut r, old, new).unwrap();
         best = best.min(t.elapsed());
         assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
     }
@@ -155,8 +155,8 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
 /// Updating one row's text visits only the nodes on its path — the
 /// same few on a design ten times the size — so making chunks, moving
 /// index entries and marking damage don't grow with the design. What
-/// still does: comparing the two scenes, and taffy laying out the
-/// row's parent again over all its children.
+/// still does, on a flat list: taffy laying out the row's parent again over
+/// all its children.
 #[test]
 fn an_edit_visits_only_its_path() {
     edit_cost(100);
@@ -176,7 +176,7 @@ fn a_row_that_grows_moves_the_rows_after_it() {
     b.root.children[20].height = resolve::Size::Px(160.0);
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
-    let damage = d.update(&mut r, &a, &b).unwrap();
+    let damage = d.update_between(&mut r, &a, &b).unwrap();
     assert!(!damage.all);
     assert!(
         damage.rects.iter().all(|r| r.y1 > 2000.0 - 1.0),
@@ -240,6 +240,13 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
     for theme in [Theme::Light, Theme::Dark] {
         let mut scene = start.clone();
         let mut d = r.drawing(&scene, theme, None).unwrap();
+        // The canvas's side: the scene as the stream carries it, patched.
+        let mut held = crate::wire::decode_scene(
+            &crate::wire::scene(&scene),
+            (&Default::default(), &Default::default()),
+        )
+        .unwrap();
+        let mut uses = crate::wire::Uses::of(&held.root);
         for step in 0..STEPS {
             let mut next = scene.clone();
             let mut all = Vec::new();
@@ -295,7 +302,13 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             if !valid(&next.root) {
                 continue;
             }
-            d.update(&mut r, &scene, &next).unwrap();
+            // By the very patch the canvas gets, applied as the canvas
+            // applies it.
+            let patch = crate::wire::patch(&scene, &next);
+            let replaced = crate::wire::apply(&mut held, &mut uses, &patch).unwrap();
+            assert!(held.root == next.root, "the patch carries the scene");
+            assert_eq!(uses, crate::wire::Uses::of(&held.root));
+            d.update(&mut r, &held, &replaced).unwrap();
             let fresh = r.drawing(&next, theme, None).unwrap();
             let case = format!("{theme:?} step {step}: kind {kind} at {at:?}");
             assert_eq!(d.frames(), fresh.frames(), "{case}");
@@ -319,4 +332,79 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             scene = next;
         }
     }
+}
+
+/// A balanced tree, ten children a frame, `depth` levels of frames above
+/// its rows, alternately rows and columns; row `edit` says `label`.
+fn balanced(depth: u32, edit: usize, label: &str) -> Scene {
+    fn go(depth: u32, base: usize, edit: usize, label: &str, out: &mut String) {
+        if depth == 0 {
+            let text = if base == edit {
+                label.to_string()
+            } else {
+                format!("Row {base:06}")
+            };
+            out.push_str(&format!(
+                "<Frame width={{400}} height={{40}} fill=\"#eeeeee\" layout=\"row\"><Text size={{20}}>{text}</Text></Frame>"
+            ));
+            return;
+        }
+        let dir = if depth.is_multiple_of(2) {
+            "column"
+        } else {
+            "row"
+        };
+        out.push_str(&format!("<Frame layout=\"{dir}\">"));
+        let span = 10usize.pow(depth - 1);
+        for i in 0..10 {
+            go(depth - 1, base + i * span, edit, label, out);
+        }
+        out.push_str("</Frame>");
+    }
+    let mut s = String::new();
+    go(depth, 0, edit, label, &mut s);
+    let files: HashMap<String, String> = [("a.design".to_string(), s)].into();
+    resolve::resolve(&files, "a.design").unwrap()
+}
+
+/// The fastest of several edits of one row's text, back and forth, on a
+/// balanced design of `10^depth` rows, applied as a canvas applies them: the
+/// patch onto the scene it holds, then the drawing by what it replaced.
+fn patch_cost(depth: u32) -> std::time::Duration {
+    let n = 10usize.pow(depth);
+    let a = balanced(depth, n / 2, &format!("Row {:06}", n / 2));
+    let b = balanced(depth, n / 2, "Edited!!!!");
+    let (there, back) = (crate::wire::patch(&a, &b), crate::wire::patch(&b, &a));
+    let mut held = crate::wire::decode_scene(
+        &crate::wire::scene(&a),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut r = Renderer::new();
+    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let mut best = std::time::Duration::MAX;
+    for k in 0..10 {
+        let p = if k % 2 == 0 { &there } else { &back };
+        let t = std::time::Instant::now();
+        let replaced = crate::wire::apply(&mut held, &mut uses, p).unwrap();
+        let damage = d.update(&mut r, &held, &replaced).unwrap();
+        best = best.min(t.elapsed());
+        assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
+    }
+    best
+}
+
+/// An edit costs the patch, not the design: on a balanced design, one row's
+/// text costs about the same on 10,000 rows as on 100 — the path to it
+/// grows by two levels, nothing walks the rest.
+#[test]
+fn an_edit_costs_the_patch_not_the_design() {
+    patch_cost(2);
+    let (small, big) = (patch_cost(2), patch_cost(4));
+    eprintln!("one row's text by its patch: {small:?} on 100 rows, {big:?} on 10,000");
+    assert!(
+        big < small * 4,
+        "{big:?} on 10,000 rows against {small:?} on 100"
+    );
 }

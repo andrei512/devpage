@@ -412,6 +412,33 @@ pub struct Node {
 }
 
 impl Node {
+    /// Whether two nodes' own attributes are the same, their children aside.
+    pub fn same_own(&self, b: &Node) -> bool {
+        let a = self;
+        a.kind == b.kind
+            && a.name == b.name
+            && a.x == b.x
+            && a.y == b.y
+            && a.width == b.width
+            && a.height == b.height
+            && a.opacity == b.opacity
+            && a.on_click == b.on_click
+            && a.fill == b.fill
+            && a.stroke == b.stroke
+            && a.stroke_width == b.stroke_width
+            && a.radius == b.radius
+            && a.shadow == b.shadow
+            && a.clip == b.clip
+            && a.layout == b.layout
+            && a.gap == b.gap
+            && a.padding == b.padding
+            && a.align == b.align
+            && a.justify == b.justify
+            && a.text == b.text
+            && a.vector == b.vector
+            && a.image == b.image
+    }
+
     fn new(kind: Kind, name: &str) -> Node {
         Node {
             kind,

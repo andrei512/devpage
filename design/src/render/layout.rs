@@ -9,6 +9,7 @@ impl Renderer {
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
         self.register(&scene.fonts);
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
+        tree.disable_rounding();
         let mut hugs = Vec::new();
         let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
         self.settle(&mut tree, root, &hugs);
@@ -141,17 +142,8 @@ pub(super) fn frames_by_order(
         oy: f32,
         out: &mut std::collections::BTreeMap<Vec<u32>, Frame>,
     ) {
-        let l = tree.layout(id).expect("laid out");
-        let (x, y) = (ox + l.location.x, oy + l.location.y);
-        out.insert(
-            order.clone(),
-            Frame {
-                x,
-                y,
-                width: l.size.width,
-                height: l.size.height,
-            },
-        );
+        let (frame, (x, y)) = placed(tree, id, (ox, oy));
+        out.insert(order.clone(), frame);
         for (i, c) in node.children.iter().enumerate() {
             let mut o = order.clone();
             o.push(i as u32);
@@ -306,3 +298,29 @@ pub(super) fn style_of(node: &Node, parent: Option<&Node>) -> Style {
 
 #[cfg(test)]
 mod tests;
+
+/// Rounds to the nearest whole pixel, a half up, as taffy rounds.
+pub(super) fn snap(v: f32) -> f32 {
+    (v + 0.5).floor()
+}
+
+/// A node's box in whole pixels, in the design's coordinates, and where its
+/// unrounded box starts — given where its parent's does. The tree is laid
+/// out unrounded, and only the boxes read are rounded, exactly as taffy's
+/// own pass rounds every box: each edge at its unrounded place in the
+/// design, so a box's size never depends on where it sits.
+pub(super) fn placed(
+    tree: &TaffyTree<Option<Leaf>>,
+    id: NodeId,
+    parent: (f32, f32),
+) -> (Frame, (f32, f32)) {
+    let l = tree.unrounded_layout(id);
+    let (x, y) = (parent.0 + l.location.x, parent.1 + l.location.y);
+    let frame = Frame {
+        x: snap(x),
+        y: snap(y),
+        width: snap(x + l.size.width) - snap(x),
+        height: snap(y + l.size.height) - snap(y),
+    };
+    (frame, (x, y))
+}

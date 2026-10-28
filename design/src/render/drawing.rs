@@ -97,25 +97,54 @@ impl Drawing {
         self.theme
     }
 
+    /// The tiles `view` needs at its own zoom's level, nearest its middle
+    /// first: what a compositor asks to be painted.
+    pub fn view_tiles(&self, view: &crate::tiles::View) -> Vec<(u32, u32)> {
+        let a = self.area();
+        let area = KRect::new(
+            a.x as f64,
+            a.y as f64,
+            (a.x + a.width) as f64,
+            (a.y + a.height) as f64,
+        );
+        view.tiles(area, crate::tiles::Level::of(view.zoom))
+    }
+
     /// The interaction of the topmost node at `(x, y)` — in the design's
     /// coordinates — that has one, where its clipping frames show it.
     pub fn action_at(&self, x: f32, y: f32) -> Option<&str> {
         self.list.action_at(x as f64, y as f64)
     }
 
-    /// Updates the drawing from `old`, the scene it shows, to `new`: the
-    /// subtrees the patch between them replaces are laid out and painted
-    /// again, nodes that only moved keep their chunks. The damage it
+    /// Updates the drawing to `new` by a patch: `replaced`, the subtrees it
+    /// replaced in the scene the drawing shows, each by its id and the node
+    /// that was there ([`crate::wire::apply`] returns them, and
+    /// [`crate::wire::replaced`] finds them between two scenes). Each is
+    /// compared with what replaced it, node by node; only what differs is
+    /// laid out and painted again, and nodes that only moved keep their
+    /// chunks — the work is the patch's, never the scene's. The damage it
     /// returns is what changed; or why `new` can't be painted — its images
     /// too many for the GPU's atlas — in which case the drawing is `new`'s
     /// all the same.
     pub fn update(
         &mut self,
         renderer: &mut Renderer,
+        new: &Scene,
+        replaced: &[crate::wire::Replaced],
+    ) -> Result<Damage, Undrawable> {
+        renderer.update(self, new, replaced)
+    }
+
+    /// [`Drawing::update`] from `old`, the scene the drawing shows, to
+    /// `new`, by the patch between them: for a caller holding both.
+    pub fn update_between(
+        &mut self,
+        renderer: &mut Renderer,
         old: &Scene,
         new: &Scene,
     ) -> Result<Damage, Undrawable> {
-        renderer.update(self, old, new)
+        let replaced = crate::wire::replaced(&old.root, &new.root);
+        renderer.update(self, new, &replaced)
     }
 }
 
@@ -138,6 +167,9 @@ impl Renderer {
     ) -> Result<Drawing, Undrawable> {
         self.register(&scene.fonts);
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
+        // Only the boxes read are rounded, by `placed`, as taffy would round
+        // them all.
+        tree.disable_rounding();
         let mut hugs = Vec::new();
         let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
         self.settle(&mut tree, root, &hugs);
@@ -297,20 +329,14 @@ impl Renderer {
         order: Order,
         id: NodeId,
         parent_t: Id,
-        parent_at: (f32, f32),
+        parent_raw: (f32, f32),
         clip: Id,
         cut: Option<KRect>,
         effect: Option<Id>,
         remade: bool,
     ) -> bool {
-        let l = d.tree.layout(id).expect("laid out");
-        let f = Frame {
-            x: parent_at.0 + l.location.x,
-            y: parent_at.1 + l.location.y,
-            width: l.size.width,
-            height: l.size.height,
-        };
-        let parent_origin = Vec2::new(parent_at.0 as f64, parent_at.1 as f64);
+        let (f, raw) = placed(&d.tree, id, parent_raw);
+        let parent_origin = Vec2::new(snap(parent_raw.0) as f64, snap(parent_raw.1) as f64);
         let origin = Vec2::new(f.x as f64, f.y as f64);
         d.visited += 1;
         let old = d.recs.remove(&order);
@@ -495,7 +521,6 @@ impl Renderer {
         if leaf {
             return resized;
         }
-        let ids = d.tree.children(id).expect("children");
         let on_path = match (all, w.path) {
             (false, Some(path)) => path.get(&order).cloned().unwrap_or_default(),
             _ => BTreeSet::new(),
@@ -508,9 +533,9 @@ impl Renderer {
                 w,
                 &node.children[i],
                 o,
-                ids[i],
+                d.tree.child_at_index(id, i).expect("child"),
                 transform,
-                (f.x, f.y),
+                raw,
                 inner,
                 inner_cut,
                 under,

@@ -45,6 +45,10 @@ export class Tiles {
     this.pending = new Map();
     this.damages = 0;
     this.painted = 0;
+    // For the tests: the tiles painted, in the order they arrived, as
+    // `scale:col,row`, and the most ever asked for at once.
+    this.order = [];
+    this.inflight = 0;
     this.closed = false;
   }
 
@@ -70,12 +74,13 @@ export class Tiles {
 
   // Composites the view into the 2D context: the cached tiles of this
   // theme, at any scale, moved and scaled, the view's own scale `k` on top,
-  // the drawing's top-left at `(ox, oy)`; once a zoom settles, the missing or
-  // stale tiles of the view are asked for, and each is swapped in when it
-  // arrives. Returns how many tiles of the view are still to paint.
-  draw({ size: [w, h], k, ox, oy, theme, width, height, settled }) {
-    const cols = Math.ceil((w * k) / TILE);
-    const rows = Math.ceil((h * k) / TILE);
+  // the drawing's top-left at `(ox, oy)`. `needed` is the tiles the view
+  // needs at `k`, flat — column, row… — nearest its middle first, as the
+  // engine's view gives them (`Design.view_tiles`). Once a zoom settles,
+  // the missing or stale ones are asked of the worker in that order, at most
+  // `budget` in flight at once, and each is swapped in when it arrives.
+  // Returns how many tiles of the view are still to paint.
+  draw({ needed, k, ox, oy, theme, width, height, settled, budget }) {
     const context = this.context;
     context.clearRect(0, 0, width, height);
     const shown = [...this.tiles.values()].filter((tile) => tile.theme === theme);
@@ -87,23 +92,24 @@ export class Tiles {
       context.drawImage(tile.bitmap, tx, ty, side, side);
     }
     const missing = [];
-    for (let row = Math.max(0, Math.floor(-oy / TILE)); row < Math.min(rows, Math.ceil((height - oy) / TILE)); row++) {
-      for (let col = Math.max(0, Math.floor(-ox / TILE)); col < Math.min(cols, Math.ceil((width - ox) / TILE)); col++) {
-        const key = `${theme}:${k}:${col}:${row}`;
-        const tile = this.tiles.get(key);
-        if (tile) {
-          // In use: the most recently used goes last.
-          this.tiles.delete(key);
-          this.tiles.set(key, tile);
-        }
-        if (!tile || tile.stale) missing.push({ key, col, row });
+    for (let at = 0; at < needed.length; at += 2) {
+      const [col, row] = [needed[at], needed[at + 1]];
+      const key = `${theme}:${k}:${col}:${row}`;
+      const tile = this.tiles.get(key);
+      if (tile) {
+        // In use: the most recently used goes last.
+        this.tiles.delete(key);
+        this.tiles.set(key, tile);
       }
+      if (!tile || tile.stale) missing.push({ key, col, row });
     }
     if (settled) {
       for (const { key, col, row } of missing) {
+        if (this.pending.size >= budget) break;
         if (this.pending.has(key)) continue;
         const ticket = nextTicket++;
         this.pending.set(key, { ticket, damages: this.damages });
+        this.inflight = Math.max(this.inflight, this.pending.size);
         worker.postMessage({ kind: "tile", id: this.id, ticket, key, dark: theme === "dark", theme, scale: k, col, row });
       }
     }
@@ -125,6 +131,8 @@ export class Tiles {
     this.tiles.delete(key);
     this.tiles.set(key, { theme, scale, col, row, bitmap, stale: asked.damages !== this.damages });
     this.painted++;
+    this.order.push(`${scale}:${col},${row}`);
+    if (this.order.length > 256) this.order.shift();
     for (const [old, tile] of this.tiles) {
       if (this.tiles.size <= CAP) break;
       tile.bitmap.close();

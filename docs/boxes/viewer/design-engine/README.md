@@ -361,7 +361,9 @@ subtree changed, by id. A drawing applies a patch by work proportional to it:
    nodes that differ are dirty;
 2. layout runs again from `taffy`'s caches: only the dirty nodes and their
    ancestors are laid out anew, and only the nodes whose box changed are
-   visited afterwards;
+   visited afterwards — the tree is laid out unrounded, and only the boxes
+   visited are rounded to whole pixels, each edge where taffy's own pass
+   would put it;
 3. a dirty node's chunk is made again; a node that only moved gets a new
    offset in the transform tree;
 4. each chunk made again or moved is removed from the index and inserted
@@ -369,7 +371,12 @@ subtree changed, by id. A drawing applies a patch by work proportional to it:
 5. the damage marks the tiles that overlap it stale.
 
 The server and the browser apply the same patch to the same kind of drawing,
-so both pay only for what changed.
+so both pay only for what changed. The canvas applies the patch to the scene
+it holds the same way: every replacement checked first, so a patch it can't
+use changes nothing, then only the replaced subtrees swapped in — what they
+replaced is what the drawing is brought across by — and a file no node uses
+any more dropped by a count of the nodes using each file, never a walk of
+the scene.
 
 ### Hit testing
 
@@ -603,8 +610,10 @@ theme's drawing and its tiles, so switching back makes and paints nothing.
   same stream messages, while the page's own copy says which tiles an update
   made stale — and composited into a 2D canvas. Messages that reach the
   worker while it is still loading the engine wait for it.
-  The same tiles, the same scales, no whole-design bitmap and no cap on the
-  zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
+  The same tiles, the same scales — the page's copy of the design names the
+  tiles a view needs, nearest its middle first, as the GPU's are found —
+  asked of the worker in that order, a few in flight at once; no
+  whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
   which Chrome prints reliably.
 
 On a slide, the 1920 × 1080 stage is scaled to the window by a transform the

@@ -162,6 +162,32 @@ export class Design {
         const ret = wasm.design_themed(this.__wbg_ptr);
         return ret !== 0;
     }
+    /**
+     * The tiles a view of `width` × `height` device pixels needs at
+     * `scale` — the drawing scaled by it, its top-left at the whole device
+     * pixel `(x, y)` — nearest the view's middle first, flat: column, row,
+     * column, row… The engine's [`View`](devpage_design::tiles::View), so
+     * the CPU's compositor asks for the very tiles the GPU's would.
+     * @param {number} width
+     * @param {number} height
+     * @param {number} scale
+     * @param {number} x
+     * @param {number} y
+     * @returns {Uint32Array}
+     */
+    view_tiles(width, height, scale, x, y) {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.design_view_tiles(retptr, this.__wbg_ptr, width, height, scale, x, y);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export5(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
 }
 if (Symbol.dispose) Design.prototype[Symbol.dispose] = Design.prototype.free;
 
@@ -186,10 +212,11 @@ export class Gpu {
      * Composites `design` into `target`, `width` × `height` device pixels,
      * the design scaled by `zoom` and its top-left at `(x, y)`, over
      * `background` (`0xRRGGBB`): the cached tiles of the view, moved and
-     * scaled. When `settled`, up to `budget` missing or stale tiles of the
-     * view are painted at `zoom` first, nearest the middle first. Returns
-     * how many tiles of the view at `zoom` are still to paint, or -1 when
-     * there is nothing to draw yet or the frame was lost.
+     * scaled. After the frame, when `settled`, up to `budget` missing or
+     * stale tiles of the view are painted at `zoom`, nearest the middle
+     * first, for the next frame to show. Returns how many tiles of the view
+     * at `zoom` the frame lacked — 0 when it showed the view current — or
+     * -1 when there is nothing to draw yet or the frame was lost.
      * @param {Target} target
      * @param {Design} design
      * @param {number} width
@@ -531,7 +558,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_2482(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_2484(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1062,22 +1089,22 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2450);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2452);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUDevice")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2450_18);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2452_19);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("any")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2450_19);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2452_20);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000004: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("undefined")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2450_20);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2452_21);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000005: function(arg0) {
@@ -1109,14 +1136,14 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_2482(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_2482(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_2484(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_2484(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
-function __wasm_bindgen_func_elem_2450(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2452(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2450(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2452(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1127,10 +1154,10 @@ function __wasm_bindgen_func_elem_2450(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2450_18(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2452_19(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2450_18(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2452_19(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1141,10 +1168,10 @@ function __wasm_bindgen_func_elem_2450_18(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2450_19(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2452_20(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2450_19(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2452_20(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1155,10 +1182,10 @@ function __wasm_bindgen_func_elem_2450_19(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2450_20(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2452_21(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2450_20(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2452_21(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1364,6 +1391,11 @@ function getArrayJsValueViewFromWasm0(ptr, len) {
     return result;
 }
 
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -1395,6 +1427,14 @@ function getFloat64ArrayMemory0() {
 
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -1539,6 +1579,7 @@ function __wbg_finalize_init(instance, module) {
     cachedDataViewMemory0 = null;
     cachedFloat32ArrayMemory0 = null;
     cachedFloat64ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     return wasm;
 }

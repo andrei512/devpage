@@ -8,8 +8,8 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 411 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 92 tests that drive Chrome or Docker, or call GPT-Live
+$ cargo test                  # 436 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 101 tests that drive Chrome or Docker, or call GPT-Live
 ```
 
 </Terminal>
@@ -17,7 +17,7 @@ $ cargo test -- --ignored     # the 92 tests that drive Chrome or Docker, or cal
 ## How they are written
 
 `cargo test` runs every crate in the workspace: 150 in `devpage`, 172 in its
-core `devpage-core`, 100 in the engine `devpage-design`, 9 in
+core `devpage-core`, 102 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
@@ -34,7 +34,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 92 tests marked `#[ignore]`, 89 drive Chrome, and one of them also
+Of the 101 tests marked `#[ignore]`, 98 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; the last asks
 Google's server for the pinned Chrome's zips, all at once, so it needs the
@@ -197,7 +197,7 @@ In Chrome:
 
 ### `designs`
 
-*15 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
+*15 tests in the store; 14 more through the server, and 44 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
@@ -227,7 +227,7 @@ In Chrome:
 - A design 100,000 pixels tall at 100% painting only the tiles of its view, on the GPU and the CPU; a pan over it painting no tile and costing a frame no more than on a 400 × 300 design.
 - Zoomed in 4× into the checkout, the GPU and the CPU each showing what the engine paints there at 4×, and agreeing.
 - An edit to one row of the 100,000-pixel design repainting only the tile it touches, and one out of view none, on the GPU and the CPU.
-- A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine.
+- A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine; asking the worker for the tile under the view's middle first, and never more than the frame's budget at once.
 - An undone typo clearing the problems.
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
 - A canvas saying so when the engine doesn't load.
@@ -623,12 +623,12 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design`
 
-*100 tests.*
+*102 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `resolve`, 36: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.
-- `render`, 39: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out as the layout lays it out, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing 70,000 pixels wide painted whole; a design 100,000 pixels tall streaming its PNG, a tile at its bottom asking the index for a handful of commands; a click on it answered from the index, the topmost interaction, none where a clip hides it; an edit to one row damaging only that row, its tiles as a fresh drawing's; updates — a row growing, a clipping parent resizing, a row added, a child past the top-left, rows removed — painting as a fresh drawing, the area's new strip damaged, a moved corner damaging all; an edit to one row's text visiting only its path — three nodes — on 1,000 rows and on 10,000; a row that grows moving only the rows after it; random edits of every kind to the checkout design — attributes, text, sizes, layouts, clips, opacities, children added, removed, moved to the front, the root replaced — each leaving a drawing laid out, painted and holding property-tree nodes as a fresh one; the examples painted tile by tile within 2 of 255 of their references, and a tile the same part of one paint of the whole; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs, through tiles; a text laid out in its font, and in a variable one at its weight's point on the axis, which its glyph runs carry; a renderer that drew other fonts laying out as a fresh one, holding one scene's font files.
-- `wire`, 4: a patch carrying only the nodes that changed; a scene and a patch carrying both themes; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused; a font file the same, the browser keeping the one it checked.
+- `render`, 40: auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out as the layout lays it out, align and justify, and absolute placement; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing 70,000 pixels wide painted whole; a design 100,000 pixels tall streaming its PNG, a tile at its bottom asking the index for a handful of commands; a click on it answered from the index, the topmost interaction, none where a clip hides it; an edit to one row damaging only that row, its tiles as a fresh drawing's; updates — a row growing, a clipping parent resizing, a row added, a child past the top-left, rows removed — painting as a fresh drawing, the area's new strip damaged, a moved corner damaging all; an edit to one row's text visiting only its path — three nodes — on 1,000 rows and on 10,000; an edit applied as a canvas applies it — the patch onto its scene, the drawing by what the patch replaced — costing as much on a balanced design of 10,000 rows as on one of 100; a row that grows moving only the rows after it; random edits of every kind to the checkout design, each applied by its patch as a canvas applies it — attributes, text, sizes, layouts, clips, opacities, children added, removed, moved to the front, the root replaced — each leaving a drawing laid out, painted and holding property-tree nodes as a fresh one; the examples painted tile by tile within 2 of 255 of their references, and a tile the same part of one paint of the whole; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs, through tiles; a text laid out in its font, and in a variable one at its weight's point on the axis, which its glyph runs carry; a renderer that drew other fonts laying out as a fresh one, holding one scene's font files.
+- `wire`, 5: a patch carrying only the nodes that changed, handing back what it replaced, and one naming no node or a node twice changing nothing; a scene and a patch carrying both themes; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused; a font file the same, the browser keeping the one it checked.
 - `fonts`, 2: a font file knowing its family, its weight or its weight axis; a folder's italic faces passed over, and one of italic faces only a problem.
 - `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
 - `display`, 1: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
