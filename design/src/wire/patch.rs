@@ -20,7 +20,7 @@ use crate::tree::{NodeId, Order, OrderKey};
 /// one, from what a save reached.
 pub fn patch(old: &Scene, new: &Scene) -> proto::Patch {
     proto::Patch {
-        ops: ops(old, new),
+        ops: encode_edits(&edits(old, new)),
         images: new
             .images
             .values()
@@ -41,26 +41,107 @@ fn op(kind: Kind) -> proto::Op {
     proto::Op { op: Some(kind) }
 }
 
+/// One operation of a patch, on the engine's own nodes: what the wire
+/// carries as a [`proto::Op`], and what a scene kept beside a resolve is
+/// brought across by without its nodes passing through the wire's form.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Edit {
+    /// The node of this id takes these own attributes; its children stay.
+    Change(Node),
+    /// This subtree goes under the node `parent`, after its child `after`
+    /// or first — or, with no parent, replaces the scene.
+    Insert {
+        parent: Option<NodeId>,
+        after: Option<NodeId>,
+        node: Node,
+    },
+    /// The subtree of this id goes.
+    Remove(NodeId),
+    /// The subtree of this id moves under `parent`, after `after` or first.
+    Move {
+        id: NodeId,
+        parent: NodeId,
+        after: Option<NodeId>,
+    },
+}
+
+/// Edits in the wire's form.
+pub fn encode_edits(edits: &[Edit]) -> Vec<proto::Op> {
+    edits
+        .iter()
+        .map(|e| {
+            op(match e {
+                Edit::Change(n) => Kind::Change(encode_own(n)),
+                Edit::Insert {
+                    parent,
+                    after,
+                    node,
+                } => Kind::Insert(proto::Insert {
+                    parent: parent.as_ref().map(node_id),
+                    after: after.as_ref().map(node_id),
+                    node: Some(encode(node)),
+                }),
+                Edit::Remove(id) => Kind::Remove(node_id(id)),
+                Edit::Move { id, parent, after } => Kind::Move(proto::Move {
+                    id: Some(node_id(id)),
+                    parent: Some(node_id(parent)),
+                    after: after.as_ref().map(node_id),
+                }),
+            })
+        })
+        .collect()
+}
+
+/// Edits from the wire's form, or why they aren't.
+fn decode_edits(ops: &[proto::Op]) -> Result<Vec<Edit>, String> {
+    ops.iter()
+        .map(|o| {
+            Ok(match o.op.as_ref().ok_or("an empty operation")? {
+                Kind::Change(n) => Edit::Change(decode(n)?),
+                Kind::Insert(i) => Edit::Insert {
+                    parent: i.parent.as_ref().map(|p| unnode_id(Some(p))).transpose()?,
+                    after: i.after.as_ref().map(|a| unnode_id(Some(a))).transpose()?,
+                    node: decode(i.node.as_ref().ok_or("an insert with no node")?)?,
+                },
+                Kind::Remove(id) => Edit::Remove(unnode_id(Some(id))?),
+                Kind::Move(m) => Edit::Move {
+                    id: unnode_id(m.id.as_ref())?,
+                    parent: unnode_id(m.parent.as_ref())?,
+                    after: m.after.as_ref().map(|a| unnode_id(Some(a))).transpose()?,
+                },
+            })
+        })
+        .collect()
+}
+
 /// The operations from `old` to `new`. Each node of `new` that `old` has is
 /// kept — moved if it has another parent or falls out of the longest run of
 /// siblings still in their order, and changed if its own attributes did;
 /// each one `old` hasn't is inserted, whole where nothing under it is kept,
 /// alone where something is, which is then moved into it. Last, what `old`
 /// has and `new` doesn't goes: by then nothing kept is under it.
-fn ops(old: &Scene, new: &Scene) -> Vec<proto::Op> {
+pub fn edits(old: &Scene, new: &Scene) -> Vec<Edit> {
     if old.root.id != new.root.id {
-        return vec![op(Kind::Insert(proto::Insert {
+        return vec![Edit::Insert {
             parent: None,
             after: None,
-            node: Some(encode(&new.root)),
-        }))];
+            node: new.root.clone(),
+        }];
     }
+    subtree(old, &[], &new.root)
+}
+
+/// The edits that turn the subtree of `old` at `at` — whose root has the id
+/// `new`'s root has — into `new`: what a part of a scene resolved again is
+/// brought across by, costing that part alone.
+pub fn subtree(old: &Scene, at: &[OrderKey], new: &Node) -> Vec<Edit> {
+    let within = |id: &NodeId| old.ids.get(id).is_some_and(|o| o.starts_with(at));
     let mut out = Vec::new();
     // Under each node of `new`, whether something `old` has is.
-    fn kept_below(n: &Node, old: &Scene, out: &mut HashSet<NodeId>) -> bool {
+    fn kept_below(n: &Node, within: &dyn Fn(&NodeId) -> bool, out: &mut HashSet<NodeId>) -> bool {
         let mut any = false;
         for c in &n.children {
-            any |= kept_below(c, old, out) | old.ids.contains(&c.id);
+            any |= kept_below(c, within, out) | within(&c.id);
         }
         if any {
             out.insert(n.id.clone());
@@ -68,15 +149,22 @@ fn ops(old: &Scene, new: &Scene) -> Vec<proto::Op> {
         any
     }
     let mut holds = HashSet::new();
-    kept_below(&new.root, old, &mut holds);
-    if !old.root.same_own(&new.root) {
-        out.push(op(Kind::Change(encode_own(&new.root))));
+    kept_below(new, &within, &mut holds);
+    let Some(was) = old.at(at) else {
+        return out;
+    };
+    if !was.same_own(new) {
+        out.push(Edit::Change(new.own()));
     }
-    let mut todo = vec![&new.root];
+    let mut todo = vec![new];
     while let Some(p) = todo.pop() {
         // The children `old` had under this same parent, by their places
         // there: those in the longest run still in order stay.
-        let old_parent = old.ids.get(&p.id).and_then(|o| old.at(o));
+        let old_parent = old
+            .ids
+            .get(&p.id)
+            .filter(|o| o.starts_with(at))
+            .and_then(|o| old.at(o));
         let rank: HashMap<&NodeId, usize> = old_parent
             .map(|op| {
                 op.children
@@ -94,48 +182,58 @@ fn ops(old: &Scene, new: &Scene) -> Vec<proto::Op> {
         let stay = longest_run(&ranks);
         let mut prev: Option<&NodeId> = None;
         for (i, c) in p.children.iter().enumerate() {
-            let at = |id: Option<&NodeId>| id.map(node_id);
-            match old.node(&c.id) {
+            match old.node(&c.id).filter(|_| within(&c.id)) {
                 Some(was) => {
                     if !stay[i] {
-                        out.push(op(Kind::Move(proto::Move {
-                            id: Some(node_id(&c.id)),
-                            parent: Some(node_id(&p.id)),
-                            after: at(prev),
-                        })));
+                        out.push(Edit::Move {
+                            id: c.id.clone(),
+                            parent: p.id.clone(),
+                            after: prev.cloned(),
+                        });
                     }
                     if !was.same_own(c) {
-                        out.push(op(Kind::Change(encode_own(c))));
+                        out.push(Edit::Change(c.own()));
                     }
                     todo.push(c);
                 }
                 None => {
                     let node = if holds.contains(&c.id) {
                         todo.push(c);
-                        encode_own(c)
+                        c.own()
                     } else {
-                        encode(c)
+                        c.clone()
                     };
-                    out.push(op(Kind::Insert(proto::Insert {
-                        parent: Some(node_id(&p.id)),
-                        after: at(prev),
-                        node: Some(node),
-                    })));
+                    out.push(Edit::Insert {
+                        parent: Some(p.id.clone()),
+                        after: prev.cloned(),
+                        node,
+                    });
                 }
             }
             prev = Some(&c.id);
         }
     }
-    fn gone(n: &Node, new: &Scene, out: &mut Vec<proto::Op>) {
+    let kept: HashSet<&NodeId> = {
+        fn ids<'a>(n: &'a Node, out: &mut HashSet<&'a NodeId>) {
+            out.insert(&n.id);
+            for c in &n.children {
+                ids(c, out);
+            }
+        }
+        let mut out = HashSet::new();
+        ids(new, &mut out);
+        out
+    };
+    fn gone(n: &Node, kept: &HashSet<&NodeId>, out: &mut Vec<Edit>) {
         for c in &n.children {
-            if new.ids.contains(&c.id) {
-                gone(c, new, out);
+            if kept.contains(&c.id) {
+                gone(c, kept, out);
             } else {
-                out.push(op(Kind::Remove(node_id(&c.id))));
+                out.push(Edit::Remove(c.id.clone()));
             }
         }
     }
-    gone(&old.root, new, &mut out);
+    gone(was, &kept, &mut out);
     out
 }
 
@@ -197,7 +295,8 @@ enum Undo {
 pub fn apply(scene: &mut Scene, uses: &mut Uses, patch: &proto::Patch) -> Result<Applied, String> {
     let images = files(&patch.images, &scene.images)?;
     let fonts = font_files(&patch.fonts, &scene.fonts)?;
-    apply_ops(scene, uses, &patch.ops, images, fonts, patch.themed)
+    let edits = decode_edits(&patch.ops)?;
+    apply_edits(scene, uses, edits, images, fonts, patch.themed)
 }
 
 /// Brings `scene`, whose files `uses` counts, to `to`'s content by the
@@ -205,16 +304,19 @@ pub fn apply(scene: &mut Scene, uses: &mut Uses, patch: &proto::Patch) -> Result
 /// beside it can follow — with `to`'s image and font files as they are,
 /// never through the wire's bytes.
 pub fn bring(scene: &mut Scene, uses: &mut Uses, to: &Scene) -> Result<Applied, String> {
-    let ops = ops(scene, to);
+    let edits = edits(scene, to);
     let images = to.images.clone();
     let fonts = to.fonts.clone();
-    apply_ops(scene, uses, &ops, images, fonts, to.themed)
+    apply_edits(scene, uses, edits, images, fonts, to.themed)
 }
 
-fn apply_ops(
+/// Applies `edits` to `scene`, whose files `uses` counts, with the image and
+/// font files they may need — or says why it can't, leaving both as they
+/// were. The work is the edits': each finds its nodes by id.
+pub fn apply_edits(
     scene: &mut Scene,
     uses: &mut Uses,
-    ops: &[proto::Op],
+    ops: Vec<Edit>,
     images: crate::resolve::ImageFiles,
     fonts: crate::fonts::FontFiles,
     themed: bool,
@@ -263,14 +365,13 @@ fn apply_ops(
 fn run(
     scene: &mut Scene,
     uses: &mut Uses,
-    ops: &[proto::Op],
+    ops: Vec<Edit>,
     undo: &mut Vec<Undo>,
     applied: &mut Applied,
 ) -> Result<(), String> {
     for o in ops {
-        match o.op.as_ref().ok_or("an empty operation")? {
-            Kind::Change(n) => {
-                let new = decode(n)?;
+        match o {
+            Edit::Change(new) => {
                 let order = order_of(scene, &new.id)?;
                 let place = scene.at_mut(&order).expect("indexed");
                 let mut own = std::mem::replace(place, new);
@@ -280,9 +381,12 @@ fn run(
                 applied.changed.push((own.id.clone(), own.clone()));
                 undo.push(Undo::Own(order, own));
             }
-            Kind::Insert(i) => {
-                let node = decode(i.node.as_ref().ok_or("an insert with no node")?)?;
-                let Some(parent) = i.parent.as_ref() else {
+            Edit::Insert {
+                parent,
+                after,
+                node,
+            } => {
+                let Some(parent) = parent.as_ref() else {
                     // A new root: the scene, replaced.
                     if crate::tree::Ids::of(&node).len() != count(&node) {
                         return Err(format!("{} holds a node twice", node.id));
@@ -296,8 +400,8 @@ fn run(
                     undo.push(Undo::Root(old));
                     continue;
                 };
-                let parent = order_of(scene, &unnode_id(Some(parent))?)?;
-                let after = after_key(scene, &parent, i.after.as_ref())?;
+                let parent = order_of(scene, parent)?;
+                let after = after_key(scene, &parent, after.as_ref())?;
                 check_unique(scene, &node, None)?;
                 uses.add(&node);
                 let id = node.id.clone();
@@ -305,8 +409,7 @@ fn run(
                 applied.placed.push(id);
                 undo.push(Undo::Take(order));
             }
-            Kind::Remove(id) => {
-                let id = unnode_id(Some(id))?;
+            Edit::Remove(id) => {
                 let order = order_of(scene, &id)?;
                 if order.is_empty() {
                     return Err("the root can't be removed".into());
@@ -320,19 +423,18 @@ fn run(
                 applied.removed.push(id);
                 undo.push(Undo::Put(parent, key, node));
             }
-            Kind::Move(m) => {
-                let id = unnode_id(m.id.as_ref())?;
+            Edit::Move { id, parent, after } => {
                 let from = order_of(scene, &id)?;
                 if from.is_empty() {
                     return Err("the root can't be moved".into());
                 }
-                let parent = order_of(scene, &unnode_id(m.parent.as_ref())?)?;
+                let parent = order_of(scene, &parent)?;
                 if parent.starts_with(&from) {
                     return Err(format!("{id} can't move under itself"));
                 }
                 let key = from[from.len() - 1].clone();
                 let old_parent = from[..from.len() - 1].to_vec();
-                let after = after_key(scene, &parent, m.after.as_ref())?;
+                let after = after_key(scene, &parent, after.as_ref())?;
                 if after.as_ref() == Some(&key) && parent == old_parent {
                     return Err(format!("{id} can't move after itself"));
                 }
@@ -363,11 +465,10 @@ fn order_of(scene: &Scene, id: &NodeId) -> Result<Order, String> {
 fn after_key(
     scene: &Scene,
     parent: &Order,
-    after: Option<&proto::NodeId>,
+    after: Option<&NodeId>,
 ) -> Result<Option<OrderKey>, String> {
-    let Some(after) = after else { return Ok(None) };
-    let id = unnode_id(Some(after))?;
-    let o = order_of(scene, &id)?;
+    let Some(id) = after else { return Ok(None) };
+    let o = order_of(scene, id)?;
     if o.len() != parent.len() + 1 || !o.starts_with(parent) {
         return Err(format!("{id} isn't a child of the node it is placed under"));
     }
