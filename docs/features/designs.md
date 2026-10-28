@@ -4,7 +4,9 @@ A UI an agent writes as code: one `.design` file per design, in JSX syntax
 over Figma's node model, composed by import with props. devpage draws it on a
 canvas at its own size — on the GPU — and a reader clicks through it as a
 prototype. `GET checkout.design.png` hands the agent the same drawing as a
-PNG, so it can look at its work before anyone else does.
+PNG, so it can look at its work before anyone else does. A design can be any
+size — a whole flow on one canvas — and stays sharp however far the reader
+zooms in.
 
 ![The checkout prototype](../designs/checkout/checkout.design)
 

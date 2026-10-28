@@ -49,7 +49,7 @@ read from the page's Markdown — an image or a link whose target ends in
 `.design`, never an example in code — and each of the design's problems is
 reported on the page as
 `broken design <target> — <file>:<line>:<column>: <message>`. A design whose
-drawing is too big to paint is a problem too. A link to a design's PNG
+images don't fit the GPU's atlas together is a problem too. A link to a design's PNG
 address, `x.design.png`, is checked as the design `x.design`
 ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
 

@@ -4,8 +4,10 @@
 
 The canvas in the browser and the PNG a design's address answers come from the
 same code: the design engine lays the design out once and paints it into one
-display list for the theme it is shown in, which a GPU backend (`vello`) replays on the canvas and a CPU
-backend (`vello_cpu`) replays as the PNG, with the same fonts — the embedded
+display list for the theme it is shown in, and everything that makes pixels —
+a GPU tile, a CPU tile, a band of the PNG — goes through its one paint entry
+point, which a GPU backend (`vello`) replays on the canvas and a CPU
+backend (`vello_cpu`) replays as the PNG and the canvas without WebGPU, with the same fonts — the embedded
 Inter and the scene's font files, never a system font. A
 backend only translates commands; it decides nothing about the drawing. Every surface shows the same area: the design's whole drawing, its root's box
 plus anything painted outside it. Nothing else draws a design — not
@@ -25,8 +27,9 @@ the rasterizers' edge anti-aliasing to differ, which no reader can see.
 ## Check
 
 The server's PNG route and the WebAssembly module both call the
-engine's one function that builds the display list, each backend is a
-command-by-command translation, and neither draws anything else. Tests
+engine's one function that builds the display list and its one paint entry
+point, each backend is a command-by-command translation, and neither draws
+anything else. Tests
 paint the example designs with both backends, in the light theme and in the
 dark one, and compare each with the server's PNG in that theme by the
 engine's one rule (`render::compare`): a pixel is

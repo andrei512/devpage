@@ -329,7 +329,8 @@ light one.
 This is how an agent looks at its work: write the file, fetch the PNG, look,
 fix — in both themes when the design uses them. devpage keeps every design it has read resolved in memory and paints the
 PNG itself on the CPU, without a browser, so the answer arrives as fast as a
-page. A page can link to or show the PNG too —
+page. A design of any size has a PNG: it is streamed band by band, and after
+an edit only the part the edit touched is painted again. A page can link to or show the PNG too —
 `![Checkout](checkout.design.png)` — and `devpage check` treats that link as
 the design itself.
 
@@ -337,7 +338,7 @@ the design itself.
 | --- | --- |
 | `200`, `image/png` | the design is valid: its whole drawing at 1× |
 | `400`, `theme: expected light or dark, found "<value>"` | `theme` is anything but `light` or `dark` |
-| `422`, the problems as `text/plain`, one per line | the design has problems, or its drawing is bigger than 16,384 pixels a side, which is too big to paint |
+| `422`, the problems as `text/plain`, one per line | the design has problems |
 | `404`, `<address> is not part of the served folder` | `<path>.design` isn't a file in the served folder, as for any other path |
 
 A real file named `checkout.design.png` beside the design wins: it is served
