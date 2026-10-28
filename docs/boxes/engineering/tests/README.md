@@ -17,7 +17,7 @@ $ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
 ## How they are written
 
 `cargo test` runs every crate in the workspace: 91 in `devpage`, 160 in its
-core `devpage-core`, 94 in the engine `devpage-design`, 8 in
+core `devpage-core`, 94 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
@@ -176,7 +176,7 @@ In Chrome:
 
 ### `designs`
 
-*11 tests in the store; 14 more through the server, and 35 in Chrome, in `drive::server`.*
+*11 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
@@ -203,6 +203,10 @@ In Chrome:
 - A navigation from a design whose four 4,096-pixel images fill the GPU's atlas to one with an image of its own drawing the second as its PNG, on a canvas page and inside an embed.
 - A click navigating, back returning, an overlay opening and closing; an interaction inside an instance from another folder opening its own target.
 - The wheel zooming about the pointer and panning.
+- A design 100,000 pixels tall at 100% painting only the tiles of its view, on the GPU and the CPU; a pan over it painting no tile and costing a frame no more than on a 400 × 300 design.
+- Zoomed in 4× into the checkout, the GPU and the CPU each showing what the engine paints there at 4×, and agreeing.
+- An edit to one row of the 100,000-pixel design repainting only the tile it touches, and one out of view none, on the GPU and the CPU.
+- A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine.
 - An undone typo clearing the problems.
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
 - A canvas saying so when the engine doesn't load.
@@ -567,7 +571,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design-wasm`
 
-*8 tests.*
+*9 tests.*
 
 - A scene sized, painted and hit-tested.
 - A design in a font file, by its scene and by a patch bringing another weight, laid out and painted as the server paints its PNG, pixel for pixel.
@@ -577,6 +581,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 - Problems keeping the scene until a patch clears them.
 - A theme switch painting the scene again in the other theme.
 - A click landing only on what a clip shows.
+- A whole scene damaging every tile of both themes, a patch only where the node it changed was and is, in each theme drawn, and a theme switched back to keeping its drawing.
 
 ### `devpage-design-module`
 

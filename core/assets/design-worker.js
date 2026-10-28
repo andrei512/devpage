@@ -2,7 +2,9 @@
 // without WebGPU. It holds its own copy of each canvas's design, fed the same
 // watch-stream messages as the page's, and answers each tile asked for with
 // its pixels.
-// Messages that arrive while the engine loads wait for it, in order.
+// Messages that arrive while the engine loads wait for it, in order: a
+// module worker drops a message that arrives during its top-level await if no
+// handler is set yet.
 const early = [];
 onmessage = ({ data }) => early.push(data);
 const engine = await import("/__devpage/design-engine.js");
@@ -17,11 +19,15 @@ function handle(data) {
     designs.get(data.id)?.free();
     designs.delete(data.id);
   } else if (data.kind === "apply") {
-    designs.get(data.id)?.apply(data.message);
-  } else if (data.kind === "theme") {
-    designs.get(data.id)?.set_theme(data.dark);
+    const design = designs.get(data.id);
+    design?.apply(data.message);
+    // The page marks its tiles stale from its own copy's damage.
+    design?.take_damage();
   } else if (data.kind === "tile") {
     const design = designs.get(data.id);
+    // Each tile in the theme it was asked for: the drawing in the other
+    // theme is kept, so a switch back makes nothing.
+    design?.set_theme(data.dark);
     const pixels = design?.paint_tile(data.scale, data.col, data.row);
     if (!pixels) return postMessage({ ...data, rgba: null });
     const rgba = pixels.take();
