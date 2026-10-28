@@ -34,6 +34,10 @@ pub struct Run {
     /// Its node's unrounded top-left and its rounded one, in its space.
     pub raw: Vec2,
     pub at: Vec2,
+    /// Where its space's origin was in the design's coordinates when it was
+    /// last placed: its children are placed in single precision there, as
+    /// taffy places them, so they round where a whole tree's do.
+    pub origin: Vec2,
     /// Whether its children go along x; else along y.
     pub row: bool,
     /// Where its first child starts along the run, from its node's unrounded
@@ -181,15 +185,6 @@ impl Counted {
     }
 }
 
-/// `v` along the run, `w` across, as a point in `row`'s axes.
-fn point(row: bool, along: f64, across: f64) -> Vec2 {
-    if row {
-        Vec2::new(along, across)
-    } else {
-        Vec2::new(across, along)
-    }
-}
-
 /// A rectangle's span along a run and across it.
 fn spans(row: bool, r: KRect) -> ((f64, f64), (f64, f64)) {
     if row {
@@ -207,17 +202,13 @@ fn rect(row: bool, along: (f64, f64), across: (f64, f64)) -> KRect {
     }
 }
 
-/// Rounds as taffy rounds: to the nearest whole pixel, a half up.
-pub(crate) fn snap(v: f64) -> f64 {
-    (v + 0.5).floor()
-}
-
 impl Run {
     pub fn new(space: Space) -> Run {
         Run {
             space,
             raw: Vec2::ZERO,
             at: Vec2::ZERO,
+            origin: Vec2::ZERO,
             row: false,
             start: 0.0,
             across: 0.0,
@@ -242,22 +233,31 @@ impl Run {
         self.items.is_empty()
     }
 
-    /// A child's unrounded top-left in the run's space, its prefix along the
-    /// run given.
-    fn raw_of(&self, before: f64, across: f64) -> Vec2 {
-        self.raw + point(self.row, self.start + before, self.across + across)
-    }
-
     /// Where the run places a child: its unrounded top-left in the run's
     /// space, and its rounded one — each edge where taffy's pass puts it,
     /// measured from the run's node, a box in the flow.
     pub fn place(&self, before: f64, across: f64) -> (Vec2, Vec2) {
-        let raw = self.raw_of(before, across);
-        let at = Vec2::new(
-            self.at.x + snap(raw.x) - snap(self.raw.x),
-            self.at.y + snap(raw.y) - snap(self.raw.y),
+        // In single precision, as taffy places a box and its rounding pass
+        // rounds it: the child's place within the run, then the run's.
+        let along = (self.start + before) as f32;
+        let across = (self.across + across) as f32;
+        let (dx, dy) = if self.row {
+            (along, across)
+        } else {
+            (across, along)
+        };
+        let o = self.origin;
+        let (rx, ry) = ((o.x + self.raw.x) as f32, (o.y + self.raw.y) as f32);
+        let raw = (rx + dx, ry + dy);
+        let snap32 = |v: f32| (v + 0.5).floor();
+        let at = (
+            (o.x + self.at.x) as f32 + snap32(raw.0) - snap32(rx),
+            (o.y + self.at.y) as f32 + snap32(raw.1) - snap32(ry),
         );
-        (raw, at)
+        (
+            Vec2::new(raw.0 as f64 - o.x, raw.1 as f64 - o.y),
+            Vec2::new(at.0 as f64 - o.x, at.1 as f64 - o.y),
+        )
     }
 
     /// The child at `key`: how far along the run the children before it

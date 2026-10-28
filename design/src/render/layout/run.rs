@@ -356,6 +356,11 @@ impl RunLayout {
     /// Where the first child starts along the run from the padding: `free`
     /// room laid out by `justify`.
     pub(in crate::render) fn lead(&self, free: f32) -> f32 {
+        // A run its children fill has no free room, whatever the last bit of
+        // their sum.
+        if free.abs() < 1e-3 {
+            return 0.0;
+        }
         match self.justify {
             Align::Center => free / 2.0,
             Align::End => free,

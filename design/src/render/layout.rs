@@ -413,22 +413,20 @@ impl Laid {
 /// flow — measured from the run's node — so that the child, at the origin of
 /// its own one-item tree, gets exactly the box taffy would give it.
 pub(super) fn child_place(run: Place, row: bool, along: f64, across: f64) -> Place {
+    // In single precision, as taffy places a box and its rounding pass
+    // rounds it: the child's place within the run, then the run's.
+    let (along, across) = (along as f32, across as f32);
     let (dx, dy) = if row {
         (along, across)
     } else {
         (across, along)
     };
-    let raw = (run.raw.0 as f64 + dx, run.raw.1 as f64 + dy);
-    let snapd = |v: f64| (v + 0.5).floor();
+    let raw = (run.raw.0 + dx, run.raw.1 + dy);
     let at = (
-        (run.at.0 as f64 + snapd(raw.0) - snapd(run.raw.0 as f64)) as f32,
-        (run.at.1 as f64 + snapd(raw.1) - snapd(run.raw.1 as f64)) as f32,
+        run.at.0 + snap(raw.0) - snap(run.raw.0),
+        run.at.1 + snap(raw.1) - snap(run.raw.1),
     );
-    Place {
-        at,
-        raw: (raw.0 as f32, raw.1 as f32),
-        block: run.block,
-    }
+    Place { at, raw }
 }
 
 /// The layout tree of `node` and everything under it as one taffy tree,
@@ -513,6 +511,10 @@ pub(super) fn style_of(node: &Node, parent: Option<&Node>) -> Style {
     if cross == DSize::Fill {
         style.align_self = Some(AlignSelf::STRETCH);
     }
+    // Every frame is the containing block of the boxes placed absolutely in
+    // it, as in Figma: a child at `x` and `y` is placed, sized and rounded
+    // against its own parent, never a farther ancestor.
+    style.position = Position::Relative;
     if dir == Some(Layout::None) {
         style.position = Position::Absolute;
         style.inset = taffy::Rect {
@@ -561,34 +563,30 @@ pub(super) fn snap(v: f32) -> f32 {
     (v + 0.5).floor()
 }
 
-/// Where a node's parent is, for placing the node: the parent's box's top-left
-/// in whole pixels, and two of the unrounded places taffy's rounding pass
-/// measures from — the parent's own, and that of the nearest ancestor that is
-/// a containing block for absolutely placed boxes (one placed absolutely
-/// itself, or else the root).
+/// Where a node's parent is, for placing the node: the parent's box's
+/// top-left in whole pixels, and its unrounded one, which taffy's rounding
+/// pass measures the node from — every frame is the containing block of the
+/// boxes placed absolutely in it, so a box is always measured from its
+/// parent.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Place {
     pub(super) at: (f32, f32),
     pub(super) raw: (f32, f32),
-    pub(super) block: (f32, f32),
 }
 
 /// A node's box in whole pixels, in the design's coordinates, and the place
 /// its children are measured from — given its parent's. The tree is laid
 /// out unrounded, and only the boxes read are rounded, exactly as taffy's
 /// own pass rounds every box: each edge at its unrounded place measured from
-/// where the pass measures it — the parent for a box in the flow, the
-/// containing block for one placed absolutely, which taffy visits from
-/// there — so the boxes are the very ones a tree rounded whole has.
+/// its parent — so the boxes are the very ones a tree rounded whole has.
 pub(super) fn placed(
     tree: &TaffyTree<Option<Leaf>>,
     id: NodeId,
     parent: Place,
-    root: bool,
+    _root: bool,
 ) -> (Frame, Place) {
     let l = tree.unrounded_layout(id);
-    let absolute = tree.style(id).expect("style").position == Position::Absolute;
-    let base = if absolute { parent.block } else { parent.raw };
+    let base = parent.raw;
     let (x, y) = (base.0 + l.location.x, base.1 + l.location.y);
     let frame = Frame {
         x: parent.at.0 + snap(x) - snap(base.0),
@@ -599,13 +597,6 @@ pub(super) fn placed(
     let place = Place {
         at: (frame.x, frame.y),
         raw: (x, y),
-        // The root is the containing block of every absolutely placed box
-        // under no other.
-        block: if absolute || root {
-            (x, y)
-        } else {
-            parent.block
-        },
     };
     (frame, place)
 }

@@ -264,7 +264,11 @@ engine lays out with `taffy`, a Rust flexbox implementation: `layout="row"`
 and `"column"` are a flex direction, `gap`, `padding`, `align` and `justify`
 map onto their flex properties, `"hug"` is content size, `"fill"` is
 `flex-grow: 1` along the direction and stretch across it, and a frame with
-`layout="none"` places its children absolutely at their `x` and `y`.
+`layout="none"` places its children absolutely at their `x` and `y`. Every
+frame is the containing block of the boxes placed absolutely in it, as in
+Figma — taffy's `position: relative` on every frame: a child at `x` and `y`
+is placed, sized and rounded against its own parent frame, never a farther
+ancestor, so what a frame holds lays out the same wherever the frame is.
 
 Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
 it as Figma does: as far as its children's furthest right and bottom edges. It
@@ -465,8 +469,9 @@ proportional to it:
    it only while a box's size changed — in a run, by the prefix sums; in any
    other frame, from `taffy`'s caches. The tree is laid out unrounded, and only
    the boxes visited are rounded to whole pixels, each edge where taffy's own
-   pass would put it — measured, as that pass measures, from the parent for a
-   box in the flow and from its containing block for one placed absolutely;
+   pass would put it — measured, as that pass measures, from the box's parent,
+   which is its containing block whether it is in the flow or placed
+   absolutely;
 3. a dirty node's chunk is made again; a node that only moved gets a new
    offset in the transform tree — a child of a run needs none, its place is
    the sums. A child of a run the sums moved by a fraction of a pixel rounds
