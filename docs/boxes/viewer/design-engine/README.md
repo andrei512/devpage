@@ -290,7 +290,13 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
   time and moves no sibling: a sibling's place is read from the sums when it
   is painted, hit or rounded. A run that hugs takes its length from the sums
   and its breadth from the largest child, kept in a counted set; `justify`
-  `"center"` or `"end"` is one offset for every child.
+  `"center"` or `"end"` is one offset for every child. The sums are exact —
+  kept in 64-bit floats — where taffy adds its items' sizes one by one in
+  32-bit ones; the two agree wherever taffy's own sums are exact, as they are
+  for sizes in whole pixels and fractions of a power of two. A child whose
+  breadth is within a thousandth of a pixel of its line's is the line's
+  broadest and sits at its start, whatever the last bit of its size measured
+  under another of the run's constraints.
 - A frame whose children share its room — a `"fill"` child, or
   `"space-between"` — is laid out by `taffy` over all its children when one
   of them changes size, since each one's place depends on all of them.
@@ -463,7 +469,14 @@ proportional to it:
    box in the flow and from its containing block for one placed absolutely;
 3. a dirty node's chunk is made again; a node that only moved gets a new
    offset in the transform tree — a child of a run needs none, its place is
-   the sums;
+   the sums. A child of a run the sums moved by a fraction of a pixel rounds
+   differently where it now falls, and so may everything in it; the update
+   doesn't round it — the damage already covers it — and before an area is
+   painted, hit or read (`Drawing::prepare`, in the server and the canvas
+   alike), the children of runs there that no longer round as their boxes
+   were made are rounded anew, their boxes and any chunk whose box changed
+   made again. So an edit costs what it changed, the rounding costs what is
+   read, and what is read is a fresh drawing's, box for box;
 4. each chunk made again or moved is removed from the index and inserted
    again;
 5. the damage marks the tiles that overlap it stale.

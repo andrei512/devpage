@@ -256,9 +256,10 @@ impl Design {
     /// The interaction of the topmost node at `(x, y)`, in the drawing's
     /// pixels, that has one: asked of the drawing's index.
     pub fn action_at(&mut self, x: f32, y: f32) -> Option<String> {
-        let d = self.laid_out()?;
-        let area = d.area();
-        d.action_at(x + area.x, y + area.y).map(str::to_string)
+        let area = self.laid_out()?.area();
+        let (x, y) = ((x + area.x) as f64, (y + area.y) as f64);
+        let d = self.prepared(vello::kurbo::Rect::new(x, y, x, y))?;
+        d.action_at(x as f32, y as f32).map(str::to_string)
     }
 
     /// The tiles a view of `width` × `height` device pixels needs at
@@ -285,7 +286,8 @@ impl Design {
     /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with
     /// `vello_cpu`: 256 device pixels a side, straight alpha.
     pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
-        let d = self.laid_out()?;
+        let rect = devpage_design::tiles::tile_rect(&self.laid_out()?.list, scale as f64, col, row);
+        let d = self.prepared(rect)?;
         let rgba = devpage_design::cpu::tile(&d.list, scale as f64, col, row);
         Some(Pixels {
             width: devpage_design::tiles::TILE,
@@ -335,6 +337,19 @@ impl Design {
         }
         self.drawings[i].as_ref()
     }
+
+    /// The drawing with every run child in `rect` — in the design's
+    /// coordinates — rounded where the runs now place it: what is read
+    /// there is a fresh drawing's.
+    pub(crate) fn prepared(&mut self, rect: vello::kurbo::Rect) -> Option<&Drawing> {
+        self.laid_out()?;
+        let i = index(self.theme);
+        let (Some(scene), Some(d)) = (self.scene.as_ref(), self.drawings[i].as_mut()) else {
+            return None;
+        };
+        d.prepare(&mut self.engine, scene, rect);
+        self.drawings[i].as_ref()
+    }
 }
 
 #[cfg(test)]
@@ -342,7 +357,14 @@ impl Design {
     /// The whole drawing painted on the CPU at `scale`, as its tiles are,
     /// in one: straight alpha.
     fn paint(&mut self, scale: f32) -> Option<Pixels> {
-        let d = self.laid_out()?;
+        let a = self.laid_out()?.area();
+        let whole = vello::kurbo::Rect::new(
+            a.x as f64,
+            a.y as f64,
+            (a.x + a.width) as f64,
+            (a.y + a.height) as f64,
+        );
+        let d = self.prepared(whole)?;
         let a = d.area();
         let rect = vello::kurbo::Rect::new(
             a.x as f64,

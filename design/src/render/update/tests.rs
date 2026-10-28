@@ -350,6 +350,8 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             assert!(held.root == next.root, "the patch carries the scene");
             assert_eq!(uses, crate::wire::Uses::of(&held.root));
             d.update(&mut r, &held, &replaced).unwrap();
+            // What the update moved by a fraction of a pixel rounds when read.
+            d.prepare_all(&mut r, &held);
             let fresh = r.drawing(&next, theme, None).unwrap();
             let case = format!("{theme:?} step {step}: kind {kind} at {at:?}");
             assert_eq!(d.frames(), fresh.frames(), "{case}");
@@ -799,4 +801,44 @@ fn a_column_edit_visits_the_same_nodes_at_any_length() {
             }
         }
     }
+}
+
+/// A row of fractional height inserted before the first of 10,000 moves
+/// every row after it by a fraction of a pixel: the update visits only the
+/// new row, and rounding the rest anew costs only what is read — a tile
+/// rounds the rows it shows — and leaves a drawing a fresh one's, box for
+/// box and pixel for pixel.
+#[test]
+fn rows_moved_by_a_fraction_round_when_read() {
+    let n = 10_000;
+    let mut saves = crate::ids::testing::Saves::default();
+    let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, true);
+    let new = column_saved(&mut saves, n, (usize::MAX, ""), None, true, true);
+    let p = crate::wire::patch(&old, &new);
+    let mut held = crate::wire::decode_scene(
+        &crate::wire::scene(&old),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut r = Renderer::new();
+    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+    d.update(&mut r, &held, &applied).unwrap();
+    assert!(d.visited <= 3, "{} visited", d.visited);
+    let fresh = r.drawing(&new, Theme::Light, None).unwrap();
+    let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
+    for row in [rows / 2, rows - 1, 0] {
+        d.visited = 0;
+        let rect = crate::tiles::tile_rect(&d.list, 1.0, 0, row);
+        d.prepare(&mut r, &held, rect);
+        assert!(d.visited < 64, "tile row {row}: {} visited", d.visited);
+        assert!(
+            crate::cpu::tile(&d.list, 1.0, 0, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+            "tile row {row}"
+        );
+    }
+    d.prepare_all(&mut r, &held);
+    assert_eq!(d.frames(), fresh.frames());
+    assert_eq!(d.area(), fresh.area());
 }

@@ -52,6 +52,8 @@ pub struct Drawing {
     /// For each run, the least start along it, in the design's coordinates,
     /// of a child an update took out: where what follows moved from.
     pub(super) shifts: HashMap<RunId, f64>,
+    /// Each run as the last walk through it found it.
+    pub(super) contexts: HashMap<RunId, RunContext>,
     /// Each node's order, by its id: where a patch's nodes are in it.
     pub(super) orders: HashMap<SceneId, Order>,
     /// The display list: chunks under property trees, and their index.
@@ -157,6 +159,36 @@ impl Drawing {
         renderer.update(self, new, applied)
     }
 
+    /// Rounds anew, before `area` — in the design's coordinates — is painted,
+    /// hit or read, the children of runs there that an update moved by a
+    /// fraction of a pixel: an update moves them by the sums alone and leaves
+    /// their boxes and chunks as they were, so an edit costs what it changed
+    /// and the rounding costs what is read. `scene` is the scene the drawing
+    /// shows. After it, the drawing there is a fresh one's, box for box.
+    pub fn prepare(&mut self, renderer: &mut Renderer, scene: &Scene, area: KRect) {
+        let mut rounded = false;
+        loop {
+            let stale = self.list.unrounded(area);
+            if stale.is_empty() {
+                break;
+            }
+            for (drid, key) in stale {
+                renderer.reround(self, scene, drid, &key);
+            }
+            self.list.flush();
+            rounded = true;
+        }
+        if rounded {
+            renderer.settle_area(self);
+        }
+    }
+
+    /// [`Drawing::prepare`] over the whole drawing.
+    pub fn prepare_all(&mut self, renderer: &mut Renderer, scene: &Scene) {
+        let everything = KRect::new(-1e12, -1e12, 1e12, 1e12);
+        self.prepare(renderer, scene, everything);
+    }
+
     /// [`Drawing::update`] from `old`, the scene the drawing shows, to the
     /// content of `new`, by the patch between them — `old` patched to it,
     /// keeping its places, so it stays the scene the drawing shows: for a
@@ -203,6 +235,7 @@ impl Renderer {
             recs: BTreeMap::new(),
             shown: HashMap::new(),
             shifts: HashMap::new(),
+            contexts: HashMap::new(),
             orders: HashMap::new(),
             list: List::new(),
             blobs: HashMap::new(),
@@ -694,17 +727,14 @@ impl Renderer {
             down.place.at.0 as f64 - down.space_at.x,
             down.place.at.1 as f64 - down.space_at.y,
         );
-        let fraction = |v: Vec2| Vec2::new(v.x - v.x.floor(), v.y - v.y.floor());
         let old_entry = d.list.run(drid).entry().map(|e| e + down.space_at);
         let changed = {
             let dr = d.list.run(drid);
-            is_new
-                || dr.row != row
-                || dr.start != lead as f64
-                || dr.across != pc0 as f64
-                || dr.gap != gap
-                || fraction(dr.raw) != fraction(raw)
-                || dr.line != line as f64
+            // What every child's own layout or record holds: its direction,
+            // the gap each carries, its line's breadth. A move of the run, by
+            // any amount, or of where its first child starts, is only where
+            // the sums place them — rounded again lazily, when read.
+            is_new || dr.row != row || dr.gap != gap || dr.line != line as f64
         };
         {
             let dr = d.list.run_mut(drid);
@@ -717,9 +747,28 @@ impl Renderer {
             dr.line = line as f64;
             dr.cut = down.cut;
         }
+        d.list.resum(drid);
         let every = all || changed;
+        let local = |v: (f32, f32)| (v.0 - down.space_at.x as f32, v.1 - down.space_at.y as f32);
+        d.contexts.insert(
+            drid,
+            RunContext {
+                order: order.clone(),
+                owner,
+                id,
+                rid,
+                transform: down.transform,
+                place: Place {
+                    at: local(down.place.at),
+                    raw: local(down.place.raw),
+                    block: local(down.place.block),
+                },
+                space: down.space.clone(),
+                clip: down.clip,
+                effect: down.effect,
+            },
+        );
         let mut shift: Option<f64> = d.shifts.remove(&drid);
-        let mut after = false;
         let keys: Vec<OrderKey> = if every {
             node.children.entries().map(|(k, _)| k.clone()).collect()
         } else {
@@ -764,13 +813,13 @@ impl Renderer {
                 down.clip,
                 None,
                 down.effect,
-                (down.remade, every || after),
+                (down.remade, every),
                 Some((drid, k.clone())),
             );
-            let delta = Vec2::new(
-                (item.at.0 - item.raw.0) as f64,
-                (item.at.1 - item.raw.1) as f64,
-            );
+            let delta = {
+                let (raw, at) = d.list.run(drid).place(before, offset);
+                at - raw
+            };
             d.list.place_child(
                 drid,
                 k.clone(),
@@ -780,19 +829,9 @@ impl Renderer {
             if grew != 0.0 {
                 let start = d.list.space_at(down.space) + d.list.run(drid).place(before, offset).1;
                 let start = if row { start.x } else { start.y };
+                // The children after it move by the sums; any it moves by a
+                // fraction of a pixel round anew when they are next read.
                 shift = Some(shift.map_or(start, |s: f64| s.min(start)));
-                if !every && !after && (grew - grew.round()).abs() > 1e-4 {
-                    // Every child after it rounds where it now falls.
-                    after = true;
-                    let later: Vec<OrderKey> = d
-                        .list
-                        .run(drid)
-                        .keys_after(&k)
-                        .into_iter()
-                        .filter(|l| !seen.contains(l))
-                        .collect();
-                    queue.extend(later);
-                }
             }
         }
         d.list.flush();
@@ -815,6 +854,99 @@ impl Renderer {
             }
         }
     }
+}
+
+impl Renderer {
+    /// Run `drid`'s child `key` rounded where the run's sums now place it:
+    /// its subtree's boxes and chunks made again as a walk through its run
+    /// would make them.
+    pub(super) fn reround(&mut self, d: &mut Drawing, scene: &Scene, drid: RunId, key: &OrderKey) {
+        let Some(ctx) = d.contexts.get(&drid).cloned() else {
+            return;
+        };
+        let space_at = d.list.space_at(&ctx.space);
+        let abs = |v: (f32, f32)| (v.0 + space_at.x as f32, v.1 + space_at.y as f32);
+        let place = Place {
+            at: abs(ctx.place.at),
+            raw: abs(ctx.place.raw),
+            block: abs(ctx.place.block),
+        };
+        let size = d.laid.tree(ctx.owner).unrounded_layout(ctx.id).size;
+        let Some((run, asked, lead)) = d.laid.run_places(ctx.rid, size) else {
+            return;
+        };
+        let line = asked.line;
+        let Some(s) = asked.sizes.get(key).copied() else {
+            return;
+        };
+        let offset = run.across(line, &s, run.children[key].stretch) as f64;
+        let (pc0, _) = run.padding_across();
+        let (row, gap, child_node) = (run.row, run.gap as f64, run.children[key].node);
+        self.relay(&mut d.laid.runs, ctx.rid, key, line);
+        let before = d.list.run(drid).prefix(key);
+        let item = child_place(place, row, lead as f64 + before, pc0 as f64 + offset);
+        let item_at = Vec2::new(item.at.0 as f64, item.at.1 as f64);
+        let mut order = ctx.order.clone();
+        order.push(key.clone());
+        let Some(node) = scene.at(&order) else {
+            return;
+        };
+        let mut walk = Walk {
+            scene,
+            dirty: &|_| false,
+            reflow: None,
+            path: None,
+            damage: None,
+            fresh: None,
+            images: false,
+        };
+        self.blobs = std::mem::take(&mut d.blobs);
+        self.sync(
+            d,
+            &mut walk,
+            node,
+            order,
+            Owner::Run(ctx.rid),
+            child_node,
+            ctx.transform,
+            item,
+            (&Space::Item(drid, key.clone()), item_at),
+            ctx.clip,
+            None,
+            ctx.effect,
+            (false, true),
+            Some((drid, key.clone())),
+        );
+        d.blobs = std::mem::take(&mut self.blobs);
+        let delta = {
+            let (raw, at) = d.list.run(drid).place(before, offset);
+            at - raw
+        };
+        d.list.place_child(
+            drid,
+            key.clone(),
+            Some(Placed::new(s.along as f64, gap, offset, delta)),
+        );
+        if walk.images {
+            let _ = self.settle_images(d);
+        }
+    }
+}
+
+/// Where a run is and what its children are drawn under, as the last walk
+/// through it found: what rounding a child of it again, lazily, starts from.
+/// Its places are in its space's coordinates.
+#[derive(Clone)]
+pub(super) struct RunContext {
+    pub(super) order: Order,
+    pub(super) owner: Owner,
+    pub(super) id: NodeId,
+    pub(super) rid: u32,
+    pub(super) transform: Id,
+    pub(super) place: Place,
+    pub(super) space: Space,
+    pub(super) clip: Id,
+    pub(super) effect: Option<Id>,
 }
 
 /// What a node's children are visited under.
