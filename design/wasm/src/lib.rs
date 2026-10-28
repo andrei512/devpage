@@ -1,11 +1,10 @@
 //! The design engine for the browser. Each canvas holds a `Design`: the scene
-//! its watch stream built, laid out once per change, painted on the GPU by
-//! `Gpu` or on the CPU by `Design::paint`, and hit-tested for clicks.
+//! its watch stream built and the drawing made from it — updated by each
+//! patch — whose tiles `Gpu` paints and composites on the GPU, or a worker
+//! paints on the CPU with `Design::paint_tile`, and which answers clicks.
 
 use devpage_design::proto::{Update, update::Body};
-use devpage_design::render::{Drawing, Frame, paint_list};
-use devpage_design::resolve::Node;
-use devpage_design::{Renderer, Scene, Theme, wire};
+use devpage_design::{Drawing, Renderer, Scene, Theme, wire};
 use prost::Message;
 use wasm_bindgen::prelude::*;
 
@@ -33,16 +32,16 @@ pub struct Design {
     engine: Renderer,
     scene: Option<Scene>,
     problems: Vec<String>,
-    /// The scene laid out and turned into its display list, once per change.
-    /// The page sees only the drawing, with its top-left at `(0, 0)`.
-    laid_out: Option<Drawing>,
-    /// The drawing as chunks under property trees, with its index: what
-    /// tiles are painted from.
-    list: Option<devpage_design::display::List>,
-    /// Whether the scene or the theme changed since `laid_out` was made,
-    /// which is then kept for the next drawing to paint its images if they
-    /// are the same.
+    /// The scene laid out and made into its display list in `theme`,
+    /// updated by each patch; `None` before a scene, or when the scene can't
+    /// be drawn — the server reports that as the design's problem.
+    drawing: Option<Drawing>,
+    /// The scene or the theme changed in a way a patch doesn't carry: the
+    /// next drawing is made afresh, after the last one.
     stale: bool,
+    /// How many times the scene has changed: a canvas's tiles are of one
+    /// generation.
+    generation: u32,
     /// The theme the page draws this design in.
     theme: Theme,
 }
@@ -87,9 +86,9 @@ impl Design {
             engine: Renderer::new(),
             scene: None,
             problems: Vec::new(),
-            laid_out: None,
-            list: None,
+            drawing: None,
             stale: false,
+            generation: 0,
             theme: Theme::Light,
         }
     }
@@ -127,10 +126,24 @@ impl Design {
                     .take()
                     .map(|s| (s.images, s.fonts))
                     .unwrap_or_default();
-                wire::decode_scene(&whole, (&images, &fonts)).map(|scene| self.scene = Some(scene))
+                wire::decode_scene(&whole, (&images, &fonts)).map(|scene| {
+                    self.scene = Some(scene);
+                    self.stale = true;
+                })
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
-                Some(scene) => wire::apply(scene, &patch),
+                Some(scene) => {
+                    let old = scene.clone();
+                    wire::apply(scene, &patch).map(|()| {
+                        // The drawing follows the patch, by what it changed.
+                        if let Some(d) = self.drawing.as_mut()
+                            && !self.stale
+                            && d.update(&mut self.engine, &old, scene).is_err()
+                        {
+                            self.drawing = None;
+                        }
+                    })
+                }
                 None => return Applied::Nothing,
             },
             Some(Body::Problems(problems)) => {
@@ -146,7 +159,7 @@ impl Design {
             return Applied::Problems;
         }
         self.problems.clear();
-        self.stale = true;
+        self.generation += 1;
         Applied::Changed
     }
 
@@ -160,128 +173,78 @@ impl Design {
     /// or empty before the first scene.
     pub fn size(&mut self) -> Vec<f32> {
         match self.laid_out() {
-            Some(l) => vec![l.area.width, l.area.height],
+            Some(d) => vec![d.area().width, d.area().height],
             None => Vec::new(),
         }
     }
 
     /// The interaction of the topmost node at `(x, y)`, in the drawing's
-    /// pixels, that has one.
+    /// pixels, that has one: asked of the drawing's index.
     pub fn action_at(&mut self, x: f32, y: f32) -> Option<String> {
-        let root = self.scene.as_ref()?.root.clone();
-        let laid_out = self.laid_out()?;
-        let (x, y) = (x + laid_out.area.x, y + laid_out.area.y);
-        let mut found = None;
-        hit(&root, &laid_out.frames, &mut 0, x, y, None, &mut found);
-        found
+        let d = self.laid_out()?;
+        let area = d.area();
+        d.action_at(x + area.x, y + area.y).map(str::to_string)
     }
 
     /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with
     /// `vello_cpu`: 256 device pixels a side, straight alpha.
     pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
-        let list = self.list()?;
-        let rgba = devpage_design::tiles::tile(list, scale as f64, col, row);
+        let d = self.laid_out()?;
+        let rgba = devpage_design::tiles::tile(&d.list, scale as f64, col, row);
         Some(Pixels {
             width: devpage_design::tiles::TILE,
             height: devpage_design::tiles::TILE,
             rgba,
         })
     }
-
-    /// Paints the design on the CPU with `vello_cpu`, at `scale` device
-    /// pixels per design pixel.
-    pub fn paint(&mut self, scale: f32) -> Option<Pixels> {
-        let laid_out = self.laid_out()?;
-        let pixmap = paint_list(laid_out.area, &laid_out.list, scale);
-        let mut rgba = pixmap.data_as_u8_slice().to_vec();
-        for px in rgba.as_chunks_mut::<4>().0 {
-            let a = px[3] as u32;
-            if a != 0 && a != 255 {
-                for c in &mut px[..3] {
-                    *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
-                }
-            }
-        }
-        Some(Pixels {
-            width: pixmap.width() as u32,
-            height: pixmap.height() as u32,
-            rgba,
-        })
-    }
 }
 
 impl Design {
-    /// The drawing, laid out once per change — painting the last drawing's
-    /// images when it paints the same ones, so the GPU keeps them. A drawing
-    /// that can't be painted — too big, or its images too many for the GPU —
-    /// has none; the server reports it as the design's problem.
-    fn list(&mut self) -> Option<&devpage_design::display::List> {
-        self.laid_out()?;
-        self.list.as_ref()
-    }
-
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     fn theme(&self) -> Theme {
         self.theme
     }
 
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn generation(&self) -> u32 {
+        self.generation
+    }
+
+    /// The drawing — made afresh after a whole scene or a theme switch,
+    /// painting the last drawing's images when it paints the same ones, so
+    /// the GPU keeps them.
     fn laid_out(&mut self) -> Option<&Drawing> {
-        if self.stale || self.laid_out.is_none() {
+        if self.stale || self.drawing.is_none() {
             self.stale = false;
             let scene = self.scene.as_ref()?;
-            let last = self.laid_out.take();
-            self.laid_out = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
-            self.list = self.laid_out.as_ref().map(|d| {
-                let frames = d.frames.clone();
-                self.engine.chunked(scene, &frames, self.theme)
-            });
+            let last = self.drawing.take();
+            self.drawing = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
         }
-        self.laid_out.as_ref()
+        self.drawing.as_ref()
     }
 }
 
-/// Walks in paint order, so the last hit is the topmost. Inside a clipping
-/// frame only what it shows can be clicked, as only that is painted.
-fn hit(
-    node: &Node,
-    frames: &[Frame],
-    at: &mut usize,
-    x: f32,
-    y: f32,
-    clip: Option<Frame>,
-    found: &mut Option<String>,
-) {
-    let f = frames[*at];
-    *at += 1;
-    let inside = |r: Frame| x >= r.x && y >= r.y && x < r.x + r.width && y < r.y + r.height;
-    let shown = clip.is_none_or(inside);
-    if let Some(action) = &node.on_click
-        && shown
-        && inside(f)
-    {
-        *found = Some(action.clone());
-    }
-    let clip = if node.clip {
-        Some(clip.map_or(f, |c| intersect(c, f)))
-    } else {
-        clip
-    };
-    for child in &node.children {
-        hit(child, frames, at, x, y, clip, found);
-    }
-}
-
-fn intersect(a: Frame, b: Frame) -> Frame {
-    let (x0, y0) = (a.x.max(b.x), a.y.max(b.y));
-    let (x1, y1) = (
-        (a.x + a.width).min(b.x + b.width),
-        (a.y + a.height).min(b.y + b.height),
-    );
-    Frame {
-        x: x0,
-        y: y0,
-        width: (x1 - x0).max(0.0),
-        height: (y1 - y0).max(0.0),
+#[cfg(test)]
+impl Design {
+    /// The whole drawing painted on the CPU at `scale`, as its tiles are,
+    /// in one: straight alpha.
+    fn paint(&mut self, scale: f32) -> Option<Pixels> {
+        let d = self.laid_out()?;
+        let a = d.area();
+        let rect = vello::kurbo::Rect::new(
+            a.x as f64,
+            a.y as f64,
+            (a.x + a.width) as f64,
+            (a.y + a.height) as f64,
+        );
+        let pixmap = devpage_design::render::paint_area(&d.list, rect, scale as f64);
+        let mut rgba = pixmap.data_as_u8_slice().to_vec();
+        devpage_design::tiles::unpremultiply(&mut rgba);
+        Some(Pixels {
+            width: pixmap.width() as u32,
+            height: pixmap.height() as u32,
+            rgba,
+        })
     }
 }
 
@@ -378,7 +341,7 @@ mod tests {
                 assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
             }
             let frames = server.layout(scene);
-            assert_eq!(design.laid_out().unwrap().frames, frames);
+            assert_eq!(design.laid_out().unwrap().frames(), frames);
             let png = devpage_design::png(&mut server, scene, Theme::Light).unwrap();
             let (expected, w, h) = devpage_design::render::pixels(&png).unwrap();
             let mut painted = design.paint(1.0).unwrap();

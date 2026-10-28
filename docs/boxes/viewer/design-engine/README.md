@@ -235,6 +235,9 @@ nesting would:
   alike, within a bound (a shadow's pieces) — each with the clip it is drawn
   inside.
 
+A shadow's layers are made as property-tree nodes too, as its commands are
+built (`design/src/display.rs`), so no command opens or closes anything.
+
 A command's **property state** is its three nodes. To paint any subset of
 the list, in paint order, the painter opens and closes exactly the layers
 each command's state needs: it closes the effects and clips the next command
@@ -305,8 +308,13 @@ cache holds a capped number of tiles and drops the least recently used. A
 theme has tiles of its own, so switching back to one is instant.
 
 An update to the scene marks **damage**: for each chunk it touched, the
-bounds it had and the bounds it has. Only the cached tiles that overlap the
-damage go stale; the rest are kept.
+bounds it had and the bounds it has — and, when the drawing's area grows or
+shrinks along its right or bottom edge, the strip it gained or lost. Only the
+cached tiles that overlap the damage go stale; the rest are kept. An update
+that moves the area's top-left moves every tile's place, so every tile goes
+stale. The cache (`design/src/tiles.rs`) holds whatever a tile is to its
+user — pixels in the server, a texture on the GPU — and a stale tile stays in
+it, marked so, until it is painted again.
 
 ### Incremental updates
 

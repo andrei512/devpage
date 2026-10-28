@@ -19,7 +19,9 @@ sha2 = "0.10.9"
 guillotiere = "0.7.0"
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"], optional = true }
 tonic-prost = { version = "0.14.6", optional = true }
-rstar = "0.13"
+# 0.13.0 panics inserting into a tree it bulk-loaded and then removed from
+# ("This is a bug in rstar"); the index does exactly that on every update.
+rstar = "0.12"
 
 [features]
 # The server side of the `Designs` watch service, which `devpage` serves.

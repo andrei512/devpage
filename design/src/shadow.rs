@@ -25,6 +25,7 @@ use vello_cpu::kurbo::{Affine, BezPath, Ellipse as KEllipse, Point, Rect, Rounde
 use vello_cpu::peniko::{Blob, Color as PColor, Gradient, ImageAlphaType, ImageData, ImageFormat};
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
+use crate::display::{Blend, Builder};
 use crate::render::{Draw, Paint};
 use crate::resolve::Rgba;
 
@@ -290,7 +291,7 @@ pub fn shadow(
     outline: Outline,
     std_dev: f64,
     c: Rgba,
-    list: &mut Vec<Draw>,
+    list: &mut Builder,
     images: &mut Vec<ImageData>,
 ) {
     shadow_with(outline, std_dev, c, list, images, SINGLE)
@@ -301,7 +302,7 @@ pub fn shadow_with(
     outline: Outline,
     std_dev: f64,
     c: Rgba,
-    list: &mut Vec<Draw>,
+    list: &mut Builder,
     images: &mut Vec<ImageData>,
     single: usize,
 ) {
@@ -311,7 +312,7 @@ pub fn shadow_with(
     }
     let color = PColor::from_rgba8(c.r, c.g, c.b, c.a);
     if std_dev <= 0.0 {
-        list.push(Draw::Fill(outline.path(), Paint::Solid(color)));
+        list.draw(Draw::Fill(outline.path(), Paint::Solid(color)));
         return;
     }
     let step = std_dev / 2.0;
@@ -328,7 +329,7 @@ pub fn shadow_with(
         let values = blurred(&path, grid, 0, 0, nx, ny);
         let data = image(&values, nx, ny, c, c.a as f32);
         images.push(data.clone());
-        list.push(Draw::Fill(
+        list.draw(Draw::Fill(
             grid.rect(0, 0, nx as isize, ny as isize).to_path(0.1),
             Paint::Image(data, grid.place(0, 0)),
         ));
@@ -340,10 +341,10 @@ pub fn shadow_with(
         Outline::Ellipse(e) => ellipse(e, std_dev, grid, nx, ny),
     };
     let extent = grid.rect(0, 0, nx, ny);
-    list.push(Draw::PushOpacity(
-        c.a as f32 / 255.0,
+    list.push_layer(
+        Blend::Opacity(c.a as f32 / 255.0),
         Some(extent.to_path(0.1)),
-    ));
+    );
     let opaque = Rgba { a: 255, ..c };
     let paint_over = |clip: &BezPath| clip.bounding_box().inflate(MARGIN, MARGIN).to_path(0.1);
     for piece in pieces {
@@ -381,11 +382,11 @@ pub fn shadow_with(
         };
         // The piece's own edge cuts it, anti-aliased, so where two meet each
         // adds its share of the pixel; the layer reaches well past it.
-        list.push(Draw::PushAdd(paint_over(&clip)));
-        list.push(Draw::Fill(clip, paint));
-        list.push(Draw::Pop);
+        list.push_layer(Blend::Add, Some(paint_over(&clip)));
+        list.draw(Draw::Fill(clip, paint));
+        list.pop();
     }
-    list.push(Draw::Pop);
+    list.pop();
 }
 
 /// The blurred edge of a disc of `radius` around `center`, as a radial
@@ -829,7 +830,8 @@ fn ellipse(e: Rect, std_dev: f64, grid: Grid, nx: isize, ny: isize) -> Vec<Piece
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{Frame, compare, paint_list};
+    use crate::display::List;
+    use crate::render::{Frame, compare, paint_area};
 
     /// The most a shadow in pieces may differ from the same shadow as one
     /// image, in any channel of 255, by how wide its blur is on the screen:
@@ -859,26 +861,26 @@ mod tests {
             a: 200,
         };
         let paint = |single: usize, scale: f32| {
-            let mut list = Vec::new();
-            shadow_with(outline, std_dev, color, &mut list, &mut Vec::new(), single);
             let area = Frame {
                 x: 0.0,
                 y: 0.0,
                 width: 360.0,
                 height: 220.0,
             };
-            let p = paint_list(area, &list, scale);
-            (
-                p.data_as_u8_slice().to_vec(),
-                p.width() as usize,
-                list.len(),
-            )
+            let list = List::of(area, |b| {
+                shadow_with(outline, std_dev, color, b, &mut Vec::new(), single)
+            });
+            let p = paint_area(&list, Rect::new(0.0, 0.0, 360.0, 220.0), scale as f64);
+            // How many commands, and how many layers they are drawn in.
+            let chunk = list.chunk(&vec![0]).unwrap();
+            let shape = (chunk.commands.len(), chunk.made.effects.len());
+            (p.data_as_u8_slice().to_vec(), p.width() as usize, shape)
         };
         for &scale in scales {
             let (one, width, single_list) = paint(usize::MAX, scale);
             let (pieces, _, pieced_list) = paint(0, scale);
-            assert_eq!(single_list, 1, "{case}");
-            assert!(pieced_list > 3, "{case} isn't in pieces");
+            assert_eq!(single_list, (1, 0), "{case}");
+            assert!(pieced_list.1 > 1, "{case} isn't in pieces");
             let d = compare(&one, &pieces, width).unwrap();
             assert!(
                 d.within_tolerance() && d.max <= bound(std_dev, scale),

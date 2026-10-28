@@ -15,7 +15,7 @@ pub mod wire;
 
 use std::fmt;
 
-pub use render::Renderer;
+pub use render::{Damage, Drawing, Renderer};
 pub use resolve::{Files, Scene, Theme, resolve};
 
 /// Something wrong with a design, at a place in one of its files.
@@ -37,13 +37,12 @@ impl fmt::Display for Problem {
 }
 
 /// Paints a scene's whole drawing at 1× in `theme` and encodes it as a PNG,
-/// or says why it can't: see [`Renderer::drawing`].
+/// band by band, or says why it can't: see [`Renderer::drawing`].
 pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u8>, String> {
     let drawing = renderer
         .drawing(scene, theme, None)
         .map_err(|e| e.message)?;
-    let list = renderer.chunked(scene, &drawing.frames, theme);
     let mut png = Vec::new();
-    tiles::png(&list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
+    tiles::png(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
     Ok(png)
 }

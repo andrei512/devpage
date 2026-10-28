@@ -21,7 +21,7 @@ pub struct Rgba {
 }
 
 /// Which of a design's two themes it is drawn in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Theme {
     #[default]
     Light,
