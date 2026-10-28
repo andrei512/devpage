@@ -146,7 +146,8 @@ mod tests {
     /// A served folder `served/` beside a secret `outside.txt`, with a
     /// symbolic link inside pointing out.
     fn fixture(name: &str) -> (PathBuf, ServedFolder) {
-        let top = std::env::temp_dir().join(format!("devpage-served-{name}"));
+        let top =
+            std::env::temp_dir().join(format!("devpage-served-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&top);
         std::fs::create_dir_all(top.join("served/docs")).unwrap();
         std::fs::write(top.join("outside.txt"), "secret").unwrap();

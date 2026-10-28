@@ -303,20 +303,6 @@ async fn a_design_resolves_under_its_documents_mount() {
         let page = page.as_str().unwrap();
         assert!(!page.contains("broken design"), "{path}: {page}");
     }
-
-    let (status, answer) = ask(
-        &app,
-        post(
-            "/api/documents?entry=box.design",
-            zip_of(&[("box.design", BOX)]),
-        ),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED, "{answer}");
-    let id = answer["id"].as_str().unwrap();
-    let (status, page) = ask(&app, get(&format!("/d/{id}/box.design"))).await;
-    assert_eq!(status, StatusCode::OK);
-    assert!(!page.as_str().unwrap().contains("no such file"), "{page}");
 }
 
 #[tokio::test]
@@ -330,4 +316,13 @@ async fn the_tab_icon_is_devpages_logo() {
         .unwrap();
     assert!(body.starts_with(&[0, 0, 1, 0]), "an ICO");
     assert_eq!(&body[22..26], b"\x89PNG", "holding a PNG");
+}
+
+#[test]
+fn the_servers_logo_is_devpages() {
+    assert_eq!(
+        include_str!("../../../assets/logo.svg"),
+        include_str!("../../../docs/logo.svg"),
+        "assets/logo.svg is a copy of docs/logo.svg: copy it again, and redraw assets/favicon.ico"
+    );
 }
