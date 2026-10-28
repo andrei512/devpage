@@ -122,12 +122,18 @@ async fn a_page_open_at_the_link_swaps_in_each_new_version() {
     // The link leads to the doc's address, still under the document.
     let at: String = eval(&page, "location.pathname").await;
     assert_eq!(at, format!("/d/{id}/devpage.yml"));
+    // Gone if the page is loaded again rather than swapped.
+    eval::<bool>(&page, "window.sameLoad = true").await;
 
     publish(&base, Some(&id), doc("The second plan.")).await;
     until(&page, &format!("{TEXT}.includes('The second plan.')")).await;
     until(&page, &format!("{MENU} === 'Version 2 · latest'")).await;
     // Swapped in place, at the same address: the latest, not version 2's.
     assert_eq!(eval::<String>(&page, "location.pathname").await, at);
+    assert!(
+        eval::<bool>(&page, "window.sameLoad === true").await,
+        "swapped, not reloaded"
+    );
     // And the next publish reaches it too.
     publish(&base, Some(&id), doc("The third plan.")).await;
     until(&page, &format!("{TEXT}.includes('The third plan.')")).await;

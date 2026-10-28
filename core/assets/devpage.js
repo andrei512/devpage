@@ -337,8 +337,11 @@ function keepUnchanged(page, staging) {
 // this script adds while the comments are shown and no fetched page carries;
 // and the devpage build that rendered it, so a page from a new build — a new
 // page script, a new stylesheet — is loaded whole.
+// The body's classes this script adds itself, which no served page carries.
+const OWN_CLASSES = new Set(["show-comments", "with-versions", "with-version-banner"]);
+
 function frameOf(body) {
-  const classes = [...body.classList].filter((name) => name !== "show-comments").sort();
+  const classes = [...body.classList].filter((name) => !OWN_CLASSES.has(name)).sort();
   return [...classes, `build:${body.dataset.build}`].join(" ");
 }
 
