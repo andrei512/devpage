@@ -1,5 +1,14 @@
 # A feature a user sees arrives on the deck
 
+<Callout kind="tip" title="A review rule, written for the AI reviewer">
+
+This file is a constraint for automated AI code review. On every change, whatever it touches, the
+reviewer reads it and checks the diff against the rule below; a change that
+breaks it is a finding. People can read it too, but it is written to be
+checked: the rule, why it holds, and how a breach shows.
+
+</Callout>
+
 <Callout kind="note" title="The rule">
 
 A change that adds or changes something a devpage user sees — a kind of
