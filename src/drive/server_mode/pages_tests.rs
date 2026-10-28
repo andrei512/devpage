@@ -318,3 +318,16 @@ async fn a_design_resolves_under_its_documents_mount() {
     assert_eq!(status, StatusCode::OK);
     assert!(!page.as_str().unwrap().contains("no such file"), "{page}");
 }
+
+#[tokio::test]
+async fn the_tab_icon_is_devpages_logo() {
+    let app = router(&config("favicon")).unwrap();
+    let response = app.oneshot(get("/favicon.ico")).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "image/x-icon");
+    let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert!(body.starts_with(&[0, 0, 1, 0]), "an ICO");
+    assert_eq!(&body[22..26], b"\x89PNG", "holding a PNG");
+}

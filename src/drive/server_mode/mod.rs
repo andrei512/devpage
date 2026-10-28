@@ -123,6 +123,7 @@ pub fn router(config: &Config) -> Result<Router> {
     Ok(Router::new()
         .merge(api)
         .route("/", get(pages::front))
+        .route("/favicon.ico", get(pages::favicon))
         .route("/d/{id}", get(versions::to_folder))
         .route("/d/{id}/", any(versions::latest_root))
         .route("/d/{id}/{*rest}", any(versions::in_document))

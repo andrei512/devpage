@@ -50,6 +50,22 @@ pub async fn front(headers: HeaderMap) -> Html<String> {
     )
 }
 
+/// `/favicon.ico`: devpage's logo, the tab icon of the front page and of
+/// every published page whose document has no logo of its own.
+pub async fn favicon() -> impl IntoResponse {
+    (
+        [
+            (header::CONTENT_TYPE, "image/x-icon"),
+            (header::CACHE_CONTROL, "public, max-age=86400"),
+        ],
+        FAVICON,
+    )
+}
+
+/// `assets/logo.svg` drawn at 64 pixels, as an ICO: the one format every
+/// browser takes at `/favicon.ico`.
+const FAVICON: &[u8] = include_bytes!("../../../assets/favicon.ico");
+
 /// The front page, with `{{…}}` where the server fills it in.
 const FRONT: &str = include_str!("../../../assets/server-front.html");
 
