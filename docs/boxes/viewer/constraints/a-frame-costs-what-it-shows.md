@@ -4,7 +4,9 @@
 
 A design has no size limit. Painting a view of a design costs what the view
 shows, and applying an edit costs what the edit changed — never the size of
-the whole design. Nothing that paints a frame, a tile or a PNG band, applies
+the whole design, nor the number of siblings beside what changed. The one
+step that stays linear is reading the file that was saved: parsing it and
+matching its elements against the last parse. Nothing that paints a frame, a tile or a PNG band, applies
 a patch or answers a click walks every node or every command; it asks the
 [index](../design-engine/README.md#the-index) what touches the area. A pan or
 a zoom repaints nothing: it moves and scales tiles already painted.
@@ -28,4 +30,7 @@ drawing from a new scene is the finding. Tests pin it on a design 100,000
 pixels tall: the canvas paints only the tiles of its view; a pan's cost doesn't
 grow with the design; the GPU and the CPU agree on a zoomed-in view; its PNG
 is made holding one band; and an edit to one node repaints only the tiles
-around it, in the browser and in the server.
+around it, in the browser and in the server. An edit to one item of a list,
+and an item inserted before its first, cost the same at 1,000, 10,000 and
+100,000 siblings, from the save to the patch to the drawing; and a drawing
+1,000,000 pixels wide has its PNG made within the band's bytes.
