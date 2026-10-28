@@ -152,11 +152,14 @@ pub struct Hit {
 /// One scene node's own commands, in its own coordinates, and their index.
 pub struct Chunk {
     pub transform: Id,
-    /// Where its coordinates' origin is in the design's.
+    /// The space its coordinates are in: the design's, or a run child's.
+    pub space: Space,
+    /// Where its coordinates' origin is in its space's.
     pub origin: Vec2,
     pub commands: Vec<Command>,
     pub(super) index: RTree<Local>,
-    /// What cuts it in the design's coordinates: its clipping frames' boxes.
+    /// What cuts it in its space's coordinates: its clipping frames' boxes,
+    /// those inside its space.
     pub cut: Option<KRect>,
     /// What it covers for the drawing's area, in its own coordinates, uncut:
     /// each shape, line and blur by itself.
@@ -175,6 +178,7 @@ impl Chunk {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         transform: Id,
+        space: Space,
         origin: Vec2,
         (commands, made): (Vec<Command>, Made),
         covers: Vec<KRect>,
@@ -193,6 +197,7 @@ impl Chunk {
         );
         let mut chunk = Chunk {
             transform,
+            space,
             origin,
             commands,
             index,

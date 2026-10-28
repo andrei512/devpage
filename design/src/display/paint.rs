@@ -36,7 +36,7 @@ pub fn paint(list: &List, area: KRect, scale: f64, target: &mut impl Target) {
     let pixels = KRect::new(0.0, 0.0, area.width() * scale, area.height() * scale);
     let mut open: Vec<Layer> = Vec::new();
     let place = |transform: Id| view * Affine::translate(list.world(transform));
-    for (chunk, command) in list.query(area, 1.0 / scale) {
+    for (origin, _, command) in list.query(area, 1.0 / scale) {
         let want = layers(list, command.clip, command.effect);
         let keep = open.iter().zip(&want).take_while(|(a, b)| a == b).count();
         while open.len() > keep {
@@ -56,7 +56,7 @@ pub fn paint(list: &List, area: KRect, scale: f64, target: &mut impl Target) {
             }
             open.push(*layer);
         }
-        target.draw(&command.draw, view * Affine::translate(chunk.origin));
+        target.draw(&command.draw, view * Affine::translate(origin));
     }
     for _ in open {
         target.pop();

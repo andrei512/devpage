@@ -640,3 +640,109 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
         sent = next;
     }
 }
+
+/// A column of `n` rows, each `heights(i)` tall with a line of text in it,
+/// saved through `saves`, and the row at `edit` given `label`, the row at
+/// `grow` 8 px taller, and a row before the first when `front`.
+fn column_saved(
+    saves: &mut crate::ids::testing::Saves,
+    n: usize,
+    label: (usize, &str),
+    grow: Option<usize>,
+    front: bool,
+    fractional: bool,
+) -> Scene {
+    let mut rows = String::new();
+    let height = |i: usize| {
+        let h = if Some(i) == grow { 28 } else { 20 };
+        if fractional {
+            String::new()
+        } else {
+            format!(" height={{{h}}}")
+        }
+    };
+    if front {
+        rows.push_str(&format!(
+            "<Frame width={{400}}{}><Text>first</Text></Frame>",
+            height(usize::MAX)
+        ));
+    }
+    for i in 0..n {
+        let text = if i == label.0 {
+            label.1.to_string()
+        } else {
+            format!("Row {i}")
+        };
+        let pad = if Some(i) == grow && fractional {
+            " padding={4}"
+        } else {
+            ""
+        };
+        rows.push_str(&format!(
+            "<Frame width={{400}}{}{pad}><Text>{text}</Text></Frame>",
+            height(i)
+        ));
+    }
+    saves.save(
+        "a.design",
+        format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
+    );
+    saves.resolve("a.design")
+}
+
+/// What one edit to a column of `n` rows costs the drawing, in release:
+/// the update's time, and how many nodes it visited.
+fn column_edit(
+    n: usize,
+    edit: &dyn Fn(&mut crate::ids::testing::Saves) -> Scene,
+) -> (std::time::Duration, usize) {
+    let mut saves = crate::ids::testing::Saves::default();
+    let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
+    let old = if edit_fractional() {
+        column_saved(&mut saves, n, (usize::MAX, ""), None, false, true)
+    } else {
+        old
+    };
+    let new = edit(&mut saves);
+    let p = crate::wire::patch(&old, &new);
+    let mut held = crate::wire::decode_scene(
+        &crate::wire::scene(&old),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut r = Renderer::new();
+    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+    let t = std::time::Instant::now();
+    d.update(&mut r, &held, &applied).unwrap();
+    let took = t.elapsed();
+    (took, d.visited)
+}
+
+fn edit_fractional() -> bool {
+    std::env::var_os("DEVPAGE_FRACTIONAL").is_some()
+}
+
+/// The numbers for a column of 1,000, 10,000 and 100,000 rows: an edit that
+/// keeps a row's size, one that grows it, and a row inserted before the
+/// first. Run in release: `cargo test --release -p devpage-design
+/// column_edit_costs -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn column_edit_costs() {
+    let f = edit_fractional();
+    for n in [1_000, 10_000, 100_000] {
+        let text = column_edit(n, &|s| {
+            column_saved(s, n, (n / 2, "Edited"), None, false, f)
+        });
+        let grow = column_edit(n, &|s| {
+            column_saved(s, n, (usize::MAX, ""), Some(n / 2), false, f)
+        });
+        let front = column_edit(n, &|s| column_saved(s, n, (usize::MAX, ""), None, true, f));
+        eprintln!(
+            "{n:>7} rows: text {:?} ({} visited), grow {:?} ({} visited), front {:?} ({} visited)",
+            text.0, text.1, grow.0, grow.1, front.0, front.1
+        );
+    }
+}
