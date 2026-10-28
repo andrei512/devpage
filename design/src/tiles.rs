@@ -56,25 +56,65 @@ pub fn unpremultiply(rgba: &mut [u8]) {
 /// row of tiles, its rows streamed to the encoder, so memory holds one band.
 pub fn png(list: &List, out: impl Write) -> Result<(), png::EncodingError> {
     let (w, h) = (list.area.width as u32, list.area.height as u32);
-    let (w, h) = (w.max(1), h.max(1));
+    bands(w, h, out, |col, row| {
+        Ok::<_, std::convert::Infallible>(tile(list, 1.0, col, row))
+    })
+    .map_err(|e| match e {
+        Band::Encoding(e) => e,
+    })
+}
+
+/// Why writing a PNG from bands stopped: the encoder or its writer failed,
+/// or a tile couldn't be had.
+#[derive(Debug)]
+pub enum Band<E> {
+    Encoding(png::EncodingError),
+    Tile(E),
+}
+
+impl<E: std::fmt::Display> std::fmt::Display for Band<E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Band::Encoding(e) => write!(f, "{e}"),
+            Band::Tile(e) => write!(f, "{e}"),
+        }
+    }
+}
+
+/// A `width` × `height` PNG written to `out` band by band — one row of tiles
+/// at a time, each tile's straight RGBA pixels, `TILE` a side, from `tile`
+/// — its rows streamed to the encoder as each band is had, so what is held
+/// at once is one band of tiles.
+pub fn bands<P: AsRef<[u8]>, E>(
+    width: u32,
+    height: u32,
+    out: impl Write,
+    mut tile: impl FnMut(u32, u32) -> Result<P, E>,
+) -> Result<(), Band<E>> {
+    let (w, h) = (width.max(1), height.max(1));
     let mut encoder = png::Encoder::new(out, w, h);
     encoder.set_color(png::ColorType::Rgba);
     encoder.set_depth(png::BitDepth::Eight);
-    let mut header = encoder.write_header()?;
-    let mut writer = header.stream_writer()?;
+    let mut header = encoder.write_header().map_err(Band::Encoding)?;
+    let mut writer = header.stream_writer().map_err(Band::Encoding)?;
     let cols = w.div_ceil(TILE);
     for row in 0..h.div_ceil(TILE) {
-        let tiles: Vec<Vec<u8>> = (0..cols).map(|col| tile(list, 1.0, col, row)).collect();
+        let band = (0..cols)
+            .map(|col| tile(col, row))
+            .collect::<Result<Vec<P>, E>>()
+            .map_err(Band::Tile)?;
         let rows = (h - row * TILE).min(TILE);
         for y in 0..rows {
-            for (col, t) in tiles.iter().enumerate() {
+            for (col, t) in band.iter().enumerate() {
                 let across = (w - col as u32 * TILE).min(TILE) as usize;
                 let start = y as usize * TILE as usize * 4;
-                writer.write_all(&t[start..start + across * 4])?;
+                writer
+                    .write_all(&t.as_ref()[start..start + across * 4])
+                    .map_err(|e| Band::Encoding(e.into()))?;
             }
         }
     }
-    writer.finish()
+    writer.finish().map_err(Band::Encoding)
 }
 
 /// A scale tiles are painted at, to a 1/1024th: a level of the pyramid.
@@ -110,6 +150,18 @@ impl Key {
     }
 }
 
+/// What a cache keys its tiles by: a tile's [`Key`], with whatever else
+/// tells the cache's tiles apart — a server's design, say.
+pub trait Tiled: Copy + Eq + std::hash::Hash {
+    fn key(&self) -> Key;
+}
+
+impl Tiled for Key {
+    fn key(&self) -> Key {
+        *self
+    }
+}
+
 /// A cached tile: what it holds, what it costs, whether damage made it
 /// stale, and when it was last used.
 struct Entry<T> {
@@ -124,16 +176,16 @@ struct Entry<T> {
 /// dropped first. Damage marks the tiles it overlaps stale; a stale tile is
 /// still there, and says so, until it is painted again. What a tile holds is
 /// the cache's user's: pixels in the server, a texture on the GPU.
-pub struct Cache<T> {
+pub struct Cache<T, K: Tiled = Key> {
     cap: usize,
     cost: usize,
     clock: u64,
-    entries: HashMap<Key, Entry<T>>,
-    by_use: BTreeMap<u64, Key>,
+    entries: HashMap<K, Entry<T>>,
+    by_use: BTreeMap<u64, K>,
 }
 
-impl<T> Cache<T> {
-    pub fn new(cap: usize) -> Cache<T> {
+impl<T, K: Tiled> Cache<T, K> {
+    pub fn new(cap: usize) -> Cache<T, K> {
         Cache {
             cap,
             cost: 0,
@@ -144,7 +196,7 @@ impl<T> Cache<T> {
     }
 
     /// The tile at `key`, and whether it is stale; it counts as used.
-    pub fn get(&mut self, key: &Key) -> Option<(&T, bool)> {
+    pub fn get(&mut self, key: &K) -> Option<(&T, bool)> {
         self.clock += 1;
         let e = self.entries.get_mut(key)?;
         self.by_use.remove(&e.used);
@@ -154,14 +206,14 @@ impl<T> Cache<T> {
     }
 
     /// The tile at `key` and whether it is stale, without counting a use.
-    pub fn peek(&self, key: &Key) -> Option<(&T, bool)> {
+    pub fn peek(&self, key: &K) -> Option<(&T, bool)> {
         self.entries.get(key).map(|e| (&e.value, e.stale))
     }
 
     /// Keeps `value` as the current tile at `key`, costing `cost`, and drops
     /// the least recently used others until the cache is within its cap.
     /// Returns what was dropped.
-    pub fn insert(&mut self, key: Key, value: T, cost: usize) -> Vec<(Key, T)> {
+    pub fn insert(&mut self, key: K, value: T, cost: usize) -> Vec<(K, T)> {
         // The tile it replaces isn't dropped: it is the same tile, painted again.
         self.remove(&key);
         let mut dropped = Vec::new();
@@ -192,7 +244,7 @@ impl<T> Cache<T> {
     }
 
     /// Takes the tile at `key` out.
-    pub fn remove(&mut self, key: &Key) -> Option<T> {
+    pub fn remove(&mut self, key: &K) -> Option<T> {
         let e = self.entries.remove(key)?;
         self.by_use.remove(&e.used);
         self.cost -= e.cost;
@@ -203,11 +255,22 @@ impl<T> Cache<T> {
     /// the design's coordinates, the drawing's top-left at `origin` — at
     /// every level.
     pub fn damage(&mut self, theme: Theme, origin: (f64, f64), rects: &[KRect]) {
-        for (key, e) in &mut self.entries {
-            if key.theme != theme || e.stale {
+        self.damage_where(|k| k.key().theme == theme, origin, rects);
+    }
+
+    /// Marks stale every tile `which` picks that overlaps one of `rects`, as
+    /// [`Cache::damage`] does.
+    pub fn damage_where(
+        &mut self,
+        which: impl Fn(&K) -> bool,
+        origin: (f64, f64),
+        rects: &[KRect],
+    ) {
+        for (k, e) in &mut self.entries {
+            if e.stale || !which(k) {
                 continue;
             }
-            let r = key.rect(origin);
+            let r = k.key().rect(origin);
             if rects
                 .iter()
                 .any(|d| d.x0 < r.x1 && d.x1 > r.x0 && d.y0 < r.y1 && d.y1 > r.y0)
@@ -219,15 +282,28 @@ impl<T> Cache<T> {
 
     /// Marks every tile of `theme` stale.
     pub fn damage_all(&mut self, theme: Theme) {
-        for (key, e) in &mut self.entries {
-            if key.theme == theme {
+        self.damage_all_where(|k| k.key().theme == theme);
+    }
+
+    /// Marks every tile `which` picks stale.
+    pub fn damage_all_where(&mut self, which: impl Fn(&K) -> bool) {
+        for (k, e) in &mut self.entries {
+            if which(k) {
                 e.stale = true;
             }
         }
     }
 
+    /// Drops every tile `which` picks.
+    pub fn forget(&mut self, which: impl Fn(&K) -> bool) {
+        let gone: Vec<K> = self.entries.keys().filter(|k| which(k)).copied().collect();
+        for k in gone {
+            self.remove(&k);
+        }
+    }
+
     /// Every tile, with whether it is stale.
-    pub fn iter(&self) -> impl Iterator<Item = (&Key, &T, bool)> {
+    pub fn iter(&self) -> impl Iterator<Item = (&K, &T, bool)> {
         self.entries.iter().map(|(k, e)| (k, &e.value, e.stale))
     }
 
@@ -263,6 +339,56 @@ mod tests {
             col,
             row,
         }
+    }
+
+    /// The band writer holds one band of tiles at a time: every tile of a
+    /// band is let go before the next band's first is asked for, and the
+    /// rows it writes are the tiles' rows, in order.
+    #[test]
+    fn bands_hold_one_row_of_tiles_at_a_time() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+        struct Held(Vec<u8>, Rc<Cell<usize>>);
+        impl AsRef<[u8]> for Held {
+            fn as_ref(&self) -> &[u8] {
+                &self.0
+            }
+        }
+        impl Drop for Held {
+            fn drop(&mut self) {
+                self.1.set(self.1.get() - 1);
+            }
+        }
+        let (alive, most) = (Rc::new(Cell::new(0)), Cell::new(0));
+        let (w, h) = (600u32, 1000u32);
+        let mut png = Vec::new();
+        bands(w, h, &mut png, |col, row| {
+            alive.set(alive.get() + 1);
+            most.set(most.get().max(alive.get()));
+            // Each pixel says which tile it is in.
+            let px = [col as u8, row as u8, 0, 255];
+            Ok::<_, ()>(Held(px.repeat((TILE * TILE) as usize), alive.clone()))
+        })
+        .unwrap();
+        assert_eq!((alive.get(), most.get()), (0, 3));
+        let image = crate::resolve::decode(&png).unwrap();
+        assert_eq!((image.width, image.height), (w, h));
+        let at = |x: u32, y: u32| {
+            let i = ((y * w + x) * 4) as usize;
+            image.data.data()[i..i + 2].to_vec()
+        };
+        assert_eq!(at(599, 999), vec![2, 3]);
+        assert_eq!(at(256, 255), vec![1, 0]);
+        assert_eq!(at(255, 256), vec![0, 1]);
+        // A tile that can't be had stops the PNG there.
+        let stopped = bands(w, h, Vec::new(), |_, row| {
+            if row == 1 {
+                Err("no tile")
+            } else {
+                Ok(vec![0u8; (TILE * TILE * 4) as usize])
+            }
+        });
+        assert!(matches!(stopped, Err(Band::Tile("no tile"))));
     }
 
     #[test]

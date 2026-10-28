@@ -9,7 +9,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use devpage_design::fonts::FontFile;
+use devpage_design::render::{Drawing, Undrawable};
 use devpage_design::resolve::ImageFile;
+use devpage_design::tiles::{self, Cache, Key, Level, TILE, Tiled};
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
 use crate::served::ServedFolder;
@@ -19,6 +21,9 @@ use crate::served::ServedFolder;
 #[derive(Clone)]
 struct Resolved {
     result: Result<Scene, Vec<Problem>>,
+    /// Which resolve of the store's this was: the drawings kept for the
+    /// design show the scene of one resolve, and know which.
+    version: u64,
     asked: Vec<String>,
     /// The design's own file doesn't exist.
     missing: bool,
@@ -43,6 +48,36 @@ struct Source {
     font: Option<Result<Arc<FontFile>, String>>,
 }
 
+/// A design's drawings as the store keeps them: the scene they show — the
+/// result of resolve `version` — and its drawing in each theme it shows in.
+/// A later scene updates them by the patch from this one.
+struct Kept {
+    /// What tells this design's tiles apart in the store's cache.
+    id: u64,
+    version: u64,
+    scene: Scene,
+    drawings: Vec<Drawing>,
+}
+
+/// A tile in the store's cache: which kept design it is of, and which tile.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Tile {
+    design: u64,
+    key: Key,
+}
+
+impl Tiled for Tile {
+    fn key(&self) -> Key {
+        self.key
+    }
+}
+
+/// What the store's tiles may hold together: 64 MB of pixels.
+pub const TILES_CAP: usize = 64 << 20;
+
+/// What a tile's pixels cost in the cache.
+const TILE_BYTES: usize = (TILE * TILE * 4) as usize;
+
 /// What the store tells when a design's scene or problems change.
 type Listener = Box<dyn Fn(&str) + Send + Sync>;
 
@@ -56,6 +91,16 @@ struct Store {
     resolved: Mutex<HashMap<String, Resolved>>,
     /// Told the address of each design whose scene or problems changed.
     listeners: Mutex<Vec<Listener>>,
+    /// How many resolves the store has started, numbering each.
+    versions: std::sync::atomic::AtomicU64,
+    /// Each design's drawings, locked one design at a time; locked before
+    /// `renderer` and `tiles` whenever they are.
+    kept: Mutex<HashMap<String, Arc<Mutex<Option<Kept>>>>>,
+    /// Every design's tiles at 1×, in each theme, shared and capped.
+    tiles: Mutex<Cache<Arc<[u8]>, Tile>>,
+    /// How many tiles the store has painted, for the tests.
+    #[cfg(test)]
+    painted: std::sync::atomic::AtomicUsize,
     /// How many times a design was resolved, for the tests.
     #[cfg(test)]
     resolutions: std::sync::atomic::AtomicUsize,
@@ -246,13 +291,16 @@ impl Store {
             asked: RefCell::new(Vec::new()),
             seen: RefCell::new(Vec::new()),
         };
+        let version = 1 + self
+            .versions
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let result = guarded(
             path,
             || devpage_design::resolve(&reading, path),
             |p| vec![p],
         )
         .and_then(|scene| {
-            drawable(&mut lock(&self.renderer), path, &scene)?;
+            self.draw(path, &scene, version)?;
             Ok(scene)
         });
         let missing = lock(&self.sources)
@@ -260,10 +308,111 @@ impl Store {
             .is_none_or(|source| source.bytes.is_none());
         let resolved = Resolved {
             result,
+            version,
             asked: reading.asked.into_inner(),
             missing,
         };
         (resolved, reading.seen.into_inner())
+    }
+
+    /// The kept drawings of the design at `path`, made the first time.
+    fn kept(&self, path: &str) -> Arc<Mutex<Option<Kept>>> {
+        lock(&self.kept)
+            .entry(path.to_string())
+            .or_default()
+            .clone()
+    }
+
+    /// Brings the design at `path`'s kept drawings to `scene`, resolve
+    /// `version`'s: each theme's drawing updated by the patch from the scene
+    /// it shows — only the tiles over the damage going stale — or made, the
+    /// first time; a theme the design no longer shows in dropped, with its
+    /// tiles. Or why `scene` can't be drawn, its drawings `scene`'s all the
+    /// same, so the next scene updates from it.
+    fn draw(&self, path: &str, scene: &Scene, version: u64) -> Result<(), Vec<Problem>> {
+        let kept = self.kept(path);
+        let mut kept = lock(&kept);
+        self.bring(path, &mut kept, scene, version)
+    }
+
+    fn bring(
+        &self,
+        path: &str,
+        kept: &mut Option<Kept>,
+        scene: &Scene,
+        version: u64,
+    ) -> Result<(), Vec<Problem>> {
+        let themes = themes(scene);
+        let k = kept.get_or_insert_with(|| Kept {
+            id: self
+                .versions
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            version: 0,
+            scene: scene.clone(),
+            drawings: Vec::new(),
+        });
+        let id = k.id;
+        let mut renderer = lock(&self.renderer);
+        let mut broke: Option<Undrawable> = None;
+        let mut drawings = Vec::new();
+        for &theme in themes {
+            let at = k.drawings.iter().position(|d| d.theme() == theme);
+            let made = guarded(
+                path,
+                || match at {
+                    Some(i) => {
+                        let mut d = k.drawings.swap_remove(i);
+                        let done = d.update(&mut renderer, &k.scene, scene);
+                        let mut tiles = lock(&self.tiles);
+                        let mine = |t: &Tile| t.design == id && t.key.theme == theme;
+                        match &done {
+                            Ok(damage) if damage.all => tiles.damage_all_where(mine),
+                            Ok(damage) => {
+                                let a = d.area();
+                                tiles.damage_where(mine, (a.x as f64, a.y as f64), &damage.rects)
+                            }
+                            // Nothing is painted from a drawing that can't be.
+                            Err(_) => tiles.forget(mine),
+                        }
+                        drop(tiles);
+                        Ok((Some(d), done.err()))
+                    }
+                    None => {
+                        // A drawing made afresh — the first time, or after
+                        // the engine failed on the last — owes nothing to
+                        // tiles painted before it.
+                        lock(&self.tiles).forget(|t: &Tile| t.design == id && t.key.theme == theme);
+                        match renderer.drawing(scene, theme, None) {
+                            Ok(d) => Ok((Some(d), None)),
+                            Err(u) => Ok((None, Some(u))),
+                        }
+                    }
+                },
+                |p| Undrawable {
+                    message: p.message,
+                    at: None,
+                },
+            );
+            let (drawing, problem) = match made {
+                Ok(made) => made,
+                // A drawing the engine panicked on is made again next time.
+                Err(u) => (None, Some(u)),
+            };
+            drawings.extend(drawing);
+            if broke.is_none() {
+                broke = problem;
+            }
+        }
+        drop(renderer);
+        // The themes the design no longer shows in, and their tiles.
+        lock(&self.tiles).forget(|t| t.design == id && !themes.contains(&t.key.theme));
+        k.drawings = drawings;
+        k.scene = scene.clone();
+        k.version = version;
+        match broke {
+            None => Ok(()),
+            Some(u) => Err(problem(path, u)),
+        }
     }
 
     /// The design at `path`, from memory, resolving it the first time.
@@ -296,6 +445,11 @@ impl Designs {
             reads: Default::default(),
             resolved: Mutex::default(),
             listeners: Mutex::default(),
+            versions: Default::default(),
+            kept: Mutex::default(),
+            tiles: Mutex::new(Cache::<Arc<[u8]>, Tile>::new(TILES_CAP)),
+            #[cfg(test)]
+            painted: Default::default(),
             #[cfg(test)]
             resolutions: Default::default(),
             #[cfg(test)]
@@ -381,37 +535,84 @@ impl Designs {
     }
 
     /// The design at `path` as a PNG in `theme`, written to `out` band by
-    /// band as it is painted — or its problems one per line, before anything
-    /// is written. Painting blocks.
+    /// band — each band one row of tiles at 1×, from the store's cache, only
+    /// the missing and stale ones painted — or its problems one per line,
+    /// before anything is written. Painting blocks; a writer that fails — a
+    /// client gone — stops it.
+    ///
+    /// No lock of the store's is held while `out` is written to, so a client
+    /// that stops reading holds up nothing but its own PNG. A save that
+    /// changes the design while its PNG is written ends the PNG there, with
+    /// an error, rather than finish it from another scene.
     pub fn png_to(&self, path: &str, theme: Theme, out: impl std::io::Write) -> Result<(), String> {
-        let scene = self.resolve(path).map_err(|problems| lines(&problems))?;
-        let mut renderer = lock(&self.0.renderer);
+        let path = address(path);
+        let store = &self.0;
+        let resolved = store.get(path);
+        let scene = resolved.result.map_err(|problems| lines(&problems))?;
+        let theme = if scene.themed { theme } else { Theme::Light };
+        let kept = store.kept(path);
+        let (id, version, area) = {
+            let mut kept = lock(&kept);
+            // A save may have resolved the design again since: the drawings
+            // are brought to the scene this PNG is of.
+            if kept.as_ref().is_none_or(|k| k.version != resolved.version) {
+                store
+                    .bring(path, &mut kept, &scene, resolved.version)
+                    .map_err(|problems| lines(&problems))?;
+            }
+            let k = kept.as_ref().expect("brought");
+            let drawing = k
+                .drawings
+                .iter()
+                .find(|d| d.theme() == theme)
+                .ok_or_else(|| format!("{path}: the design has no drawing in {theme:?}"))?;
+            (k.id, k.version, drawing.area())
+        };
         guarded(
             path,
             || {
-                let drawing = renderer
-                    .drawing(&scene, theme, None)
-                    .map_err(|e| e.message)?;
-                drop(renderer);
-                devpage_design::tiles::png(&drawing.list, out)
-                    .map_err(|e| format!("writing the PNG: {e}"))
+                tiles::bands(area.width as u32, area.height as u32, out, |col, row| {
+                    let tile = Tile {
+                        design: id,
+                        key: Key {
+                            theme,
+                            level: Level::of(1.0),
+                            col,
+                            row,
+                        },
+                    };
+                    // The design's lock, for one tile at a time: never while
+                    // the band is written.
+                    let kept = lock(&kept);
+                    let drawing = kept
+                        .as_ref()
+                        .filter(|k| k.version == version)
+                        .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
+                        .ok_or("the design changed while its PNG was written")?;
+                    if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
+                        return Ok::<_, &str>(pixels.clone());
+                    }
+                    let pixels: Arc<[u8]> = tiles::tile(&drawing.list, 1.0, col, row).into();
+                    #[cfg(test)]
+                    store
+                        .painted
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
+                    Ok(pixels)
+                })
+                .map_err(|e| format!("writing the PNG: {e}"))
             },
             |p| p.message,
         )
-        .map_err(|e| format!("{}: {e}", address(path)))
+        .map_err(|e| format!("{path}: {e}"))
     }
 
     /// The design at `path` painted as a PNG in `theme`, or its problems one
-    /// per line. Painting blocks.
+    /// per line: [`Designs::png_to`], whole. Painting blocks.
     pub fn png(&self, path: &str, theme: Theme) -> Result<Vec<u8>, String> {
-        let scene = self.resolve(path).map_err(|problems| lines(&problems))?;
-        let mut renderer = lock(&self.0.renderer);
-        guarded(
-            path,
-            || devpage_design::png(&mut renderer, &scene, theme),
-            |p| p.message,
-        )
-        .map_err(|e| format!("{}: {e}", address(path)))
+        let mut png = Vec::new();
+        self.png_to(path, theme, &mut png)?;
+        Ok(png)
     }
 }
 
@@ -440,43 +641,52 @@ pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
     .unwrap_or_default()
 }
 
-/// Whether the design at `path` can be drawn at all — in each theme, when
-/// it is themed: a drawing too big to paint is the design's problem
-/// everywhere — on its canvas, in its PNG and in `devpage check` — not only
-/// where a picture is asked for.
-fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
-    let themes: &[Theme] = if scene.themed {
+/// The themes a design shows in: both when it is themed, else the light one,
+/// which is the same as the dark.
+fn themes(scene: &Scene) -> &'static [Theme] {
+    if scene.themed {
         &[Theme::Light, Theme::Dark]
     } else {
         &[Theme::Light]
-    };
+    }
+}
+
+/// Whether the design at `path` can be drawn at all — in each theme, when
+/// it is themed: images that don't fit the GPU's atlas are the design's
+/// problem everywhere — on its canvas, in its PNG and in `devpage check` —
+/// not only where a picture is asked for. What `devpage check` asks of a
+/// design read from disk; the store keeps the drawings it makes instead.
+fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
     guarded(
         path,
         || {
-            themes
+            themes(scene)
                 .iter()
                 .try_for_each(|&theme| renderer.drawing(scene, theme, None).map(|_| ()))
         },
-        |p| devpage_design::render::Undrawable {
+        |p| Undrawable {
             message: p.message,
             at: None,
         },
     )
-    .map_err(|undrawable| {
-        // At the attribute that broke it, or else the design's start.
-        let (file, pos) = match undrawable.at {
-            Some(at) => (at.file, at.pos),
-            None => (
-                path.to_string(),
-                devpage_design::parse::Pos { line: 1, col: 1 },
-            ),
-        };
-        vec![Problem {
-            file,
-            pos,
-            message: undrawable.message,
-        }]
-    })
+    .map_err(|undrawable| problem(path, undrawable))
+}
+
+/// Why a design can't be drawn, as its problem: at the attribute that broke
+/// it, or else at the design's start.
+fn problem(path: &str, undrawable: Undrawable) -> Vec<Problem> {
+    let (file, pos) = match undrawable.at {
+        Some(at) => (at.file, at.pos),
+        None => (
+            path.to_string(),
+            devpage_design::parse::Pos { line: 1, col: 1 },
+        ),
+    };
+    vec![Problem {
+        file,
+        pos,
+        message: undrawable.message,
+    }]
 }
 
 /// What `f` gives, or — should the engine ever panic on a design — a problem
@@ -564,43 +774,238 @@ mod tests {
         rx
     }
 
-    #[test]
-    fn a_design_100000_pixels_tall_streams_its_png_in_bands() {
-        let dir = served("huge");
+    /// A design 100,000 pixels tall: a column of 1,000 rows, 400 by 100, the
+    /// row `edited` set apart by its fill.
+    fn tall(dir: &Path, edited: Option<usize>) {
         let rows: String = (0..1000)
             .map(|i| {
-                format!(
-                    "<Frame width={{400}} height={{100}} fill=\"#{:06x}\" />",
-                    i * 997
-                )
+                let fill = if Some(i) == edited { 0xff0000 } else { i * 997 };
+                format!("<Frame width={{400}} height={{100}} fill=\"#{fill:06x}\" />")
             })
             .collect();
+        save_quietly(
+            &dir.join("app/huge.design"),
+            &format!("<Frame layout=\"column\">{rows}</Frame>"),
+        );
+    }
+
+    fn save_quietly(file: &Path, text: &str) {
+        std::fs::write(file, text).unwrap();
+    }
+
+    fn painted(designs: &Designs) -> usize {
+        designs
+            .0
+            .painted
+            .swap(0, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Counts what is written.
+    #[derive(Default)]
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0 += b.len();
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A design 100,000 pixels tall has a PNG, streamed band by band from the
+    /// store's cache, which never holds more than its cap; asked for again,
+    /// only the tiles the cap dropped are painted again.
+    #[test]
+    fn a_design_100000_pixels_tall_streams_its_png_from_a_capped_cache() {
+        let dir = served("huge");
+        tall(&dir, None);
+        let designs = Designs::new(dir.clone());
+        assert!(problems(&dir, "/app/huge.design").is_empty());
+        let started = std::time::Instant::now();
+        let png = designs.png("app/huge.design", Theme::Light).unwrap();
+        let took = started.elapsed();
+        let (px, w, h) = devpage_design::render::pixels(&png).unwrap();
+        assert_eq!((w, h), (400, 100_000));
+        let c = 999 * 997;
+        let at = (99_950 * 400 + 200) * 4;
+        assert_eq!(&px[at..at + 3], &[(c >> 16) as u8, (c >> 8) as u8, c as u8]);
+        // 391 rows of 2 tiles, all painted once; the cache holds 256 of them.
+        assert_eq!(painted(&designs), 782);
+        let held = lock(&designs.0.tiles).cost();
+        assert!(held <= TILES_CAP, "{held}");
+        assert_eq!(held, TILES_CAP);
+        eprintln!("100,000-px PNG: {took:?}, {} bytes", png.len());
+        let mut count = Count::default();
+        designs
+            .png_to("app/huge.design", Theme::Light, &mut count)
+            .unwrap();
+        assert_eq!(count.0, png.len());
+        // The last bands were cached; the first ones were dropped for them,
+        // and dropping them again as the PNG goes on, all are painted again.
+        assert_eq!(painted(&designs), 782);
+        assert!(lock(&designs.0.tiles).cost() <= TILES_CAP);
+    }
+
+    /// A PNG asked for twice paints nothing the second time; after an edit to
+    /// one node of a design 100,000 pixels tall, only the tiles over it.
+    #[test]
+    fn an_edit_repaints_only_the_tiles_over_it() {
+        let dir = served("edit");
         std::fs::write(
-            dir.join("app/huge.design"),
-            format!("<Frame layout=\"column\">{rows}</Frame>"),
+            dir.join("app/small.design"),
+            r##"<Frame width={600} height={300} fill="#336699" />"##,
         )
         .unwrap();
         let designs = Designs::new(dir.clone());
-        assert!(designs.resolve("app/huge.design").is_ok());
-        assert!(problems(&dir, "/app/huge.design").is_empty());
-        /// Counts what is written, and the most written at once.
-        #[derive(Default)]
-        struct Count(usize, usize);
-        impl std::io::Write for Count {
+        let first = designs.png("app/small.design", Theme::Light).unwrap();
+        assert_eq!(painted(&designs), 6);
+        assert_eq!(
+            designs.png("app/small.design", Theme::Light).unwrap(),
+            first
+        );
+        assert_eq!(painted(&designs), 0);
+
+        tall(&dir, None);
+        // Room for the whole design, to count only what the edit needs.
+        *lock(&designs.0.tiles) = Cache::new(usize::MAX);
+        let before = designs.png("app/huge.design", Theme::Light).unwrap();
+        assert_eq!(painted(&designs), 782);
+        // Row 500 is y 50,000 to 50,100, inside tile row 195: its two tiles.
+        tall(&dir, Some(500));
+        designs.changed(&dir.join("app/huge.design"));
+        let started = std::time::Instant::now();
+        let after = designs.png("app/huge.design", Theme::Light).unwrap();
+        let took = started.elapsed();
+        assert_eq!(painted(&designs), 2);
+        eprintln!("PNG after an edit: {took:?}, 2 tiles painted");
+        let (a, _, _) = devpage_design::render::pixels(&before).unwrap();
+        let (b, _, _) = devpage_design::render::pixels(&after).unwrap();
+        let row = |px: &[u8], y: usize| px[(y * 400 + 10) * 4..(y * 400 + 10) * 4 + 4].to_vec();
+        assert_eq!(row(&b, 50_050), vec![255, 0, 0, 255]);
+        assert_eq!(row(&a, 49_950), row(&b, 49_950));
+        assert_eq!(row(&a, 50_150), row(&b, 50_150));
+        // The edit undone: those tiles again, and the PNG as before.
+        tall(&dir, None);
+        designs.changed(&dir.join("app/huge.design"));
+        assert_eq!(
+            designs.png("app/huge.design", Theme::Light).unwrap(),
+            before
+        );
+        assert_eq!(painted(&designs), 2);
+    }
+
+    /// A themed design keeps a drawing in each theme, and each theme its own
+    /// tiles; a design that stops using its themes drops its dark ones.
+    #[test]
+    fn each_theme_keeps_its_own_tiles() {
+        let dir = served("theme-tiles");
+        std::fs::write(dir.join("app/themes.yml"), THEMES).unwrap();
+        let file = dir.join("app/t.design");
+        std::fs::write(&file, "<Frame width={300} height={100} fill={theme.bg} />").unwrap();
+        let designs = Designs::new(dir.clone());
+        let light = designs.png("app/t.design", Theme::Light).unwrap();
+        let dark = designs.png("app/t.design", Theme::Dark).unwrap();
+        assert_ne!(light, dark);
+        assert_eq!(painted(&designs), 4);
+        designs.png("app/t.design", Theme::Light).unwrap();
+        designs.png("app/t.design", Theme::Dark).unwrap();
+        assert_eq!(painted(&designs), 0);
+        std::fs::write(
+            &file,
+            r##"<Frame width={300} height={100} fill="#00ff00" />"##,
+        )
+        .unwrap();
+        designs.changed(&file);
+        assert!(
+            lock(&designs.0.tiles)
+                .iter()
+                .all(|(t, _, _)| t.key.theme == Theme::Light)
+        );
+        // Not themed: the dark PNG is the light one.
+        let green = designs.png("app/t.design", Theme::Light).unwrap();
+        assert_eq!(designs.png("app/t.design", Theme::Dark).unwrap(), green);
+    }
+
+    /// A PNG whose reader has stopped reading holds up no save: the store
+    /// takes the save while the PNG waits, and the PNG, once read again,
+    /// ends rather than finish from the next scene.
+    #[test]
+    fn a_save_lands_while_a_png_is_not_read() {
+        let dir = served("unread");
+        tall(&dir, None);
+        let designs = Designs::new(dir.clone());
+        designs.resolve("app/huge.design").unwrap();
+        /// A reader that stops after the first write until it is let go.
+        struct Stalled(std::sync::mpsc::Receiver<()>, bool);
+        impl std::io::Write for Stalled {
             fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-                self.0 += b.len();
-                self.1 = self.1.max(b.len());
+                if self.1 {
+                    self.1 = false;
+                    let _ = self.0.recv();
+                }
                 Ok(b.len())
             }
             fn flush(&mut self) -> std::io::Result<()> {
                 Ok(())
             }
         }
-        let mut count = Count::default();
-        designs
-            .png_to("app/huge.design", Theme::Light, &mut count)
-            .unwrap();
-        assert!(count.0 > 0 && count.1 < 1 << 20, "{} {}", count.0, count.1);
+        let (go, wait) = std::sync::mpsc::channel();
+        let reader = designs.clone();
+        let png = std::thread::spawn(move || {
+            reader.png_to("app/huge.design", Theme::Light, Stalled(wait, true))
+        });
+        // Let the PNG reach its first write.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let (done, saved) = std::sync::mpsc::channel();
+        let saver = designs.clone();
+        let file = dir.join("app/huge.design");
+        let save_dir = dir.clone();
+        std::thread::spawn(move || {
+            tall(&save_dir, Some(3));
+            saver.changed(&file);
+            let _ = done.send(());
+        });
+        assert!(
+            saved
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .is_ok(),
+            "the save waited for the PNG's reader"
+        );
+        go.send(()).unwrap();
+        let ended = png.join().unwrap().unwrap_err();
+        assert!(
+            ended.contains("changed while its PNG was written"),
+            "{ended}"
+        );
+        // The next PNG is the new scene's.
+        let next = designs.png("app/huge.design", Theme::Light).unwrap();
+        let (px, _, _) = devpage_design::render::pixels(&next).unwrap();
+        let at = (350 * 400 + 10) * 4;
+        assert_eq!(&px[at..at + 4], &[255, 0, 0, 255]);
+    }
+
+    /// A writer that fails — a client gone — stops the painting there.
+    #[test]
+    fn a_writer_that_fails_stops_the_painting() {
+        let dir = served("gone");
+        tall(&dir, None);
+        let designs = Designs::new(dir.clone());
+        struct Gone;
+        impl std::io::Write for Gone {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::other("gone"))
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        assert!(
+            designs
+                .png_to("app/huge.design", Theme::Light, Gone)
+                .is_err()
+        );
+        assert!(painted(&designs) <= 2, "painted past the first band");
     }
 
     /// Images that don't fit the GPU's atlas together are a problem at the

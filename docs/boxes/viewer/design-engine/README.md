@@ -461,7 +461,10 @@ A PNG is assembled **band by band**: a band is one row of tiles across the
 drawing, each tile taken from the cache or painted if it is missing or stale,
 and its rows go straight into a streaming PNG encoder (the `png` crate) as
 the response's body. So a PNG of any size holds one band in memory, and a
-PNG asked for again after an edit paints only the tiles the edit made stale.
+PNG asked for again after an edit paints only the tiles the edit made stale. No lock of the store's is held while a band is written, so a client that
+stops reading holds up only its own PNG; a save that changes the design while
+its PNG is being written ends that response there, short, rather than finish
+it from the next scene.
 
 ## The watch stream
 
