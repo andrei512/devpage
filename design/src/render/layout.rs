@@ -104,7 +104,10 @@ impl Renderer {
         available: Size<AvailableSpace>,
         hugs: &[(NodeId, bool, bool)],
     ) {
-        for _ in 0..=hugs.len() {
+        // To the fixed point: each pass settles at least one more level of
+        // hugging frames, and a run sized against the room a hugging frame
+        // gives it can take another; bounded, so it always ends.
+        for _ in 0..=hugs.len().max(1) * 4 {
             self.compute(runs, tree, root, available);
             let mut changed = false;
             for &(id, w, h) in hugs {
@@ -164,6 +167,9 @@ pub(super) enum Leaf {
     Intrinsic(f32, f32),
     /// A run, laid out by its own tree: [`Renderer::measure_run`].
     Run(u32),
+    /// A run's `"fill"` child as the run's flex tree sees it: measured by
+    /// laying the child out in its own container.
+    Proxy(OrderKey),
 }
 
 /// A scene's layout kept in pieces: the drawing's own layout tree, a tree
@@ -412,11 +418,18 @@ impl Laid {
             o,
         );
         run.tree = tree;
-        let across = if run.row { child.height } else { child.width };
+        let (along, across) = if run.row {
+            (child.width, child.height)
+        } else {
+            (child.height, child.width)
+        };
         let mut o = order.clone();
         o.push(k.clone());
         let sens = self.sensitive(&o);
         run.add(k.clone(), id, across == DSize::Fill, sens, hugs);
+        if along == DSize::Fill {
+            run.add_fill(k.clone(), style_of(child, Some(node)));
+        }
     }
 
     /// Lays the drawing's own tree out, and every run in it that changed;
@@ -427,12 +440,14 @@ impl Laid {
     }
 
     /// Where the run at `order` places each child: the run's laid-out sizes
-    /// for its final breadth, and where the first child starts along it.
+    /// for its final breadth, where the first child starts along it, and
+    /// how far apart its children are — its gap, and the free room
+    /// `"space-between"` spreads between them.
     pub(super) fn run_places(
         &self,
         rid: u32,
         size: Size<f32>,
-    ) -> Option<(&RunLayout, &Asked, f32)> {
+    ) -> Option<(&RunLayout, &Asked, f32, f64)> {
         let run = self.runs.get(rid);
         let (pa0, pa1) = run.padding_along();
         let (pc0, pc1) = run.padding_across();
@@ -444,7 +459,13 @@ impl Laid {
         let line = (across - pc0 - pc1).max(0.0);
         let asked = run.placed(line)?;
         let free = along - pa0 - pa1 - run.length(asked) as f32;
-        Some((run, asked, pa0 + run.lead(free)))
+        let n = run.children.len();
+        let spread = if run.justify == Align::SpaceBetween && free > 1e-3 && n > 1 {
+            free as f64 / (n - 1) as f64
+        } else {
+            0.0
+        };
+        Some((run, asked, pa0 + run.lead(free), run.gap as f64 + spread))
     }
 
     /// Every node's box, by order, in the design's coordinates.
@@ -483,7 +504,7 @@ impl Laid {
             let size = tree.unrounded_layout(id).size;
             let mut before = 0.0f64;
             for (k, c) in node.children.entries() {
-                let Some((run, asked, lead)) = self.run_places(rid, size) else {
+                let Some((run, asked, lead, step)) = self.run_places(rid, size) else {
                     return;
                 };
                 let line = asked.line;
@@ -494,12 +515,12 @@ impl Laid {
                 let stretch = run.children[k].stretch;
                 let across = pc0 + run.across(line, &s, stretch);
                 let item = child_place(place, run.row, lead as f64 + before, across as f64);
-                let (gap, node_id) = (run.gap, run.children[k].node);
+                let node_id = run.children[k].node;
                 r.relay(&mut self.runs, rid, k, line);
                 let mut o = order.clone();
                 o.push(k.clone());
                 self.frames_of(r, c, o, Owner::Run(rid), node_id, item, false, out);
-                before += s.along as f64 + gap as f64;
+                before += s.along as f64 + step;
             }
             return;
         }

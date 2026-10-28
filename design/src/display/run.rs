@@ -45,7 +45,9 @@ pub struct Run {
     pub start: f64,
     /// Where its children's line starts across, from the same: the padding.
     pub across: f64,
-    /// The gap between children.
+    /// How far apart its children are: its gap, and any room
+    /// `"space-between"` spreads between them — one number for the run, so
+    /// a change of it moves no child's entry.
     pub gap: f64,
     /// The breadth of its children's line.
     pub line: f64,
@@ -71,13 +73,12 @@ pub struct SpaceIndex {
     pub(super) covers: Extent,
 }
 
-/// A child of a run as the run's sums see it: its size along the run, the
-/// gap after it, where it sits across, and what it reaches and covers along
-/// the run from its unrounded start.
+/// A child of a run as the run's sums see it: its size along the run, where
+/// it sits across, and what it reaches and covers along the run from its
+/// unrounded start.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub size: f64,
-    pub gap: f64,
     /// Its unrounded place across, from the line's start.
     pub across: f64,
     /// Its rounded top-left less its unrounded one: fixed while what the
@@ -98,10 +99,9 @@ pub struct Counts {
 }
 
 impl Placed {
-    pub fn new(size: f64, gap: f64, across: f64, delta: Vec2) -> Placed {
+    pub fn new(size: f64, across: f64, delta: Vec2) -> Placed {
         Placed {
             size,
-            gap,
             across,
             delta,
             reach: None,
@@ -111,38 +111,19 @@ impl Placed {
     }
 }
 
-/// A stretch of a run's children: how many, how far they advance — each
-/// child's size and the gap after it — and the least and greatest each
-/// reaches and covers, along the run from the stretch's start.
-#[derive(Clone, Debug)]
+/// A stretch of a run's children: how many, and the sum of their sizes —
+/// how far they advance less the gaps, which are the run's.
+#[derive(Clone, Debug, Default)]
 pub struct Span {
     pub n: usize,
     pub length: f64,
-    pub reach: (f64, f64),
-    pub covered: (f64, f64),
-}
-
-impl Default for Span {
-    fn default() -> Self {
-        Span {
-            n: 0,
-            length: 0.0,
-            reach: (f64::INFINITY, f64::NEG_INFINITY),
-            covered: (f64::INFINITY, f64::NEG_INFINITY),
-        }
-    }
 }
 
 impl Summary for Span {
     fn then(&self, next: &Self) -> Self {
-        let shift = |(lo, hi): (f64, f64), (nlo, nhi): (f64, f64)| {
-            (lo.min(self.length + nlo), hi.max(self.length + nhi))
-        };
         Span {
             n: self.n + next.n,
             length: self.length + next.length,
-            reach: shift(self.reach, next.reach),
-            covered: shift(self.covered, next.covered),
         }
     }
 }
@@ -150,12 +131,9 @@ impl Summary for Span {
 impl Item for Placed {
     type Sum = Span;
     fn summary(&self) -> Span {
-        let none = (f64::INFINITY, f64::NEG_INFINITY);
         Span {
             n: 1,
-            length: self.size + self.gap,
-            reach: self.reach.unwrap_or(none),
-            covered: self.covered.unwrap_or(none),
+            length: self.size,
         }
     }
 }
@@ -264,12 +242,14 @@ impl Run {
     /// advance, and how it is placed.
     pub fn child(&self, key: &OrderKey) -> Option<(f64, &Placed)> {
         let placed = self.items.get(key)?;
-        Some((self.items.before(key).length, placed))
+        Some((self.prefix(key), placed))
     }
 
-    /// How far along the run the children before `key` advance.
+    /// How far along the run the children before `key` advance, gaps and
+    /// all.
     pub fn prefix(&self, key: &OrderKey) -> f64 {
-        self.items.before(key).length
+        let s = self.items.before(key);
+        s.length + s.n as f64 * self.gap
     }
 
     /// The keys of the children after `key`, in order.
@@ -295,9 +275,10 @@ impl Run {
     /// The children in order, each with how far the ones before it advance.
     pub fn children(&self) -> impl Iterator<Item = (&OrderKey, f64, &Placed)> {
         let mut before = 0.0;
+        let gap = self.gap;
         self.items.iter().map(move |(k, p)| {
             let b = before;
-            before += p.size + p.gap;
+            before += p.size + gap;
             (k, b, p)
         })
     }
@@ -323,12 +304,15 @@ impl Run {
         let base = if self.row { self.raw.x } else { self.raw.y } + self.start;
         let over = self.overhang.greatest().unwrap_or(0.0).max(0.0);
         let (from, to) = (a0 - base - over, a1 - base + over);
-        let Some((first, _, before)) = self.items.seek(|s| s.length - s_gap(s, self.gap) >= from)
+        let gap = self.gap;
+        let Some((first, _, before)) = self
+            .items
+            .seek(|s| s.length + s.n.saturating_sub(1) as f64 * gap >= from)
         else {
             return Vec::new();
         };
         let mut out = Vec::new();
-        let mut at = before.length;
+        let mut at = before.length + before.n as f64 * gap;
         for (k, p) in self.items.from(first) {
             if at > to {
                 break;
@@ -336,35 +320,70 @@ impl Run {
             let (raw, rounded) = self.place(at, p.across);
             let fresh = ((rounded - raw) - p.delta).hypot() < 1e-3;
             out.push((k, rounded, fresh));
-            at += p.size + p.gap;
+            at += p.size + gap;
         }
         out
     }
 
     /// What the run's children reach and cover in its space, from its sums
-    /// and counted sets; `None` where nothing.
+    /// and counted sets; `None` where nothing. Along the run, the least is
+    /// found walking in from the first child and the greatest from the
+    /// last, each only while a child could still reach past the best found
+    /// — no further than the furthest any child reaches past its box.
     pub(super) fn extents(&self) -> (Option<KRect>, Option<KRect>) {
-        let total = self.items.total();
         let base = if self.row { self.raw.x } else { self.raw.y } + self.start;
         let across = if self.row { self.raw.y } else { self.raw.x } + self.across;
-        let make = |along: (f64, f64), lo: &Counted, hi: &Counted| {
+        let over = self.overhang.greatest().unwrap_or(0.0).max(0.0);
+        let along = |of: fn(&Placed) -> Option<(f64, f64)>| -> Option<(f64, f64)> {
+            let gap = self.gap;
+            let mut lo = f64::INFINITY;
+            let mut at = 0.0;
+            for (_, p) in self.items.iter() {
+                if at - over > lo {
+                    break;
+                }
+                if let Some((l, _)) = of(p) {
+                    lo = lo.min(at + l);
+                }
+                at += p.size + gap;
+            }
+            let total = self.items.total();
+            let mut hi = f64::NEG_INFINITY;
+            let mut end = total.length + total.n.saturating_sub(1) as f64 * gap;
+            for (_, p) in self.items.rev() {
+                let start = end - p.size;
+                if end + over < hi {
+                    break;
+                }
+                if let Some((_, h)) = of(p) {
+                    hi = hi.max(start + h);
+                }
+                end = start - gap;
+            }
+            (lo <= hi).then_some((lo, hi))
+        };
+        let make = |along: Option<(f64, f64)>, lo: &Counted, hi: &Counted| {
+            let along = along?;
             let (Some(c0), Some(c1)) = (lo.least(), hi.greatest()) else {
                 return None;
             };
-            if along.0.partial_cmp(&along.1) == Some(std::cmp::Ordering::Greater)
-                || along.0.is_nan()
-            {
-                return None;
-            }
             Some(rect(
                 self.row,
                 (base + along.0, base + along.1),
                 (across + c0, across + c1),
             ))
         };
-        let reach = make(total.reach, &self.reach_across.0, &self.reach_across.1);
-        let cover = make(total.covered, &self.cover_across.0, &self.cover_across.1)
-            .and_then(|r| super::chunk::cut_to(r, self.cut));
+        let reach = make(
+            along(|p| p.reach),
+            &self.reach_across.0,
+            &self.reach_across.1,
+        );
+        let cover = make(
+            along(|p| p.covered),
+            &self.cover_across.0,
+            &self.cover_across.1,
+        )
+        .and_then(|r| super::chunk::cut_to(r, self.cut));
         (reach, cover)
     }
 
@@ -435,9 +454,4 @@ impl Run {
         }
         Some(p)
     }
-}
-
-/// The gap a stretch's length counts after its last child.
-fn s_gap(s: &Span, gap: f64) -> f64 {
-    if s.n == 0 { 0.0 } else { gap }
 }

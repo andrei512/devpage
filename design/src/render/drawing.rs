@@ -715,11 +715,11 @@ impl Renderer {
         is_new: bool,
     ) {
         let size = d.laid.tree(owner).unrounded_layout(id).size;
-        let Some((run, asked, lead)) = d.laid.run_places(rid, size) else {
+        let Some((run, asked, lead, gap)) = d.laid.run_places(rid, size) else {
             return;
         };
         let (pc0, _) = run.padding_across();
-        let (row, gap, line) = (run.row, run.gap as f64, asked.line);
+        let (row, line) = (run.row, asked.line);
         let drid = match d.shown.get(&rid) {
             Some(&r) => r,
             None => {
@@ -748,8 +748,14 @@ impl Renderer {
             // children it laid out again, which the layout lists.
             is_new
                 || dr.row != row
-                || dr.gap != gap
                 || (dr.line != line as f64 && run.align != crate::resolve::Align::Start)
+        };
+        // Where its children start and how far apart they are are the run's
+        // own: a change of either moves every child by the sums, rounded
+        // anew when read, and damages the run.
+        let spaced = {
+            let dr = d.list.run(drid);
+            !is_new && (dr.gap != gap || dr.start != lead as f64)
         };
         let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
         {
@@ -799,7 +805,7 @@ impl Renderer {
             let Some(child) = node.children.get(&k) else {
                 continue;
             };
-            let (run, asked, _) = d.laid.run_places(rid, size).expect("placed");
+            let (run, asked, _, _) = d.laid.run_places(rid, size).expect("placed");
             let Some(s) = run.size_of(asked, &k) else {
                 continue;
             };
@@ -839,9 +845,9 @@ impl Renderer {
             d.list.place_child(
                 drid,
                 k.clone(),
-                Some(Placed::new(s.along as f64, gap, offset, delta)),
+                Some(Placed::new(s.along as f64, offset, delta)),
             );
-            let grew = old_size.map_or(s.along as f64 + gap, |o| s.along as f64 - o);
+            let grew = old_size.map_or(s.along as f64 + 1.0, |o| s.along as f64 - o);
             if grew != 0.0 {
                 let start = d.list.space_at(down.space) + d.list.run(drid).place(before, offset).1;
                 let start = if row { start.x } else { start.y };
@@ -851,6 +857,11 @@ impl Renderer {
             }
         }
         d.list.flush();
+        if spaced {
+            let first = d.list.space_at(down.space) + d.list.run(drid).place(0.0, 0.0).1;
+            let first = if row { first.x } else { first.y };
+            shift = Some(shift.map_or(first, |s: f64| s.min(first)));
+        }
         if let Some(start) = shift
             && let Some(damage) = w.damage.as_deref_mut()
         {
@@ -887,7 +898,7 @@ impl Renderer {
             raw: abs(ctx.place.raw),
         };
         let size = d.laid.tree(ctx.owner).unrounded_layout(ctx.id).size;
-        let Some((run, asked, lead)) = d.laid.run_places(ctx.rid, size) else {
+        let Some((run, asked, lead, _)) = d.laid.run_places(ctx.rid, size) else {
             return;
         };
         let line = asked.line;
@@ -896,7 +907,7 @@ impl Renderer {
         };
         let offset = run.across(line, &s, run.children[key].stretch) as f64;
         let (pc0, _) = run.padding_across();
-        let (row, gap, child_node) = (run.row, run.gap as f64, run.children[key].node);
+        let (row, child_node) = (run.row, run.children[key].node);
         self.relay(&mut d.laid.runs, ctx.rid, key, line);
         let before = d.list.run(drid).prefix(key);
         let item = child_place(place, row, lead as f64 + before, pc0 as f64 + offset);
@@ -941,7 +952,7 @@ impl Renderer {
         d.list.place_child(
             drid,
             key.clone(),
-            Some(Placed::new(s.along as f64, gap, offset, delta)),
+            Some(Placed::new(s.along as f64, offset, delta)),
         );
         if walk.images {
             let _ = self.settle_images(d);

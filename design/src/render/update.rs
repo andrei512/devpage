@@ -252,11 +252,15 @@ impl Changes {
             if old.layout != node.layout || old.justify != node.justify {
                 maybe.insert(o.clone());
             }
+            // A child turning `"fill"` along its run, or no longer, is laid
+            // out another way in it: placed again.
             if !o.is_empty()
                 && let Some(p) = new.at(&o[..o.len() - 1])
                 && ((along(p, old) == fill) != (along(p, node) == fill))
+                && !under(&added, o)
             {
-                maybe.insert(o[..o.len() - 1].to_vec());
+                removed.insert(o.clone());
+                added.insert(o.clone());
             }
         }
         for o in added.iter().chain(&removed) {
