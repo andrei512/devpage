@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 438 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 442 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 101 tests that drive Chrome or Docker, or call GPT-Live
 ```
 
@@ -16,8 +16,8 @@ $ cargo test -- --ignored     # the 101 tests that drive Chrome or Docker, or ca
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 150 in `devpage`, 172 in its
-core `devpage-core`, 104 in the engine `devpage-design`, 9 in
+`cargo test` runs every crate in the workspace: 150 in `devpage`, 173 in its
+core `devpage-core`, 107 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
@@ -197,12 +197,12 @@ In Chrome:
 
 ### `designs`
 
-*15 tests in the store; 14 more through the server, and 44 in Chrome, in `drive::server`.*
+*16 tests in the store; 14 more through the server, and 44 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
-- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
+- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; a design too wide for a row of tiles in one band banded in strips, its PNG right and nothing cached; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does.
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
@@ -623,7 +623,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design`
 
-*104 tests.*
+*107 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `resolve`, 36: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.
@@ -633,7 +633,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 - `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
 - `display`, 1: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
 - `compare`, 2: the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
-- `bands`, 1: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it.
+- `bands`, 4: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; a band holding as many rows as fit in 16 MB, a whole row of tiles up to 16,384 pixels wide, at least one row however wide; a drawing 1,000,000 pixels wide written in strips holding at most 16 MB at once, its pixels right at both ends and across a strip's seam and a band's; a strip painting as the part of the tile it replaces.
 - `tiles`, 3: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again.
 - The crate, 1: the core naming no adapter and no rasterizer.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.

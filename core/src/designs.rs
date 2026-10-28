@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use devpage_design::bands::Piece;
 use devpage_design::fonts::FontFile;
 use devpage_design::render::{Drawing, Undrawable};
 use devpage_design::resolve::ImageFile;
@@ -538,8 +539,9 @@ impl Designs {
     }
 
     /// The design at `path` as a PNG in `theme`, written to `out` band by
-    /// band — each band one row of tiles at 1×, from the store's cache, only
-    /// the missing and stale ones painted — or its problems one per line,
+    /// band — each band at most 16 MB of pixels: one row of tiles at 1×, from
+    /// the store's cache, only the missing and stale ones painted, or for a
+    /// drawing too wide for that, shorter strips painted and not cached — or its problems one per line,
     /// before anything is written. Painting blocks; a writer that fails — a
     /// client gone — stops it.
     ///
@@ -574,41 +576,52 @@ impl Designs {
         guarded(
             path,
             || {
-                devpage_design::bands::bands(
-                    area.width as u32,
-                    area.height as u32,
-                    out,
-                    |col, row| {
-                        let tile = Tile {
-                            design: id,
-                            key: Key {
-                                theme,
-                                level: Level::of(1.0),
-                                col,
-                                row,
-                            },
-                        };
-                        // The design's lock, for one tile at a time: never while
-                        // the band is written.
-                        let kept = lock(&kept);
-                        let drawing = kept
-                            .as_ref()
-                            .filter(|k| k.version == version)
-                            .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
-                            .ok_or("the design changed while its PNG was written")?;
-                        if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
-                            return Ok::<_, &str>(pixels.clone());
+                devpage_design::bands::bands(area.width as u32, area.height as u32, out, |piece| {
+                    let (col, row) = match piece {
+                        Piece::Tile { col, row } => (col, row),
+                        // A band of a drawing too wide for whole tiles is
+                        // painted in strips, never cached.
+                        Piece::Strip { col, y, rows } => {
+                            let kept = lock(&kept);
+                            let drawing = kept
+                                .as_ref()
+                                .filter(|k| k.version == version)
+                                .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
+                                .ok_or("the design changed while its PNG was written")?;
+                            return Ok::<_, &str>(
+                                devpage_design::cpu::strip(&drawing.list, col, y, rows).into(),
+                            );
                         }
-                        let pixels: Arc<[u8]> =
-                            devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
-                        #[cfg(test)]
-                        store
-                            .painted
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
-                        Ok(pixels)
-                    },
-                )
+                    };
+                    let tile = Tile {
+                        design: id,
+                        key: Key {
+                            theme,
+                            level: Level::of(1.0),
+                            col,
+                            row,
+                        },
+                    };
+                    // The design's lock, for one tile at a time: never while
+                    // the band is written.
+                    let kept = lock(&kept);
+                    let drawing = kept
+                        .as_ref()
+                        .filter(|k| k.version == version)
+                        .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
+                        .ok_or("the design changed while its PNG was written")?;
+                    if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
+                        return Ok(pixels.clone());
+                    }
+                    let pixels: Arc<[u8]> =
+                        devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
+                    #[cfg(test)]
+                    store
+                        .painted
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
+                    Ok(pixels)
+                })
                 .map_err(|e| format!("writing the PNG: {e}"))
             },
             |p| p.message,
@@ -853,6 +866,27 @@ mod tests {
         fn flush(&mut self) -> std::io::Result<()> {
             Ok(())
         }
+    }
+
+    /// A design too wide for a row of tiles in one band is banded in strips,
+    /// painted and never cached: its PNG is right and the cache stays empty.
+    #[test]
+    fn a_design_too_wide_for_tiles_is_banded_in_strips_never_cached() {
+        let dir = served("wide");
+        std::fs::write(
+            dir.join("app/wide.design"),
+            r##"<Frame width={40000} height={20} fill="#ffffff"><Rect x={39990} y={10} width={10} height={10} fill="#0000ff" /></Frame>"##,
+        )
+        .unwrap();
+        let designs = Designs::new(dir.clone());
+        let png = designs.png("app/wide.design", Theme::Light).unwrap();
+        let (px, w, h) = devpage_design::compare::pixels(&png).unwrap();
+        assert_eq!((w, h), (40_000, 20));
+        let at = |x: usize, y: usize| px[(y * 40_000 + x) * 4..][..4].to_vec();
+        assert_eq!(at(0, 0), vec![255, 255, 255, 255]);
+        assert_eq!(at(39_999, 19), vec![0, 0, 255, 255]);
+        assert_eq!(painted(&designs), 0);
+        assert_eq!(lock(&designs.0.tiles).cost(), 0);
     }
 
     /// A design 100,000 pixels tall has a PNG, streamed band by band from the
