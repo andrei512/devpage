@@ -189,3 +189,5 @@ Each card opens the page that explains it.
   — widgets compose by name, so no name is shadowed.
 - [A design has one renderer](constraints/a-design-has-one-renderer.md)
   — the agent's PNG is the reader's canvas.
+- [A frame costs what it shows](constraints/a-frame-costs-what-it-shows.md)
+  — no size limit: a view costs what it shows, an edit what it changed.

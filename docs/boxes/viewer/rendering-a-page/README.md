@@ -165,7 +165,8 @@ content:
 - `DevpageSidebar`, on a site page with a sidebar, after the content's
   widgets: the server has drawn the sidebar already;
 - React, when there is any widget — so on every site page with a sidebar;
-- the design script and the engine's bindings (`design.js`,
+- the design script, the modules it imports and the engine's bindings
+  (`design.js`, `design-stream.js`, `design-canvas.js`, `design-tiles.js`,
   `design-engine.js`), when the content embeds a design.
 
 Each is a `<link rel="modulepreload">` at exactly the address its import asks

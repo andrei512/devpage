@@ -5,7 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use vello_cpu::peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
+use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 
 use crate::Problem;
 use crate::fonts::{self, Family, FontFile, FontFiles, FontId};
@@ -21,7 +21,7 @@ pub struct Rgba {
 }
 
 /// Which of a design's two themes it is drawn in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Theme {
     #[default]
     Light,
@@ -412,6 +412,33 @@ pub struct Node {
 }
 
 impl Node {
+    /// Whether two nodes' own attributes are the same, their children aside.
+    pub fn same_own(&self, b: &Node) -> bool {
+        let a = self;
+        a.kind == b.kind
+            && a.name == b.name
+            && a.x == b.x
+            && a.y == b.y
+            && a.width == b.width
+            && a.height == b.height
+            && a.opacity == b.opacity
+            && a.on_click == b.on_click
+            && a.fill == b.fill
+            && a.stroke == b.stroke
+            && a.stroke_width == b.stroke_width
+            && a.radius == b.radius
+            && a.shadow == b.shadow
+            && a.clip == b.clip
+            && a.layout == b.layout
+            && a.gap == b.gap
+            && a.padding == b.padding
+            && a.align == b.align
+            && a.justify == b.justify
+            && a.text == b.text
+            && a.vector == b.vector
+            && a.image == b.image
+    }
+
     fn new(kind: Kind, name: &str) -> Node {
         Node {
             kind,
@@ -1455,8 +1482,7 @@ impl Resolver<'_> {
             },
             ("d", Kind::Vector) => match str_of(&value) {
                 Some(d) => match path_numbers(&d).map_err(|e| e.to_string()).and_then(|()| {
-                    vello_cpu::kurbo::BezPath::from_svg(&d)
-                        .map_err(|e| format!("not SVG path data: {e}"))
+                    kurbo::BezPath::from_svg(&d).map_err(|e| format!("not SVG path data: {e}"))
                 }) {
                     Ok(_) => {
                         let view_box = node.vector.as_ref().map(|v| v.view_box);
@@ -1860,8 +1886,8 @@ fn path_numbers(d: &str) -> Result<(), String> {
 
 /// A path's own bounds, the view box of a `Vector` that names none.
 fn bounds(d: &str) -> [f32; 4] {
-    use vello_cpu::kurbo::Shape;
-    let b = vello_cpu::kurbo::BezPath::from_svg(d)
+    use kurbo::Shape;
+    let b = kurbo::BezPath::from_svg(d)
         .map(|p| p.bounding_box())
         .unwrap_or_default();
     [

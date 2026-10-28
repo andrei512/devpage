@@ -261,8 +261,17 @@ impl Widgets {
         }
         let mut fetches = Vec::new();
         if content.contains("<canvas class=\"design\"") {
-            modules.push(address(Owned::Asset("design.js")));
-            modules.push(address(Owned::Asset("design-engine.js")));
+            // The design script and the modules it imports, the engine's
+            // bindings last.
+            for module in [
+                "design.js",
+                "design-stream.js",
+                "design-canvas.js",
+                "design-tiles.js",
+                "design-engine.js",
+            ] {
+                modules.push(address(Owned::Asset(module)));
+            }
             fetches.push(address(Owned::Asset("design-engine.wasm")));
         }
         (modules, fetches)

@@ -21,10 +21,10 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use vello_cpu::kurbo::{Affine, BezPath, Ellipse as KEllipse, Point, Rect, RoundedRect, Shape};
-use vello_cpu::peniko::{Blob, Color as PColor, Gradient, ImageAlphaType, ImageData, ImageFormat};
-use vello_cpu::{Pixmap, RenderContext, Resources};
+use kurbo::{Affine, BezPath, Ellipse as KEllipse, Point, Rect, RoundedRect, Shape};
+use peniko::{Blob, Color as PColor, Gradient, ImageAlphaType, ImageData, ImageFormat};
 
+use crate::display::{Blend, Builder};
 use crate::render::{Draw, Paint};
 use crate::resolve::Rgba;
 
@@ -93,7 +93,7 @@ impl Outline {
             }
             Outline::Ellipse(r) => KEllipse::from_rect(r).to_path(tolerance / 10.0),
         };
-        vello_cpu::kurbo::flatten(shape, tolerance, |el| out.push(el));
+        kurbo::flatten(shape, tolerance, |el| out.push(el));
         out
     }
 
@@ -182,28 +182,141 @@ impl Grid {
     }
 }
 
+/// How much of each of the `w` × `h` unit squares the closed polygon `path`
+/// — straight lines only — covers under `to`, row by row, as an 8-bit
+/// rasterizer gives it: the exact area, to the nearest 255th. Signed area is
+/// accumulated cell by cell along each edge and summed along each row, so a
+/// sample costs the same however the shape crosses it. What lies outside the
+/// squares counts as a rasterizer clips it: left of them, wholly in the first
+/// column; right of them, not at all.
+fn coverage(path: &BezPath, to: Affine, w: usize, h: usize) -> Vec<f32> {
+    // Each row has two cells past its end, which take what lies right of it.
+    let stride = w + 2;
+    let mut acc = vec![0f64; stride * h + 2];
+    let mut cell = |p0: Point, p1: Point| {
+        if (p0.y - p1.y).abs() <= 1e-12 {
+            return;
+        }
+        let (dir, p0, p1) = if p0.y < p1.y {
+            (1.0, p0, p1)
+        } else {
+            (-1.0, p1, p0)
+        };
+        let dxdy = (p1.x - p0.x) / (p1.y - p0.y);
+        let mut x = p0.x;
+        if p0.y < 0.0 {
+            x -= p0.y * dxdy;
+        }
+        let first = p0.y.max(0.0) as usize;
+        for y in first..h.min(p1.y.ceil() as usize) {
+            let start = (y * stride) as isize;
+            let dy = ((y + 1) as f64).min(p1.y) - (y as f64).max(p0.y);
+            let xnext = x + dxdy * dy;
+            let d = dy * dir;
+            let (x0, x1) = if x < xnext { (x, xnext) } else { (xnext, x) };
+            let x0floor = x0.floor();
+            let x0i = x0floor as isize;
+            let x1ceil = x1.ceil();
+            let x1i = x1ceil as isize;
+            let at = start + x0i;
+            if at < 0 {
+                x = xnext;
+                continue;
+            }
+            let at = at as usize;
+            if x1i <= x0i + 1 {
+                let xmf = 0.5 * (x + xnext) - x0floor;
+                acc[at] += d - d * xmf;
+                acc[at + 1] += d * xmf;
+            } else {
+                let s = (x1 - x0).recip();
+                let x0f = x0 - x0floor;
+                let a0 = 0.5 * s * (1.0 - x0f) * (1.0 - x0f);
+                let x1f = x1 - x1ceil + 1.0;
+                let am = 0.5 * s * x1f * x1f;
+                acc[at] += d * a0;
+                if x1i == x0i + 2 {
+                    acc[at + 1] += d * (1.0 - a0 - am);
+                } else {
+                    let a1 = s * (1.5 - x0f);
+                    acc[at + 1] += d * (a1 - a0);
+                    for xi in x0i + 2..x1i - 1 {
+                        acc[(start + xi) as usize] += d * s;
+                    }
+                    let a2 = a1 + (x1i - x0i - 3) as f64 * s;
+                    acc[(start + x1i - 1) as usize] += d * (1.0 - a2 - am);
+                }
+                acc[(start + x1i) as usize] += d * am;
+            }
+            x = xnext;
+        }
+    };
+    // An edge split where it crosses either side, each part moved inside.
+    let mut line = |p0: Point, p1: Point| {
+        let mut cuts = vec![0.0, 1.0];
+        for edge in [0.0, w as f64] {
+            if (p0.x - edge) * (p1.x - edge) < 0.0 {
+                cuts.push((edge - p0.x) / (p1.x - p0.x));
+            }
+        }
+        cuts.sort_by(f64::total_cmp);
+        let at = |t: f64| {
+            let p = p0.lerp(p1, t);
+            Point::new(p.x.clamp(0.0, w as f64), p.y)
+        };
+        for pair in cuts.windows(2) {
+            cell(at(pair[0]), at(pair[1]));
+        }
+    };
+    let (mut first, mut last) = (None, None);
+    for el in path.elements() {
+        match *el {
+            kurbo::PathEl::MoveTo(p) => {
+                if let (Some(a), Some(b)) = (last, first) {
+                    line(a, b);
+                }
+                let p = to * p;
+                first = Some(p);
+                last = Some(p);
+            }
+            kurbo::PathEl::LineTo(p) => {
+                let p = to * p;
+                if let Some(a) = last {
+                    line(a, p);
+                }
+                last = Some(p);
+            }
+            kurbo::PathEl::ClosePath => {
+                if let (Some(a), Some(b)) = (last, first) {
+                    line(a, b);
+                }
+                last = first;
+            }
+            _ => unreachable!("an outline flattened to lines"),
+        }
+    }
+    if let (Some(a), Some(b)) = (last, first) {
+        line(a, b);
+    }
+    let mut out = Vec::with_capacity(w * h);
+    for row in acc.chunks(stride).take(h) {
+        let mut sum = 0.0;
+        out.extend(row[..w].iter().map(|a| {
+            sum += a;
+            ((sum.abs().min(1.0) * 255.0).round() / 255.0) as f32
+        }));
+    }
+    out
+}
+
 /// The blurred shape at samples `i0..i0 + w` × `j0..j0 + h`, row by row: its
 /// coverage of each sample out to the blur's reach, blurred down each column
 /// and then across each row.
 fn blurred(path: &BezPath, grid: Grid, i0: isize, j0: isize, w: usize, h: usize) -> Vec<f32> {
     let (cw, ch) = (w + 2 * REACH, h + 2 * REACH);
-    let mut ctx = RenderContext::new(cw as u16, ch as u16);
-    ctx.set_transform(
-        Affine::scale(1.0 / grid.step)
-            * Affine::translate((-grid.x(i0 - REACH as isize), -grid.y(j0 - REACH as isize))),
-    );
-    ctx.set_paint(PColor::from_rgba8(0, 0, 0, 255));
-    ctx.fill_path(path);
-    ctx.flush();
-    let mut coverage = Pixmap::new(cw as u16, ch as u16);
-    ctx.render(&mut coverage, &mut Resources::default());
-    let cov: Vec<f32> = coverage
-        .data_as_u8_slice()
-        .iter()
-        .skip(3)
-        .step_by(4)
-        .map(|&a| a as f32 / 255.0)
-        .collect();
+    let to = Affine::scale(1.0 / grid.step)
+        * Affine::translate((-grid.x(i0 - REACH as isize), -grid.y(j0 - REACH as isize)));
+    let cov = coverage(path, to, cw, ch);
     let k = kernel();
     let mut down = vec![0f32; h * cw];
     for y in 0..h {
@@ -290,7 +403,7 @@ pub fn shadow(
     outline: Outline,
     std_dev: f64,
     c: Rgba,
-    list: &mut Vec<Draw>,
+    list: &mut Builder,
     images: &mut Vec<ImageData>,
 ) {
     shadow_with(outline, std_dev, c, list, images, SINGLE)
@@ -301,7 +414,7 @@ pub fn shadow_with(
     outline: Outline,
     std_dev: f64,
     c: Rgba,
-    list: &mut Vec<Draw>,
+    list: &mut Builder,
     images: &mut Vec<ImageData>,
     single: usize,
 ) {
@@ -311,7 +424,7 @@ pub fn shadow_with(
     }
     let color = PColor::from_rgba8(c.r, c.g, c.b, c.a);
     if std_dev <= 0.0 {
-        list.push(Draw::Fill(outline.path(), Paint::Solid(color)));
+        list.draw(Draw::Fill(outline.path(), Paint::Solid(color)));
         return;
     }
     let step = std_dev / 2.0;
@@ -328,7 +441,7 @@ pub fn shadow_with(
         let values = blurred(&path, grid, 0, 0, nx, ny);
         let data = image(&values, nx, ny, c, c.a as f32);
         images.push(data.clone());
-        list.push(Draw::Fill(
+        list.draw(Draw::Fill(
             grid.rect(0, 0, nx as isize, ny as isize).to_path(0.1),
             Paint::Image(data, grid.place(0, 0)),
         ));
@@ -340,10 +453,10 @@ pub fn shadow_with(
         Outline::Ellipse(e) => ellipse(e, std_dev, grid, nx, ny),
     };
     let extent = grid.rect(0, 0, nx, ny);
-    list.push(Draw::PushOpacity(
-        c.a as f32 / 255.0,
+    list.push_layer(
+        Blend::Opacity(c.a as f32 / 255.0),
         Some(extent.to_path(0.1)),
-    ));
+    );
     let opaque = Rgba { a: 255, ..c };
     let paint_over = |clip: &BezPath| clip.bounding_box().inflate(MARGIN, MARGIN).to_path(0.1);
     for piece in pieces {
@@ -381,11 +494,11 @@ pub fn shadow_with(
         };
         // The piece's own edge cuts it, anti-aliased, so where two meet each
         // adds its share of the pixel; the layer reaches well past it.
-        list.push(Draw::PushAdd(paint_over(&clip)));
-        list.push(Draw::Fill(clip, paint));
-        list.push(Draw::Pop);
+        list.push_layer(Blend::Add, Some(paint_over(&clip)));
+        list.draw(Draw::Fill(clip, paint));
+        list.pop();
     }
-    list.push(Draw::Pop);
+    list.pop();
 }
 
 /// The blurred edge of a disc of `radius` around `center`, as a radial
@@ -714,7 +827,7 @@ fn ellipse(e: Rect, std_dev: f64, grid: Grid, nx: isize, ny: isize) -> Vec<Piece
     }
     let at = |t: f64| Point::new(c.x + a * t.cos(), c.y + b * t.sin());
     let normal = |t: f64| {
-        let n = vello_cpu::kurbo::Vec2::new(b * t.cos(), a * t.sin());
+        let n = kurbo::Vec2::new(b * t.cos(), a * t.sin());
         n / n.hypot()
     };
     let rho = |t: f64| {
@@ -829,7 +942,10 @@ fn ellipse(e: Rect, std_dev: f64, grid: Grid, nx: isize, ny: isize) -> Vec<Piece
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{Frame, compare, paint_list};
+    use crate::compare::compare;
+    use crate::cpu::paint_area;
+    use crate::display::List;
+    use crate::render::Frame;
 
     /// The most a shadow in pieces may differ from the same shadow as one
     /// image, in any channel of 255, by how wide its blur is on the screen:
@@ -859,26 +975,26 @@ mod tests {
             a: 200,
         };
         let paint = |single: usize, scale: f32| {
-            let mut list = Vec::new();
-            shadow_with(outline, std_dev, color, &mut list, &mut Vec::new(), single);
             let area = Frame {
                 x: 0.0,
                 y: 0.0,
                 width: 360.0,
                 height: 220.0,
             };
-            let p = paint_list(area, &list, scale);
-            (
-                p.data_as_u8_slice().to_vec(),
-                p.width() as usize,
-                list.len(),
-            )
+            let list = List::of(area, |b| {
+                shadow_with(outline, std_dev, color, b, &mut Vec::new(), single)
+            });
+            let p = paint_area(&list, Rect::new(0.0, 0.0, 360.0, 220.0), scale as f64);
+            // How many commands, and how many layers they are drawn in.
+            let chunk = list.chunk(&vec![0]).unwrap();
+            let shape = (chunk.commands.len(), chunk.made.effects.len());
+            (p.data_as_u8_slice().to_vec(), p.width() as usize, shape)
         };
         for &scale in scales {
             let (one, width, single_list) = paint(usize::MAX, scale);
             let (pieces, _, pieced_list) = paint(0, scale);
-            assert_eq!(single_list, 1, "{case}");
-            assert!(pieced_list > 3, "{case} isn't in pieces");
+            assert_eq!(single_list, (1, 0), "{case}");
+            assert!(pieced_list.1 > 1, "{case} isn't in pieces");
             let d = compare(&one, &pieces, width).unwrap();
             assert!(
                 d.within_tolerance() && d.max <= bound(std_dev, scale),

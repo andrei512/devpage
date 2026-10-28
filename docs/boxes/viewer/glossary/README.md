@@ -105,6 +105,38 @@ The `devpage-design` crate: parses, resolves, lays out and paints designs, nativ
 
 What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
 
+## display list
+
+What the painter makes of a laid-out scene in one theme: drawing commands in [chunks](#chunk), each command under its nodes in the [property trees](#property-trees), and the [index](#index) over them. See [Painting](../design-engine/README.md#painting).
+
+## property trees
+
+The transform, clip and effect trees a display list's commands refer to instead of nesting layers, so any subset of the list paints in order with exactly the layers it needs. See [Property trees](../design-engine/README.md#property-trees).
+
+## chunk
+
+One scene node's own commands, in its own coordinates; its position is a node in the transform tree, so a move keeps the chunk. See [Chunks](../design-engine/README.md#chunks).
+
+## index
+
+The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. See [The index](../design-engine/README.md#the-index).
+
+## paint backend
+
+What replays a display list in a rasterizer's calls — `vello_cpu` on the CPU, `vello` on the GPU — through the design engine's one port, `display::Target`: paint this area at this scale into this target. A backend translates each command and decides nothing. See [How the engine is built](../design-engine/README.md#how-the-engine-is-built).
+
+## tile
+
+A square of 256 device pixels of a drawing, painted at one scale in one theme and cached; [damage](#damage) makes the tiles it overlaps stale. See [Tiles](../design-engine/README.md#tiles).
+
+## damage
+
+What an update to a scene touched: each changed chunk's old and new bounds. Only the tiles that overlap it are painted again. See [Tiles](../design-engine/README.md#tiles).
+
+## compositor
+
+What draws a canvas from its tiles: every frame of a pan or zoom only moves and scales cached tiles, and missing or stale ones are painted after it and swapped in. See [The compositor](../design-engine/README.md#the-compositor).
+
 ## canvas page
 
 The page a design's own address answers: one canvas filling the window, which the reader zooms and pans, with the light/dark switch in its corner; a navigation in the prototype changes the address. See [The canvas page](../serving-pages/README.md#the-canvas-page).

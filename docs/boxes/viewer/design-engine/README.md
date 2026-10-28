@@ -54,6 +54,40 @@ and at the same version, so `cargo install devpage` builds the native engine
 from the registry and takes the module from the vendored files — see
 [Release](../../engineering/sdlc/stages/README.md#release).
 
+## How the engine is built
+
+The engine is a **core** with **adapters** plugged into it — the shape of
+devpage's own [code map](../../engineering/code-map/README.md). The core
+links no rasterizer: no `vello`, `vello_cpu`, `wgpu` or PNG encoder. Its
+geometry and colours are `kurbo`'s and `peniko`'s, depended on directly, the
+values both backends take, and a glyph is the engine's own. What varies
+between the browser and the server is reached through one **port**,
+`display::Target` — paint this area at this scale into this target — which
+each [paint backend](../glossary/README.md#paint-backend) adapts. The
+dependencies point inward: an adapter uses the core, never the reverse, and
+a test (`the_core_names_no_adapter`, in `design/src/lib.rs`) fails when a
+module of the core names an adapter or a rasterizer.
+
+| Module | Role | Does |
+| --- | --- | --- |
+| `parse` | core | Text to a syntax tree. |
+| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene. |
+| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as a kept taffy tree, every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the top-level R-tree. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
+| `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
+| `wire`, `proto` | core | Scenes and patches as the watch stream's messages. |
+| `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
+| `bands` | adapter | The PNG, written band by band from whatever gives it tiles. |
+
+In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — its
+scene, a drawing per theme, the damage since the last frame, a tile on the
+CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
+backend; `gpu/` the compositor on WebGPU — `mod.rs` a frame (damage, the
+view's missing tiles, the budget), `paint.rs` painting a tile into its
+texture, `pass.rs` the composite pass. The page's part is the design script
+and its modules ([in the browser](#in-the-browser)).
+
 ## Parsing
 
 The parser turns a file into a syntax tree: imports, then one element with its
@@ -178,7 +212,8 @@ map onto their flex properties, `"hug"` is content size, `"fill"` is
 Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
 it as Figma does: as far as its children's furthest right and bottom edges. It
 lays out, sets each hugging no-layout frame to its children's extent —
-innermost first — and lays out again until nothing changes, which takes one
+innermost first, measured before taffy rounds boxes to whole pixels, so a
+frame's size never depends on where it sits — and lays out again until nothing changes, which takes one
 pass per level of such frames. `"fill"` needs auto layout to take space from,
 so on a child of a no-layout frame it is a problem, found while resolving.
 
@@ -197,42 +232,158 @@ backends draw at.
 
 ## Painting
 
-The painter walks the laid-out scene once, for one theme, and turns it into
-the engine's **display list**: an ordered list of drawing commands in canvas pixels —
-fills and gradients, strokes, rounded corners, blurred shadows, clip and
-opacity layers, layers that add what is in them to what is under them, vector
-paths, images and parley's glyph runs. Everything a
-drawing depends on is decided there, the theme's value of each color
-included: a drawing is made for a theme, and the scene holds both. Two thin backends replay that one list,
-each translating a command into its library's call and nothing more:
+The painter turns the laid-out scene, for one theme, into the engine's
+**display list**: drawing commands — fills and gradients, strokes, rounded
+corners, blurred shadows, vector paths, images and parley's glyph runs — and
+the **property trees** they are drawn under. Everything a drawing depends on
+is decided there, the theme's value of each color included: a drawing is made
+for a theme, and the scene holds both. A design has no size limit: nothing
+about a frame or an edit costs more because the design is bigger — a frame
+costs what is visible, an edit what changed
+([a frame costs what it shows](../constraints/a-frame-costs-what-it-shows.md)).
 
-- **In the browser, on the GPU**: `vello` through `wgpu` on WebGPU, straight
-  into the canvas. This is the path for speed — a pan or a zoom repaints the
-  whole view on the GPU each frame.
-- **In the server, on the CPU**: `vello_cpu`, into an RGBA buffer that is
-  encoded as the PNG — a server, a CI runner or a container has no GPU to
-  count on. A browser without WebGPU paints the canvas with `vello_cpu` too.
+```mermaid
+flowchart LR
+  scene["laid-out scene"] --> chunks["chunks<br/>one per node, own coordinates"]
+  scene --> trees["property trees<br/>transform, clip, effect"]
+  chunks --> index["index<br/>R-tree of chunks, R-tree per chunk"]
+  index --> paint["paint(area, scale, target)"]
+  trees --> paint
+  paint --> gpu["GPU tile"]
+  paint --> cpu["CPU tile"]
+  paint --> band["PNG band"]
+```
 
-The list covers the design's **drawing**: the root's box, widened by
-everything painted outside it — a shadow's blur, a stroke, a child placed
-past an edge, a line of text — and cut by any clipping frame, rounded out to
-whole pixels. The list opens with a clip to that area and closes it, so a
-backend can't show more than the drawing or less. A PNG is the drawing; the
-canvas page and an embed fit the drawing. A drawing more than 16,384 pixels a
-side is too big to paint, and that is the design's problem everywhere: the
-store, `devpage check` and the PNG route all lay a resolved design out once
-(`Renderer::drawing`) — a themed one in each theme — and report it, so the
-canvas never receives a drawing it can't paint.
+### Property trees
+
+The display list doesn't nest its layers. As in Chrome's compositor, every
+command refers to a node in each of three trees, and the trees hold what
+nesting would:
+
+- the **transform tree** — one node per scene node, its offset from its
+  parent's, so a node's commands are in its own coordinates, its box's
+  top-left at the origin;
+- the **clip tree** — a clipping frame's shape, in its node's coordinates, and
+  the drawing's own area at the root, so nothing shows outside the drawing;
+- the **effect tree** — a layer drawn at an opacity (a node's `opacity`, a
+  shadow's color's alpha), or added to what is under it, color and alpha
+  alike, within a bound (a shadow's pieces) — each with the clip it is drawn
+  inside.
+
+A shadow's layers are made as property-tree nodes too, as its commands are
+built (`design/src/display/chunk.rs`), so no command opens or closes anything.
+
+A command's **property state** is its three nodes. To paint any subset of
+the list, in paint order, the painter opens and closes exactly the layers
+each command's state needs: it closes the effects and clips the next command
+isn't under, then opens, from the common ancestor down, each effect — inside
+its own clip — and then the command's clips inside that effect. So a tile, a
+band or the whole drawing is painted by the same walk, and painting part of a
+design gives the same pixels there as painting all of it.
+
+### Chunks
+
+The list is held in **chunks**, one per scene node: the node's own commands —
+its shadow, fill, image, stroke and text — in its own coordinates, in the
+order they paint. Chunks paint in tree order — a node before its children,
+children in order — which is the order of their ids. A node's position is its
+transform node, so a node that moves keeps its chunk, and its children
+theirs: only the offset changes.
+
+### The index
+
+Painting part of a drawing asks what touches a rectangle, and the answer
+comes from a two-level R-tree (`rstar`):
+
+- the **top level** over the chunks, each by its bounds in the design's
+  coordinates — what its commands cover, cut by its clipping frames — and, for
+  a node with an interaction, its box there too. A new drawing bulk-loads it,
+  packed; an update removes and inserts only the chunks that changed or
+  moved;
+- **per chunk**, an R-tree over its commands by their bounds in its own
+  coordinates, which a move doesn't touch.
+
+A query costs log time plus what it finds, and returns the commands in paint
+order. At the scale being painted, a chunk smaller than one device pixel
+both ways is skipped. Nothing that paints a frame, applies an edit or
+answers a click walks every node.
+
+The design's **drawing** — the root's box, widened by everything painted
+outside it and cut by any clipping frame, rounded out to whole pixels — is
+kept from the chunks' bounds as they are inserted and removed, so it, too,
+costs nothing to know.
+
+### One paint entry point
+
+Everything that makes pixels calls one function: **paint** an area of the
+design, in its coordinates, at a scale, into a target. The target is a thin
+backend that translates each command into its library's call and nothing
+more:
+
+- **`vello` on the GPU**, through `wgpu` on WebGPU, in the browser;
+- **`vello_cpu`**, into an RGBA buffer — in the server, a CI runner or a
+  container, which has no GPU to count on, and in a browser without WebGPU.
 
 Both backends replay the
 [same display list](../constraints/a-design-has-one-renderer.md); they differ
 only where two rasterizers can — the last bit of anti-aliasing at an edge.
-`vello_cpu` has its own API rather than replaying a `vello` scene, which is why
-the shared form is the engine's list and not a vello type. Where the two
+`vello_cpu` has its own API rather than replaying a `vello` scene, which is
+why the shared form is the engine's list and not a vello type. Where the two
 libraries mean different things by the same call, the GPU backend's
 translation evens it out: vello's GPU shader samples a gradient at each
 pixel's corner, where vello_cpu — and both, for an image — take its center, so
 each gradient goes to the GPU moved half a device pixel.
+
+### Tiles
+
+What paint makes is cached as **tiles**: squares of 256 device pixels, keyed
+by theme, scale and position — column and row from the drawing's top-left at
+that scale — so the tiles of every scale painted so far form a pyramid. A
+cache holds a capped number of tiles and drops the least recently used. A
+theme has tiles of its own, so switching back to one is instant.
+
+An update to the scene marks **damage**: for each chunk it touched, the
+bounds it had and the bounds it has — and, when the drawing's area grows or
+shrinks along its right or bottom edge, the strip it gained or lost. Only the
+cached tiles that overlap the damage go stale; the rest are kept. An update
+that moves the area's top-left moves every tile's place, so every tile goes
+stale. The cache (`design/src/tiles/cache.rs`) holds whatever a tile is to its
+user — pixels in the server, a texture on the GPU — and a stale tile stays in
+it, marked so, until it is painted again.
+
+### Incremental updates
+
+A change to a file reaches a drawing as the
+[patch](#the-watch-stream) the server sends the canvases: the nodes whose
+subtree changed, by id. A drawing applies a patch by work proportional to it:
+
+1. each replaced subtree is compared with the one it replaces, and only the
+   nodes that differ are dirty;
+2. layout runs again from `taffy`'s caches: only the dirty nodes and their
+   ancestors are laid out anew, and only the nodes whose box changed are
+   visited afterwards — the tree is laid out unrounded, and only the boxes
+   visited are rounded to whole pixels, each edge where taffy's own pass
+   would put it — measured, as that pass measures, from the parent for a box
+   in the flow and from its containing block for one placed absolutely;
+3. a dirty node's chunk is made again; a node that only moved gets a new
+   offset in the transform tree;
+4. each chunk made again or moved is removed from the index and inserted
+   again;
+5. the damage marks the tiles that overlap it stale.
+
+The server and the browser apply the same patch to the same kind of drawing,
+so both pay only for what changed. The canvas applies the patch to the scene
+it holds the same way: every replacement checked first, so a patch it can't
+use changes nothing, then only the replaced subtrees swapped in — what they
+replaced is what the drawing is brought across by — and a file no node uses
+any more dropped by a count of the nodes using each file, never a walk of
+the scene.
+
+### Hit testing
+
+A click is answered by the same index: the chunks at the point, in paint
+order, and among them the last — the topmost — whose node has an interaction,
+whose box holds the point and whose clipping frames show it.
 
 ### Shadows
 
@@ -243,7 +394,9 @@ one radius for all four corners, and the two backends share no blur filter,
 so the painter computes the blur itself (`design/src/shadow.rs`): it samples
 the shape's coverage every half σ — the shape flattened to lines within a
 hundredth of a sample, as the rasterizer's own flattening would pull a curve
-in — and blurs the samples. A Gaussian that wide has no detail finer than its
+in, each sample the exact area it covers to the nearest 255th, as an 8-bit
+rasterizer gives it, accumulated by the engine itself — and blurs the
+samples. A Gaussian that wide has no detail finer than its
 samples, so, drawn smoothly, they are the shadow at any zoom. A shadow with no
 blur is the shape filled.
 
@@ -267,8 +420,7 @@ pieces meet edge to edge they add up to the shadow with no seam at any zoom:
   where the ellipse curves tighter than 16 σ; one too thin to be solid
   anywhere, in tiles that skip where the blur can't reach.
 
-What holds at every allowed size, from a 100-pixel box to a 16,000-pixel one,
-and the tests pin: two and a half σ out the shadow is at most 2 of 255 and
+What holds from a 100-pixel box to a 16,000-pixel one, and the tests pin: two and a half σ out the shadow is at most 2 of 255 and
 fades on from there, with no step where it ends; a straight edge rises from
 10% to 90% over 2.563 σ, give or take 0.2 σ, its middle on the box's edge to a
 quarter of a pixel; and a shadow in pieces is the same shadow as one image by
@@ -306,13 +458,15 @@ at most 4,096 pixels a side, so four of the largest fill the atlas.
 A canvas keeps its vello renderer — and with it the atlas — only while the
 drawings it shows paint the very same blobs, in the same order. Any other
 drawing gets a fresh renderer: another design after a navigation, on a canvas
-page or in an embed, or a save that swaps a file or changes a shadow. So the
-atlas holds exactly the drawing's images, placed as the engine placed them in
-a fresh one. A drawing made after the one its canvas last showed, painting
+page or in an embed, or a save that swaps a file or changes a shadow. A tile
+paints only the images that touch it, so a fresh renderer is first given one
+render that paints every image of the drawing, in the drawing's order, into a
+single pixel: its atlas then holds exactly the drawing's images, placed as the
+engine placed them in a fresh one, and every tile finds its images there. A
+drawing made after the one its canvas last showed, painting
 the same image files and the same shadow pixels in the same order, paints that
 drawing's blobs: a save that changes only text or layout keeps the atlas and
-uploads no image again. With four 4,096-pixel images on the canvas, such a
-save costs the page's main thread under 1 ms instead of 6 to 17.
+uploads no image again.
 
 ## In the server
 
@@ -334,10 +488,27 @@ every file it was made from is still the read it saw — otherwise it resolves
 the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it — a `themes.yml` written into a folder between a design and one
-above it, say. Painting happens when a PNG is asked for, in the theme it asks
-for, from the scene already in memory. `devpage check` and a page's problems bar read designs
+above it, say. `devpage check` and a page's problems bar read designs
 straight from disk instead, as they read pages. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
+
+With each design's scene the store keeps its **drawing** in each theme it
+shows in — layout, chunks, property trees and index — and a design resolved
+again updates them by the patch from its last scene to its new one, the very
+patch its watch streams send: only the dirty part is laid out, only dirty
+chunks are made, only their index entries move, and only the tiles over the
+damage go stale. A changed component file touches only the designs made from
+it. The store's tiles, at 1× in each theme, share one cache capped at 64 MB of
+pixels, least recently used dropped first.
+
+A PNG is assembled **band by band**: a band is one row of tiles across the
+drawing, each tile taken from the cache or painted if it is missing or stale,
+and its rows go straight into a streaming PNG encoder (the `png` crate) as
+the response's body. So a PNG of any size holds one band in memory, and a
+PNG asked for again after an edit paints only the tiles the edit made stale. No lock of the store's is held while a band is written, so a client that
+stops reading holds up only its own PNG; a save that changes the design while
+its PNG is being written ends that response there, short, rather than finish
+it from the next scene.
 
 ## The watch stream
 
@@ -388,45 +559,80 @@ problems are not sent twice.
 
 ## In the browser
 
-The canvas page loads the WebAssembly module (`core/assets/design.js` does the
-page's part), opens the watch stream with `fetch`, reads the gRPC-Web frames
+The canvas page loads the WebAssembly module, opens the watch stream with `fetch`, reads the gRPC-Web frames
 off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
-one per canvas. A font file is checked once, when the first scene or patch
-carrying it arrives, and kept while the scene uses it, as an image file is
-decoded once; the canvas's renderer registers it before it next lays the
-scene out. The module lays out and paints on the GPU into a `<canvas>`
-sized to the screen's device pixels; one WebGPU device serves every canvas on
-the page, and a canvas keeps a vello renderer — its
-[image atlas](#the-gpus-image-atlas) — for as long as its drawings paint the
-same images. On a slide, the 1920 × 1080 stage is scaled to the window by a
-transform the canvas's CSS size doesn't see, so the bitmap follows the
-canvas's box on the screen and the module paints at the view's zoom times that
-transform — the whole drawing shows, crisp, at any window size — and a click
-is taken back through the same transform before it is hit-tested. It lays out once per change of scene or of theme (`Renderer::drawing`) and
-paints from that one display list on the GPU or the CPU alike, and paints only when
-the scene, the theme or the view does — a zoom, a pan, a resize — at most once per
-animation frame.
+one per canvas — and to the drawing made from it, by the same
+[incremental update](#incremental-updates) as the server's. A font file is
+checked once, when the first scene or patch carrying it arrives, and kept
+while the scene uses it, as an image file is decoded once; the canvas's
+renderer registers it before it next lays the scene out.
+
+The page's part is the design script, `core/assets/design.js`, which loads
+the engine and starts the page's canvases, and the modules it imports, each
+a [built-in asset](../serving-pages/README.md#built-in-assets):
+`design-stream.js`, the page's one watch stream; `design-canvas.js`, a
+canvas — its view, pointer, interactions, overlays and an embed's backdrop;
+`design-tiles.js`, the compositor's tiles on the CPU and the worker,
+`design-worker.js`, that paints them.
+
+### The compositor
+
+A canvas is drawn by a **compositor** from [tiles](#tiles). Every frame of a
+pan or a zoom only places the cached tiles of the view — moved and scaled —
+into a `<canvas>` sized to the screen's device pixels; nothing is painted for
+it. Tiles the view needs that are missing or stale are painted after the
+frame, nearest the view's middle first, at the zoom's real resolution, a few
+each frame, and each is swapped in when it is ready. Until then the view
+shows what the cache has — the stale tile, or the same place at another
+scale, stretched — so nothing flashes, and a view is sharp once its zoom
+settles. The view is shown at the scale tiles are painted at — the zoom in
+device pixels, to a 1/1024th — with the drawing's top-left on a whole device
+pixel, so a tile at the view's own scale lands pixel for pixel, and a click
+is taken back through the same. A canvas keeps at most 384 tiles — more than
+a 4K screen at twice its pixels shows — least recently used dropped first.
+Each update to the design marks stale only the tiles its
+[damage](#tiles) overlaps, in each theme it has been drawn in; another
+design — a navigation — starts with none. A switch of theme keeps the other
+theme's drawing and its tiles, so switching back makes and paints nothing.
+
+- **On the GPU**: tiles are painted by `vello` through `wgpu` on WebGPU, each
+  into a texture of its own, and composited by one textured-quad pass over
+  the page's own background, read from the backdrop or page under it, so a
+  design's transparent parts show it; a theme switch changes that background
+  and the design's colors, so every canvas composites again when the page's
+  `data-theme` changes. One WebGPU device serves every canvas on the page,
+  and a canvas keeps a vello renderer — its
+  [image atlas](#the-gpus-image-atlas) — for as long as its drawings paint
+  the same images.
+- **On the CPU**, without WebGPU: tiles are painted by `vello_cpu` in a
+  worker, off the page's main thread, made when the first canvas without
+  WebGPU needs it — the worker holds its own copy of each design, fed the
+  same stream messages, while the page's own copy says which tiles an update
+  made stale — and composited into a 2D canvas. Messages that reach the
+  worker while it is still loading the engine wait for it.
+  The same tiles, the same scales — the page's copy of the design names the
+  tiles a view needs, nearest its middle first, as the GPU's are found —
+  asked of the worker in that order, a few in flight at once; no
+  whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
+  which Chrome prints reliably.
+
+On a slide, the 1920 × 1080 stage is scaled to the window by a transform the
+canvas's CSS size doesn't see, so the bitmap follows the canvas's box on the
+screen and tiles are painted at the view's zoom times that transform — the
+whole drawing shows, crisp, at any window size — and a click is taken back
+through the same transform before it is hit-tested.
 
 The design script tells the module which theme each canvas is drawn in: on
 the canvas page, the page's; in an embed, the page's until the reader turns
 the embed's own switch, and then the embed's own, kept in the page's memory
 only; in an overlay, the theme of the canvas it covers. Since the scene holds
-both values of every color, a switch is a new display list made in the
-browser — nothing is asked of the server. An embed's own switch sets
-`data-theme` on its backdrop, which the stylesheet gives the theme's tokens,
-so the backdrop and its controls turn with the design.
+both values of every color, a switch is a drawing made in the browser —
+nothing is asked of the server. An embed's own switch sets `data-theme` on
+its backdrop, which the stylesheet gives the theme's tokens, so the backdrop
+and its controls turn with the design.
 
-On the GPU the module first fills the canvas with the page's own background,
-read from the backdrop or page under it, so a design's transparent parts show
-it; a theme switch changes that background and the design's colors, so every
-canvas paints again when the page's `data-theme` changes.
-
-Without WebGPU the module paints with `vello_cpu` once per zoom level, and a
-pan only moves that painting on the canvas. Print mode always paints on the
-CPU, into a 2D canvas, which Chrome prints reliably.
-
-Clicks are hit-tested by the module against the laid-out scene, and an
+Clicks are [hit-tested](#hit-testing) by the module, and an
 interaction runs in the page: a navigation pushes the new address onto the
 browser's history and watches that design instead, an overlay adds its design
 to the stream's set and paints its scene on a canvas of its own, centered over
@@ -463,4 +669,4 @@ and one that goes leaves the stream.
 | A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |
 | The module fails to load | Each canvas says so, with the error, in place of its drawing; the PNG route is unaffected. |
-| The browser has no WebGPU | The module paints with `vello_cpu` and puts the buffer on the canvas. |
+| The browser has no WebGPU | Tiles are painted with `vello_cpu` in a worker and composited into a 2D canvas, as sharp as on the GPU. |
