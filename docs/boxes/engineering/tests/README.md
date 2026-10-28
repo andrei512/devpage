@@ -8,23 +8,23 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 347 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 84 tests that drive Chrome or call GPT-Live
+$ cargo test                  # 411 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 92 tests that drive Chrome or Docker, or call GPT-Live
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 91 in `devpage`, 160 in its
-core `devpage-core`, 97 in the engine `devpage-design`, 9 in
+`cargo test` runs every crate in the workspace: 150 in `devpage`, 172 in its
+core `devpage-core`, 98 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
 `src/drive/server/canvas_tests.rs` and the comments' in
 `src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
-folder holds one test, [the search's quality](#the-searchs-quality), and
-fixtures — `tests/fixtures/sync-design`, a doc of three
+folder holds two, [the search's quality](#the-searchs-quality) and
+[the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
 a deck of three slides with notes that the live video test records, and
 `tests/fixtures/search-docs`, a frozen copy of devpage's docs that the
@@ -34,9 +34,11 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 84 tests marked `#[ignore]`, 83 drive Chrome, and one of them also
-calls GPT-Live; the other asks Google's server for the pinned Chrome's zips,
-all at once, so it needs the network.
+Of the 92 tests marked `#[ignore]`, 89 drive Chrome, and one of them also
+calls GPT-Live; two run the server deploy example in Docker, one at a time,
+since they share its compose project; the last asks
+Google's server for the pinned Chrome's zips, all at once, so it needs the
+network.
 All but the two `video` tests drive chrome-headless-shell through
 chromiumoxide — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
@@ -62,7 +64,7 @@ directory, named with the test process's id, and don't all remove them.
 
 ### The watcher's tests need file-system events
 
-Nineteen tests save a file and wait for devpage to hear of it through the
+Twenty tests save a file and wait for devpage to hear of it through the
 platform's watcher:
 
 - eight `adapters::watch` tests that count what the platform reports —
@@ -83,6 +85,10 @@ platform's watcher:
   `widget_files_refresh_whatever_watch_says` (of the others,
   `ignored_files_and_files_outside_watch_do_not_refresh` expects no event,
   and the rest feed made-up events, so they pass either way);
+- one macOS test, `a_save_just_before_a_folder_leaves_its_stream_is_heard`:
+  a file saved and its folder passed from an FSEvents stream to kqueue at
+  once, as the first comment's `.devpage/` does to the served folder, still
+  reported;
 - two `drive::server` tests —
   `the_entry_document_follows_its_file_without_a_restart` and
   `a_server_and_the_watcher_its_options_start_announce_a_write_once`;
@@ -129,6 +135,20 @@ the suite green.
 - `devpage check` asking each external address once and reporting every link to it.
 - The preview checking in the background and refreshing open pages.
 
+### `adapters::sqlite`
+
+*3 tests; its threads are tested through `drive::server_mode`.*
+
+- A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
+- Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
+- Deleting a document deleting its versions and nothing else.
+
+### `cache`
+
+*2 tests.*
+
+- The least recently read versions going, oldest first, until the cache is at 90% of its limit; nothing going under it.
+
 ### `changes`
 
 *1 test.*
@@ -154,7 +174,7 @@ the suite green.
 
 ### `comments`
 
-*8 tests — 4 of the port, 4 of its YAML adapter; 6 in Chrome, in `drive::server::comments_browser`.*
+*13 tests — 4 of the port, 4 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::server::comments_browser`, and 1 on a published document.*
 
 - A page that climbs out of the served folder and a made-up id refused.
 - Every write announcing its page once, and a failed one nothing.
@@ -164,6 +184,7 @@ the suite green.
 - A thread file exactly the YAML it always was.
 - A thread file that doesn't parse named and left alone.
 - Only a change the store didn't make itself left for the watcher to announce.
+- A page's text read as the page script reads it — tags gone, entities decoded, white space squeezed, scripts and styles left out; a quote with its context keeping its anchor, one whose context changed taking its new context, counted in characters, and one that is gone detached.
 
 In Chrome:
 
@@ -300,6 +321,17 @@ In Chrome:
 - The tree stopping at a cycle.
 - A Topics entry outside the site or to a missing file is a problem.
 
+### `drive::client`
+
+*17 tests.*
+
+- The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
+- A broken link stopping `publish` before any request, in text and `--json`.
+- `publish` remembering the document per context in `published.yml`, adding a version the second time; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
+- Contexts added, used and listed, the current one marked; `DEVPAGE_CONTEXT`; no context saying how to add one; a token command's output sent as the bearer token and stored nowhere.
+- `list`, `versions`, `comments` (grouped by page, a detached thread marked), `reply`, `resolve`, `download` and `delete` against a fake server answering the API, in text and `--json`; every command parsing as the reference writes it.
+- `publish` against a real `devpage server` on a `file://` bucket: version 1, then version 2 of the same document, kept in the bucket with exactly the checked files, its link rendering.
+
 ### `drive::pdf`
 
 *4 tests, 35 in Chrome, 1 on the network.*
@@ -420,6 +452,16 @@ and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
 ranking's result when they were set. A change to ranking that lowers either
 fails it; one that raises them raises the floor with it.
 
+### The restore of a deploy
+
+`tests/deploy_restore.rs`, two `--ignored` tests, one per kind of bucket:
+each brings up a server from `deploy/server/compose.yaml` — building the image
+from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
+two versions and starts a thread, deletes the server's volume, starts it on
+an empty one, and finds both versions, the thread, the latest at the link and
+version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
+on the example deploy. Without Litestream's restore it fails.
+
 ### `drive::server`
 
 *30 tests, 37 in Chrome.*
@@ -440,6 +482,30 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A thread on a page outside the served folder refused.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Nothing outside the served folder served, through HTTP's percent-decoding.
+- On a published document, a thread made on the page listed by the API on the page's own path; one started through the API marked on the open page; after a publish that removes its quote, that thread listed under *Detached comments* and the other still marked.
+
+### `drive::server_mode`
+
+*29 tests, and 5 of its configuration; 4 in Chrome.*
+
+- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
+- A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
+- A publish naming its document file with `?entry=`, served from it, and an entry outside the zip refused; a broken link or a zip entry outside the document refusing the publish with `422`.
+- An upload over the limit refused with `413`, one over axum's own 2 MB default and under the limit accepted.
+- With a user header, a write without it refused with `401` and each version recording its author; without one, every write `anonymous`.
+- Documents listed and read with their versions; a document deleted from the store, the bucket and the cache; deleting the latest version making the one before it latest; an id that is no UUID naming no document.
+- Concurrent publishes to one document taking one number each.
+- With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
+- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
+- A published page asking no external address.
+- A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
+- With a user header, every comment write — the API's and the page's — needing it and carrying its author.
+- Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.
+- Deleting a document deleting its threads.
+- The front page saying how to connect, linking to the repository, carrying the logo and listing no documents; `/favicon.ico` being devpage's logo; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
+- A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
+- A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.
+- In Chrome: a page at the link swapping in each new version, its version menu following; an old version's banner linking to the latest, its menu listing every version, and a publish leaving it unchanged; the banner above a doc's page, never over it, wide and narrow, and a long sidebar's last link above the version bar; a doc's download button saving its PDF, printed once and then read from the cache; every request a published page makes staying under its mount.
 
 ### `drive::slide_png`
 
@@ -557,7 +623,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `devpage-design`
 
-*94 tests.*
+*98 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `resolve`, 36: props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.

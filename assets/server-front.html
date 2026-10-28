@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devpage server</title>
+<link rel="icon" href="data:image/svg+xml,{{favicon}}">
+<link rel="stylesheet" href="{{stylesheet}}">
+<style>
+body.server-front { display: block; }
+.front { max-width: 760px; margin: 0 auto; padding: 0 24px 48px; }
+.front header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0; }
+.front .brand { display: flex; align-items: center; gap: 10px; color: var(--text); text-decoration: none; font-weight: 600; font-size: 19px; }
+.front .brand svg { width: 32px; height: 32px; }
+.front .brand span { color: var(--muted); font-weight: 400; }
+.front .github { display: flex; align-items: center; gap: 6px; color: var(--muted); text-decoration: none; font-size: 15px; }
+.front .github:hover { color: var(--text); }
+.front .github svg { width: 18px; height: 18px; fill: currentColor; }
+.front .hero { padding: 40px 0 28px; }
+.front h1 { font-size: 40px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 14px; }
+.front .lead { color: var(--muted); font-size: 19px; margin: 0; max-width: 600px; }
+.front form { display: flex; gap: 8px; margin: 28px 0 6px; }
+.front input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--text); }
+.front input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+.front button { font: inherit; font-size: 15px; font-weight: 500; padding: 10px 18px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
+.front .hint { color: var(--muted); font-size: 14px; margin: 0; min-height: 1.6em; }
+.front .hint.wrong { color: #d70015; }
+.front h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 44px 0 14px; }
+.front ol { list-style: none; padding: 0; margin: 0; counter-reset: step; }
+.front ol li { counter-increment: step; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 12px; margin-bottom: 16px; }
+.front ol li::before { content: counter(step); grid-row: span 2; width: 24px; height: 24px; border-radius: 50%; background: var(--surface); border: 1px solid var(--border); font-size: 13px; font-weight: 600; display: flex; align-items: center; justify-content: center; margin-top: 2px; }
+.front ol li p { margin: 0; }
+.front .code { position: relative; }
+.front pre { margin: 0; padding: 12px 44px 12px 14px; background: var(--code); border: 1px solid var(--border); border-radius: 10px; font: 14px/1.6 var(--font-mono); overflow-x: auto; }
+.front .copy { position: absolute; top: 7px; right: 7px; padding: 4px 8px; font-size: 12px; background: var(--background); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; }
+.front .copy:hover { color: var(--text); }
+.front dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; margin: 0; font-size: 15px; }
+.front dt { font-family: var(--font-mono); font-size: 14px; }
+.front dd { margin: 0; color: var(--muted); }
+.front table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.front td { padding: 7px 0; border-top: 1px solid var(--border); vertical-align: top; }
+.front td:first-child { font-family: var(--font-mono); font-size: 13px; padding-right: 16px; white-space: nowrap; }
+.front td:last-child { color: var(--muted); }
+.front .method { display: inline-block; width: 52px; color: var(--accent); font-weight: 600; }
+.front footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--border); display: flex; flex-wrap: wrap; gap: 6px 18px; color: var(--muted); font-size: 14px; }
+.front footer a { color: var(--muted); }
+@media (max-width: 560px) {
+  .front h1 { font-size: 32px; }
+  .front dl { grid-template-columns: 1fr; gap: 2px; }
+  .front dd { margin-bottom: 8px; }
+  .front td:first-child { white-space: normal; }
+}
+</style>
+</head>
+<body class="server-front">
+<main id="devpage-page" class="front">
+<header>
+  <a class="brand" href="/">{{logo}} devpage <span>server</span></a>
+  <a class="github" href="{{repository}}"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+</header>
+
+<section class="hero">
+  <h1>Publish a document. Get a link.</h1>
+  <p class="lead">Docs, slides and designs from Markdown in your repository, published from the CLI. Every version is kept, comments carry over from one to the next, and every open page updates when you publish again.</p>
+  <form id="open">
+    <input name="link" placeholder="Paste a document's link or id" aria-label="A document's link or id" autocomplete="off" spellcheck="false">
+    <button type="submit">Open</button>
+  </form>
+  <p class="hint" id="open-hint">Documents aren't listed here; each is reached by its link.</p>
+</section>
+
+<h2>Publish from your repository</h2>
+<ol>
+  <li><p>Install the CLI</p><div class="code"><pre><code>cargo install devpage</code></pre></div></li>
+  <li><p>Connect it to this server</p><div class="code"><pre><code>devpage context add work {{server}}
+devpage context use work</code></pre></div></li>
+  <li><p>Publish. It prints the link; publishing the same file again adds a version.</p><div class="code"><pre><code>devpage publish docs/devpage.yml</code></pre></div></li>
+</ol>
+
+<h2>Then</h2>
+<dl>
+  <dt>devpage list</dt><dd>The documents you've published here, with their links.</dd>
+  <dt>devpage versions &lt;id&gt;</dt><dd>Every version: who published it, and when.</dd>
+  <dt>devpage comments &lt;id&gt;</dt><dd>Readers' threads, with the quote each is on: for you or your agent to act on.</dd>
+  <dt>devpage download &lt;id&gt;</dt><dd>A PDF of a doc or slides, a PNG of a design.</dd>
+  <dt>--json</dt><dd>Each of these takes it, for an agent to read.</dd>
+</dl>
+
+<h2>HTTP API</h2>
+<table>
+  <tr><td><span class="method">POST</span>/api/documents</td><td>A zip: creates a document.</td></tr>
+  <tr><td><span class="method">POST</span>/api/documents/&lt;id&gt;/versions</td><td>A zip: adds a version.</td></tr>
+  <tr><td><span class="method">GET</span>/api/documents/&lt;id&gt;</td><td>The document and its versions.</td></tr>
+  <tr><td><span class="method">GET</span>/api/documents/&lt;id&gt;/comments</td><td>Its threads.</td></tr>
+  <tr><td><span class="method">DELETE</span>/api/documents/&lt;id&gt;</td><td>It, its versions and its comments.</td></tr>
+</table>
+
+<footer>
+  <span>devpage {{version}}</span>
+  <a href="{{repository}}">Source</a>
+  <a href="{{repository}}/tree/main/docs/boxes/viewer/server">Server docs</a>
+  <a href="{{repository}}/tree/main/docs/boxes/viewer/server/reference">API reference</a>
+  <span>MIT licensed</span>
+</footer>
+</main>
+<script>
+for (const block of document.querySelectorAll('.front .code')) {
+  const copy = document.createElement('button');
+  copy.type = 'button';
+  copy.className = 'copy';
+  copy.textContent = 'Copy';
+  copy.addEventListener('click', async () => {
+    const text = block.querySelector('code').textContent;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(block.querySelector('code'));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+      document.execCommand('copy');
+    }
+    copy.textContent = 'Copied';
+    setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+  });
+  block.append(copy);
+}
+document.getElementById('open').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const given = event.target.link.value.trim();
+  const found = given.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/v\/\d+)?/i);
+  const hint = document.getElementById('open-hint');
+  if (!found) {
+    hint.textContent = "That isn't a document's link or id.";
+    hint.classList.add('wrong');
+    return;
+  }
+  location.href = `/d/${found[1].toLowerCase()}${found[2] || ''}/`;
+});
+</script>
+</body>
+</html>

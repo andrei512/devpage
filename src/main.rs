@@ -67,6 +67,12 @@ enum Command {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// Serve published documents: every version kept in the bucket, served
+    /// from the cache. Configured by `DEVPAGE_*` variables.
+    Server,
+    /// The commands that talk to a devpage server.
+    #[command(flatten)]
+    Remote(drive::client::Command),
     /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
     Video {
         path: PathBuf,
@@ -113,6 +119,22 @@ async fn main() -> Result<()> {
             println!("{}", output.display());
             return Ok(());
         }
+        Some(Command::Server) => {
+            let config = drive::server_mode::Config::from_env()?;
+            let address = SocketAddr::new(config.host, config.port);
+            let app = drive::server_mode::router(&config)?;
+            let listener = TcpListener::bind(address).await?;
+            println!("devpage server on http://{}", listener.local_addr()?);
+            axum::serve(listener, app).await?;
+            return Ok(());
+        }
+        Some(Command::Remote(command)) => {
+            let home = drive::client::contexts::Home::from_env()?;
+            let context = std::env::var("DEVPAGE_CONTEXT").ok();
+            let output = drive::client::run(command, &home, &served, context).await?;
+            print!("{}", output.text);
+            std::process::exit(output.code);
+        }
         Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
@@ -120,7 +142,7 @@ async fn main() -> Result<()> {
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 
-    let designs = designs::Designs::new(document.served.path().to_path_buf());
+    let designs = designs::Designs::new(&document.served);
 
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(

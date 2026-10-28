@@ -43,7 +43,7 @@ async fn open_off(
     let changes = crate::changes::Changes::default();
     let index = Arc::new(crate::index::Index::build(&document.served));
     let entry = Arc::new(crate::document::Entry::new(document));
-    let designs = crate::designs::Designs::new(entry.document().served.path().to_path_buf());
+    let designs = crate::designs::Designs::new(&entry.document().served);
     let document = entry.document();
     let options = server::Options {
         entry,

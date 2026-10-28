@@ -24,6 +24,16 @@ pub fn tab_title(page: &str, site: &str) -> String {
     }
 }
 
+/// The page's `<html>` tag, carrying the served folder's mount when it has
+/// one, for the page script and the design script to ask their endpoints
+/// under.
+pub fn html_open(served: &ServedFolder) -> String {
+    match served.mount() {
+        "" => r#"<html lang="en">"#.to_string(),
+        mount => format!(r#"<html lang="en" data-mount="{}">"#, escape(mount)),
+    }
+}
+
 /// The page script's tag, for the head: deferred, so it is fetched with
 /// everything else the head names and runs once the page is parsed. In print mode it keeps no live connection and shows
 /// no controls; with comments off (`devpage --no-comments`) it shows no
@@ -58,7 +68,7 @@ pub fn page(
     let content = markdown_in(widgets, source);
     format!(
         r#"<!doctype html>
-<html lang="en">
+{html}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -73,6 +83,7 @@ pub fn page(
 <main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
 </body>
 </html>"#,
+        html = html_open(&document.served),
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         tab = escape(&tab_title(&title(source, file), &document.title)),
@@ -172,7 +183,7 @@ pub fn doc(
     };
     format!(
         r#"<!doctype html>
-<html lang="en">
+{html}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -188,6 +199,7 @@ pub fn doc(
 <main id="devpage-page">{problems}<article>{heading}{content}</article></main>
 </body>
 </html>"#,
+        html = html_open(&document.served),
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),
@@ -323,7 +335,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
     let address = entry.url(file);
     format!(
         r#"<!doctype html>
-<html lang="en">
+{html}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -336,6 +348,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
 <main id="devpage-page"><div class="problems"><b>{address} is not a valid document</b><ul><li>{error}</li></ul></div></main>
 </body>
 </html>"#,
+        html = html_open(&entry.served),
         stylesheet = crate::addresses::address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         page_script = page_script(false, true),
@@ -388,7 +401,7 @@ pub fn slides(
     }
     format!(
         r#"<!doctype html>
-<html lang="en">
+{html}
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -403,6 +416,7 @@ pub fn slides(
 {corner}<main id="devpage-page" class="deck">{problems}{content}</main>
 </body>
 </html>"#,
+        html = html_open(&document.served),
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),

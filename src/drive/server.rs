@@ -133,7 +133,7 @@ impl Options {
         let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
         Self {
             index: Arc::new(Index::build(&document.served)),
-            designs: Designs::new(document.served.path().to_path_buf()),
+            designs: Designs::new(&document.served),
             shots: Shots::new(&changes),
             preview: Arc::new(Preview::new(
                 crate::http::external(Some(changes.clone())),
@@ -256,14 +256,14 @@ async fn log_request(request: Request, next: Next) -> Response {
     response
 }
 
-/// The resolver for a request: the server's documents, mounted at `/`.
+/// The resolver for a request: the server's documents, under their served
+/// folder's mount.
 fn resolver(state: &AppState) -> Resolver<'_> {
     Resolver {
         entry: &state.entry,
         index: &state.index,
         preview: &state.preview,
         comments: state.comments_on(),
-        mount: "",
     }
 }
 
@@ -299,7 +299,9 @@ async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Respo
             }
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         },
-        Answer::Canvas { design, theme } => Html(canvas::page(&design, theme)).into_response(),
+        Answer::Canvas { design, theme } => {
+            Html(canvas::page(&state.entry.document().served, &design, theme)).into_response()
+        }
         Answer::DesignPng { design, theme } => design_png(state, headers, design, theme).await,
         Answer::SlidePng { page, n } => slide_png(state, headers, &page, n).await,
     }
@@ -501,7 +503,7 @@ async fn project_widget(
     if let Some(error) = broken_import(&document, &snapshot, &file, &known) {
         return module_error(&error);
     }
-    let label = document.url(&file)[1..].to_string();
+    let label = document.name(&file);
     compiled(&label, snapshot.compile(&file, &known), current)
 }
 
@@ -542,7 +544,7 @@ fn broken_import(
             snapshot
                 .compile(&helper, known)
                 .err()
-                .map(|error| format!("{} does not compile: {error}", &document.url(&helper)[1..]))
+                .map(|error| format!("{} does not compile: {error}", document.name(&helper)))
         })
 }
 
@@ -590,7 +592,7 @@ fn compiled(label: &str, result: anyhow::Result<String>, current: bool) -> Respo
 /// content address; at its bare name or a stale hash, the current bytes with
 /// `no-cache`, so a page from an older build still loads. Sent brotli- or
 /// gzip-compressed when the browser takes it.
-async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
+pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
     let Some((asset, current)) = crate::addresses::asset(&name) else {
         return StatusCode::NOT_FOUND.into_response();
     };
@@ -1357,7 +1359,10 @@ mod tests {
         let (status, helper) = get(&format!("{base}/__devpage/widgets/docs/widgets/label")).await;
         assert_eq!(status, 200, "an import without an extension finds the .ts");
         assert!(helper.contains("label"), "{helper}");
-        let system = crate::addresses::address(crate::addresses::Owned::SystemWidget("Tabs"));
+        let system = crate::addresses::address(crate::addresses::Owned::SystemWidget {
+            name: "Tabs",
+            mount: "",
+        });
         let response = reqwest::get(format!("{base}{system}")).await.unwrap();
         assert_eq!(
             response.headers()["cache-control"],
@@ -1388,7 +1393,10 @@ mod tests {
         assert!(
             page.contains(&format!(
                 "\"Callout\":\"{}\"",
-                crate::addresses::address(crate::addresses::Owned::SystemWidget("Callout"))
+                crate::addresses::address(crate::addresses::Owned::SystemWidget {
+                    name: "Callout",
+                    mount: ""
+                })
             )),
             "{page}"
         );

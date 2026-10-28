@@ -9,6 +9,10 @@
 //! differ by a byte: a browser that preloads one address and imports another
 //! downloads twice.
 //!
+//! Every address but a built-in asset's is the document's: it starts with the
+//! served folder's mount, so a version in server mode, under `/d/<id>/v/<n>`,
+//! asks its own router. A built-in asset is the same for every document.
+//!
 //! An address changes exactly when the bytes it serves would: a built-in
 //! asset's carries the hash of its bytes (`/__devpage/devpage.<hash>.js`); a
 //! widget's carries `?v=<hash>` over what its compiled module is made from.
@@ -45,8 +49,9 @@ include!(concat!(env!("OUT_DIR"), "/manifest.rs"));
 pub enum Owned<'a> {
     /// A built-in asset, by the name it is written by: `"devpage.js"`.
     Asset(&'a str),
-    /// A system widget, by name: `"Callout"`.
-    SystemWidget(&'a str),
+    /// A system widget, by name — `"Callout"` — for the document served under
+    /// `mount`.
+    SystemWidget { name: &'a str, mount: &'a str },
     /// A project widget, or a helper a widget imports: its file in the served
     /// folder, the [snapshot](crate::widgets::Snapshot) of the files it is
     /// made from, and the widget names it can render — those of the document
@@ -72,8 +77,8 @@ pub fn address(owned: Owned) -> String {
                 .unwrap_or_else(|| panic!("{name} is not a built-in asset"));
             format!("/__devpage/{}", asset.hashed)
         }
-        Owned::SystemWidget(name) => format!(
-            "/__devpage/system-widgets/{name}.tsx?v={}",
+        Owned::SystemWidget { name, mount } => format!(
+            "{mount}/__devpage/system-widgets/{name}.tsx?v={}",
             system_widget_hash(name).unwrap_or_default()
         ),
         Owned::Module {
@@ -81,10 +86,9 @@ pub fn address(owned: Owned) -> String {
             file,
             known,
         } => format!(
-            "/__devpage/widgets/{}?v={}",
-            file.strip_prefix(snapshot.served())
-                .unwrap_or(file)
-                .display(),
+            "{}/__devpage/widgets/{}?v={}",
+            snapshot.served().mount(),
+            snapshot.served().name(file),
             snapshot.hash(file, known)
         ),
     }
@@ -174,7 +178,10 @@ mod tests {
 
     #[test]
     fn a_system_widget_address_carries_its_version() {
-        let callout = address(Owned::SystemWidget("Callout"));
+        let callout = address(Owned::SystemWidget {
+            name: "Callout",
+            mount: "",
+        });
         assert_eq!(
             callout,
             format!(

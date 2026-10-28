@@ -207,7 +207,14 @@ written into a new folder of the comment store at once.
   renames; a symbolic link is watched itself, never what it points to. One
   thread waits on the kqueue. kqueue holds a descriptor per
   watched file and folder, so devpage raises its open-files limit to what
-  the system allows (at most 10240) when it starts watching.
+  the system allows (at most 10240) when it starts watching. A re-plan
+  starts new watches before it stops old ones, but fseventsd holds each
+  event for a stream's latency — longer on a loaded machine — and a stopped
+  stream never delivers what it held, so a file saved just before its
+  folder passes from a stream to other watches would go unheard: after
+  stopping a stream, devpage handles as changed every file under its folder
+  still in sight that was modified in the last second. Flushing the stream
+  first doesn't help — fseventsd hasn't handed it the event yet.
 - **Linux** (`src/adapters/watch/inotify.rs`): `notify`'s inotify watcher,
   non-recursive on every folder in sight — the shallow folders and every
   folder of the deep ones. inotify watches a folder at a time anyway, so an
@@ -233,6 +240,14 @@ makes one bus and hands it to its producers — the watcher, the external-link
 checker, and the server, whose comment writes each publish that page's
 `Comments` as they land — and to its subscribers. Publishing with no one subscribed is not an
 error.
+
+In [server mode](../server/README.md) there is no watcher: each published
+document has a bus of its own, shared by every router serving its latest
+version at `/d/<id>`, and a publish — or deleting the latest version —
+publishes a `Refresh` on it. A page open at the link fetches itself again and
+gets the new version, whichever version it loaded, and keeps hearing the next
+publish through the same bus; a page under `/d/<id>/v/<n>` hears nothing,
+since a version never changes.
 
 The watcher decides a burst in two halves: `Listeners::forget` has every cache
 forget what changed — the design store, the index with its widget modules, the

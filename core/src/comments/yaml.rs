@@ -87,7 +87,11 @@ impl Yaml {
                         .unwrap_or_default()
                         .to_string_lossy()
                         .into_owned();
-                    listed.push(Listed { id, thread });
+                    listed.push(Listed {
+                        id,
+                        thread,
+                        detached: false,
+                    });
                 }
                 Err(error) => broken.push((path, format!("{error:#}"))),
             }
@@ -170,7 +174,11 @@ impl Store for Yaml {
 /// in the preview and reported by `devpage check`.
 pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::problem::Problem> {
     let store = Yaml::new(&document.served);
-    let unparsable = store.read(&document.url(page)).map(|(_, broken)| broken);
+    // A page names its threads by its path in the served folder, whatever
+    // the folder's mount.
+    let unparsable = store
+        .read(&format!("/{}", document.name(page)))
+        .map(|(_, broken)| broken);
     unparsable
         .unwrap_or_default()
         .into_iter()

@@ -14,7 +14,7 @@ use devpage_design::resolve::ImageFile;
 use devpage_design::tiles::{self, Cache, Key, Level, TILE, Tiled};
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
-use crate::served::ServedFolder;
+use crate::served::{Served, ServedFolder};
 
 /// A design resolved once: its scene or its problems, and every file the
 /// resolving asked for — missing ones included, so creating one counts.
@@ -436,10 +436,10 @@ pub fn address(path: &str) -> &str {
 }
 
 impl Designs {
-    /// The store for the served folder, which must be canonical.
-    pub fn new(served: PathBuf) -> Designs {
+    /// The store for the served folder.
+    pub fn new(served: impl Served) -> Designs {
         Designs(Arc::new(Store {
-            served: ServedFolder::canonical(served),
+            served: served.served(),
             renderer: Mutex::new(Renderer::new()),
             sources: Mutex::default(),
             reads: Default::default(),
@@ -618,8 +618,8 @@ impl Designs {
 
 /// The design at `path`'s problems, read straight from disk: what
 /// `devpage check` and a page's problems bar report.
-pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
-    let served = ServedFolder::canonical(served.as_ref().to_path_buf());
+pub fn problems(served: impl Served, path: &str) -> Vec<Problem> {
+    let served = served.served();
     struct Disk<'a>(&'a ServedFolder);
     impl Files for Disk<'_> {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
@@ -639,6 +639,39 @@ pub fn problems(served: impl AsRef<Path>, path: &str) -> Vec<Problem> {
     .and_then(|scene| drawable(&mut Renderer::new(), path, &scene))
     .err()
     .unwrap_or_default()
+}
+
+/// Every file the design at `path` is made of, read straight from disk: the
+/// design itself, its imports, images, themes and fonts — what resolving it
+/// reads, whether or not it resolves. Folders it lists are not files; the
+/// fonts it then reads from them are.
+pub fn files(served: &ServedFolder, path: &str) -> Vec<PathBuf> {
+    struct Recording<'a> {
+        served: &'a ServedFolder,
+        read: RefCell<Vec<PathBuf>>,
+    }
+    impl Files for Recording<'_> {
+        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
+            let file = self.served.file(&self.served.path().join(path))?;
+            let bytes = std::fs::read(&file).ok();
+            self.read.borrow_mut().push(file);
+            bytes
+        }
+        fn list(&self, path: &str) -> Option<Vec<String>> {
+            names(&self.served.folder(&self.served.path().join(path))?)
+        }
+    }
+    let recording = Recording {
+        served,
+        read: RefCell::new(Vec::new()),
+    };
+    let path = address(path);
+    let _ = guarded(
+        path,
+        || devpage_design::resolve(&recording, path),
+        |p| vec![p],
+    );
+    recording.read.into_inner()
 }
 
 /// The themes a design shows in: both when it is themed, else the light one,

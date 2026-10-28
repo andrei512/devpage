@@ -43,14 +43,14 @@ pub enum Answer {
 }
 
 /// What decides an answer: the entry document, the index of its served
-/// folder, the problems each page lists, whether comments are on, and the
-/// prefix every address is mounted under — empty when devpage serves at `/`.
+/// folder, the problems each page lists and whether comments are on. Every
+/// address it answers with is under the served folder's mount, which the
+/// documents carry.
 pub struct Resolver<'a> {
     pub entry: &'a Entry,
     pub index: &'a Index,
     pub preview: &'a Preview,
     pub comments: bool,
-    pub mount: &'a str,
 }
 
 impl Resolver<'_> {
@@ -243,10 +243,10 @@ impl Resolver<'_> {
         }
     }
 
-    /// A redirect to `address`, an address from the top of the served
-    /// folder, under the mount prefix.
+    /// A redirect to `address`, an address of the served folder's — under
+    /// its mount already.
     fn redirect(&self, address: String) -> Answer {
-        Answer::Redirect(format!("{}{address}", self.mount))
+        Answer::Redirect(address)
     }
 }
 
@@ -298,22 +298,29 @@ mod tests {
 
     impl Served {
         fn new(dir: &std::path::Path, entry: &str) -> Self {
+            Self::mounted(dir, entry, "")
+        }
+
+        /// The same, its served folder under `mount`.
+        fn mounted(dir: &std::path::Path, entry: &str, mount: &str) -> Self {
+            let served = crate::served::ServedFolder::new(dir)
+                .unwrap()
+                .mounted(mount);
             Self {
                 entry: Entry::new(std::sync::Arc::new(
-                    Document::load(&dir.join(entry), dir).unwrap(),
+                    Document::load(&dir.join(entry), &served).unwrap(),
                 )),
-                index: Index::build(dir),
+                index: Index::build(&served),
                 preview: crate::check::testing::preview(),
             }
         }
 
-        fn at<'a>(&'a self, mount: &'a str) -> Resolver<'a> {
+        fn at(&self) -> Resolver<'_> {
             Resolver {
                 entry: &self.entry,
                 index: &self.index,
                 preview: &self.preview,
                 comments: true,
-                mount,
             }
         }
     }
@@ -330,7 +337,7 @@ mod tests {
         let dir = served("kinds");
         assert!(!dir.join(".git").exists());
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
 
         assert_eq!(resolve.home(), Answer::Redirect("/docs/README.md".into()));
         let page = html(resolve.path("docs/guide/step.md", None));
@@ -380,7 +387,7 @@ mod tests {
     fn a_page_of_a_site_prints_as_a_doc_of_one_chapter() {
         let dir = served("print");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         let page = html(resolve.path("docs/guide/step.md", Some("print")));
         assert!(
             page.contains("<body class=\"doc print\" data-build="),
@@ -410,7 +417,7 @@ mod tests {
         )
         .unwrap();
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         assert!(
             html(resolve.path("other/page.md", None))
                 .contains("<a class=\"document-title\" href=\"/other/index.md\">Other</a>")
@@ -426,7 +433,7 @@ mod tests {
         let dir = served("outside");
         std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         for path in [
             "../secret.md",
             "docs/escape.md",
@@ -449,7 +456,7 @@ mod tests {
         std::os::unix::fs::symlink(&dir, &link).unwrap();
         let link = link.canonicalize().unwrap();
         let served = Served::new(&link, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         assert!(html(resolve.path("docs/guide/step.md", None)).contains("Step"));
         assert!(matches!(
             resolve.path("notes/ci.yml", None),
@@ -461,7 +468,7 @@ mod tests {
     fn a_slide_png_names_a_slide_of_a_deck_or_why_there_is_none() {
         let dir = served("slide-png");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         assert_eq!(
             resolve.path("notes/talk.yml/1.png", None),
             Answer::SlidePng {
@@ -490,7 +497,7 @@ mod tests {
     fn a_design_png_takes_its_theme_from_the_address() {
         let dir = served("design-png");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at("");
+        let resolve = served.at();
         let png = |query| resolve.path("notes/screen.design.png", query);
         assert_eq!(
             png(None),
@@ -518,8 +525,8 @@ mod tests {
     #[test]
     fn every_address_it_answers_with_carries_the_mount_prefix() {
         let dir = served("mount");
-        let served = Served::new(&dir, "docs");
-        let resolve = served.at("/d/6f1c/v/3");
+        let resolve = Served::mounted(&dir, "docs", "/d/6f1c/v/3");
+        let resolve = resolve.at();
         assert_eq!(
             resolve.home(),
             Answer::Redirect("/d/6f1c/v/3/docs/README.md".into())
@@ -530,7 +537,7 @@ mod tests {
         );
         // Unmounted, the same answers are today's addresses.
         assert_eq!(
-            served.at("").home(),
+            Served::new(&dir, "docs").at().home(),
             Answer::Redirect("/docs/README.md".into())
         );
     }

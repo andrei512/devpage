@@ -2,7 +2,7 @@
 //! reach a file in the served folder — and a heading on it, when it names one —
 //! every external address must answer, and every diagram must draw.
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{BTreeSet, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -28,9 +28,9 @@ fn pages(document: &Document) -> Vec<PathBuf> {
 /// External links are checked when `checker` is given.
 pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Problem> {
     let mut external = Vec::new();
-    let mut problems = internal(document, &mut external);
+    let mut problems = internal(document, &mut external, None);
     if let Kind::Design = document.kind {
-        let address = document.url(&document.path());
+        let address = document.name(&document.path());
         problems.extend(
             crate::designs::problems(&document.served, &address)
                 .into_iter()
@@ -49,7 +49,39 @@ pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Pr
     problems
 }
 
-fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
+/// Every file the check follows from `document`, each once and in path
+/// order: the document file, its pages, chapters or slides and every page
+/// and document they reach, the images and files their links name, a design's
+/// imports, images, themes and fonts, the logo, and the project widgets with
+/// every module they import — what the document is made of, and nothing else
+/// beside it. External addresses are not followed.
+pub fn files(document: &Document) -> Vec<PathBuf> {
+    let mut files = BTreeSet::new();
+    internal(document, &mut Vec::new(), Some(&mut files));
+    files.into_iter().collect()
+}
+
+/// A file the walk followed, kept when the caller asked for them: only
+/// regular files inside the served folder.
+fn follow(document: &Document, files: &mut Option<&mut BTreeSet<PathBuf>>, file: &Path) {
+    let Some(files) = files.as_deref_mut() else {
+        return;
+    };
+    if let Some(real) = document.served.file(file)
+        && files.insert(real.clone())
+        && real.extension().is_some_and(|ext| ext == "design")
+    {
+        let address = document.name(&real);
+        files.extend(crate::designs::files(&document.served, &address));
+    }
+}
+
+fn internal(
+    document: &Document,
+    external: &mut Vec<Link>,
+    mut files: Option<&mut BTreeSet<PathBuf>>,
+) -> Vec<Problem> {
+    follow(document, &mut files, &document.path());
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut checked = Vec::new();
@@ -75,6 +107,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
             continue;
         }
         checked.push(page.clone());
+        follow(document, &mut files, &page);
         let owner = match index.site_for(&page) {
             Some(site) => Document::load(&site, &document.served).ok(),
             // In no site, a page is shown as a doc of one chapter — unless it
@@ -85,11 +118,23 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
             None => None,
         };
         let owner = owner.as_ref().unwrap_or(document);
+        follow(document, &mut files, &owner.path());
         let widgets = Widgets::of(owner, index.modules());
         if let Some(folder) = &owner.widgets
             && widget_folders.insert(folder.clone())
         {
             problems.extend(widget_problems(owner, &widgets));
+            if files.is_some() {
+                for widget in widget_files(folder) {
+                    let snapshot = index.modules().snapshot(document.served.path(), &widget);
+                    for (module, _) in snapshot.closure(&widget) {
+                        follow(document, &mut files, &module);
+                    }
+                }
+            }
+        }
+        if let Some(logo) = &owner.logo {
+            follow(document, &mut files, &owner.base.join(logo));
         }
         // A document's logo is checked once.
         if logos.insert(owner.path())
@@ -100,10 +145,11 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
         // A site's navbar is checked once, and what it links to is checked too.
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
             problems.extend(crate::navbar::problems(owner));
-            let (files, web) = crate::navbar::reached(owner);
-            let file = owner.url(&owner.path())[1..].to_string();
+            let (reached_files, web) = crate::navbar::reached(owner);
+            let file = owner.name(&owner.path());
             external.extend(web.into_iter().map(|address| (file.clone(), None, address)));
-            for target in files {
+            for target in reached_files {
+                follow(document, &mut files, &target);
                 if target.extension().is_some_and(|ext| ext == "md") {
                     queue.push_back(target);
                 } else if let Ok(linked) = Document::load(&target, &document.served) {
@@ -114,6 +160,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
         let (found, reached) = page_links_with(owner, &widgets, &page, external);
         problems.extend(found);
         for target in reached {
+            follow(document, &mut files, &target);
             if target.extension().is_some_and(|ext| ext == "md") {
                 queue.push_back(target);
             } else if target
@@ -137,7 +184,7 @@ fn internal(document: &Document, external: &mut Vec<Link>) -> Vec<Problem> {
 /// slide, and every one after the first on a slide.
 fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem> {
     let source = std::fs::read_to_string(page).unwrap_or_default();
-    let file = document.url(page)[1..].to_string();
+    let file = document.name(page);
     // A slide's first `<Notes>` is its notes; a page has none.
     crate::markup::notes(&source)
         .iter()
@@ -170,7 +217,7 @@ fn page_links_with(
         widgets.names(),
         &mut unknown,
     ));
-    let file = document.url(page)[1..].to_string();
+    let file = document.name(page);
     let mut problems = Vec::new();
     for found in unknown {
         let (line, message) = found.split_once(": ").unwrap_or(("", &found));
@@ -248,7 +295,7 @@ fn page_links_with(
             }
         }
         if resolved.extension().is_some_and(|ext| ext == "design") {
-            let address = document.url(&resolved);
+            let address = document.name(&resolved);
             for problem in crate::designs::problems(&document.served, &address) {
                 problems.push(Problem {
                     file: file.clone(),
@@ -399,6 +446,19 @@ fn embedded_designs(source: &str) -> Vec<String> {
 /// The problems of a document's widgets folder, once per document rather than
 /// once per page: a file with a system widget's name, and every widget or
 /// helper that doesn't compile.
+/// The project widget files directly in `folder`, sorted.
+fn widget_files(folder: &Path) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| crate::widgets::is_widget_file(path, folder))
+        .collect();
+    files.sort();
+    files
+}
+
 fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let mut problems: Vec<Problem> = widgets
         .problems
@@ -416,18 +476,10 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let Some(folder) = &document.widgets else {
         return problems;
     };
-    let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .map(|entry| entry.path())
-        .filter(|path| crate::widgets::is_widget_file(path, folder))
-        .collect();
-    files.sort();
-    for file in files {
+    for file in widget_files(folder) {
         if let Err(error) = widgets.compile(&file) {
             problems.push(Problem {
-                file: document.url(&file)[1..].to_string(),
+                file: document.name(&file),
                 line: None,
                 message: format!("does not compile: {error}"),
                 target: None,
@@ -565,7 +617,7 @@ mod tests {
         )
         .unwrap();
         let doc = Document::load(&dir, &dir).unwrap();
-        let found: Vec<String> = internal(&doc, &mut Vec::new())
+        let found: Vec<String> = internal(&doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)
             .collect();
@@ -601,7 +653,7 @@ mod tests {
         let expected = "README.md:17: broken diagram — Parse error on line 2:\n  A->>B: one; two\n";
         // In `devpage check`, and in the page's problems.
         for found in [
-            internal(&doc, &mut Vec::new()),
+            internal(&doc, &mut Vec::new(), None),
             testing::preview().problems(&doc, &widgets_of(&doc), &[doc.base.join("README.md")]),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
@@ -1016,7 +1068,7 @@ mod documents {
         ] {
             let root = repository();
             let doc = Document::load(&root.join(example), &root).unwrap();
-            let problems = internal(&doc, &mut Vec::new());
+            let problems = internal(&doc, &mut Vec::new(), None);
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
     }
@@ -1027,7 +1079,7 @@ mod documents {
     fn devpage_docs_have_no_broken_links() {
         let root = repository();
         let doc = Document::load(&root.join("docs"), &root).unwrap();
-        let problems: Vec<String> = internal(&doc, &mut Vec::new())
+        let problems: Vec<String> = internal(&doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)
             .collect();
