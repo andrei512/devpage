@@ -21,6 +21,9 @@ use crate::tree::{Order, OrderKey};
 
 use super::*;
 
+mod fill;
+mod free;
+
 /// Which layout tree a node is in: the drawing's own, or a run's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(in crate::render) enum Owner {
@@ -30,10 +33,7 @@ pub(in crate::render) enum Owner {
 
 /// Whether `node` is laid out as a run.
 pub(in crate::render) fn is_run(node: &Node) -> bool {
-    if leafy(node) || node.children.is_empty() {
-        return false;
-    }
-    node.layout != Layout::None
+    !leafy(node) && !node.children.is_empty()
 }
 
 /// How a child of a run is laid out: the one-item container it is laid out
@@ -47,7 +47,6 @@ pub(in crate::render) struct Child {
     /// see [`sensitive`]; a child that can't is laid out once, whatever the
     /// run is asked under.
     pub(in crate::render) sens: bool,
-    pub(in crate::render) hugs: Vec<(NodeId, bool, bool)>,
     /// What its layout nodes were last laid out under — they hold that
     /// layout — or `None` when it changed since.
     last: Option<Shape>,
@@ -141,6 +140,21 @@ pub(in crate::render) struct RunLayout {
     pub(in crate::render) leaf: NodeId,
     pub(in crate::render) inside: Option<OrderKey>,
     pub(in crate::render) row: bool,
+    /// A frame with no layout: its children placed at their own `x` and `y`
+    /// — each laid out alone against the frame's box, which hugs the
+    /// furthest any of them reaches.
+    pub(in crate::render) free: bool,
+    /// For a free run: the box its children were last laid out against,
+    /// each child's unrounded box in it, and how far right and down they
+    /// reach, counted.
+    pub(in crate::render) cb: (f32, f32),
+    /// The axes a free run hugs its children along: `"hug"`, or `"fill"`
+    /// on a root. Along any other its size is what it is given, or its
+    /// padding — what taffy gives a box whose children are all placed.
+    pub(in crate::render) hug: (bool, bool),
+    boxes: BTreeMap<OrderKey, [f32; 4]>,
+    rights: BTreeMap<u32, usize>,
+    bottoms: BTreeMap<u32, usize>,
     /// Top, right, bottom, left.
     pub(in crate::render) padding: [f32; 4],
     pub(in crate::render) gap: f32,
@@ -275,6 +289,12 @@ impl RunLayout {
             leaf,
             inside,
             row: true,
+            free: node.layout == Layout::None,
+            cb: (0.0, 0.0),
+            hug: (false, false),
+            boxes: BTreeMap::new(),
+            rights: BTreeMap::new(),
+            bottoms: BTreeMap::new(),
             padding: [0.0; 4],
             gap: 0.0,
             justify: Align::Start,
@@ -369,7 +389,6 @@ impl RunLayout {
         node: NodeId,
         stretch: bool,
         sens: bool,
-        hugs: Vec<(NodeId, bool, bool)>,
     ) {
         let wrap = self
             .tree
@@ -382,7 +401,6 @@ impl RunLayout {
                 node,
                 stretch,
                 sens,
-                hugs,
                 last: None,
             },
         );
@@ -423,6 +441,10 @@ impl RunLayout {
     /// Takes the child `key`'s sizes out of the base and every ask, and
     /// out of the stretched and the asked-for sets.
     fn forget(&mut self, key: &OrderKey) {
+        if let Some(b) = self.boxes.remove(key) {
+            uncount(&mut self.rights, b[0] + b[2]);
+            uncount(&mut self.bottoms, b[1] + b[3]);
+        }
         if let Some(s) = self.base.remove(key) {
             uncount(&mut self.base_owns, s.own);
         }
@@ -436,6 +458,15 @@ impl RunLayout {
     }
 
     fn wrap_style(&self) -> Style {
+        if self.free {
+            // The frame itself, as its children see it: the box they are
+            // placed in — each at its `x` and `y` from its top-left, sized
+            // against all of it, its padding nothing to them.
+            return Style {
+                position: Position::Relative,
+                ..Style::default()
+            };
+        }
         Style {
             flex_direction: if self.row {
                 FlexDirection::Row
@@ -550,6 +581,9 @@ impl Renderer {
         known: Size<Option<f32>>,
         available: Size<AvailableSpace>,
     ) -> Size<f32> {
+        if runs.get(id).free {
+            return self.measure_free(runs, id, known);
+        }
         let mut run = runs.take(id);
         let (pa0, pa1) = run.padding_along();
         let (pc0, pc1) = run.padding_across();
@@ -676,223 +710,6 @@ impl Renderer {
                 _ => run.stretched.iter().cloned().collect(),
             };
             self.across_line(runs, run, a, &keys);
-        }
-    }
-
-    /// The `"fill"` children's lengths under `a`: flexbox run on the fill
-    /// children's proxies and one spacer as long as every other child and
-    /// gap, as broad as the broadest of them — so the fill children share
-    /// exactly the room the others leave, and the line's breadth is the
-    /// broadest of everything. Each fill child is then laid out at its
-    /// length.
-    fn flex(&mut self, runs: &mut Runs, run: &mut RunLayout, a: &mut Asked) {
-        let n = run.children.len();
-        let mut fills_along = 0.0f64;
-        for k in run.fills.keys() {
-            if let Some(s) = a.sizes.get(k) {
-                fills_along += s.along as f64;
-            }
-        }
-        let others = run.base.total().0 + a.sizes.total().0 - fills_along
-            + run.gap as f64 * n.saturating_sub(1) as f64;
-        let broad = run.broadest(a);
-        let dim = |v: Option<f32>| v.map_or(Dimension::auto(), Dimension::length);
-        let (row, align) = (run.row, run.align);
-        let size = |along: Dimension, across: Dimension| {
-            if row {
-                Size {
-                    width: along,
-                    height: across,
-                }
-            } else {
-                Size {
-                    width: across,
-                    height: along,
-                }
-            }
-        };
-        let spacer = Style {
-            flex_shrink: 0.0,
-            size: size(Dimension::length(others as f32), Dimension::length(broad)),
-            ..Style::default()
-        };
-        run.flex.set_style(run.spacer, spacer).expect("style");
-        let flexer = Style {
-            flex_direction: if row {
-                FlexDirection::Row
-            } else {
-                FlexDirection::Column
-            },
-            align_items: match align {
-                Align::Center => AlignItems::CENTER,
-                Align::End => AlignItems::FLEX_END,
-                _ => AlignItems::FLEX_START,
-            },
-            size: size(dim(a.ask.main), dim(a.ask.line)),
-            ..Style::default()
-        };
-        run.flex.set_style(run.flexer, flexer).expect("style");
-        let along_room = match a.ask.main.or(a.ask.avail) {
-            Some(m) => AvailableSpace::Definite(m),
-            None if a.ask.least => AvailableSpace::MinContent,
-            None => AvailableSpace::MaxContent,
-        };
-        let across_room = match a.ask.line {
-            Some(l) => AvailableSpace::Definite(l),
-            None => a.ask.room,
-        };
-        let available = if row {
-            Size {
-                width: along_room,
-                height: across_room,
-            }
-        } else {
-            Size {
-                width: across_room,
-                height: along_room,
-            }
-        };
-        let mut flex = std::mem::replace(&mut run.flex, TaffyTree::new());
-        let flexer_id = run.flexer;
-        flex.compute_layout_with_measure(flexer_id, available, |input, _id, ctx, _style| {
-            let Some(Some(Leaf::Proxy(k))) = ctx else {
-                return taffy::LayoutOutput::from_outer_size(Size::ZERO);
-            };
-            let size = self.proxy(runs, run, k, input.known_dimensions, input.available_space);
-            taffy::LayoutOutput::from_outer_size(size)
-        })
-        .expect("layout");
-        let fl = flex.unrounded_layout(flexer_id).size;
-        a.flexed = Some(if row { fl.width } else { fl.height });
-        if a.ask.line.is_none() {
-            a.line = if row { fl.height } else { fl.width };
-        }
-        let proxies: Vec<(OrderKey, NodeId)> =
-            run.fills.iter().map(|(k, p)| (k.clone(), *p)).collect();
-        let line = a.line;
-        let mut sized = Vec::new();
-        for (k, proxy) in &proxies {
-            let l = flex.unrounded_layout(*proxy).size;
-            let (along, own) = if row {
-                (l.width, l.height)
-            } else {
-                (l.height, l.width)
-            };
-            sized.push((k.clone(), along, own));
-        }
-        run.flex = flex;
-        for (k, along, own) in sized {
-            let stretch = run.children[&k].stretch;
-            let mut s = self.fill_child(runs, run, &k, a.ask, along, stretch.then_some(line));
-            s.own = own;
-            s.first = along;
-            if a.sizes.get(&k) != Some(&s) {
-                run.relaid.insert(k.clone());
-            }
-            a.sizes.insert(k, s);
-        }
-    }
-
-    /// A `"fill"` child's size under what the run's flex tree asks of its
-    /// proxy: the child laid out alone in its own container, given what the
-    /// proxy is given.
-    fn proxy(
-        &mut self,
-        runs: &mut Runs,
-        run: &mut RunLayout,
-        key: &OrderKey,
-        known: Size<Option<f32>>,
-        available: Size<AvailableSpace>,
-    ) -> Size<f32> {
-        let (wrap, node, hugs) = {
-            let c = &run.children[key];
-            (c.wrap, c.node, c.hugs.clone())
-        };
-        let mut style = run.tree.style(wrap).expect("style").clone();
-        let dim = |v: Option<f32>| v.map_or(Dimension::auto(), Dimension::length);
-        style.size = Size {
-            width: dim(known.width),
-            height: dim(known.height),
-        };
-        run.tree.set_style(wrap, style).expect("style");
-        self.lay_hugging(run, &hugs);
-        self.settle_in(runs, &mut run.tree, wrap, available, &hugs);
-        run.children.get_mut(key).expect("a child").last = None;
-        run.tree.unrounded_layout(node).size
-    }
-
-    /// A `"fill"` child laid out at `along`, its share of the free room,
-    /// and across `line` when it stretches.
-    fn fill_child(
-        &mut self,
-        runs: &mut Runs,
-        run: &mut RunLayout,
-        key: &OrderKey,
-        ask: Ask,
-        along: f32,
-        line: Option<f32>,
-    ) -> Sized {
-        let shape = Shape {
-            room: ask.room,
-            least: ask.least,
-            line,
-            basis: None,
-            main: Some(along),
-        };
-        let (wrap, node, hugs, last) = {
-            let c = &run.children[key];
-            (c.wrap, c.node, c.hugs.clone(), c.last)
-        };
-        if last == Some(shape) {
-            return self.sized(run, node);
-        }
-        let mut style = run.tree.style(wrap).expect("style").clone();
-        let across = line.map_or(Dimension::auto(), Dimension::length);
-        if run.row {
-            style.size = Size {
-                width: Dimension::length(along),
-                height: across,
-            };
-        } else {
-            style.size = Size {
-                width: across,
-                height: Dimension::length(along),
-            };
-        }
-        run.tree.set_style(wrap, style).expect("style");
-        let room = match line {
-            Some(l) => AvailableSpace::Definite(l),
-            None => ask.room,
-        };
-        let available = if run.row {
-            Size {
-                width: AvailableSpace::Definite(along),
-                height: room,
-            }
-        } else {
-            Size {
-                width: room,
-                height: AvailableSpace::Definite(along),
-            }
-        };
-        self.lay_hugging(run, &hugs);
-        self.settle_in(runs, &mut run.tree, wrap, available, &hugs);
-        run.children.get_mut(key).expect("a child").last = Some(shape);
-        self.sized(run, node)
-    }
-
-    /// Every frame in a child that hugs starts from no size, so the child
-    /// lays out to the same boxes under every ask and after every edit.
-    fn lay_hugging(&self, run: &mut RunLayout, hugs: &[(NodeId, bool, bool)]) {
-        for &(h, w, hh) in hugs {
-            let mut s = run.tree.style(h).expect("style").clone();
-            if w {
-                s.size.width = Dimension::auto();
-            }
-            if hh {
-                s.size.height = Dimension::auto();
-            }
-            run.tree.set_style(h, s).expect("style");
         }
     }
 
@@ -1035,9 +852,9 @@ impl Renderer {
             basis,
             main: None,
         };
-        let (wrap, node, hugs, last) = {
+        let (wrap, node, last) = {
             let c = &run.children[key];
-            (c.wrap, c.node, c.hugs.clone(), c.last)
+            (c.wrap, c.node, c.last)
         };
         if last == Some(shape) {
             return self.sized(run, node);
@@ -1080,19 +897,7 @@ impl Renderer {
                 height: along,
             }
         };
-        // Every frame in it that hugs starts from no size, so the child lays
-        // out to the same boxes under every ask and after every edit.
-        for &(h, w, hh) in &hugs {
-            let mut s = run.tree.style(h).expect("style").clone();
-            if w {
-                s.size.width = Dimension::auto();
-            }
-            if hh {
-                s.size.height = Dimension::auto();
-            }
-            run.tree.set_style(h, s).expect("style");
-        }
-        self.settle_in(runs, &mut run.tree, wrap, available, &hugs);
+        self.settle_in(runs, &mut run.tree, wrap, available, &[]);
         run.children.get_mut(key).expect("a child").last = Some(shape);
         self.sized(run, node)
     }

@@ -40,6 +40,12 @@ pub struct Run {
     pub origin: Vec2,
     /// Whether its children go along x; else along y.
     pub row: bool,
+    /// A frame with no layout: each child at a place of its own, found by
+    /// an R-tree of their boxes rather than by the sums.
+    pub free: bool,
+    pub(super) boxes: rstar::RTree<Boxed>,
+    pub(super) free_reach: [Counted; 4],
+    pub(super) free_cover: [Counted; 4],
     /// Where its first child starts along the run, from its node's unrounded
     /// top-left: the padding and any `justify` offset.
     pub start: f64,
@@ -79,6 +85,11 @@ pub struct SpaceIndex {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
     pub size: f64,
+    /// In a free run, its unrounded top-left from the run's node's.
+    pub at: Option<Vec2>,
+    /// In a free run, what it reaches and covers in the run's space.
+    pub(super) boxed: Option<KRect>,
+    pub(super) cover_box: Option<KRect>,
     /// Its unrounded place across, from the line's start.
     pub across: f64,
     /// Its rounded top-left less its unrounded one: fixed while what the
@@ -99,8 +110,19 @@ pub struct Counts {
 }
 
 impl Placed {
+    /// A free run's child, at `at` from the run's node's top-left.
+    pub fn at(at: Vec2, delta: Vec2) -> Placed {
+        Placed {
+            at: Some(at),
+            ..Placed::new(0.0, 0.0, delta)
+        }
+    }
+
     pub fn new(size: f64, across: f64, delta: Vec2) -> Placed {
         Placed {
+            at: None,
+            boxed: None,
+            cover_box: None,
             size,
             across,
             delta,
@@ -135,6 +157,23 @@ impl Item for Placed {
             n: 1,
             length: self.size,
         }
+    }
+}
+
+/// A free run's child's entry in the run's R-tree: what it reaches.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct Boxed {
+    pub(super) key: OrderKey,
+    pub(super) bounds: KRect,
+}
+
+impl rstar::RTreeObject for Boxed {
+    type Envelope = rstar::AABB<[f64; 2]>;
+    fn envelope(&self) -> Self::Envelope {
+        rstar::AABB::from_corners(
+            [self.bounds.x0, self.bounds.y0],
+            [self.bounds.x1, self.bounds.y1],
+        )
     }
 }
 
@@ -188,6 +227,10 @@ impl Run {
             at: Vec2::ZERO,
             origin: Vec2::ZERO,
             row: false,
+            free: false,
+            boxes: rstar::RTree::new(),
+            free_reach: Default::default(),
+            free_cover: Default::default(),
             start: 0.0,
             across: 0.0,
             gap: 0.0,
@@ -214,6 +257,24 @@ impl Run {
     /// Where the run places a child: its unrounded top-left in the run's
     /// space, and its rounded one — each edge where taffy's pass puts it,
     /// measured from the run's node, a box in the flow.
+    /// Where a free run places a child at `at` from its node: its unrounded
+    /// top-left and its rounded one, measured from the run's node, as taffy
+    /// rounds a box placed in its parent.
+    pub fn place_at(&self, at: Vec2) -> (Vec2, Vec2) {
+        let o = self.origin;
+        let (rx, ry) = ((o.x + self.raw.x) as f32, (o.y + self.raw.y) as f32);
+        let raw = (rx + at.x as f32, ry + at.y as f32);
+        let snap32 = |v: f32| (v + 0.5).floor();
+        let rounded = (
+            (o.x + self.at.x) as f32 + snap32(raw.0) - snap32(rx),
+            (o.y + self.at.y) as f32 + snap32(raw.1) - snap32(ry),
+        );
+        (
+            Vec2::new(raw.0 as f64 - o.x, raw.1 as f64 - o.y),
+            Vec2::new(rounded.0 as f64 - o.x, rounded.1 as f64 - o.y),
+        )
+    }
+
     pub fn place(&self, before: f64, across: f64) -> (Vec2, Vec2) {
         // In single precision, as taffy places a box and its rounding pass
         // rounds it: the child's place within the run, then the run's.
@@ -268,6 +329,10 @@ impl Run {
 
     /// Where the child at `key` is: its rounded top-left in the run's space.
     pub fn child_at(&self, key: &OrderKey) -> Option<Vec2> {
+        if self.free {
+            let p = self.items.get(key)?;
+            return Some(self.place_at(p.at.unwrap_or(Vec2::ZERO)).1);
+        }
         let (before, p) = self.child(key)?;
         Some(self.place(before, p.across).1)
     }
@@ -300,6 +365,20 @@ impl Run {
     /// moved by a fraction of a pixel doesn't, and is rounded anew before it
     /// is read.
     pub(super) fn touching_rounded(&self, r: KRect) -> Vec<(&OrderKey, Vec2, bool)> {
+        if self.free {
+            let env = rstar::AABB::from_corners([r.x0, r.y0], [r.x1, r.y1]);
+            let mut found: Vec<&Boxed> = self.boxes.locate_in_envelope_intersecting(&env).collect();
+            found.sort_by(|a, b| a.key.cmp(&b.key));
+            return found
+                .into_iter()
+                .filter_map(|b| {
+                    let (k, p) = (&b.key, self.items.get(&b.key)?);
+                    let (raw, rounded) = self.place_at(p.at.unwrap_or(Vec2::ZERO));
+                    let fresh = ((rounded - raw) - p.delta).hypot() < 1e-3;
+                    Some((k, rounded, fresh))
+                })
+                .collect();
+        }
         let ((a0, a1), _) = spans(self.row, r);
         let base = if self.row { self.raw.x } else { self.raw.y } + self.start;
         let over = self.overhang.greatest().unwrap_or(0.0).max(0.0);
@@ -331,6 +410,18 @@ impl Run {
     /// last, each only while a child could still reach past the best found
     /// — no further than the furthest any child reaches past its box.
     pub(super) fn extents(&self) -> (Option<KRect>, Option<KRect>) {
+        if self.free {
+            let make = |c: &[Counted; 4]| {
+                let (Some(x0), Some(y0), Some(x1), Some(y1)) =
+                    (c[0].least(), c[1].least(), c[2].greatest(), c[3].greatest())
+                else {
+                    return None;
+                };
+                Some(KRect::new(x0, y0, x1, y1) + self.raw)
+            };
+            let cover = make(&self.free_cover).and_then(|r| super::chunk::cut_to(r, self.cut));
+            return (make(&self.free_reach), cover);
+        }
         let base = if self.row { self.raw.x } else { self.raw.y } + self.start;
         let across = if self.row { self.raw.y } else { self.raw.x } + self.across;
         let over = self.overhang.greatest().unwrap_or(0.0).max(0.0);
@@ -391,6 +482,40 @@ impl Run {
     /// and the counted sets.
     pub(super) fn set(&mut self, key: OrderKey, mut placed: Placed) {
         self.unset(&key);
+        if self.free {
+            let local = self.spaces.entry(key.clone()).or_default();
+            let env = local.index.root().envelope();
+            let reach = (env.lower()[0] <= env.upper()[0]).then(|| {
+                KRect::new(
+                    env.lower()[0],
+                    env.lower()[1],
+                    env.upper()[0],
+                    env.upper()[1],
+                )
+            });
+            let covered = local.covers.rect();
+            // In the run's own coordinates, from its node's unrounded
+            // top-left: the child's rounded place less that.
+            let at = placed.at.unwrap_or(Vec2::ZERO) + placed.delta;
+            placed.boxed = reach.map(|r| r + at);
+            placed.cover_box = covered.map(|r| r + at);
+            if let Some(b) = placed.boxed {
+                self.boxes.insert(Boxed {
+                    key: key.clone(),
+                    bounds: b,
+                });
+                for (c, v) in self.free_reach.iter_mut().zip([b.x0, b.y0, b.x1, b.y1]) {
+                    c.add(v);
+                }
+            }
+            if let Some(b) = placed.cover_box {
+                for (c, v) in self.free_cover.iter_mut().zip([b.x0, b.y0, b.x1, b.y1]) {
+                    c.add(v);
+                }
+            }
+            self.items.insert(key, placed);
+            return;
+        }
         let local = self.spaces.entry(key.clone()).or_default();
         let reach = local.index.root().envelope();
         let reach = (reach.lower()[0] <= reach.upper()[0]).then(|| {
@@ -441,6 +566,20 @@ impl Run {
     /// space; returns how it was placed.
     pub(super) fn unset(&mut self, key: &OrderKey) -> Option<Placed> {
         let p = self.items.remove(key)?;
+        if let Some(b) = p.boxed {
+            self.boxes.remove(&Boxed {
+                key: key.clone(),
+                bounds: b,
+            });
+            for (c, v) in self.free_reach.iter_mut().zip([b.x0, b.y0, b.x1, b.y1]) {
+                c.remove(v);
+            }
+        }
+        if let Some(b) = p.cover_box {
+            for (c, v) in self.free_cover.iter_mut().zip([b.x0, b.y0, b.x1, b.y1]) {
+                c.remove(v);
+            }
+        }
         if let Some(o) = p.counted.overhang {
             self.overhang.remove(o);
         }

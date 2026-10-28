@@ -8,7 +8,7 @@ use crate::render::Drawing;
 use crate::resolve::Theme;
 use crate::resolve::{Outcome, Resolution};
 
-use super::*;
+use super::super::*;
 
 /// A design of `n` siblings as `kind` lays them out, the `edit`ed one at
 /// `n / 2` (or a new one first) changed.
@@ -130,6 +130,42 @@ fn frame_edit_costs() {
             eprintln!(
                 "{kind:?} {n:>7}: resolve again {resolved:?}, update {updated:?} ({visited} visited)"
             );
+        }
+    }
+}
+
+/// Every kind of edit visits the same nodes among 1,000 siblings as among
+/// 10,000 — none of the siblings beside what it changed — and leaves a
+/// drawing that lays out, paints and hit-tests as a fresh one.
+#[test]
+fn an_edit_costs_what_it_changed_in_every_kind_of_frame() {
+    for kind in KINDS {
+        let mut seen = None;
+        for n in [1_000, 10_000] {
+            let (_, _, visited, mut d, fresh, mut r) = edit(kind, n);
+            assert!(visited <= 3, "{kind:?} at {n}: {visited} visited");
+            if let Some(v) = seen {
+                assert_eq!(visited, v, "{kind:?}: visits grow with the siblings");
+            }
+            seen = Some(visited);
+            let scene = {
+                let mut saves = crate::ids::testing::Saves::default();
+                saves.save("a.design", source(kind, n, false));
+                let _ = saves.resolve("a.design");
+                saves.save("a.design", source(kind, n, true));
+                saves.resolve("a.design")
+            };
+            d.prepare_all(&mut r, &scene);
+            assert_eq!(d.area(), fresh.area(), "{kind:?} at {n}");
+            assert_eq!(d.frames(), fresh.frames(), "{kind:?} at {n}");
+            let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
+            for row in [0, rows / 2, rows - 1] {
+                assert!(
+                    crate::cpu::tile(&d.list, 1.0, 0, row)
+                        == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                    "{kind:?} at {n}: tile row {row}"
+                );
+            }
         }
     }
 }

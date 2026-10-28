@@ -553,6 +553,7 @@ fn random_runs_lay_out_as_taffy_does() {
             continue;
         };
         if let Err(e) = agrees(&r.layout(&s), &s) {
+            std::fs::write("/private/tmp/claude-501/-Users-andrei-projects-morph/51641adb-85d1-43f2-bcf1-b8b7caa2762a/scratchpad/case.design", &source).ok();
             panic!("case {case}: {e}\n{source}");
         }
         let d = r.drawing(&s, Theme::Light, None).unwrap();

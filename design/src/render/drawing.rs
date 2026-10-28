@@ -225,8 +225,7 @@ impl Renderer {
     ) -> Result<Drawing, Undrawable> {
         self.register(&scene.fonts);
         let mut laid = Laid::build(self, scene);
-        let hugs = std::mem::take(&mut laid.hugs);
-        laid.settle_top(self, &hugs);
+        laid.settle_top(self);
         let root = laid.root;
         let mut d = Drawing {
             laid,
@@ -714,6 +713,11 @@ impl Renderer {
         on_path: &BTreeSet<OrderKey>,
         is_new: bool,
     ) {
+        if d.laid.runs.get(rid).free {
+            return self.sync_free(
+                d, w, node, order, owner, id, rid, down, all, on_path, is_new,
+            );
+        }
         let size = d.laid.tree(owner).unrounded_layout(id).size;
         let Some((run, asked, lead, gap)) = d.laid.run_places(rid, size) else {
             return;
@@ -884,6 +888,124 @@ impl Renderer {
 }
 
 impl Renderer {
+    /// A free run's children: each at its own place in the frame, those on
+    /// the path or laid out again visited — every one when the run is new or
+    /// all are to be — none of them moved by another's change. A move of the
+    /// frame by a fraction of a pixel rounds them anew when read.
+    #[allow(clippy::too_many_arguments)]
+    fn sync_free(
+        &mut self,
+        d: &mut Drawing,
+        w: &mut Walk,
+        node: &Node,
+        order: &Order,
+        owner: Owner,
+        id: NodeId,
+        rid: u32,
+        down: &Down,
+        all: bool,
+        on_path: &BTreeSet<OrderKey>,
+        is_new: bool,
+    ) {
+        let drid = match d.shown.get(&rid) {
+            Some(&r) => r,
+            None => {
+                let r = d.list.add_run(down.space.clone());
+                d.shown.insert(rid, r);
+                r
+            }
+        };
+        let local = |v: (f32, f32)| (v.0 - down.space_at.x as f32, v.1 - down.space_at.y as f32);
+        {
+            let dr = d.list.run_mut(drid);
+            dr.free = true;
+            let (raw, at) = (local(down.place.raw), local(down.place.at));
+            dr.raw = Vec2::new(raw.0 as f64, raw.1 as f64);
+            dr.at = Vec2::new(at.0 as f64, at.1 as f64);
+            dr.origin = down.space_at;
+            dr.cut = down.cut;
+        }
+        d.list.resum(drid);
+        d.contexts.insert(
+            drid,
+            RunContext {
+                order: order.clone(),
+                owner,
+                id,
+                rid,
+                transform: down.transform,
+                place: Place {
+                    at: local(down.place.at),
+                    raw: local(down.place.raw),
+                },
+                space: down.space.clone(),
+                clip: down.clip,
+                effect: down.effect,
+            },
+        );
+        let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
+        let keys: Vec<OrderKey> = if all || is_new {
+            node.children.entries().map(|(k, _)| k.clone()).collect()
+        } else {
+            on_path.union(&relaid).cloned().collect()
+        };
+        for k in keys {
+            if node.children.get(&k).is_none() {
+                continue;
+            }
+            self.free_item(d, w, node, order, rid, drid, &k, down, all);
+        }
+        d.list.flush();
+    }
+
+    /// A free run's child `k` synced at its own place: its boxes and chunks
+    /// made where they changed, and its place in the run's index.
+    #[allow(clippy::too_many_arguments)]
+    fn free_item(
+        &mut self,
+        d: &mut Drawing,
+        w: &mut Walk,
+        node: &Node,
+        order: &Order,
+        rid: u32,
+        drid: RunId,
+        k: &OrderKey,
+        down: &Down,
+        all: bool,
+    ) {
+        let child = node.children.get(k).expect("a child");
+        self.relay_free(&mut d.laid.runs, rid, k);
+        let child_node = d.laid.runs.get(rid).children[k].node;
+        let (abs, _) = placed(d.laid.tree(Owner::Run(rid)), child_node, down.place, false);
+        let l = *d.laid.tree(Owner::Run(rid)).unrounded_layout(child_node);
+        let item_at = Vec2::new(abs.x as f64, abs.y as f64);
+        let mut o = order.clone();
+        o.push(k.clone());
+        self.sync(
+            d,
+            w,
+            child,
+            o,
+            Owner::Run(rid),
+            child_node,
+            down.transform,
+            down.place,
+            (&Space::Item(drid, k.clone()), item_at),
+            down.clip,
+            None,
+            down.effect,
+            (down.remade, all),
+            Some((drid, k.clone())),
+        );
+        let at = Vec2::new(l.location.x as f64, l.location.y as f64);
+        let delta = {
+            let (raw, rounded) = d.list.run(drid).place_at(at);
+            rounded - raw
+        };
+        d.list
+            .place_child(drid, k.clone(), Some(Placed::at(at, delta)));
+    }
+
     /// Run `drid`'s child `key` rounded where the run's sums now place it:
     /// its subtree's boxes and chunks made again as a walk through its run
     /// would make them.
@@ -897,6 +1019,40 @@ impl Renderer {
             at: abs(ctx.place.at),
             raw: abs(ctx.place.raw),
         };
+        if d.laid.runs.get(ctx.rid).free {
+            let Some(node) = scene.at(&ctx.order) else {
+                return;
+            };
+            let mut walk = Walk {
+                scene,
+                dirty: &|_| false,
+                relaid: &|_| false,
+                reflow: None,
+                path: None,
+                damage: None,
+                fresh: None,
+                images: false,
+            };
+            let down = Down {
+                transform: ctx.transform,
+                place,
+                space: &ctx.space,
+                space_at,
+                clip: ctx.clip,
+                cut: None,
+                effect: ctx.effect,
+                remade: false,
+            };
+            self.blobs = std::mem::take(&mut d.blobs);
+            self.free_item(
+                d, &mut walk, node, &ctx.order, ctx.rid, drid, key, &down, true,
+            );
+            d.blobs = std::mem::take(&mut self.blobs);
+            if walk.images {
+                let _ = self.settle_images(d);
+            }
+            return;
+        }
         let size = d.laid.tree(ctx.owner).unrounded_layout(ctx.id).size;
         let Some((run, asked, lead, _)) = d.laid.run_places(ctx.rid, size) else {
             return;

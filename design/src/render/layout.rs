@@ -14,7 +14,7 @@ impl Renderer {
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
         self.register(&scene.fonts);
         let mut l = Laid::build(self, scene);
-        l.settle_top(self, &l.hugs.clone());
+        l.settle_top(self);
         l.frames(self, &scene.root).into_values().collect()
     }
 
@@ -107,7 +107,7 @@ impl Renderer {
         // To the fixed point: each pass settles at least one more level of
         // hugging frames, and a run sized against the room a hugging frame
         // gives it can take another; bounded, so it always ends.
-        for _ in 0..=hugs.len().max(1) * 4 {
+        for _ in 0..256 {
             self.compute(runs, tree, root, available);
             let mut changed = false;
             for &(id, w, h) in hugs {
@@ -182,9 +182,6 @@ pub(super) struct Laid {
     pub(super) nodes: BTreeMap<Order, (Owner, NodeId)>,
     /// Each run's layout, by its node's order.
     pub(super) run_of: BTreeMap<Order, u32>,
-    /// The frames that hug their children in the drawing's own tree, from
-    /// the build.
-    pub(super) hugs: Vec<(NodeId, bool, bool)>,
     /// Whether each node's size can depend on the room it is given, and how
     /// many of its children's can: counted, so an edit settles it along its
     /// path alone.
@@ -301,24 +298,20 @@ impl Laid {
             runs: Runs::default(),
             nodes: BTreeMap::new(),
             run_of: BTreeMap::new(),
-            hugs: Vec::new(),
             sens: BTreeMap::new(),
         };
         l.sens_build(&scene.root, Vec::new());
-        let mut hugs = Vec::new();
         let root = l.build_node(
             &mut top,
             Owner::Top,
             None,
             &scene.root,
             None,
-            &mut hugs,
             &scene.images,
             Vec::new(),
         );
         l.top = top;
         l.root = root;
-        l.hugs = hugs;
         l
     }
 
@@ -347,7 +340,6 @@ impl Laid {
         inside: Option<OrderKey>,
         node: &Node,
         parent: Option<&Node>,
-        hugs: &mut Vec<(NodeId, bool, bool)>,
         images: &ImageFiles,
         order: Order,
     ) -> NodeId {
@@ -360,11 +352,13 @@ impl Laid {
         if is_run(node) {
             let rid = self.runs.reserve();
             // Its padding stays in its style: what a box is given is never
-            // less than its padding, and taffy floors it there.
+            // less than its padding, and taffy floors it there — but a frame
+            // with no layout sizes itself, as taffy sizes such a frame.
             let leaf = tree
                 .new_leaf_with_context(style, Some(Leaf::Run(rid)))
                 .expect("leaf");
             let mut run = RunLayout::new(node, order.clone(), owner, leaf, inside);
+            run.hug = hugs_by_extent(node, parent).unwrap_or((false, false));
             for (k, c) in node.children.entries() {
                 self.add_child(&mut run, rid, k, c, node, images, &order);
             }
@@ -373,19 +367,8 @@ impl Laid {
             self.nodes.insert(order, (owner, leaf));
             return leaf;
         }
-        let children: Vec<NodeId> = node
-            .children
-            .entries()
-            .map(|(k, c)| {
-                let mut o = order.clone();
-                o.push(k.clone());
-                self.build_node(tree, owner, inside.clone(), c, Some(node), hugs, images, o)
-            })
-            .collect();
-        let id = tree.new_with_children(style, &children).expect("node");
-        if let Some((w, h)) = hugs_of(node, parent) {
-            hugs.push((id, w, h));
-        }
+        // A frame with no children: a box of its own size.
+        let id = tree.new_leaf(style).expect("leaf");
         self.nodes.insert(order, (owner, id));
         id
     }
@@ -405,7 +388,6 @@ impl Laid {
     ) {
         let mut o = order.clone();
         o.push(k.clone());
-        let mut hugs = Vec::new();
         let mut tree = std::mem::replace(&mut run.tree, TaffyTree::new());
         let id = self.build_node(
             &mut tree,
@@ -413,7 +395,6 @@ impl Laid {
             Some(k.clone()),
             child,
             Some(node),
-            &mut hugs,
             images,
             o,
         );
@@ -426,17 +407,16 @@ impl Laid {
         let mut o = order.clone();
         o.push(k.clone());
         let sens = self.sensitive(&o);
-        run.add(k.clone(), id, across == DSize::Fill, sens, hugs);
+        run.add(k.clone(), id, across == DSize::Fill, sens);
         if along == DSize::Fill {
             run.add_fill(k.clone(), style_of(child, Some(node)));
         }
     }
 
-    /// Lays the drawing's own tree out, and every run in it that changed;
-    /// `hugs` the frames in it to hug.
-    pub(super) fn settle_top(&mut self, r: &mut Renderer, hugs: &[(NodeId, bool, bool)]) {
+    /// Lays the drawing's own tree out, and every run in it that changed.
+    pub(super) fn settle_top(&mut self, r: &mut Renderer) {
         let root = self.root;
-        r.settle_in(&mut self.runs, &mut self.top, root, Size::MAX_CONTENT, hugs);
+        r.settle_in(&mut self.runs, &mut self.top, root, Size::MAX_CONTENT, &[]);
     }
 
     /// Where the run at `order` places each child: the run's laid-out sizes
@@ -500,6 +480,19 @@ impl Laid {
         let tree = self.tree(owner);
         let (frame, place) = placed(tree, id, parent, root);
         out.insert(order.clone(), frame);
+        if let Some(&rid) = self.run_of.get(&order)
+            && self.runs.get(rid).free
+        {
+            // Each child at its own place in the frame, measured from it.
+            for (k, c) in node.children.entries() {
+                r.relay_free(&mut self.runs, rid, k);
+                let node_id = self.runs.get(rid).children[k].node;
+                let mut o = order.clone();
+                o.push(k.clone());
+                self.frames_of(r, c, o, Owner::Run(rid), node_id, place, false, out);
+            }
+            return;
+        }
         if let Some(&rid) = self.run_of.get(&order) {
             let size = tree.unrounded_layout(id).size;
             let mut before = 0.0f64;
@@ -575,15 +568,15 @@ pub(super) fn build_plain(
         .map(|c| build_plain(tree, c, Some(node), hugs, images))
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
-    if let Some((w, h)) = hugs_of(node, parent) {
+    if let Some((w, h)) = hugs_by_extent(node, parent) {
         hugs.push((id, w, h));
     }
     id
 }
 
-/// Whether `node` hugs its children's extent, as a frame with no layout
-/// does — and along which axes.
-pub(super) fn hugs_of(node: &Node, parent: Option<&Node>) -> Option<(bool, bool)> {
+/// Whether `node`, laid out in a plain taffy tree, hugs its children's
+/// extent — a frame with no layout — and along which axes.
+pub(super) fn hugs_by_extent(node: &Node, parent: Option<&Node>) -> Option<(bool, bool)> {
     if leafy(node) {
         return None;
     }
@@ -650,6 +643,15 @@ pub(super) fn style_of(node: &Node, parent: Option<&Node>) -> Style {
         };
     }
     style.flex_shrink = 0.0;
+    // A frame with no layout is never smaller than its padding, along
+    // either axis — as every other box is, and as taffy floors a leaf.
+    if node.layout == Layout::None && !leafy(node) {
+        let [t, r, b, l] = node.padding;
+        style.min_size = Size {
+            width: LengthPercentageAuto::length(l + r),
+            height: LengthPercentageAuto::length(t + b),
+        };
+    }
     match node.layout {
         Layout::Row => style.flex_direction = FlexDirection::Row,
         Layout::Column => style.flex_direction = FlexDirection::Column,
