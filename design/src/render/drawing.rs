@@ -8,6 +8,7 @@ use peniko::ImageData;
 
 use crate::display::{Blend, Builder, Chunk, Clip, Effect, Id, List, Order, Transform};
 use crate::resolve::{self, ImageId, Node, Origin, Scene, Theme};
+use crate::tree::{NodeId as SceneId, OrderKey};
 
 use super::*;
 
@@ -43,6 +44,10 @@ pub struct Drawing {
     pub(super) theme: Theme,
     pub(super) frames: BTreeMap<Order, Frame>,
     pub(super) recs: BTreeMap<Order, Rec>,
+    /// Each node's layout node, by its order.
+    pub(super) nodes: BTreeMap<Order, NodeId>,
+    /// Each node's order, by its id: where a patch's nodes are in it.
+    pub(super) orders: HashMap<SceneId, Order>,
     /// The display list: chunks under property trees, and their index.
     pub list: List,
     /// The blob each image file is painted from in this drawing.
@@ -75,6 +80,7 @@ pub struct Damage {
 /// effect and its clip — and the images its own commands paint, in order.
 #[derive(Clone)]
 pub(super) struct Rec {
+    pub(super) node: SceneId,
     pub(super) transform: Id,
     pub(super) effect: Option<Id>,
     pub(super) clip: Option<Id>,
@@ -116,12 +122,10 @@ impl Drawing {
         self.list.action_at(x as f64, y as f64)
     }
 
-    /// Updates the drawing to `new` by a patch: `replaced`, the subtrees it
-    /// replaced in the scene the drawing shows, each by its id and the node
-    /// that was there ([`crate::wire::apply`] returns them, and
-    /// [`crate::wire::replaced`] finds them between two scenes). Each is
-    /// compared with what replaced it, node by node; only what differs is
-    /// laid out and painted again, and nodes that only moved keep their
+    /// Updates the drawing to `new` by the patch that made it: `applied`,
+    /// what [`crate::wire::apply`] did to the scene the drawing showed — the
+    /// subtrees removed and placed and the nodes changed, by id. Only those
+    /// are laid out and painted again, and nodes that only moved keep their
     /// chunks — the work is the patch's, never the scene's. The damage it
     /// returns is what changed; or why `new` can't be painted — its images
     /// too many for the GPU's atlas — in which case the drawing is `new`'s
@@ -130,21 +134,25 @@ impl Drawing {
         &mut self,
         renderer: &mut Renderer,
         new: &Scene,
-        replaced: &[crate::wire::Replaced],
+        applied: &crate::wire::Applied,
     ) -> Result<Damage, Undrawable> {
-        renderer.update(self, new, replaced)
+        renderer.update(self, new, applied)
     }
 
-    /// [`Drawing::update`] from `old`, the scene the drawing shows, to
-    /// `new`, by the patch between them: for a caller holding both.
+    /// [`Drawing::update`] from `old`, the scene the drawing shows, to the
+    /// content of `new`, by the patch between them — `old` patched to it,
+    /// keeping its places, so it stays the scene the drawing shows: for a
+    /// caller holding both.
     pub fn update_between(
         &mut self,
         renderer: &mut Renderer,
-        old: &Scene,
+        old: &mut Scene,
         new: &Scene,
     ) -> Result<Damage, Undrawable> {
-        let replaced = crate::wire::replaced(&old.root, &new.root);
-        renderer.update(self, new, &replaced)
+        let mut uses = crate::wire::Uses::of(&old.root);
+        let applied = crate::wire::bring(old, &mut uses, new)
+            .expect("the patch between two scenes applies to the first");
+        renderer.update(self, old, &applied)
     }
 }
 
@@ -171,7 +179,16 @@ impl Renderer {
         // them all.
         tree.disable_rounding();
         let mut hugs = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
+        let mut nodes = Vec::new();
+        let root = build(
+            &mut tree,
+            &scene.root,
+            None,
+            &mut hugs,
+            &scene.images,
+            Vec::new(),
+            &mut nodes,
+        );
         self.settle(&mut tree, root, &hugs);
         let mut d = Drawing {
             tree,
@@ -179,6 +196,8 @@ impl Renderer {
             theme,
             frames: BTreeMap::new(),
             recs: BTreeMap::new(),
+            nodes: nodes.into_iter().collect(),
+            orders: HashMap::new(),
             list: List::new(),
             blobs: HashMap::new(),
             images: Vec::new(),
@@ -203,7 +222,7 @@ impl Renderer {
             &mut d,
             &mut walk,
             &scene.root,
-            vec![0],
+            Vec::new(),
             root,
             t,
             Place::default(),
@@ -249,7 +268,7 @@ impl Renderer {
     /// rounded out to whole pixels, ignoring the slivers floating point
     /// leaves on a curve's bounds.
     pub(super) fn settle_area(&mut self, d: &mut Drawing) {
-        let root = d.frames[&vec![0]];
+        let root = d.frames[&Vec::new()];
         let mut area = frame_rect(root);
         if let Some(covered) = d.list.covered() {
             area = area.union(covered);
@@ -335,7 +354,7 @@ impl Renderer {
         effect: Option<Id>,
         remade: bool,
     ) -> bool {
-        let (f, place) = placed(&d.tree, id, parent, order.len() == 1);
+        let (f, place) = placed(&d.tree, id, parent, order.is_empty());
         let parent_origin = Vec2::new(parent.at.0 as f64, parent.at.1 as f64);
         let origin = Vec2::new(f.x as f64, f.y as f64);
         d.visited += 1;
@@ -488,9 +507,11 @@ impl Renderer {
         } else {
             d.painters.insert(order.clone());
         }
+        d.orders.insert(node.id.clone(), order.clone());
         d.recs.insert(
             order.clone(),
             Rec {
+                node: node.id.clone(),
                 transform,
                 effect: own_effect,
                 clip: own_clip,
@@ -525,15 +546,19 @@ impl Renderer {
             (false, Some(path)) => path.get(&order).cloned().unwrap_or_default(),
             _ => BTreeSet::new(),
         };
-        let visit = |r: &mut Renderer, d: &mut Drawing, w: &mut Walk, i: usize| {
+        let visit = |r: &mut Renderer, d: &mut Drawing, w: &mut Walk, k: &OrderKey| {
+            let Some(child) = node.children.get(k) else {
+                return false;
+            };
             let mut o = order.clone();
-            o.push(i as u32);
+            o.push(k.clone());
+            let id = d.nodes[&o];
             r.sync(
                 d,
                 w,
-                &node.children[i],
+                child,
                 o,
-                d.tree.child_at_index(id, i).expect("child"),
+                id,
                 transform,
                 place,
                 inner,
@@ -542,21 +567,21 @@ impl Renderer {
                 children_remade,
             )
         };
+        // Only in auto layout does one child's size move its siblings.
+        let flows = node.layout != resolve::Layout::None;
         if all {
-            for i in 0..node.children.len() {
-                visit(self, d, w, i);
+            for k in node.children.entries().map(|(k, _)| k) {
+                visit(self, d, w, k);
             }
         } else {
             let mut moves = false;
-            for &i in &on_path {
-                if (i as usize) < node.children.len() {
-                    moves |= visit(self, d, w, i as usize);
-                }
+            for k in &on_path {
+                moves |= visit(self, d, w, k);
             }
-            if moves {
-                for i in 0..node.children.len() {
-                    if !on_path.contains(&(i as u32)) {
-                        visit(self, d, w, i);
+            if moves && flows {
+                for k in node.children.entries().map(|(k, _)| k) {
+                    if !on_path.contains(k) {
+                        visit(self, d, w, k);
                     }
                 }
             }
@@ -575,7 +600,7 @@ pub(super) struct Walk<'a> {
     pub(super) reflow: Option<&'a BTreeSet<Order>>,
     /// For an update, the children of each node on a changed node's path
     /// that lead to one; `None` walks every node.
-    pub(super) path: Option<&'a HashMap<Order, BTreeSet<u32>>>,
+    pub(super) path: Option<&'a HashMap<Order, BTreeSet<OrderKey>>>,
     pub(super) damage: Option<&'a mut Damage>,
     /// For a new drawing, the chunks made, to bulk-load the index with.
     pub(super) fresh: Option<&'a mut Vec<(Order, Chunk)>>,

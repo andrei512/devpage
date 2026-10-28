@@ -137,9 +137,9 @@ pub(super) fn aabb(r: KRect) -> AABB<[f64; 2]> {
     AABB::from_corners([r.x0, r.y0], [r.x1, r.y1])
 }
 
-/// The paint order of a node: its id, the path of child positions from the
-/// root. A node paints before its children, and children in order.
-pub type Order = Vec<u32>;
+/// A node's paint order: the order keys from the root down to it. A node
+/// paints before its children, and children in order.
+pub use crate::tree::Order;
 
 /// What a click on a node does, and where it lands: its box in the design's
 /// coordinates, cut by its clipping frames.

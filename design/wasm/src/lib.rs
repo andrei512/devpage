@@ -190,9 +190,9 @@ impl Design {
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
                 Some(scene) => {
-                    // The patch's work only: the subtrees it replaces, handed
-                    // to each drawing — never a copy of the scene.
-                    wire::apply(scene, &mut self.uses, &patch).map(|replaced| {
+                    // The patch's work only: what it did, by id, handed to
+                    // each drawing — never a copy of the scene.
+                    wire::apply(scene, &mut self.uses, &patch).map(|applied| {
                         // Each drawing follows the patch, by what it changed.
                         for theme in THEMES {
                             let i = index(theme);
@@ -202,7 +202,7 @@ impl Design {
                             if self.stale[i] {
                                 continue;
                             }
-                            let damage = match d.update(&mut self.engine, scene, &replaced) {
+                            let damage = match d.update(&mut self.engine, scene, &applied) {
                                 Ok(damage) if damage.all => Damage::All,
                                 Ok(damage) => {
                                     let a = d.area();
@@ -364,7 +364,7 @@ impl Design {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use devpage_design::proto::{Patch, Problems, Replace};
+    use devpage_design::proto::{Op, Patch, Problems, op};
     use std::collections::HashMap;
 
     fn files() -> HashMap<String, String> {
@@ -501,9 +501,8 @@ mod tests {
         wider.root.width = devpage_design::resolve::Size::Px(300.0);
         let patch = Update {
             body: Some(Body::Patch(Patch {
-                replace: vec![Replace {
-                    id: "0".to_string(),
-                    node: Some(wire::encode(&wider.root)),
+                ops: vec![Op {
+                    op: Some(op::Op::Change(wire::encode_own(&wider.root))),
                 }],
                 images: vec![],
                 fonts: vec![],
@@ -630,7 +629,7 @@ mod tests {
         let mut design = Design::new();
         let patch = Update {
             body: Some(Body::Patch(Patch {
-                replace: vec![],
+                ops: vec![],
                 images: vec![],
                 fonts: vec![],
                 themed: false,

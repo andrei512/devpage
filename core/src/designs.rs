@@ -13,6 +13,7 @@ use devpage_design::fonts::FontFile;
 use devpage_design::render::{Drawing, Undrawable};
 use devpage_design::resolve::ImageFile;
 use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
+use devpage_design::wire::Uses;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
 use crate::served::{Served, ServedFolder};
@@ -56,7 +57,11 @@ struct Kept {
     /// What tells this design's tiles apart in the store's cache.
     id: u64,
     version: u64,
+    /// The scene the drawings show: each new one is patched into it, so its
+    /// nodes keep their places and the drawings their records.
     scene: Scene,
+    /// How many of its nodes use each image and font file.
+    uses: Uses,
     drawings: Vec<Drawing>,
 }
 
@@ -99,6 +104,9 @@ struct Store {
     kept: Mutex<HashMap<String, Arc<Mutex<Option<Kept>>>>>,
     /// Every design's tiles at 1×, in each theme, shared and capped.
     tiles: Mutex<Cache<Arc<[u8]>, Tile>>,
+    /// Each design file's last parse, by path, kept across its saves: a new
+    /// parse is matched against it, so its elements keep their ids.
+    syntax: Mutex<HashMap<String, Arc<devpage_design::parse::File>>>,
     /// How many tiles the store has painted, for the tests.
     #[cfg(test)]
     painted: std::sync::atomic::AtomicUsize,
@@ -195,6 +203,19 @@ impl Files for Reading<'_> {
     /// once and kept until the watcher reports it changed.
     fn bytes(&self, path: &str) -> Option<Vec<u8>> {
         self.source(path)
+    }
+
+    /// A design file parsed and matched against its last parse, so its
+    /// elements keep their ids across saves.
+    fn parse(&self, path: &str, source: &str) -> Result<Arc<devpage_design::parse::File>, Problem> {
+        let fresh = devpage_design::parse::parse(source)?;
+        let mut syntax = lock(&self.store.syntax);
+        let file = Arc::new(match syntax.get(path) {
+            Some(last) => devpage_design::ids::matched(fresh, last),
+            None => fresh,
+        });
+        syntax.insert(path.to_string(), file.clone());
+        Ok(file)
     }
 
     /// A folder's files, listed once and kept until the watcher reports a
@@ -350,12 +371,23 @@ impl Store {
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             version: 0,
             scene: scene.clone(),
+            uses: Uses::of(&scene.root),
             drawings: Vec::new(),
         });
         let id = k.id;
-        // The patch from the scene the drawings show to this one, found once
-        // for every theme: what each drawing is brought across by.
-        let replaced = devpage_design::wire::replaced(&k.scene.root, &scene.root);
+        // The patch from the scene the drawings show to this one, applied to
+        // it once for every theme: what each drawing is brought across by.
+        let applied = match devpage_design::wire::bring(&mut k.scene, &mut k.uses, scene) {
+            Ok(applied) => Some(applied),
+            Err(_) => {
+                // A patch between two scenes always applies to the first;
+                // if it didn't, the drawings start again from this one.
+                k.scene = scene.clone();
+                k.uses = Uses::of(&scene.root);
+                k.drawings.clear();
+                None
+            }
+        };
         let mut renderer = lock(&self.renderer);
         let mut broke: Option<Undrawable> = None;
         let mut drawings = Vec::new();
@@ -366,7 +398,11 @@ impl Store {
                 || match at {
                     Some(i) => {
                         let mut d = k.drawings.swap_remove(i);
-                        let done = d.update(&mut renderer, scene, &replaced);
+                        let done = d.update(
+                            &mut renderer,
+                            &k.scene,
+                            applied.as_ref().expect("drawings only with a patch"),
+                        );
                         let mut tiles = lock(&self.tiles);
                         let mine = |t: &Tile| t.design == id && t.key.theme == theme;
                         match &done {
@@ -386,7 +422,7 @@ impl Store {
                         // the engine failed on the last — owes nothing to
                         // tiles painted before it.
                         lock(&self.tiles).forget(|t: &Tile| t.design == id && t.key.theme == theme);
-                        match renderer.drawing(scene, theme, None) {
+                        match renderer.drawing(&k.scene, theme, None) {
                             Ok(d) => Ok((Some(d), None)),
                             Err(u) => Ok((None, Some(u))),
                         }
@@ -411,7 +447,6 @@ impl Store {
         // The themes the design no longer shows in, and their tiles.
         lock(&self.tiles).forget(|t| t.design == id && !themes.contains(&t.key.theme));
         k.drawings = drawings;
-        k.scene = scene.clone();
         k.version = version;
         match broke {
             None => Ok(()),
@@ -452,6 +487,7 @@ impl Designs {
             versions: Default::default(),
             kept: Mutex::default(),
             tiles: Mutex::new(Cache::<Arc<[u8]>, Tile>::new(TILES_CAP)),
+            syntax: Mutex::default(),
             #[cfg(test)]
             painted: Default::default(),
             #[cfg(test)]

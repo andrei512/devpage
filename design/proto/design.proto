@@ -34,13 +34,50 @@ message Scene {
   repeated FontFile fonts = 4;
 }
 
-// The nodes that changed, the image and font files they use that the scene
+// What changed, as operations on the scene last sent, applied in order, each
+// naming its nodes by id; the image and font files they use that the scene
 // last sent didn't have — only those — and whether the scene is themed now.
 message Patch {
-  repeated Replace replace = 1;
+  reserved 1;
   repeated ImageFile images = 2;
   bool themed = 3;
   repeated FontFile fonts = 4;
+  repeated Op ops = 5;
+}
+
+// One operation of a patch.
+message Op {
+  oneof op {
+    // The node with this node's id takes its own attributes; its children
+    // stay, and this node carries none.
+    Node change = 1;
+    Insert insert = 2;
+    // The node with this id goes, with its subtree.
+    NodeId remove = 3;
+    Move move = 4;
+  }
+}
+
+// A subtree placed under `parent`, right after its child `after` — or
+// first, when `after` is unset.
+message Insert {
+  NodeId parent = 1;
+  NodeId after = 2;
+  Node node = 3;
+}
+
+// The node `id`, with its subtree, placed under `parent` right after its
+// child `after`, or first.
+message Move {
+  NodeId id = 1;
+  NodeId parent = 2;
+  NodeId after = 3;
+}
+
+// A node's id: the element ids from the design's root through each instance
+// down to the element that made it.
+message NodeId {
+  repeated uint32 path = 1;
 }
 
 // An image file's bytes, PNG or JPEG, and its id: the SHA-256 of the bytes.
@@ -54,13 +91,6 @@ message ImageFile {
 message FontFile {
   bytes id = 1;
   bytes data = 2;
-}
-
-// The node at `id` — its path of child positions, like "0.2.1" — replaced
-// with its whole subtree.
-message Replace {
-  string id = 1;
-  Node node = 2;
 }
 
 message Problems {
@@ -95,6 +125,8 @@ message Node {
   Gradient gradient = 22;
   Vector vector = 23;
   Image image = 24;
+  // Where the node came from, which no edit around it changes.
+  NodeId id = 25;
 }
 
 // A linear gradient: `angle` in degrees as in CSS, stops along its line.
