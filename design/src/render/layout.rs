@@ -138,11 +138,10 @@ pub(super) fn frames_by_order(
         id: NodeId,
         node: &Node,
         order: Vec<u32>,
-        ox: f32,
-        oy: f32,
+        parent: Place,
         out: &mut std::collections::BTreeMap<Vec<u32>, Frame>,
     ) {
-        let (frame, (x, y)) = placed(tree, id, (ox, oy));
+        let (frame, place) = placed(tree, id, parent, order.len() == 1);
         out.insert(order.clone(), frame);
         for (i, c) in node.children.iter().enumerate() {
             let mut o = order.clone();
@@ -152,13 +151,12 @@ pub(super) fn frames_by_order(
                 tree.child_at_index(id, i).expect("child"),
                 c,
                 o,
-                x,
-                y,
+                place,
                 out,
             );
         }
     }
-    go(tree, root, node, vec![0], 0.0, 0.0, &mut out);
+    go(tree, root, node, vec![0], Place::default(), &mut out);
     out
 }
 
@@ -304,23 +302,51 @@ pub(super) fn snap(v: f32) -> f32 {
     (v + 0.5).floor()
 }
 
-/// A node's box in whole pixels, in the design's coordinates, and where its
-/// unrounded box starts — given where its parent's does. The tree is laid
+/// Where a node's parent is, for placing the node: the parent's box's top-left
+/// in whole pixels, and two of the unrounded places taffy's rounding pass
+/// measures from — the parent's own, and that of the nearest ancestor that is
+/// a containing block for absolutely placed boxes (one placed absolutely
+/// itself, or else the root).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Place {
+    pub(super) at: (f32, f32),
+    raw: (f32, f32),
+    block: (f32, f32),
+}
+
+/// A node's box in whole pixels, in the design's coordinates, and the place
+/// its children are measured from — given its parent's. The tree is laid
 /// out unrounded, and only the boxes read are rounded, exactly as taffy's
-/// own pass rounds every box: each edge at its unrounded place in the
-/// design, so a box's size never depends on where it sits.
+/// own pass rounds every box: each edge at its unrounded place measured from
+/// where the pass measures it — the parent for a box in the flow, the
+/// containing block for one placed absolutely, which taffy visits from
+/// there — so the boxes are the very ones a tree rounded whole has.
 pub(super) fn placed(
     tree: &TaffyTree<Option<Leaf>>,
     id: NodeId,
-    parent: (f32, f32),
-) -> (Frame, (f32, f32)) {
+    parent: Place,
+    root: bool,
+) -> (Frame, Place) {
     let l = tree.unrounded_layout(id);
-    let (x, y) = (parent.0 + l.location.x, parent.1 + l.location.y);
+    let absolute = tree.style(id).expect("style").position == Position::Absolute;
+    let base = if absolute { parent.block } else { parent.raw };
+    let (x, y) = (base.0 + l.location.x, base.1 + l.location.y);
     let frame = Frame {
-        x: snap(x),
-        y: snap(y),
+        x: parent.at.0 + snap(x) - snap(base.0),
+        y: parent.at.1 + snap(y) - snap(base.1),
         width: snap(x + l.size.width) - snap(x),
         height: snap(y + l.size.height) - snap(y),
     };
-    (frame, (x, y))
+    let place = Place {
+        at: (frame.x, frame.y),
+        raw: (x, y),
+        // The root is the containing block of every absolutely placed box
+        // under no other.
+        block: if absolute || root {
+            (x, y)
+        } else {
+            parent.block
+        },
+    };
+    (frame, place)
 }
