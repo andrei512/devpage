@@ -539,6 +539,11 @@ impl Designs {
     /// the missing and stale ones painted — or its problems one per line,
     /// before anything is written. Painting blocks; a writer that fails — a
     /// client gone — stops it.
+    ///
+    /// No lock of the store's is held while `out` is written to, so a client
+    /// that stops reading holds up nothing but its own PNG. A save that
+    /// changes the design while its PNG is written ends the PNG there, with
+    /// an error, rather than finish it from another scene.
     pub fn png_to(&self, path: &str, theme: Theme, out: impl std::io::Write) -> Result<(), String> {
         let path = address(path);
         let store = &self.0;
@@ -546,22 +551,23 @@ impl Designs {
         let scene = resolved.result.map_err(|problems| lines(&problems))?;
         let theme = if scene.themed { theme } else { Theme::Light };
         let kept = store.kept(path);
-        let mut kept = lock(&kept);
-        // A save may have resolved the design again since: the drawings are
-        // brought to the scene this PNG is of.
-        if kept.as_ref().is_none_or(|k| k.version != resolved.version) {
-            store
-                .bring(path, &mut kept, &scene, resolved.version)
-                .map_err(|problems| lines(&problems))?;
-        }
-        let k = kept.as_ref().expect("brought");
-        let drawing = k
-            .drawings
-            .iter()
-            .find(|d| d.theme() == theme)
-            .ok_or_else(|| format!("{path}: the design has no drawing in {theme:?}"))?;
-        let area = drawing.area();
-        let id = k.id;
+        let (id, version, area) = {
+            let mut kept = lock(&kept);
+            // A save may have resolved the design again since: the drawings
+            // are brought to the scene this PNG is of.
+            if kept.as_ref().is_none_or(|k| k.version != resolved.version) {
+                store
+                    .bring(path, &mut kept, &scene, resolved.version)
+                    .map_err(|problems| lines(&problems))?;
+            }
+            let k = kept.as_ref().expect("brought");
+            let drawing = k
+                .drawings
+                .iter()
+                .find(|d| d.theme() == theme)
+                .ok_or_else(|| format!("{path}: the design has no drawing in {theme:?}"))?;
+            (k.id, k.version, drawing.area())
+        };
         guarded(
             path,
             || {
@@ -575,8 +581,16 @@ impl Designs {
                             row,
                         },
                     };
+                    // The design's lock, for one tile at a time: never while
+                    // the band is written.
+                    let kept = lock(&kept);
+                    let drawing = kept
+                        .as_ref()
+                        .filter(|k| k.version == version)
+                        .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
+                        .ok_or("the design changed while its PNG was written")?;
                     if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
-                        return Ok::<_, std::convert::Infallible>(pixels.clone());
+                        return Ok::<_, &str>(pixels.clone());
                     }
                     let pixels: Arc<[u8]> = tiles::tile(&drawing.list, 1.0, col, row).into();
                     #[cfg(test)]
@@ -911,6 +925,64 @@ mod tests {
         // Not themed: the dark PNG is the light one.
         let green = designs.png("app/t.design", Theme::Light).unwrap();
         assert_eq!(designs.png("app/t.design", Theme::Dark).unwrap(), green);
+    }
+
+    /// A PNG whose reader has stopped reading holds up no save: the store
+    /// takes the save while the PNG waits, and the PNG, once read again,
+    /// ends rather than finish from the next scene.
+    #[test]
+    fn a_save_lands_while_a_png_is_not_read() {
+        let dir = served("unread");
+        tall(&dir, None);
+        let designs = Designs::new(dir.clone());
+        designs.resolve("app/huge.design").unwrap();
+        /// A reader that stops after the first write until it is let go.
+        struct Stalled(std::sync::mpsc::Receiver<()>, bool);
+        impl std::io::Write for Stalled {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                if self.1 {
+                    self.1 = false;
+                    let _ = self.0.recv();
+                }
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let (go, wait) = std::sync::mpsc::channel();
+        let reader = designs.clone();
+        let png = std::thread::spawn(move || {
+            reader.png_to("app/huge.design", Theme::Light, Stalled(wait, true))
+        });
+        // Let the PNG reach its first write.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        let (done, saved) = std::sync::mpsc::channel();
+        let saver = designs.clone();
+        let file = dir.join("app/huge.design");
+        let save_dir = dir.clone();
+        std::thread::spawn(move || {
+            tall(&save_dir, Some(3));
+            saver.changed(&file);
+            let _ = done.send(());
+        });
+        assert!(
+            saved
+                .recv_timeout(std::time::Duration::from_secs(20))
+                .is_ok(),
+            "the save waited for the PNG's reader"
+        );
+        go.send(()).unwrap();
+        let ended = png.join().unwrap().unwrap_err();
+        assert!(
+            ended.contains("changed while its PNG was written"),
+            "{ended}"
+        );
+        // The next PNG is the new scene's.
+        let next = designs.png("app/huge.design", Theme::Light).unwrap();
+        let (px, _, _) = devpage_design::render::pixels(&next).unwrap();
+        let at = (350 * 400 + 10) * 4;
+        assert_eq!(&px[at..at + 4], &[255, 0, 0, 255]);
     }
 
     /// A writer that fails — a client gone — stops the painting there.

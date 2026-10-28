@@ -176,12 +176,12 @@ In Chrome:
 
 ### `designs`
 
-*14 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
+*15 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
-- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
+- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does.
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
