@@ -69,7 +69,8 @@ without that header gets `401`.
 
 | Page | Shows |
 | --- | --- |
-| `/` | That this is a devpage server, and how to connect to it. |
+| `/` | That this is a devpage server, how to install the CLI, connect it and publish, and a box that opens a document from a pasted link or id. It lists no documents. |
+| `/favicon.ico` | devpage's logo: the tab icon of every page whose document has no logo of its own. |
 | `/d/<id>` | The latest version. |
 | `/d/<id>/v/<n>` | Version `n`. |
 | `/d/<id>/v/<n>/download` | Its PDF or PNG. |
@@ -92,6 +93,7 @@ mount for the version menu, the banner and the download button.
 | `DEVPAGE_CACHE_POLICY` | `lru` | Which entries go when the cache is past its limit ([the eviction policy](../storage/README.md#the-eviction-policy)). |
 | `DEVPAGE_MAX_UPLOAD_BYTES` | `100MB` | The largest zip a publish may send. |
 | `DEVPAGE_USER_HEADER` | none | The header naming each write's author; unset, writes are `anonymous`. |
+| `DEVPAGE_CHROME_SANDBOX` | `on` | `off` in a container, for the PDF downloads: [the configuration reference](../../configuration-reference/README.md#environment-variables). The example image sets it. |
 | `AWS_*`, `AZURE_*` | — | The bucket's credentials, read by the SDKs' own chains — so workload identity needs none set. |
 
 On the CLI side, `DEVPAGE_CONTEXT` names the context for one run, as

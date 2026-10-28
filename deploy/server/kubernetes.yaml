@@ -50,6 +50,11 @@ spec:
       labels:
         app: devpage
     spec:
+      # The image runs as its own user, 10001; the volume is made its group's.
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
       containers:
         - name: devpage
           image: registry.example.com/devpage-server:latest

@@ -46,6 +46,13 @@ COPY --from=devpage /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 COPY litestream.yml /etc/litestream.yml
 COPY devpage-server.sh /usr/local/bin/devpage-server
+# A container has no sandbox for Chrome to use — it is the boundary itself —
+# so Chrome runs without one, and devpage as a user of its own rather than
+# root, owning the volume.
+RUN useradd --create-home --uid 10001 devpage \
+ && mkdir /data && chown devpage:devpage /data
+USER devpage
+ENV DEVPAGE_CHROME_SANDBOX=off
 # chrome-headless-shell, fetched now rather than on the first download — it
 # has builds for x86-64 Linux only, so an arm64 image prints no PDF.
 RUN if [ "$(uname -m)" = x86_64 ]; then \

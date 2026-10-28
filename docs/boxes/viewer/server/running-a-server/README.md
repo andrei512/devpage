@@ -46,6 +46,9 @@ COPY --from=release /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=litestream /usr/local/bin/litestream /usr/local/bin/litestream
 COPY litestream.yml /etc/litestream.yml
 COPY devpage-server.sh /usr/local/bin/devpage-server
+RUN useradd --create-home --uid 10001 devpage && mkdir /data && chown devpage:devpage /data
+USER devpage
+ENV DEVPAGE_CHROME_SANDBOX=off
 ENV DEVPAGE_HOST=0.0.0.0 DEVPAGE_DATA_DIR=/data
 VOLUME /data
 EXPOSE 3030
@@ -65,6 +68,10 @@ keeps the store replicated ([how](../storage/README.md#the-store)).
 - **PDF downloads** need chrome-headless-shell, which devpage fetches when the
   image is built. It has builds for x86-64 Linux only: an arm64 image serves
   everything but PDFs.
+- **It runs as a user of its own**, uid 10001, who owns `/data`; on
+  Kubernetes, `fsGroup` gives it the volume. Chrome runs without its sandbox
+  (`DEVPAGE_CHROME_SANDBOX=off`): a container has none for it to use, and is
+  the boundary itself.
 
 ### Trying it locally
 

@@ -18,6 +18,7 @@ const OTHER_COMMANDS: &[&str] = &[
     "DEVPAGE_AZURE_OPENAI_API_KEY",
     "DEVPAGE_VIDEO_MODEL",
     "DEVPAGE_UPDATE_REFERENCES",
+    "DEVPAGE_CHROME_SANDBOX",
 ];
 
 /// The variables server mode reads.
