@@ -429,6 +429,12 @@ pub struct Drawing {
     pub images: Vec<ImageData>,
     /// What each of `images` shows.
     shows: Vec<Painted>,
+    /// The nodes whose own commands paint an image, in paint order.
+    painters: BTreeSet<Order>,
+    /// Whether `images` fit the GPU's atlas together.
+    fits: Result<(), Undrawable>,
+    /// How many nodes the last update visited after laying out.
+    visited: usize,
 }
 
 /// What an update to a drawing touched, in the design's coordinates: each
@@ -511,7 +517,6 @@ impl Renderer {
         let mut hugs = Vec::new();
         let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
         self.settle(&mut tree, root, &hugs);
-        let frames = frames_by_order(&tree, root, &scene.root);
         let mut d = Drawing {
             tree,
             root,
@@ -522,31 +527,36 @@ impl Renderer {
             blobs: HashMap::new(),
             images: Vec::new(),
             shows: Vec::new(),
+            painters: BTreeSet::new(),
+            fits: Ok(()),
+            visited: 0,
         };
         self.blobs.clear();
         let mut made = Vec::new();
         let (t, c) = (d.list.root_transform, d.list.root_clip);
         let mut walk = Walk {
             scene,
-            frames: &frames,
             dirty: &|_| true,
+            reflow: None,
+            path: None,
             damage: None,
             fresh: Some(&mut made),
+            images: true,
         };
         self.sync(
             &mut d,
             &mut walk,
             &scene.root,
             vec![0],
+            root,
             t,
-            Vec2::ZERO,
+            (0.0, 0.0),
             c,
             None,
             None,
             false,
         );
         d.list.load(made);
-        d.frames = frames;
         d.blobs = std::mem::take(&mut self.blobs);
         self.settle_area(&mut d);
         self.settle_images(&mut d)?;
@@ -581,76 +591,158 @@ impl Renderer {
 
     fn update(&mut self, d: &mut Drawing, old: &Scene, new: &Scene) -> Result<Damage, Undrawable> {
         self.register(&new.fonts);
-        let replaced: Vec<Order> = crate::wire::diff(&old.root, &new.root)
-            .into_iter()
-            .map(|r| r.id.split('.').map(|s| s.parse().unwrap_or(0)).collect())
-            .collect();
-        for order in &replaced {
+        d.visited = 0;
+        let mut changes = Changes::default();
+        changes.diff(&old.root, &new.root, vec![0], false);
+        let mut damage = Damage::default();
+        let mut images = false;
+        // What is gone: the children past a node's new count, and the
+        // subtrees made again from nothing — their chunks, records and
+        // property-tree nodes, found by their ids' prefix.
+        for order in changes.removed.iter().chain(&changes.rebuilt) {
+            images |= d.forget(order, &mut damage);
+        }
+        // The layout tree, edited where the scene changed. Children go from
+        // the end of their parent's list, so every other id still names its
+        // node.
+        let mut hugs: Vec<(Order, NodeId, bool, bool)> = Vec::new();
+        for order in changes.removed.iter().rev() {
+            let at = &order[..order.len() - 1];
+            let parent = taffy_at(&d.tree, d.root, &at[1..]);
+            let gone = d
+                .tree
+                .remove_child_at_index(parent, order[order.len() - 1] as usize)
+                .expect("child");
+            remove_subtree(&mut d.tree, gone);
+            if d.tree.child_count(parent) == 0 {
+                // A frame left with no children is laid out as a leaf, which
+                // never clears the list of absolutely placed children taffy
+                // kept for it — the ones just removed: it is made afresh.
+                let node = find_node(&new.root, at);
+                let up = (at.len() > 1).then(|| find_node(&new.root, &at[..at.len() - 1]));
+                let fresh = d.tree.new_leaf(style_of(node, up)).expect("node");
+                if at.len() == 1 {
+                    d.root = fresh;
+                } else {
+                    let grand = taffy_at(&d.tree, d.root, &at[1..at.len() - 1]);
+                    d.tree
+                        .replace_child_at_index(grand, at[at.len() - 1] as usize, fresh)
+                        .expect("child");
+                }
+                let _ = d.tree.remove(parent);
+            }
+        }
+        for order in changes.rebuilt.iter().chain(&changes.added) {
             let node = find_node(&new.root, order);
             let parent = (order.len() > 1).then(|| find_node(&new.root, &order[..order.len() - 1]));
-            let mut hugs = Vec::new();
-            let id = build(&mut d.tree, node, parent, &mut hugs, &new.images);
-            let gone = if order.len() == 1 {
-                std::mem::replace(&mut d.root, id)
+            let mut made = Vec::new();
+            let id = build(&mut d.tree, node, parent, &mut made, &new.images);
+            hugs.extend(made.into_iter().map(|(id, w, h)| (order.clone(), id, w, h)));
+            if order.len() == 1 {
+                let gone = std::mem::replace(&mut d.root, id);
+                remove_subtree(&mut d.tree, gone);
+                continue;
+            }
+            let parent_id = taffy_at(&d.tree, d.root, &order[1..order.len() - 1]);
+            let at = order[order.len() - 1] as usize;
+            if at < d.tree.child_count(parent_id) {
+                let gone = d
+                    .tree
+                    .replace_child_at_index(parent_id, at, id)
+                    .expect("child");
+                remove_subtree(&mut d.tree, gone);
             } else {
-                let parent_id = taffy_at(&d.tree, d.root, &order[1..order.len() - 1]);
-                d.tree
-                    .replace_child_at_index(parent_id, order[order.len() - 1] as usize, id)
-                    .expect("child")
-            };
-            remove_subtree(&mut d.tree, gone);
+                d.tree.add_child(parent_id, id).expect("child");
+            }
         }
-        let mut hugs = Vec::new();
-        collect_hugs(&d.tree, d.root, &new.root, None, &mut hugs);
+        for order in &changes.attrs {
+            let node = find_node(&new.root, order);
+            let parent = (order.len() > 1).then(|| find_node(&new.root, &order[..order.len() - 1]));
+            let id = taffy_at(&d.tree, d.root, &order[1..]);
+            d.tree.set_style(id, style_of(node, parent)).expect("style");
+            if let Some(leaf) = leaf_of(node, &new.images) {
+                d.tree.set_node_context(id, Some(Some(leaf))).expect("leaf");
+            }
+        }
+        // The frames that hug their children and lie on a changed node's
+        // path: only their extent can have changed. Innermost first.
+        let mut seen = BTreeSet::new();
+        for order in changes.touched() {
+            for k in (1..=order.len()).rev() {
+                let at = &order[..k];
+                if !seen.insert(at.to_vec()) {
+                    continue;
+                }
+                let node = find_node(&new.root, at);
+                let parent = (k > 1).then(|| find_node(&new.root, &order[..k - 1]));
+                if let Some((w, h)) = hugs_of(node, parent) {
+                    hugs.push((at.to_vec(), taffy_at(&d.tree, d.root, &at[1..]), w, h));
+                }
+            }
+        }
+        hugs.sort_by_key(|h| std::cmp::Reverse(h.0.len()));
+        let mut once = std::collections::HashSet::new();
+        hugs.retain(|h| once.insert(h.1));
+        let hugs: Vec<(NodeId, bool, bool)> =
+            hugs.into_iter().map(|(_, id, w, h)| (id, w, h)).collect();
+        // Each starts from no size, as in a fresh layout, so it settles where
+        // a fresh one does.
+        for &(id, w, h) in &hugs {
+            let mut style = d.tree.style(id).expect("style").clone();
+            if w {
+                style.size.width = Dimension::auto();
+            }
+            if h {
+                style.size.height = Dimension::auto();
+            }
+            d.tree.set_style(id, style).expect("style");
+        }
         let root = d.root;
         self.settle(&mut d.tree, root, &hugs);
-        let frames = frames_by_order(&d.tree, d.root, &new.root);
-        let mut damage = Damage::default();
-        // The chunks and property-tree nodes of nodes that are gone.
-        let gone: Vec<Order> = d
-            .frames
-            .keys()
-            .filter(|o| !frames.contains_key(*o))
-            .cloned()
-            .collect();
-        for o in gone {
-            if let Some(c) = d.list.take(&o) {
-                damage.rects.extend(c.bounds);
-                d.list.free(&c.made);
-            }
-            if let Some(rec) = d.recs.remove(&o) {
-                d.list.trees.transforms.remove(rec.transform);
-                if let Some(e) = rec.effect {
-                    d.list.trees.effects.remove(e);
-                }
-                if let Some(c) = rec.clip {
-                    d.list.trees.clips.remove(c);
-                }
+        // Only the changed nodes' paths are walked, and below them only
+        // what moved, changed size or was made again.
+        let mut path: HashMap<Order, BTreeSet<u32>> = HashMap::new();
+        for order in changes.touched() {
+            for k in 1..order.len() {
+                path.entry(order[..k].to_vec())
+                    .or_default()
+                    .insert(order[k]);
             }
         }
-        let dirty = |o: &Order| replaced.iter().any(|r| o.starts_with(r));
+        let attrs: BTreeSet<Order> = changes.attrs.iter().cloned().collect();
+        let dirty = |o: &Order| attrs.contains(o);
         self.blobs = std::mem::take(&mut d.blobs);
         let (t, c) = (d.list.root_transform, d.list.root_clip);
+        let reflow: BTreeSet<Order> = changes
+            .added
+            .iter()
+            .chain(&changes.removed)
+            .map(|o| o[..o.len() - 1].to_vec())
+            .collect();
         let mut walk = Walk {
             scene: new,
-            frames: &frames,
             dirty: &dirty,
+            reflow: Some(&reflow),
+            path: Some(&path),
             damage: Some(&mut damage),
             fresh: None,
+            images: false,
         };
+        let root = d.root;
         self.sync(
             d,
             &mut walk,
             &new.root,
             vec![0],
+            root,
             t,
-            Vec2::ZERO,
+            (0.0, 0.0),
             c,
             None,
             None,
             false,
         );
-        d.frames = frames;
+        images |= walk.images;
         d.blobs = std::mem::take(&mut self.blobs);
         let area = d.list.area;
         self.settle_area(d);
@@ -675,7 +767,11 @@ impl Renderer {
                 }
             }
         }
-        self.settle_images(d)?;
+        if images {
+            self.settle_images(d)?;
+        } else {
+            d.fits.clone()?;
+        }
         Ok(damage)
     }
 
@@ -706,10 +802,15 @@ impl Renderer {
     /// The images the drawing paints, in the order it first paints them —
     /// each image file once — and whether they fit the GPU's atlas together.
     fn settle_images(&mut self, d: &mut Drawing) -> Result<(), Undrawable> {
+        d.fits = self.fit_images(d);
+        d.fits.clone()
+    }
+
+    fn fit_images(&mut self, d: &mut Drawing) -> Result<(), Undrawable> {
         let mut files = BTreeSet::new();
         let mut painted: Vec<(Painted, Origin)> = Vec::new();
-        for rec in d.recs.values() {
-            for (p, at) in &rec.painted {
+        for order in &d.painters {
+            for (p, at) in &d.recs[order].painted {
                 if p.file.is_none_or(|id| files.insert(id)) {
                     painted.push((p.clone(), at.clone()));
                 }
@@ -756,21 +857,32 @@ impl Renderer {
         w: &mut Walk,
         node: &Node,
         order: Order,
+        id: NodeId,
         parent_t: Id,
-        parent_origin: Vec2,
+        parent_at: (f32, f32),
         clip: Id,
         cut: Option<KRect>,
         effect: Option<Id>,
         remade: bool,
-    ) {
-        let f = w.frames[&order];
+    ) -> bool {
+        let l = d.tree.layout(id).expect("laid out");
+        let f = Frame {
+            x: parent_at.0 + l.location.x,
+            y: parent_at.1 + l.location.y,
+            width: l.size.width,
+            height: l.size.height,
+        };
+        let parent_origin = Vec2::new(parent_at.0 as f64, parent_at.1 as f64);
         let origin = Vec2::new(f.x as f64, f.y as f64);
+        d.visited += 1;
         let old = d.recs.remove(&order);
-        let resized = d
-            .frames
-            .get(&order)
-            .is_none_or(|was| (was.width, was.height) != (f.width, f.height));
-        let remake = old.is_none() || remade || (w.dirty)(&order) || resized;
+        let is_new = old.is_none();
+        let was = d.frames.insert(order.clone(), f);
+        let resized = was.is_none_or(|was| (was.width, was.height) != (f.width, f.height));
+        let moved = was.is_none_or(|was| (was.x, was.y) != (f.x, f.y));
+        let cut_changed = d.list.chunk(&order).is_none_or(|c| c.cut != cut);
+        let dirty = (w.dirty)(&order);
+        let remake = old.is_none() || remade || dirty || resized;
         let trees = &mut d.list.trees;
         // Its transform is kept, and moved: its children's are under it.
         let transform = match &old {
@@ -901,9 +1013,17 @@ impl Renderer {
                 if let Some(damage) = w.damage.as_deref_mut() {
                     damage.rects.extend(c.bounds);
                 }
+                if !painted.is_empty() || old.as_ref().is_some_and(|r| !r.painted.is_empty()) {
+                    w.images = true;
+                }
                 (c, painted)
             }
         };
+        if painted.is_empty() {
+            d.painters.remove(&order);
+        } else {
+            d.painters.insert(order.clone());
+        }
         d.recs.insert(
             order.clone(),
             Rec {
@@ -922,36 +1042,199 @@ impl Renderer {
             Some(c) => (c, Some(cut.map_or(rect, |k| rect.intersect(k)))),
             None => (clip, cut),
         };
-        for (i, child) in node.children.iter().enumerate() {
+        // Its children: all of them when what they are placed by or drawn
+        // under changed; otherwise only those on a changed node's path, and
+        // the rest too when one of those changed size, which can move them.
+        let all = w.path.is_none()
+            || is_new
+            || dirty
+            || resized
+            || moved
+            || cut_changed
+            || children_remade
+            || w.reflow.is_some_and(|r| r.contains(&order));
+        let leaf = leaf_of(node, &w.scene.images).is_some();
+        if leaf {
+            return resized;
+        }
+        let ids = d.tree.children(id).expect("children");
+        let on_path = match (all, w.path) {
+            (false, Some(path)) => path.get(&order).cloned().unwrap_or_default(),
+            _ => BTreeSet::new(),
+        };
+        let visit = |r: &mut Renderer, d: &mut Drawing, w: &mut Walk, i: usize| {
             let mut o = order.clone();
             o.push(i as u32);
-            if !w.frames.contains_key(&o) {
-                continue;
-            }
-            self.sync(
+            r.sync(
                 d,
                 w,
-                child,
+                &node.children[i],
                 o,
+                ids[i],
                 transform,
-                origin,
+                (f.x, f.y),
                 inner,
                 inner_cut,
                 under,
                 children_remade,
-            );
+            )
+        };
+        if all {
+            for i in 0..node.children.len() {
+                visit(self, d, w, i);
+            }
+        } else {
+            let mut moves = false;
+            for &i in &on_path {
+                if (i as usize) < node.children.len() {
+                    moves |= visit(self, d, w, i as usize);
+                }
+            }
+            if moves {
+                for i in 0..node.children.len() {
+                    if !on_path.contains(&(i as u32)) {
+                        visit(self, d, w, i);
+                    }
+                }
+            }
         }
+        resized
+    }
+}
+
+/// What changed between two scenes, node by node, by id: nodes whose own
+/// attributes changed, nodes made again from nothing — a leaf of the layout
+/// tree that became a frame or the other way round — and children added past
+/// or removed from the end of a node's list.
+#[derive(Default, Debug)]
+struct Changes {
+    attrs: Vec<Order>,
+    rebuilt: Vec<Order>,
+    added: Vec<Order>,
+    removed: Vec<Order>,
+}
+
+impl Changes {
+    /// The changes from `old` to `new` at `order`; `restyle` when its
+    /// parent's layout changed, which decides part of its style.
+    fn diff(&mut self, old: &Node, new: &Node, order: Order, restyle: bool) {
+        if old == new && !restyle {
+            return;
+        }
+        if leafy(old) != leafy(new) {
+            self.rebuilt.push(order);
+            return;
+        }
+        if restyle || !same_own(old, new) {
+            self.attrs.push(order.clone());
+        }
+        let common = old.children.len().min(new.children.len());
+        let layout = old.layout != new.layout;
+        for i in 0..common {
+            let mut o = order.clone();
+            o.push(i as u32);
+            self.diff(&old.children[i], &new.children[i], o, layout);
+        }
+        for i in common..new.children.len() {
+            let mut o = order.clone();
+            o.push(i as u32);
+            self.added.push(o);
+        }
+        for i in common..old.children.len() {
+            let mut o = order.clone();
+            o.push(i as u32);
+            self.removed.push(o);
+        }
+    }
+
+    /// The nodes of the new scene a change is at: every changed node, and
+    /// the parent of each removed one.
+    fn touched(&self) -> impl Iterator<Item = &[u32]> {
+        self.attrs
+            .iter()
+            .chain(&self.rebuilt)
+            .chain(&self.added)
+            .map(|o| o.as_slice())
+            .chain(self.removed.iter().map(|o| &o[..o.len() - 1]))
+    }
+}
+
+/// Whether two nodes' own attributes are the same, their children aside.
+fn same_own(a: &Node, b: &Node) -> bool {
+    a.kind == b.kind
+        && a.name == b.name
+        && a.x == b.x
+        && a.y == b.y
+        && a.width == b.width
+        && a.height == b.height
+        && a.opacity == b.opacity
+        && a.on_click == b.on_click
+        && a.fill == b.fill
+        && a.stroke == b.stroke
+        && a.stroke_width == b.stroke_width
+        && a.radius == b.radius
+        && a.shadow == b.shadow
+        && a.clip == b.clip
+        && a.layout == b.layout
+        && a.gap == b.gap
+        && a.padding == b.padding
+        && a.align == b.align
+        && a.justify == b.justify
+        && a.text == b.text
+        && a.vector == b.vector
+        && a.image == b.image
+}
+
+impl Drawing {
+    /// Takes out everything at and under `order` — chunks, records, frames
+    /// and the property-tree nodes they made — adding where the chunks were
+    /// to `damage`. True when any of them painted an image.
+    fn forget(&mut self, order: &Order, damage: &mut Damage) -> bool {
+        let under: Vec<Order> = self
+            .recs
+            .range(order.clone()..)
+            .take_while(|(o, _)| o.starts_with(order))
+            .map(|(o, _)| o.clone())
+            .collect();
+        let mut images = false;
+        for o in under {
+            if let Some(c) = self.list.take(&o) {
+                damage.rects.extend(c.bounds);
+                self.list.free(&c.made);
+            }
+            if let Some(rec) = self.recs.remove(&o) {
+                images |= !rec.painted.is_empty();
+                self.painters.remove(&o);
+                self.list.trees.transforms.remove(rec.transform);
+                if let Some(e) = rec.effect {
+                    self.list.trees.effects.remove(e);
+                }
+                if let Some(c) = rec.clip {
+                    self.list.trees.clips.remove(c);
+                }
+            }
+            self.frames.remove(&o);
+        }
+        images
     }
 }
 
 /// What a [`Renderer::sync`] walk reads and adds to.
 struct Walk<'a> {
     scene: &'a Scene,
-    frames: &'a BTreeMap<Order, Frame>,
+    /// Whether a node's own attributes changed.
     dirty: &'a dyn Fn(&Order) -> bool,
+    /// The nodes whose children were added or removed: all their children
+    /// may have moved.
+    reflow: Option<&'a BTreeSet<Order>>,
+    /// For an update, the children of each node on a changed node's path
+    /// that lead to one; `None` walks every node.
+    path: Option<&'a HashMap<Order, BTreeSet<u32>>>,
     damage: Option<&'a mut Damage>,
     /// For a new drawing, the chunks made, to bulk-load the index with.
     fresh: Option<&'a mut Vec<(Order, Chunk)>>,
+    /// Whether a chunk made again paints an image, or painted one.
+    images: bool,
 }
 
 /// The commands' images swapped for the blobs `last_of` names.
@@ -987,7 +1270,7 @@ impl Renderer {
             for &(id, w, h) in hugs {
                 let (mut ew, mut eh) = (0.0f32, 0.0f32);
                 for child in tree.children(id).expect("children") {
-                    let l = tree.layout(child).expect("laid out");
+                    let l = tree.unrounded_layout(child);
                     ew = ew.max(l.location.x + l.size.width);
                     eh = eh.max(l.location.y + l.size.height);
                 }
@@ -1040,32 +1323,6 @@ fn taffy_at(tree: &TaffyTree<Option<Leaf>>, root: NodeId, path: &[u32]) -> NodeI
         at = tree.child_at_index(at, i as usize).expect("child");
     }
     at
-}
-
-fn collect_hugs(
-    tree: &TaffyTree<Option<Leaf>>,
-    id: NodeId,
-    node: &Node,
-    parent: Option<&Node>,
-    out: &mut Vec<(NodeId, bool, bool)>,
-) {
-    if node.text.is_some() || node.vector.is_some() || node.image.is_some() {
-        return;
-    }
-    for (i, c) in node.children.iter().enumerate() {
-        collect_hugs(
-            tree,
-            tree.child_at_index(id, i).expect("child"),
-            c,
-            Some(node),
-            out,
-        );
-    }
-    let hugs_by = |s: DSize| s == DSize::Hug || (parent.is_none() && s == DSize::Fill);
-    let (w, h) = (hugs_by(node.width), hugs_by(node.height));
-    if node.layout == Layout::None && !node.children.is_empty() && (w || h) {
-        out.push((id, w, h));
-    }
 }
 
 fn frames_by_order(
@@ -1380,6 +1637,55 @@ fn build(
     hugs: &mut Vec<(NodeId, bool, bool)>,
     images: &ImageFiles,
 ) -> NodeId {
+    let style = style_of(node, parent);
+    if let Some(leaf) = leaf_of(node, images) {
+        return tree.new_leaf_with_context(style, Some(leaf)).expect("leaf");
+    }
+    let children: Vec<NodeId> = node
+        .children
+        .iter()
+        .map(|c| build(tree, c, Some(node), hugs, images))
+        .collect();
+    let id = tree.new_with_children(style, &children).expect("node");
+    if let Some((w, h)) = hugs_of(node, parent) {
+        hugs.push((id, w, h));
+    }
+    id
+}
+
+/// Whether `node` hugs its children's extent, as a frame with no layout
+/// does — and along which axes.
+fn hugs_of(node: &Node, parent: Option<&Node>) -> Option<(bool, bool)> {
+    if leafy(node) {
+        return None;
+    }
+    // A root has no parent space to fill: on its own, `"fill"` hugs.
+    let hugs_by = |s: DSize| s == DSize::Hug || (parent.is_none() && s == DSize::Fill);
+    let (w, h) = (hugs_by(node.width), hugs_by(node.height));
+    (node.layout == Layout::None && !node.children.is_empty() && (w || h)).then_some((w, h))
+}
+
+/// Whether `node` is a leaf of the layout tree: a text, a vector or an image.
+fn leafy(node: &Node) -> bool {
+    node.text.is_some() || node.vector.is_some() || node.image.is_some()
+}
+
+/// What a leaf of the layout tree measures by, for a node that is one.
+fn leaf_of(node: &Node, images: &ImageFiles) -> Option<Leaf> {
+    if let Some(text) = &node.text {
+        let wraps = !matches!(node.width, DSize::Hug);
+        return Some(Leaf::Text(Box::new(text.clone()), wraps));
+    }
+    let intrinsic = match (&node.vector, &node.image) {
+        (Some(v), _) => Some((v.view_box[2], v.view_box[3])),
+        (_, Some(i)) => images.get(&i.id).map(|f| (f.width as f32, f.height as f32)),
+        _ => None,
+    };
+    intrinsic.map(|(w, h)| Leaf::Intrinsic(w, h))
+}
+
+/// A node's flexbox style, which its parent's layout decides part of.
+fn style_of(node: &Node, parent: Option<&Node>) -> Style {
     let mut style = Style::default();
     let dir = parent.map(|p| p.layout);
     let dim = |s: DSize| match s {
@@ -1439,35 +1745,7 @@ fn build(
         Align::SpaceBetween => JustifyContent::SPACE_BETWEEN,
         Align::Start => JustifyContent::FLEX_START,
     };
-    if let Some(text) = &node.text {
-        let wraps = !matches!(node.width, DSize::Hug);
-        return tree
-            .new_leaf_with_context(style, Some(Leaf::Text(Box::new(text.clone()), wraps)))
-            .expect("leaf");
-    }
-    let intrinsic = match (&node.vector, &node.image) {
-        (Some(v), _) => Some((v.view_box[2], v.view_box[3])),
-        (_, Some(i)) => images.get(&i.id).map(|f| (f.width as f32, f.height as f32)),
-        _ => None,
-    };
-    if let Some((w, h)) = intrinsic {
-        return tree
-            .new_leaf_with_context(style, Some(Leaf::Intrinsic(w, h)))
-            .expect("leaf");
-    }
-    let children: Vec<NodeId> = node
-        .children
-        .iter()
-        .map(|c| build(tree, c, Some(node), hugs, images))
-        .collect();
-    let id = tree.new_with_children(style, &children).expect("node");
-    // A root has no parent space to fill: on its own, `"fill"` hugs.
-    let hugs_by = |s: DSize| s == DSize::Hug || (parent.is_none() && s == DSize::Fill);
-    let (w, h) = (hugs_by(node.width), hugs_by(node.height));
-    if node.layout == Layout::None && !node.children.is_empty() && (w || h) {
-        hugs.push((id, w, h));
-    }
-    id
+    style
 }
 
 #[cfg(test)]
@@ -2672,6 +2950,220 @@ mod examples {
                 }
                 3 => assert!(damage.all, "{damage:?}"),
                 _ => {}
+            }
+        }
+    }
+
+    /// A design of `rows` rows, each a frame with a text; row `edit` says
+    /// `label`.
+    fn tall(rows: usize, edit: usize, label: &str) -> Scene {
+        let mut body = String::new();
+        for i in 0..rows {
+            let text = if i == edit {
+                label.to_string()
+            } else {
+                format!("Row {i:05}")
+            };
+            body.push_str(&format!(
+                "<Frame width={{400}} height={{100}} fill=\"#eeeeee\" layout=\"row\" padding={{10}}><Text size={{20}}>{text}</Text></Frame>\n"
+            ));
+        }
+        let files: HashMap<String, String> = [(
+            "a.design".to_string(),
+            format!("<Frame layout=\"column\" fill=\"#ffffff\">{body}</Frame>"),
+        )]
+        .into();
+        resolve::resolve(&files, "a.design").unwrap()
+    }
+
+    /// The fastest of several updates of row `rows / 2`'s text, back and
+    /// forth, on a design of `rows` rows, and how many nodes it visited
+    /// after laying out.
+    fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
+        let (a, b) = (
+            tall(rows, rows / 2, "Row 00000"),
+            tall(rows, rows / 2, "Edited!!!"),
+        );
+        let mut r = Renderer::new();
+        let mut d = r.drawing(&a, Theme::Light, None).unwrap();
+        let mut best = std::time::Duration::MAX;
+        for n in 0..12 {
+            let (old, new) = if n % 2 == 0 { (&a, &b) } else { (&b, &a) };
+            let t = std::time::Instant::now();
+            let damage = d.update(&mut r, old, new).unwrap();
+            best = best.min(t.elapsed());
+            assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
+        }
+        (best, d.visited)
+    }
+
+    /// Updating one row's text visits only the nodes on its path — the
+    /// same few on a design ten times the size — so making chunks, moving
+    /// index entries and marking damage don't grow with the design. What
+    /// still does: comparing the two scenes, and taffy laying out the
+    /// row's parent again over all its children.
+    #[test]
+    fn an_edit_visits_only_its_path() {
+        edit_cost(100);
+        let ((small, a), (big, b)) = (edit_cost(1_000), edit_cost(10_000));
+        eprintln!(
+            "one row's text: {small:?} on 1,000 rows, {big:?} on 10,000; {a} and {b} nodes visited"
+        );
+        assert_eq!((a, b), (3, 3));
+    }
+
+    /// A row that grows moves the rows after it, and only those, and the
+    /// drawing paints as a fresh one.
+    #[test]
+    fn a_row_that_grows_moves_the_rows_after_it() {
+        let a = tall(50, 20, "Row 00020");
+        let mut b = a.clone();
+        b.root.children[20].height = resolve::Size::Px(160.0);
+        let mut r = Renderer::new();
+        let mut d = r.drawing(&a, Theme::Light, None).unwrap();
+        let damage = d.update(&mut r, &a, &b).unwrap();
+        assert!(!damage.all);
+        assert!(
+            damage.rects.iter().all(|r| r.y1 > 2000.0 - 1.0),
+            "{damage:?}"
+        );
+        let fresh = r.drawing(&b, Theme::Light, None).unwrap();
+        assert_eq!(d.frames(), fresh.frames());
+        assert_eq!(d.area(), fresh.area());
+        for row in 0..d.area().height as u32 / 256 + 1 {
+            assert!(
+                crate::tiles::tile(&d.list, 1.0, 0, row)
+                    == crate::tiles::tile(&fresh.list, 1.0, 0, row),
+                "row {row}"
+            );
+        }
+    }
+
+    /// A small deterministic random number source.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n.max(1)
+        }
+    }
+
+    /// Every node of `n`'s subtree, by its path of child positions.
+    fn paths(n: &Node, at: Vec<usize>, out: &mut Vec<Vec<usize>>) {
+        out.push(at.clone());
+        for (i, c) in n.children.iter().enumerate() {
+            let mut p = at.clone();
+            p.push(i);
+            paths(c, p, out);
+        }
+    }
+
+    fn node_at<'a>(root: &'a mut Node, path: &[usize]) -> &'a mut Node {
+        let mut at = root;
+        for &i in path {
+            at = &mut at.children[i];
+        }
+        at
+    }
+
+    /// Edits of every kind to a real design — attributes, text, sizes,
+    /// layouts, clips and opacities, children added, removed, inserted at
+    /// the front and replaced, the root replaced — each leave a drawing that
+    /// lays out, paints and holds property-tree nodes as a fresh drawing of
+    /// the same scene does.
+    #[test]
+    fn random_edits_leave_a_drawing_as_a_fresh_one() {
+        const SEED: u64 = 7;
+        const STEPS: usize = 120;
+        let path = "docs/designs/checkout/checkout.design";
+        let start = crate::resolve(&repo(), path).unwrap();
+        let mut r = Renderer::new();
+        let mut rng = Lcg(SEED);
+        for theme in [Theme::Light, Theme::Dark] {
+            let mut scene = start.clone();
+            let mut d = r.drawing(&scene, theme, None).unwrap();
+            for step in 0..STEPS {
+                let mut next = scene.clone();
+                let mut all = Vec::new();
+                paths(&next.root, Vec::new(), &mut all);
+                let at = all[rng.next(all.len())].clone();
+                let kind = rng.next(10);
+                {
+                    let n = node_at(&mut next.root, &at);
+                    match kind {
+                        0 => n.opacity = if n.opacity < 1.0 { 1.0 } else { 0.5 },
+                        1 => n.clip = !n.clip,
+                        2 => n.width = resolve::Size::Px(40.0 + rng.next(300) as f32),
+                        3 => n.x += 7.0,
+                        4 => {
+                            if let Some(t) = &mut n.text {
+                                t.content.push_str(" more words");
+                            } else {
+                                n.gap += 3.0;
+                            }
+                        }
+                        5 if !n.children.is_empty() => {
+                            n.children.pop();
+                        }
+                        6 if !n.children.is_empty() => {
+                            let c = n.children[0].clone();
+                            n.children.push(c);
+                        }
+                        7 if n.children.len() > 1 => {
+                            let c = n.children.pop().unwrap();
+                            n.children.insert(0, c);
+                        }
+                        8 => {
+                            n.layout = match n.layout {
+                                Layout::Row => Layout::Column,
+                                Layout::Column => Layout::None,
+                                Layout::None => Layout::Row,
+                            }
+                        }
+                        _ => n.padding = [3.0, 5.0, 7.0, 9.0],
+                    }
+                }
+                if step == STEPS / 2 {
+                    next.root = start.root.clone();
+                }
+                // Only what the resolver lets through: no `"fill"` on a
+                // child of a frame with no layout.
+                fn valid(n: &Node) -> bool {
+                    let fills = |c: &Node| {
+                        c.width == resolve::Size::Fill || c.height == resolve::Size::Fill
+                    };
+                    !(n.layout == Layout::None && n.children.iter().any(fills))
+                        && n.children.iter().all(valid)
+                }
+                if !valid(&next.root) {
+                    continue;
+                }
+                d.update(&mut r, &scene, &next).unwrap();
+                let fresh = r.drawing(&next, theme, None).unwrap();
+                let case = format!("{theme:?} step {step}: kind {kind} at {at:?}");
+                assert_eq!(d.frames(), fresh.frames(), "{case}");
+                assert_eq!(d.area(), fresh.area(), "{case}");
+                let paint = |d: &Drawing| {
+                    paint_area(&d.list, frame_rect(d.area()), 1.0)
+                        .data_as_u8_slice()
+                        .to_vec()
+                };
+                assert!(paint(&d) == paint(&fresh), "{case}");
+                let live = |d: &Drawing| {
+                    let t = &d.list.trees;
+                    (
+                        t.transforms.live(),
+                        t.clips.live(),
+                        t.effects.live(),
+                        d.images.len(),
+                    )
+                };
+                assert_eq!(live(&d), live(&fresh), "{case}");
+                scene = next;
             }
         }
     }
