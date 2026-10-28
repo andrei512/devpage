@@ -116,8 +116,10 @@ lines around it change:
 - siblings with a [`key`](../designs/elements-and-attributes/README.md#attributes)
   are matched by it;
 - the others by a shortest edit script over the sibling list (Myers' diff),
-  comparing each element's name and its own attributes — so an element
-  inserted, removed or moved costs the elements it touched, not the list —
+  comparing each element whole — its name, its own attributes and everything
+  in it, so a row inserted before a run of rows alike but for their text is
+  that row, not a shift of them all — so an element inserted, removed or
+  moved costs the elements it touched, not the list —
   and then, among what is left, an unmatched element with an unmatched one of
   the same name in the same place, as an edit of it;
 - a matched element's children are matched the same way; an element left
@@ -214,8 +216,15 @@ the change can reach is resolved again:
   the store keeps, for each, the nodes that do.
 
 What was resolved again is the patch: no scene is compared with another.
-While a design has problems, what each save reached is kept, and the save that
-makes it valid again resolves all of it against the last scene sent.
+Resolving again costs what the change reached, beside reading the file that
+was saved: the saved file is parsed, matched against its last parse and
+walked beside it to find what changed — linear in that file, and nothing in
+any other. While a design has problems, what each save reached is kept, and
+the save that makes it valid again resolves all of it against the last scene
+sent; the problems themselves, every one, come from resolving the design
+whole, which a design with problems pays on each save. The engine resolves
+again in `design/src/resolve/again.rs` (`Resolution`); the store keeps one per
+design.
 
 ### Themes
 

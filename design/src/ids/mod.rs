@@ -104,7 +104,14 @@ fn siblings(news: &[&Element], olds: &[&Element]) -> Vec<Option<usize>> {
     let free_old: Vec<usize> = (0..olds.len())
         .filter(|&o| !taken[o] && key(olds[o]).is_none())
         .collect();
-    let same = |n: usize, o: usize| same_own(news[free_new[n]], olds[free_old[o]]);
+    // The edit script keeps what is the same throughout — its own
+    // attributes and everything in it — so a row inserted before a run of
+    // rows alike in their own attributes is that row, not a shift of them all.
+    let shapes_new: Vec<u64> = free_new.iter().map(|&n| shape(news[n])).collect();
+    let shapes_old: Vec<u64> = free_old.iter().map(|&o| shape(olds[o])).collect();
+    let same = |n: usize, o: usize| {
+        shapes_new[n] == shapes_old[o] && same_own(news[free_new[n]], olds[free_old[o]])
+    };
     let anchors = common(free_new.len(), free_old.len(), &same);
     // Between two anchors, what is left pairs up by name, in order.
     let mut last = (0, 0);
@@ -235,10 +242,65 @@ fn backtrack(
     out
 }
 
+/// A hash of an element and everything in it but for where it is written
+/// and its id: what two elements the same throughout share.
+fn shape(el: &Element) -> u64 {
+    use std::hash::{Hash, Hasher};
+    fn value(v: &Value, h: &mut std::collections::hash_map::DefaultHasher) {
+        match v {
+            Value::Str(s, _) => (0u8, s).hash(h),
+            Value::Theme(s, _) => (1u8, s).hash(h),
+            Value::Num(n) => (2u8, n.to_bits()).hash(h),
+            Value::Bool(b) => (3u8, b).hash(h),
+            Value::Prop(p) => (4u8, p).hash(h),
+            Value::Array(items) => {
+                (5u8, items.len()).hash(h);
+                for i in items {
+                    value(i, h);
+                }
+            }
+            Value::Object(fields) => {
+                (6u8, fields.len()).hash(h);
+                for (k, v) in fields {
+                    k.hash(h);
+                    value(v, h);
+                }
+            }
+            other => format!("{other:?}").hash(h),
+        }
+    }
+    fn walk(el: &Element, h: &mut std::collections::hash_map::DefaultHasher) {
+        el.name.hash(h);
+        el.attrs.len().hash(h);
+        for a in &el.attrs {
+            a.name.hash(h);
+            value(&a.value, h);
+        }
+        el.children.len().hash(h);
+        for c in &el.children {
+            match c {
+                Child::Element(e) => walk(e, h),
+                Child::Text(parts, _) => {
+                    for p in parts {
+                        match p {
+                            crate::parse::TextPart::Literal(s) => (0u8, s).hash(h),
+                            crate::parse::TextPart::Prop(s) => (1u8, s).hash(h),
+                            crate::parse::TextPart::Theme(s, _) => (2u8, s).hash(h),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    walk(el, &mut h);
+    h.finish()
+}
+
 /// Whether two elements are the same but for where they are written: the
 /// same name and the same attributes, in the same order, with the same
 /// values.
-fn same_own(a: &Element, b: &Element) -> bool {
+pub(crate) fn same_own(a: &Element, b: &Element) -> bool {
     a.name == b.name
         && a.attrs.len() == b.attrs.len()
         && a.attrs.iter().zip(&b.attrs).all(|(x, y)| same_attr(x, y))
@@ -248,7 +310,7 @@ fn same_attr(a: &Attr, b: &Attr) -> bool {
     a.name == b.name && same_value(&a.value, &b.value)
 }
 
-fn same_value(a: &Value, b: &Value) -> bool {
+pub(crate) fn same_value(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Str(x, _), Value::Str(y, _)) => x == y,
         (Value::Theme(x, _), Value::Theme(y, _)) => x == y,

@@ -280,14 +280,14 @@ pub fn scene(scene: &Scene) -> proto::Scene {
     }
 }
 
-fn font_file(f: &FontFile) -> proto::FontFile {
+pub(crate) fn font_file(f: &FontFile) -> proto::FontFile {
     proto::FontFile {
         id: f.id.0.to_vec(),
         data: f.bytes.to_vec(),
     }
 }
 
-fn file(f: &ImageFile) -> proto::ImageFile {
+pub(crate) fn file(f: &ImageFile) -> proto::ImageFile {
     proto::ImageFile {
         id: f.id.0.to_vec(),
         data: f.bytes.clone(),
@@ -440,7 +440,7 @@ impl Uses {
 }
 
 mod patch;
-pub use patch::{Applied, apply, bring, patch};
+pub use patch::{Applied, Edit, apply, apply_edits, bring, edits, encode_edits, patch, subtree};
 
 #[cfg(test)]
 mod tests;
