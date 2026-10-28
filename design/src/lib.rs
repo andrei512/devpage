@@ -46,3 +46,12 @@ pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u
     tiles::png(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
     Ok(png)
 }
+
+// SAFETY: a drawing isn't `Send` only because taffy's `CompactLength`, in
+// the layout tree it keeps, packs a length into a `*const ()`. That value is
+// a pointer only for a `calc()` length, behind taffy's `calc` feature, which
+// the engine neither enables nor makes — every length it gives taffy is a
+// number or a keyword, bits in the word — so nothing in a drawing points
+// anywhere, and a server can keep one behind a lock and paint it from any
+// thread.
+unsafe impl Send for render::Drawing {}

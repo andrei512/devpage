@@ -176,12 +176,12 @@ In Chrome:
 
 ### `designs`
 
-*11 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
+*14 tests in the store; 14 more through the server, and 43 in Chrome, in `drive::server`.*
 
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
-- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed in band-sized writes; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
+- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does.
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
@@ -566,7 +566,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 - `fonts`, 2: a font file knowing its family, its weight or its weight axis; a folder's italic faces passed over, and one of italic faces only a problem.
 - `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
 - `display`, 1: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
-- `tiles`, 2: the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again.
+- `tiles`, 3: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
