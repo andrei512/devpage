@@ -35,7 +35,7 @@ pub struct OrderKey(Box<[u8]>);
 
 impl fmt::Debug for OrderKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{:02x?}", &self.0)
+        write!(f, "{:02x?}", self.0)
     }
 }
 

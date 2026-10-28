@@ -71,12 +71,14 @@ module of the core names an adapter or a rasterizer.
 | Module | Role | Does |
 | --- | --- | --- |
 | `parse` | core | Text to a syntax tree. |
+| `ids` | core | Element ids kept across saves: a new parse matched against the last. |
+| `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, children under their keys, and the index from id to place. |
 | `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene. |
 | `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as a kept taffy tree, every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
 | `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the top-level R-tree. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
-| `wire`, `proto` | core | Scenes and patches as the watch stream's messages. |
+| `wire`, `proto` | core | Scenes as the watch stream's messages; `patch`: the patch between two scenes, as operations by id, and applying one, all or nothing. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
 | `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
 
