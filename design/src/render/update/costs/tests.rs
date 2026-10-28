@@ -169,3 +169,28 @@ fn an_edit_costs_what_it_changed_in_every_kind_of_frame() {
         }
     }
 }
+
+/// A frame with no layout that hugs a wrapping text: a sibling that widens
+/// it lays the text out again against the wider box, and the drawing shows
+/// the text as a fresh one does.
+#[test]
+fn a_frame_that_grows_lays_out_again_what_its_box_reaches() {
+    let design = |w: u32| {
+        format!(
+            "<Frame layout=\"column\"><Frame><Rect x={{0}} y={{0}} width={{{w}}} height={{10}} /><Frame x={{0}} y={{20}} layout=\"column\"><Text width=\"fill\">a few words that wrap at the frame</Text></Frame></Frame></Frame>"
+        )
+    };
+    let mut saves = crate::ids::testing::Saves::default();
+    saves.save("a.design", design(60));
+    let mut res = Resolution::new(&saves, "a.design").unwrap();
+    let mut r = Renderer::new();
+    let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
+    saves.save("a.design", design(300));
+    let Outcome::Changed(_, applied) = res.update(&saves, &["a.design".to_string()]) else {
+        panic!("the edit changed nothing");
+    };
+    d.update(&mut r, res.scene(), &applied).unwrap();
+    d.prepare_all(&mut r, res.scene());
+    let fresh = r.drawing(res.scene(), Theme::Light, None).unwrap();
+    assert_eq!(d.frames(), fresh.frames());
+}

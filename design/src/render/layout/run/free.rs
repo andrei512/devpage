@@ -110,6 +110,7 @@ impl Renderer {
         };
         self.settle_in(runs, &mut run.tree, wrap, available, &[]);
         run.children.get_mut(key).expect("a child").last = Some(shape);
+        run.relaid.insert(key.clone());
         let l = run.tree.unrounded_layout(node);
         let b = [l.location.x, l.location.y, l.size.width, l.size.height];
         if let Some(old) = run.boxes.insert(key.clone(), b) {
