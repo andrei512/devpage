@@ -392,9 +392,9 @@ impl Designs {
                 let drawing = renderer
                     .drawing(&scene, theme, None)
                     .map_err(|e| e.message)?;
-                let list = renderer.chunked(&scene, &drawing.frames, theme);
                 drop(renderer);
-                devpage_design::tiles::png(&list, out).map_err(|e| format!("writing the PNG: {e}"))
+                devpage_design::tiles::png(&drawing.list, out)
+                    .map_err(|e| format!("writing the PNG: {e}"))
             },
             |p| p.message,
         )

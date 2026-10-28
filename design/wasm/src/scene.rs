@@ -1,88 +1,20 @@
-//! The display list replayed into a `vello` scene: each command translated
-//! into vello's call, nothing decided here. The canvas renders it on the GPU;
-//! the tests hand it to vello's own resolver, to hold the engine's atlas
-//! model to vello's.
+//! The `vello` backend of the engine's one paint entry point: any area of a
+//! display list replayed into a `vello` scene, each command translated into
+//! vello's call, nothing decided here. The canvas renders it into a tile on
+//! the GPU; the tests hand it to vello's own resolver, to hold the engine's
+//! atlas model to vello's.
 
-use devpage_design::render::{Draw, Frame, Paint};
+use devpage_design::render::{Draw, Paint};
 use vello::kurbo::Affine;
 use vello::peniko::{BlendMode, Compose, Fill, ImageBrush, Mix};
 
-/// The display list replayed into a vello scene under `t`: each command
-/// translated into vello's call, nothing decided here.
-#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
-pub fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
-    let mut v = vello::Scene::new();
-    // vello's GPU shader samples an image at each pixel's center but a
-    // gradient at its corner (`fine.wgsl`), where vello_cpu takes the center
-    // for both; so a gradient goes to the GPU moved half a device pixel up
-    // and left, to be sampled where the display list means.
-    let centered = Some(t.inverse() * Affine::translate((-0.5, -0.5)) * t);
-    for draw in list {
-        match draw {
-            Draw::Fill(path, Paint::Solid(c)) => v.fill(Fill::NonZero, t, *c, None, path),
-            Draw::Fill(path, Paint::Gradient(g)) => v.fill(Fill::NonZero, t, g, centered, path),
-            Draw::Fill(path, Paint::Image(data, place)) => v.fill(
-                Fill::NonZero,
-                t,
-                &ImageBrush::new(data.clone()),
-                Some(*place),
-                path,
-            ),
-            Draw::Stroke(path, width, c) => {
-                v.stroke(&vello::kurbo::Stroke::new(*width as f64), t, *c, None, path)
-            }
-            Draw::Glyphs(font, size, c, coords, glyphs) => v
-                .draw_glyphs(font)
-                .font_size(*size)
-                .normalized_coords(coords)
-                .transform(t)
-                .hint(true)
-                .brush(*c)
-                .draw(
-                    Fill::NonZero,
-                    glyphs.iter().map(|g| vello::Glyph {
-                        id: g.id,
-                        x: g.x,
-                        y: g.y,
-                    }),
-                ),
-            Draw::PushClip(path) => v.push_clip_layer(Fill::NonZero, t, path),
-            Draw::PushOpacity(o, Some(clip)) => {
-                v.push_layer(Fill::NonZero, Mix::Normal, *o, t, clip)
-            }
-            Draw::PushOpacity(o, None) => v.push_layer(
-                Fill::NonZero,
-                Mix::Normal,
-                *o,
-                t,
-                &vello::kurbo::Rect::new(
-                    area.x as f64,
-                    area.y as f64,
-                    (area.x + area.width) as f64,
-                    (area.y + area.height) as f64,
-                ),
-            ),
-            Draw::PushAdd(bounds) => v.push_layer(
-                Fill::NonZero,
-                BlendMode::new(Mix::Normal, Compose::Plus),
-                1.0,
-                t,
-                bounds,
-            ),
-            Draw::Pop => v.pop_layer(),
-        }
-    }
-    v
-}
-
 /// The `vello` backend of the engine's one paint entry point: each command
 /// translated into vello's call into a scene, nothing decided here.
-#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-pub struct Gpu {
+pub struct Vello {
     pub scene: vello::Scene,
 }
 
-impl devpage_design::display::Target for Gpu {
+impl devpage_design::display::Target for Vello {
     fn draw(&mut self, draw: &Draw, t: Affine) {
         let v = &mut self.scene;
         // vello's GPU shader samples a gradient at each pixel's corner, where
@@ -117,7 +49,6 @@ impl devpage_design::display::Target for Gpu {
                         y: g.y,
                     }),
                 ),
-            _ => unreachable!("layers are property-tree nodes"),
         }
     }
     fn push_clip(&mut self, path: &vello::kurbo::BezPath, t: Affine) {
@@ -160,6 +91,8 @@ mod tests {
     use super::*;
     use devpage_design::Renderer;
     use devpage_design::atlas;
+    use devpage_design::display::List;
+    use devpage_design::render::Frame;
     use devpage_design::resolve::{self, ImageFile, ImageId};
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -220,8 +153,9 @@ mod tests {
         }
     }
 
-    /// The display list that paints `images`, each once, in order.
-    fn list(images: &[ImageData]) -> (Frame, Vec<Draw>) {
+    /// The vello scene that paints `images`, each once, in order, through
+    /// the engine's one paint entry point.
+    fn painting(images: &[ImageData]) -> vello::Scene {
         let area = Frame {
             x: 0.0,
             y: 0.0,
@@ -229,16 +163,31 @@ mod tests {
             height: 100.0,
         };
         let rect = vello::kurbo::Rect::new(0.0, 0.0, 10.0, 10.0);
-        let list = images
-            .iter()
-            .map(|i| {
-                Draw::Fill(
+        let list = List::of(area, |b| {
+            for i in images {
+                b.draw(Draw::Fill(
                     vello::kurbo::Shape::to_path(&rect, 0.1),
                     Paint::Image(i.clone(), Affine::IDENTITY),
-                )
-            })
-            .collect();
-        (area, list)
+                ));
+            }
+        });
+        replay(&list)
+    }
+
+    /// A list's whole drawing replayed into a vello scene, as a tile is.
+    fn replay(list: &List) -> vello::Scene {
+        let a = list.area;
+        let area = vello::kurbo::Rect::new(
+            a.x as f64,
+            a.y as f64,
+            (a.x + a.width) as f64,
+            (a.y + a.height) as f64,
+        );
+        let mut v = Vello {
+            scene: vello::Scene::new(),
+        };
+        devpage_design::display::paint(list, area, 1.0, &mut v);
+        v.scene
     }
 
     /// Thousands of random sets of images — from a few pixels to the
@@ -277,17 +226,12 @@ mod tests {
                     image(side(&mut next), side(&mut next))
                 })
                 .collect();
-            let (area, draws) = list(&images);
             let sizes: Vec<_> = images.iter().map(|i| (i.width, i.height)).collect();
             match atlas::place(&sizes) {
                 Ok(_) => fit += 1,
                 Err(_) => left_out += 1,
             }
-            agree(
-                &images,
-                &scene(&draws, Affine::IDENTITY, area),
-                &format!("case {case}"),
-            );
+            agree(&images, &painting(&images), &format!("case {case}"));
         }
         // Both sides of the boundary, many times over.
         eprintln!("{fit} fit, {left_out} don't");
@@ -351,10 +295,10 @@ mod tests {
             "1200x900-c.png",
             "4000x1000-d.png",
         ];
-        let drawing = renderer
+        let mut drawing = renderer
             .drawing(&design(&files), devpage_design::Theme::Light, None)
             .unwrap();
-        let replayed = scene(&drawing.list, Affine::IDENTITY, drawing.area);
+        let replayed = replay(&drawing.list);
         let painted = vello_places(&replayed);
         assert_eq!(painted.len(), drawing.images.len());
         assert!(drawing.images.len() > 8, "{}", drawing.images.len());
@@ -368,19 +312,17 @@ mod tests {
                 .drawing(&more, devpage_design::Theme::Light, None)
                 .is_err()
         );
-        // The same list, painted anyway: vello leaves out the image the
-        // engine said it would.
-        let (area, list) = renderer.display_list(&more, devpage_design::Theme::Light);
-        let mut images: Vec<ImageData> = Vec::new();
-        for draw in &list {
-            if let Draw::Fill(_, Paint::Image(i, _)) = draw
-                && !images.iter().any(|j| j.data.id() == i.data.id())
-            {
-                images.push(i.clone());
-            }
-        }
+        // The same drawing, painted anyway — an update leaves the drawing
+        // the new scene's even when it can't be painted: vello leaves out
+        // the image the engine said it would.
+        assert!(
+            drawing
+                .update(&mut renderer, &design(&files), &more)
+                .is_err()
+        );
+        let images = drawing.images.clone();
         let sizes: Vec<_> = images.iter().map(|i| (i.width, i.height)).collect();
         assert!(atlas::place(&sizes).is_err());
-        agree(&images, &scene(&list, Affine::IDENTITY, area), "too many");
+        agree(&images, &replay(&drawing.list), "too many");
     }
 }

@@ -12,30 +12,10 @@ use vello::wgpu;
 use wasm_bindgen::prelude::*;
 
 use crate::Design;
-use std::collections::HashMap;
+use devpage_design::tiles::{Cache, Key, Level};
 
 /// A tile's side, in device pixels.
 const TILE: u32 = devpage_design::tiles::TILE;
-
-/// A scale tiles are painted at, to a 1/1024th.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-struct Level(i64);
-
-impl Level {
-    fn of(zoom: f32) -> Level {
-        Level((zoom as f64 * 1024.0).round().max(1.0) as i64)
-    }
-    fn scale(self) -> f64 {
-        self.0 as f64 / 1024.0
-    }
-}
-
-fn theme_key(theme: devpage_design::Theme) -> u8 {
-    match theme {
-        devpage_design::Theme::Light => 0,
-        devpage_design::Theme::Dark => 1,
-    }
-}
 
 /// A painted tile: its texture, and what binds it to the compositor.
 struct Tile {
@@ -144,7 +124,9 @@ pub struct Target {
     layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     /// The tiles painted so far, by theme, level, column and row.
-    tiles: HashMap<(u8, Level, i64, i64), Tile>,
+    tiles: Cache<Tile>,
+    /// The generation of the design the tiles were painted from.
+    generation: Option<u32>,
     /// The renderer for the images the canvas's drawing paints, by their
     /// blobs, in the order it first paints them: what its atlas holds.
     vello: Option<(Vec<u64>, vello::Renderer)>,
@@ -199,7 +181,8 @@ impl Gpu {
             pipeline,
             layout,
             sampler,
-            tiles: HashMap::new(),
+            tiles: Cache::new(usize::MAX),
+            generation: None,
             vello: None,
         })
     }
@@ -227,11 +210,19 @@ impl Gpu {
     ) -> i32 {
         let (width, height) = (width.max(1), height.max(1));
         let theme = design.theme();
+        let generation = design.generation();
         let Some(laid_out) = design.laid_out() else {
             return -1;
         };
         let blobs: Vec<u64> = laid_out.images.iter().map(|i| i.data.id()).collect();
         let images = laid_out.images.clone();
+        // What the design shows changed: every tile is stale, and shown
+        // until it is painted again.
+        if target.generation != Some(generation) {
+            target.generation = Some(generation);
+            target.tiles.damage_all(devpage_design::Theme::Light);
+            target.tiles.damage_all(devpage_design::Theme::Dark);
+        }
         if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
             // A fresh atlas for other images, given every image of the
             // drawing in its order first, so it holds them as the engine
@@ -245,10 +236,10 @@ impl Gpu {
                 Err(_) => return -1,
             }
         }
-        let Some(list) = design.list() else {
+        let Some(list) = design.laid_out().map(|d| &d.list) else {
             return -1;
         };
-        let level = Level::of(zoom);
+        let level = Level::of(zoom as f64);
         let scale = level.scale();
         let side = TILE as f64;
         let (dw, dh) = (
@@ -266,7 +257,13 @@ impl Gpu {
         let mut missing: Vec<(i64, i64)> = Vec::new();
         for r in rs.clone() {
             for c in cs.clone() {
-                if !target.tiles.contains_key(&(theme_key(theme), level, c, r)) {
+                let key = Key {
+                    theme,
+                    level,
+                    col: c as u32,
+                    row: r as u32,
+                };
+                if target.tiles.get(&key).is_none_or(|(_, stale)| stale) {
                     missing.push((c, r));
                 }
             }
@@ -284,7 +281,7 @@ impl Gpu {
         if settled {
             for &(c, r) in missing.iter().take(budget as usize) {
                 let area = devpage_design::tiles::tile_rect(list, scale, c as u32, r as u32);
-                let mut gpu = crate::scene::Gpu {
+                let mut gpu = crate::scene::Vello {
                     scene: vello::Scene::new(),
                 };
                 devpage_design::display::paint(list, area, scale, &mut gpu);
@@ -320,11 +317,17 @@ impl Gpu {
                     ],
                 });
                 target.tiles.insert(
-                    (theme_key(theme), level, c, r),
+                    Key {
+                        theme,
+                        level,
+                        col: c as u32,
+                        row: r as u32,
+                    },
                     Tile {
                         _texture: texture,
                         group,
                     },
+                    1,
                 );
                 painted += 1;
             }
@@ -339,12 +342,12 @@ impl Gpu {
             (height as f64 - oy) / zoom as f64 + list.area.y as f64,
         );
         let mut quads: Vec<([f32; 4], &wgpu::BindGroup, Level)> = Vec::new();
-        for (&(th, lv, c, r), tile) in &target.tiles {
-            if th != theme_key(theme) {
+        for (key, tile, _) in target.tiles.iter() {
+            if key.theme != theme {
                 continue;
             }
-            let s = lv.scale();
-            let rect = devpage_design::tiles::tile_rect(list, s, c as u32, r as u32);
+            let lv = key.level;
+            let rect = devpage_design::tiles::tile_rect(list, lv.scale(), key.col, key.row);
             if rect.x1 < view_rect.0
                 || rect.y1 < view_rect.1
                 || rect.x0 > view_rect.2
