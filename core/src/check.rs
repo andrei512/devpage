@@ -30,7 +30,7 @@ pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Pr
     let mut external = Vec::new();
     let mut problems = internal(document, &mut external, None);
     if let Kind::Design = document.kind {
-        let address = document.url(&document.path());
+        let address = document.name(&document.path());
         problems.extend(
             crate::designs::problems(&document.served, &address)
                 .into_iter()
@@ -71,7 +71,7 @@ fn follow(document: &Document, files: &mut Option<&mut BTreeSet<PathBuf>>, file:
         && files.insert(real.clone())
         && real.extension().is_some_and(|ext| ext == "design")
     {
-        let address = document.url(&real);
+        let address = document.name(&real);
         files.extend(crate::designs::files(&document.served, &address));
     }
 }
@@ -295,7 +295,7 @@ fn page_links_with(
             }
         }
         if resolved.extension().is_some_and(|ext| ext == "design") {
-            let address = document.url(&resolved);
+            let address = document.name(&resolved);
             for problem in crate::designs::problems(&document.served, &address) {
                 problems.push(Problem {
                     file: file.clone(),

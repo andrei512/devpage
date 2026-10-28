@@ -281,3 +281,40 @@ async fn a_publish_refreshes_pages_open_at_the_latest_and_never_an_old_versions(
         Some("change")
     );
 }
+
+#[tokio::test]
+async fn a_design_resolves_under_its_documents_mount() {
+    let app = router(&config("design-mount")).unwrap();
+    let id = create(
+        &app,
+        zip_of(&[
+            ("devpage.yml", "kind: site\ntitle: T\nroot: README.md\n"),
+            ("README.md", "# T\n\n[The box](designs/box.design)\n"),
+            ("designs/box.design", BOX),
+        ]),
+    )
+    .await;
+    for path in [
+        format!("/d/{id}/README.md"),
+        format!("/d/{id}/v/1/README.md"),
+    ] {
+        let (status, page) = ask(&app, get(&path)).await;
+        assert_eq!(status, StatusCode::OK, "{path}");
+        let page = page.as_str().unwrap();
+        assert!(!page.contains("broken design"), "{path}: {page}");
+    }
+
+    let (status, answer) = ask(
+        &app,
+        post(
+            "/api/documents?entry=box.design",
+            zip_of(&[("box.design", BOX)]),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{answer}");
+    let id = answer["id"].as_str().unwrap();
+    let (status, page) = ask(&app, get(&format!("/d/{id}/box.design"))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!page.as_str().unwrap().contains("no such file"), "{page}");
+}
