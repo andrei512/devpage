@@ -213,20 +213,63 @@ impl Changes {
             }
         }
         // A frame that starts or stops being a run is laid out another way:
-        // made again whole. Its own attributes can do it, and so can a
-        // child's coming, going or turning `"fill"` along it.
-        let mut parents: BTreeSet<Order> = attrs.iter().cloned().collect();
-        for o in attrs.iter().chain(&added).chain(&removed) {
-            if !o.is_empty() {
-                parents.insert(o[..o.len() - 1].to_vec());
+        // made again whole. Only what can turn it is looked at — its own
+        // `layout` or `justify`, a child turning `"fill"` along it or no
+        // longer, a child coming or going — never its children one by one,
+        // unless one of those happened.
+        let mut maybe: BTreeSet<Order> = BTreeSet::new();
+        let along = |n: &Node, c: &Node| match n.layout {
+            crate::resolve::Layout::Row => c.width,
+            crate::resolve::Layout::Column => c.height,
+            crate::resolve::Layout::None => crate::resolve::Size::Hug,
+        };
+        let fill = crate::resolve::Size::Fill;
+        for (id, old) in &applied.changed {
+            let Some(o) = new.ids.get(id) else { continue };
+            let Some(node) = new.at(o) else { continue };
+            if old.layout != node.layout || old.justify != node.justify {
+                maybe.insert(o.clone());
+            }
+            if !o.is_empty()
+                && let Some(p) = new.at(&o[..o.len() - 1])
+                && ((along(p, old) == fill) != (along(p, node) == fill))
+            {
+                maybe.insert(o[..o.len() - 1].to_vec());
             }
         }
-        for p in parents {
+        for o in added.iter().chain(&removed) {
+            if !o.is_empty() {
+                maybe.insert(o[..o.len() - 1].to_vec());
+            }
+        }
+        for p in maybe {
             let Some(n) = new.at(&p) else { continue };
             if d.orders.get(&n.id) != Some(&p) || under(&added, &p) {
                 continue;
             }
-            if d.laid.run_of.contains_key(&p) != is_run(n) {
+            let was = d.laid.run_of.contains_key(&p);
+            // A run stays one while every child it gains takes its own
+            // length and it keeps some: no scan of its children.
+            let now = if was
+                && !n.children.is_empty()
+                && n.justify != crate::resolve::Align::SpaceBetween
+                && n.layout != crate::resolve::Layout::None
+                && added
+                    .iter()
+                    .filter(|o| o.len() == p.len() + 1 && o.starts_with(&p))
+                    .all(|o| new.at(o).is_none_or(|c| along(n, c) != fill))
+                && !applied.changed.iter().any(|(id, _)| {
+                    new.ids.get(id).is_some_and(|o| {
+                        o.len() == p.len() + 1
+                            && o.starts_with(&p)
+                            && new.at(o).is_some_and(|c| along(n, c) == fill)
+                    })
+                }) {
+                true
+            } else {
+                is_run(n)
+            };
+            if was != now {
                 removed.insert(p.clone());
                 added.insert(p);
             }

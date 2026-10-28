@@ -491,35 +491,3 @@ fn random_runs_lay_out_as_taffy_does() {
     }
     assert!(laid > 250, "only {laid} of the trees resolved");
 }
-
-#[test]
-#[ignore]
-fn probe_padding_floor() {
-    for src in [
-        r#"<Frame><Frame><Frame><Frame y={27.5} layout="row" align="center" padding={6.0}><Text size={18}>Ship then then then it</Text></Frame></Frame></Frame></Frame>"#,
-        r#"<Frame><Frame y={27.5} layout="row" padding={6.0}><Text size={18}>Ship then then then it</Text></Frame></Frame>"#,
-    ] {
-        let s = scene(src);
-        eprintln!(
-            "{src}\n  ours {:?}\n  taffy {:?}",
-            Renderer::new().layout(&s),
-            rounded_whole(&s)
-        );
-    }
-}
-
-#[test]
-#[ignore]
-fn probe_file() {
-    let Ok(path) = std::env::var("DEVPAGE_PROBE") else {
-        return;
-    };
-    let src = std::fs::read_to_string(path).unwrap();
-    let files: HashMap<String, String> = [("a.design".to_string(), src)].into();
-    let Ok(s) = resolve::resolve(&files, "a.design") else {
-        println!("PROBE invalid");
-        return;
-    };
-    let same = Renderer::new().layout(&s) == rounded_whole(&s);
-    println!("PROBE {}", if same { "same" } else { "differ" });
-}

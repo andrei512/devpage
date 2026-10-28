@@ -337,7 +337,9 @@ impl Run {
             let (Some(c0), Some(c1)) = (lo.least(), hi.greatest()) else {
                 return None;
             };
-            if !(along.0 <= along.1) {
+            if along.0.partial_cmp(&along.1) == Some(std::cmp::Ordering::Greater)
+                || along.0.is_nan()
+            {
                 return None;
             }
             Some(rect(

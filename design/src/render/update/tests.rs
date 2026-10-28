@@ -746,3 +746,57 @@ fn column_edit_costs() {
         );
     }
 }
+
+/// One row of a column edited — its text, its height, a row before the
+/// first — visits the same nodes at 1,000 and 10,000 rows: the rows after it
+/// move by the run's sums. The drawing paints, hit-tests and finds its
+/// view's tiles as a fresh one does, and the damage runs from the edited row
+/// to the column's end.
+#[test]
+fn a_column_edit_visits_the_same_nodes_at_any_length() {
+    for n in [1_000, 10_000] {
+        let edits: [&dyn Fn(&mut crate::ids::testing::Saves) -> Scene; 3] = [
+            &|s| column_saved(s, n, (n / 2, "Edited"), None, false, false),
+            &|s| column_saved(s, n, (usize::MAX, ""), Some(n / 2), false, false),
+            &|s| column_saved(s, n, (usize::MAX, ""), None, true, false),
+        ];
+        for (e, edit) in edits.iter().enumerate() {
+            let mut saves = crate::ids::testing::Saves::default();
+            let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
+            let new = edit(&mut saves);
+            let p = crate::wire::patch(&old, &new);
+            let mut held = crate::wire::decode_scene(
+                &crate::wire::scene(&old),
+                (&Default::default(), &Default::default()),
+            )
+            .unwrap();
+            let mut uses = crate::wire::Uses::of(&held.root);
+            let mut r = Renderer::new();
+            let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+            let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+            let damage = d.update(&mut r, &held, &applied).unwrap();
+            assert!(d.visited <= 3, "{n} rows, edit {e}: {} visited", d.visited);
+            let fresh = r.drawing(&new, Theme::Light, None).unwrap();
+            assert_eq!(d.area(), fresh.area(), "{n} {e}");
+            assert_eq!(d.frames(), fresh.frames(), "{n} {e}");
+            let edited = if e == 2 { 0.0 } else { (n / 2) as f64 * 20.0 };
+            for rect in &damage.rects {
+                assert!(
+                    rect.y1 >= edited - 1.0,
+                    "{n} {e}: damage {rect:?} above the edit"
+                );
+            }
+            let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
+            for row in [0, rows / 2, rows - 1] {
+                assert!(
+                    crate::cpu::tile(&d.list, 1.0, 0, row)
+                        == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                    "{n} {e}: tile row {row}"
+                );
+            }
+            for y in [5.0, edited as f32 + 5.0, fresh.area().height - 5.0] {
+                assert_eq!(d.action_at(10.0, y), fresh.action_at(10.0, y));
+            }
+        }
+    }
+}
