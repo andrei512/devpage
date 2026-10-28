@@ -147,7 +147,11 @@ addresses.
 | `style.css` | `core/assets/style.css` | `text/css` |
 | `devpage.js` | `core/assets/devpage.js` | `text/javascript` |
 | `react.js` | `core/assets/vendor/react.js` | `text/javascript` |
-| `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design | `text/javascript` |
+| `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design; it loads the engine and starts the page's canvases | `text/javascript` |
+| `design-canvas.js` | `core/assets/design-canvas.js`, a design's canvas: its view, pointer and interactions, overlays and an embed's backdrop | `text/javascript` |
+| `design-stream.js` | `core/assets/design-stream.js`, the page's one watch stream | `text/javascript` |
+| `design-tiles.js` | `core/assets/design-tiles.js`, the compositor's tiles on the CPU, painted by the worker | `text/javascript` |
+| `design-worker.js` | `core/assets/design-worker.js`, the worker that paints those tiles with the engine's `vello_cpu` backend | `text/javascript` |
 | `design-engine.js` | `core/assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
 | `design-engine.wasm` | `core/assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |
 

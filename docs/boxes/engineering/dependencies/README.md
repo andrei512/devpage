@@ -149,10 +149,13 @@ Debug assertions and overflow checks stay on.
 
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement. | `design/src/render.rs` |
-| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces and a scene's font files, and the glyph runs the display list draws; through its `fontique`, reading a font file's family, weights and weight axis to check it. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render.rs`, `design/src/fonts.rs` |
-| `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend: replays the display list into an RGBA buffer, for the PNG and for a canvas without WebGPU; samples a shadow's shape before the painter blurs it. | `design/src/render.rs` |
-| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; encoding test images. | `design/src/resolve.rs`, `design/src/render.rs` (tests) |
+| `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement, kept between scenes so an edit lays out only what it changed. | `design/src/render/layout.rs` |
+| `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces and a scene's font files, and the glyph runs the display list draws; through its `fontique`, reading a font file's family, weights and weight axis to check it. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render/`, `design/src/fonts.rs` |
+| `kurbo` | 0.13.1 | Apache-2.0 or MIT | The core's geometry: paths, rectangles and transforms — a node's shape, a command's bounds, a tile's square. Depended on directly, the version both backends use, so their values pass between them unconverted. | `design/src/` |
+| `peniko` | 0.6.1 | Apache-2.0 or MIT | The core's colours, gradients, images and font data, as the display list holds them; depended on directly like `kurbo`. | `design/src/` |
+| `rstar` | 0.12.2 | MIT or Apache-2.0 | The index: the R-tree over a drawing's chunks and the one inside each chunk over its commands, bulk-loaded for a new drawing and updated chunk by chunk. Not 0.13, which panics inserting into a tree it bulk-loaded and then removed from. | `design/src/display/` |
+| `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend, an adapter of the paint port: an area of the display list into an RGBA buffer, for the server's tiles and PNG and for a canvas without WebGPU. Only `design/src/cpu/` names it; a test holds the core to that. | `design/src/cpu/` |
+| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/resolve.rs`, `design/src/bands/` |
 | `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire.rs` |
 | `tonic` (feature `codegen`; only with `server`) | 0.14.6 | MIT | What the generated `Designs` server is written against. | generated into `design/src/proto.rs` |
@@ -166,12 +169,12 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` | 0.2.1 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `devpage-design` | 0.2.1 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
-| `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: the display list replayed into a vello scene and drawn with WebGPU through `wgpu`. | `design/wasm/src/gpu.rs` |
-| `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu.rs` |
-| `wasm-bindgen-futures` | 0.4.79 | MIT or Apache-2.0 | Exporting `Gpu::open`, which awaits WebGPU's adapter and device, as an `async` function the page receives as a promise. | `design/wasm/src/gpu.rs` |
-| `web-sys` (feature `HtmlCanvasElement`) | 0.3.106 | MIT or Apache-2.0 | The `<canvas>` element a GPU target draws into. | `design/wasm/src/gpu.rs` |
+| `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: an area of the display list replayed into a vello scene and rendered into a tile's texture with WebGPU through `wgpu`, which also runs the compositor's pass. | `design/wasm/src/vello_backend.rs`, `design/wasm/src/gpu/` |
+| `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu/` |
+| `wasm-bindgen-futures` | 0.4.79 | MIT or Apache-2.0 | Exporting `Gpu::open`, which awaits WebGPU's adapter and device, as an `async` function the page receives as a promise. | `design/wasm/src/gpu/` |
+| `web-sys` (feature `HtmlCanvasElement`) | 0.3.106 | MIT or Apache-2.0 | The `<canvas>` element a GPU target draws into. | `design/wasm/src/gpu/` |
 
 ### `devpage-design-module`, the module's builder
 
