@@ -740,6 +740,7 @@ impl Renderer {
             let dr = d.list.run_mut(drid);
             dr.raw = raw;
             dr.at = at;
+            dr.origin = down.space_at;
             dr.row = row;
             dr.start = lead as f64;
             dr.across = pc0 as f64;
@@ -761,7 +762,6 @@ impl Renderer {
                 place: Place {
                     at: local(down.place.at),
                     raw: local(down.place.raw),
-                    block: local(down.place.block),
                 },
                 space: down.space.clone(),
                 clip: down.clip,
@@ -869,7 +869,6 @@ impl Renderer {
         let place = Place {
             at: abs(ctx.place.at),
             raw: abs(ctx.place.raw),
-            block: abs(ctx.place.block),
         };
         let size = d.laid.tree(ctx.owner).unrounded_layout(ctx.id).size;
         let Some((run, asked, lead)) = d.laid.run_places(ctx.rid, size) else {

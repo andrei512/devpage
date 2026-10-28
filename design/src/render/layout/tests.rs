@@ -306,7 +306,9 @@ fn rounded_whole(s: &Scene) -> Vec<Frame> {
 }
 
 /// A box placed absolutely in a frame with no layout, inside auto layout, at
-/// fractional places: rounded as taffy rounds a whole tree.
+/// fractional places: measured from its own parent — every frame is the
+/// containing block of what is placed in it — and rounded as taffy rounds
+/// a whole tree.
 #[test]
 fn boxes_round_as_a_tree_rounded_whole() {
     let s = scene(
@@ -316,10 +318,10 @@ fn boxes_round_as_a_tree_rounded_whole() {
     assert_eq!(
         Renderer::new().layout(&s)[2],
         Frame {
-            x: 43.0,
-            y: 43.0,
-            width: 21.0,
-            height: 21.0
+            x: 44.0,
+            y: 44.0,
+            width: 20.0,
+            height: 20.0
         }
     );
 }
@@ -419,12 +421,8 @@ fn random_runs_lay_out_as_taffy_does() {
             _ => format!("{{{}}}", rng.frac(max)),
         }
     }
-    // `free`: inside a box placed absolutely, which taffy sizes in its
-    // containing block's room and a run's child in its own — so nothing
-    // there wraps to its room.
-    fn node(rng: &mut Lcg, depth: usize, parent: &str, free: bool) -> String {
+    fn node(rng: &mut Lcg, depth: usize, parent: &str) -> String {
         let flows = parent != "none";
-        let free = free || !flows;
         let at = if !flows {
             format!(" x={{{}}} y={{{}}}", rng.frac(40), rng.frac(40))
         } else {
@@ -437,7 +435,7 @@ fn random_runs_lay_out_as_taffy_does() {
                 ];
                 let n = 1 + rng.next(8);
                 let text: Vec<&str> = (0..n).map(|i| words[(i + rng.next(3)) % 8]).collect();
-                let width = if flows && !free && rng.next(2) == 0 {
+                let width = if flows && rng.next(2) == 0 {
                     " width=\"fill\"".to_string()
                 } else if rng.next(2) == 0 {
                     format!(" width={{{}}}", rng.frac(120))
@@ -464,7 +462,7 @@ fn random_runs_lay_out_as_taffy_does() {
         let align = ["start", "center", "end"][rng.next(3)];
         let justify = ["start", "center", "end", "space-between"][rng.next(4)];
         let children: String = (0..1 + rng.next(4))
-            .map(|_| node(rng, depth - 1, layout, free))
+            .map(|_| node(rng, depth - 1, layout))
             .collect();
         format!(
             "<Frame{at} width={} height={} layout=\"{layout}\" align=\"{align}\" justify=\"{justify}\" padding={{{}}} gap={{{}}}>{children}</Frame>",
@@ -478,7 +476,7 @@ fn random_runs_lay_out_as_taffy_does() {
     let mut r = Renderer::new();
     let mut laid = 0;
     for case in 0..400 {
-        let source = node(&mut rng, 4, "row", false);
+        let source = node(&mut rng, 4, "row");
         let files: HashMap<String, String> = [("a.design".to_string(), source.clone())].into();
         let Ok(s) = resolve::resolve(&files, "a.design") else {
             continue;
