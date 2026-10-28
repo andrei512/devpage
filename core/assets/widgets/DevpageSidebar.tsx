@@ -142,7 +142,7 @@ function useSearch() {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const response = await fetch(`/__devpage/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
+        const response = await fetch(`${document.documentElement.dataset.mount ?? ""}/__devpage/search?q=${encodeURIComponent(q)}`, { signal: controller.signal });
         const { pages = [] } = await response.json();
         if (generation !== asked.current) return;
         setFound({ query, pages });

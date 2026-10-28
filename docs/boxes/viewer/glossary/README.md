@@ -257,6 +257,26 @@ Who wrote a comment: `git config user.name` (or the system's user name) when dev
 
 devpage listening on an address other than the local machine's (`--host`), behind an auth proxy that names the reader in a header.
 
+## bundled
+
+Deploying devpage with its documents built into the image: `devpage <path>` in a container, the local flow behind a proxy. Comments are files on a volume, or off. See [Deploying devpage](../deploying/README.md).
+
+## server mode
+
+`devpage server`: documents are published to it one at a time and kept with every version, in a store, a bucket and a cache. See [Server mode](../server/README.md).
+
+## publish
+
+Sending a document to a server as a zip, with `devpage publish`. The first publish creates the document and its id; each one after adds a version.
+
+## version
+
+One published state of a document in server mode, numbered from 1. Its files never change; `/d/<id>` shows the latest.
+
+## context
+
+A server the CLI talks to, named in `~/.devpage/config.yml` with an optional token command — as `kubectl` names a cluster.
+
 ## problem
 
 A broken link, a missing chapter or slide, a Topics entry pointing nowhere, an invalid document file, a design that doesn't parse or resolve, or a diagram that doesn't parse — shown on the page in the preview and reported by `devpage check`.

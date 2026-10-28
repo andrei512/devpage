@@ -6,21 +6,74 @@
 
 use std::path::{Path, PathBuf};
 
-/// The canonical folder devpage serves from, and the boundary around it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ServedFolder(PathBuf);
+/// The canonical folder devpage serves from, the boundary around it, and the
+/// prefix its addresses are under — its **mount**: empty for a local devpage
+/// and bundled mode, `/d/<id>` or `/d/<id>/v/<n>` for a version in server
+/// mode. It is made once, where devpage starts serving a folder, and passed
+/// to everything loaded from it, so the mount reaches every address.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ServedFolder(PathBuf, String);
+
+/// What a served folder is given as: one already made, which keeps its mount,
+/// or a bare path — at the edges, the command line and tests — served at `/`.
+pub trait Served {
+    fn served(self) -> ServedFolder;
+}
+
+impl Served for ServedFolder {
+    fn served(self) -> ServedFolder {
+        self
+    }
+}
+
+impl Served for &ServedFolder {
+    fn served(self) -> ServedFolder {
+        self.clone()
+    }
+}
+
+impl Served for &Path {
+    /// Made canonical when it exists; a path that doesn't is kept as given,
+    /// and nothing resolves inside it.
+    fn served(self) -> ServedFolder {
+        ServedFolder::canonical(self.canonicalize().unwrap_or_else(|_| self.to_path_buf()))
+    }
+}
+
+impl Served for &PathBuf {
+    fn served(self) -> ServedFolder {
+        self.as_path().served()
+    }
+}
+
+impl Served for PathBuf {
+    fn served(self) -> ServedFolder {
+        self.as_path().served()
+    }
+}
 
 impl ServedFolder {
     /// The served folder at `path`, made canonical; an error when it doesn't
     /// exist.
     pub fn new(path: &Path) -> std::io::Result<Self> {
-        path.canonicalize().map(Self)
+        path.canonicalize().map(Self::canonical)
     }
 
-    /// A served folder at a path the caller already made canonical — the
-    /// index and the design store are handed the document's.
+    /// A served folder at a path the caller already made canonical, at `/`.
     pub fn canonical(path: PathBuf) -> Self {
-        Self(path)
+        Self(path, String::new())
+    }
+
+    /// The same folder with its addresses under `mount`, which starts with
+    /// `/` and doesn't end with one: `/d/<id>/v/<n>`.
+    pub fn mounted(self, mount: &str) -> Self {
+        debug_assert!(mount.is_empty() || (mount.starts_with('/') && !mount.ends_with('/')));
+        Self(self.0, mount.to_string())
+    }
+
+    /// The prefix its addresses are under: empty at `/`.
+    pub fn mount(&self) -> &str {
+        &self.1
     }
 
     /// Its canonical path.
@@ -67,9 +120,16 @@ impl ServedFolder {
         path.strip_prefix(&self.0).ok()
     }
 
-    /// A file's address: its path from the top of the folder, after `/`.
+    /// A file's address: its path from the top of the folder, after `/` and
+    /// the mount prefix.
     pub fn url(&self, file: &Path) -> String {
-        format!("/{}", self.relative(file).unwrap_or(file).display())
+        format!("{}/{}", self.1, self.name(file))
+    }
+
+    /// A file's name: its path from the top of the folder, as problems and
+    /// labels show it.
+    pub fn name(&self, file: &Path) -> String {
+        self.relative(file).unwrap_or(file).display().to_string()
     }
 }
 
@@ -86,7 +146,8 @@ mod tests {
     /// A served folder `served/` beside a secret `outside.txt`, with a
     /// symbolic link inside pointing out.
     fn fixture(name: &str) -> (PathBuf, ServedFolder) {
-        let top = std::env::temp_dir().join(format!("devpage-served-{name}"));
+        let top =
+            std::env::temp_dir().join(format!("devpage-served-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&top);
         std::fs::create_dir_all(top.join("served/docs")).unwrap();
         std::fs::write(top.join("outside.txt"), "secret").unwrap();
@@ -120,6 +181,19 @@ mod tests {
         assert_eq!(served.file_at("/docs"), None, "a folder is no file");
         assert_eq!(served.url(&a), "/docs/a.md");
         assert_eq!(served.relative(&a), Some(Path::new("docs/a.md")));
+    }
+
+    #[test]
+    fn a_mounted_folder_addresses_its_files_under_the_mount() {
+        let (top, served) = fixture("mounted");
+        let a = top.join("served/docs/a.md");
+        let mounted = served.clone().mounted("/d/x/v/2");
+        assert_eq!(mounted.url(&a), "/d/x/v/2/docs/a.md");
+        assert_eq!(mounted.name(&a), "docs/a.md", "a name is the same anywhere");
+        assert_eq!(mounted.mount(), "/d/x/v/2");
+        // Passed on, it keeps the mount; a bare path is served at `/`.
+        assert_eq!((&mounted).served().mount(), "/d/x/v/2");
+        assert_eq!(top.join("served").served(), served);
     }
 
     #[test]

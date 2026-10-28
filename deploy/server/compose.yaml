@@ -1,0 +1,98 @@
+# Try devpage server locally against both kinds of bucket, each emulated:
+#
+#   docker compose -f deploy/server/compose.yaml up --build --wait
+#
+# devpage-s3 (http://localhost:3031) keeps its documents in RustFS, an S3
+# emulator; devpage-azure (http://localhost:3032) in Azurite, Azure Blob's.
+# Each has its own volume, its PVC. Then connect and publish:
+#
+#   devpage context add local http://localhost:3031 && devpage context use local
+#   devpage publish docs
+#
+# The image is built from this checkout; `docker build deploy/server` builds
+# it from the released crate instead.
+x-devpage: &devpage
+  build:
+    context: .
+    additional_contexts:
+      source: ../..
+    args:
+      DEVPAGE_FROM: checkout
+  depends_on:
+    buckets:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/3030"]
+    interval: 2s
+    retries: 30
+
+services:
+  devpage-s3:
+    <<: *devpage
+    ports:
+      - "3031:3030"
+    volumes:
+      - data-s3:/data
+    environment:
+      DEVPAGE_BUCKET_URL: s3://devpage/docs
+      DEVPAGE_CACHE_MAX_BYTES: 1GB
+      AWS_ENDPOINT_URL: http://s3:9000
+      AWS_ALLOW_HTTP: "true"
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: devpage
+      AWS_SECRET_ACCESS_KEY: devpage-secret
+
+  devpage-azure:
+    <<: *devpage
+    ports:
+      - "3032:3030"
+    volumes:
+      - data-azure:/data
+    environment:
+      DEVPAGE_BUCKET_URL: az://devpage/docs
+      DEVPAGE_CACHE_MAX_BYTES: 1GB
+      AZURE_STORAGE_USE_EMULATOR: "true"
+      AZURITE_BLOB_STORAGE_URL: http://azurite:10000
+      # Azurite's well-known development account.
+      AZURE_STORAGE_ACCOUNT_NAME: devstoreaccount1
+      AZURE_STORAGE_ACCOUNT_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+
+  s3:
+    image: ghcr.io/rustfs/rustfs:1.0.0
+    environment:
+      RUSTFS_ACCESS_KEY: devpage
+      RUSTFS_SECRET_KEY: devpage-secret
+    volumes:
+      - bucket-s3:/data
+
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: azurite-blob --blobHost 0.0.0.0 --skipApiVersionCheck
+    volumes:
+      - bucket-azure:/data
+
+  # Creates the bucket and the container, which neither emulator starts with.
+  buckets:
+    image: rclone/rclone:1.71
+    depends_on: [s3, azurite]
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        until rclone mkdir s3:devpage; do sleep 1; done &&
+        until rclone mkdir azure:devpage; do sleep 1; done
+    environment:
+      RCLONE_CONFIG_S3_TYPE: s3
+      RCLONE_CONFIG_S3_PROVIDER: Other
+      RCLONE_CONFIG_S3_ENDPOINT: http://s3:9000
+      RCLONE_CONFIG_S3_ACCESS_KEY_ID: devpage
+      RCLONE_CONFIG_S3_SECRET_ACCESS_KEY: devpage-secret
+      RCLONE_CONFIG_AZURE_TYPE: azureblob
+      RCLONE_CONFIG_AZURE_ENDPOINT: http://azurite:10000/devstoreaccount1
+      RCLONE_CONFIG_AZURE_ACCOUNT: devstoreaccount1
+      RCLONE_CONFIG_AZURE_KEY: Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==
+
+volumes:
+  data-s3:
+  data-azure:
+  bucket-s3:
+  bucket-azure:

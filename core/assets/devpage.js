@@ -11,6 +11,12 @@ const print = document.currentScript.hasAttribute("data-print");
 // Comments are off in print mode and on a page served with `--no-comments`:
 // no threads, no toggle, no way to start one.
 const comments = !print && !document.currentScript.hasAttribute("data-no-comments");
+// The prefix every address of this document is under: `/d/<id>/v/<n>` for a
+// version in server mode, empty everywhere else. The page asks its server's
+// endpoints under it, and names a page to its server by its address without
+// it — the path the server sees.
+const mount = document.documentElement.dataset.mount ?? "";
+const unmounted = (address) => (address.startsWith(`${mount}/`) ? address.slice(mount.length) : address);
 
 // ---- Widgets --------------------------------------------------------------
 // The server leaves each widget as a placeholder carrying its name, its props'
@@ -331,8 +337,11 @@ function keepUnchanged(page, staging) {
 // this script adds while the comments are shown and no fetched page carries;
 // and the devpage build that rendered it, so a page from a new build — a new
 // page script, a new stylesheet — is loaded whole.
+// The body's classes this script adds itself, which no served page carries.
+const OWN_CLASSES = new Set(["show-comments", "with-versions", "with-version-banner"]);
+
 function frameOf(body) {
-  const classes = [...body.classList].filter((name) => name !== "show-comments").sort();
+  const classes = [...body.classList].filter((name) => !OWN_CLASSES.has(name)).sort();
   return [...classes, `build:${body.dataset.build}`].join(" ");
 }
 
@@ -807,8 +816,8 @@ async function loadComments() {
   if (!comments) return;
   const generation = ++commentsGeneration;
   const fetched = await Promise.all(sources().map(async (section) => {
-    const page = section.dataset.source;
-    const response = await fetch(`/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
+    const page = unmounted(section.dataset.source);
+    const response = await fetch(`${mount}/__devpage/comments?page=${encodeURIComponent(page)}`, { cache: "no-cache" });
     return { section, page, threads: response.ok ? await response.json() : [] };
   }));
   if (generation !== commentsGeneration) return;
@@ -823,7 +832,9 @@ async function loadComments() {
     for (const thread of threads) {
       const card = threadCard(page, thread);
       const model = textModel(section);
-      const at = find(model, thread.anchor);
+      // A thread whose text the server found gone from this version stays
+      // detached, even where its words happen to appear again.
+      const at = thread.detached ? null : find(model, thread.anchor);
       if (!at) {
         detached.push(card);
         continue;
@@ -950,7 +961,7 @@ function editor(label, submit, extra = [], cancel = null) {
 
 // Sends a write; returns the server's refusal as text, or nothing.
 async function send(action, body, card) {
-  const response = await fetch(action ? `/__devpage/comments/${action}` : "/__devpage/comments", {
+  const response = await fetch(`${mount}/__devpage/comments${action ? `/${action}` : ""}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -978,7 +989,7 @@ function compose(section, anchor, near) {
     layoutComments();
   };
   card.append(quote, editor("Comment", async (text) => {
-    const refused = await send("", { page: section.dataset.source, anchor, text });
+    const refused = await send("", { page: unmounted(section.dataset.source), anchor, text });
     if (!refused) close();
     return refused;
   }, [], close));
@@ -1092,12 +1103,13 @@ let stream = null;
 
 function connect() {
   if (stream) return;
-  stream = new EventSource("/__devpage/events");
+  stream = new EventSource(`${mount}/__devpage/events`);
   stream.onmessage = (event) => {
     if (event.data.startsWith("comments ")) {
-      if (sources().some((s) => s.dataset.source === event.data.slice(9))) loadComments();
+      if (sources().some((s) => unmounted(s.dataset.source) === event.data.slice(9))) loadComments();
     } else {
       refresh();
+      loadVersions();
     }
   };
 }
@@ -1114,6 +1126,7 @@ document.addEventListener("visibilitychange", () => {
   } else {
     connect();
     refresh(); // catch up on changes made while hidden
+    loadVersions();
   }
 });
 window.addEventListener("pagehide", () => {
@@ -1181,6 +1194,7 @@ Promise.all([mountWidgets(document).catch((error) => console.error(error)), side
   if (!print) landHandedOver();
   followOutline();
   loadComments();
+  loadVersions();
   // Print mode has no live connection; Chrome waits for this — every widget
   // mounted — before printing.
   document.documentElement.dataset.ready = "true";
@@ -1286,3 +1300,77 @@ document.addEventListener("keydown", (event) => {
     entries[(at - 1 + entries.length) % entries.length]?.focus();
   }
 });
+
+// ---- Versions ---------------------------------------------------------------
+// A page a devpage server serves under a published document's mount asks it
+// which version the page shows: a menu of every version, the download of the
+// one shown, and — on an old version — a banner linking to the latest. A
+// local page has no mount and asks nothing; a mount with no versions answers
+// 404 and shows nothing.
+
+async function loadVersions() {
+  if (print || !mount) return;
+  let info;
+  try {
+    const response = await fetch(`${mount}/__devpage/versions`, { cache: "no-cache" });
+    if (!response.ok) return;
+    info = await response.json();
+  } catch {
+    return;
+  }
+  showVersions(info);
+}
+
+function showVersions(info) {
+  let bar = document.getElementById("devpage-versions");
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "devpage-versions";
+    document.body.append(bar);
+  }
+  const menu = document.createElement("details");
+  menu.className = "version-menu";
+  const summary = document.createElement("summary");
+  summary.textContent = `Version ${info.version}${info.version === info.latest ? " · latest" : ""}`;
+  const list = document.createElement("ul");
+  for (const version of info.versions) {
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = version.url;
+    link.textContent = `Version ${version.number}`;
+    if (version.number === info.version) link.setAttribute("aria-current", "page");
+    const when = document.createElement("span");
+    when.textContent = ` ${version.published} · ${version.author}`;
+    item.append(link, when);
+    list.append(item);
+  }
+  menu.append(summary, list);
+  const parts = [menu];
+  if (info.download) {
+    const download = document.createElement("a");
+    download.className = "version-download";
+    download.href = info.download.url;
+    download.setAttribute("download", "");
+    download.textContent = `Download ${info.download.format}`;
+    parts.push(download);
+  }
+  bar.replaceChildren(...parts);
+  document.body.classList.add("with-versions");
+
+  let banner = document.getElementById("devpage-version-banner");
+  const old = info.pinned && info.version !== info.latest;
+  document.body.classList.toggle("with-version-banner", old);
+  if (!old) {
+    banner?.remove();
+    return;
+  }
+  if (!banner) {
+    banner = document.createElement("div");
+    banner.id = "devpage-version-banner";
+    document.body.prepend(banner);
+  }
+  const latest = document.createElement("a");
+  latest.href = info.latest_url;
+  latest.textContent = `the latest is version ${info.latest}`;
+  banner.replaceChildren(`You are reading version ${info.version}; `, latest, ".");
+}

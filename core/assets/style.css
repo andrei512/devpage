@@ -636,3 +636,21 @@ a.card:hover { text-decoration: none; transform: translateY(-2px); border-color:
 a.card:hover .card-arrow { opacity: 1; transform: none; }
 .card-summary { font-size: 0.92rem; line-height: 1.5; color: var(--muted); }
 @media print { .card, .step { break-inside: avoid; } .card-arrow { display: none; } a.card { transform: none; box-shadow: none; } }
+
+/* A published document's versions: the menu and the download at the bottom
+   left — the sidebar leaves room under its last link for them — and on an old
+   version a strip across the top linking to the latest, in the page's flow
+   like the navbar, so it covers nothing. */
+#devpage-versions { position: fixed; left: 16px; bottom: 16px; z-index: 6; display: flex; gap: 8px; align-items: flex-end; font: 13px var(--font); }
+#devpage-versions summary, .version-download { display: block; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 6px; padding: 3px 9px; cursor: pointer; text-decoration: none; list-style: none; }
+#devpage-versions summary::-webkit-details-marker { display: none; }
+.version-menu { position: relative; }
+.version-menu ul { position: absolute; bottom: calc(100% + 4px); left: 0; margin: 0; padding: 6px 0; list-style: none; min-width: 260px; max-height: 50vh; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.version-menu li { padding: 3px 12px; white-space: nowrap; }
+.version-menu li span { color: var(--muted); }
+.version-menu a[aria-current] { font-weight: 600; }
+body.with-versions #devpage-nav { padding-bottom: 72px; }
+body.with-version-banner { flex-wrap: wrap; align-content: flex-start; }
+#devpage-version-banner { flex: 0 0 100%; padding: 6px 64px; text-align: center; font: 13px var(--font); background: var(--surface); color: var(--text); border-bottom: 1px solid var(--border); }
+:fullscreen #devpage-versions, :fullscreen #devpage-version-banner { display: none; }
+@media print { #devpage-versions, #devpage-version-banner { display: none !important; } }

@@ -162,18 +162,38 @@ impl Profile {
 
     /// [`headless_shell`] using this profile.
     pub(crate) async fn chrome(&self) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
-        Ok(BrowserConfig::builder()
-            .chrome_executable(headless_shell().await?)
-            .user_data_dir(&self.0))
+        sandboxed(
+            BrowserConfig::builder()
+                .chrome_executable(headless_shell().await?)
+                .user_data_dir(&self.0),
+            std::env::var("DEVPAGE_CHROME_SANDBOX").ok().as_deref(),
+        )
     }
 
     /// [`chrome_for_testing`] using this profile.
     pub(crate) async fn chrome_for_testing(
         &self,
     ) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
-        Ok(BrowserConfig::builder()
-            .chrome_executable(chrome_for_testing().await?)
-            .user_data_dir(&self.0))
+        sandboxed(
+            BrowserConfig::builder()
+                .chrome_executable(chrome_for_testing().await?)
+                .user_data_dir(&self.0),
+            std::env::var("DEVPAGE_CHROME_SANDBOX").ok().as_deref(),
+        )
+    }
+}
+
+/// Chrome with its sandbox, unless `DEVPAGE_CHROME_SANDBOX` is `off`: in a
+/// container, which has no sandbox for Chrome to use and is the boundary
+/// itself.
+fn sandboxed(
+    chrome: chromiumoxide::browser::BrowserConfigBuilder,
+    setting: Option<&str>,
+) -> Result<chromiumoxide::browser::BrowserConfigBuilder> {
+    match setting {
+        None | Some("") | Some("on") => Ok(chrome),
+        Some("off") => Ok(chrome.no_sandbox()),
+        Some(other) => anyhow::bail!("DEVPAGE_CHROME_SANDBOX is {other:?}, not on or off"),
     }
 }
 
@@ -307,6 +327,24 @@ fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chromes_sandbox_is_on_unless_turned_off() {
+        let launch = |setting| {
+            sandboxed(
+                BrowserConfig::builder().chrome_executable("chrome"),
+                setting,
+            )
+            .map(|chrome| format!("{chrome:?}"))
+        };
+        let off = launch(Some("off")).unwrap();
+        assert!(off.contains("sandbox: false"), "{off}");
+        for on in [None, Some(""), Some("on")] {
+            let config = launch(on).unwrap();
+            assert!(config.contains("sandbox: true"), "{on:?}: {config}");
+        }
+        assert!(launch(Some("no")).is_err());
+    }
 
     /// Where the pinned Chrome's programs sit in a cache folder, on the
     /// platforms the tests run on.
@@ -1961,6 +1999,7 @@ mod tests {
                 ),
                 ("docs/guide/step.md", "# Step\n"),
                 ("docs/guide/leaf.md", "# Leaf\n"),
+                ("docs/guide/more.md", "# More\n"),
                 (
                     "docs/fields.md",
                     "# Fields\n\n## Topics\n\n- [Field](field.md)\n",
@@ -2169,17 +2208,19 @@ mod tests {
             "{fetched:?}"
         );
 
-        // A live update that edits the tree reaches the mounted sidebar.
+        // A live update that edits the tree reaches the mounted sidebar. The
+        // page it adds is listed nowhere else: a page already in the tree
+        // keeps its first, shallowest place.
         std::fs::write(
             dir.join("docs/guide/README.md"),
-            "# Guide\n\n## Topics\n\n- [Step](step.md)\n- [Deep](deep.md)\n- [Field](../field.md)\n",
+            "# Guide\n\n## Topics\n\n- [Step](step.md)\n- [Deep](deep.md)\n- [More](more.md)\n",
         )
         .unwrap();
         page.evaluate("load(location.href)").await.unwrap();
         assert!(
             until(
                 &page,
-                "[...document.querySelectorAll('#devpage-nav li[data-href$=\"/guide/README.md\"] a')].some((a) => a.textContent === 'Field')"
+                "[...document.querySelectorAll('#devpage-nav li[data-href$=\"/guide/README.md\"] a')].some((a) => a.textContent === 'More')"
             )
             .await
         );

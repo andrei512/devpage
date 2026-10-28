@@ -1,6 +1,6 @@
 # An example image serving devpage's own docs, deployed: installed from
 # crates.io like anyone would, behind an auth proxy that names each reader.
-# It reads nothing from the build context: docker build deploy
+# It reads nothing from the build context: docker build deploy/bundled
 FROM rust:1.97-slim-bookworm AS build
 ARG DEVPAGE_VERSION=0.2.2
 # The docs and licence come from the published crate's own source, so they

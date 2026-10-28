@@ -25,6 +25,7 @@ notify = "8.2.1"
 reqwest = "0.13"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.154"
+serde_yaml = "0.9.34"
 tokio = { version = "1.54.1", features = ["full"] }
 tokio-stream = { version = "0.1.19", features = ["sync"] }
 devpage-core = { path = "core", version = "0.2.2" }
@@ -32,6 +33,12 @@ devpage-design = { path = "design", version = "0.2.2", features = ["server"] }
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"] }
 tonic-web = "0.14.6"
 tower = "0.5"
+rusqlite = { version = "0.41.0", features = ["bundled"] }
+object_store = { version = "0.14.2", features = ["aws", "azure"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
+uuid = { version = "1.29.0", features = ["v4"] }
+url = "2.5.8"
+sha2 = "0.10.9"
 
 # The macOS watcher (`src/adapters/watch/macos.rs`): FSEvents streams on a dispatch
 # queue, and kqueue.
@@ -39,6 +46,10 @@ tower = "0.5"
 objc2-core-services = { version = "0.3.2", default-features = false, features = ["std", "FSEvents", "dispatch2"] }
 objc2-core-foundation = { version = "0.3.2", default-features = false, features = ["std", "CFArray", "CFString"] }
 dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
+
+# kqueue on macOS (`src/adapters/watch/macos.rs`), and the size of the volume
+# server mode's cache is on (`src/drive/server_mode/config.rs`).
+[target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
 [dev-dependencies]

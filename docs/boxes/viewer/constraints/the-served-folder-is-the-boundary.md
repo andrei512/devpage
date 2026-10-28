@@ -9,6 +9,10 @@ through a symbolic link — is not part of any document: a request for it gets
 `404`, and the link checker reports it as a problem. Nothing about the boundary
 depends on git: devpage never looks for a `.git` folder.
 
+In [server mode](../server/README.md) each version's served folder is the root
+of its zip: an entry with `..`, an absolute path or a symbolic link refuses the
+publish, and no document reads another's files.
+
 </Callout>
 
 <FileTree>

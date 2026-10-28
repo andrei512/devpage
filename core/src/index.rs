@@ -12,7 +12,7 @@ use ignore::gitignore::Gitignore;
 
 use crate::document::{KindName, kind_of};
 use crate::search::Search;
-use crate::served::ServedFolder;
+use crate::served::{Served, ServedFolder};
 use crate::widgets::Modules;
 
 pub struct Index {
@@ -34,15 +34,15 @@ struct Inner {
 
 impl Index {
     /// Indexes the served folder, which must be canonical.
-    pub fn build(served: impl AsRef<Path>) -> Self {
-        let served = served.as_ref();
+    pub fn build(served: impl Served) -> Self {
+        let served = served.served();
         let index = Self {
-            served: ServedFolder::canonical(served.to_path_buf()),
+            served: served.clone(),
             modules: Modules::default(),
             inner: RwLock::new(Inner::default()),
             search: None,
         };
-        index.scan(served);
+        index.scan(served.path());
         index
     }
 
@@ -60,8 +60,8 @@ impl Index {
     }
 
     /// The served folder.
-    pub fn served(&self) -> &Path {
-        self.served.path()
+    pub fn served(&self) -> &ServedFolder {
+        &self.served
     }
 
     /// Whether `path` is out of sight: inside `.git` or `.devpage`, or
