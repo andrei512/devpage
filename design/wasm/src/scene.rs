@@ -9,6 +9,7 @@ use vello::peniko::{BlendMode, Compose, Fill, ImageBrush, Mix};
 
 /// The display list replayed into a vello scene under `t`: each command
 /// translated into vello's call, nothing decided here.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
     let mut v = vello::Scene::new();
     // vello's GPU shader samples an image at each pixel's center but a
@@ -72,6 +73,81 @@ pub fn scene(list: &[Draw], t: Affine, area: Frame) -> vello::Scene {
         }
     }
     v
+}
+
+/// The `vello` backend of the engine's one paint entry point: each command
+/// translated into vello's call into a scene, nothing decided here.
+#[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+pub struct Gpu {
+    pub scene: vello::Scene,
+}
+
+impl devpage_design::display::Target for Gpu {
+    fn draw(&mut self, draw: &Draw, t: Affine) {
+        let v = &mut self.scene;
+        // vello's GPU shader samples a gradient at each pixel's corner, where
+        // vello_cpu takes the center: so a gradient goes moved half a device
+        // pixel up and left, to be sampled where the display list means.
+        let centered = Some(t.inverse() * Affine::translate((-0.5, -0.5)) * t);
+        match draw {
+            Draw::Fill(path, Paint::Solid(c)) => v.fill(Fill::NonZero, t, *c, None, path),
+            Draw::Fill(path, Paint::Gradient(g)) => v.fill(Fill::NonZero, t, g, centered, path),
+            Draw::Fill(path, Paint::Image(data, place)) => v.fill(
+                Fill::NonZero,
+                t,
+                &ImageBrush::new(data.clone()),
+                Some(*place),
+                path,
+            ),
+            Draw::Stroke(path, width, c) => {
+                v.stroke(&vello::kurbo::Stroke::new(*width as f64), t, *c, None, path)
+            }
+            Draw::Glyphs(font, size, c, coords, glyphs) => v
+                .draw_glyphs(font)
+                .font_size(*size)
+                .normalized_coords(coords)
+                .transform(t)
+                .hint(true)
+                .brush(*c)
+                .draw(
+                    Fill::NonZero,
+                    glyphs.iter().map(|g| vello::Glyph {
+                        id: g.id,
+                        x: g.x,
+                        y: g.y,
+                    }),
+                ),
+            _ => unreachable!("layers are property-tree nodes"),
+        }
+    }
+    fn push_clip(&mut self, path: &vello::kurbo::BezPath, t: Affine) {
+        self.scene.push_clip_layer(Fill::NonZero, t, path);
+    }
+    fn push_layer(
+        &mut self,
+        blend: devpage_design::display::Blend,
+        bounds: Option<&vello::kurbo::BezPath>,
+        t: Affine,
+        area: vello::kurbo::Rect,
+    ) {
+        let (mode, alpha) = match blend {
+            devpage_design::display::Blend::Opacity(o) => {
+                (BlendMode::new(Mix::Normal, Compose::SrcOver), o)
+            }
+            devpage_design::display::Blend::Add => {
+                (BlendMode::new(Mix::Normal, Compose::Plus), 1.0)
+            }
+        };
+        match bounds {
+            Some(b) => self.scene.push_layer(Fill::NonZero, mode, alpha, t, b),
+            None => self
+                .scene
+                .push_layer(Fill::NonZero, mode, alpha, Affine::IDENTITY, &area),
+        }
+    }
+    fn pop(&mut self) {
+        self.scene.pop_layer();
+    }
 }
 
 /// The engine's atlas model held to vello's own: `devpage_design::atlas`

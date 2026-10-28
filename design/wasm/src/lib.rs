@@ -36,6 +36,9 @@ pub struct Design {
     /// The scene laid out and turned into its display list, once per change.
     /// The page sees only the drawing, with its top-left at `(0, 0)`.
     laid_out: Option<Drawing>,
+    /// The drawing as chunks under property trees, with its index: what
+    /// tiles are painted from.
+    list: Option<devpage_design::display::List>,
     /// Whether the scene or the theme changed since `laid_out` was made,
     /// which is then kept for the next drawing to paint its images if they
     /// are the same.
@@ -85,6 +88,7 @@ impl Design {
             scene: None,
             problems: Vec::new(),
             laid_out: None,
+            list: None,
             stale: false,
             theme: Theme::Light,
         }
@@ -172,6 +176,18 @@ impl Design {
         found
     }
 
+    /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with
+    /// `vello_cpu`: 256 device pixels a side, straight alpha.
+    pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
+        let list = self.list()?;
+        let rgba = devpage_design::tiles::tile(list, scale as f64, col, row);
+        Some(Pixels {
+            width: devpage_design::tiles::TILE,
+            height: devpage_design::tiles::TILE,
+            rgba,
+        })
+    }
+
     /// Paints the design on the CPU with `vello_cpu`, at `scale` device
     /// pixels per design pixel.
     pub fn paint(&mut self, scale: f32) -> Option<Pixels> {
@@ -199,12 +215,26 @@ impl Design {
     /// images when it paints the same ones, so the GPU keeps them. A drawing
     /// that can't be painted — too big, or its images too many for the GPU —
     /// has none; the server reports it as the design's problem.
+    fn list(&mut self) -> Option<&devpage_design::display::List> {
+        self.laid_out()?;
+        self.list.as_ref()
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    fn theme(&self) -> Theme {
+        self.theme
+    }
+
     fn laid_out(&mut self) -> Option<&Drawing> {
         if self.stale || self.laid_out.is_none() {
             self.stale = false;
             let scene = self.scene.as_ref()?;
             let last = self.laid_out.take();
             self.laid_out = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
+            self.list = self.laid_out.as_ref().map(|d| {
+                let frames = d.frames.clone();
+                self.engine.chunked(scene, &frames, self.theme)
+            });
         }
         self.laid_out.as_ref()
     }

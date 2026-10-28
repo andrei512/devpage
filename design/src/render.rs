@@ -228,23 +228,15 @@ impl Renderer {
     pub fn layout(&mut self, scene: &Scene) -> Vec<Frame> {
         self.register(&scene.fonts);
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
-        let mut texts = Vec::new();
         let mut hugs = Vec::new();
-        let root = build(
-            &mut tree,
-            &scene.root,
-            None,
-            &mut texts,
-            &mut hugs,
-            &scene.images,
-        );
+        let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
         // A frame with no layout places its children absolutely, so flexbox
         // gives a hugging one no size; it takes its children's extent
         // instead. `hugs` is in post-order, so a pass settles every frame
         // whose children are settled, and each pass settles at least one
         // more level — so `hugs.len()` passes after the first always suffice.
         for _ in 0..=hugs.len() {
-            self.compute(&mut tree, root, &texts);
+            self.compute(&mut tree, root);
             let mut changed = false;
             for &(id, w, h) in &hugs {
                 let (mut ew, mut eh) = (0.0f32, 0.0f32);
@@ -277,12 +269,7 @@ impl Renderer {
         frames
     }
 
-    fn compute(
-        &mut self,
-        tree: &mut TaffyTree<Option<Leaf>>,
-        root: NodeId,
-        texts: &[(resolve::TextStyle, bool)],
-    ) {
+    fn compute(&mut self, tree: &mut TaffyTree<Option<Leaf>>, root: NodeId) {
         tree.compute_layout_with_measure(root, Size::MAX_CONTENT, |input, _id, ctx, style| {
             let known = input.known_dimensions;
             let fixed = |d: Dimension| (!d.is_auto()).then(|| d.value());
@@ -309,8 +296,7 @@ impl Renderer {
                         },
                     }
                 }
-                Some(Some(Leaf::Text(key))) => {
-                    let (text, wraps): &(resolve::TextStyle, bool) = &texts[*key];
+                Some(Some(Leaf::Text(text, wraps))) => {
                     let width = known.width.or(match input.available_space.width {
                         AvailableSpace::Definite(w) if *wraps => Some(w),
                         _ => None,
@@ -360,15 +346,6 @@ impl Renderer {
         let frames = self.layout(scene);
         let (area, list) = self.list_for(scene, &frames, theme);
         let painted = std::mem::take(&mut self.painted);
-        if area.width > MAX_SIDE || area.height > MAX_SIDE {
-            return Err(Undrawable {
-                message: format!(
-                    "the drawing is {}×{} pixels; a design draws at most {} a side",
-                    area.width, area.height, MAX_SIDE
-                ),
-                at: None,
-            });
-        }
         let sizes: Vec<(u32, u32)> = painted
             .iter()
             .map(|(p, _)| (p.data.width, p.data.height))
@@ -662,6 +639,809 @@ impl Renderer {
     }
 }
 
+impl Renderer {
+    /// The scene, laid out as `frames`, as a display list in chunks under
+    /// property trees, with its index; and its drawing's area.
+    pub fn chunked(
+        &mut self,
+        scene: &Scene,
+        frames: &[Frame],
+        theme: Theme,
+    ) -> crate::display::List {
+        use crate::display::{Blend, Chunk, Clip, Effect, Transform, Trees};
+        let (area, _) = self.list_for(scene, frames, theme);
+        self.painted.clear();
+        self.blobs.clear();
+        let mut trees = Trees::default();
+        let root_t = trees.transforms.add(Transform {
+            parent: None,
+            offset: Vec2::ZERO,
+        });
+        let root_clip = trees.clips.add(Clip {
+            parent: None,
+            transform: root_t,
+            path: KRect::new(
+                area.x as f64,
+                area.y as f64,
+                (area.x + area.width) as f64,
+                (area.y + area.height) as f64,
+            )
+            .to_path(0.1),
+        });
+        let mut chunks = std::collections::BTreeMap::new();
+        struct Walk<'a> {
+            scene: &'a Scene,
+            frames: &'a [Frame],
+            at: usize,
+            theme: Theme,
+        }
+        #[allow(clippy::too_many_arguments)]
+        fn walk(
+            r: &mut Renderer,
+            w: &mut Walk,
+            node: &Node,
+            order: Vec<u32>,
+            parent_t: crate::display::Id,
+            parent_origin: Vec2,
+            clip: crate::display::Id,
+            cut: Option<KRect>,
+            effect: Option<crate::display::Id>,
+            trees: &mut Trees,
+            chunks: &mut std::collections::BTreeMap<Vec<u32>, Chunk>,
+        ) {
+            let f = w.frames[w.at];
+            w.at += 1;
+            let origin = Vec2::new(f.x as f64, f.y as f64);
+            let t = trees.transforms.add(Transform {
+                parent: Some(parent_t),
+                offset: origin - parent_origin,
+            });
+            let effect = if node.opacity < 1.0 {
+                Some(trees.effects.add(Effect {
+                    parent: effect,
+                    clip,
+                    transform: t,
+                    blend: Blend::Opacity(node.opacity),
+                    bounds: None,
+                }))
+            } else {
+                effect
+            };
+            let local = Frame {
+                x: 0.0,
+                y: 0.0,
+                width: f.width,
+                height: f.height,
+            };
+            let mut nested = Vec::new();
+            let mut cover = Vec::new();
+            r.own(w.scene, node, local, w.theme, &mut nested, &mut cover);
+            let commands = crate::display::flatten(nested, cover, t, clip, effect, trees);
+            chunks.insert(order.clone(), Chunk::new(t, origin, commands, cut));
+            let rect = KRect::new(
+                f.x as f64,
+                f.y as f64,
+                (f.x + f.width) as f64,
+                (f.y + f.height) as f64,
+            );
+            let (clip, cut) = if node.clip {
+                let shape = node_shape(
+                    node,
+                    KRect::new(0.0, 0.0, f.width as f64, f.height as f64),
+                    0.0,
+                );
+                (
+                    trees.clips.add(Clip {
+                        parent: Some(clip),
+                        transform: t,
+                        path: shape,
+                    }),
+                    Some(cut.map_or(rect, |c| rect.intersect(c))),
+                )
+            } else {
+                (clip, cut)
+            };
+            for (i, child) in node.children.iter().enumerate() {
+                let mut o = order.clone();
+                o.push(i as u32);
+                walk(r, w, child, o, t, origin, clip, cut, effect, trees, chunks);
+            }
+        }
+        let mut w = Walk {
+            scene,
+            frames,
+            at: 0,
+            theme,
+        };
+        let root_cut = Some(KRect::new(
+            area.x as f64,
+            area.y as f64,
+            (area.x + area.width) as f64,
+            (area.y + area.height) as f64,
+        ));
+        walk(
+            self,
+            &mut w,
+            &scene.root,
+            vec![0],
+            root_t,
+            Vec2::ZERO,
+            root_clip,
+            root_cut,
+            None,
+            &mut trees,
+            &mut chunks,
+        );
+        self.blobs.clear();
+        crate::display::List::new(trees, chunks, root_clip, area)
+    }
+
+    /// A node's own commands, its box at `f` — its shadow, fill, image,
+    /// stroke and text — nested as the shadow nests its layers, and what each
+    /// covers.
+    fn own(
+        &mut self,
+        scene: &Scene,
+        node: &Node,
+        f: Frame,
+        theme: Theme,
+        list: &mut Vec<Draw>,
+        covers: &mut Vec<KRect>,
+    ) {
+        let rect = KRect::new(
+            f.x as f64,
+            f.y as f64,
+            (f.x + f.width) as f64,
+            (f.y + f.height) as f64,
+        );
+        let shape = |inset: f64| node_shape(node, rect, inset);
+        if let Some(s) = &node.shadow {
+            let spread = s.spread as f64;
+            let r = rect
+                .inflate(spread, spread)
+                .with_origin((rect.x0 - spread + s.x as f64, rect.y0 - spread + s.y as f64));
+            let outline = if node.kind == Kind::Ellipse {
+                Outline::ellipse(r)
+            } else {
+                Outline::rounded(r, node.radius.map(|v| (v as f64 + spread).max(0.0)))
+            };
+            let std_dev = (s.blur as f64 / 2.0).max(0.0);
+            let mut images = Vec::new();
+            shadow::shadow(outline, std_dev, s.color.get(theme), list, &mut images);
+            self.painted.extend(
+                images
+                    .into_iter()
+                    .map(|data| (Painted { data, file: None }, s.at.clone())),
+            );
+        }
+        let vector = node.vector.as_ref().map(|v| {
+            let [vx, vy, vw, vh] = v.view_box.map(|n| n as f64);
+            let s = (f.width as f64 / vw).min(f.height as f64 / vh);
+            let tx = f.x as f64 + (f.width as f64 - vw * s) / 2.0 - vx * s;
+            let ty = f.y as f64 + (f.height as f64 - vh * s) / 2.0 - vy * s;
+            let mut path = BezPath::from_svg(&v.d).unwrap_or_default();
+            path.apply_affine(Affine::translate((tx, ty)) * Affine::scale(s));
+            path
+        });
+        if let Some(fill) = &node.fill {
+            let paint = match fill {
+                Fill::Solid(c) => Paint::Solid(color(c.get(theme))),
+                Fill::Linear { angle, stops } => {
+                    Paint::Gradient(gradient(rect, *angle, stops, theme))
+                }
+            };
+            let path = vector.clone().unwrap_or_else(|| shape(0.0));
+            list.push(Draw::Fill(path, paint));
+        }
+        if let Some(image) = &node.image {
+            let file = &scene.images[&image.id];
+            let data = match self.blobs.get(&image.id) {
+                Some(data) => data.clone(),
+                None => {
+                    let data = file.image_data();
+                    self.blobs.insert(image.id, data.clone());
+                    self.painted.push((
+                        Painted {
+                            data: data.clone(),
+                            file: Some(image.id),
+                        },
+                        image.at.clone(),
+                    ));
+                    data
+                }
+            };
+            let (iw, ih) = (file.width as f64, file.height as f64);
+            let s = (f.width as f64 / iw).max(f.height as f64 / ih);
+            let place = Affine::translate((
+                f.x as f64 + (f.width as f64 - iw * s) / 2.0,
+                f.y as f64 + (f.height as f64 - ih * s) / 2.0,
+            )) * Affine::scale(s)
+                * Affine::scale_non_uniform(
+                    iw / file.pixels_width as f64,
+                    ih / file.pixels_height as f64,
+                );
+            list.push(Draw::Fill(shape(0.0), Paint::Image(data, place)));
+        }
+        if let Some(c) = node.stroke {
+            let path = match &vector {
+                Some(path) => path.clone(),
+                None => shape(node.stroke_width as f64 / 2.0),
+            };
+            list.push(Draw::Stroke(path, node.stroke_width, color(c.get(theme))));
+        }
+        if let Some(text) = &node.text {
+            let layout = self.text_layout(text, Some(f.width + 0.5));
+            for line in layout.lines() {
+                let m = line.metrics();
+                let y = |v: f32| f.y as f64 + v as f64;
+                let line_box = KRect::new(
+                    f.x as f64 + m.inline_min_coord as f64,
+                    y(m.block_min_coord.min(m.content_block_min_coord)),
+                    f.x as f64 + m.inline_max_coord as f64,
+                    y(m.block_max_coord.max(m.content_block_max_coord)),
+                );
+                for item in line.items() {
+                    if let PositionedLayoutItem::GlyphRun(run) = item {
+                        let glyphs = run
+                            .positioned_glyphs()
+                            .map(|g| Glyph {
+                                id: g.id,
+                                x: f.x + g.x,
+                                y: f.y + g.y,
+                            })
+                            .collect();
+                        covers.push(line_box);
+                        list.push(Draw::Glyphs(
+                            run.run().font().clone(),
+                            run.run().font_size(),
+                            color(text.color.get(theme)),
+                            run.run()
+                                .normalized_coords()
+                                .iter()
+                                .map(|c| c.to_bits())
+                                .collect(),
+                            glyphs,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A drawing kept to be updated: the layout tree, every node's box by its
+/// id, the property-tree nodes each node made, and the display list.
+pub struct Live {
+    tree: TaffyTree<Option<Leaf>>,
+    root: NodeId,
+    theme: Theme,
+    pub frames: std::collections::BTreeMap<Vec<u32>, Frame>,
+    recs: std::collections::BTreeMap<Vec<u32>, Rec>,
+    pub list: crate::display::List,
+}
+
+/// The property-tree nodes a scene node made: its transform, its opacity's
+/// effect and its clip.
+#[derive(Clone, Copy)]
+struct Rec {
+    transform: crate::display::Id,
+    effect: Option<crate::display::Id>,
+    clip: Option<crate::display::Id>,
+}
+
+impl Renderer {
+    /// A scene laid out and painted into a display list that later scenes
+    /// update.
+    pub fn live(&mut self, scene: &Scene, theme: Theme) -> Live {
+        self.register(&scene.fonts);
+        let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
+        let mut hugs = Vec::new();
+        let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
+        self.settle(&mut tree, root, &hugs);
+        let frames = frames_by_order(&tree, root, &scene.root);
+        let in_order: Vec<Frame> = frames.values().copied().collect();
+        let (area, _) = self.list_for(scene, &in_order, theme);
+        let mut list = crate::display::List::new(Default::default(), Default::default(), 0, area);
+        let root_t = list.trees.transforms.add(crate::display::Transform {
+            parent: None,
+            offset: Vec2::ZERO,
+        });
+        list.root_clip = list.trees.clips.add(crate::display::Clip {
+            parent: None,
+            transform: root_t,
+            path: frame_rect(area).to_path(0.1),
+        });
+        let mut live = Live {
+            tree,
+            root,
+            theme,
+            frames: Default::default(),
+            recs: Default::default(),
+            list,
+        };
+        let mut damage = Vec::new();
+        let root_clip = live.list.root_clip;
+        self.sync(
+            &mut live,
+            scene,
+            &scene.root,
+            vec![0],
+            &frames,
+            &|_| true,
+            root_t,
+            Vec2::ZERO,
+            root_clip,
+            Some(frame_rect(area)),
+            None,
+            &mut damage,
+        );
+        live.frames = frames;
+        live
+    }
+
+    /// Updates `live` from `old` to `new`, the scene it was made from and its
+    /// next: the subtrees the patch between them replaces are laid out and
+    /// painted again, nodes that only moved keep their chunks. Returns the
+    /// damage: each touched chunk's old and new bounds.
+    pub fn update(&mut self, live: &mut Live, old: &Scene, new: &Scene) -> Vec<KRect> {
+        self.register(&new.fonts);
+        let replaced: Vec<Vec<u32>> = crate::wire::diff(&old.root, &new.root)
+            .into_iter()
+            .map(|r| r.id.split('.').map(|s| s.parse().unwrap_or(0)).collect())
+            .collect();
+        for order in &replaced {
+            let node = find_node(&new.root, order);
+            let parent = (order.len() > 1).then(|| find_node(&new.root, &order[..order.len() - 1]));
+            let mut hugs = Vec::new();
+            let id = build(&mut live.tree, node, parent, &mut hugs, &new.images);
+            if order.len() == 1 {
+                live.root = id;
+            } else {
+                let parent_id = taffy_at(&live.tree, live.root, &order[1..order.len() - 1]);
+                let old_id = live
+                    .tree
+                    .replace_child_at_index(parent_id, order[order.len() - 1] as usize, id)
+                    .expect("child");
+                let _ = live.tree.remove(old_id);
+            }
+        }
+        // Every hug again, every frame compared: the spike's shortcut.
+        let mut hugs = Vec::new();
+        collect_hugs(&live.tree, live.root, &new.root, None, &mut hugs);
+        let root = live.root;
+        self.settle(&mut live.tree, root, &hugs);
+        let frames = frames_by_order(&live.tree, live.root, &new.root);
+        let dirty = |o: &Vec<u32>| replaced.iter().any(|r| o.starts_with(r));
+        let mut damage = Vec::new();
+        // Chunks of nodes that are gone.
+        let gone: Vec<Vec<u32>> = live
+            .frames
+            .keys()
+            .filter(|o| !frames.contains_key(*o))
+            .cloned()
+            .collect();
+        for o in gone {
+            if let Some(c) = live.list.take(&o) {
+                damage.extend(c.bounds);
+            }
+            live.recs.remove(&o);
+        }
+        let area = live.list.area;
+        let root_t = live.recs[&vec![0]].transform;
+        let root_clip = live.list.root_clip;
+        self.sync(
+            live,
+            new,
+            &new.root,
+            vec![0],
+            &frames,
+            &dirty,
+            root_t,
+            Vec2::ZERO,
+            root_clip,
+            Some(frame_rect(area)),
+            None,
+            &mut damage,
+        );
+        live.frames = frames;
+        damage
+    }
+
+    /// Makes `node`'s chunk again when `touched` says so, or moves it, then
+    /// its children's.
+    #[allow(clippy::too_many_arguments)]
+    fn sync(
+        &mut self,
+        live: &mut Live,
+        scene: &Scene,
+        node: &Node,
+        order: Vec<u32>,
+        frames: &std::collections::BTreeMap<Vec<u32>, Frame>,
+        touched: &dyn Fn(&Vec<u32>) -> bool,
+        parent_t: crate::display::Id,
+        parent_origin: Vec2,
+        clip: crate::display::Id,
+        cut: Option<KRect>,
+        effect: Option<crate::display::Id>,
+        damage: &mut Vec<KRect>,
+    ) {
+        use crate::display::{Blend, Chunk, Clip, Effect, Transform};
+        let f = frames[&order];
+        let origin = Vec2::new(f.x as f64, f.y as f64);
+        let old = live.recs.get(&order).copied();
+        let remake = old.is_none()
+            || touched(&order)
+            || live
+                .frames
+                .get(&order)
+                .is_none_or(|w| (w.width, w.height) != (f.width, f.height));
+        let rec = match old {
+            Some(rec) if !remake => {
+                live.list.trees.transforms.get_mut(rec.transform).offset = origin - parent_origin;
+                rec
+            }
+            _ => {
+                let transform = live.list.trees.transforms.add(Transform {
+                    parent: Some(parent_t),
+                    offset: origin - parent_origin,
+                });
+                let effect = (node.opacity < 1.0).then(|| {
+                    live.list.trees.effects.add(Effect {
+                        parent: effect,
+                        clip,
+                        transform,
+                        blend: Blend::Opacity(node.opacity),
+                        bounds: None,
+                    })
+                });
+                let clip = node.clip.then(|| {
+                    let shape = node_shape(
+                        node,
+                        KRect::new(0.0, 0.0, f.width as f64, f.height as f64),
+                        0.0,
+                    );
+                    live.list.trees.clips.add(Clip {
+                        parent: Some(clip),
+                        transform,
+                        path: shape,
+                    })
+                });
+                Rec {
+                    transform,
+                    effect,
+                    clip,
+                }
+            }
+        };
+        live.recs.insert(order.clone(), rec);
+        let own_effect = rec.effect.or(effect);
+        let was = live.list.take(&order);
+        let chunk = match was {
+            Some(c) if !remake => {
+                let moved = c.origin != origin || c.cut != cut;
+                if moved {
+                    damage.extend(c.bounds);
+                }
+                let c = c.moved(origin, cut);
+                if moved {
+                    damage.extend(c.bounds);
+                }
+                c
+            }
+            was => {
+                if let Some(c) = was {
+                    damage.extend(c.bounds);
+                }
+                let local = Frame {
+                    x: 0.0,
+                    y: 0.0,
+                    width: f.width,
+                    height: f.height,
+                };
+                let (mut nested, mut cover) = (Vec::new(), Vec::new());
+                self.own(scene, node, local, live.theme, &mut nested, &mut cover);
+                let commands = crate::display::flatten(
+                    nested,
+                    cover,
+                    rec.transform,
+                    clip,
+                    own_effect,
+                    &mut live.list.trees,
+                );
+                let c = Chunk::new(rec.transform, origin, commands, cut);
+                damage.extend(c.bounds);
+                c
+            }
+        };
+        live.list.put(order.clone(), chunk);
+        let rect = KRect::new(
+            f.x as f64,
+            f.y as f64,
+            (f.x + f.width) as f64,
+            (f.y + f.height) as f64,
+        );
+        let (inner, inner_cut) = match rec.clip {
+            Some(c) => (c, Some(cut.map_or(rect, |k| rect.intersect(k)))),
+            None => (clip, cut),
+        };
+        for (i, child) in node.children.iter().enumerate() {
+            let mut o = order.clone();
+            o.push(i as u32);
+            self.sync(
+                live,
+                scene,
+                child,
+                o,
+                frames,
+                touched,
+                rec.transform,
+                origin,
+                inner,
+                inner_cut,
+                own_effect,
+                damage,
+            );
+        }
+    }
+
+    /// Lays the tree out, hugging no-layout frames to their children.
+    fn settle(
+        &mut self,
+        tree: &mut TaffyTree<Option<Leaf>>,
+        root: NodeId,
+        hugs: &[(NodeId, bool, bool)],
+    ) {
+        for _ in 0..=hugs.len() {
+            self.compute(tree, root);
+            let mut changed = false;
+            for &(id, w, h) in hugs {
+                let (mut ew, mut eh) = (0.0f32, 0.0f32);
+                for child in tree.children(id).expect("children") {
+                    let l = tree.layout(child).expect("laid out");
+                    ew = ew.max(l.location.x + l.size.width);
+                    eh = eh.max(l.location.y + l.size.height);
+                }
+                let mut style = tree.style(id).expect("style").clone();
+                let mut ch = false;
+                let mut set = |d: &mut Dimension, v: f32| {
+                    if *d != Dimension::length(v) {
+                        *d = Dimension::length(v);
+                        ch = true;
+                    }
+                };
+                if w {
+                    set(&mut style.size.width, ew);
+                }
+                if h {
+                    set(&mut style.size.height, eh);
+                }
+                if ch {
+                    tree.set_style(id, style).expect("style");
+                    changed = true;
+                }
+            }
+            if !changed {
+                break;
+            }
+        }
+    }
+}
+
+fn frame_rect(f: Frame) -> KRect {
+    KRect::new(
+        f.x as f64,
+        f.y as f64,
+        (f.x + f.width) as f64,
+        (f.y + f.height) as f64,
+    )
+}
+
+fn find_node<'a>(root: &'a Node, order: &[u32]) -> &'a Node {
+    let mut at = root;
+    for &i in &order[1..] {
+        at = &at.children[i as usize];
+    }
+    at
+}
+
+fn taffy_at(tree: &TaffyTree<Option<Leaf>>, root: NodeId, path: &[u32]) -> NodeId {
+    let mut at = root;
+    for &i in path {
+        at = tree.child_at_index(at, i as usize).expect("child");
+    }
+    at
+}
+
+fn collect_hugs(
+    tree: &TaffyTree<Option<Leaf>>,
+    id: NodeId,
+    node: &Node,
+    parent: Option<&Node>,
+    out: &mut Vec<(NodeId, bool, bool)>,
+) {
+    if node.text.is_some() || node.vector.is_some() || node.image.is_some() {
+        return;
+    }
+    for (i, c) in node.children.iter().enumerate() {
+        collect_hugs(
+            tree,
+            tree.child_at_index(id, i).expect("child"),
+            c,
+            Some(node),
+            out,
+        );
+    }
+    let hugs_by = |s: DSize| s == DSize::Hug || (parent.is_none() && s == DSize::Fill);
+    let (w, h) = (hugs_by(node.width), hugs_by(node.height));
+    if node.layout == Layout::None && !node.children.is_empty() && (w || h) {
+        out.push((id, w, h));
+    }
+}
+
+fn frames_by_order(
+    tree: &TaffyTree<Option<Leaf>>,
+    root: NodeId,
+    node: &Node,
+) -> std::collections::BTreeMap<Vec<u32>, Frame> {
+    let mut out = std::collections::BTreeMap::new();
+    fn go(
+        tree: &TaffyTree<Option<Leaf>>,
+        id: NodeId,
+        node: &Node,
+        order: Vec<u32>,
+        ox: f32,
+        oy: f32,
+        out: &mut std::collections::BTreeMap<Vec<u32>, Frame>,
+    ) {
+        let l = tree.layout(id).expect("laid out");
+        let (x, y) = (ox + l.location.x, oy + l.location.y);
+        out.insert(
+            order.clone(),
+            Frame {
+                x,
+                y,
+                width: l.size.width,
+                height: l.size.height,
+            },
+        );
+        for (i, c) in node.children.iter().enumerate() {
+            let mut o = order.clone();
+            o.push(i as u32);
+            go(
+                tree,
+                tree.child_at_index(id, i).expect("child"),
+                c,
+                o,
+                x,
+                y,
+                out,
+            );
+        }
+    }
+    go(tree, root, node, vec![0], 0.0, 0.0, &mut out);
+    out
+}
+
+/// A node's box shape at `rect`, grown by `-inset`.
+fn node_shape(node: &Node, rect: KRect, inset: f64) -> BezPath {
+    let r = rect.inset(-inset);
+    if node.kind == Kind::Ellipse {
+        KEllipse::from_rect(r).to_path(0.1)
+    } else {
+        let [tl, tr, br, bl] = node.radius.map(|v| (v as f64 - inset).max(0.0));
+        RoundedRect::from_rect(r, (tl, tr, br, bl)).to_path(0.1)
+    }
+}
+
+/// The `vello_cpu` backend of [`crate::display::paint`].
+pub struct Cpu<'a> {
+    pub ctx: &'a mut RenderContext,
+    pub sources: HashMap<u64, vello_cpu::ImageSource>,
+    pub resources: Resources,
+}
+
+impl crate::display::Target for Cpu<'_> {
+    fn draw(&mut self, draw: &Draw, t: Affine) {
+        let ctx = &mut *self.ctx;
+        ctx.set_transform(t);
+        match draw {
+            Draw::Fill(path, paint) => {
+                match paint {
+                    Paint::Solid(c) => ctx.set_paint(*c),
+                    Paint::Gradient(g) => ctx.set_paint(g.clone()),
+                    Paint::Image(data, place) => {
+                        let image = self
+                            .sources
+                            .entry(data.data.id())
+                            .or_insert_with(|| vello_cpu::ImageSource::from_peniko_image_data(data))
+                            .clone();
+                        ctx.set_paint(ImageBrush {
+                            image,
+                            sampler: Default::default(),
+                        });
+                        ctx.set_paint_transform(*place);
+                    }
+                }
+                ctx.fill_path(path);
+                ctx.reset_paint_transform();
+            }
+            Draw::Stroke(path, width, c) => {
+                ctx.set_paint(*c);
+                ctx.set_stroke(vello_cpu::kurbo::Stroke::new(*width as f64));
+                ctx.stroke_path(path);
+            }
+            Draw::Glyphs(font, size, c, coords, glyphs) => {
+                ctx.set_paint(*c);
+                let _ = ctx
+                    .glyph_run(&mut self.resources, font)
+                    .font_size(*size)
+                    .normalized_coords(coords)
+                    .hint(true)
+                    .fill_glyphs(glyphs.iter().copied());
+            }
+            _ => unreachable!("layers are property-tree nodes"),
+        }
+    }
+    fn push_clip(&mut self, path: &BezPath, t: Affine) {
+        self.ctx.set_transform(t);
+        self.ctx.push_clip_layer(path);
+    }
+    fn push_layer(
+        &mut self,
+        blend: crate::display::Blend,
+        bounds: Option<&BezPath>,
+        t: Affine,
+        area: KRect,
+    ) {
+        let whole;
+        let bounds = match bounds {
+            Some(b) => {
+                self.ctx.set_transform(t);
+                b
+            }
+            None => {
+                self.ctx.set_transform(Affine::IDENTITY);
+                whole = area.to_path(0.1);
+                &whole
+            }
+        };
+        match blend {
+            crate::display::Blend::Opacity(o) => {
+                self.ctx.push_layer(Some(bounds), None, Some(o), None, None)
+            }
+            crate::display::Blend::Add => self.ctx.push_layer(
+                Some(bounds),
+                Some(BlendMode::new(Mix::Normal, Compose::Plus)),
+                None,
+                None,
+                None,
+            ),
+        }
+    }
+    fn pop(&mut self) {
+        self.ctx.pop_layer();
+    }
+}
+
+/// Paints `area` of `list` — in the design's coordinates, whole pixels at
+/// `scale` — with `vello_cpu`: one tile, band or whole drawing.
+pub fn paint_area(list: &crate::display::List, area: KRect, scale: f64) -> Pixmap {
+    let w = (area.width() * scale).round().clamp(1.0, u16::MAX as f64) as u16;
+    let h = (area.height() * scale).round().clamp(1.0, u16::MAX as f64) as u16;
+    let mut ctx = RenderContext::new(w, h);
+    let mut cpu = Cpu {
+        ctx: &mut ctx,
+        sources: HashMap::new(),
+        resources: Resources::default(),
+    };
+    crate::display::paint(list, area, scale, &mut cpu);
+    let mut resources = std::mem::take(&mut cpu.resources);
+    ctx.flush();
+    let mut pixmap = Pixmap::new(w, h);
+    ctx.render(&mut pixmap, &mut resources);
+    pixmap
+}
+
 /// Replays a display list with `vello_cpu` into a pixmap of its area at
 /// `scale`, as `Renderer::paint` does.
 pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
@@ -730,7 +1510,8 @@ pub fn paint_list(area: Frame, list: &[Draw], scale: f32) -> Pixmap {
 /// What a leaf of the layout tree measures by: a text, or a vector's or an
 /// image's own size.
 enum Leaf {
-    Text(usize),
+    /// A text, and whether it wraps at its width.
+    Text(Box<resolve::TextStyle>, bool),
     Intrinsic(f32, f32),
 }
 
@@ -870,7 +1651,6 @@ fn build(
     tree: &mut TaffyTree<Option<Leaf>>,
     node: &Node,
     parent: Option<&Node>,
-    texts: &mut Vec<(resolve::TextStyle, bool)>,
     hugs: &mut Vec<(NodeId, bool, bool)>,
     images: &ImageFiles,
 ) -> NodeId {
@@ -935,9 +1715,8 @@ fn build(
     };
     if let Some(text) = &node.text {
         let wraps = !matches!(node.width, DSize::Hug);
-        texts.push((text.clone(), wraps));
         return tree
-            .new_leaf_with_context(style, Some(Leaf::Text(texts.len() - 1)))
+            .new_leaf_with_context(style, Some(Leaf::Text(Box::new(text.clone()), wraps)))
             .expect("leaf");
     }
     let intrinsic = match (&node.vector, &node.image) {
@@ -953,7 +1732,7 @@ fn build(
     let children: Vec<NodeId> = node
         .children
         .iter()
-        .map(|c| build(tree, c, Some(node), texts, hugs, images))
+        .map(|c| build(tree, c, Some(node), hugs, images))
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
     // A root has no parent space to fill: on its own, `"fill"` hugs.
@@ -1587,15 +2366,12 @@ mod tests {
     }
 
     #[test]
-    fn a_drawing_too_big_is_a_problem_not_a_picture() {
+    fn a_drawing_of_any_size_is_a_picture() {
         let mut r = Renderer::new();
-        let s = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
-        assert_eq!(
-            crate::png(&mut r, &s, Theme::Light).unwrap_err(),
-            "the drawing is 20000×10 pixels; a design draws at most 16384 a side"
-        );
-        // Painting for the canvas stops at the limit rather than allocating more.
-        assert_eq!(r.paint(&s, Theme::Light, 1.0).width(), 16384);
+        let s = scene(r##"<Frame width={70000} height={10} fill="#000000" />"##);
+        let (px, w, h) = pixels(&crate::png(&mut r, &s, Theme::Light).unwrap()).unwrap();
+        assert_eq!((w, h), (70000, 10));
+        assert_eq!(&px[px.len() - 4..], &[0, 0, 0, 255]);
     }
 
     /// Files whose `.png`s are image files of the size their name says,
@@ -1785,14 +2561,6 @@ mod tests {
         assert_eq!(d.frames, r.layout(&s));
         let (area, list) = r.display_list(&s, Theme::Light);
         assert_eq!((d.area, d.list.len()), (area, list.len()));
-        let big = scene(r##"<Frame width={20000} height={10} fill="#000000" />"##);
-        assert!(
-            r.drawing(&big, Theme::Light, None)
-                .err()
-                .unwrap()
-                .message
-                .contains("at most 16384 a side")
-        );
     }
 
     #[test]
@@ -1870,8 +2638,12 @@ mod tests {
                     let files: HashMap<String, String> =
                         [("a.design".to_string(), source.clone())].into();
                     if let Ok(s) = resolve::resolve(&files, "a.design") {
-                        r.layout(&s);
-                        let _ = crate::png(&mut r, &s, Theme::Light);
+                        // Laid out, made into a display list and its first
+                        // tile painted: a drawing a million pixels a side is
+                        // drawable, and painting all of it is not the point.
+                        let frames = r.layout(&s);
+                        let list = r.chunked(&s, &frames, Theme::Light);
+                        let _ = crate::tiles::tile(&list, 1.0, 0, 0);
                     }
                 }
             }
@@ -1961,6 +2733,114 @@ mod examples {
                     panic!("{name}: {d:?}");
                 }
             }
+        }
+    }
+
+    /// The examples, painted tile by tile from the chunked list and streamed
+    /// band by band, are the whole-drawing PNG pixel for pixel.
+    #[test]
+    fn tiles_paint_the_examples_as_the_whole_drawing() {
+        let mut renderer = Renderer::new();
+        for theme in [Theme::Light, Theme::Dark] {
+            for name in ["button", "checkout", "confirmation", "details"] {
+                let path = format!("docs/designs/checkout/{name}.design");
+                let scene = crate::resolve(&repo(), &path).unwrap();
+                let whole = crate::png(&mut renderer, &scene, theme).unwrap();
+                let frames = renderer.layout(&scene);
+                let list = renderer.chunked(&scene, &frames, theme);
+                let mut tiled = Vec::new();
+                crate::tiles::png(&list, &mut tiled).unwrap();
+                let (a, w, h) = pixels(&whole).unwrap();
+                let (b, tw, th) = pixels(&tiled).unwrap();
+                assert_eq!((w, h), (tw, th), "{name}");
+                let d = compare(&a, &b, w as usize).unwrap();
+                assert!(d.within_tolerance(), "{name} {theme:?}: {d:?}");
+                assert!(d.max <= 2, "{name} {theme:?}: {d:?}");
+            }
+        }
+    }
+
+    /// A design 100,000 pixels tall is drawn: its PNG streams band by band.
+    #[test]
+    fn a_design_100000_pixels_tall_has_a_png() {
+        let mut rows = String::new();
+        for i in 0..1000 {
+            rows.push_str(&format!(
+                "<Frame width={{400}} height={{100}} fill=\"#{:06x}\"><Text size={{20}}>Row {i}</Text></Frame>\n",
+                (i * 7919) % 0xffffff
+            ));
+        }
+        let files: HashMap<String, String> = [(
+            "a.design".to_string(),
+            format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
+        )]
+        .into();
+        let s = resolve::resolve(&files, "a.design").unwrap();
+        let mut r = Renderer::new();
+        let t = std::time::Instant::now();
+        let frames = r.layout(&s);
+        let list = r.chunked(&s, &frames, Theme::Light);
+        let built = t.elapsed();
+        assert_eq!((list.area.width, list.area.height), (400.0, 100_000.0));
+        let t = std::time::Instant::now();
+        let mut png = Vec::new();
+        crate::tiles::png(&list, &mut png).unwrap();
+        eprintln!(
+            "built {built:?}, png {:?}, {} bytes",
+            t.elapsed(),
+            png.len()
+        );
+        let (px, w, h) = pixels(&png).unwrap();
+        assert_eq!((w, h), (400, 100_000));
+        // Row 999's fill at its middle.
+        let c = 999 * 7919;
+        let at = ((99_950 * 400 + 390) * 4) as usize;
+        assert_eq!(&px[at..at + 3], &[(c >> 16) as u8, (c >> 8) as u8, c as u8]);
+        // A tile at the bottom paints only what touches it.
+        let t = std::time::Instant::now();
+        let found = list
+            .query(crate::tiles::tile_rect(&list, 1.0, 0, 390), 1.0)
+            .len();
+        eprintln!("query {:?}, {found} commands", t.elapsed());
+        assert!(found < 12, "{found}");
+    }
+
+    /// An edit to one row of a tall design touches only the tiles around it,
+    /// and the drawing it leaves paints as a fresh one.
+    #[test]
+    fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
+        let design = |label: &str| {
+            let mut rows = String::new();
+            for i in 0..1000 {
+                let text = if i == 500 {
+                    label.to_string()
+                } else {
+                    format!("Row {i}")
+                };
+                rows.push_str(&format!("<Frame width={{400}} height={{100}} fill=\"#eeeeee\"><Text size={{20}}>{text}</Text></Frame>\n"));
+            }
+            let files: HashMap<String, String> = [(
+                "a.design".to_string(),
+                format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
+            )]
+            .into();
+            resolve::resolve(&files, "a.design").unwrap()
+        };
+        let (old, new) = (design("Row 500"), design("Edited"));
+        let mut r = Renderer::new();
+        let mut live = r.live(&old, Theme::Light);
+        let t = std::time::Instant::now();
+        let damage = r.update(&mut live, &old, &new);
+        eprintln!("update {:?}, damage {damage:?}", t.elapsed());
+        assert!(!damage.is_empty());
+        for d in &damage {
+            assert!(d.y0 >= 50_000.0 - 2.0 && d.y1 <= 50_100.0 + 2.0, "{d:?}");
+        }
+        let fresh = r.live(&new, Theme::Light);
+        for row in [0, 195, 196, 390] {
+            let a = crate::tiles::tile(&live.list, 1.0, 0, row);
+            let b = crate::tiles::tile(&fresh.list, 1.0, 0, row);
+            assert!(a == b, "tile row {row}");
         }
     }
 

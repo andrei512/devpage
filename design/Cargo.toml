@@ -19,6 +19,7 @@ sha2 = "0.10.9"
 guillotiere = "0.7.0"
 tonic = { version = "0.14.6", default-features = false, features = ["codegen"], optional = true }
 tonic-prost = { version = "0.14.6", optional = true }
+rstar = "0.13"
 
 [features]
 # The server side of the `Designs` watch service, which `devpage` serves.
