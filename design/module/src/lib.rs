@@ -225,7 +225,7 @@ mod tests {
         let before = fingerprint(&copy);
         assert_eq!(before, fingerprint(&root), "a copy fingerprints the same");
 
-        let source = copy.join("design/src/render.rs");
+        let source = copy.join("design/src/render/mod.rs");
         let mut text = fs::read_to_string(&source).unwrap();
         text.push_str("\n// one more line\n");
         fs::write(&source, &text).unwrap();

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use devpage_design::fonts::FontFile;
 use devpage_design::render::{Drawing, Undrawable};
 use devpage_design::resolve::ImageFile;
-use devpage_design::tiles::{self, Cache, Key, Level, TILE, Tiled};
+use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
 use crate::served::{Served, ServedFolder};
@@ -571,35 +571,41 @@ impl Designs {
         guarded(
             path,
             || {
-                tiles::bands(area.width as u32, area.height as u32, out, |col, row| {
-                    let tile = Tile {
-                        design: id,
-                        key: Key {
-                            theme,
-                            level: Level::of(1.0),
-                            col,
-                            row,
-                        },
-                    };
-                    // The design's lock, for one tile at a time: never while
-                    // the band is written.
-                    let kept = lock(&kept);
-                    let drawing = kept
-                        .as_ref()
-                        .filter(|k| k.version == version)
-                        .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
-                        .ok_or("the design changed while its PNG was written")?;
-                    if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
-                        return Ok::<_, &str>(pixels.clone());
-                    }
-                    let pixels: Arc<[u8]> = tiles::tile(&drawing.list, 1.0, col, row).into();
-                    #[cfg(test)]
-                    store
-                        .painted
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
-                    Ok(pixels)
-                })
+                devpage_design::bands::bands(
+                    area.width as u32,
+                    area.height as u32,
+                    out,
+                    |col, row| {
+                        let tile = Tile {
+                            design: id,
+                            key: Key {
+                                theme,
+                                level: Level::of(1.0),
+                                col,
+                                row,
+                            },
+                        };
+                        // The design's lock, for one tile at a time: never while
+                        // the band is written.
+                        let kept = lock(&kept);
+                        let drawing = kept
+                            .as_ref()
+                            .filter(|k| k.version == version)
+                            .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
+                            .ok_or("the design changed while its PNG was written")?;
+                        if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
+                            return Ok::<_, &str>(pixels.clone());
+                        }
+                        let pixels: Arc<[u8]> =
+                            devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
+                        #[cfg(test)]
+                        store
+                            .painted
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
+                        Ok(pixels)
+                    },
+                )
                 .map_err(|e| format!("writing the PNG: {e}"))
             },
             |p| p.message,
@@ -858,7 +864,7 @@ mod tests {
         let started = std::time::Instant::now();
         let png = designs.png("app/huge.design", Theme::Light).unwrap();
         let took = started.elapsed();
-        let (px, w, h) = devpage_design::render::pixels(&png).unwrap();
+        let (px, w, h) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!((w, h), (400, 100_000));
         let c = 999 * 997;
         let at = (99_950 * 400 + 200) * 4;
@@ -912,8 +918,8 @@ mod tests {
         let took = started.elapsed();
         assert_eq!(painted(&designs), 2);
         eprintln!("PNG after an edit: {took:?}, 2 tiles painted");
-        let (a, _, _) = devpage_design::render::pixels(&before).unwrap();
-        let (b, _, _) = devpage_design::render::pixels(&after).unwrap();
+        let (a, _, _) = devpage_design::compare::pixels(&before).unwrap();
+        let (b, _, _) = devpage_design::compare::pixels(&after).unwrap();
         let row = |px: &[u8], y: usize| px[(y * 400 + 10) * 4..(y * 400 + 10) * 4 + 4].to_vec();
         assert_eq!(row(&b, 50_050), vec![255, 0, 0, 255]);
         assert_eq!(row(&a, 49_950), row(&b, 49_950));
@@ -1013,7 +1019,7 @@ mod tests {
         );
         // The next PNG is the new scene's.
         let next = designs.png("app/huge.design", Theme::Light).unwrap();
-        let (px, _, _) = devpage_design::render::pixels(&next).unwrap();
+        let (px, _, _) = devpage_design::compare::pixels(&next).unwrap();
         let at = (350 * 400 + 10) * 4;
         assert_eq!(&px[at..at + 4], &[255, 0, 0, 255]);
     }
@@ -1235,7 +1241,7 @@ mod tests {
         // And the store still sees saves afterwards.
         save(&designs, &other, &OTHER.replace("{50}", "{20}"));
         let png = designs.png("app/other.design", Theme::Light).unwrap();
-        let (_, w, h) = devpage_design::render::pixels(&png).unwrap();
+        let (_, w, h) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!((w, h), (20, 20));
     }
 

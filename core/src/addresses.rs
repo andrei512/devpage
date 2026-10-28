@@ -174,6 +174,10 @@ mod tests {
         let design = text("design.js");
         assert!(design.contains(&address(Owned::Asset("design-engine.js"))));
         assert!(design.contains(&address(Owned::Asset("design-engine.wasm"))));
+        assert!(design.contains(&address(Owned::Asset("design-stream.js"))));
+        assert!(design.contains(&address(Owned::Asset("design-canvas.js"))));
+        assert!(text("design-canvas.js").contains(&address(Owned::Asset("design-tiles.js"))));
+        assert!(text("design-tiles.js").contains(&address(Owned::Asset("design-worker.js"))));
     }
 
     #[test]

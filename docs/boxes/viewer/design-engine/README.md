@@ -54,6 +54,40 @@ and at the same version, so `cargo install devpage` builds the native engine
 from the registry and takes the module from the vendored files — see
 [Release](../../engineering/sdlc/stages/README.md#release).
 
+## How the engine is built
+
+The engine is a **core** with **adapters** plugged into it — the shape of
+devpage's own [code map](../../engineering/code-map/README.md). The core
+links no rasterizer: no `vello`, `vello_cpu`, `wgpu` or PNG encoder. Its
+geometry and colours are `kurbo`'s and `peniko`'s, depended on directly, the
+values both backends take, and a glyph is the engine's own. What varies
+between the browser and the server is reached through one **port**,
+`display::Target` — paint this area at this scale into this target — which
+each [paint backend](../glossary/README.md#paint-backend) adapts. The
+dependencies point inward: an adapter uses the core, never the reverse, and
+a test (`the_core_names_no_adapter`, in `design/src/lib.rs`) fails when a
+module of the core names an adapter or a rasterizer.
+
+| Module | Role | Does |
+| --- | --- | --- |
+| `parse` | core | Text to a syntax tree. |
+| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene. |
+| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as a kept taffy tree, every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the top-level R-tree. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
+| `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
+| `wire`, `proto` | core | Scenes and patches as the watch stream's messages. |
+| `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
+| `bands` | adapter | The PNG, written band by band from whatever gives it tiles. |
+
+In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — its
+scene, a drawing per theme, the damage since the last frame, a tile on the
+CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
+backend; `gpu/` the compositor on WebGPU — `mod.rs` a frame (damage, the
+view's missing tiles, the budget), `paint.rs` painting a tile into its
+texture, `pass.rs` the composite pass. The page's part is the design script
+and its modules ([in the browser](#in-the-browser)).
+
 ## Parsing
 
 The parser turns a file into a syntax tree: imports, then one element with its
@@ -237,7 +271,7 @@ nesting would:
   inside.
 
 A shadow's layers are made as property-tree nodes too, as its commands are
-built (`design/src/display.rs`), so no command opens or closes anything.
+built (`design/src/display/chunk.rs`), so no command opens or closes anything.
 
 A command's **property state** is its three nodes. To paint any subset of
 the list, in paint order, the painter opens and closes exactly the layers
@@ -313,7 +347,7 @@ bounds it had and the bounds it has — and, when the drawing's area grows or
 shrinks along its right or bottom edge, the strip it gained or lost. Only the
 cached tiles that overlap the damage go stale; the rest are kept. An update
 that moves the area's top-left moves every tile's place, so every tile goes
-stale. The cache (`design/src/tiles.rs`) holds whatever a tile is to its
+stale. The cache (`design/src/tiles/cache.rs`) holds whatever a tile is to its
 user — pixels in the server, a texture on the GPU — and a stale tile stays in
 it, marked so, until it is painted again.
 
@@ -352,7 +386,9 @@ one radius for all four corners, and the two backends share no blur filter,
 so the painter computes the blur itself (`design/src/shadow.rs`): it samples
 the shape's coverage every half σ — the shape flattened to lines within a
 hundredth of a sample, as the rasterizer's own flattening would pull a curve
-in — and blurs the samples. A Gaussian that wide has no detail finer than its
+in, each sample the exact area it covers to the nearest 255th, as an 8-bit
+rasterizer gives it, accumulated by the engine itself — and blurs the
+samples. A Gaussian that wide has no detail finer than its
 samples, so, drawn smoothly, they are the shadow at any zoom. A shadow with no
 blur is the shape filled.
 
@@ -515,8 +551,7 @@ problems are not sent twice.
 
 ## In the browser
 
-The canvas page loads the WebAssembly module (`core/assets/design.js` does the
-page's part), opens the watch stream with `fetch`, reads the gRPC-Web frames
+The canvas page loads the WebAssembly module, opens the watch stream with `fetch`, reads the gRPC-Web frames
 off the response body and hands each message's bytes to the module, which
 decodes it and applies it to the scene that canvas holds — the module keeps
 one per canvas — and to the drawing made from it, by the same
@@ -524,6 +559,14 @@ one per canvas — and to the drawing made from it, by the same
 checked once, when the first scene or patch carrying it arrives, and kept
 while the scene uses it, as an image file is decoded once; the canvas's
 renderer registers it before it next lays the scene out.
+
+The page's part is the design script, `core/assets/design.js`, which loads
+the engine and starts the page's canvases, and the modules it imports, each
+a [built-in asset](../serving-pages/README.md#built-in-assets):
+`design-stream.js`, the page's one watch stream; `design-canvas.js`, a
+canvas — its view, pointer, interactions, overlays and an embed's backdrop;
+`design-tiles.js`, the compositor's tiles on the CPU and the worker,
+`design-worker.js`, that paints them.
 
 ### The compositor
 

@@ -121,6 +121,10 @@ One scene node's own commands, in its own coordinates; its position is a node in
 
 The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. See [The index](../design-engine/README.md#the-index).
 
+## paint backend
+
+What replays a display list in a rasterizer's calls — `vello_cpu` on the CPU, `vello` on the GPU — through the design engine's one port, `display::Target`: paint this area at this scale into this target. A backend translates each command and decides nothing. See [How the engine is built](../design-engine/README.md#how-the-engine-is-built).
+
 ## tile
 
 A square of 256 device pixels of a drawing, painted at one scale in one theme and cached; [damage](#damage) makes the tiles it overlaps stale. See [Tiles](../design-engine/README.md#tiles).

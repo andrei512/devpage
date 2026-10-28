@@ -15,7 +15,7 @@ use chromiumoxide::cdp::browser_protocol::page::{
 use chromiumoxide::layout::Point;
 use futures::StreamExt;
 
-use devpage_design::render::{self, Difference};
+use devpage_design::compare::{self, Difference};
 
 use crate::document::Document;
 use crate::pdf::Profile;
@@ -244,7 +244,7 @@ async fn difference(
         .bytes()
         .await
         .unwrap();
-    let (drawing, width, height) = render::pixels(&served).unwrap();
+    let (drawing, width, height) = compare::pixels(&served).unwrap();
     let (width, height) = (width as usize, height as usize);
     let outer = width + 2 * margin;
     let page_color = [
@@ -264,11 +264,11 @@ async fn difference(
             }
         }
     }
-    let (mut a, _, _) = render::pixels(shot).unwrap();
+    let (mut a, _, _) = compare::pixels(shot).unwrap();
     for px in a.chunks_mut(4) {
         px[3] = 255;
     }
-    render::compare(&a, &b, outer)
+    compare::compare(&a, &b, outer)
 }
 
 /// Each example design on the canvas page matches the server's PNG of it
@@ -2362,7 +2362,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
         0,
         0,
     );
-    let pixmap = render::paint_area(&drawing.list, rect, k);
+    let pixmap = devpage_design::cpu::paint_area(&drawing.list, rect, k);
     assert_eq!(pixmap.width() as usize, side);
     let mut expected: Vec<u8> = pixmap
         .data_as_u8_slice()
@@ -2370,7 +2370,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
         .take(height)
         .flat_map(|row| row[..4 * width].to_vec())
         .collect();
-    devpage_design::tiles::unpremultiply(&mut expected);
+    devpage_design::cpu::unpremultiply(&mut expected);
     let background: [f64; 3] = eval(
         page,
         "getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number)",
@@ -2403,12 +2403,12 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
         )
         .await
         .unwrap();
-    let (mut seen, w, h) = render::pixels(&shot).unwrap();
+    let (mut seen, w, h) = compare::pixels(&shot).unwrap();
     assert_eq!((w as usize, h as usize), (width, height));
     for px in seen.chunks_mut(4) {
         px[3] = 255;
     }
-    let d = render::compare(&seen, &expected, width).unwrap();
+    let d = compare::compare(&seen, &expected, width).unwrap();
     assert!(d.within_tolerance(), "at {k}×: {d:?}");
     seen
 }
@@ -2436,7 +2436,7 @@ async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
         shots.push(zoomed_against_the_engine(&page, 800, 600).await);
         page.close().await.ok();
     }
-    let d = render::compare(&shots[0], &shots[1], 800).unwrap();
+    let d = compare::compare(&shots[0], &shots[1], 800).unwrap();
     assert!(d.within_tolerance(), "the GPU and the CPU: {d:?}");
     browser.close().await.ok();
     events.abort();

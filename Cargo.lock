@@ -992,7 +992,9 @@ name = "devpage-design"
 version = "0.2.2"
 dependencies = [
  "guillotiere",
+ "kurbo",
  "parley",
+ "peniko",
  "png",
  "prost",
  "protox",

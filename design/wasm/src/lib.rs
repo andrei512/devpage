@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 mod gpu;
 #[cfg(any(target_arch = "wasm32", test))]
-mod scene;
+mod vello_backend;
 
 /// What one watch-stream message did to a design.
 #[wasm_bindgen]
@@ -259,7 +259,7 @@ impl Design {
     /// `vello_cpu`: 256 device pixels a side, straight alpha.
     pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
         let d = self.laid_out()?;
-        let rgba = devpage_design::tiles::tile(&d.list, scale as f64, col, row);
+        let rgba = devpage_design::cpu::tile(&d.list, scale as f64, col, row);
         Some(Pixels {
             width: devpage_design::tiles::TILE,
             height: devpage_design::tiles::TILE,
@@ -323,9 +323,9 @@ impl Design {
             (a.x + a.width) as f64,
             (a.y + a.height) as f64,
         );
-        let pixmap = devpage_design::render::paint_area(&d.list, rect, scale as f64);
+        let pixmap = devpage_design::cpu::paint_area(&d.list, rect, scale as f64);
         let mut rgba = pixmap.data_as_u8_slice().to_vec();
-        devpage_design::tiles::unpremultiply(&mut rgba);
+        devpage_design::cpu::unpremultiply(&mut rgba);
         Some(Pixels {
             width: pixmap.width() as u32,
             height: pixmap.height() as u32,
@@ -429,7 +429,7 @@ mod tests {
             let frames = server.layout(scene);
             assert_eq!(design.laid_out().unwrap().frames(), frames);
             let png = devpage_design::png(&mut server, scene, Theme::Light).unwrap();
-            let (expected, w, h) = devpage_design::render::pixels(&png).unwrap();
+            let (expected, w, h) = devpage_design::compare::pixels(&png).unwrap();
             let mut painted = design.paint(1.0).unwrap();
             assert_eq!((painted.width(), painted.height()), (w, h));
             assert_eq!(painted.take(), expected);
