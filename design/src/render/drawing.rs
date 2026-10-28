@@ -251,7 +251,6 @@ impl Renderer {
             scene,
             dirty: &|_| true,
             relaid: &|_| true,
-            reflow: None,
             path: None,
             damage: None,
             fresh: Some(&mut made),
@@ -612,8 +611,7 @@ impl Renderer {
             || resized
             || moved
             || cut_changed
-            || children_remade
-            || w.reflow.is_some_and(|r| r.contains(&order));
+            || children_remade;
         if leaf_of(node, &w.scene.images).is_some() {
             return resized;
         }
@@ -723,7 +721,7 @@ impl Renderer {
             return;
         };
         let (pc0, _) = run.padding_across();
-        let (row, line) = (run.row, asked.line);
+        let (row, line, align) = (run.row, asked.line, run.align);
         let drid = match d.shown.get(&rid) {
             Some(&r) => r,
             None => {
@@ -761,6 +759,10 @@ impl Renderer {
             let dr = d.list.run(drid);
             !is_new && (dr.gap != gap || dr.start != lead as f64)
         };
+        // A new `align` moves every child across that doesn't stretch: each
+        // one's box genuinely moves, so each is placed again — its subtree,
+        // in its own coordinates, is not.
+        let realign = !is_new && d.contexts.get(&drid).is_some_and(|c| c.align != align);
         let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
         {
             let dr = d.list.run_mut(drid);
@@ -792,10 +794,11 @@ impl Renderer {
                 space: down.space.clone(),
                 clip: down.clip,
                 effect: down.effect,
+                align,
             },
         );
         let mut shift: Option<f64> = d.shifts.remove(&drid);
-        let keys: Vec<OrderKey> = if every {
+        let keys: Vec<OrderKey> = if every || realign {
             node.children.entries().map(|(k, _)| k.clone()).collect()
         } else {
             on_path.union(&relaid).cloned().collect()
@@ -941,6 +944,7 @@ impl Renderer {
                 space: down.space.clone(),
                 clip: down.clip,
                 effect: down.effect,
+                align: crate::resolve::Align::Start,
             },
         );
         let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
@@ -1027,7 +1031,6 @@ impl Renderer {
                 scene,
                 dirty: &|_| false,
                 relaid: &|_| false,
-                reflow: None,
                 path: None,
                 damage: None,
                 fresh: None,
@@ -1077,7 +1080,6 @@ impl Renderer {
             scene,
             dirty: &|_| false,
             relaid: &|_| false,
-            reflow: None,
             path: None,
             damage: None,
             fresh: None,
@@ -1130,6 +1132,8 @@ pub(super) struct RunContext {
     pub(super) space: Space,
     pub(super) clip: Id,
     pub(super) effect: Option<Id>,
+    /// The run's `align` when its children were last placed.
+    pub(super) align: crate::resolve::Align,
 }
 
 /// What a node's children are visited under.
@@ -1154,7 +1158,6 @@ pub(super) struct Walk<'a> {
     pub(super) relaid: &'a dyn Fn(&Order) -> bool,
     /// The nodes whose children were added or removed: all their children
     /// may have moved.
-    pub(super) reflow: Option<&'a BTreeSet<Order>>,
     /// For an update, the children of each node on a changed node's path
     /// that lead to one; `None` walks every node.
     pub(super) path: Option<&'a HashMap<Order, BTreeSet<OrderKey>>>,

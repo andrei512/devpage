@@ -913,6 +913,10 @@ impl Resolver<'_> {
     /// instance it makes reading `path`'s themes when there are any.
     fn bind_own(&mut self, path: &str, el: &mut Element) {
         let themed = el.attrs.iter().any(|a| writes_theme(&a.value));
+        let props_themed = el
+            .attrs
+            .iter()
+            .any(|a| a.name == "props" && writes_theme(&a.value));
         for attr in &mut el.attrs {
             self.bind(path, &mut attr.value);
         }
@@ -921,6 +925,15 @@ impl Resolver<'_> {
             id.push(el.id);
             for file in themes_chain(path) {
                 self.record.read_by(&file, &id);
+            }
+        }
+        // A theme color among a design's `props` defaults reaches whatever
+        // reads that prop, anywhere in the design: the instance reads the
+        // themes, so a change to them resolves it again with its subtree.
+        if props_themed {
+            let instance = self.instance.clone();
+            for file in themes_chain(path) {
+                self.record.read_by(&file, &instance);
             }
         }
     }

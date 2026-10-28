@@ -188,39 +188,55 @@ pub(super) struct Laid {
     pub(super) sens: BTreeMap<Order, Sens>,
 }
 
-/// Whether a node's size can depend on the room it is laid out in, and how
-/// many of its children's sizes can.
+/// Whether a node's size can depend on the room it is laid out in, along
+/// each axis, and how many of its children's sizes can along each.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Sens {
     pub(super) me: bool,
-    pub(super) kids: usize,
+    pub(super) w: bool,
+    pub(super) h: bool,
+    pub(super) kids_w: usize,
+    pub(super) kids_h: usize,
 }
 
-/// Whether `node` itself makes its size depend on its room: a text that
-/// wraps, or a `"fill"` either way.
-fn own_sens(node: &Node) -> bool {
-    (node.text.is_some() && node.width != DSize::Hug)
-        || node.width == DSize::Fill
-        || node.height == DSize::Fill
-}
-
-/// A fixed width and height: nothing in it reaches its size.
-fn boundary(node: &Node) -> bool {
-    matches!(node.width, DSize::Px(_)) && matches!(node.height, DSize::Px(_))
+/// Whether `node`'s width and height depend on its room, given how many of
+/// its children's do: a size it fixes doesn't, whatever is in it; `"fill"`
+/// does; a size that hugs does only through a child's that does. A text
+/// wraps at a width it is given — fixed or `"fill"` — and hugs its words
+/// otherwise, so a text's own room reaches it only through `"fill"`.
+fn room(node: &Node, kids_w: usize, kids_h: usize) -> (bool, bool) {
+    let along = |s: DSize, kids: usize| match s {
+        DSize::Px(_) => false,
+        DSize::Fill => true,
+        DSize::Hug => kids > 0,
+    };
+    (along(node.width, kids_w), along(node.height, kids_h))
 }
 
 impl Laid {
-    /// The room-dependence of `node`, at `order`, and everything under it.
-    pub(super) fn sens_build(&mut self, node: &Node, order: Order) -> bool {
-        let mut kids = 0;
+    /// The room-dependence of `node`, at `order`, and everything under it:
+    /// whether its width and its height depend on its room.
+    pub(super) fn sens_build(&mut self, node: &Node, order: Order) -> (bool, bool) {
+        let (mut kids_w, mut kids_h) = (0, 0);
         for (k, c) in node.children.entries() {
             let mut o = order.clone();
             o.push(k.clone());
-            kids += self.sens_build(c, o) as usize;
+            let (w, h) = self.sens_build(c, o);
+            kids_w += w as usize;
+            kids_h += h as usize;
         }
-        let me = !boundary(node) && (own_sens(node) || kids > 0);
-        self.sens.insert(order, Sens { me, kids });
-        me
+        let (w, h) = room(node, kids_w, kids_h);
+        self.sens.insert(
+            order,
+            Sens {
+                me: w || h,
+                w,
+                h,
+                kids_w,
+                kids_h,
+            },
+        );
+        (w, h)
     }
 
     /// Whether the node at `order` can depend on its room.
@@ -228,43 +244,46 @@ impl Laid {
         self.sens.get(order).is_some_and(|s| s.me)
     }
 
-    /// The node at `order` changed, or a child of it came or went by
+    /// The node at `order` changed, or a child of it came or went, changing
+    /// how many of its children depend on their room along each axis by
     /// `kids`: its room-dependence settled again, and its parents' while it
     /// changes — a run told its child is laid out another way.
-    pub(super) fn sens_settle(&mut self, root: &Node, order: &Order, kids: isize) {
+    pub(super) fn sens_settle(&mut self, root: &Node, order: &Order, kids: (isize, isize)) {
         let mut at = order.clone();
         let mut delta = kids;
         loop {
             let node = find_node(root, &at);
             let s = self.sens.entry(at.clone()).or_default();
-            s.kids = (s.kids as isize + delta).max(0) as usize;
-            let was = s.me;
-            s.me = !boundary(node) && (own_sens(node) || s.kids > 0);
-            let now = s.me;
+            s.kids_w = (s.kids_w as isize + delta.0).max(0) as usize;
+            s.kids_h = (s.kids_h as isize + delta.1).max(0) as usize;
+            let (was_w, was_h, was) = (s.w, s.h, s.me);
+            let (w, h) = room(node, s.kids_w, s.kids_h);
+            (s.w, s.h, s.me) = (w, h, w || h);
             if at.is_empty() {
                 return;
             }
             let parent = at[..at.len() - 1].to_vec();
-            if was != now
+            if was != s.me
                 && let Some(&rid) = self.run_of.get(&parent)
             {
+                let now = s.me;
                 let k = at.last().expect("a key").clone();
                 let run = self.runs.get_mut(rid);
                 let stretch = run.children.get(&k).is_some_and(|c| c.stretch);
                 run.classify(&k, stretch, now);
             }
-            if was == now {
+            if (was_w, was_h) == (w, h) {
                 return;
             }
-            delta = if now { 1 } else { -1 };
+            delta = (w as isize - was_w as isize, h as isize - was_h as isize);
             at = parent;
         }
     }
 
     /// The subtree at `order` gone: its records dropped, and its parent's
-    /// count with it.
+    /// counts with it.
     pub(super) fn sens_drop(&mut self, root: &Node, order: &Order) {
-        let me = self.sensitive(order);
+        let (w, h) = self.sens.get(order).map_or((false, false), |s| (s.w, s.h));
         let under: Vec<Order> = self
             .sens
             .range(order.clone()..)
@@ -274,10 +293,10 @@ impl Laid {
         for o in under {
             self.sens.remove(&o);
         }
-        if me && !order.is_empty() {
+        if (w || h) && !order.is_empty() {
             let parent = order[..order.len() - 1].to_vec();
             if self.sens.contains_key(&parent) {
-                self.sens_settle(root, &parent, -1);
+                self.sens_settle(root, &parent, (-(w as isize), -(h as isize)));
             }
         }
     }
