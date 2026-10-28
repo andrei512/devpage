@@ -19,12 +19,6 @@ body.server-front { display: block; }
 .front .hero { padding: 40px 0 28px; }
 .front h1 { font-size: 40px; line-height: 1.15; letter-spacing: -0.02em; margin: 0 0 14px; }
 .front .lead { color: var(--muted); font-size: 19px; margin: 0; max-width: 600px; }
-.front form { display: flex; gap: 8px; margin: 28px 0 6px; }
-.front input { flex: 1; min-width: 0; font: inherit; font-size: 16px; padding: 10px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); color: var(--text); }
-.front input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
-.front button { font: inherit; font-size: 15px; font-weight: 500; padding: 10px 18px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
-.front .hint { color: var(--muted); font-size: 14px; margin: 0; min-height: 1.6em; }
-.front .hint.wrong { color: #d70015; }
 .front h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 44px 0 14px; }
 .front ol { list-style: none; padding: 0; margin: 0; counter-reset: step; }
 .front ol li { counter-increment: step; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 12px; margin-bottom: 16px; }
@@ -32,7 +26,7 @@ body.server-front { display: block; }
 .front ol li p { margin: 0; }
 .front .code { position: relative; }
 .front pre { margin: 0; padding: 12px 44px 12px 14px; background: var(--code); border: 1px solid var(--border); border-radius: 10px; font: 14px/1.6 var(--font-mono); overflow-x: auto; }
-.front .copy { position: absolute; top: 7px; right: 7px; padding: 4px 8px; font-size: 12px; background: var(--background); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; }
+.front .copy { font: inherit; cursor: pointer; position: absolute; top: 7px; right: 7px; padding: 4px 8px; font-size: 12px; background: var(--background); color: var(--muted); border: 1px solid var(--border); border-radius: 6px; }
 .front .copy:hover { color: var(--text); }
 .front dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 20px; margin: 0; font-size: 15px; }
 .front dt { font-family: var(--font-mono); font-size: 14px; }
@@ -62,11 +56,6 @@ body.server-front { display: block; }
 <section class="hero">
   <h1>Publish a document. Get a link.</h1>
   <p class="lead">Docs, slides and designs from Markdown in your repository, published from the CLI. Every version is kept, comments carry over from one to the next, and every open page updates when you publish again.</p>
-  <form id="open">
-    <input name="link" placeholder="Paste a document's link or id" aria-label="A document's link or id" autocomplete="off" spellcheck="false">
-    <button type="submit">Open</button>
-  </form>
-  <p class="hint" id="open-hint">Documents aren't listed here; each is reached by its link.</p>
 </section>
 
 <h2>Publish from your repository</h2>
@@ -125,18 +114,6 @@ for (const block of document.querySelectorAll('.front .code')) {
   });
   block.append(copy);
 }
-document.getElementById('open').addEventListener('submit', (event) => {
-  event.preventDefault();
-  const given = event.target.link.value.trim();
-  const found = given.match(/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(\/v\/\d+)?/i);
-  const hint = document.getElementById('open-hint');
-  if (!found) {
-    hint.textContent = "That isn't a document's link or id.";
-    hint.classList.add('wrong');
-    return;
-  }
-  location.href = `/d/${found[1].toLowerCase()}${found[2] || ''}/`;
-});
 </script>
 </body>
 </html>
