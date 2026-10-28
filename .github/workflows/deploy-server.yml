@@ -1,0 +1,53 @@
+# Keeps the server example true: the image in deploy/server/ builds from this
+# checkout on x86-64 — the one platform its PDFs print on — publishes into
+# both emulated buckets, and serves a version's PDF. Its devpage is the
+# checkout's, so it runs on a pull request that touches the code or deploy/server/.
+# GitHub-hosted runners only: this repository is public and never uses a
+# self-hosted runner.
+name: deploy server
+
+on:
+  pull_request:
+    paths:
+      - deploy/server/**
+      - src/**
+      - core/**
+      - design/**
+      - assets/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/deploy-server.yml
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image and start it against both buckets
+        run: docker compose -f deploy/server/compose.yaml up --build --detach --wait
+      - name: A document to publish
+        run: |
+          mkdir -p /tmp/doc
+          printf 'kind: doc\ntitle: CI\nchapters:\n  - intro.md\n' > /tmp/doc/devpage.yml
+          printf '# CI\n\nPublished by CI.\n' > /tmp/doc/intro.md
+          (cd /tmp/doc && zip -qr /tmp/doc.zip .)
+      - name: Each server publishes it and serves its PDF
+        run: |
+          for port in 3031 3032; do
+            id=$(curl -fsS --data-binary @/tmp/doc.zip "http://localhost:$port/api/documents" | jq -r .id)
+            curl -fsSL "http://localhost:$port/d/$id/" | grep -q 'Published by CI.'
+            test "$(curl -fsS -o /tmp/doc.pdf -w '%{content_type}' "http://localhost:$port/d/$id/v/1/download")" = application/pdf
+            head -c 4 /tmp/doc.pdf | grep -q '%PDF'
+          done
+      - name: The tab icon is devpage's
+        run: >
+          test "$(curl -fsS -o /dev/null -w '%{content_type}'
+          http://localhost:3031/favicon.ico)" = image/x-icon
+      - name: Logs
+        if: failure()
+        run: docker compose -f deploy/server/compose.yaml logs
