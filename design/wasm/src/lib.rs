@@ -35,6 +35,9 @@ pub struct Design {
     /// tiles are of one design.
     id: u32,
     scene: Option<Scene>,
+    /// How many of the scene's nodes use each of its files, so a patch
+    /// drops a file no node uses without walking the scene.
+    uses: wire::Uses,
     problems: Vec<String>,
     /// The scene laid out and made into its display list, in the light theme
     /// and the dark one; `None` before it is first shown in that theme, or
@@ -113,6 +116,7 @@ impl Design {
             engine: Renderer::new(),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             scene: None,
+            uses: wire::Uses::default(),
             problems: Vec::new(),
             drawings: [None, None],
             stale: [false, false],
@@ -176,6 +180,7 @@ impl Design {
                     .map(|s| (s.images, s.fonts))
                     .unwrap_or_default();
                 wire::decode_scene(&whole, (&images, &fonts)).map(|scene| {
+                    self.uses = wire::Uses::of(&scene.root);
                     self.scene = Some(scene);
                     self.stale = [true, true];
                     for theme in THEMES {
@@ -185,8 +190,9 @@ impl Design {
             }
             Some(Body::Patch(patch)) => match self.scene.as_mut() {
                 Some(scene) => {
-                    let old = scene.clone();
-                    wire::apply(scene, &patch).map(|()| {
+                    // The patch's work only: the subtrees it replaces, handed
+                    // to each drawing — never a copy of the scene.
+                    wire::apply(scene, &mut self.uses, &patch).map(|replaced| {
                         // Each drawing follows the patch, by what it changed.
                         for theme in THEMES {
                             let i = index(theme);
@@ -196,7 +202,7 @@ impl Design {
                             if self.stale[i] {
                                 continue;
                             }
-                            let damage = match d.update(&mut self.engine, &old, scene) {
+                            let damage = match d.update(&mut self.engine, scene, &replaced) {
                                 Ok(damage) if damage.all => Damage::All,
                                 Ok(damage) => {
                                     let a = d.area();
@@ -253,6 +259,27 @@ impl Design {
         let d = self.laid_out()?;
         let area = d.area();
         d.action_at(x + area.x, y + area.y).map(str::to_string)
+    }
+
+    /// The tiles a view of `width` × `height` device pixels needs at
+    /// `scale` — the drawing scaled by it, its top-left at the whole device
+    /// pixel `(x, y)` — nearest the view's middle first, flat: column, row,
+    /// column, row… The engine's [`View`](devpage_design::tiles::View), so
+    /// the CPU's compositor asks for the very tiles the GPU's would.
+    pub fn view_tiles(&mut self, width: u32, height: u32, scale: f32, x: f32, y: f32) -> Vec<u32> {
+        let Some(d) = self.laid_out() else {
+            return Vec::new();
+        };
+        let view = devpage_design::tiles::View {
+            width: width as f64,
+            height: height as f64,
+            zoom: scale as f64,
+            origin: (x.round() as f64, y.round() as f64),
+        };
+        d.view_tiles(&view)
+            .into_iter()
+            .flat_map(|(c, r)| [c, r])
+            .collect()
     }
 
     /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with

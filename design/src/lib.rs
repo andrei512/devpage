@@ -58,7 +58,11 @@ impl fmt::Display for Problem {
 }
 
 /// Paints a scene's whole drawing at 1× in `theme` and encodes it as a PNG,
-/// band by band, or says why it can't: see [`Renderer::drawing`].
+/// band by band, or says why it can't: see [`Renderer::drawing`]. A drawing
+/// made afresh and kept by nothing: the server's PNG comes from its kept
+/// drawings and tiles instead. This is the reference the engine's, the
+/// module's and the canvas's tests compare a drawing against — one call,
+/// from a scene, with nothing kept.
 pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u8>, String> {
     let drawing = renderer
         .drawing(scene, theme, None)

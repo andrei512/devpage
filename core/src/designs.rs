@@ -352,6 +352,9 @@ impl Store {
             drawings: Vec::new(),
         });
         let id = k.id;
+        // The patch from the scene the drawings show to this one, found once
+        // for every theme: what each drawing is brought across by.
+        let replaced = devpage_design::wire::replaced(&k.scene.root, &scene.root);
         let mut renderer = lock(&self.renderer);
         let mut broke: Option<Undrawable> = None;
         let mut drawings = Vec::new();
@@ -362,7 +365,7 @@ impl Store {
                 || match at {
                     Some(i) => {
                         let mut d = k.drawings.swap_remove(i);
-                        let done = d.update(&mut renderer, &k.scene, scene);
+                        let done = d.update(&mut renderer, scene, &replaced);
                         let mut tiles = lock(&self.tiles);
                         let mine = |t: &Tile| t.design == id && t.key.theme == theme;
                         match &done {

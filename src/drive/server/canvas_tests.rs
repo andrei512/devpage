@@ -2211,6 +2211,50 @@ async fn zoom_to(page: &Page, to: f64, x: f64, y: f64) {
     .await;
 }
 
+/// Without WebGPU, the tiles a view needs are asked of the worker nearest
+/// the view's middle first, a few at a time: zoomed to 4× on the huge
+/// design, the first tile painted at that scale is the one under the view's
+/// middle, and no more than the per-frame budget are ever in flight.
+#[tokio::test]
+#[ignore]
+async fn the_cpu_paints_the_middle_first_a_few_at_a_time() {
+    let dir = folder("huge-order-cpu");
+    huge(&dir, None);
+    let address = serve(&dir, "huge.design").await;
+    let (mut browser, events, _profile) = chrome().await;
+    let page = canvas_page(&mut browser, false, 1280, 1000).await;
+    page.goto(format!("{address}/huge.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    zoom_to(&page, 4.0, 200.0, 50.0).await;
+    let view: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.view",
+    )
+    .await;
+    let [k, ox, oy]: [f64; 3] = view
+        .split(',')
+        .map(|v| v.parse().unwrap())
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap();
+    let order: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.order",
+    )
+    .await;
+    let first = order
+        .split(' ')
+        .find_map(|t| t.strip_prefix(&format!("{k}:")))
+        .unwrap_or_else(|| panic!("no tile at {k} in {order}"));
+    // The middle of the 1280 × 1000 view, in tiles of the drawing at 4×.
+    let (mx, my) = ((640.0 - ox) / 256.0, (500.0 - oy) / 256.0);
+    assert_eq!(first, format!("{},{}", mx.floor(), my.floor()), "{order}");
+    let inflight = number(&page, "inflight").await;
+    assert!(inflight <= 6.0, "{inflight} tiles asked for at once");
+    browser.close().await.ok();
+    events.abort();
+}
+
 /// On a design 100,000 pixels tall, shown at 100%, the canvas paints the
 /// tiles of its view and no others: a handful of the 782 the drawing has at
 /// that scale.

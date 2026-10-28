@@ -123,10 +123,11 @@ impl Gpu {
     /// Composites `design` into `target`, `width` × `height` device pixels,
     /// the design scaled by `zoom` and its top-left at `(x, y)`, over
     /// `background` (`0xRRGGBB`): the cached tiles of the view, moved and
-    /// scaled. When `settled`, up to `budget` missing or stale tiles of the
-    /// view are painted at `zoom` first, nearest the middle first. Returns
-    /// how many tiles of the view at `zoom` are still to paint, or -1 when
-    /// there is nothing to draw yet or the frame was lost.
+    /// scaled. After the frame, when `settled`, up to `budget` missing or
+    /// stale tiles of the view are painted at `zoom`, nearest the middle
+    /// first, for the next frame to show. Returns how many tiles of the view
+    /// at `zoom` the frame lacked — 0 when it showed the view current — or
+    /// -1 when there is nothing to draw yet or the frame was lost.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -182,39 +183,15 @@ impl Gpu {
             col,
             row,
         };
-        let missing: Vec<Key> = view
-            .tiles(area, level)
+        let missing: Vec<Key> = drawing
+            .view_tiles(&view)
             .into_iter()
             .map(key)
             .filter(|k| target.tiles.get(k).is_none_or(|(_, stale)| stale))
             .collect();
-        let mut painted = 0;
-        if settled && !missing.is_empty() {
-            let blobs: Vec<u64> = drawing.images.iter().map(|i| i.data.id()).collect();
-            if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
-                // A fresh atlas for other images. Tiles already painted are
-                // textures of their own, and keep.
-                match self.renderer(&drawing.images) {
-                    Some(renderer) => target.vello = Some((blobs, renderer)),
-                    None => return -1,
-                }
-            }
-            for k in missing.iter().take(budget as usize) {
-                let Some((_, renderer)) = target.vello.as_mut() else {
-                    return -1;
-                };
-                let Some(tile) = self.paint(renderer, list, k, (&target.layout, &target.sampler))
-                else {
-                    return -1;
-                };
-                target.tiles.insert(*k, tile, 1);
-                painted += 1;
-                target.painted += 1;
-            }
-        }
-        let left = missing.len() as i32 - painted;
-        // Every cached tile of this theme the view shows, coarser levels
-        // under finer ones, the view's own on top.
+        // The frame first: every cached tile of this theme the view shows,
+        // coarser levels under finer ones, the view's own on top — stale ones
+        // and other scales standing in for what is still to paint.
         let mut quads: Vec<(vello::kurbo::Rect, &Tile, Level)> = target
             .tiles
             .iter()
@@ -236,6 +213,30 @@ impl Gpu {
         ) {
             return -1;
         }
-        left
+        // Then, after the frame, up to `budget` of the tiles it still needs,
+        // nearest the middle first: swapped in by the next frame.
+        if settled && !missing.is_empty() {
+            let blobs: Vec<u64> = drawing.images.iter().map(|i| i.data.id()).collect();
+            if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
+                // A fresh atlas for other images. Tiles already painted are
+                // textures of their own, and keep.
+                match self.renderer(&drawing.images) {
+                    Some(renderer) => target.vello = Some((blobs, renderer)),
+                    None => return -1,
+                }
+            }
+            for k in missing.iter().take(budget as usize) {
+                let Some((_, renderer)) = target.vello.as_mut() else {
+                    return -1;
+                };
+                let Some(tile) = self.paint(renderer, list, k, (&target.layout, &target.sampler))
+                else {
+                    return -1;
+                };
+                target.tiles.insert(*k, tile, 1);
+                target.painted += 1;
+            }
+        }
+        missing.len() as i32
     }
 }

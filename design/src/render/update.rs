@@ -13,13 +13,18 @@ impl Renderer {
     pub(super) fn update(
         &mut self,
         d: &mut Drawing,
-        old: &Scene,
         new: &Scene,
+        replaced: &[crate::wire::Replaced],
     ) -> Result<Damage, Undrawable> {
         self.register(&new.fonts);
         d.visited = 0;
+        // Each replaced subtree against what replaced it: a replacement's
+        // parent kept its own attributes and its children, so nothing above
+        // it is restyled.
         let mut changes = Changes::default();
-        changes.diff(&old.root, &new.root, vec![0], false);
+        for r in replaced {
+            changes.diff(&r.old, find_node(&new.root, &r.id), r.id.clone(), false);
+        }
         let mut damage = Damage::default();
         let mut images = false;
         // What is gone: the children past a node's new count, and the
@@ -225,7 +230,7 @@ impl Changes {
             self.rebuilt.push(order);
             return;
         }
-        if restyle || !same_own(old, new) {
+        if restyle || !old.same_own(new) {
             self.attrs.push(order.clone());
         }
         let common = old.children.len().min(new.children.len());
@@ -257,32 +262,6 @@ impl Changes {
             .map(|o| o.as_slice())
             .chain(self.removed.iter().map(|o| &o[..o.len() - 1]))
     }
-}
-
-/// Whether two nodes' own attributes are the same, their children aside.
-pub(super) fn same_own(a: &Node, b: &Node) -> bool {
-    a.kind == b.kind
-        && a.name == b.name
-        && a.x == b.x
-        && a.y == b.y
-        && a.width == b.width
-        && a.height == b.height
-        && a.opacity == b.opacity
-        && a.on_click == b.on_click
-        && a.fill == b.fill
-        && a.stroke == b.stroke
-        && a.stroke_width == b.stroke_width
-        && a.radius == b.radius
-        && a.shadow == b.shadow
-        && a.clip == b.clip
-        && a.layout == b.layout
-        && a.gap == b.gap
-        && a.padding == b.padding
-        && a.align == b.align
-        && a.justify == b.justify
-        && a.text == b.text
-        && a.vector == b.vector
-        && a.image == b.image
 }
 
 impl Drawing {

@@ -325,12 +325,17 @@ export class Host {
       const behind = background(this.canvas.parentElement);
       left = gpu.draw(this.target, this.design, width, height, k, ox, oy, behind, settled, TILES_PER_FRAME);
     } else {
-      left = this.tiles.draw({ size: this.design.size(), k, ox, oy, theme: this.theme(), width, height, settled });
+      const needed = this.design.view_tiles(width, height, k, ox, oy);
+      left = this.tiles.draw({ needed, k, ox, oy, theme: this.theme(), width, height, settled, budget: TILES_PER_FRAME });
     }
     // For the tests: how long the frame took, and how many tiles the canvas
     // has painted.
     this.canvas.dataset.frame = String(performance.now() - started);
     this.canvas.dataset.tiles = String(this.target ? this.target.painted() : this.tiles.painted);
+    if (this.tiles) {
+      this.canvas.dataset.order = this.tiles.order.join(" ");
+      this.canvas.dataset.inflight = String(this.tiles.inflight);
+    }
     if (left === 0) this.painted();
     else if (left > 0 && !settled) {
       clearTimeout(this.settling);
