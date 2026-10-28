@@ -49,6 +49,7 @@ Every element takes:
 | `width`, `height` | pixels from `0` up, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`; a design's root shown on its own has no parent, and there `"fill"` hugs) | `"hug"` |
 | `opacity` | `0` to `1` | `1` |
 | `onClick` | an [interaction](../README.md#prototypes) | none |
+| `key` | a string naming the node among its siblings, unique among them — two the same is a problem — so it stays the same node however its siblings are inserted, removed or reordered; without one, devpage tells nodes apart by matching each saved file against the last | none |
 
 Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 

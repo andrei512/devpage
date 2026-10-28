@@ -216,11 +216,12 @@ impl Gpu {
         // Then, after the frame, up to `budget` of the tiles it still needs,
         // nearest the middle first: swapped in by the next frame.
         if settled && !missing.is_empty() {
-            let blobs: Vec<u64> = drawing.images.iter().map(|i| i.data.id()).collect();
+            let images = drawing.images.clone();
+            let blobs: Vec<u64> = images.iter().map(|i| i.data.id()).collect();
             if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
                 // A fresh atlas for other images. Tiles already painted are
                 // textures of their own, and keep.
-                match self.renderer(&drawing.images) {
+                match self.renderer(&images) {
                     Some(renderer) => target.vello = Some((blobs, renderer)),
                     None => return -1,
                 }
@@ -229,6 +230,17 @@ impl Gpu {
                 let Some((_, renderer)) = target.vello.as_mut() else {
                     return -1;
                 };
+                // What the tile shows, rounded where its runs now place it.
+                let rect = devpage_design::tiles::tile_rect(
+                    &design.laid_out().expect("drawn").list,
+                    k.level.scale(),
+                    k.col,
+                    k.row,
+                );
+                let Some(drawing) = design.prepared(rect) else {
+                    return -1;
+                };
+                let list = &drawing.list;
                 let Some(tile) = self.paint(renderer, list, k, (&target.layout, &target.sampler))
                 else {
                     return -1;

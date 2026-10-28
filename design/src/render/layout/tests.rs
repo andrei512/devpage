@@ -279,8 +279,14 @@ fn rounded_whole(s: &Scene) -> Vec<Frame> {
     r.register(&s.fonts);
     let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
     let mut hugs = Vec::new();
-    let root = build(&mut tree, &s.root, None, &mut hugs, &s.images);
-    r.settle(&mut tree, root, &hugs);
+    let root = build_plain(&mut tree, &s.root, None, &mut hugs, &s.images);
+    r.settle_in(
+        &mut Runs::default(),
+        &mut tree,
+        root,
+        Size::MAX_CONTENT,
+        &hugs,
+    );
     fn go(tree: &TaffyTree<Option<Leaf>>, id: NodeId, x: f32, y: f32, out: &mut Vec<Frame>) {
         let l = tree.layout(id).expect("laid out");
         let (x, y) = (x + l.location.x, y + l.location.y);
@@ -300,7 +306,9 @@ fn rounded_whole(s: &Scene) -> Vec<Frame> {
 }
 
 /// A box placed absolutely in a frame with no layout, inside auto layout, at
-/// fractional places: rounded as taffy rounds a whole tree.
+/// fractional places: measured from its own parent — every frame is the
+/// containing block of what is placed in it — and rounded as taffy rounds
+/// a whole tree.
 #[test]
 fn boxes_round_as_a_tree_rounded_whole() {
     let s = scene(
@@ -310,10 +318,10 @@ fn boxes_round_as_a_tree_rounded_whole() {
     assert_eq!(
         Renderer::new().layout(&s)[2],
         Frame {
-            x: 43.0,
-            y: 43.0,
-            width: 21.0,
-            height: 21.0
+            x: 44.0,
+            y: 44.0,
+            width: 20.0,
+            height: 20.0
         }
     );
 }
@@ -333,8 +341,11 @@ fn random_fractional_trees_round_as_a_tree_rounded_whole() {
                 .wrapping_add(1442695040888963407);
             ((self.0 >> 33) as usize) % n.max(1)
         }
+        /// A number with a fraction in eighths: exact in f32, so taffy's
+        /// own sums of them are exact and a run's exact sums meet them.
         fn frac(&mut self, max: usize) -> String {
-            format!("{}.{}", self.next(max), self.next(10))
+            let eighths = ["0", "125", "25", "375", "5", "625", "75", "875"];
+            format!("{}.{}", self.next(max), eighths[self.next(8)])
         }
     }
     fn frame(rng: &mut Lcg, depth: usize, parent_none: bool) -> String {
@@ -380,4 +391,101 @@ fn random_fractional_trees_round_as_a_tree_rounded_whole() {
         laid += 1;
     }
     assert!(laid > 200, "only {laid} of the trees resolved");
+}
+
+/// Random runs — rows and columns of every `align` and `justify` but
+/// `"space-between"`, children of fixed, hugging and stretching sizes,
+/// wrapping text, runs inside runs, at fractional places in eighths — and
+/// the frames whose children share their room: laid out box for box as
+/// taffy lays the whole tree out.
+#[test]
+fn random_runs_lay_out_as_taffy_does() {
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n.max(1)
+        }
+        fn frac(&mut self, max: usize) -> String {
+            let eighths = ["0", "125", "25", "375", "5", "625", "75", "875"];
+            format!("{}.{}", self.next(max), eighths[self.next(8)])
+        }
+    }
+    fn size(rng: &mut Lcg, max: usize, flows: bool) -> String {
+        match rng.next(if flows { 4 } else { 3 }) {
+            0 => "\"hug\"".to_string(),
+            3 => "\"fill\"".to_string(),
+            _ => format!("{{{}}}", rng.frac(max)),
+        }
+    }
+    fn node(rng: &mut Lcg, depth: usize, parent: &str) -> String {
+        let flows = parent != "none";
+        let at = if !flows {
+            format!(" x={{{}}} y={{{}}}", rng.frac(40), rng.frac(40))
+        } else {
+            String::new()
+        };
+        match rng.next(5) {
+            0 => {
+                let words = [
+                    "Ship", "it", "today,", "then", "measure", "what", "it", "cost",
+                ];
+                let n = 1 + rng.next(8);
+                let text: Vec<&str> = (0..n).map(|i| words[(i + rng.next(3)) % 8]).collect();
+                let width = if flows && rng.next(2) == 0 {
+                    " width=\"fill\"".to_string()
+                } else if rng.next(2) == 0 {
+                    format!(" width={{{}}}", rng.frac(120))
+                } else {
+                    String::new()
+                };
+                return format!(
+                    "<Text{at}{width} size={{{}}}>{}</Text>",
+                    10 + rng.next(14),
+                    text.join(" ")
+                );
+            }
+            1 if depth > 0 => {}
+            _ if depth == 0 => {
+                return format!(
+                    "<Rect{at} width={} height={} />",
+                    size(rng, 50, false),
+                    size(rng, 50, false)
+                );
+            }
+            _ => {}
+        }
+        let layout = ["row", "column", "none"][rng.next(3)];
+        let align = ["start", "center", "end"][rng.next(3)];
+        let justify = ["start", "center", "end", "space-between"][rng.next(4)];
+        let children: String = (0..1 + rng.next(4))
+            .map(|_| node(rng, depth - 1, layout))
+            .collect();
+        format!(
+            "<Frame{at} width={} height={} layout=\"{layout}\" align=\"{align}\" justify=\"{justify}\" padding={{{}}} gap={{{}}}>{children}</Frame>",
+            size(rng, 160, flows),
+            size(rng, 160, flows),
+            rng.frac(20),
+            rng.frac(10)
+        )
+    }
+    let mut rng = Lcg(29);
+    let mut r = Renderer::new();
+    let mut laid = 0;
+    for case in 0..400 {
+        let source = node(&mut rng, 4, "row");
+        let files: HashMap<String, String> = [("a.design".to_string(), source.clone())].into();
+        let Ok(s) = resolve::resolve(&files, "a.design") else {
+            continue;
+        };
+        let whole = rounded_whole(&s);
+        assert_eq!(r.layout(&s), whole, "case {case}: {source}");
+        let d = r.drawing(&s, Theme::Light, None).unwrap();
+        assert_eq!(d.frames(), whole, "case {case}: {source}");
+        laid += 1;
+    }
+    assert!(laid > 250, "only {laid} of the trees resolved");
 }

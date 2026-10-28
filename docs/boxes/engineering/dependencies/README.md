@@ -149,7 +149,7 @@ Debug assertions and overflow checks stay on.
 
 | Crate | Locked version | Licence | What the engine uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement, kept between scenes so an edit lays out only what it changed. | `design/src/render/layout.rs` |
+| `taffy` (features `std`, `taffy_tree`, `flexbox`, `content_size`) | 0.15.1 | MIT | Auto layout: rows and columns as flexbox, hug and fill, and absolute placement, kept between scenes so an edit lays out only what it changed. | `design/src/render/layout.rs`, `design/src/render/layout/run.rs` |
 | `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces and a scene's font files, and the glyph runs the display list draws; through its `fontique`, reading a font file's family, weights and weight axis to check it. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render/`, `design/src/fonts.rs` |
 | `kurbo` | 0.13.1 | Apache-2.0 or MIT | The core's geometry: paths, rectangles and transforms — a node's shape, a command's bounds, a tile's square. Depended on directly, the version both backends use, so their values pass between them unconverted. | `design/src/` |
 | `peniko` | 0.6.1 | Apache-2.0 or MIT | The core's colours, gradients, images and font data, as the display list holds them; depended on directly like `kurbo`. | `design/src/` |

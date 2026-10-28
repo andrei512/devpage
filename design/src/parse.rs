@@ -13,6 +13,9 @@ pub struct Pos {
 pub struct File {
     pub imports: Vec<Import>,
     pub root: Element,
+    /// The id the file's next new element takes: one past every id its
+    /// elements have, or ever had (see [`crate::ids`]).
+    pub next_id: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -24,6 +27,10 @@ pub struct Import {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Element {
+    /// The element's id, unique in its file and kept across edits: numbered
+    /// in order by [`parse`], matched against the last parse by
+    /// [`crate::ids::matched`].
+    pub id: u32,
     pub name: String,
     pub attrs: Vec<Attr>,
     pub children: Vec<Child>,
@@ -108,7 +115,25 @@ pub fn parse(source: &str) -> Result<File, Problem> {
     if p.peek().is_some() {
         return Err(p.problem("expected nothing after the root element"));
     }
-    Ok(File { imports, root })
+    let mut root = root;
+    let mut next_id = 0;
+    number_all(&mut root, &mut next_id);
+    Ok(File {
+        imports,
+        root,
+        next_id,
+    })
+}
+
+/// Numbers `el` and every element under it in order from `*next`.
+pub(crate) fn number_all(el: &mut Element, next: &mut u32) {
+    el.id = *next;
+    *next += 1;
+    for child in &mut el.children {
+        if let Child::Element(e) = child {
+            number_all(e, next);
+        }
+    }
 }
 
 struct Parser {
@@ -276,6 +301,7 @@ impl Parser {
                     self.bump();
                     self.expect('>')?;
                     return Ok(Element {
+                        id: 0,
                         name,
                         attrs,
                         children: Vec::new(),
@@ -307,6 +333,7 @@ impl Parser {
         }
         let children = self.children(&name)?;
         Ok(Element {
+            id: 0,
             name,
             attrs,
             children,

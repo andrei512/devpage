@@ -7,11 +7,15 @@ use kurbo::{BezPath, Vec2};
 /// A node in one of the property trees, by its slot.
 pub type Id = u32;
 
-/// A scene node's place: its offset from its parent's.
+/// A scene node's place: its offset from its parent's — or, for a child of
+/// a [run](super::Run), the run's place for it, read from the run's prefix
+/// sums whenever it is asked for, so a sibling's change of size moves it
+/// without touching it.
 #[derive(Clone, Debug)]
 pub struct Transform {
     pub parent: Option<Id>,
     pub offset: Vec2,
+    pub item: Option<(super::RunId, crate::tree::OrderKey)>,
 }
 
 /// A clipping shape, in the coordinates of its transform node.

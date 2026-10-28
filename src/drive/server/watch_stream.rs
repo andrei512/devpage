@@ -4,13 +4,13 @@
 
 use std::pin::Pin;
 
+use devpage_design::Problem;
 use devpage_design::proto::{Problems, Update, WatchRequest, update::Body};
-use devpage_design::{Problem, Scene, wire};
 use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
-use crate::designs::{self, Designs};
+use crate::designs::{self, Designs, Next};
 
 /// The watch stream: one per page, over every design the page shows. For
 /// each, the scene, then a patch after each change that altered it, or its
@@ -42,63 +42,43 @@ pub fn hear(designs: &Designs) -> broadcast::Sender<String> {
     updates
 }
 
-/// A scene encoded for the stream: whole, the first time, then as the
-/// subtrees that changed since.
-enum Encoded {
-    Whole(Box<devpage_design::proto::Scene>),
-    Changed(devpage_design::proto::Patch),
-}
-
-/// What one design's watcher last sent.
+/// What one design's watcher last sent: the version of the scene the
+/// browser holds, and the problems it shows.
 #[derive(Default)]
 struct Sent {
-    /// The scene the browser holds — and so the image files it has.
-    scene: Option<Scene>,
+    version: Option<u64>,
     problems: Option<Vec<Problem>>,
 }
 
 impl Sent {
-    /// The update `resolved` calls for after what was sent, if any. `path`
-    /// names the design should encoding it ever fail.
-    fn next(&mut self, path: &str, resolved: Result<Scene, Vec<Problem>>) -> Option<Body> {
-        let result = resolved.and_then(|scene| {
-            // Encoding is a call into the engine too, so it is guarded.
-            let old = self.scene.as_ref();
-            let body = designs::guarded(
-                path,
-                || {
-                    Ok(match old {
-                        None => Encoded::Whole(Box::new(wire::scene(&scene))),
-                        Some(old) => Encoded::Changed(wire::patch(old, &scene)),
-                    })
-                },
-                |problem| vec![problem],
-            )?;
-            Ok((scene, body))
-        });
-        match result {
-            Ok((scene, body)) => {
-                // Problems on show: even an empty patch says the design is
-                // valid again.
-                let fixed = self.problems.take().is_some();
-                let themed = self.scene.as_ref().map(|s| s.themed);
-                let body = match body {
-                    Encoded::Whole(whole) => Some(Body::Scene(*whole)),
-                    Encoded::Changed(patch) => {
-                        (fixed || !patch.replace.is_empty() || themed != Some(patch.themed))
-                            .then_some(Body::Patch(patch))
-                    }
-                };
-                self.scene = Some(scene);
-                body
-            }
-            Err(problems) if self.problems.as_ref() != Some(&problems) => {
+    /// The update `next` calls for after what was sent, if any.
+    fn next(&mut self, next: Next) -> Option<Body> {
+        match next {
+            Next::Problems(problems) if self.problems.as_ref() != Some(&problems) => {
                 self.problems = Some(problems.clone());
                 Some(Body::Problems(Problems {
                     problems: problems.iter().map(Problem::to_string).collect(),
                 }))
             }
-            Err(_) => None,
+            Next::Problems(_) => None,
+            Next::Scene(version, scene) => {
+                self.version = Some(version);
+                self.problems = None;
+                Some(Body::Scene(*scene))
+            }
+            Next::Patch(version, patch) => {
+                self.version = Some(version);
+                self.problems = None;
+                Some(Body::Patch(patch))
+            }
+            // Problems on show: even an empty patch says the design is valid
+            // again.
+            Next::Current(themed) => self.problems.take().map(|_| {
+                Body::Patch(devpage_design::proto::Patch {
+                    themed,
+                    ..Default::default()
+                })
+            }),
         }
     }
 }
@@ -130,9 +110,9 @@ impl devpage_design::proto::designs_server::Designs for Watch {
                     let Some(index) = watched.iter().position(|(p, _, _)| *p == path) else {
                         continue;
                     };
-                    let resolved = designs.resolve(&path);
                     let (_, named, sent) = &mut watched[index];
-                    if let Some(body) = sent.next(&path, resolved) {
+                    let next = designs.next(&path, sent.version);
+                    if let Some(body) = sent.next(next) {
                         let update = Update {
                             body: Some(body),
                             path: named.clone(),
@@ -164,7 +144,6 @@ impl devpage_design::proto::designs_server::Designs for Watch {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::time::Duration;
 
     use prost::Message;
@@ -177,37 +156,68 @@ mod tests {
     /// still sent: it puts the switch on an embed, or takes it off.
     #[test]
     fn a_scene_that_becomes_themed_is_sent() {
-        let files: HashMap<String, String> = [
-            (
-                "themes.yml".to_string(),
-                THEMES.replace("#000000", "#ffffff"),
-            ),
-            (
-                "a.design".to_string(),
-                "<Frame fill=\"#ffffff\" />".to_string(),
-            ),
-            (
-                "b.design".to_string(),
-                "<Frame fill={theme.bg} />".to_string(),
-            ),
-        ]
-        .into();
-        let resolved = |path: &str| {
-            devpage_design::resolve(&files, path).map(|mut scene| {
-                scene.files.clear();
-                scene
-            })
-        };
+        let dir = served("becomes-themed");
+        std::fs::write(
+            dir.join("app/themes.yml"),
+            THEMES.replace("#000000", "#ffffff"),
+        )
+        .unwrap();
+        let file = dir.join("app/a.design");
+        std::fs::write(&file, "<Frame fill=\"#ffffff\" />").unwrap();
+        let designs = Designs::new(dir.clone());
         let mut sent = Sent::default();
-        assert!(matches!(
-            sent.next("a", resolved("a.design")),
-            Some(Body::Scene(_))
-        ));
-        let Some(Body::Patch(patch)) = sent.next("a", resolved("b.design")) else {
+        let next = |sent: &mut Sent| sent.next(designs.next("app/a.design", sent.version));
+        assert!(matches!(next(&mut sent), Some(Body::Scene(_))));
+        save(&designs, &file, "<Frame fill={theme.bg} />");
+        let Some(Body::Patch(patch)) = next(&mut sent) else {
             panic!("a patch")
         };
-        assert!(patch.replace.is_empty() && patch.themed);
-        assert!(sent.next("a", resolved("b.design")).is_none());
+        assert!(patch.themed);
+        assert!(next(&mut sent).is_none());
+    }
+
+    /// Every stream of a design sends the patch the store made once; a
+    /// stream that joins later is sent the scene whole.
+    #[test]
+    fn every_stream_sends_the_one_patch_and_a_late_one_the_scene() {
+        let dir = served("one-patch");
+        let designs = Designs::new(dir.clone());
+        let (mut a, mut b) = (Sent::default(), Sent::default());
+        let path = "app/screen.design";
+        assert!(matches!(
+            a.next(designs.next(path, a.version)),
+            Some(Body::Scene(_))
+        ));
+        assert!(matches!(
+            b.next(designs.next(path, b.version)),
+            Some(Body::Scene(_))
+        ));
+        save(
+            &designs,
+            &dir.join("app/screen.design"),
+            &SCREEN.replace("Cart", "Basket"),
+        );
+        let Some(Body::Patch(pa)) = a.next(designs.next(path, a.version)) else {
+            panic!()
+        };
+        let Some(Body::Patch(pb)) = b.next(designs.next(path, b.version)) else {
+            panic!()
+        };
+        assert_eq!(pa, pb);
+        assert_eq!(pa.ops.len(), 1);
+        let mut late = Sent::default();
+        assert!(matches!(
+            late.next(designs.next(path, late.version)),
+            Some(Body::Scene(_))
+        ));
+    }
+
+    /// The id of the `i`th child of a scene's root, as the wire carries it.
+    fn scene_root_child(
+        root: &devpage_design::proto::Node,
+        i: usize,
+    ) -> Option<devpage_design::proto::NodeId> {
+        root.children[i].id.clone()
     }
 
     #[tokio::test]
@@ -297,7 +307,8 @@ mod tests {
         let Some(Ok(Body::Scene(scene))) = stream.next().await else {
             panic!("the first update is the scene")
         };
-        assert_eq!(scene.root.unwrap().children.len(), 2);
+        let scene_ids = scene.root.unwrap();
+        assert_eq!(scene_ids.children.len(), 2);
 
         // A save of the imported button: a patch of the button's instance only.
         save(
@@ -308,14 +319,12 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("a patch")
         };
-        assert_eq!(
-            patch
-                .replace
-                .iter()
-                .map(|r| r.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["0.1"]
-        );
+        // One change, to the instance's own attributes, by its id.
+        assert_eq!(patch.ops.len(), 1, "{patch:?}");
+        let Some(devpage_design::proto::op::Op::Change(button)) = &patch.ops[0].op else {
+            panic!("{patch:?}")
+        };
+        assert_eq!(button.id, scene_root_child(&scene_ids, 1));
 
         // A save that changes nothing in the scene sends nothing.
         save(
@@ -342,7 +351,7 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("an empty patch after the undo")
         };
-        assert!(patch.replace.is_empty(), "{patch:?}");
+        assert!(patch.ops.is_empty(), "{patch:?}");
 
         // Problems again, then a fix that changes the scene: a patch against
         // the last scene sent.
@@ -360,7 +369,10 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("a patch after the fix")
         };
-        assert_eq!(patch.replace[0].id, "0.0");
+        let Some(devpage_design::proto::op::Op::Change(heading)) = &patch.ops[0].op else {
+            panic!("{patch:?}")
+        };
+        assert_eq!(heading.id, scene_root_child(&scene_ids, 0));
 
         // Deleted: the problem, and the stream stays open for it…
         std::fs::remove_file(dir.join("app/screen.design")).unwrap();

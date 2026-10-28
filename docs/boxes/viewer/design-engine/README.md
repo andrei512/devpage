@@ -71,14 +71,17 @@ module of the core names an adapter or a rasterizer.
 | Module | Role | Does |
 | --- | --- | --- |
 | `parse` | core | Text to a syntax tree. |
+| `ids` | core | Element ids kept across saves: a new parse matched against the last. |
+| `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, children under their keys, and the index from id to place. |
 | `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene. |
-| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as a kept taffy tree, every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
-| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the top-level R-tree. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs), its children each laid out on their own, their sizes in prefix sums under each constraint the run was asked under (`layout/run`) — and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own, placed by the run's prefix sums, and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
-| `wire`, `proto` | core | Scenes and patches as the watch stream's messages. |
+| `wire`, `proto` | core | Scenes as the watch stream's messages; `patch`: the patch between two scenes, as operations by id, and applying one, all or nothing. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
-| `bands` | adapter | The PNG, written band by band from whatever gives it tiles. |
+| `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
 
 In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — its
 scene, a drawing per theme, the damage since the last frame, a tile on the
@@ -102,6 +105,29 @@ more than 256 deep, or with a number past ±1,000,000, which keeps the parser's
 recursion and every later step finite. Numbers written inside a string — a
 gradient's angle and stops, a `viewBox`, a vector's `d` — are held to the same
 limit while resolving, so none of them is infinite or not a number either.
+
+### Element ids
+
+Every element of a file has an **element id**, a number unique in that file
+that stays the element's while the file is edited. The first parse of a file
+numbers its elements in order. Every later parse is matched against the last
+one, sibling list by sibling list, so an element keeps its id however the
+lines around it change:
+
+- siblings with a [`key`](../designs/elements-and-attributes/README.md#attributes)
+  are matched by it;
+- the others by a shortest edit script over the sibling list (Myers' diff),
+  comparing each element whole — its name, its own attributes and everything
+  in it, so a row inserted before a run of rows alike but for their text is
+  that row, not a shift of them all — so an element inserted, removed or
+  moved costs the elements it touched, not the list —
+  and then, among what is left, an unmatched element with an unmatched one of
+  the same name in the same place, as an edit of it;
+- a matched element's children are matched the same way; an element left
+  unmatched is new and takes the file's next id.
+
+Matching costs a pass over the file that changed — the one step of a save
+that stays linear in what was saved — and nothing over any other file.
 
 No input makes the engine panic: every value is checked before it is used, a
 colour's digits as characters rather than bytes, and the resolver stops a tree
@@ -167,8 +193,39 @@ or the design whose default it is; so the resolver keeps, with each prop's
 value, the file that wrote it. The canvas uses an interaction's target as it is, so it never
 needs to know which file an instance came from.
 
-A node's **id** is the path of child positions from the root (`0.2.1`), which
-is what [patches](#the-watch-stream) address.
+A node's **id** is where it came from: the element ids from the design's
+root through each instance down to the element that made it (`4/12/3`),
+unique in the scene — an element id is unique in its file, and a file used
+twice is used through two instances with ids of their own. It survives every
+edit that doesn't remove the element: an insert before it, a sibling moved
+past it, a line added above it. It is what [patches](#the-watch-stream)
+address and what a drawing keeps a node's chunk, box and tiles under.
+
+### Resolving again
+
+The store keeps, with each scene, where each node came from: its element and
+the props of the instance it was resolved in. When a file changes, only what
+the change can reach is resolved again:
+
+- a design file: the elements whose own attributes changed are resolved again
+  in their instances' props, each the nodes it makes and nothing else; an
+  element inserted is resolved as a new subtree where it now sits; one
+  removed takes its nodes with it; an instance whose own attributes changed is
+  resolved again with its subtree, since its props reach all of it; an import
+  that names another file resolves its instances again;
+- a `themes.yml`, a font file or folder, or an image: the nodes that read it —
+  the store keeps, for each, the nodes that do.
+
+What was resolved again is the patch: no scene is compared with another.
+Resolving again costs what the change reached, beside reading the file that
+was saved: the saved file is parsed, matched against its last parse and
+walked beside it to find what changed — linear in that file, and nothing in
+any other. While a design has problems, what each save reached is kept, and
+the save that makes it valid again resolves all of it against the last scene
+sent; the problems themselves, every one, come from resolving the design
+whole, which a design with problems pays on each save. The engine resolves
+again in `design/src/resolve/again.rs` (`Resolution`); the store keeps one per
+design.
 
 ### Themes
 
@@ -207,7 +264,11 @@ engine lays out with `taffy`, a Rust flexbox implementation: `layout="row"`
 and `"column"` are a flex direction, `gap`, `padding`, `align` and `justify`
 map onto their flex properties, `"hug"` is content size, `"fill"` is
 `flex-grow: 1` along the direction and stretch across it, and a frame with
-`layout="none"` places its children absolutely at their `x` and `y`.
+`layout="none"` places its children absolutely at their `x` and `y`. Every
+frame is the containing block of the boxes placed absolutely in it, as in
+Figma — taffy's `position: relative` on every frame: a child at `x` and `y`
+is placed, sized and rounded against its own parent frame, never a farther
+ancestor, so what a frame holds lays out the same wherever the frame is.
 
 Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
 it as Figma does: as far as its children's furthest right and bottom edges. It
@@ -216,6 +277,36 @@ innermost first, measured before taffy rounds boxes to whole pixels, so a
 frame's size never depends on where it sits — and lays out again until nothing changes, which takes one
 pass per level of such frames. `"fill"` needs auto layout to take space from,
 so on a child of a no-layout frame it is a problem, found while resolving.
+
+### Layout boundaries and runs
+
+A layout is kept in pieces, so that an edit lays out only what it can change.
+
+- A **layout boundary** is a node whose own content can't change its size: a
+  fixed `width` and `height`. An edit inside one lays out the boundary's own
+  subtree; its size can't move, so nothing outside it is laid out again.
+- A **run** is an auto-layout frame whose children each take their own size
+  and are set one after another: none of them is `"fill"` along its
+  direction and its `justify` isn't `"space-between"`. A child of a run is
+  laid out on its own — across, in the room the frame gives it — and its
+  place along the direction is the sum of the sizes and gaps before it, kept
+  in a tree of prefix sums. A child whose size changes updates the sums in log
+  time and moves no sibling: a sibling's place is read from the sums when it
+  is painted, hit or rounded. A run that hugs takes its length from the sums
+  and its breadth from the largest child, kept in a counted set; `justify`
+  `"center"` or `"end"` is one offset for every child. The sums are exact —
+  kept in 64-bit floats — where taffy adds its items' sizes one by one in
+  32-bit ones; the two agree wherever taffy's own sums are exact, as they are
+  for sizes in whole pixels and fractions of a power of two. A child whose
+  breadth is within a thousandth of a pixel of its line's is the line's
+  broadest and sits at its start, whatever the last bit of its size measured
+  under another of the run's constraints.
+- A frame whose children share its room — a `"fill"` child, or
+  `"space-between"` — is laid out by `taffy` over all its children when one
+  of them changes size, since each one's place depends on all of them.
+
+So an edit to one item of a list costs the item and log time in the list,
+however many items it has.
 
 Text is measured, shaped and broken into lines with `parley`, over the Inter
 faces the engine embeds — regular, medium, semibold and bold — and the scene's
@@ -286,7 +377,10 @@ design gives the same pixels there as painting all of it.
 The list is held in **chunks**, one per scene node: the node's own commands —
 its shadow, fill, image, stroke and text — in its own coordinates, in the
 order they paint. Chunks paint in tree order — a node before its children,
-children in order — which is the order of their ids. A node's position is its
+children in order. A drawing keeps that order with an **order key** per node:
+a key between its neighbours', chosen when it is inserted, so a node inserted
+before the first of 100,000 siblings takes a key of its own and renumbers
+none. A node's position is its
 transform node, so a node that moves keeps its chunk, and its children
 theirs: only the offset changes.
 
@@ -301,7 +395,13 @@ comes from a two-level R-tree (`rstar`):
   packed; an update removes and inserts only the chunks that changed or
   moved;
 - **per chunk**, an R-tree over its commands by their bounds in its own
-  coordinates, which a move doesn't touch.
+  coordinates, which a move doesn't touch;
+- **per run**, its children by their places along its direction: the top
+  level holds the run once, and a query inside it finds the first child that
+  reaches the rectangle by a binary search of the prefix sums — the
+  rectangle widened by the furthest any child paints past its box, kept in a
+  counted set — and walks the children until one starts past it. A child that
+  changes size moves no entry: its siblings' places are the sums.
 
 A query costs log time plus what it finds, and returns the commands in paint
 order. At the scale being painted, a chunk smaller than one device pixel
@@ -344,7 +444,10 @@ theme has tiles of its own, so switching back to one is instant.
 
 An update to the scene marks **damage**: for each chunk it touched, the
 bounds it had and the bounds it has — and, when the drawing's area grows or
-shrinks along its right or bottom edge, the strip it gained or lost. Only the
+shrinks along its right or bottom edge, the strip it gained or lost. A child of a
+[run](#layout-boundaries-and-runs) that changes size moves every child
+after it, so its damage is one rectangle: from where it starts to where the
+run ends, before and after. Only the
 cached tiles that overlap the damage go stale; the rest are kept. An update
 that moves the area's top-left moves every tile's place, so every tile goes
 stale. The cache (`design/src/tiles/cache.rs`) holds whatever a tile is to its
@@ -354,19 +457,31 @@ it, marked so, until it is painted again.
 ### Incremental updates
 
 A change to a file reaches a drawing as the
-[patch](#the-watch-stream) the server sends the canvases: the nodes whose
-subtree changed, by id. A drawing applies a patch by work proportional to it:
+[patch](#the-watch-stream) the server sends the canvases: nodes changed,
+inserted, removed and moved, each by its id. A drawing applies a patch by work
+proportional to it:
 
-1. each replaced subtree is compared with the one it replaces, and only the
-   nodes that differ are dirty;
-2. layout runs again from `taffy`'s caches: only the dirty nodes and their
-   ancestors are laid out anew, and only the nodes whose box changed are
-   visited afterwards — the tree is laid out unrounded, and only the boxes
-   visited are rounded to whole pixels, each edge where taffy's own pass
-   would put it — measured, as that pass measures, from the parent for a box
-   in the flow and from its containing block for one placed absolutely;
+1. a changed node is dirty; an inserted subtree is new, with order keys
+   between its neighbours'; a removed one's chunks, boxes and property-tree
+   nodes are freed; a moved one keeps them and takes a new order key;
+2. layout runs again only where the patch can reach: inside the
+   [boundary](#layout-boundaries-and-runs) around each dirty node, and past
+   it only while a box's size changed — in a run, by the prefix sums; in any
+   other frame, from `taffy`'s caches. The tree is laid out unrounded, and only
+   the boxes visited are rounded to whole pixels, each edge where taffy's own
+   pass would put it — measured, as that pass measures, from the box's parent,
+   which is its containing block whether it is in the flow or placed
+   absolutely;
 3. a dirty node's chunk is made again; a node that only moved gets a new
-   offset in the transform tree;
+   offset in the transform tree — a child of a run needs none, its place is
+   the sums. A child of a run the sums moved by a fraction of a pixel rounds
+   differently where it now falls, and so may everything in it; the update
+   doesn't round it — the damage already covers it — and before an area is
+   painted, hit or read (`Drawing::prepare`, in the server and the canvas
+   alike), the children of runs there that no longer round as their boxes
+   were made are rounded anew, their boxes and any chunk whose box changed
+   made again. So an edit costs what it changed, the rounding costs what is
+   read, and what is read is a fresh drawing's, box for box;
 4. each chunk made again or moved is removed from the index and inserted
    again;
 5. the damage marks the tiles that overlap it stale.
@@ -493,18 +608,25 @@ straight from disk instead, as they read pages. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
 With each design's scene the store keeps its **drawing** in each theme it
-shows in — layout, chunks, property trees and index — and a design resolved
-again updates them by the patch from its last scene to its new one, the very
-patch its watch streams send: only the dirty part is laid out, only dirty
+shows in — layout, chunks, property trees and index — and a design [resolved again](#resolving-again)
+updates them by the patch that resolving made, the very patch its watch
+streams send: only the dirty part is laid out, only dirty
 chunks are made, only their index entries move, and only the tiles over the
 damage go stale. A changed component file touches only the designs made from
 it. The store's tiles, at 1× in each theme, share one cache capped at 64 MB of
-pixels, least recently used dropped first.
+pixels, least recently used dropped first. A drawing whose tiles don't all fit
+— about 11,600 pixels tall at 1,440 wide, with nothing else cached — has its
+PNG painted afresh each time it is asked for: the cap costs time, never
+memory.
 
-A PNG is assembled **band by band**: a band is one row of tiles across the
-drawing, each tile taken from the cache or painted if it is missing or stale,
-and its rows go straight into a streaming PNG encoder (the `png` crate) as
-the response's body. So a PNG of any size holds one band in memory, and a
+A PNG is assembled **band by band**, and a band is bounded in bytes: as many
+rows as fit in 16 MB of pixels, at least one. While the drawing is at most
+16,384 pixels wide that is a whole row of tiles, each taken from the cache or
+painted if it is missing or stale; a wider drawing's bands are shorter, each
+painted in pieces 256 pixels wide and never cached. Its rows go straight into
+a streaming PNG encoder (the `png` crate), which holds two rows, as the
+response's body. So a PNG of any size holds one band and two rows in memory —
+for a drawing 1,000,000 pixels wide, 16 MB and 8 MB — and a
 PNG asked for again after an edit paints only the tiles the edit made stale. No lock of the store's is held while a band is written, so a client that
 stops reading holds up only its own PNG; a save that changes the design while
 its PNG is being written ends that response there, short, rather than finish
@@ -540,13 +662,17 @@ holds one. For each design in the set:
 - the first update is the whole scene — every color in both themes, and
   whether it is themed — with each image file it shows and each font file
   its texts use, once;
-- after a save, the server resolves the design again, compares the new scene
-  with the one it last sent, and sends a **patch**: the nodes whose subtree
-  changed, each replaced by its id, and only the image and font files the
-  scene it last sent didn't have — a node names a file by its id;
+- after a save, the server [resolves again](#resolving-again) what the save
+  reached and sends a **patch**: the nodes changed (their own attributes),
+  inserted (a subtree, after a sibling or first), removed and moved, each by
+  its id, and only the image and font files the scene it last sent didn't
+  have — a node names a file by its id;
+- each patch is made once, in the store, and sent by every stream that sent
+  the scene it starts from; a stream that didn't sends the whole scene;
 - when the design has problems, an update carries them instead, and the
-  browser keeps the last scene it drew; once fixed, the next patch is against
-  that last scene — an empty one when the fix restored it exactly — and any
+  browser keeps the last scene it drew; the store keeps what each save in the
+  meantime reached, and once fixed, the next patch resolves all of it again
+  against that last scene — an empty one when the fix restored it exactly — and any
   patch tells the browser the design is valid again;
 - when the design's own file is deleted, its `no such file` problem is an
   update like any other: the design stays in the set, so when the file is

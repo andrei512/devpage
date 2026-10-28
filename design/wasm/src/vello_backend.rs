@@ -317,7 +317,7 @@ mod tests {
         // the image the engine said it would.
         assert!(
             drawing
-                .update_between(&mut renderer, &design(&files), &more)
+                .update_between(&mut renderer, &mut design(&files), &more)
                 .is_err()
         );
         let images = drawing.images.clone();

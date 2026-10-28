@@ -83,7 +83,7 @@ A value a design takes when it is used, declared with a default in its root's `p
 
 ## node
 
-One element of a resolved design — a frame, text, rectangle, ellipse, vector or image; its **id** is its path of child positions.
+One element of a resolved design — a frame, text, rectangle, ellipse, vector or image; its **id** is where it came from — the [element ids](#element-id) from the design's root through each instance to its element — and survives inserts, removals and moves around it.
 
 ## scene
 
@@ -104,6 +104,22 @@ The `devpage-design` crate: parses, resolves, lays out and paints designs, nativ
 ## drawing
 
 What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
+
+## element id
+
+A number for each element of a file, unique in it and kept across edits: a new parse is matched against the last by `key`, then by a shortest edit script over each sibling list. See [Element ids](../design-engine/README.md#element-ids).
+
+## key
+
+An element's attribute naming it among its siblings, so it keeps its identity — and its node's id — however they are inserted, removed or reordered. See [Attributes](../designs/elements-and-attributes/README.md#attributes).
+
+## layout boundary
+
+A node whose own content can't change its size — a fixed width and height — so an edit inside it lays out only its subtree. See [Layout boundaries and runs](../design-engine/README.md#layout-boundaries-and-runs).
+
+## run
+
+An auto-layout frame whose children each take their own size, set one after another: each child laid out on its own, its place the prefix sum of the sizes before it, so a child's change of size moves no sibling. See [Layout boundaries and runs](../design-engine/README.md#layout-boundaries-and-runs).
 
 ## display list
 

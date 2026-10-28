@@ -22,12 +22,15 @@ pub mod atlas;
 pub mod compare;
 pub mod display;
 pub mod fonts;
+pub mod ids;
 pub mod parse;
 pub mod proto;
 pub mod render;
 pub mod resolve;
 pub mod shadow;
+pub mod sums;
 pub mod tiles;
+pub mod tree;
 pub mod wire;
 
 // Adapters.
@@ -36,6 +39,7 @@ pub mod cpu;
 
 use std::fmt;
 
+pub use kurbo::Rect as KRect;
 pub use render::{Damage, Drawing, Renderer};
 pub use resolve::{Files, Scene, Theme, resolve};
 

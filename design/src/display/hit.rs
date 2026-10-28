@@ -6,7 +6,7 @@ use kurbo::Rect as KRect;
 use super::*;
 
 impl Chunk {
-    /// Where its node can be clicked, in the design's coordinates.
+    /// Where its node can be clicked, in its space's coordinates.
     pub fn hit(&self) -> Option<Hit> {
         let (action, area) = self.action.as_ref()?;
         let area = *area + self.origin;
@@ -23,10 +23,11 @@ impl List {
     /// coordinates, that has one and whose clipping frames show it there.
     pub fn action_at(&self, x: f64, y: f64) -> Option<&str> {
         let point = KRect::new(x, y, x, y);
-        self.found(point, 0.0).into_iter().rev().find_map(|order| {
-            let chunk = &self.chunks[order];
+        self.found(point, 0.0).into_iter().rev().find_map(|f| {
+            let chunk = &self.chunks[f.order];
             let (action, _) = chunk.action.as_ref()?;
-            let a = chunk.hit()?.area;
+            let a = chunk.hit()?.area + f.at;
+            let a = f.cut.map_or(a, |c| a.intersect(c));
             (x >= a.x0 && y >= a.y0 && x < a.x1 && y < a.y1).then_some(action.as_str())
         })
     }

@@ -986,7 +986,7 @@ mod tests {
             });
             let p = paint_area(&list, Rect::new(0.0, 0.0, 360.0, 220.0), scale as f64);
             // How many commands, and how many layers they are drawn in.
-            let chunk = list.chunk(&vec![0]).unwrap();
+            let chunk = list.chunk(&Vec::new()).unwrap();
             let shape = (chunk.commands.len(), chunk.made.effects.len());
             (p.data_as_u8_slice().to_vec(), p.width() as usize, shape)
         };

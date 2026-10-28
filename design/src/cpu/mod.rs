@@ -12,7 +12,7 @@ use crate::display::List;
 use crate::render::{Draw, Paint};
 #[cfg(test)]
 use crate::resolve::{Scene, Theme};
-use crate::tiles::tile_rect;
+use crate::tiles::{TILE, tile_rect};
 
 /// The `vello_cpu` backend of [`crate::display::paint`].
 pub struct Cpu<'a> {
@@ -148,6 +148,22 @@ impl crate::render::Renderer {
 pub fn tile(list: &List, scale: f64, col: u32, row: u32) -> Vec<u8> {
     let pixmap = paint_area(list, tile_rect(list, scale, col, row), scale);
     let mut rgba = pixmap.data_as_u8_slice().to_vec();
+    unpremultiply(&mut rgba);
+    rgba
+}
+
+/// A strip of the drawing at 1×, straight RGBA: `TILE` pixels wide at tile
+/// column `col`, `rows` tall from pixel row `y` — a piece of a PNG band too
+/// wide for whole tiles.
+pub fn strip(list: &List, col: u32, y: u32, rows: u32) -> Vec<u8> {
+    let (x0, y0) = (list.area.x as f64, list.area.y as f64);
+    let area = KRect::new(
+        x0 + (col * TILE) as f64,
+        y0 + y as f64,
+        x0 + ((col + 1) * TILE) as f64,
+        y0 + (y + rows) as f64,
+    );
+    let mut rgba = paint_area(list, area, 1.0).data_as_u8_slice().to_vec();
     unpremultiply(&mut rgba);
     rgba
 }
