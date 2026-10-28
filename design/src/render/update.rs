@@ -84,6 +84,27 @@ impl Renderer {
         }
         let attrs: BTreeSet<Order> = changes.attrs.iter().cloned().collect();
         let dirty = |o: &Order| attrs.contains(o);
+        // The nodes whose attributes that place or cut their children
+        // changed; a node's look alone reaches none of them.
+        let placing: BTreeSet<Order> = applied
+            .changed
+            .iter()
+            .filter_map(|(id, old)| {
+                let o = new.ids.get(id)?;
+                let n = new.at(o)?;
+                let moves = old.layout != n.layout
+                    || old.gap != n.gap
+                    || old.padding != n.padding
+                    || old.align != n.align
+                    || old.justify != n.justify
+                    || old.width != n.width
+                    || old.height != n.height
+                    || old.clip != n.clip
+                    || old.radius != n.radius;
+                moves.then(|| o.clone())
+            })
+            .collect();
+        let relaid = |o: &Order| placing.contains(o);
         self.blobs = std::mem::take(&mut d.blobs);
         let (t, c) = (d.list.root_transform, d.list.root_clip);
         // A parent in auto layout whose children came or went: they may all
@@ -103,6 +124,7 @@ impl Renderer {
         let mut walk = Walk {
             scene: new,
             dirty: &dirty,
+            relaid: &relaid,
             reflow: Some(&reflow),
             path: Some(&path),
             damage: Some(&mut damage),
@@ -380,6 +402,9 @@ impl Renderer {
         let parent = (!order.is_empty()).then(|| order[..order.len() - 1].to_vec());
         let run = parent.as_ref().and_then(|p| d.laid.run_of.get(p).copied());
         let key = order.last().cloned();
+        if !order.is_empty() {
+            d.laid.sens_drop(&new.root, order);
+        }
         // Where a run's child started: what follows it moves from there.
         if let (Some(rid), Some(k)) = (run, &key)
             && let Some(&drid) = d.shown.get(&rid)
@@ -513,6 +538,9 @@ impl Renderer {
         let parent_order = order[..order.len() - 1].to_vec();
         let parent = find_node(&new.root, &parent_order);
         let key = order.last().expect("a key").clone();
+        if d.laid.sens_build(node, order.clone()) {
+            d.laid.sens_settle(&new.root, &parent_order, 1);
+        }
         if let Some(&rid) = d.laid.run_of.get(&parent_order) {
             let mut run = d.laid.runs.take(rid);
             d.laid.add_child(
@@ -607,7 +635,10 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
         return;
     };
     let style = style_of(node, parent);
+    d.laid.sens_settle(&new.root, order, 0);
     if let Some(&rid) = d.laid.run_of.get(order) {
+        // Its children are laid out again only along a new direction; its
+        // leaf, restyled below, is measured again.
         d.laid.runs.get_mut(rid).set(node);
     }
     let tree = d.laid.tree_mut(owner);
@@ -615,23 +646,17 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
     if let Some(leaf) = leaf_of(node, &new.images) {
         tree.set_node_context(id, Some(Some(leaf))).expect("leaf");
     }
-    if let Some(&rid) = d.laid.run_of.get(order) {
-        // Its children are laid out again under how it now sets them.
-        let keys: Vec<OrderKey> = d.laid.runs.get(rid).children.keys().cloned().collect();
-        let laid = &mut d.laid;
-        for k in keys {
-            laid.runs.touch(&mut laid.top, rid, k);
-        }
-    }
     if let Some(p) = parent
         && let Some(&rid) = d.laid.run_of.get(&order[..order.len() - 1])
     {
         let k = order.last().expect("a key").clone();
         let row = d.laid.runs.get(rid).row;
         let across = if row { node.height } else { node.width };
-        if let Some(c) = d.laid.runs.get_mut(rid).children.get_mut(&k) {
-            c.stretch = across == crate::resolve::Size::Fill;
-        }
+        let sens = d.laid.sensitive(order);
+        d.laid
+            .runs
+            .get_mut(rid)
+            .classify(&k, across == crate::resolve::Size::Fill, sens);
         let _ = p;
         let laid = &mut d.laid;
         laid.runs.touch(&mut laid.top, rid, k);
@@ -645,5 +670,7 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
     }
 }
 
+#[cfg(test)]
+mod costs;
 #[cfg(test)]
 mod tests;

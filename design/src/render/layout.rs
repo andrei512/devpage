@@ -179,6 +179,105 @@ pub(super) struct Laid {
     /// The frames that hug their children in the drawing's own tree, from
     /// the build.
     pub(super) hugs: Vec<(NodeId, bool, bool)>,
+    /// Whether each node's size can depend on the room it is given, and how
+    /// many of its children's can: counted, so an edit settles it along its
+    /// path alone.
+    pub(super) sens: BTreeMap<Order, Sens>,
+}
+
+/// Whether a node's size can depend on the room it is laid out in, and how
+/// many of its children's sizes can.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Sens {
+    pub(super) me: bool,
+    pub(super) kids: usize,
+}
+
+/// Whether `node` itself makes its size depend on its room: a text that
+/// wraps, or a `"fill"` either way.
+fn own_sens(node: &Node) -> bool {
+    (node.text.is_some() && node.width != DSize::Hug)
+        || node.width == DSize::Fill
+        || node.height == DSize::Fill
+}
+
+/// A fixed width and height: nothing in it reaches its size.
+fn boundary(node: &Node) -> bool {
+    matches!(node.width, DSize::Px(_)) && matches!(node.height, DSize::Px(_))
+}
+
+impl Laid {
+    /// The room-dependence of `node`, at `order`, and everything under it.
+    pub(super) fn sens_build(&mut self, node: &Node, order: Order) -> bool {
+        let mut kids = 0;
+        for (k, c) in node.children.entries() {
+            let mut o = order.clone();
+            o.push(k.clone());
+            kids += self.sens_build(c, o) as usize;
+        }
+        let me = !boundary(node) && (own_sens(node) || kids > 0);
+        self.sens.insert(order, Sens { me, kids });
+        me
+    }
+
+    /// Whether the node at `order` can depend on its room.
+    pub(super) fn sensitive(&self, order: &Order) -> bool {
+        self.sens.get(order).is_some_and(|s| s.me)
+    }
+
+    /// The node at `order` changed, or a child of it came or went by
+    /// `kids`: its room-dependence settled again, and its parents' while it
+    /// changes — a run told its child is laid out another way.
+    pub(super) fn sens_settle(&mut self, root: &Node, order: &Order, kids: isize) {
+        let mut at = order.clone();
+        let mut delta = kids;
+        loop {
+            let node = find_node(root, &at);
+            let s = self.sens.entry(at.clone()).or_default();
+            s.kids = (s.kids as isize + delta).max(0) as usize;
+            let was = s.me;
+            s.me = !boundary(node) && (own_sens(node) || s.kids > 0);
+            let now = s.me;
+            if at.is_empty() {
+                return;
+            }
+            let parent = at[..at.len() - 1].to_vec();
+            if was != now
+                && let Some(&rid) = self.run_of.get(&parent)
+            {
+                let k = at.last().expect("a key").clone();
+                let run = self.runs.get_mut(rid);
+                let stretch = run.children.get(&k).is_some_and(|c| c.stretch);
+                run.classify(&k, stretch, now);
+            }
+            if was == now {
+                return;
+            }
+            delta = if now { 1 } else { -1 };
+            at = parent;
+        }
+    }
+
+    /// The subtree at `order` gone: its records dropped, and its parent's
+    /// count with it.
+    pub(super) fn sens_drop(&mut self, root: &Node, order: &Order) {
+        let me = self.sensitive(order);
+        let under: Vec<Order> = self
+            .sens
+            .range(order.clone()..)
+            .take_while(|(o, _)| o.starts_with(order))
+            .map(|(o, _)| o.clone())
+            .collect();
+        for o in under {
+            self.sens.remove(&o);
+        }
+        if me && !order.is_empty() {
+            let parent = order[..order.len() - 1].to_vec();
+            if self.sens.contains_key(&parent) {
+                self.sens_settle(root, &parent, -1);
+            }
+        }
+    }
 }
 
 use std::collections::BTreeMap;
@@ -197,7 +296,9 @@ impl Laid {
             nodes: BTreeMap::new(),
             run_of: BTreeMap::new(),
             hugs: Vec::new(),
+            sens: BTreeMap::new(),
         };
+        l.sens_build(&scene.root, Vec::new());
         let mut hugs = Vec::new();
         let root = l.build_node(
             &mut top,
@@ -312,7 +413,10 @@ impl Laid {
         );
         run.tree = tree;
         let across = if run.row { child.height } else { child.width };
-        run.add(k.clone(), id, across == DSize::Fill, hugs);
+        let mut o = order.clone();
+        o.push(k.clone());
+        let sens = self.sensitive(&o);
+        run.add(k.clone(), id, across == DSize::Fill, sens, hugs);
     }
 
     /// Lays the drawing's own tree out, and every run in it that changed;
@@ -339,7 +443,7 @@ impl Laid {
         };
         let line = (across - pc0 - pc1).max(0.0);
         let asked = run.placed(line)?;
-        let free = along - pa0 - pa1 - RunLayout::length(asked, run.gap) as f32;
+        let free = along - pa0 - pa1 - run.length(asked) as f32;
         Some((run, asked, pa0 + run.lead(free)))
     }
 
@@ -383,7 +487,7 @@ impl Laid {
                     return;
                 };
                 let line = asked.line;
-                let Some(s) = asked.sizes.get(k).copied() else {
+                let Some(s) = run.size_of(asked, k) else {
                     continue;
                 };
                 let (pc0, _) = run.padding_across();

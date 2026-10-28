@@ -48,6 +48,10 @@ pub(in crate::render) struct Child {
     pub(in crate::render) wrap: NodeId,
     pub(in crate::render) node: NodeId,
     pub(in crate::render) stretch: bool,
+    /// Whether what it lays out to can depend on the room it is given —
+    /// see [`sensitive`]; a child that can't is laid out once, whatever the
+    /// run is asked under.
+    pub(in crate::render) sens: bool,
     pub(in crate::render) hugs: Vec<(NodeId, bool, bool)>,
     /// What its layout nodes were last laid out under — they hold that
     /// layout — or `None` when it changed since.
@@ -105,11 +109,14 @@ impl Item for Sized {
     }
 }
 
-/// The children's sizes under one ask, and the line's breadth.
+/// The sizes under one ask of the children whose size can depend on it —
+/// those that stretch across the line, and those whose size can depend on
+/// the room they are given — and the line's breadth. Every other child takes
+/// one size under every ask: the run's `base`.
 pub(in crate::render) struct Asked {
     ask: Ask,
     pub(in crate::render) line: f32,
-    pub(in crate::render) sizes: Sums<OrderKey, Sized>,
+    sizes: Sums<OrderKey, Sized>,
     owns: BTreeMap<u32, usize>,
 }
 
@@ -135,6 +142,19 @@ pub(in crate::render) struct RunLayout {
     pub(in crate::render) children: BTreeMap<OrderKey, Child>,
     stale: BTreeSet<OrderKey>,
     asked: Vec<Asked>,
+    /// The size of each child whose size is the same under every ask, and
+    /// their breadths before any stretch, counted.
+    base: Sums<OrderKey, Sized>,
+    base_owns: BTreeMap<u32, usize>,
+    /// The children that stretch across, and those whose size an ask can
+    /// change — the children an ask lays out.
+    stretched: BTreeSet<OrderKey>,
+    overs: BTreeSet<OrderKey>,
+    /// The children laid out since the drawing last read the run: what it
+    /// visits.
+    pub(in crate::render) relaid: BTreeSet<OrderKey>,
+    /// Whether a child was taken out since the run was last asked.
+    gone: bool,
 }
 
 /// Every run's layout, by its slot.
@@ -234,20 +254,25 @@ impl RunLayout {
             children: BTreeMap::new(),
             stale: BTreeSet::new(),
             asked: Vec::new(),
+            base: Sums::new(),
+            base_owns: BTreeMap::new(),
+            stretched: BTreeSet::new(),
+            overs: BTreeSet::new(),
+            relaid: BTreeSet::new(),
+            gone: false,
         };
         run.set(node);
         run
     }
 
-    /// How `node` sets its children; every size kept is dropped when that
-    /// changed.
-    pub(in crate::render) fn set(&mut self, node: &Node) {
+    /// How `node` sets its children. Only a change of direction changes
+    /// what a child lays out to — its padding changes the room an ask gives,
+    /// which is another ask; its gap, `justify` and `align` only where the
+    /// children are placed — so only then is every size kept dropped, and
+    /// true returned.
+    pub(in crate::render) fn set(&mut self, node: &Node) -> bool {
         let row = node.layout == Layout::Row;
-        let changed = row != self.row
-            || node.padding != self.padding
-            || node.gap != self.gap
-            || node.justify != self.justify
-            || node.align != self.align;
+        let changed = row != self.row;
         self.row = row;
         self.padding = node.padding;
         self.gap = node.gap;
@@ -255,6 +280,13 @@ impl RunLayout {
         self.align = node.align;
         if changed {
             self.asked.clear();
+            self.base = Sums::new();
+            self.base_owns.clear();
+            let keys: Vec<OrderKey> = self.children.keys().cloned().collect();
+            for k in keys {
+                self.children.get_mut(&k).expect("a child").last = None;
+                self.stale.insert(k);
+            }
             let dir = if row {
                 FlexDirection::Row
             } else {
@@ -266,6 +298,31 @@ impl RunLayout {
                 self.tree.set_style(c.wrap, style).expect("style");
             }
         }
+        changed
+    }
+
+    /// Whether the child `key` stretches across, and whether its size can
+    /// depend on the room it is given: laid out again when either changed.
+    pub(in crate::render) fn classify(&mut self, key: &OrderKey, stretch: bool, sens: bool) {
+        let Some(c) = self.children.get_mut(key) else {
+            return;
+        };
+        if (c.stretch, c.sens) == (stretch, sens) {
+            return;
+        }
+        c.stretch = stretch;
+        c.sens = sens;
+        c.last = None;
+        self.stale.insert(key.clone());
+    }
+
+    /// The child `key`'s size under `a`.
+    pub(in crate::render) fn size_of(&self, a: &Asked, key: &OrderKey) -> Option<Sized> {
+        if self.overs.contains(key) {
+            a.sizes.get(key).copied()
+        } else {
+            self.base.get(key).copied()
+        }
     }
 
     /// Adds a child, laid out when the run is next asked for its size.
@@ -274,6 +331,7 @@ impl RunLayout {
         key: OrderKey,
         node: NodeId,
         stretch: bool,
+        sens: bool,
         hugs: Vec<(NodeId, bool, bool)>,
     ) {
         let wrap = self
@@ -286,6 +344,7 @@ impl RunLayout {
                 wrap,
                 node,
                 stretch,
+                sens,
                 hugs,
                 last: None,
             },
@@ -299,12 +358,25 @@ impl RunLayout {
         self.tree.remove_child(c.wrap, c.node).expect("child");
         let _ = self.tree.remove(c.wrap);
         self.stale.remove(key);
+        self.relaid.remove(key);
+        self.forget(key);
+        self.gone = true;
+        Some(c)
+    }
+
+    /// Takes the child `key`'s sizes out of the base and every ask, and
+    /// out of the stretched and the asked-for sets.
+    fn forget(&mut self, key: &OrderKey) {
+        if let Some(s) = self.base.remove(key) {
+            uncount(&mut self.base_owns, s.own);
+        }
         for a in &mut self.asked {
             if let Some(s) = a.sizes.remove(key) {
                 uncount(&mut a.owns, s.own);
             }
         }
-        Some(c)
+        self.stretched.remove(key);
+        self.overs.remove(key);
     }
 
     fn wrap_style(&self) -> Style {
@@ -368,11 +440,17 @@ impl RunLayout {
         }
     }
 
-    /// The children's total length along the run, gaps between them
-    /// included.
-    pub(in crate::render) fn length(asked: &Asked, gap: f32) -> f64 {
-        let n = asked.sizes.len();
-        asked.sizes.total().0 + gap as f64 * n.saturating_sub(1) as f64
+    /// The children's total length along the run under `asked`, gaps
+    /// between them included.
+    pub(in crate::render) fn length(&self, asked: &Asked) -> f64 {
+        let n = self.children.len();
+        self.base.total().0 + asked.sizes.total().0 + self.gap as f64 * n.saturating_sub(1) as f64
+    }
+
+    /// The line's breadth under `a` when its ask doesn't fix it: the
+    /// broadest child's own breadth.
+    fn broadest(&self, a: &Asked) -> f32 {
+        greatest(&self.base_owns).max(greatest(&a.owns))
     }
 }
 
@@ -438,7 +516,7 @@ impl Renderer {
             room,
             least: room_along == AvailableSpace::MinContent,
         };
-        self.refresh(runs, &mut run);
+        self.refresh(runs, &mut run, ask);
         let at = match run.asked.iter().position(|a| a.ask == ask) {
             Some(i) => {
                 let a = run.asked.remove(i);
@@ -455,7 +533,7 @@ impl Renderer {
             }
         };
         let a = &run.asked[at];
-        let along = known_along.unwrap_or(pa0 + pa1 + RunLayout::length(a, run.gap) as f32);
+        let along = known_along.unwrap_or(pa0 + pa1 + run.length(a) as f32);
         let across = known_across.unwrap_or(pc0 + pc1 + a.line);
         let row = run.row;
         runs.put(id, run);
@@ -472,7 +550,8 @@ impl Renderer {
         }
     }
 
-    /// Every child laid out under `ask`.
+    /// The children an ask can change laid out under `ask`: those that
+    /// stretch, and those whose size can depend on the room.
     fn ask(&mut self, runs: &mut Runs, run: &mut RunLayout, ask: Ask) -> Asked {
         let mut a = Asked {
             ask,
@@ -480,15 +559,17 @@ impl Renderer {
             sizes: Sums::new(),
             owns: BTreeMap::new(),
         };
-        let keys: Vec<OrderKey> = run.children.keys().cloned().collect();
+        let keys: Vec<OrderKey> = run.overs.iter().cloned().collect();
         for k in &keys {
             let s = self.child(runs, run, k, ask, ask.line, None);
+            run.relaid.insert(k.clone());
             count(&mut a.owns, s.own);
             a.sizes.insert(k.clone(), s);
         }
         if ask.line.is_none() {
-            a.line = greatest(&a.owns);
-            self.across_line(runs, run, &mut a, &keys);
+            a.line = run.broadest(&a);
+            let stretched: Vec<OrderKey> = run.stretched.iter().cloned().collect();
+            self.across_line(runs, run, &mut a, &stretched);
         }
         a
     }
@@ -504,12 +585,15 @@ impl Renderer {
         keys: &[OrderKey],
     ) {
         for k in keys {
-            if !run.children[k].stretch {
+            if !run.stretched.contains(k) {
                 continue;
             }
-            let first = *a.sizes.get(k).expect("sized");
+            let Some(first) = a.sizes.get(k).copied() else {
+                continue;
+            };
             let basis = Some(first.first);
             let mut s = self.child(runs, run, k, a.ask, Some(a.line), basis);
+            run.relaid.insert(k.clone());
             s.own = first.own;
             s.first = first.first;
             a.sizes.insert(k.clone(), s);
@@ -527,6 +611,11 @@ impl Renderer {
         line: f32,
     ) {
         let mut run = runs.take(rid);
+        if !run.overs.contains(key) {
+            // Laid out once, under any ask: its layout nodes hold its boxes.
+            runs.put(rid, run);
+            return;
+        }
         if let Some(a) = run.placed(line)
             && let Some(s) = a.sizes.get(key).copied()
         {
@@ -540,27 +629,60 @@ impl Renderer {
         runs.put(rid, run);
     }
 
-    /// The children laid out again where they changed, under every ask kept.
-    fn refresh(&mut self, runs: &mut Runs, run: &mut RunLayout) {
+    /// The children laid out again where they changed: one whose size no
+    /// ask can change once, into the base — under `now`, the ask being
+    /// answered — and any other under every ask kept; then, where a line's
+    /// breadth moved, the children that stretch across it.
+    fn refresh(&mut self, runs: &mut Runs, run: &mut RunLayout, now: Ask) {
         let stale: Vec<OrderKey> = std::mem::take(&mut run.stale)
             .into_iter()
             .filter(|k| run.children.contains_key(k))
             .collect();
+        // A child taken out leaves no child stale but may narrow the line.
+        let gone = std::mem::take(&mut run.gone);
+        if stale.is_empty() && !gone {
+            return;
+        }
         let mut asked = std::mem::take(&mut run.asked);
         for a in &mut asked {
             for k in &stale {
                 if let Some(old) = a.sizes.remove(k) {
                     uncount(&mut a.owns, old.own);
                 }
-                let s = self.child(runs, run, k, a.ask, a.ask.line, None);
-                count(&mut a.owns, s.own);
-                a.sizes.insert(k.clone(), s);
             }
+        }
+        for k in &stale {
+            if let Some(old) = run.base.remove(k) {
+                uncount(&mut run.base_owns, old.own);
+            }
+            let c = &run.children[k];
+            let (stretch, over) = (c.stretch, c.stretch || c.sens);
+            if stretch {
+                run.stretched.insert(k.clone());
+            } else {
+                run.stretched.remove(k);
+            }
+            run.relaid.insert(k.clone());
+            if over {
+                run.overs.insert(k.clone());
+                for a in &mut asked {
+                    let s = self.child(runs, run, k, a.ask, a.ask.line, None);
+                    count(&mut a.owns, s.own);
+                    a.sizes.insert(k.clone(), s);
+                }
+            } else {
+                run.overs.remove(k);
+                let s = self.child(runs, run, k, now, now.line, None);
+                count(&mut run.base_owns, s.own);
+                run.base.insert(k.clone(), s);
+            }
+        }
+        for a in &mut asked {
             if a.ask.line.is_none() {
-                let line = greatest(&a.owns);
+                let line = run.broadest(a);
                 if line != a.line {
                     a.line = line;
-                    let all: Vec<OrderKey> = run.children.keys().cloned().collect();
+                    let all: Vec<OrderKey> = run.stretched.iter().cloned().collect();
                     self.across_line(runs, run, a, &all);
                 } else {
                     self.across_line(runs, run, a, &stale);

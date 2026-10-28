@@ -251,6 +251,7 @@ impl Renderer {
         let mut walk = Walk {
             scene,
             dirty: &|_| true,
+            relaid: &|_| true,
             reflow: None,
             path: None,
             damage: None,
@@ -446,7 +447,12 @@ impl Renderer {
         let (own_effect, own_clip) = if remake {
             // Its opacity and its clip are changed in place where they stay,
             // so what its children paint under them still names them.
-            let opacity = (node.opacity < 1.0).then_some(node.opacity);
+            // A frame with children always has its own effect and clip, at
+            // no opacity and no shape when it has neither, so its look
+            // changing — opacity or clip coming or going — changes them in
+            // place and reaches none of its children.
+            let parent_node = !node.children.is_empty();
+            let opacity = (node.opacity < 1.0 || parent_node).then_some(node.opacity);
             let had = old.as_ref().and_then(|r| r.effect);
             let new_effect = match (had, opacity) {
                 (Some(e), Some(o)) if !remade => {
@@ -469,13 +475,15 @@ impl Renderer {
                     })
                 }
             };
-            let shape = node.clip.then(|| {
-                node_shape(
+            let shape = if node.clip {
+                Some(node_shape(
                     node,
                     KRect::new(0.0, 0.0, f.width as f64, f.height as f64),
                     0.0,
-                )
-            });
+                ))
+            } else {
+                parent_node.then(kurbo::BezPath::new)
+            };
             let had = old.as_ref().and_then(|r| r.clip);
             let new_clip = match (had, shape) {
                 (Some(c), Some(path)) if !remade => {
@@ -591,7 +599,8 @@ impl Renderer {
         }
         let rect = frame_rect(f);
         let (inner, inner_cut) = match own_clip {
-            Some(c) => (c, Some(cut.map_or(rect, |k| rect.intersect(k)))),
+            Some(c) if node.clip => (c, Some(cut.map_or(rect, |k| rect.intersect(k)))),
+            Some(c) => (c, cut),
             None => (clip, cut),
         };
         // Its children: all of them when what they are placed by or drawn
@@ -600,7 +609,7 @@ impl Renderer {
         let all = w.path.is_none()
             || all_below
             || is_new
-            || dirty
+            || (w.relaid)(&order)
             || resized
             || moved
             || cut_changed
@@ -628,7 +637,7 @@ impl Renderer {
             // of size moves them without a visit — what does need one, a
             // move by a fraction of a pixel, a new breadth or a new padding,
             // the run finds itself.
-            let every = w.path.is_none() || all_below || is_new || dirty || children_remade;
+            let every = w.path.is_none() || all_below || is_new || children_remade;
             let on_path = match w.path {
                 Some(path) if !every => path.get(&order).cloned().unwrap_or_default(),
                 _ => BTreeSet::new(),
@@ -734,8 +743,15 @@ impl Renderer {
             // the gap each carries, its line's breadth. A move of the run, by
             // any amount, or of where its first child starts, is only where
             // the sums place them — rounded again lazily, when read.
-            is_new || dr.row != row || dr.gap != gap || dr.line != line as f64
+            // A new breadth moves the children across only where they are
+            // centred or set at the end; elsewhere it reaches only the
+            // children it laid out again, which the layout lists.
+            is_new
+                || dr.row != row
+                || dr.gap != gap
+                || (dr.line != line as f64 && run.align != crate::resolve::Align::Start)
         };
+        let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
         {
             let dr = d.list.run_mut(drid);
             dr.raw = raw;
@@ -772,7 +788,7 @@ impl Renderer {
         let keys: Vec<OrderKey> = if every {
             node.children.entries().map(|(k, _)| k.clone()).collect()
         } else {
-            on_path.iter().cloned().collect()
+            on_path.union(&relaid).cloned().collect()
         };
         let mut queue: std::collections::VecDeque<OrderKey> = keys.into();
         let mut seen = BTreeSet::new();
@@ -784,7 +800,7 @@ impl Renderer {
                 continue;
             };
             let (run, asked, _) = d.laid.run_places(rid, size).expect("placed");
-            let Some(s) = asked.sizes.get(&k).copied() else {
+            let Some(s) = run.size_of(asked, &k) else {
                 continue;
             };
             let stretch = run.children[&k].stretch;
@@ -875,7 +891,7 @@ impl Renderer {
             return;
         };
         let line = asked.line;
-        let Some(s) = asked.sizes.get(key).copied() else {
+        let Some(s) = run.size_of(asked, key) else {
             return;
         };
         let offset = run.across(line, &s, run.children[key].stretch) as f64;
@@ -893,6 +909,7 @@ impl Renderer {
         let mut walk = Walk {
             scene,
             dirty: &|_| false,
+            relaid: &|_| false,
             reflow: None,
             path: None,
             damage: None,
@@ -965,6 +982,9 @@ pub(super) struct Walk<'a> {
     pub(super) scene: &'a Scene,
     /// Whether a node's own attributes changed.
     pub(super) dirty: &'a dyn Fn(&Order) -> bool,
+    /// Whether a node's attributes that place or cut its children changed:
+    /// what reaches them, where they are in its own space.
+    pub(super) relaid: &'a dyn Fn(&Order) -> bool,
     /// The nodes whose children were added or removed: all their children
     /// may have moved.
     pub(super) reflow: Option<&'a BTreeSet<Order>>,

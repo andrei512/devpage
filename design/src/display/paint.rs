@@ -77,9 +77,14 @@ pub(super) fn layers(list: &List, clip: Id, effect: Option<Id>) -> Vec<Layer> {
     let mut out = Vec::new();
     let mut inside: Option<Id> = None;
     for e in effects {
-        let to = list.trees.effects.get(e).clip;
+        let effect = list.trees.effects.get(e);
+        let to = effect.clip;
         clips(list, inside, to, &mut out);
-        out.push(Layer::Effect(e));
+        // A frame's effect at no opacity, kept so its opacity can change in
+        // place, is no layer.
+        if !(effect.blend == Blend::Opacity(1.0) && effect.bounds.is_none()) {
+            out.push(Layer::Effect(e));
+        }
         inside = Some(to);
     }
     clips(list, inside, clip, &mut out);
@@ -94,8 +99,15 @@ pub(super) fn clips(list: &List, from: Option<Id>, to: Id, out: &mut Vec<Layer>)
         if Some(c) == from {
             break;
         }
+        let clip = list.trees.clips.get(c);
+        // A frame's clip with no shape, kept so it can clip in place, cuts
+        // nothing.
+        if clip.path.elements().is_empty() {
+            at = clip.parent;
+            continue;
+        }
         chain.push(Layer::Clip(c));
-        at = list.trees.clips.get(c).parent;
+        at = clip.parent;
     }
     out.extend(chain.into_iter().rev());
 }
