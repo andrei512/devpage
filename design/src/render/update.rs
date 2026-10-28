@@ -167,7 +167,7 @@ impl Renderer {
             vec![0],
             root,
             t,
-            (0.0, 0.0),
+            Place::default(),
             c,
             None,
             None,

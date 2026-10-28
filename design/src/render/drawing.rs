@@ -206,7 +206,7 @@ impl Renderer {
             vec![0],
             root,
             t,
-            (0.0, 0.0),
+            Place::default(),
             c,
             None,
             None,
@@ -329,14 +329,14 @@ impl Renderer {
         order: Order,
         id: NodeId,
         parent_t: Id,
-        parent_raw: (f32, f32),
+        parent: Place,
         clip: Id,
         cut: Option<KRect>,
         effect: Option<Id>,
         remade: bool,
     ) -> bool {
-        let (f, raw) = placed(&d.tree, id, parent_raw);
-        let parent_origin = Vec2::new(snap(parent_raw.0) as f64, snap(parent_raw.1) as f64);
+        let (f, place) = placed(&d.tree, id, parent, order.len() == 1);
+        let parent_origin = Vec2::new(parent.at.0 as f64, parent.at.1 as f64);
         let origin = Vec2::new(f.x as f64, f.y as f64);
         d.visited += 1;
         let old = d.recs.remove(&order);
@@ -535,7 +535,7 @@ impl Renderer {
                 o,
                 d.tree.child_at_index(id, i).expect("child"),
                 transform,
-                raw,
+                place,
                 inner,
                 inner_cut,
                 under,

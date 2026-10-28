@@ -269,3 +269,115 @@ fn a_drawing_is_laid_out_as_the_layout_lays_it_out() {
     assert_eq!(d.frames(), r.layout(&s));
     assert_eq!(d.list.chunks().count(), 2);
 }
+
+/// Every box as a tree laid out by taffy with its own rounding pass on —
+/// each location rounded where taffy's pass rounds it, summed down the
+/// tree — which is what the engine's rounding of only the boxes it reads
+/// must give, box for box.
+fn rounded_whole(s: &Scene) -> Vec<Frame> {
+    let mut r = Renderer::new();
+    r.register(&s.fonts);
+    let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
+    let mut hugs = Vec::new();
+    let root = build(&mut tree, &s.root, None, &mut hugs, &s.images);
+    r.settle(&mut tree, root, &hugs);
+    fn go(tree: &TaffyTree<Option<Leaf>>, id: NodeId, x: f32, y: f32, out: &mut Vec<Frame>) {
+        let l = tree.layout(id).expect("laid out");
+        let (x, y) = (x + l.location.x, y + l.location.y);
+        out.push(Frame {
+            x,
+            y,
+            width: l.size.width,
+            height: l.size.height,
+        });
+        for child in tree.children(id).expect("children") {
+            go(tree, child, x, y, out);
+        }
+    }
+    let mut out = Vec::new();
+    go(&tree, root, 0.0, 0.0, &mut out);
+    out
+}
+
+/// A box placed absolutely in a frame with no layout, inside auto layout, at
+/// fractional places: rounded as taffy rounds a whole tree.
+#[test]
+fn boxes_round_as_a_tree_rounded_whole() {
+    let s = scene(
+        r#"<Frame layout="column" padding={33.3}><Frame width={100} height={100}><Rect x={10.4} y={10.4} width={20.3} height={20.3} /></Frame></Frame>"#,
+    );
+    assert_eq!(Renderer::new().layout(&s), rounded_whole(&s));
+    assert_eq!(
+        Renderer::new().layout(&s)[2],
+        Frame {
+            x: 43.0,
+            y: 43.0,
+            width: 21.0,
+            height: 21.0
+        }
+    );
+}
+
+/// Random trees — auto layout and none nested in each other, boxes placed
+/// absolutely inside boxes placed absolutely, fractional sizes, places,
+/// padding and gaps — lay out box for box as taffy's whole-tree rounding
+/// does, through a fresh layout and through a drawing.
+#[test]
+fn random_fractional_trees_round_as_a_tree_rounded_whole() {
+    struct Lcg(u64);
+    impl Lcg {
+        fn next(&mut self, n: usize) -> usize {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            ((self.0 >> 33) as usize) % n.max(1)
+        }
+        fn frac(&mut self, max: usize) -> String {
+            format!("{}.{}", self.next(max), self.next(10))
+        }
+    }
+    fn frame(rng: &mut Lcg, depth: usize, parent_none: bool) -> String {
+        let at = if parent_none {
+            format!(" x={{{}}} y={{{}}}", rng.frac(40), rng.frac(40))
+        } else {
+            String::new()
+        };
+        let size = match rng.next(3) {
+            0 => String::new(),
+            _ => format!(" width={{{}}} height={{{}}}", rng.frac(120), rng.frac(120)),
+        };
+        if depth == 0 || rng.next(4) == 0 {
+            return format!(
+                "<Rect{at} width={{{}}} height={{{}}} />",
+                rng.frac(50),
+                rng.frac(50)
+            );
+        }
+        let layout = ["row", "column", "none"][rng.next(3)];
+        let children: String = (0..1 + rng.next(3))
+            .map(|_| frame(rng, depth - 1, layout == "none"))
+            .collect();
+        format!(
+            "<Frame{at}{size} layout=\"{layout}\" padding={{{}}} gap={{{}}}>{children}</Frame>",
+            rng.frac(20),
+            rng.frac(10)
+        )
+    }
+    let mut rng = Lcg(11);
+    let mut r = Renderer::new();
+    let mut laid = 0;
+    for case in 0..300 {
+        let source = frame(&mut rng, 4, false);
+        let files: HashMap<String, String> = [("a.design".to_string(), source.clone())].into();
+        let Ok(s) = resolve::resolve(&files, "a.design") else {
+            continue;
+        };
+        let whole = rounded_whole(&s);
+        assert_eq!(r.layout(&s), whole, "case {case}: {source}");
+        let d = r.drawing(&s, Theme::Light, None).unwrap();
+        assert_eq!(d.frames(), whole, "case {case}: {source}");
+        laid += 1;
+    }
+    assert!(laid > 200, "only {laid} of the trees resolved");
+}

@@ -363,7 +363,8 @@ subtree changed, by id. A drawing applies a patch by work proportional to it:
    ancestors are laid out anew, and only the nodes whose box changed are
    visited afterwards — the tree is laid out unrounded, and only the boxes
    visited are rounded to whole pixels, each edge where taffy's own pass
-   would put it;
+   would put it — measured, as that pass measures, from the parent for a box
+   in the flow and from its containing block for one placed absolutely;
 3. a dirty node's chunk is made again; a node that only moved gets a new
    offset in the transform tree;
 4. each chunk made again or moved is removed from the index and inserted
