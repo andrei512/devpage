@@ -61,7 +61,10 @@ belongs in the commit message, not an ADR.
 Rules that belong to no single subject are the
 [general constraints](../constraints/README.md), checked on every review. Every
 other constraint lives with the subject it governs, one file per rule listed
-one line each in that subject's Topics, and applies to its descendants.
+one line each in that subject's Topics, and applies to its descendants. Each
+constraint file opens with the same note: it is a rule for automated AI code
+review, which reads it on every change it governs and checks the diff
+against it.
 
 ## Topics
 

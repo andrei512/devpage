@@ -72,7 +72,9 @@ carry the same version and are published first, in that order —
 `cargo publish -p devpage-design`, `cargo publish -p devpage-core`, then
 `cargo publish -p devpage` — since crates.io resolves each crate's
 dependencies from the registry. A version is published once, so a release
-moves the three crates past the last published version together. Publishing is permanent — a version can be yanked but never
+moves the three crates past the last published version together. Each release adds its entry to
+[`CHANGELOG.md`](../../../../../CHANGELOG.md) — what changed for a user, newest
+first — in the commit that moves the version. Publishing is permanent — a version can be yanked but never
 replaced — so it happens only when the operator says so. The
 [example image](../../../viewer/deploying/README.md#the-image) installs the
 released version, so it follows each release.
