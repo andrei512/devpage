@@ -69,7 +69,7 @@ without that header gets `401`.
 
 | Page | Shows |
 | --- | --- |
-| `/` | That this is a devpage server, how to install the CLI, connect it and publish, and a box that opens a document from a pasted link or id. It lists no documents. |
+| `/` | That this is a devpage server, how to install the CLI, connect it and publish. It lists no documents. |
 | `/favicon.ico` | devpage's logo: the tab icon of every page whose document has no logo of its own. |
 | `/d/<id>` | The latest version. |
 | `/d/<id>/v/<n>` | Version `n`. |

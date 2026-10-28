@@ -19,7 +19,7 @@ so a link to version 3 shows the same thing for as long as version 3 exists.
 
 The server's front page lists no documents: a document is reached only
 through its link. The page says how to install the CLI, connect it to this
-server and publish, and opens a document from a pasted link or id.
+server and publish.
 
 ## Comments
 
