@@ -32,6 +32,12 @@ async fn the_front_page_says_how_to_connect_and_lists_no_documents() {
         "{page}"
     );
     assert!(
+        page.contains("href=\"https://github.com/andrei512/devpage\""),
+        "{page}"
+    );
+    assert!(page.contains("<linearGradient id=\"bg\""), "{page}");
+    assert!(!page.contains("{{"), "{page}");
+    assert!(
         !page.contains(&id) && !page.contains("Secret plan"),
         "{page}"
     );

@@ -29,30 +29,33 @@ pub async fn front(headers: HeaderMap) -> Html<String> {
         .and_then(|h| h.to_str().ok())
         .unwrap_or("http");
     let server = escape(&format!("{scheme}://{host}"));
-    Html(format!(
-        r#"<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>devpage server</title>
-<link rel="stylesheet" href="{stylesheet}">
-</head>
-<body>
-<main id="devpage-page" class="server-front">
-<h1>devpage server</h1>
-<p>Documents are published here one at a time, and each is read at its own link. This page lists none of them.</p>
-<p>To publish one, connect the devpage CLI to this server and publish a document file:</p>
-<pre><code>devpage context add work {server}
-devpage context use work
-devpage publish path/to/devpage.yml</code></pre>
-</main>
-</body>
-</html>
-"#,
-        stylesheet = address(Owned::Asset("style.css")),
-    ))
+    let logo = LOGO.trim();
+    let favicon: String = logo
+        .chars()
+        .map(|c| match c {
+            '#' => "%23".to_string(),
+            '"' => "'".to_string(),
+            '\n' => " ".to_string(),
+            c => c.to_string(),
+        })
+        .collect();
+    Html(
+        FRONT
+            .replace("{{stylesheet}}", &address(Owned::Asset("style.css")))
+            .replace("{{favicon}}", &favicon)
+            .replace("{{logo}}", logo)
+            .replace("{{repository}}", env!("CARGO_PKG_REPOSITORY"))
+            .replace("{{version}}", env!("CARGO_PKG_VERSION"))
+            .replace("{{server}}", &server),
+    )
 }
+
+/// The front page, with `{{…}}` where the server fills it in.
+const FRONT: &str = include_str!("../../../assets/server-front.html");
+
+/// devpage's logo: a copy of `docs/logo.svg`, which the image's build has
+/// no `docs/` to read from.
+const LOGO: &str = include_str!("../../../assets/logo.svg");
 
 /// `__devpage/versions` under a page's mount: the version the page shows —
 /// version `n` under `/d/<id>/v/<n>`, the latest under `/d/<id>` — the
