@@ -85,7 +85,7 @@ impl Sent {
                 let body = match body {
                     Encoded::Whole(whole) => Some(Body::Scene(*whole)),
                     Encoded::Changed(patch) => {
-                        (fixed || !patch.replace.is_empty() || themed != Some(patch.themed))
+                        (fixed || !patch.ops.is_empty() || themed != Some(patch.themed))
                             .then_some(Body::Patch(patch))
                     }
                 };
@@ -206,8 +206,16 @@ mod tests {
         let Some(Body::Patch(patch)) = sent.next("a", resolved("b.design")) else {
             panic!("a patch")
         };
-        assert!(patch.replace.is_empty() && patch.themed);
+        assert!(patch.ops.is_empty() && patch.themed);
         assert!(sent.next("a", resolved("b.design")).is_none());
+    }
+
+    /// The id of the `i`th child of a scene's root, as the wire carries it.
+    fn scene_root_child(
+        root: &devpage_design::proto::Node,
+        i: usize,
+    ) -> Option<devpage_design::proto::NodeId> {
+        root.children[i].id.clone()
     }
 
     #[tokio::test]
@@ -297,7 +305,8 @@ mod tests {
         let Some(Ok(Body::Scene(scene))) = stream.next().await else {
             panic!("the first update is the scene")
         };
-        assert_eq!(scene.root.unwrap().children.len(), 2);
+        let scene_ids = scene.root.unwrap();
+        assert_eq!(scene_ids.children.len(), 2);
 
         // A save of the imported button: a patch of the button's instance only.
         save(
@@ -308,14 +317,12 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("a patch")
         };
-        assert_eq!(
-            patch
-                .replace
-                .iter()
-                .map(|r| r.id.as_str())
-                .collect::<Vec<_>>(),
-            vec!["0.1"]
-        );
+        // One change, to the instance's own attributes, by its id.
+        assert_eq!(patch.ops.len(), 1, "{patch:?}");
+        let Some(devpage_design::proto::op::Op::Change(button)) = &patch.ops[0].op else {
+            panic!("{patch:?}")
+        };
+        assert_eq!(button.id, scene_root_child(&scene_ids, 1));
 
         // A save that changes nothing in the scene sends nothing.
         save(
@@ -342,7 +349,7 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("an empty patch after the undo")
         };
-        assert!(patch.replace.is_empty(), "{patch:?}");
+        assert!(patch.ops.is_empty(), "{patch:?}");
 
         // Problems again, then a fix that changes the scene: a patch against
         // the last scene sent.
@@ -360,7 +367,10 @@ mod tests {
         let Some(Ok(Body::Patch(patch))) = stream.next().await else {
             panic!("a patch after the fix")
         };
-        assert_eq!(patch.replace[0].id, "0.0");
+        let Some(devpage_design::proto::op::Op::Change(heading)) = &patch.ops[0].op else {
+            panic!("{patch:?}")
+        };
+        assert_eq!(heading.id, scene_root_child(&scene_ids, 0));
 
         // Deleted: the problem, and the stream stays open for it…
         std::fs::remove_file(dir.join("app/screen.design")).unwrap();

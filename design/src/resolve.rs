@@ -10,6 +10,7 @@ use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 use crate::Problem;
 use crate::fonts::{self, Family, FontFile, FontFiles, FontId};
 use crate::parse::{self, Child, Element, Pos, TextPart, Value};
+use crate::tree::{Children, Ids, NodeId, OrderKey};
 
 /// One color's value: straight-alpha RGBA.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -386,6 +387,9 @@ pub struct TextStyle {
 /// One node of a scene.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Node {
+    /// Where the node came from — see [`NodeId`] — which no edit around it
+    /// changes.
+    pub id: NodeId,
     pub kind: Kind,
     pub name: String,
     pub x: f32,
@@ -408,7 +412,7 @@ pub struct Node {
     pub text: Option<TextStyle>,
     pub vector: Option<Vector>,
     pub image: Option<Image>,
-    pub children: Vec<Node>,
+    pub children: Children<Node>,
 }
 
 impl Node {
@@ -441,6 +445,7 @@ impl Node {
 
     fn new(kind: Kind, name: &str) -> Node {
         Node {
+            id: NodeId::default(),
             kind,
             name: name.to_string(),
             x: 0.0,
@@ -463,7 +468,7 @@ impl Node {
             text: None,
             vector: None,
             image: None,
-            children: Vec::new(),
+            children: Children::new(),
         }
     }
 }
@@ -478,6 +483,14 @@ pub trait Files {
     /// A design file's text.
     fn read(&self, path: &str) -> Option<String> {
         String::from_utf8(self.bytes(path)?).ok()
+    }
+    /// The design file at `path`, whose text is `source`, parsed. A store
+    /// that keeps files between resolves matches it against the file's last
+    /// parse ([`crate::ids::matched`]), so its elements keep their ids — and
+    /// the nodes they make theirs — across saves.
+    fn parse(&self, path: &str, source: &str) -> Result<Arc<parse::File>, Problem> {
+        let _ = path;
+        parse::parse(source).map(Arc::new)
     }
     /// The image file at `path`, decoded, or why it doesn't decode; `None`
     /// when there is no such file. A store that keeps files between resolves
@@ -521,13 +534,80 @@ impl Files for HashMap<String, String> {
 /// and font file its texts are set in, the files it was made from, and
 /// whether it is **themed** — whether any `theme.` reference reached its
 /// nodes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Scene {
     pub root: Node,
     pub images: ImageFiles,
     pub fonts: FontFiles,
     pub files: Vec<String>,
     pub themed: bool,
+    /// Where each node is, by its id: what a patch finds its nodes by.
+    pub ids: Ids,
+}
+
+/// Two scenes are the same when they hold the same nodes, files and
+/// themes, however their children were placed.
+impl PartialEq for Scene {
+    fn eq(&self, other: &Scene) -> bool {
+        self.root == other.root
+            && self.images == other.images
+            && self.fonts == other.fonts
+            && self.files == other.files
+            && self.themed == other.themed
+    }
+}
+
+impl Scene {
+    /// A scene of `root` and its files, its ids indexed.
+    pub fn new(
+        root: Node,
+        images: ImageFiles,
+        fonts: FontFiles,
+        files: Vec<String>,
+        themed: bool,
+    ) -> Scene {
+        let ids = Ids::of(&root);
+        Scene {
+            root,
+            images,
+            fonts,
+            files,
+            themed,
+            ids,
+        }
+    }
+
+    /// The node with id `id`, if the scene has it.
+    pub fn node(&self, id: &NodeId) -> Option<&Node> {
+        self.at(self.ids.get(id)?)
+    }
+
+    /// The node at `order`, if any.
+    pub fn at(&self, order: &[OrderKey]) -> Option<&Node> {
+        let mut at = &self.root;
+        for k in order {
+            at = at.children.get(k)?;
+        }
+        Some(at)
+    }
+
+    /// The node at `order`, to change, if any.
+    pub fn at_mut(&mut self, order: &[OrderKey]) -> Option<&mut Node> {
+        let mut at = &mut self.root;
+        for k in order {
+            at = at.children.get_mut(k)?;
+        }
+        Some(at)
+    }
+}
+
+impl crate::tree::Node for Node {
+    fn id(&self) -> &NodeId {
+        &self.id
+    }
+    fn children(&self) -> &Children<Node> {
+        &self.children
+    }
 }
 
 /// A scene's image files by id, each decoded once however many `Image`s
@@ -556,16 +636,17 @@ pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
         families: HashMap::new(),
         themes: HashMap::new(),
         themed: false,
+        instance: Vec::new(),
     };
     let root = r.design(path, &[], None, "", None);
     if r.problems.is_empty() {
-        Ok(Scene {
-            root: root.expect("no problems means a root"),
-            images: r.images,
-            fonts: r.fonts,
-            files: r.read,
-            themed: r.themed,
-        })
+        Ok(Scene::new(
+            root.expect("no problems means a root"),
+            r.images,
+            r.fonts,
+            r.read,
+            r.themed,
+        ))
     } else {
         Err(r.problems)
     }
@@ -596,6 +677,9 @@ struct Resolver<'a> {
     themes: HashMap<String, Rc<Themes>>,
     /// Whether a `theme.` reference reached a node.
     themed: bool,
+    /// The element ids of the instances enclosing the element being
+    /// resolved, outermost first: the start of every id made here.
+    instance: Vec<u32>,
 }
 
 /// The themes a folder's designs use: every `themes.yml` with `kind: themes`
@@ -1013,8 +1097,8 @@ impl Resolver<'_> {
         if !self.read.iter().any(|p| p == path) {
             self.read.push(path.to_string());
         }
-        let mut file = match parse::parse(&source) {
-            Ok(file) => file,
+        let mut file = match self.files.parse(path, &source) {
+            Ok(file) => (*file).clone(),
             Err(mut problem) => {
                 problem.file = path.to_string();
                 self.problems.push(problem);
@@ -1207,6 +1291,7 @@ impl Resolver<'_> {
             }
             let args: Vec<(parse::Attr, String)> = attrs
                 .iter()
+                .filter(|a| a.name != "key" || !self.key_ok(path, a))
                 .map(|a| {
                     let (value, by) = substitute(&a.value, props, path);
                     let arg = parse::Attr {
@@ -1218,7 +1303,10 @@ impl Resolver<'_> {
                 })
                 .collect();
             let target = target.clone();
-            return self.design(&target, &args, Some((path, el.pos)), &el.name, parent);
+            self.instance.push(el.id);
+            let node = self.design(&target, &args, Some((path, el.pos)), &el.name, parent);
+            self.instance.pop();
+            return node;
         }
         let kind = match el.name.as_str() {
             // Keep in step with ELEMENTS.
@@ -1234,6 +1322,9 @@ impl Resolver<'_> {
             }
         };
         let mut node = Node::new(kind, &el.name);
+        let mut id = self.instance.clone();
+        id.push(el.id);
+        node.id = NodeId(id);
         // A text's `font`, as given and by the file that wrote it, chosen a
         // face from once its weight is known.
         let mut font = None;
@@ -1327,7 +1418,19 @@ impl Resolver<'_> {
             let weight_at = attrs.iter().find(|a| a.name == "weight").map(|a| a.pos);
             text.font = self.text_font(path, el.pos, font, weight, weight_at);
         } else {
+            let mut keys: HashMap<&str, Pos> = HashMap::new();
             for child in &el.children {
+                if let Child::Element(e) = child
+                    && let Some(k) = crate::ids::key(e)
+                    && keys.insert(k, e.pos).is_some()
+                {
+                    let at = e
+                        .attrs
+                        .iter()
+                        .find(|a| a.name == "key")
+                        .map_or(e.pos, |a| a.pos);
+                    self.problem(path, at, format!("key: {k:?} is another sibling's key too"));
+                }
                 match child {
                     Child::Element(e) => {
                         if kind != Kind::Frame {
@@ -1407,6 +1510,10 @@ impl Resolver<'_> {
         let ok = match (attr.name.as_str(), kind) {
             ("x" | "y" | "width" | "height" | "name" | "opacity" | "onClick", _) => {
                 self.common(path, by, node, attr, value);
+                return;
+            }
+            ("key", _) => {
+                self.key_ok(path, attr);
                 return;
             }
             ("fill", k) if k != Kind::Text => fill(&value).map(|f| node.fill = Some(f)),
@@ -1748,6 +1855,16 @@ impl Resolver<'_> {
             Some(at) if self.files.bytes(&at).is_none() => Err(format!("{action} — no such file")),
             Some(at) => Ok(format!("{verb} {at}")),
         }
+    }
+
+    /// Whether `attr`, a `key`, is a string — the one value a parse can
+    /// match siblings by — saying so where it isn't. True either way once
+    /// it has been looked at, so an instance doesn't pass it on as a prop.
+    fn key_ok(&mut self, path: &str, attr: &parse::Attr) -> bool {
+        if !matches!(attr.value, Value::Str(..)) {
+            self.problem(path, attr.pos, "key: expected a string".into());
+        }
+        true
     }
 
     fn common(&mut self, path: &str, by: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
@@ -2482,6 +2599,38 @@ mod tests {
         w.write_image_data(&[0, 0, 0, 255]).unwrap();
         drop(w);
         out
+    }
+
+    /// A `key` names a node among its siblings: two the same is a problem
+    /// at the second, and a key is a string; on an instance it is the
+    /// instance's, not a prop.
+    #[test]
+    fn a_key_is_a_string_unique_among_siblings() {
+        let p = problems(r#"<Frame><Rect key="a" /><Rect key="b" /><Rect key="a" /></Frame>"#);
+        assert_eq!(
+            p,
+            vec![r#"d/a.design:1:46: key: "a" is another sibling's key too"#]
+        );
+        let p = problems("<Frame><Rect key={3} /></Frame>");
+        assert_eq!(p, vec!["d/a.design:1:14: key: expected a string"]);
+        assert!(
+            problems(r#"<Frame><Rect key="a" /><Frame key="b"><Rect key="a" /></Frame></Frame>"#)
+                .is_empty()
+        );
+        let files: HashMap<String, String> = [
+            ("b.design".to_string(), "<Frame />".to_string()),
+            (
+                "a.design".to_string(),
+                r#"import B from "./b.design"
+<Frame><B key="one" /><B key="two" /></Frame>"#
+                    .to_string(),
+            ),
+        ]
+        .into();
+        let s = resolve(&files, "a.design").unwrap();
+        // Two instances of one file: their nodes' ids differ by the instance.
+        assert_ne!(s.root.children[0].id, s.root.children[1].id);
+        assert_eq!(s.ids.len(), 3);
     }
 
     fn problems(source: &str) -> Vec<String> {

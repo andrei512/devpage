@@ -142,7 +142,7 @@ impl List {
         build(&mut b);
         let made = b.finish();
         list.put(
-            vec![0],
+            Vec::new(),
             Chunk::new(t, Vec2::ZERO, made, Vec::new(), None, None),
         );
         list

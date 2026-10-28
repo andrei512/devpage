@@ -6,7 +6,8 @@ use std::collections::{BTreeSet, HashMap};
 use kurbo::Rect as KRect;
 
 use crate::display::Order;
-use crate::resolve::{Node, Scene};
+use crate::resolve::Scene;
+use crate::tree::OrderKey;
 
 use super::*;
 impl Renderer {
@@ -14,82 +15,89 @@ impl Renderer {
         &mut self,
         d: &mut Drawing,
         new: &Scene,
-        replaced: &[crate::wire::Replaced],
+        applied: &crate::wire::Applied,
     ) -> Result<Damage, Undrawable> {
         self.register(&new.fonts);
         d.visited = 0;
-        // Each replaced subtree against what replaced it: a replacement's
-        // parent kept its own attributes and its children, so nothing above
-        // it is restyled.
-        let mut changes = Changes::default();
-        for r in replaced {
-            changes.diff(&r.old, find_node(&new.root, &r.id), r.id.clone(), false);
-        }
+        let changes = Changes::of(d, new, applied);
         let mut damage = Damage::default();
         let mut images = false;
-        // What is gone: the children past a node's new count, and the
-        // subtrees made again from nothing — their chunks, records and
-        // property-tree nodes, found by their ids' prefix.
-        for order in changes.removed.iter().chain(&changes.rebuilt) {
+        // What is gone: subtrees removed, moved away or made again — their
+        // layout nodes, chunks, records and property-tree nodes.
+        for order in &changes.removed {
+            let gone = d.nodes[order];
             images |= d.forget(order, &mut damage);
-        }
-        // The layout tree, edited where the scene changed. Children go from
-        // the end of their parent's list, so every other id still names its
-        // node.
-        let mut hugs: Vec<(Order, NodeId, bool, bool)> = Vec::new();
-        for order in changes.removed.iter().rev() {
+            if order.is_empty() {
+                continue;
+            }
             let at = &order[..order.len() - 1];
-            let parent = taffy_at(&d.tree, d.root, &at[1..]);
-            let gone = d
-                .tree
-                .remove_child_at_index(parent, order[order.len() - 1] as usize)
-                .expect("child");
+            let parent = d.nodes[at];
+            d.tree.remove_child(parent, gone).expect("child");
             remove_subtree(&mut d.tree, gone);
             if d.tree.child_count(parent) == 0 {
                 // A frame left with no children is laid out as a leaf, which
                 // never clears the list of absolutely placed children taffy
                 // kept for it — the ones just removed: it is made afresh.
                 let node = find_node(&new.root, at);
-                let up = (at.len() > 1).then(|| find_node(&new.root, &at[..at.len() - 1]));
+                let up = (!at.is_empty()).then(|| find_node(&new.root, &at[..at.len() - 1]));
                 let fresh = d.tree.new_leaf(style_of(node, up)).expect("node");
-                if at.len() == 1 {
+                if at.is_empty() {
                     d.root = fresh;
                 } else {
-                    let grand = taffy_at(&d.tree, d.root, &at[1..at.len() - 1]);
+                    let grand = d.nodes[&at[..at.len() - 1]];
+                    let i = d
+                        .tree
+                        .children(grand)
+                        .expect("children")
+                        .iter()
+                        .position(|&c| c == parent)
+                        .expect("a child of its parent");
                     d.tree
-                        .replace_child_at_index(grand, at[at.len() - 1] as usize, fresh)
+                        .replace_child_at_index(grand, i, fresh)
                         .expect("child");
                 }
+                d.nodes.insert(at.to_vec(), fresh);
                 let _ = d.tree.remove(parent);
             }
         }
-        for order in changes.rebuilt.iter().chain(&changes.added) {
+        // What is placed, parents before children and siblings in order, so
+        // the siblings before each are in the layout tree already.
+        let mut hugs: Vec<(Order, NodeId, bool, bool)> = Vec::new();
+        for order in &changes.added {
             let node = find_node(&new.root, order);
-            let parent = (order.len() > 1).then(|| find_node(&new.root, &order[..order.len() - 1]));
+            let parent =
+                (!order.is_empty()).then(|| find_node(&new.root, &order[..order.len() - 1]));
             let mut made = Vec::new();
-            let id = build(&mut d.tree, node, parent, &mut made, &new.images);
-            hugs.extend(made.into_iter().map(|(id, w, h)| (order.clone(), id, w, h)));
-            if order.len() == 1 {
+            let mut hug = Vec::new();
+            let id = build(
+                &mut d.tree,
+                node,
+                parent,
+                &mut hug,
+                &new.images,
+                order.clone(),
+                &mut made,
+            );
+            d.nodes.extend(made);
+            hugs.extend(hug.into_iter().map(|(id, w, h)| (order.clone(), id, w, h)));
+            if order.is_empty() {
                 let gone = std::mem::replace(&mut d.root, id);
                 remove_subtree(&mut d.tree, gone);
                 continue;
             }
-            let parent_id = taffy_at(&d.tree, d.root, &order[1..order.len() - 1]);
-            let at = order[order.len() - 1] as usize;
-            if at < d.tree.child_count(parent_id) {
-                let gone = d
-                    .tree
-                    .replace_child_at_index(parent_id, at, id)
-                    .expect("child");
-                remove_subtree(&mut d.tree, gone);
-            } else {
-                d.tree.add_child(parent_id, id).expect("child");
-            }
+            let at = &order[..order.len() - 1];
+            let parent_id = d.nodes[at];
+            let key = &order[order.len() - 1];
+            let place = parent.expect("a parent").children.rank(key);
+            d.tree
+                .insert_child_at_index(parent_id, place, id)
+                .expect("child");
         }
         for order in &changes.attrs {
             let node = find_node(&new.root, order);
-            let parent = (order.len() > 1).then(|| find_node(&new.root, &order[..order.len() - 1]));
-            let id = taffy_at(&d.tree, d.root, &order[1..]);
+            let parent =
+                (!order.is_empty()).then(|| find_node(&new.root, &order[..order.len() - 1]));
+            let id = d.nodes[order];
             d.tree.set_style(id, style_of(node, parent)).expect("style");
             if let Some(leaf) = leaf_of(node, &new.images) {
                 d.tree.set_node_context(id, Some(Some(leaf))).expect("leaf");
@@ -99,15 +107,15 @@ impl Renderer {
         // path: only their extent can have changed. Innermost first.
         let mut seen = BTreeSet::new();
         for order in changes.touched() {
-            for k in (1..=order.len()).rev() {
+            for k in (0..=order.len()).rev() {
                 let at = &order[..k];
                 if !seen.insert(at.to_vec()) {
                     continue;
                 }
                 let node = find_node(&new.root, at);
-                let parent = (k > 1).then(|| find_node(&new.root, &order[..k - 1]));
+                let parent = (k > 0).then(|| find_node(&new.root, &order[..k - 1]));
                 if let Some((w, h)) = hugs_of(node, parent) {
-                    hugs.push((at.to_vec(), taffy_at(&d.tree, d.root, &at[1..]), w, h));
+                    hugs.push((at.to_vec(), d.nodes[at], w, h));
                 }
             }
         }
@@ -132,23 +140,30 @@ impl Renderer {
         self.settle(&mut d.tree, root, &hugs);
         // Only the changed nodes' paths are walked, and below them only
         // what moved, changed size or was made again.
-        let mut path: HashMap<Order, BTreeSet<u32>> = HashMap::new();
+        let mut path: HashMap<Order, BTreeSet<OrderKey>> = HashMap::new();
         for order in changes.touched() {
-            for k in 1..order.len() {
+            for k in 0..order.len() {
                 path.entry(order[..k].to_vec())
                     .or_default()
-                    .insert(order[k]);
+                    .insert(order[k].clone());
             }
         }
         let attrs: BTreeSet<Order> = changes.attrs.iter().cloned().collect();
         let dirty = |o: &Order| attrs.contains(o);
         self.blobs = std::mem::take(&mut d.blobs);
         let (t, c) = (d.list.root_transform, d.list.root_clip);
+        // A parent in auto layout whose children came or went: they may all
+        // have moved.
         let reflow: BTreeSet<Order> = changes
             .added
             .iter()
             .chain(&changes.removed)
+            .filter(|o| !o.is_empty())
             .map(|o| o[..o.len() - 1].to_vec())
+            .filter(|p| {
+                new.at(p)
+                    .is_some_and(|n| n.layout != crate::resolve::Layout::None)
+            })
             .collect();
         let mut walk = Walk {
             scene: new,
@@ -164,7 +179,7 @@ impl Renderer {
             d,
             &mut walk,
             &new.root,
-            vec![0],
+            Vec::new(),
             root,
             t,
             Place::default(),
@@ -207,60 +222,89 @@ impl Renderer {
     }
 }
 
-/// What changed between two scenes, node by node, by id: nodes whose own
-/// attributes changed, nodes made again from nothing — a leaf of the layout
-/// tree that became a frame or the other way round — and children added past
-/// or removed from the end of a node's list.
+/// What a patch changed, by order in the drawing: nodes whose own
+/// attributes changed, subtrees that went — removed, moved away, or made
+/// again because a node became a leaf of the layout tree or stopped being
+/// one — where they were, and subtrees placed where they are now.
 #[derive(Default, Debug)]
 pub(super) struct Changes {
     pub(super) attrs: Vec<Order>,
-    pub(super) rebuilt: Vec<Order>,
     pub(super) added: Vec<Order>,
     pub(super) removed: Vec<Order>,
 }
 
 impl Changes {
-    /// The changes from `old` to `new` at `order`; `restyle` when its
-    /// parent's layout changed, which decides part of its style.
-    pub(super) fn diff(&mut self, old: &Node, new: &Node, order: Order, restyle: bool) {
-        if old == new && !restyle {
-            return;
+    /// What `applied` did, found in the drawing `d` showed before and in
+    /// `new`: each subtree's root once — none under another — and each in
+    /// tree order.
+    pub(super) fn of(d: &Drawing, new: &Scene, applied: &crate::wire::Applied) -> Changes {
+        let mut removed: BTreeSet<Order> = applied
+            .removed
+            .iter()
+            .filter_map(|id| d.orders.get(id).cloned())
+            .collect();
+        let mut added: BTreeSet<Order> = applied
+            .placed
+            .iter()
+            .filter_map(|id| new.ids.get(id).cloned())
+            .collect();
+        let mut attrs = BTreeSet::new();
+        let under =
+            |set: &BTreeSet<Order>, o: &[OrderKey]| (0..=o.len()).any(|k| set.contains(&o[..k]));
+        for (id, old) in &applied.changed {
+            let Some(o) = new.ids.get(id) else { continue };
+            // A node placed in this patch is made whole.
+            if !d.orders.get(id).is_some_and(|was| was == o) || under(&added, o) {
+                continue;
+            }
+            let node = new.at(o).expect("indexed");
+            if leafy(old) != leafy(node) {
+                removed.insert(o.clone());
+                added.insert(o.clone());
+                continue;
+            }
+            attrs.insert(o.clone());
+            // Its layout decides part of each child's style.
+            if old.layout != node.layout {
+                for k in node.children.entries().map(|(k, _)| k) {
+                    let mut c = o.clone();
+                    c.push(k.clone());
+                    attrs.insert(c);
+                }
+            }
         }
-        if leafy(old) != leafy(new) {
-            self.rebuilt.push(order);
-            return;
-        }
-        if restyle || !old.same_own(new) {
-            self.attrs.push(order.clone());
-        }
-        let common = old.children.len().min(new.children.len());
-        let layout = old.layout != new.layout;
-        for i in 0..common {
-            let mut o = order.clone();
-            o.push(i as u32);
-            self.diff(&old.children[i], &new.children[i], o, layout);
-        }
-        for i in common..new.children.len() {
-            let mut o = order.clone();
-            o.push(i as u32);
-            self.added.push(o);
-        }
-        for i in common..old.children.len() {
-            let mut o = order.clone();
-            o.push(i as u32);
-            self.removed.push(o);
+        let tops = |set: &BTreeSet<Order>| -> Vec<Order> {
+            set.iter()
+                .filter(|o| !(0..o.len()).any(|k| set.contains(&o[..k])))
+                .cloned()
+                .collect()
+        };
+        let removed = tops(&removed);
+        let added = tops(&added);
+        let attrs = attrs
+            .into_iter()
+            .filter(|o| !under(&added.iter().cloned().collect(), o))
+            .collect();
+        Changes {
+            attrs,
+            added,
+            removed,
         }
     }
 
-    /// The nodes of the new scene a change is at: every changed node, and
-    /// the parent of each removed one.
-    pub(super) fn touched(&self) -> impl Iterator<Item = &[u32]> {
+    /// The nodes of the new scene a change is at: every changed and placed
+    /// node, and the parent of each removed one.
+    pub(super) fn touched(&self) -> impl Iterator<Item = &[OrderKey]> {
         self.attrs
             .iter()
-            .chain(&self.rebuilt)
             .chain(&self.added)
             .map(|o| o.as_slice())
-            .chain(self.removed.iter().map(|o| &o[..o.len() - 1]))
+            .chain(
+                self.removed
+                    .iter()
+                    .filter(|o| !o.is_empty())
+                    .map(|o| &o[..o.len() - 1]),
+            )
     }
 }
 
@@ -281,7 +325,11 @@ impl Drawing {
                 damage.rects.extend(c.bounds);
                 self.list.free(&c.made);
             }
+            self.nodes.remove(&o);
             if let Some(rec) = self.recs.remove(&o) {
+                if self.orders.get(&rec.node) == Some(&o) {
+                    self.orders.remove(&rec.node);
+                }
                 images |= !rec.painted.is_empty();
                 self.painters.remove(&o);
                 self.list.trees.transforms.remove(rec.transform);

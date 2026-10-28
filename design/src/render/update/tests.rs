@@ -31,7 +31,7 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
     let mut r = Renderer::new();
     let mut live = r.drawing(&old, Theme::Light, None).unwrap();
     let t = std::time::Instant::now();
-    let damage = live.update_between(&mut r, &old, &new).unwrap();
+    let damage = live.update_between(&mut r, &mut old.clone(), &new).unwrap();
     eprintln!("update {:?}, damage {damage:?}", t.elapsed());
     assert!(!damage.all && !damage.rects.is_empty());
     for d in &damage.rects {
@@ -88,8 +88,9 @@ fn an_update_paints_as_a_fresh_drawing() {
         design(40, 60, 6, false),
     ];
     let mut live = r.drawing(&steps[0], Theme::Light, None).unwrap();
+    let mut held = steps[0].clone();
     for (n, pair) in steps.windows(2).enumerate() {
-        let damage = live.update_between(&mut r, &pair[0], &pair[1]).unwrap();
+        let damage = live.update_between(&mut r, &mut held, &pair[1]).unwrap();
         let fresh = r.drawing(&pair[1], Theme::Light, None).unwrap();
         assert_eq!(live.area(), fresh.area(), "step {n}");
         assert_eq!(live.frames(), fresh.frames(), "step {n}");
@@ -141,11 +142,12 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
     );
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
+    let mut held = a.clone();
     let mut best = std::time::Duration::MAX;
     for n in 0..12 {
-        let (old, new) = if n % 2 == 0 { (&a, &b) } else { (&b, &a) };
+        let new = if n % 2 == 0 { &b } else { &a };
         let t = std::time::Instant::now();
-        let damage = d.update_between(&mut r, old, new).unwrap();
+        let damage = d.update_between(&mut r, &mut held, new).unwrap();
         best = best.min(t.elapsed());
         assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
     }
@@ -173,10 +175,10 @@ fn an_edit_visits_only_its_path() {
 fn a_row_that_grows_moves_the_rows_after_it() {
     let a = tall(50, 20, "Row 00020");
     let mut b = a.clone();
-    b.root.children[20].height = resolve::Size::Px(160.0);
+    b.root.children.nth_mut(20).unwrap().height = resolve::Size::Px(160.0);
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
-    let damage = d.update_between(&mut r, &a, &b).unwrap();
+    let damage = d.update_between(&mut r, &mut a.clone(), &b).unwrap();
     assert!(!damage.all);
     assert!(
         damage.rects.iter().all(|r| r.y1 > 2000.0 - 1.0),
@@ -216,10 +218,19 @@ fn paths(n: &Node, at: Vec<usize>, out: &mut Vec<Vec<usize>>) {
     }
 }
 
+/// Gives `n` and every node under it ids no other node has.
+fn renumber(n: &mut Node, next: &mut u32) {
+    n.id = crate::tree::NodeId(vec![*next]);
+    *next += 1;
+    for c in n.children.iter_mut() {
+        renumber(c, next);
+    }
+}
+
 fn node_at<'a>(root: &'a mut Node, path: &[usize]) -> &'a mut Node {
     let mut at = root;
     for &i in path {
-        at = &mut at.children[i];
+        at = at.children.nth_mut(i).unwrap();
     }
     at
 }
@@ -237,15 +248,17 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
     let start = crate::resolve(&repo(), path).unwrap();
     let mut r = Renderer::new();
     let mut rng = Lcg(SEED);
+    let mut fresh_ids = 1_000_000;
     for theme in [Theme::Light, Theme::Dark] {
         let mut scene = start.clone();
-        let mut d = r.drawing(&scene, theme, None).unwrap();
-        // The canvas's side: the scene as the stream carries it, patched.
+        // The canvas's side: the scene as the stream carries it, patched,
+        // and the drawing made from it, whose places are its.
         let mut held = crate::wire::decode_scene(
             &crate::wire::scene(&scene),
             (&Default::default(), &Default::default()),
         )
         .unwrap();
+        let mut d = r.drawing(&held, theme, None).unwrap();
         let mut uses = crate::wire::Uses::of(&held.root);
         for step in 0..STEPS {
             let mut next = scene.clone();
@@ -268,15 +281,19 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                         }
                     }
                     5 if !n.children.is_empty() => {
-                        n.children.pop();
+                        let last = n.children.last_key().cloned().unwrap();
+                        n.children.remove(&last);
                     }
                     6 if !n.children.is_empty() => {
-                        let c = n.children[0].clone();
+                        // A copy is another node, with ids of its own.
+                        let mut c = n.children[0].clone();
+                        renumber(&mut c, &mut fresh_ids);
                         n.children.push(c);
                     }
                     7 if n.children.len() > 1 => {
-                        let c = n.children.pop().unwrap();
-                        n.children.insert(0, c);
+                        let last = n.children.last_key().cloned().unwrap();
+                        let c = n.children.remove(&last).unwrap();
+                        n.children.insert_after(None, c);
                     }
                     8 => {
                         n.layout = match n.layout {
@@ -302,10 +319,34 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             if !valid(&next.root) {
                 continue;
             }
+            // Edited by hand, so indexed again.
+            next.ids = crate::tree::Ids::of(&next.root);
             // By the very patch the canvas gets, applied as the canvas
             // applies it.
             let patch = crate::wire::patch(&scene, &next);
-            let replaced = crate::wire::apply(&mut held, &mut uses, &patch).unwrap();
+            let replaced = crate::wire::apply(&mut held, &mut uses, &patch).unwrap_or_else(|e| {
+                panic!(
+                    "{theme:?} step {step} kind {kind} at {at:?}: {e}\n{:?}",
+                    patch
+                        .ops
+                        .iter()
+                        .map(|o| format!(
+                            "{:?}",
+                            o.op.as_ref().map(|o| match o {
+                                crate::proto::op::Op::Change(n) => format!("change {:?}", n.id),
+                                crate::proto::op::Op::Insert(i) => format!(
+                                    "insert {:?} after {:?} under {:?}",
+                                    i.node.as_ref().unwrap().id,
+                                    i.after,
+                                    i.parent
+                                ),
+                                crate::proto::op::Op::Remove(r) => format!("remove {r:?}"),
+                                crate::proto::op::Op::Move(m) => format!("move {:?}", m.id),
+                            })
+                        ))
+                        .collect::<Vec<_>>()
+                )
+            });
             assert!(held.root == next.root, "the patch carries the scene");
             assert_eq!(uses, crate::wire::Uses::of(&held.root));
             d.update(&mut r, &held, &replaced).unwrap();
@@ -407,4 +448,195 @@ fn an_edit_costs_the_patch_not_the_design() {
         big < small * 4,
         "{big:?} on 10,000 rows against {small:?} on 100"
     );
+}
+
+/// A design of `n` rows in a frame with no layout, as saved: with `front`,
+/// one more before the first.
+fn rows_saved(saves: &mut crate::ids::testing::Saves, n: usize, front: bool) -> Scene {
+    let mut rows = String::new();
+    if front {
+        rows.push_str("<Frame width={400} height={10} fill=\"#ff0000\" />");
+    }
+    for i in 0..n {
+        rows.push_str(&format!(
+            "<Frame y={{{}}} width={{400}} height={{10}} fill=\"#{:06x}\" />",
+            i * 10,
+            i * 7919 % 0xffffff
+        ));
+    }
+    saves.save(
+        "a.design",
+        format!("<Frame layout=\"none\" fill=\"#ffffff\">{rows}</Frame>"),
+    );
+    saves.resolve("a.design")
+}
+
+/// A row inserted before the first of 1,000 or 10,000 is one insert in the
+/// patch and one chunk made: the drawing visits the new row and its parent,
+/// whatever the number of siblings, and paints as a fresh drawing does.
+#[test]
+fn an_insert_before_the_first_is_one_insert_and_one_chunk() {
+    for n in [1_000, 10_000] {
+        let mut saves = crate::ids::testing::Saves::default();
+        let old = rows_saved(&mut saves, n, false);
+        let new = rows_saved(&mut saves, n, true);
+        let p = crate::wire::patch(&old, &new);
+        assert_eq!(p.ops.len(), 1, "{n}");
+        let mut held = crate::wire::decode_scene(
+            &crate::wire::scene(&old),
+            (&Default::default(), &Default::default()),
+        )
+        .unwrap();
+        let mut uses = crate::wire::Uses::of(&held.root);
+        let mut r = Renderer::new();
+        let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+        let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+        d.update(&mut r, &held, &applied).unwrap();
+        assert_eq!(d.visited, 2, "{n}");
+        let fresh = r.drawing(&new, Theme::Light, None).unwrap();
+        assert_eq!(d.frames(), fresh.frames());
+        for row in [0, 1, 2] {
+            assert!(
+                crate::cpu::tile(&d.list, 1.0, 0, row)
+                    == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                "{n} row {row}"
+            );
+        }
+    }
+}
+
+/// Random saves of a list — rows inserted at the front, middle and end,
+/// removed, moved, resized, keyed and not — each resolved from the saved
+/// text, patched onto the canvas's scene and its drawing: the drawing paints
+/// as a fresh one, and every row the save didn't touch keeps its node's id.
+#[test]
+fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
+    #[derive(Clone)]
+    struct Row {
+        label: String,
+        keyed: bool,
+        width: u32,
+    }
+    let text = |rows: &[Row]| {
+        let body: String = rows
+            .iter()
+            .map(|r| {
+                let key = if r.keyed {
+                    format!(r#" key="{}""#, r.label)
+                } else {
+                    String::new()
+                };
+                format!(
+                    r##"<Frame name="{l}"{key} width={{{w}}} height={{20}} fill="#88aacc"><Text size={{12}}>{l}</Text></Frame>"##,
+                    l = r.label,
+                    w = r.width
+                )
+            })
+            .collect();
+        format!(r##"<Frame layout="column" gap={{2}} fill="#ffffff">{body}</Frame>"##)
+    };
+    let ids = |s: &Scene| -> HashMap<String, crate::tree::NodeId> {
+        s.root
+            .children
+            .iter()
+            .map(|c| (c.name.clone(), c.id.clone()))
+            .collect()
+    };
+    let mut rng = Lcg(11);
+    let mut rows: Vec<Row> = (0..12)
+        .map(|i| Row {
+            label: format!("r{i}"),
+            keyed: i % 3 == 0,
+            width: 100,
+        })
+        .collect();
+    let mut saves = crate::ids::testing::Saves::default();
+    saves.save("a.design", text(&rows));
+    let mut sent = saves.resolve("a.design");
+    let mut held = crate::wire::decode_scene(
+        &crate::wire::scene(&sent),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut r = Renderer::new();
+    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let mut next_label = 100;
+    for step in 0..80 {
+        let mut touched: Vec<String> = Vec::new();
+        let at = rng.next(rows.len() + 1);
+        match rng.next(5) {
+            0 => {
+                let place = [0, rows.len() / 2, rows.len()][rng.next(3)];
+                let label = format!("n{next_label}");
+                next_label += 1;
+                touched.push(label.clone());
+                rows.insert(
+                    place,
+                    Row {
+                        label,
+                        keyed: rng.next(2) == 0,
+                        width: 80,
+                    },
+                );
+            }
+            1 if rows.len() > 2 => {
+                let gone = rows.remove(at.min(rows.len() - 1));
+                touched.push(gone.label);
+            }
+            2 if rows.len() > 2 => {
+                let row = rows.remove(at.min(rows.len() - 1));
+                touched.push(row.label.clone());
+                let to = rng.next(rows.len() + 1);
+                rows.insert(to, row);
+            }
+            _ if !rows.is_empty() => {
+                let i = at.min(rows.len() - 1);
+                rows[i].width = 60 + rng.next(200) as u32;
+                touched.push(rows[i].label.clone());
+            }
+            _ => continue,
+        }
+        let before = ids(&sent);
+        saves.save("a.design", text(&rows));
+        let next = saves.resolve("a.design");
+        let after = ids(&next);
+        for (label, id) in &before {
+            if !touched.contains(label) {
+                assert_eq!(
+                    after.get(label),
+                    Some(id),
+                    "step {step}: {label} kept its id"
+                );
+            }
+        }
+        // A keyed row moved keeps its id too.
+        for row in rows
+            .iter()
+            .filter(|r| r.keyed && touched.contains(&r.label))
+        {
+            if let Some(id) = before.get(&row.label) {
+                assert_eq!(
+                    after.get(&row.label),
+                    Some(id),
+                    "step {step}: keyed {}",
+                    row.label
+                );
+            }
+        }
+        let p = crate::wire::patch(&sent, &next);
+        assert!(p.ops.len() <= 4, "step {step}: {} operations", p.ops.len());
+        let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+        assert!(held.root == next.root, "step {step}");
+        d.update(&mut r, &held, &applied).unwrap();
+        let fresh = r.drawing(&next, Theme::Light, None).unwrap();
+        assert_eq!(d.frames(), fresh.frames(), "step {step}");
+        let paint = |d: &Drawing| {
+            paint_area(&d.list, frame_rect(d.area()), 1.0)
+                .data_as_u8_slice()
+                .to_vec()
+        };
+        assert!(paint(&d) == paint(&fresh), "step {step}");
+        sent = next;
+    }
 }

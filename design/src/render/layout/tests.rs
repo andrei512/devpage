@@ -279,7 +279,15 @@ fn rounded_whole(s: &Scene) -> Vec<Frame> {
     r.register(&s.fonts);
     let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
     let mut hugs = Vec::new();
-    let root = build(&mut tree, &s.root, None, &mut hugs, &s.images);
+    let root = build(
+        &mut tree,
+        &s.root,
+        None,
+        &mut hugs,
+        &s.images,
+        Vec::new(),
+        &mut Vec::new(),
+    );
     r.settle(&mut tree, root, &hugs);
     fn go(tree: &TaffyTree<Option<Leaf>>, id: NodeId, x: f32, y: f32, out: &mut Vec<Frame>) {
         let l = tree.layout(id).expect("laid out");

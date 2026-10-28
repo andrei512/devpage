@@ -22,12 +22,14 @@ pub mod atlas;
 pub mod compare;
 pub mod display;
 pub mod fonts;
+pub mod ids;
 pub mod parse;
 pub mod proto;
 pub mod render;
 pub mod resolve;
 pub mod shadow;
 pub mod tiles;
+pub mod tree;
 pub mod wire;
 
 // Adapters.

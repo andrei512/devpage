@@ -2,6 +2,7 @@
 //! layout, no-layout frames hugging their children — and every node's box.
 
 use crate::resolve::{self, Align, ImageFiles, Layout, Node, Scene, Size as DSize};
+use crate::tree::{Order, OrderKey};
 
 use super::*;
 impl Renderer {
@@ -11,7 +12,15 @@ impl Renderer {
         let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
         tree.disable_rounding();
         let mut hugs = Vec::new();
-        let root = build(&mut tree, &scene.root, None, &mut hugs, &scene.images);
+        let root = build(
+            &mut tree,
+            &scene.root,
+            None,
+            &mut hugs,
+            &scene.images,
+            Vec::new(),
+            &mut Vec::new(),
+        );
         self.settle(&mut tree, root, &hugs);
         frames_by_order(&tree, root, &scene.root)
             .into_values()
@@ -111,18 +120,10 @@ impl Renderer {
     }
 }
 
-pub(super) fn find_node<'a>(root: &'a Node, order: &[u32]) -> &'a Node {
+pub(super) fn find_node<'a>(root: &'a Node, order: &[OrderKey]) -> &'a Node {
     let mut at = root;
-    for &i in &order[1..] {
-        at = &at.children[i as usize];
-    }
-    at
-}
-
-pub(super) fn taffy_at(tree: &TaffyTree<Option<Leaf>>, root: NodeId, path: &[u32]) -> NodeId {
-    let mut at = root;
-    for &i in path {
-        at = tree.child_at_index(at, i as usize).expect("child");
+    for k in order {
+        at = at.children.get(k).expect("a node there");
     }
     at
 }
@@ -131,32 +132,26 @@ pub(super) fn frames_by_order(
     tree: &TaffyTree<Option<Leaf>>,
     root: NodeId,
     node: &Node,
-) -> std::collections::BTreeMap<Vec<u32>, Frame> {
+) -> std::collections::BTreeMap<Order, Frame> {
     let mut out = std::collections::BTreeMap::new();
     pub(super) fn go(
         tree: &TaffyTree<Option<Leaf>>,
         id: NodeId,
         node: &Node,
-        order: Vec<u32>,
+        order: Order,
         parent: Place,
-        out: &mut std::collections::BTreeMap<Vec<u32>, Frame>,
+        out: &mut std::collections::BTreeMap<Order, Frame>,
     ) {
-        let (frame, place) = placed(tree, id, parent, order.len() == 1);
+        let (frame, place) = placed(tree, id, parent, order.is_empty());
         out.insert(order.clone(), frame);
-        for (i, c) in node.children.iter().enumerate() {
+        let kids = tree.children(id).unwrap_or_default();
+        for ((k, c), &child) in node.children.entries().zip(&kids) {
             let mut o = order.clone();
-            o.push(i as u32);
-            go(
-                tree,
-                tree.child_at_index(id, i).expect("child"),
-                c,
-                o,
-                place,
-                out,
-            );
+            o.push(k.clone());
+            go(tree, child, c, o, place, out);
         }
     }
-    go(tree, root, node, vec![0], Place::default(), &mut out);
+    go(tree, root, node, Vec::new(), Place::default(), &mut out);
     out
 }
 
@@ -176,26 +171,37 @@ pub(super) enum Leaf {
     Intrinsic(f32, f32),
 }
 
+/// The layout tree of `node` — at `order` — and everything under it, and
+/// each one's layout node by its order in `made`.
 pub(super) fn build(
     tree: &mut TaffyTree<Option<Leaf>>,
     node: &Node,
     parent: Option<&Node>,
     hugs: &mut Vec<(NodeId, bool, bool)>,
     images: &ImageFiles,
+    order: Order,
+    made: &mut Vec<(Order, NodeId)>,
 ) -> NodeId {
     let style = style_of(node, parent);
     if let Some(leaf) = leaf_of(node, images) {
-        return tree.new_leaf_with_context(style, Some(leaf)).expect("leaf");
+        let id = tree.new_leaf_with_context(style, Some(leaf)).expect("leaf");
+        made.push((order, id));
+        return id;
     }
     let children: Vec<NodeId> = node
         .children
-        .iter()
-        .map(|c| build(tree, c, Some(node), hugs, images))
+        .entries()
+        .map(|(k, c)| {
+            let mut o = order.clone();
+            o.push(k.clone());
+            build(tree, c, Some(node), hugs, images, o, made)
+        })
         .collect();
     let id = tree.new_with_children(style, &children).expect("node");
     if let Some((w, h)) = hugs_of(node, parent) {
         hugs.push((id, w, h));
     }
+    made.push((order, id));
     id
 }
 
