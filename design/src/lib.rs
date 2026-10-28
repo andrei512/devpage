@@ -39,6 +39,7 @@ pub mod cpu;
 
 use std::fmt;
 
+pub use kurbo::Rect as KRect;
 pub use render::{Damage, Drawing, Renderer};
 pub use resolve::{Files, Scene, Theme, resolve};
 

@@ -307,6 +307,18 @@ impl Run {
     /// reaches past its box, to the last that starts before its end, plus
     /// that.
     pub(super) fn touching(&self, r: KRect) -> Vec<(&OrderKey, Vec2)> {
+        self.touching_rounded(r)
+            .into_iter()
+            .map(|(k, at, _)| (k, at))
+            .collect()
+    }
+
+    /// [`Run::touching`], each child with whether it still rounds as its
+    /// space was made: whether its rounded place less its unrounded one is
+    /// what it was when its boxes and chunks were made. A child the sums
+    /// moved by a fraction of a pixel doesn't, and is rounded anew before it
+    /// is read.
+    pub(super) fn touching_rounded(&self, r: KRect) -> Vec<(&OrderKey, Vec2, bool)> {
         let ((a0, a1), _) = spans(self.row, r);
         let base = if self.row { self.raw.x } else { self.raw.y } + self.start;
         let over = self.overhang.greatest().unwrap_or(0.0).max(0.0);
@@ -321,7 +333,9 @@ impl Run {
             if at > to {
                 break;
             }
-            out.push((k, self.place(at, p.across).1));
+            let (raw, rounded) = self.place(at, p.across);
+            let fresh = ((rounded - raw) - p.delta).hypot() < 1e-3;
+            out.push((k, rounded, fresh));
             at += p.size + p.gap;
         }
         out

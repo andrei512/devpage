@@ -333,6 +333,7 @@ impl Drawing {
             {
                 self.list.remove_run(drid);
                 self.shifts.remove(&drid);
+                self.contexts.remove(&drid);
             }
             if let Some(rec) = self.recs.remove(o) {
                 if self.orders.get(&rec.node) == Some(o) {

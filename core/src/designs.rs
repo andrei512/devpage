@@ -748,11 +748,21 @@ impl Designs {
                         // A band of a drawing too wide for whole tiles is
                         // painted in strips, never cached.
                         Piece::Strip { col, y, rows } => {
-                            let kept = lock(&kept);
-                            let drawing = Some(&*kept)
-                                .filter(|k| k.version == version)
-                                .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
-                                .ok_or("the design changed while its PNG was written")?;
+                            let mut kept = lock(&kept);
+                            let drawing =
+                                prepared(&mut kept, version, theme, &store.renderer, |d| {
+                                    let a = d.area();
+                                    let (x, y) = (
+                                        a.x as f64 + (col * devpage_design::tiles::TILE) as f64,
+                                        a.y as f64 + y as f64,
+                                    );
+                                    devpage_design::KRect::new(
+                                        x,
+                                        y,
+                                        x + devpage_design::tiles::TILE as f64,
+                                        y + rows as f64,
+                                    )
+                                })?;
                             return Ok::<_, &str>(
                                 devpage_design::cpu::strip(&drawing.list, col, y, rows).into(),
                             );
@@ -769,14 +779,16 @@ impl Designs {
                     };
                     // The design's lock, for one tile at a time: never while
                     // the band is written.
-                    let kept = lock(&kept);
-                    let drawing = Some(&*kept)
-                        .filter(|k| k.version == version)
-                        .and_then(|k| k.drawings.iter().find(|d| d.theme() == theme))
-                        .ok_or("the design changed while its PNG was written")?;
+                    let mut kept = lock(&kept);
+                    if Some(&*kept).filter(|k| k.version == version).is_none() {
+                        return Err("the design changed while its PNG was written");
+                    }
                     if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
                         return Ok(pixels.clone());
                     }
+                    let drawing = prepared(&mut kept, version, theme, &store.renderer, |d| {
+                        devpage_design::tiles::tile_rect(&d.list, 1.0, col, row)
+                    })?;
                     let pixels: Arc<[u8]> =
                         devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
                     #[cfg(test)]
@@ -800,6 +812,35 @@ impl Designs {
         self.png_to(path, theme, &mut png)?;
         Ok(png)
     }
+}
+
+/// The drawing of `kept` in `theme` — if it is still `version`'s — with
+/// what the area `rect` picks rounded where its runs now place it, so what
+/// is painted there is a fresh drawing's.
+fn prepared<'a>(
+    kept: &'a mut Kept,
+    version: u64,
+    theme: Theme,
+    renderer: &Mutex<Renderer>,
+    rect: impl FnOnce(&devpage_design::Drawing) -> devpage_design::KRect,
+) -> Result<&'a devpage_design::Drawing, &'static str> {
+    let gone = "the design changed while its PNG was written";
+    if kept.version != version {
+        return Err(gone);
+    }
+    let Kept {
+        resolution,
+        drawings,
+        ..
+    } = kept;
+    let scene = resolution.as_ref().ok_or(gone)?.scene();
+    let drawing = drawings
+        .iter_mut()
+        .find(|d| d.theme() == theme)
+        .ok_or(gone)?;
+    let area = rect(drawing);
+    drawing.prepare(&mut lock(renderer), scene, area);
+    Ok(drawing)
 }
 
 /// The design at `path`'s problems, read straight from disk: what
@@ -1746,7 +1787,18 @@ mod bench {
             let t = std::time::Instant::now();
             let _ = saves.update(&files, &["a.design".to_string()]);
             let again = t.elapsed();
-            eprintln!("{n}: resolve again {again:?}");
+            // Of the rest, matching the saved file's elements against its
+            // last parse — what the store does and the line above doesn't.
+            let last = devpage_design::parse::parse(&rows(usize::MAX)).unwrap();
+            let t = std::time::Instant::now();
+            let fresh = devpage_design::parse::parse(&rows(n / 2)).unwrap();
+            let parsed = t.elapsed();
+            let t = std::time::Instant::now();
+            let _ = devpage_design::ids::matched(fresh, &last);
+            let matched = t.elapsed();
+            eprintln!(
+                "{n}: resolve again {again:?}, of the store's: parse {parsed:?}, match {matched:?}"
+            );
             eprintln!(
                 "{n}: store {store:?}, stream's patch {diff:?}, {} ops",
                 patch.ops.len()

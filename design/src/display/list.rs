@@ -328,8 +328,9 @@ impl List {
         self.resum(id);
     }
 
-    /// The run's entry and cover in its space made again from its sums.
-    fn resum(&mut self, id: RunId) {
+    /// The run's entry and cover in its space made again from its sums —
+    /// after where it places its children changed.
+    pub fn resum(&mut self, id: RunId) {
         let (reach, cover) = self.run(id).extents();
         self.place_run(id, reach, cover);
     }
@@ -437,6 +438,46 @@ impl List {
                             self.found_in(space, at + child, cut, rect, pixel, out);
                         }
                     }
+                }
+            }
+        }
+    }
+
+    /// The run children that touch `rect` — in the design's coordinates —
+    /// and no longer round as their spaces were made: what is rounded anew
+    /// before `rect` is painted, hit or read. Only what touches `rect` is
+    /// looked at.
+    pub fn unrounded(&self, rect: KRect) -> Vec<(RunId, crate::tree::OrderKey)> {
+        let mut out = Vec::new();
+        self.unrounded_in(&self.root, Vec2::ZERO, rect, &mut out);
+        out
+    }
+
+    fn unrounded_in(
+        &self,
+        local: &SpaceIndex,
+        at: Vec2,
+        rect: KRect,
+        out: &mut Vec<(RunId, crate::tree::OrderKey)>,
+    ) {
+        for e in local
+            .index
+            .locate_in_envelope_intersecting(&aabb(rect - at))
+        {
+            let What::Run(id) = &e.what else { continue };
+            let run = self.run(*id);
+            let rect = match run.cut {
+                Some(c) => rect.intersect(c + at),
+                None => rect,
+            };
+            if rect.width() < 0.0 || rect.height() < 0.0 {
+                continue;
+            }
+            for (k, child, fresh) in run.touching_rounded(rect - at) {
+                if !fresh {
+                    out.push((*id, k.clone()));
+                } else if let Some(space) = run.spaces.get(k) {
+                    self.unrounded_in(space, at + child, rect, out);
                 }
             }
         }
