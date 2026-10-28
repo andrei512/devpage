@@ -120,7 +120,11 @@ lines around it change:
   comparing each element whole — its name, its own attributes and everything
   in it, so a row inserted before a run of rows alike but for their text is
   that row, not a shift of them all — so an element inserted, removed or
-  moved costs the elements it touched, not the list —
+  moved costs the elements it touched, not the list. Myers' diff costs the
+  list's length times the edits, so past 256 edits in one list — a save that
+  rewrote it — the list is matched by a histogram diff instead, which anchors
+  on elements that occur once on each side and recurses between the anchors,
+  near-linear however many edits there are; never by position —
   and then, among what is left, an unmatched element with an unmatched one of
   the same name in the same place, as an edit of it;
 - a matched element's children are matched the same way; an element left
@@ -216,7 +220,13 @@ the change can reach is resolved again:
 - a `themes.yml`, a font file or folder, or an image: the nodes that read it —
   the store keeps, for each, the nodes that do.
 
-What was resolved again is the patch: no scene is compared with another.
+What was resolved again is the patch: no scene is compared with another,
+with two exceptions that change the whole design and are resolved whole and
+compared: a change to the design's own `props` defaults, which every node
+may read, and its root element replaced. A third is a safety net, not a
+path: if resolving the parts again ever fails where resolving the whole
+doesn't, the whole is taken and compared, and counted — the tests hold that
+count at zero.
 Resolving again costs what the change reached, beside reading the file that
 was saved: the saved file is parsed, matched against its last parse and
 walked beside it to find what changed — linear in that file, and nothing in
@@ -285,14 +295,19 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
 - A **layout boundary** is a node whose own content can't change its size: a
   fixed `width` and `height`. An edit inside one lays out the boundary's own
   subtree; its size can't move, so nothing outside it is laid out again.
-- A **run** is an auto-layout frame whose children each take their own size
-  and are set one after another: none of them is `"fill"` along its
-  direction and its `justify` isn't `"space-between"`. A child of a run is
+- A **run** is an auto-layout frame — every one — whose children are set one
+  after another. A child of a run is
   laid out on its own — across, in the room the frame gives it — and its
   place along the direction is the sum of the sizes and gaps before it, kept
   in a tree of prefix sums. A child whose size changes updates the sums in log
   time and moves no sibling: a sibling's place is read from the sums when it
-  is painted, hit or rounded. A run that hugs takes its length from the sums
+  is painted, hit or rounded. `"space-between"` spreads the free room as one
+  more gap after each child, and the sums count children, so a place is still
+  a sum. `"fill"` children share the free room — the frame's length less the
+  sums of the others, in log time — resolved as flexbox resolves it, against
+  each one's least size, over the fill children only; a change of the free
+  room lays out again the fill children whose size it changes, and no other
+  sibling. A run that hugs takes its length from the sums
   and its breadth from the largest child, kept in a counted set; `justify`
   `"center"` or `"end"` is one offset for every child. The sums are exact —
   kept in 64-bit floats — where taffy adds its items' sizes one by one in
@@ -301,12 +316,21 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
   breadth is within a thousandth of a pixel of its line's is the line's
   broadest and sits at its start, whatever the last bit of its size measured
   under another of the run's constraints.
-- A frame whose children share its room — a `"fill"` child, or
-  `"space-between"` — is laid out by `taffy` over all its children when one
-  of them changes size, since each one's place depends on all of them.
+- A frame with no layout is a **space**: each child laid out on its own at its
+  `x` and `y`, which no sibling moves; a frame that hugs takes its size from
+  the furthest right and bottom of its children, kept in counted sets; its
+  children are indexed in the frame's own coordinates, so the frame moving
+  moves one entry.
+- What changes a child's room changes the child, and only then is the child
+  laid out again: a run's new breadth reaches only the children that
+  stretch across it, a new free room only the `"fill"` children it resizes,
+  and a frame's own look — its fill, stroke, radius, shadow, opacity, clip —
+  reaches no child at all.
 
-So an edit to one item of a list costs the item and log time in the list,
-however many items it has.
+So an edit costs the nodes whose own box or look it changes, plus log time in
+each run or space on their way to the root — however many siblings they
+have. A place a run reads from its sums, or a box rounded when it is read,
+is not a change.
 
 Text is measured, shaped and broken into lines with `parley`, over the Inter
 faces the engine embeds — regular, medium, semibold and bold — and the scene's
