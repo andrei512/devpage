@@ -370,13 +370,24 @@ fn edit_scaling() {
         .iter()
         .filter(|(name, _)| name.contains(only.as_str()))
     {
-        for n in [10_000usize, 100_000, 200_000] {
+        // A frame with no layout places its 200,000th child past the
+        // largest number a design may write: it stops at 100,000.
+        let lengths: &[usize] = if name.contains("no layout") {
+            &[10_000, 50_000, 100_000]
+        } else {
+            &[10_000, 100_000, 200_000]
+        };
+        for &n in lengths {
             let mut saves = crate::ids::testing::Saves::default();
             saves.save("a.design", src(n, false));
             let mut res = Resolution::new(&saves, "a.design").unwrap();
             let mut r = Renderer::new();
             let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
-            let rounds = if n == 200_000 { 20 + repeat } else { 20 };
+            let rounds = if n == *lengths.last().expect("a length") {
+                20 + repeat
+            } else {
+                20
+            };
             let mut times = vec![];
             for i in 0..rounds {
                 saves.save("a.design", src(n, i % 2 == 0));
