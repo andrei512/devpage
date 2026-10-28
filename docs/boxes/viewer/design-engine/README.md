@@ -218,7 +218,11 @@ the change can reach is resolved again:
   resolved again with its subtree, since its props reach all of it; an import
   that names another file resolves its instances again;
 - a `themes.yml`, a font file or folder, or an image: the nodes that read it —
-  the store keeps, for each, the nodes that do.
+  the store keeps, for each, the nodes that do. A theme color among a
+  design's `props` defaults is read by the instance, since any node in it
+  may read that prop: a change to the themes resolves the instance again
+  with its subtree — for the design's own root, the design whole, as for
+  any change to its own `props` defaults.
 
 What was resolved again is the patch: no scene is compared with another,
 with two exceptions that change the whole design and are resolved whole and
@@ -332,7 +336,12 @@ A layout is kept in pieces, so that an edit lays out only what it can change.
   laid out again: a run's new breadth reaches only the children that
   stretch across it, a new free room only the `"fill"` children it resizes,
   and a frame's own look — its fill, stroke, radius, shadow, opacity, clip —
-  reaches no child at all.
+  reaches no child at all. A node's room reaches its size only along an axis
+  it doesn't fix: a fixed width, or height, takes nothing from the room
+  along it, whatever is inside — so a card of a fixed width holding text
+  that wraps is laid out once, wherever its frame grows. A new `align` moves
+  every child across that doesn't fill its line: each is placed again, and
+  nothing inside it, which sits in its own coordinates.
 
 So an edit costs the nodes whose own box or look it changes, plus log time in
 each run or space on their way to the root — however many siblings they

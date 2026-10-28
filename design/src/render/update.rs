@@ -72,25 +72,10 @@ impl Renderer {
         let relaid = |o: &Order| placing.contains(o);
         self.blobs = std::mem::take(&mut d.blobs);
         let (t, c) = (d.list.root_transform, d.list.root_clip);
-        // A parent in auto layout whose children came or went: they may all
-        // have moved.
-        let reflow: BTreeSet<Order> = changes
-            .added
-            .iter()
-            .chain(&changes.removed)
-            .filter(|o| !o.is_empty())
-            .map(|o| o[..o.len() - 1].to_vec())
-            .filter(|p| {
-                new.at(p)
-                    .is_some_and(|n| n.layout != crate::resolve::Layout::None)
-                    && !d.laid.run_of.contains_key(p)
-            })
-            .collect();
         let mut walk = Walk {
             scene: new,
             dirty: &dirty,
             relaid: &relaid,
-            reflow: Some(&reflow),
             path: Some(&path),
             damage: Some(&mut damage),
             fresh: None,
@@ -448,8 +433,10 @@ impl Renderer {
         let parent_order = order[..order.len() - 1].to_vec();
         let parent = find_node(&new.root, &parent_order);
         let key = order.last().expect("a key").clone();
-        if d.laid.sens_build(node, order.clone()) {
-            d.laid.sens_settle(&new.root, &parent_order, 1);
+        let (w, h) = d.laid.sens_build(node, order.clone());
+        if w || h {
+            d.laid
+                .sens_settle(&new.root, &parent_order, (w as isize, h as isize));
         }
         if let Some(&rid) = d.laid.run_of.get(&parent_order) {
             let mut run = d.laid.runs.take(rid);
@@ -482,7 +469,7 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
         return;
     };
     let style = style_of(node, parent);
-    d.laid.sens_settle(&new.root, order, 0);
+    d.laid.sens_settle(&new.root, order, (0, 0));
     if let Some(&rid) = d.laid.run_of.get(order) {
         // Its children are laid out again only along a new direction; its
         // leaf, restyled below, is measured again.

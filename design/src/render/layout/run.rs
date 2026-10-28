@@ -1,6 +1,7 @@
-//! Runs: auto-layout frames whose children each take their own size and are
-//! set one after another — no `"fill"` child along the run, no
-//! `"space-between"`. A run is a leaf of the layout tree it sits in; each of
+//! Runs: every frame with children — an auto-layout frame's set one after
+//! another, `"space-between"` as one more step after each and `"fill"`
+//! children sharing the free room (`fill`), and a frame with no layout's each
+//! at its own place (`free`). A run is a leaf of the layout tree it sits in; each of
 //! its children is laid out on its own, in a tree of the run's, as the only
 //! item of a one-line flex container like the run, and the run's size is
 //! the sum of its children's sizes and gaps, kept in prefix sums. A child's
