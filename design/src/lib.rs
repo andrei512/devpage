@@ -28,6 +28,7 @@ pub mod proto;
 pub mod render;
 pub mod resolve;
 pub mod shadow;
+pub mod sums;
 pub mod tiles;
 pub mod tree;
 pub mod wire;

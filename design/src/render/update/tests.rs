@@ -640,3 +640,163 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
         sent = next;
     }
 }
+
+/// A column of `n` rows, each `heights(i)` tall with a line of text in it,
+/// saved through `saves`, and the row at `edit` given `label`, the row at
+/// `grow` 8 px taller, and a row before the first when `front`.
+fn column_saved(
+    saves: &mut crate::ids::testing::Saves,
+    n: usize,
+    label: (usize, &str),
+    grow: Option<usize>,
+    front: bool,
+    fractional: bool,
+) -> Scene {
+    let mut rows = String::new();
+    let height = |i: usize| {
+        let h = if Some(i) == grow { 28 } else { 20 };
+        if fractional {
+            String::new()
+        } else {
+            format!(" height={{{h}}}")
+        }
+    };
+    if front {
+        rows.push_str(&format!(
+            "<Frame width={{400}}{}><Text>first</Text></Frame>",
+            height(usize::MAX)
+        ));
+    }
+    for i in 0..n {
+        let text = if i == label.0 {
+            label.1.to_string()
+        } else {
+            format!("Row {i}")
+        };
+        let pad = if Some(i) == grow && fractional {
+            " padding={4}"
+        } else {
+            ""
+        };
+        rows.push_str(&format!(
+            "<Frame width={{400}}{}{pad}><Text>{text}</Text></Frame>",
+            height(i)
+        ));
+    }
+    saves.save(
+        "a.design",
+        format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
+    );
+    saves.resolve("a.design")
+}
+
+/// What one edit to a column of `n` rows costs the drawing, in release:
+/// the update's time, and how many nodes it visited.
+fn column_edit(
+    n: usize,
+    edit: &dyn Fn(&mut crate::ids::testing::Saves) -> Scene,
+) -> (std::time::Duration, usize) {
+    let mut saves = crate::ids::testing::Saves::default();
+    let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
+    let old = if edit_fractional() {
+        column_saved(&mut saves, n, (usize::MAX, ""), None, false, true)
+    } else {
+        old
+    };
+    let new = edit(&mut saves);
+    let p = crate::wire::patch(&old, &new);
+    let mut held = crate::wire::decode_scene(
+        &crate::wire::scene(&old),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut r = Renderer::new();
+    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+    let t = std::time::Instant::now();
+    d.update(&mut r, &held, &applied).unwrap();
+    let took = t.elapsed();
+    (took, d.visited)
+}
+
+fn edit_fractional() -> bool {
+    std::env::var_os("DEVPAGE_FRACTIONAL").is_some()
+}
+
+/// The numbers for a column of 1,000, 10,000 and 100,000 rows: an edit that
+/// keeps a row's size, one that grows it, and a row inserted before the
+/// first. Run in release: `cargo test --release -p devpage-design
+/// column_edit_costs -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn column_edit_costs() {
+    let f = edit_fractional();
+    for n in [1_000, 10_000, 100_000] {
+        let text = column_edit(n, &|s| {
+            column_saved(s, n, (n / 2, "Edited"), None, false, f)
+        });
+        let grow = column_edit(n, &|s| {
+            column_saved(s, n, (usize::MAX, ""), Some(n / 2), false, f)
+        });
+        let front = column_edit(n, &|s| column_saved(s, n, (usize::MAX, ""), None, true, f));
+        eprintln!(
+            "{n:>7} rows: text {:?} ({} visited), grow {:?} ({} visited), front {:?} ({} visited)",
+            text.0, text.1, grow.0, grow.1, front.0, front.1
+        );
+    }
+}
+
+/// One row of a column edited — its text, its height, a row before the
+/// first — visits the same nodes at 1,000 and 10,000 rows: the rows after it
+/// move by the run's sums. The drawing paints, hit-tests and finds its
+/// view's tiles as a fresh one does, and the damage runs from the edited row
+/// to the column's end.
+#[test]
+fn a_column_edit_visits_the_same_nodes_at_any_length() {
+    for n in [1_000, 10_000] {
+        let edits: [&dyn Fn(&mut crate::ids::testing::Saves) -> Scene; 3] = [
+            &|s| column_saved(s, n, (n / 2, "Edited"), None, false, false),
+            &|s| column_saved(s, n, (usize::MAX, ""), Some(n / 2), false, false),
+            &|s| column_saved(s, n, (usize::MAX, ""), None, true, false),
+        ];
+        for (e, edit) in edits.iter().enumerate() {
+            let mut saves = crate::ids::testing::Saves::default();
+            let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
+            let new = edit(&mut saves);
+            let p = crate::wire::patch(&old, &new);
+            let mut held = crate::wire::decode_scene(
+                &crate::wire::scene(&old),
+                (&Default::default(), &Default::default()),
+            )
+            .unwrap();
+            let mut uses = crate::wire::Uses::of(&held.root);
+            let mut r = Renderer::new();
+            let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+            let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+            let damage = d.update(&mut r, &held, &applied).unwrap();
+            assert!(d.visited <= 3, "{n} rows, edit {e}: {} visited", d.visited);
+            let fresh = r.drawing(&new, Theme::Light, None).unwrap();
+            assert_eq!(d.area(), fresh.area(), "{n} {e}");
+            assert_eq!(d.frames(), fresh.frames(), "{n} {e}");
+            let edited = if e == 2 { 0.0 } else { (n / 2) as f64 * 20.0 };
+            for rect in &damage.rects {
+                assert!(
+                    rect.y1 >= edited - 1.0,
+                    "{n} {e}: damage {rect:?} above the edit"
+                );
+            }
+            let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
+            for row in [0, rows / 2, rows - 1] {
+                assert!(
+                    crate::cpu::tile(&d.list, 1.0, 0, row)
+                        == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                    "{n} {e}: tile row {row}"
+                );
+            }
+            for y in [5.0, edited as f32 + 5.0, fresh.area().height - 5.0] {
+                assert_eq!(d.action_at(10.0, y), fresh.action_at(10.0, y));
+            }
+        }
+    }
+}

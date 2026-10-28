@@ -9,9 +9,11 @@ mod chunk;
 mod hit;
 mod list;
 mod paint;
+mod run;
 mod trees;
 
 pub use chunk::*;
 pub use list::*;
 pub use paint::*;
+pub use run::*;
 pub use trees::*;

@@ -6,7 +6,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use kurbo::{Rect as KRect, Vec2};
 use peniko::ImageData;
 
-use crate::display::{Blend, Builder, Chunk, Clip, Effect, Id, List, Order, Transform};
+use crate::display::{
+    Blend, Builder, Chunk, Clip, Effect, Id, List, Order, Placed, RunId, Space, Transform,
+};
 use crate::resolve::{self, ImageId, Node, Origin, Scene, Theme};
 use crate::tree::{NodeId as SceneId, OrderKey};
 
@@ -39,13 +41,17 @@ impl Painted {
 /// box by its id, the property-tree nodes each node made, the list, and the
 /// images the list paints.
 pub struct Drawing {
-    pub(super) tree: TaffyTree<Option<Leaf>>,
-    pub(super) root: NodeId,
+    /// The layout: the drawing's own tree and each run's.
+    pub(super) laid: Laid,
     pub(super) theme: Theme,
+    /// Every node's box, in its space's coordinates.
     pub(super) frames: BTreeMap<Order, Frame>,
     pub(super) recs: BTreeMap<Order, Rec>,
-    /// Each node's layout node, by its order.
-    pub(super) nodes: BTreeMap<Order, NodeId>,
+    /// Each run's place in the list, by its layout's slot.
+    pub(super) shown: HashMap<u32, RunId>,
+    /// For each run, the least start along it, in the design's coordinates,
+    /// of a child an update took out: where what follows moved from.
+    pub(super) shifts: HashMap<RunId, f64>,
     /// Each node's order, by its id: where a patch's nodes are in it.
     pub(super) orders: HashMap<SceneId, Order>,
     /// The display list: chunks under property trees, and their index.
@@ -81,6 +87,8 @@ pub struct Damage {
 #[derive(Clone)]
 pub(super) struct Rec {
     pub(super) node: SceneId,
+    /// The space its box and chunk are in.
+    pub(super) space: Space,
     pub(super) transform: Id,
     pub(super) effect: Option<Id>,
     pub(super) clip: Option<Id>,
@@ -94,9 +102,19 @@ impl Drawing {
         self.list.area
     }
 
-    /// Every node's box, in tree order.
+    /// Every node's box, in tree order, in the design's coordinates.
     pub fn frames(&self) -> Vec<Frame> {
-        self.frames.values().copied().collect()
+        self.frames
+            .iter()
+            .map(|(o, f)| {
+                let at = self.list.space_at(&self.recs[o].space);
+                Frame {
+                    x: f.x + at.x as f32,
+                    y: f.y + at.y as f32,
+                    ..*f
+                }
+            })
+            .collect()
     }
 
     pub fn theme(&self) -> Theme {
@@ -174,29 +192,17 @@ impl Renderer {
         after: Option<&Drawing>,
     ) -> Result<Drawing, Undrawable> {
         self.register(&scene.fonts);
-        let mut tree: TaffyTree<Option<Leaf>> = TaffyTree::new();
-        // Only the boxes read are rounded, by `placed`, as taffy would round
-        // them all.
-        tree.disable_rounding();
-        let mut hugs = Vec::new();
-        let mut nodes = Vec::new();
-        let root = build(
-            &mut tree,
-            &scene.root,
-            None,
-            &mut hugs,
-            &scene.images,
-            Vec::new(),
-            &mut nodes,
-        );
-        self.settle(&mut tree, root, &hugs);
+        let mut laid = Laid::build(self, scene);
+        let hugs = std::mem::take(&mut laid.hugs);
+        laid.settle_top(self, &hugs);
+        let root = laid.root;
         let mut d = Drawing {
-            tree,
-            root,
+            laid,
             theme,
             frames: BTreeMap::new(),
             recs: BTreeMap::new(),
-            nodes: nodes.into_iter().collect(),
+            shown: HashMap::new(),
+            shifts: HashMap::new(),
             orders: HashMap::new(),
             list: List::new(),
             blobs: HashMap::new(),
@@ -223,13 +229,16 @@ impl Renderer {
             &mut walk,
             &scene.root,
             Vec::new(),
+            Owner::Top,
             root,
             t,
             Place::default(),
+            (&Space::Root, Vec2::ZERO),
             c,
             None,
             None,
-            false,
+            (false, true),
+            None,
         );
         d.list.load(made);
         d.blobs = std::mem::take(&mut self.blobs);
@@ -338,7 +347,10 @@ impl Renderer {
     /// Makes `node`'s chunk again when it is dirty, new or another size, or
     /// moves it when only its place changed; then its children's. `remade`
     /// says its parent's clip or effect was made anew, which its own
-    /// commands are under.
+    /// commands are under; `all` that every node under it is to be visited.
+    /// `space` is the space it is in and where that space's origin is in the
+    /// design's coordinates; `item`, the run and key when it is a run's
+    /// child, whose place the run's sums keep.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn sync(
         &mut self,
@@ -346,16 +358,27 @@ impl Renderer {
         w: &mut Walk,
         node: &Node,
         order: Order,
+        owner: Owner,
         id: NodeId,
         parent_t: Id,
         parent: Place,
+        (space, space_at): (&Space, Vec2),
         clip: Id,
         cut: Option<KRect>,
         effect: Option<Id>,
-        remade: bool,
+        (remade, all_below): (bool, bool),
+        item: Option<(RunId, OrderKey)>,
     ) -> bool {
-        let (f, place) = placed(&d.tree, id, parent, order.is_empty());
-        let parent_origin = Vec2::new(parent.at.0 as f64, parent.at.1 as f64);
+        let (abs, place) = placed(d.laid.tree(owner), id, parent, order.is_empty());
+        let f = Frame {
+            x: abs.x - space_at.x as f32,
+            y: abs.y - space_at.y as f32,
+            ..abs
+        };
+        let parent_origin = Vec2::new(
+            parent.at.0 as f64 - space_at.x,
+            parent.at.1 as f64 - space_at.y,
+        );
         let origin = Vec2::new(f.x as f64, f.y as f64);
         d.visited += 1;
         let old = d.recs.remove(&order);
@@ -367,15 +390,23 @@ impl Renderer {
         let dirty = (w.dirty)(&order);
         let remake = old.is_none() || remade || dirty || resized;
         let trees = &mut d.list.trees;
+        let offset = if item.is_some() {
+            Vec2::ZERO
+        } else {
+            origin - parent_origin
+        };
         // Its transform is kept, and moved: its children's are under it.
         let transform = match &old {
             Some(rec) => {
-                trees.transforms.get_mut(rec.transform).offset = origin - parent_origin;
+                let t = trees.transforms.get_mut(rec.transform);
+                t.offset = offset;
+                t.item = item.clone();
                 rec.transform
             }
             None => trees.transforms.add(Transform {
                 parent: Some(parent_t),
-                offset: origin - parent_origin,
+                offset,
+                item: item.clone(),
             }),
         };
         let mut children_remade = remade;
@@ -442,19 +473,21 @@ impl Renderer {
         let (chunk, painted) = match was {
             Some(c) if !remake => {
                 let moved = c.origin != origin || c.cut != cut;
+                let at = d.list.space_at(space);
                 if moved && let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds);
+                    damage.rects.extend(c.bounds.map(|b| b + at));
                 }
                 let c = c.moved(origin, cut);
                 if moved && let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds);
+                    damage.rects.extend(c.bounds.map(|b| b + space_at));
                 }
                 (c, old.expect("kept").painted)
             }
             was => {
                 if let Some(c) = &was {
                     if let Some(damage) = w.damage.as_deref_mut() {
-                        damage.rects.extend(c.bounds);
+                        let at = d.list.space_at(&c.space);
+                        damage.rects.extend(c.bounds.map(|b| b + at));
                     }
                     d.list.free(&c.made);
                 }
@@ -492,9 +525,9 @@ impl Renderer {
                     .on_click
                     .clone()
                     .map(|a| (a, KRect::new(0.0, 0.0, f.width as f64, f.height as f64)));
-                let c = Chunk::new(transform, origin, built, covers, action, cut);
+                let c = Chunk::new(transform, space.clone(), origin, built, covers, action, cut);
                 if let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds);
+                    damage.rects.extend(c.bounds.map(|b| b + space_at));
                 }
                 if !painted.is_empty() || old.as_ref().is_some_and(|r| !r.painted.is_empty()) {
                     w.images = true;
@@ -512,6 +545,7 @@ impl Renderer {
             order.clone(),
             Rec {
                 node: node.id.clone(),
+                space: space.clone(),
                 transform,
                 effect: own_effect,
                 clip: own_clip,
@@ -519,8 +553,8 @@ impl Renderer {
             },
         );
         match w.fresh.as_deref_mut() {
-            Some(fresh) => fresh.push((order.clone(), chunk)),
-            None => d.list.put(order.clone(), chunk),
+            Some(fresh) if *space == Space::Root => fresh.push((order.clone(), chunk)),
+            _ => d.list.put(order.clone(), chunk),
         }
         let rect = frame_rect(f);
         let (inner, inner_cut) = match own_clip {
@@ -531,6 +565,7 @@ impl Renderer {
         // under changed; otherwise only those on a changed node's path, and
         // the rest too when one of those changed size, which can move them.
         let all = w.path.is_none()
+            || all_below
             || is_new
             || dirty
             || resized
@@ -538,56 +573,260 @@ impl Renderer {
             || cut_changed
             || children_remade
             || w.reflow.is_some_and(|r| r.contains(&order));
-        let leaf = leaf_of(node, &w.scene.images).is_some();
-        if leaf {
+        if leaf_of(node, &w.scene.images).is_some() {
             return resized;
         }
         let on_path = match (all, w.path) {
             (false, Some(path)) => path.get(&order).cloned().unwrap_or_default(),
             _ => BTreeSet::new(),
         };
-        let visit = |r: &mut Renderer, d: &mut Drawing, w: &mut Walk, k: &OrderKey| {
+        let down = Down {
+            transform,
+            place,
+            space,
+            space_at,
+            clip: inner,
+            cut: inner_cut,
+            effect: under,
+            remade: children_remade,
+        };
+        if let Some(&rid) = d.laid.run_of.get(&order) {
+            // A run's children are placed by its sums: its own move or change
+            // of size moves them without a visit — what does need one, a
+            // move by a fraction of a pixel, a new breadth or a new padding,
+            // the run finds itself.
+            let every = w.path.is_none() || all_below || is_new || dirty || children_remade;
+            let on_path = match w.path {
+                Some(path) if !every => path.get(&order).cloned().unwrap_or_default(),
+                _ => BTreeSet::new(),
+            };
+            self.sync_run(
+                d, w, node, &order, owner, id, rid, &down, every, &on_path, is_new,
+            );
+            return resized;
+        }
+        let visit = |r: &mut Renderer, d: &mut Drawing, w: &mut Walk, k: &OrderKey, all: bool| {
             let Some(child) = node.children.get(k) else {
                 return false;
             };
             let mut o = order.clone();
             o.push(k.clone());
-            let id = d.nodes[&o];
+            let (owner, id) = d.laid.nodes[&o];
             r.sync(
                 d,
                 w,
                 child,
                 o,
+                owner,
                 id,
-                transform,
-                place,
-                inner,
-                inner_cut,
-                under,
-                children_remade,
+                down.transform,
+                down.place,
+                (down.space, down.space_at),
+                down.clip,
+                down.cut,
+                down.effect,
+                (down.remade, all),
+                None,
             )
         };
         // Only in auto layout does one child's size move its siblings.
         let flows = node.layout != resolve::Layout::None;
         if all {
             for k in node.children.entries().map(|(k, _)| k) {
-                visit(self, d, w, k);
+                visit(self, d, w, k, all_below);
             }
         } else {
             let mut moves = false;
             for k in &on_path {
-                moves |= visit(self, d, w, k);
+                moves |= visit(self, d, w, k, false);
             }
             if moves && flows {
                 for k in node.children.entries().map(|(k, _)| k) {
                     if !on_path.contains(k) {
-                        visit(self, d, w, k);
+                        visit(self, d, w, k, false);
                     }
                 }
             }
         }
         resized
     }
+
+    /// A run's children: each placed by the run's sums, those `all` or on
+    /// the path visited, and — when one of them changed size by a fraction
+    /// of a pixel, which moves where every child after it rounds — every
+    /// child after it too. A child that changed size moves the ones after it
+    /// by the sums alone; their damage is one rectangle, from where the
+    /// first change starts to where the run ends.
+    #[allow(clippy::too_many_arguments)]
+    fn sync_run(
+        &mut self,
+        d: &mut Drawing,
+        w: &mut Walk,
+        node: &Node,
+        order: &Order,
+        owner: Owner,
+        id: NodeId,
+        rid: u32,
+        down: &Down,
+        all: bool,
+        on_path: &BTreeSet<OrderKey>,
+        is_new: bool,
+    ) {
+        let size = d.laid.tree(owner).unrounded_layout(id).size;
+        let Some((run, asked, lead)) = d.laid.run_places(rid, size) else {
+            return;
+        };
+        let (pc0, _) = run.padding_across();
+        let (row, gap, line) = (run.row, run.gap as f64, asked.line);
+        let drid = match d.shown.get(&rid) {
+            Some(&r) => r,
+            None => {
+                let r = d.list.add_run(down.space.clone());
+                d.shown.insert(rid, r);
+                r
+            }
+        };
+        let raw = Vec2::new(
+            down.place.raw.0 as f64 - down.space_at.x,
+            down.place.raw.1 as f64 - down.space_at.y,
+        );
+        let at = Vec2::new(
+            down.place.at.0 as f64 - down.space_at.x,
+            down.place.at.1 as f64 - down.space_at.y,
+        );
+        let fraction = |v: Vec2| Vec2::new(v.x - v.x.floor(), v.y - v.y.floor());
+        let old_entry = d.list.run(drid).entry().map(|e| e + down.space_at);
+        let changed = {
+            let dr = d.list.run(drid);
+            is_new
+                || dr.row != row
+                || dr.start != lead as f64
+                || dr.across != pc0 as f64
+                || dr.gap != gap
+                || fraction(dr.raw) != fraction(raw)
+                || dr.line != line as f64
+        };
+        {
+            let dr = d.list.run_mut(drid);
+            dr.raw = raw;
+            dr.at = at;
+            dr.row = row;
+            dr.start = lead as f64;
+            dr.across = pc0 as f64;
+            dr.gap = gap;
+            dr.line = line as f64;
+            dr.cut = down.cut;
+        }
+        let every = all || changed;
+        let mut shift: Option<f64> = d.shifts.remove(&drid);
+        let mut after = false;
+        let keys: Vec<OrderKey> = if every {
+            node.children.entries().map(|(k, _)| k.clone()).collect()
+        } else {
+            on_path.iter().cloned().collect()
+        };
+        let mut queue: std::collections::VecDeque<OrderKey> = keys.into();
+        let mut seen = BTreeSet::new();
+        while let Some(k) = queue.pop_front() {
+            if !seen.insert(k.clone()) {
+                continue;
+            }
+            let Some(child) = node.children.get(&k) else {
+                continue;
+            };
+            let (run, asked, _) = d.laid.run_places(rid, size).expect("placed");
+            let Some(s) = asked.sizes.get(&k).copied() else {
+                continue;
+            };
+            let stretch = run.children[&k].stretch;
+            let offset = run.across(line, &s, stretch) as f64;
+            let child_node = run.children[&k].node;
+            self.relay(&mut d.laid.runs, rid, &k, line);
+            let (before, old_size) = {
+                let dr = d.list.run(drid);
+                let before = dr.prefix(&k);
+                (before, dr.child(&k).map(|(_, p)| p.size))
+            };
+            let item = child_place(down.place, row, lead as f64 + before, pc0 as f64 + offset);
+            let item_at = Vec2::new(item.at.0 as f64, item.at.1 as f64);
+            let mut o = order.clone();
+            o.push(k.clone());
+            self.sync(
+                d,
+                w,
+                child,
+                o,
+                Owner::Run(rid),
+                child_node,
+                down.transform,
+                item,
+                (&Space::Item(drid, k.clone()), item_at),
+                down.clip,
+                None,
+                down.effect,
+                (down.remade, every || after),
+                Some((drid, k.clone())),
+            );
+            let delta = Vec2::new(
+                (item.at.0 - item.raw.0) as f64,
+                (item.at.1 - item.raw.1) as f64,
+            );
+            d.list.place_child(
+                drid,
+                k.clone(),
+                Some(Placed::new(s.along as f64, gap, offset, delta)),
+            );
+            let grew = old_size.map_or(s.along as f64 + gap, |o| s.along as f64 - o);
+            if grew != 0.0 {
+                let start = d.list.space_at(down.space) + d.list.run(drid).place(before, offset).1;
+                let start = if row { start.x } else { start.y };
+                shift = Some(shift.map_or(start, |s: f64| s.min(start)));
+                if !every && !after && (grew - grew.round()).abs() > 1e-4 {
+                    // Every child after it rounds where it now falls.
+                    after = true;
+                    let later: Vec<OrderKey> = d
+                        .list
+                        .run(drid)
+                        .keys_after(&k)
+                        .into_iter()
+                        .filter(|l| !seen.contains(l))
+                        .collect();
+                    queue.extend(later);
+                }
+            }
+        }
+        d.list.flush();
+        if let Some(start) = shift
+            && let Some(damage) = w.damage.as_deref_mut()
+        {
+            let new_entry = d.list.run(drid).entry().map(|e| e + down.space_at);
+            if let Some(both) = match (old_entry, new_entry) {
+                (Some(a), Some(b)) => Some(a.union(b)),
+                (a, b) => a.or(b),
+            } {
+                let r = if row {
+                    KRect::new(start.max(both.x0), both.y0, both.x1, both.y1)
+                } else {
+                    KRect::new(both.x0, start.max(both.y0), both.x1, both.y1)
+                };
+                if r.width() > 0.0 && r.height() > 0.0 {
+                    damage.rects.push(r);
+                }
+            }
+        }
+    }
+}
+
+/// What a node's children are visited under.
+pub(super) struct Down<'a> {
+    pub(super) transform: Id,
+    pub(super) place: Place,
+    pub(super) space: &'a Space,
+    pub(super) space_at: Vec2,
+    pub(super) clip: Id,
+    pub(super) cut: Option<KRect>,
+    pub(super) effect: Option<Id>,
+    pub(super) remade: bool,
 }
 
 /// What a [`Renderer::sync`] walk reads and adds to.
