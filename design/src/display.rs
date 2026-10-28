@@ -93,6 +93,11 @@ impl<T> Arena<T> {
         }
     }
 
+    /// How many nodes are live.
+    pub fn live(&self) -> usize {
+        self.slots.len() - self.free.len()
+    }
+
     pub fn get(&self, id: Id) -> &T {
         self.slots[id as usize].as_ref().expect("a live node")
     }

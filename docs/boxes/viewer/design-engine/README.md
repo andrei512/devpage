@@ -178,7 +178,8 @@ map onto their flex properties, `"hug"` is content size, `"fill"` is
 Flexbox gives such a frame no size of its own when it hugs, so the engine sizes
 it as Figma does: as far as its children's furthest right and bottom edges. It
 lays out, sets each hugging no-layout frame to its children's extent —
-innermost first — and lays out again until nothing changes, which takes one
+innermost first, measured before taffy rounds boxes to whole pixels, so a
+frame's size never depends on where it sits — and lays out again until nothing changes, which takes one
 pass per level of such frames. `"fill"` needs auto layout to take space from,
 so on a child of a no-layout frame it is a problem, found while resolving.
 
