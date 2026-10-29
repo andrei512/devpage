@@ -8,13 +8,14 @@ pub mod contexts;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::document::Document;
 use crate::drive::api_types::{Refusal, Thread};
-use crate::served::ServedFolder;
+use crate::folder::{Folder, ServedFolder};
 use api::Api;
 use contexts::{Context, Home};
 
@@ -308,8 +309,9 @@ async fn publish(
     context: &Option<String>,
     as_json: bool,
 ) -> Result<Output> {
-    let document = Document::load(path, served)?;
-    let problems = crate::check::document(&document, Some(&crate::http::external(None))).await;
+    let folder = Folder::new(Arc::new(Document::load(path, served)?));
+    let document = folder.entry();
+    let problems = crate::check::document(&folder, Some(&crate::http::external(None))).await;
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
         let text = if as_json {
@@ -322,7 +324,7 @@ async fn publish(
         };
         return Ok(Output { text, code: 1 });
     }
-    let bundle = crate::adapters::bundle::pack(&document)?;
+    let bundle = crate::adapters::bundle::pack(&folder)?;
     let (api, name) = connect(home, context)?;
     let file = document.path();
     let mut published: BTreeMap<PathBuf, String> = home.published(&name)?;

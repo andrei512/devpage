@@ -55,11 +55,19 @@ The YAML file describing a document — any name, `devpage.yml` by default.
 
 ## entry document
 
-The document devpage was started with, where `/` leads.
+The document devpage was started with, where `/` leads. While its file is invalid, its last valid version stays in use and `/` shows why.
 
 ## served folder
 
-The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to.
+The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to. In the code, `Folder` (`core/src/folder/`) is the served folder opened on its entry document — its document index, its owners, what a change to it means — and `folder::ServedFolder` is its boundary and its mount. It keeps no document but the entry: every other is loaded from its file when asked for. See [The index](../document-index/README.md#the-index).
+
+## document index
+
+What the served folder knows without scanning: every document file in it and its kind, and every `.gitignore`, kept current by the watcher. Not the [display index](#display-index). See [The index](../document-index/README.md#the-index).
+
+## owner
+
+The document a file belongs to: for a page, the nearest site whose folder holds it (`Folder::owner`); for a widgets folder, the document that names it — the entry document first (`Folder::widgets_owner`). See [The nearest site](../document-index/README.md#the-nearest-site).
 
 ## resolver
 
@@ -127,7 +135,7 @@ An auto-layout frame whose children each take their own size, set one after anot
 
 ## display list
 
-What the painter makes of a laid-out scene in one theme: drawing commands in [chunks](#chunk), each command under its nodes in the [property trees](#property-trees), and the [index](#index) over them. See [Painting](../design-engine/README.md#painting).
+What the painter makes of a laid-out scene in one theme: drawing commands in [chunks](#chunk), each command under its nodes in the [property trees](#property-trees), and the [display index](#display-index) over them. See [Painting](../design-engine/README.md#painting).
 
 ## property trees
 
@@ -137,9 +145,9 @@ The transform, clip and effect trees a display list's commands refer to instead 
 
 One scene node's own commands, in its own coordinates; its position is a node in the transform tree, so a move keeps the chunk. See [Chunks](../design-engine/README.md#chunks).
 
-## index
+## display index
 
-The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. See [The index](../design-engine/README.md#the-index).
+The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. Not the [document index](#document-index). See [The display index](../design-engine/README.md#the-display-index).
 
 ## paint backend
 
@@ -259,7 +267,7 @@ What tells open pages there is something new to show: typed changes — a refres
 
 ## out of sight
 
-A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
+A path the document index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
 
 ## watch set
 
@@ -359,7 +367,7 @@ Everything a page loads from devpage beyond its stylesheet and page script — i
 
 ## module cache
 
-What devpage has read and compiled of the widget files it serves, with each one's version, held by the served folder's index and forgotten file by file as files change (`Modules`). See [How widgets run](../widgets/how-widgets-run/README.md).
+What devpage has read and compiled of the widget files it serves, with each one's version, one per served folder, forgotten file by file as files change (`Modules`). See [How widgets run](../widgets/how-widgets-run/README.md).
 
 ## build id
 

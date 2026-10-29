@@ -328,7 +328,7 @@ async fn flush(tab: &Tab, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     /// A folder holding `talk.yml`, a deck of `slides`, each `(file, text)`.
     pub(in crate::drive) fn deck(name: &str, slides: &[(&str, &str)]) -> (PathBuf, Arc<Document>) {

@@ -26,10 +26,8 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::changes::{Change, Publish};
-use crate::document::Document;
-use crate::index::Index;
-use crate::served::ServedFolder;
-use crate::widgets::Widgets;
+use crate::folder::{Folder, ServedFolder};
+use crate::widgets::{Modules, Widgets};
 
 /// What a thread is attached to: rendered text, with a little context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -232,16 +230,16 @@ impl Comments {
         Ok(())
     }
 
-    /// Where every attached thread goes on the version whose entry document
-    /// is `entry`, loaded from this folder: each finds its quote in its
+    /// Where every attached thread goes on `version`, this folder opened on
+    /// the version's entry document: each finds its quote in its
     /// page's text as the page shows it — front matter left out, widget
     /// tags expanded — by its context where it can, and is detached when
     /// the quote, or the page, is gone. Nothing is written: the publish
     /// commits the [`Carry`] together with its version, so both land or
     /// neither does, and then [`Comments::carried`] announces it. It renders
     /// pages, which draws their diagrams: it blocks.
-    pub fn carry(&self, entry: &Document) -> Result<Carry> {
-        let index = Index::build(&self.folder);
+    pub fn carry(&self, version: &Folder) -> Result<Carry> {
+        let modules = Modules::default();
         let mut pages: std::collections::BTreeMap<String, Vec<Listed>> = Default::default();
         for (page, thread) in self.store.attached()? {
             pages.entry(page).or_default().push(thread);
@@ -249,7 +247,7 @@ impl Comments {
         let mut carry = Carry::default();
         for (page, threads) in pages {
             let text = self
-                .content(entry, &index, &page)
+                .content(version, &modules, &page)
                 .map(|html| anchor::text(&html));
             for listed in threads {
                 let found = text
@@ -298,15 +296,14 @@ impl Comments {
     }
 
     /// The HTML of `page`'s content as its page shows it: rendered with the
-    /// widgets of the document that shows it — its nearest site, or else
-    /// `entry`. `None` when the page is gone.
-    fn content(&self, entry: &Document, index: &Index, page: &str) -> Option<String> {
+    /// widgets of the document that shows it — its owner, or else the
+    /// version's entry document. `None` when the page is gone.
+    fn content(&self, version: &Folder, modules: &Modules, page: &str) -> Option<String> {
         let file = self.folder.file_at(page)?;
         let source = std::fs::read_to_string(&file).ok()?;
-        let site = index
-            .site_for(&file)
-            .and_then(|site| Document::load(&site, &self.folder).ok());
-        let widgets = Widgets::of(site.as_ref().unwrap_or(entry), index.modules());
+        let site = version.owner(&file).and_then(|owner| owner.document.ok());
+        let entry = version.entry();
+        let widgets = Widgets::of(site.as_ref().unwrap_or(&entry), modules);
         Some(crate::render::markdown_in(&widgets, &source))
     }
 
@@ -516,8 +513,8 @@ mod tests {
             )
             .unwrap();
         changes.drain();
-        let entry = Document::load(&served.path().join("a.md"), &served).unwrap();
-        let carry = comments.carry(&entry).unwrap();
+        let entry = crate::document::Document::load(&served.path().join("a.md"), &served).unwrap();
+        let carry = comments.carry(&Folder::new(Arc::new(entry))).unwrap();
         assert_eq!(
             carry.moved(),
             [Moved {

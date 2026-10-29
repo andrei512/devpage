@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use crate::changes::{Change, Changes};
 use crate::chrome::testing;
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::server;
 use crate::slide_png::Shots;
 

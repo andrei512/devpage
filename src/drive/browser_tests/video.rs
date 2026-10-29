@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use crate::chrome::testing;
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::video::silence::RATE;
 use crate::video::tests::deck;
 use crate::video::{Heard, Voice, film, live, record, served, told};

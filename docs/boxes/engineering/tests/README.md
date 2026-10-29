@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 504 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 517 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 166 in `devpage`, 184 in its
+`cargo test` runs every crate in the workspace: 160 in `devpage`, 202 in its
 core `devpage-core`, 143 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -327,6 +327,41 @@ In Chrome:
 - Outside a runtime, the preview asking nothing.
 - The preview showing an unreachable address only after three failures in a row, and clearing it when it answers.
 
+### `folder`
+
+*25 tests, on real folders, without a watcher.*
+
+The served folder, `ServedFolder`:
+
+- Files and folders inside resolved.
+- What climbs out with `..` or links out through a symbolic link refused.
+- A deleted file still inside by its path.
+- A mounted folder addressing its files under the mount, its names the same anywhere.
+
+The document index and owners:
+
+- Document files found outside what `.gitignore` excludes.
+- A page owned by the nearest site above it; an owner read as its file says now, and an invalid site still the owner.
+- Nested `.gitignore` files and `.git` folders out of sight.
+- Changes keeping it current, and saying when the folders to watch may differ.
+- A widgets folder belonging to the document that names it.
+
+What a changed path means, ported from the watcher so the rules are pinned on every platform:
+
+- Paths under `target/`, `.git/`, a `.gitignore`d folder and `.devpage/` never mattering; a comment thread and a `.gitignore`d file a site's `watch` names still mattering.
+- A new `.gitignore` rule taking effect without a restart.
+- Ignored files and files outside `watch` not refreshing.
+- The `watch` list following the entry file; an invalid entry file keeping its last valid document, judging by its `watch` list and saying why.
+- A site's `watch` narrowing only its own folder, whichever document devpage was started with; the entry's `watch` not quieting another folder.
+- Widget files refreshing whatever `watch` says.
+
+The watch set (`sight`): a folder with nothing out of sight watched whole;
+ignored folders and `.git` leaving their parents shallow and their siblings
+deep, a nested crate's `target/` included; the comment store deep and
+`.devpage` shallow; an ignored folder a `watch` pattern reaches into watched,
+the folders under it too (`build/**/*.svg`); and `**/*.md`, which can match in
+an ignored folder but reaches into none, watching none.
+
 ### `html`
 
 *4 tests, on strings.*
@@ -342,15 +377,6 @@ In Chrome:
 
 - Lucide icons and GitHub's mark drawn.
 - Unknown names known as such.
-
-### `index`
-
-*4 tests.*
-
-- Document files found outside what `.gitignore` excludes.
-- The nearest site above a page.
-- Nested `.gitignore` files and `.git` folders out of sight.
-- Changes keeping it current.
 
 ### `main`
 
@@ -487,8 +513,9 @@ In Chrome:
 
 ### `resolve`
 
-*8 tests, without a socket.*
+*9 tests, without a socket.*
 
+- An edited `.gitignore`d doc served fresh: no document is kept between requests.
 - A slide's PNG address naming a slide of a deck, or why there is none: a slide the deck doesn't have, a number written otherwise than plainly, a file that isn't a deck.
 - A design's PNG taking its theme from the address, and `400` for a bad one.
 - A site's page printing as a doc of one chapter.
@@ -497,14 +524,6 @@ In Chrome:
 - A served folder reached through a symbolic link.
 - Nothing outside the served folder answered.
 - Every address it answers with carrying the mount prefix.
-
-### `served`
-
-*3 tests.*
-
-- Files and folders inside resolved.
-- What climbs out with `..` or links out through a symbolic link refused.
-- A deleted file still inside by its path.
 
 ### The search's quality
 
@@ -636,7 +655,7 @@ In Chrome:
 
 ### `adapters::watch`
 
-*28 tests.*
+*22 tests.*
 
 Counting the paths the platform's watcher hands the handler, before sifting,
 on real folders:
@@ -655,13 +674,8 @@ on real folders:
 - An ignored folder a `watch` pattern names (`build/*.svg`) watched, another
   ignored folder not.
 
-The watch set itself (`adapters::watch::set`), on real folders: a folder with nothing
-out of sight watched whole; ignored folders and `.git` leaving their parents
-shallow and their siblings deep, a nested crate's `target/` included; the
-comment store deep and `.devpage` shallow; an ignored folder a `watch`
-pattern reaches into watched, the folders under it too (`build/**/*.svg`);
-and `**/*.md`, which can match in an ignored folder but reaches into none,
-watching none.
+The watch set itself is the served folder's, tested under
+[`folder`](#folder).
 
 Through the listeners:
 

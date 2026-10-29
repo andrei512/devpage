@@ -19,7 +19,7 @@ use devpage_design::compare::{self, Difference};
 use crate::chrome::testing::{self, eval, until};
 use crate::designs::Designs;
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::server;
 
 /// A screen of two buttons — Pay navigates, Sheet opens an overlay — a next

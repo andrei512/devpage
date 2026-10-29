@@ -13,8 +13,8 @@ mod drive;
 // The core's modules and the binary's, each by its own name.
 use adapters::{changes, chrome, git, http, terminal, watch};
 use devpage_core::{
-    addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
-    resolve, served, widgets,
+    addresses, check, comments, designs, diagrams, document, folder, navbar, problem, render,
+    resolve, search, widgets,
 };
 use drive::{pdf, server, slide_png, validators, video};
 
@@ -26,8 +26,8 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
 
-use crate::document::{Document, Entry};
-use crate::index::Index;
+use crate::document::Document;
+use crate::folder::Folder;
 
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
@@ -89,13 +89,14 @@ async fn main() -> Result<()> {
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
     // The served folder, made where a command that reads it starts.
     let served =
-        || served::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
+        || folder::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
     if let Some(Command::Check { path }) = &cli.command {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served()?,
         )?;
-        let problems = check::document(&document, Some(&http::external(None))).await;
+        let folder = Folder::new(Arc::new(document));
+        let problems = check::document(&folder, Some(&http::external(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -144,8 +145,8 @@ async fn main() -> Result<()> {
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served()?)?);
-    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
-    let entry = Arc::new(Entry::new(document.clone()));
+    let folder = Arc::new(Folder::new(document.clone()));
+    let search = Arc::new(search::Search::build(&folder, &document.path()));
 
     let designs = designs::Designs::new(&document.served);
 
@@ -171,8 +172,9 @@ async fn main() -> Result<()> {
         document.served.clone(),
     );
     let options = server::Options {
-        entry,
-        index,
+        folder,
+        modules: widgets::Modules::default(),
+        search: Some(search),
         designs,
         changes,
         comments,

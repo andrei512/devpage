@@ -7,12 +7,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::document::{Document, Kind};
+use crate::folder::Folder;
 use crate::render;
 
 use crate::external::{External, Link};
 use crate::html;
 use crate::problem::Problem;
-use crate::widgets::Widgets;
+use crate::widgets::{Modules, Widgets};
 
 /// The pages a document is made of.
 fn pages(document: &Document) -> Vec<PathBuf> {
@@ -24,12 +25,13 @@ fn pages(document: &Document) -> Vec<PathBuf> {
     }
 }
 
-/// Checks the document and every page and document reachable from it by
-/// links inside the served folder.
+/// Checks the folder's entry document and every page and document reachable
+/// from it by links inside the served folder.
 /// External links are checked when `checker` is given.
-pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Problem> {
+pub async fn document(folder: &Folder, checker: Option<&External>) -> Vec<Problem> {
+    let document = &*folder.entry();
     let mut external = Vec::new();
-    let mut problems = internal(document, &mut external, None);
+    let mut problems = internal(folder, document, &mut external, None);
     if let Kind::Design = document.kind {
         let address = document.name(&document.path());
         problems.extend(
@@ -50,15 +52,15 @@ pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Pr
     problems
 }
 
-/// Every file the check follows from `document`, each once and in path
-/// order: the document file, its pages, chapters or slides and every page
+/// Every file the check follows from the folder's entry document, each once
+/// and in path order: the document file, its pages, chapters or slides and every page
 /// and document they reach, the images and files their links name, a design's
 /// imports, images, themes and fonts, the logo, and the project widgets with
 /// every module they import — what the document is made of, and nothing else
 /// beside it. External addresses are not followed.
-pub fn files(document: &Document) -> Vec<PathBuf> {
+pub fn files(folder: &Folder) -> Vec<PathBuf> {
     let mut files = BTreeSet::new();
-    internal(document, &mut Vec::new(), Some(&mut files));
+    internal(folder, &folder.entry(), &mut Vec::new(), Some(&mut files));
     files.into_iter().collect()
 }
 
@@ -78,6 +80,7 @@ fn follow(document: &Document, files: &mut Option<&mut BTreeSet<PathBuf>>, file:
 }
 
 fn internal(
+    folder: &Folder,
     document: &Document,
     external: &mut Vec<Link>,
     mut files: Option<&mut BTreeSet<PathBuf>>,
@@ -98,8 +101,9 @@ fn internal(
     };
     let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides).into();
     // A page is checked as its nearest site's page, whichever document the
-    // check started from — as the preview shows it.
-    let index = crate::index::Index::build(&document.served);
+    // check started from — as the preview shows it. Widgets are read and
+    // compiled once per check.
+    let modules = Modules::default();
     let mut widget_folders = HashSet::new();
     let mut navbars = HashSet::new();
     let mut logos = HashSet::new();
@@ -109,8 +113,8 @@ fn internal(
         }
         checked.push(page.clone());
         follow(document, &mut files, &page);
-        let owner = match index.site_for(&page) {
-            Some(site) => Document::load(&site, &document.served).ok(),
+        let owner = match folder.owner(&page) {
+            Some(owner) => owner.document.ok(),
             // In no site, a page is shown as a doc of one chapter — unless it
             // is one of the doc's or deck's own files the check started from.
             None if matches!(document.kind, Kind::Site { .. }) => {
@@ -120,14 +124,14 @@ fn internal(
         };
         let owner = owner.as_ref().unwrap_or(document);
         follow(document, &mut files, &owner.path());
-        let widgets = Widgets::of(owner, index.modules());
+        let widgets = Widgets::of(owner, &modules);
         if let Some(folder) = &owner.widgets
             && widget_folders.insert(folder.clone())
         {
             problems.extend(widget_problems(owner, &widgets));
             if files.is_some() {
                 for widget in widget_files(folder) {
-                    let snapshot = index.modules().snapshot(&document.served, &widget);
+                    let snapshot = modules.snapshot(&document.served, &widget);
                     for (module, _) in snapshot.closure(&widget) {
                         follow(document, &mut files, &module);
                     }
@@ -586,7 +590,14 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
+
+    /// A folder opened on `document`, as `devpage check` opens one.
+    pub(super) fn opened(document: &Document) -> Folder {
+        Folder::new(Arc::new(
+            Document::load(&document.path(), &document.served).unwrap(),
+        ))
+    }
 
     /// `document`'s widget set, read through a cache of its own.
     fn widgets_of(document: &Document) -> Widgets {
@@ -609,7 +620,7 @@ mod tests {
         )
         .unwrap();
         let doc = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
-        let found: Vec<String> = internal(&doc, &mut Vec::new(), None)
+        let found: Vec<String> = internal(&opened(&doc), &doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)
             .collect();
@@ -645,7 +656,7 @@ mod tests {
         let expected = "README.md:17: broken diagram — Parse error on line 2:\n  A->>B: one; two\n";
         // In `devpage check`, and in the page's problems.
         for found in [
-            internal(&doc, &mut Vec::new(), None),
+            internal(&opened(&doc), &doc, &mut Vec::new(), None),
             testing::preview().problems(&doc, &widgets_of(&doc), &[doc.base.join("README.md")]),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
@@ -658,8 +669,9 @@ mod tests {
 
 #[cfg(test)]
 mod external {
+    use super::tests::opened;
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
     use crate::widgets::Modules;
 
     /// `document`'s widget set, read through a cache of its own.
@@ -698,7 +710,7 @@ mod external {
         .unwrap();
         std::fs::write(top.join("CONTRIBUTING.md"), "# Contributing").unwrap();
         let site = Document::load(&docs, &ServedFolder::new(&top).unwrap()).unwrap();
-        let found: Vec<String> = document(&site, None)
+        let found: Vec<String> = document(&opened(&site), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -723,7 +735,7 @@ mod external {
             "# O\n\n## Topics\n\n- [P](x/p.md) — inside.\n- [Out](../outside.md) — not.\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -750,7 +762,7 @@ mod external {
             "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -779,7 +791,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md, b.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -814,7 +826,7 @@ mod external {
         )
         .unwrap();
         std::fs::write(doc.base.join("page.md"), "# Page\n\n<Notes>lost</Notes>\n").unwrap();
-        let mut found: Vec<String> = document(&doc, None)
+        let mut found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -860,7 +872,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -888,7 +900,7 @@ mod external {
             "kind: doc\ntitle: P\nchapters: [missing.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -946,7 +958,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -967,7 +979,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1005,7 +1017,7 @@ mod external {
         // A helper that doesn't compile is a problem too.
         std::fs::write(doc.base.join("widgets/fmt.ts"), "export const x = ;").unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1051,8 +1063,9 @@ mod external {
 
 #[cfg(test)]
 mod documents {
+    use super::tests::opened;
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     /// The top of the repository the core crate sits in.
     fn repository() -> PathBuf {
@@ -1071,7 +1084,7 @@ mod documents {
             let root = repository();
             let doc =
                 Document::load(&root.join(example), &ServedFolder::new(&root).unwrap()).unwrap();
-            let problems = internal(&doc, &mut Vec::new(), None);
+            let problems = internal(&opened(&doc), &doc, &mut Vec::new(), None);
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
     }
@@ -1082,7 +1095,7 @@ mod documents {
     fn devpage_docs_have_no_broken_links() {
         let root = repository();
         let doc = Document::load(&root.join("docs"), &ServedFolder::new(&root).unwrap()).unwrap();
-        let problems: Vec<String> = internal(&doc, &mut Vec::new(), None)
+        let problems: Vec<String> = internal(&opened(&doc), &doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)
             .collect();

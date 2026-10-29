@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use anyhow::Result;
 
 use super::{Anchor, Listed, Message, Store, Thread, new_id};
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 
 /// Thread files that don't parse, each with its error.
 type Unparsable = Vec<(PathBuf, String)>;
@@ -265,6 +265,7 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::folder::ServedFolder;
     use std::process::Command;
 
     fn git(repo: &Path, args: &[&str]) -> String {

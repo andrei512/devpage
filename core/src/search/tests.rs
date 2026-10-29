@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::{Folder, ServedFolder};
 
 /// A served folder: a site whose Topics list a guide, a doc of two
 /// chapters and a deck with notes; a doc of one chapter whose chapter
@@ -66,12 +66,22 @@ pub(crate) fn served(name: &str) -> PathBuf {
     dir.canonicalize().unwrap()
 }
 
-fn index(dir: &Path) -> Index {
-    Index::build(&ServedFolder::new(dir).unwrap()).with_search(&dir.join("docs/devpage.yml"))
+/// The folder opened on `docs/`, and the search index of what it publishes.
+struct Indexed {
+    folder: Folder,
+    search: Search,
 }
 
-fn find(index: &Index, query: &str) -> Answer {
-    index.search().unwrap().search(query)
+fn index(dir: &Path) -> Indexed {
+    let entry = dir.join("docs/devpage.yml");
+    let document = Document::load(&entry, &ServedFolder::new(dir).unwrap()).unwrap();
+    let folder = Folder::new(std::sync::Arc::new(document));
+    let search = Search::build(&folder, &entry);
+    Indexed { folder, search }
+}
+
+fn find(index: &Indexed, query: &str) -> Answer {
+    index.search.search(query)
 }
 
 fn urls(answer: &Answer) -> Vec<&str> {
@@ -443,10 +453,10 @@ fn an_odd_query_never_fails() {
 fn changes_keep_it_current() {
     let dir = served("changes");
     let index = index(&dir);
-    let search = index.search().unwrap();
+    let search = &index.search;
     let changed = |path: &Path| {
-        index.changed(path);
-        search.changed(&index, &[path.to_path_buf()]);
+        index.folder.changed(&[path.to_path_buf()]);
+        search.changed(&index.folder, &[path.to_path_buf()]);
     };
     let layout = dir.join("docs/guide/layout.md");
     std::fs::write(
@@ -502,7 +512,7 @@ fn a_section_split_keeps_rendered_ids_and_sorts_text() {
 fn a_snippet_is_cut_at_sentences() {
     let dir = served("snippet");
     let index = index(&dir);
-    let search = index.search().unwrap();
+    let search = &index.search;
     let wanted = search.parse("otter");
     let words = wanted.matched();
     let prose = "Rivers run. An otter swims fast. Fish hide.";

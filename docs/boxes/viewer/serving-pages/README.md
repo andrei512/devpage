@@ -42,8 +42,9 @@ flowchart LR
 **Who decides.** What every route from `/` down answers with — a page, a
 redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
 `500` with the reason — is decided by the **resolver** (`core/src/resolve.rs`) from
-the documents alone: the entry document, the index, the problems each page
-lists and whether comments are on. The HTTP server only turns its answer into
+the documents alone: the served folder (`Folder`) with its entry document and
+its document index, the widget modules, the problems each page lists and
+whether comments are on. The HTTP server only turns its answer into
 a response, reading the file's bytes or drawing the PNG it names, so every
 route is tested without a socket.
 

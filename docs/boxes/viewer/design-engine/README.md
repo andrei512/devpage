@@ -433,7 +433,7 @@ none. A node's position is its
 transform node, so a node that moves keeps its chunk, and its children
 theirs: only the offset changes.
 
-### The index
+### The display index
 
 Painting part of a drawing asks what touches a rectangle, and the answer
 comes from a two-level R-tree (`rstar`):

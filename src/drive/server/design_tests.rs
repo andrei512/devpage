@@ -10,18 +10,22 @@ use devpage_core::designs::testing::*;
 use crate::comments::Identity;
 use crate::designs::Designs;
 use crate::document::Document;
-use crate::index::Index;
-use crate::served::ServedFolder;
+use crate::folder::{Folder, ServedFolder};
 use crate::server::{Options, router};
+
+/// The served folder `dir`, opened on `entry` in it, as `devpage check`
+/// opens one.
+fn opened(dir: &Path, entry: &str) -> Folder {
+    let served = ServedFolder::new(dir).unwrap();
+    Folder::new(Arc::new(Document::load(&dir.join(entry), &served).unwrap()))
+}
 
 pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
-    let index = Arc::new(Index::build(&document.served));
     let designs = Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
     let router = router(Options {
-        index,
         designs: designs.clone(),
         comments: Some(Identity::Local("T".into())),
         preview: crate::check::testing::preview(),
@@ -180,8 +184,7 @@ async fn a_designs_png_is_a_link_check_accepts() {
         "# Page\n\n![Screen](app/screen.design.png)\n\n![Broken](app/broken.design.png)\n\n![Nothing](app/nothing.design.png)\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("page.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
-    let problems: Vec<String> = crate::check::document(&document, None)
+    let problems: Vec<String> = crate::check::document(&opened(&dir, "page.md"), None)
         .await
         .iter()
         .map(|p| p.to_string())
@@ -231,8 +234,7 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
         "# Page\n\n![Screen](app/screen.design)\n\nEmbed with `![Name](name.design)`:\n\n```markdown\n![Gone](gone.design)\n```\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("page.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
-    let problems = crate::check::document(&document, None).await;
+    let problems = crate::check::document(&opened(&dir, "page.md"), None).await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     let shown = problems[0].to_string();
     assert!(
@@ -241,12 +243,7 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
     );
     assert!(shown.contains("lable"), "{shown}");
 
-    let design = Document::load(
-        &dir.join("app/screen.design"),
-        &ServedFolder::new(&dir).unwrap(),
-    )
-    .unwrap();
-    let problems = crate::check::document(&design, None).await;
+    let problems = crate::check::document(&opened(&dir, "app/screen.design"), None).await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(
         problems[0].to_string().starts_with("app/screen.design:5:"),

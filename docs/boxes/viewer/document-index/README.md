@@ -58,31 +58,39 @@ Of two sites in the same folder, the one whose file name sorts first wins.
 
 ## The index
 
-Finding the nearest site never scans folders. `core/src/index.rs` keeps an
-**index** of the served folder: every document file and its kind, and every
-`.gitignore`.
+Finding the nearest site never scans folders. The served folder, `Folder` in
+`core/src/folder/`, keeps a **document index** of it: every document file and
+its kind, and every `.gitignore`. It keeps no document: every document,
+a page's site included, is loaded from its file when it is asked for, so a
+request always reads what the files say now — even a file the watcher never
+hears of, such as one a `.gitignore` excludes. The one document it holds is
+the [entry document](../glossary/README.md#entry-document), which keeps its
+last valid version while its file is invalid.
 
 <Steps>
 
-1. **Built once at start**
-   `Index::build` walks the folder with the `ignore` crate, honoring each
-   `.gitignore` in it, nested ones included, without needing a `.git` folder,
-   and skipping any `.git` and `.devpage` folders; a document file in an
-   excluded folder is not indexed.
+1. **Built once, when the folder is opened**
+   `Folder::new`, on the entry document, walks the folder with the `ignore`
+   crate, honoring each `.gitignore` in it, nested ones included, without
+   needing a `.git` folder, and skipping any `.git` and `.devpage` folders; a
+   document file in an excluded folder is not indexed.
 2. **Kept current by the watcher**
    A changed YAML file or `.gitignore` updates it
-   ([Live updates](../live-updates/README.md#the-watcher)).
-3. **Asked for a page's site**
-   `Index::site_for` picks, among the indexed sites whose folder holds the
+   (`Folder::changed`, [Live updates](../live-updates/README.md#the-watcher)).
+3. **Asked for a page's owner**
+   `Folder::owner` picks, among the indexed sites whose folder holds the
    page, the deepest — and of two in the same folder, the one whose file name
-   sorts first.
+   sorts first — and loads it, or says why it can't. Serving a page, checking
+   it and searching it all ask it. `Folder::widgets_owner` answers the same
+   for a widgets folder: the entry document when it names that folder, else
+   the first indexed document that does.
 
 </Steps>
 
-`devpage` shares one index between the server and the watcher
-(`server::Options`), built with the [search index](../search/README.md)
-of what the entry document publishes (`Index::with_search`). `devpage pdf`, a slide's PNG and
-`devpage video` serve through
-`server::Options::printing`, which builds its own index, without search, has no
-watcher and logs nothing; `server::Options::new`, which builds the same, is
-what tests start from.
+`devpage` shares one folder between the server and the watcher
+(`server::Options`), with the [search index](../search/README.md) of what the
+entry document publishes (`Search::build`) beside it. `devpage pdf`, a
+slide's PNG and `devpage video` serve through `server::Options::printing`,
+which opens its own folder, without search, has no watcher and logs nothing;
+`server::Options::new`, which does the same, is what tests start from.
+`devpage check` opens one folder for the whole check.

@@ -1,13 +1,16 @@
-//! The watch set: which folders of the served folder are watched, and how.
-//! Nothing out of sight is watched, so the platform never reports a build
-//! rewriting `target/` to devpage — not even to be dropped.
+//! What of the served folder is in sight, and what a change to it means for
+//! open pages: the folders to watch (nothing out of sight is watched, so the
+//! platform never reports a build rewriting `target/` — not even to be
+//! dropped), whether a changed path can matter at all, judged from the path
+//! alone, and whether it refreshes open pages, by the `watch` list of the
+//! site that owns it.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use crate::document::{Document, Entry, KindName};
-use crate::index::Index;
-use crate::served::ServedFolder;
+use super::Folder;
+use crate::document::{Document, KindName};
 
 /// The folders to watch: `deep` ones recursively, `shallow` ones for their
 /// entries and the files directly in them.
@@ -20,20 +23,18 @@ pub struct WatchSet {
 }
 
 impl WatchSet {
-    /// The watch set of the canonical served folder `served`, judged by the
-    /// index's rules and every site's `watch` list. Walks only what is in
-    /// sight: an out-of-sight folder is never read.
-    pub fn plan(served: &ServedFolder, index: &Index, entry: &Entry) -> Self {
-        let roots = watch_roots(served, index, entry);
-        let served = served.path();
+    /// The watch set of `folder`, judged by its `.gitignore` rules and every
+    /// site's `watch` list. Walks only what is in sight: an out-of-sight
+    /// folder is never read.
+    pub(super) fn plan(folder: &Folder) -> Self {
         let sight = Sight {
-            served,
-            index,
-            roots,
+            served: folder.served().path(),
+            folder,
+            roots: watch_roots(folder),
         };
         let mut set = Self::default();
-        if sight.walk(served, &mut set) {
-            set.deep.insert(served.to_path_buf());
+        if sight.walk(sight.served, &mut set) {
+            set.deep.insert(sight.served.to_path_buf());
         }
         set
     }
@@ -42,7 +43,7 @@ impl WatchSet {
 /// What decides whether a folder is in sight.
 struct Sight<'a> {
     served: &'a Path,
-    index: &'a Index,
+    folder: &'a Folder,
     /// Where any site's `watch` list can name a file.
     roots: Vec<PathBuf>,
 }
@@ -79,7 +80,7 @@ impl Sight<'_> {
         clean
     }
 
-    /// Whether `folder` is watched: in sight by the index's rules, or one of
+    /// Whether `folder` is watched: in sight by the `.gitignore` rules, or one of
     /// the two exceptions — `.devpage` and its comment store, and an ignored
     /// folder a `watch` pattern reaches into: its literal prefix is in the
     /// folder or is it, or is an ignored folder holding it. A prefix above
@@ -96,34 +97,102 @@ impl Sight<'_> {
         {
             return false;
         }
-        !self.index.ignored(folder, true)
+        !self.folder.ignored(folder, true)
             || self.roots.iter().any(|root| {
                 root.starts_with(folder)
-                    || (folder.starts_with(root) && self.index.ignored(root, true))
+                    || (folder.starts_with(root) && self.folder.ignored(root, true))
             })
     }
 }
 
 /// The literal prefixes of every site's `watch` patterns: the entry's, and
 /// those of every indexed site.
-fn watch_roots(served: &ServedFolder, index: &Index, entry: &Entry) -> Vec<PathBuf> {
-    let document = entry.document();
-    let mut roots = document.watch_roots().to_vec();
-    for file in index.documents() {
-        if file != entry.file()
-            && index.kind(&file) == Some(KindName::Site)
-            && let Ok(site) = Document::load(&file, served)
-        {
-            roots.extend_from_slice(site.watch_roots());
-        }
+fn watch_roots(folder: &Folder) -> Vec<PathBuf> {
+    let mut roots = folder.entry().watch_roots().to_vec();
+    for site in folder.sites() {
+        roots.extend_from_slice(site.watch_roots());
     }
     roots
+}
+
+impl Folder {
+    /// Whether a change to `path` can matter to anyone: not under `.git`,
+    /// and either in sight or named by its site's `watch` list. A comment
+    /// thread always matters; nothing else under `.devpage/` does. Decided
+    /// from the path alone — no file system call — so a build rewriting an
+    /// ignored folder costs a lookup per path. A path not under the served
+    /// folder as given is kept, to be judged once canonical.
+    pub fn matters(&self, path: &Path, is_dir: bool) -> bool {
+        let Some(relative) = self.served().relative(path) else {
+            return true;
+        };
+        if relative.starts_with(".devpage/comments") {
+            return true;
+        }
+        if relative.starts_with(".devpage")
+            || relative.components().any(|part| part.as_os_str() == ".git")
+        {
+            return false;
+        }
+        !self.ignored(path, is_dir) || self.named_by_watch(path)
+    }
+
+    /// Whether a change to `path`, which is in sight, refreshes open pages.
+    /// Document files and widget files always do; any other path is judged by
+    /// the `watch` list of its owner, and refreshes when there is no such list.
+    pub(super) fn refreshes(&self, path: &Path) -> bool {
+        if self.kind(path).is_some() || self.is_widget_file(path) {
+            return true;
+        }
+        match self.owning_site(path) {
+            Some(Some(site)) => site.watches(path),
+            // No site holds it, or its site's file is invalid.
+            Some(None) | None => true,
+        }
+    }
+
+    /// Whether the `watch` list of the site owning `path` names it.
+    fn named_by_watch(&self, path: &Path) -> bool {
+        self.owning_site(path)
+            .flatten()
+            .is_some_and(|site| site.names(path))
+    }
+
+    /// The site owning `path` as its `watch` list is judged: `None` when no
+    /// site holds it, `Some(None)` when its site's file is invalid. The
+    /// entry's site is the entry document as last read without error, so
+    /// sifting a path it owns reads no file.
+    fn owning_site(&self, path: &Path) -> Option<Option<Arc<Document>>> {
+        let site = self.index.site_for(path)?;
+        Some(if site == self.entry_file() {
+            Some(self.entry())
+        } else {
+            Document::load(&site, self.served()).ok().map(Arc::new)
+        })
+    }
+
+    /// Whether `path` is a widget or a helper in the widgets folder of some
+    /// document.
+    fn is_widget_file(&self, path: &Path) -> bool {
+        path.parent().is_some_and(|folder| {
+            crate::widgets::is_widget_file(path, folder) && self.widgets_owner(folder).is_some()
+        })
+    }
+
+    /// Every indexed site but the entry, loaded; an invalid one is passed over.
+    fn sites(&self) -> Vec<Document> {
+        self.documents()
+            .into_iter()
+            .filter(|file| file != self.entry_file() && self.kind(file) == Some(KindName::Site))
+            .filter_map(|file| Document::load(&file, self.served()).ok())
+            .collect()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
+    use crate::folder::ServedFolder;
 
     /// A served folder holding `files` (empty ones, folders made as needed)
     /// and a site in `docs/` with `site` as its document file.
@@ -149,7 +218,7 @@ mod tests {
     fn plan(dir: &Path) -> WatchSet {
         let served = ServedFolder::new(dir).unwrap();
         let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
-        WatchSet::plan(&served, &Index::build(&served), &Entry::new(document))
+        Folder::new(document).watched()
     }
 
     fn set(dir: &Path, deep: &[&str], shallow: &[&str]) -> WatchSet {

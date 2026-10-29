@@ -25,15 +25,17 @@ use crate::changes::Changes;
 use crate::check::Preview;
 use crate::comments::{self, Anchor, Comments, Identity};
 use crate::designs::Designs;
-use crate::document::{Document, Entry};
-use crate::index::Index;
+use crate::document::Document;
+use crate::folder::Folder;
 use crate::resolve::{Answer, Resolver};
+use crate::search::Search;
 use crate::slide_png::Shots;
 
 #[derive(Clone)]
 struct AppState {
-    entry: Arc<Entry>,
-    index: Arc<Index>,
+    folder: Arc<Folder>,
+    modules: crate::widgets::Modules,
+    search: Option<Arc<Search>>,
     changes: Changes,
     /// `None` when comments are off: the pages show none and every comment
     /// route answers 404.
@@ -93,10 +95,14 @@ fn refused(refused: comments::Refused) -> Response {
 /// cares about with struct update syntax, so a new dependency never reaches
 /// every caller.
 pub struct Options {
-    /// The entry document, followed as its file changes.
-    pub entry: Arc<Entry>,
-    /// The documents of the served folder, and its search index if any.
-    pub index: Arc<Index>,
+    /// The served folder, opened on the entry document, which it follows
+    /// as its file changes.
+    pub folder: Arc<Folder>,
+    /// What was read and compiled of the served folder's widgets.
+    pub modules: crate::widgets::Modules,
+    /// The search index of what the entry document publishes, or `None`:
+    /// every search then finds nothing.
+    pub search: Option<Arc<Search>>,
     pub designs: Designs,
     /// What tells open pages there is something new to show.
     pub changes: Changes,
@@ -116,7 +122,7 @@ pub struct Options {
 }
 
 impl Options {
-    /// One document, with a fresh index of its served folder and no search
+    /// One document, with its served folder opened on it and no search
     /// index, comments on as one local author, nothing logged.
     pub fn new(document: Arc<Document>, changes: Changes) -> Self {
         let threads = Comments::new(
@@ -125,7 +131,8 @@ impl Options {
             document.served.clone(),
         );
         Self {
-            index: Arc::new(Index::build(&document.served)),
+            modules: crate::widgets::Modules::default(),
+            search: None,
             designs: Designs::new(&document.served),
             shots: Shots::new(&changes),
             preview: Arc::new(Preview::new(
@@ -133,7 +140,7 @@ impl Options {
                 Arc::new(crate::terminal::Terminal),
             )),
             threads,
-            entry: Arc::new(Entry::new(document)),
+            folder: Arc::new(Folder::new(document)),
             comments: Some(Identity::Local(String::new())),
             changes,
             log: false,
@@ -154,13 +161,15 @@ impl Options {
 }
 
 impl Options {
-    /// Starts the watcher these options' server pairs with: the same entry
-    /// document, index, design store and change bus, and the same thread
-    /// files, so a thread the server wrote is announced once, by the server.
+    /// Starts the watcher these options' server pairs with: the same served
+    /// folder, widget modules, search index, design store and change bus, and
+    /// the same thread files, so a thread the server wrote is announced once,
+    /// by the server.
     pub fn watch(&self) -> anyhow::Result<crate::watch::Watch> {
         crate::watch::start(
-            self.entry.clone(),
-            self.index.clone(),
+            self.folder.clone(),
+            self.modules.clone(),
+            self.search.clone(),
             self.designs.clone(),
             self.changes.clone(),
             self.threads.clone(),
@@ -171,8 +180,9 @@ impl Options {
 /// The server `options` describe.
 pub fn router(options: Options) -> Router {
     let Options {
-        entry,
-        index,
+        folder,
+        modules,
+        search,
         designs,
         changes,
         comments,
@@ -190,8 +200,9 @@ pub fn router(options: Options) -> Router {
         }),
         design_updates: watch_stream::hear(&designs),
         designs,
-        entry,
-        index,
+        folder,
+        modules,
+        search,
         changes,
         shots,
         preview,
@@ -251,8 +262,8 @@ async fn log_request(request: Request, next: Next) -> Response {
 /// folder's mount.
 fn resolver(state: &AppState) -> Resolver<'_> {
     Resolver {
-        entry: &state.entry,
-        index: &state.index,
+        folder: &state.folder,
+        modules: &state.modules,
         preview: &state.preview,
         comments: state.comments_on(),
     }
@@ -291,7 +302,7 @@ async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Respo
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         },
         Answer::Canvas { design, theme } => {
-            Html(canvas::page(&state.entry.document().served, &design, theme)).into_response()
+            Html(canvas::page(state.folder.served(), &design, theme)).into_response()
         }
         Answer::DesignPng { design, theme } => design_png(state, headers, design, theme).await,
         Answer::SlidePng { page, n } => slide_png(state, headers, &page, n).await,
@@ -456,7 +467,7 @@ async fn system_widget(
     RawQuery(query): RawQuery,
 ) -> Response {
     let stem = name.trim_end_matches(".tsx");
-    match state.index.modules().system(stem) {
+    match state.modules.system(stem) {
         Some(module) => {
             let current = crate::addresses::system_widget_hash(stem)
                 .is_some_and(|hash| asked_version(query.as_deref()) == Some(hash));
@@ -474,7 +485,7 @@ async fn project_widget(
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let document = state.entry.document();
+    let document = state.folder.entry();
     let found = ["", ".tsx", ".ts"]
         .iter()
         .find_map(|ext| document.file(&format!("{path}{ext}")))
@@ -486,12 +497,22 @@ async fn project_widget(
         )
             .into_response();
     };
-    let folder = file.parent().unwrap_or(&file).to_path_buf();
-    let known = known(&state, &folder);
+    // The names a widget here can render by name: the system widgets and
+    // those of the document whose widgets folder holds it — the entry
+    // document's when no other names it.
+    let folder = file.parent().unwrap_or(&file);
+    let owner = state
+        .folder
+        .widgets_owner(folder)
+        .unwrap_or_else(|| state.folder.entry());
+    let known: Vec<String> = crate::widgets::Widgets::of(&owner, &state.modules)
+        .modules
+        .into_keys()
+        .collect();
     // The version asked about and the bytes sent come from one reading of
     // the files: a save between the two can't be served as `immutable` under
     // the version before it.
-    let snapshot = state.index.modules().snapshot(&document.served, &file);
+    let snapshot = state.modules.snapshot(&document.served, &file);
     let current = asked_version(query.as_deref()) == Some(snapshot.hash(&file, &known).as_str());
     // A helper this file imports that doesn't compile: the browser would only
     // say the import failed, so say why, here.
@@ -500,27 +521,6 @@ async fn project_widget(
     }
     let label = document.name(&file);
     compiled(&label, snapshot.compile(&file, &known), current)
-}
-
-/// The names a widget in `folder` can render by name: the system widgets and
-/// those of the document whose widgets folder it is — the entry document's
-/// when no other names it.
-fn known(state: &AppState, folder: &std::path::Path) -> Vec<String> {
-    let entry = state.entry.document();
-    let owner = if entry.widgets.as_deref() == Some(folder) {
-        None
-    } else {
-        state
-            .index
-            .documents()
-            .into_iter()
-            .filter_map(|file| crate::document::Document::load(&file, &entry.served).ok())
-            .find(|document| document.widgets.as_deref() == Some(folder))
-    };
-    crate::widgets::Widgets::of(owner.as_ref().unwrap_or(&entry), state.index.modules())
-        .modules
-        .into_keys()
-        .collect()
 }
 
 /// The first helper reached through `file`'s relative imports that doesn't
@@ -653,8 +653,8 @@ struct SearchQuery {
 /// nothing.
 async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
     let answer = state
-        .index
-        .search()
+        .search
+        .as_ref()
         .map(|search| search.search(&query.q))
         .unwrap_or_default();
     Json(answer).into_response()
@@ -728,7 +728,7 @@ async fn resolve_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
     use serde_json::{Value, json};
 
     /// A served folder holding one page, served by the real router on a free
@@ -1074,12 +1074,16 @@ mod tests {
         .unwrap();
         let document = Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
-        let router = router(Options {
-            index: Arc::new(Index::build(&document.served).with_search(&dir.join("devpage.yml"))),
+        let mut options = Options {
             comments: None,
             preview: crate::check::testing::preview(),
             ..Options::new(document, changes)
-        });
+        };
+        options.search = Some(Arc::new(Search::build(
+            &options.folder,
+            &dir.join("devpage.yml"),
+        )));
+        let router = router(options);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1206,13 +1210,9 @@ mod tests {
         std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
 
         let document = Arc::new(Document::load(&site, &ServedFolder::new(&dir).unwrap()).unwrap());
-        let index = Arc::new(Index::build(&document.served));
-        let entry = Arc::new(Entry::new(document.clone()));
         let changes = crate::changes::Changes::default();
         let designs = Designs::new(&document.served);
         let options = Options {
-            entry,
-            index,
             designs,
             comments: Some(Identity::Local("T".into())),
             preview: crate::check::testing::preview(),

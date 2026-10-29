@@ -1,7 +1,7 @@
 //! The canvas page: a design alone in the window, drawn by the design
 //! script.
 
-use devpage_core::served::ServedFolder;
+use devpage_core::folder::ServedFolder;
 use devpage_design::Theme;
 
 /// The canvas page for the design at `path` in `served`: the design fills

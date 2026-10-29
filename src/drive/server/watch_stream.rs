@@ -144,7 +144,7 @@ impl devpage_design::proto::designs_server::Designs for Watch {
 
 #[cfg(test)]
 mod tests {
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
     use std::time::Duration;
 
     use prost::Message;

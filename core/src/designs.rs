@@ -17,7 +17,7 @@ use devpage_design::scene::{Applied, ImageFile};
 use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
 use devpage_design::{Files, Problem, Renderer, Scene, Theme, wire};
 
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 
 /// What the store knows of a design without locking it: which version of
 /// its scene it shows or its problems, every file resolving it asked for —
