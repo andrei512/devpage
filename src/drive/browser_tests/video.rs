@@ -15,22 +15,30 @@ use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
 
 /// A stand-in for GPT-Live: streams 20 ms of audio every 20 ms, as
-/// GPT-Live does, silence included, and answers each slide's notes with a tone.
+/// GPT-Live does, silence included, and answers each slide's notes with a
+/// tone `seconds` long — longer while `holding` says so of the slide.
 struct Tone {
     left: Arc<AtomicUsize>,
+    slide: Arc<AtomicUsize>,
     seconds: f64,
     task: tokio::task::JoinHandle<()>,
 }
 
 impl Tone {
-    fn start(heard: Arc<Mutex<Heard>>, seconds: f64) -> Self {
+    fn start(
+        heard: Arc<Mutex<Heard>>,
+        seconds: f64,
+        holding: impl Fn(usize) -> bool + Send + 'static,
+    ) -> Self {
         let left = Arc::new(AtomicUsize::new(0));
-        let tone = left.clone();
+        let slide = Arc::new(AtomicUsize::new(0));
+        let (tone, saying) = (left.clone(), slide.clone());
         let task = tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_millis(20));
             let mut at = 0usize;
             loop {
                 every.tick().await;
+                let held = holding(saying.load(Ordering::Relaxed));
                 let pcm: Vec<i16> = (0..RATE / 50)
                     .map(|_| {
                         at += 1;
@@ -38,7 +46,8 @@ impl Tone {
                             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
                                 n.checked_sub(1)
                             })
-                            .is_ok();
+                            .is_ok()
+                            || held;
                         let phase = at as f64 * 440.0 / RATE as f64 * std::f64::consts::TAU;
                         if on { (phase.sin() * 8000.0) as i16 } else { 0 }
                     })
@@ -48,6 +57,7 @@ impl Tone {
         });
         Self {
             left,
+            slide,
             seconds,
             task,
         }
@@ -55,7 +65,8 @@ impl Tone {
 }
 
 impl Voice for Tone {
-    fn say(&self, _: usize, _: &str) {
+    fn say(&self, slide: usize, _: &str) {
+        self.slide.store(slide, Ordering::Relaxed);
         self.left
             .store((self.seconds * RATE as f64) as usize, Ordering::Relaxed);
     }
@@ -134,7 +145,7 @@ async fn a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice() {
     let (router, entry) = served(talk);
     // `film` fails unless the deck shows slide 2 after slide 1.
     film(router, &entry, &out, notes, heard, async |heard| {
-        Ok(Tone::start(heard, 2.5))
+        Ok(Tone::start(heard, 2.5, |_| false))
     })
     .await
     .unwrap();
@@ -171,9 +182,18 @@ async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
     let heard = Arc::new(Mutex::new(Heard::default()));
     let (router, entry) = served(talk);
     let (router, answered) = testing::answering(router);
-    // Long enough slides for the slide's PNG to be drawn while they play.
+    // Slide one is spoken until its PNG of slide two has been drawn.
+    let drawn = answered.clone();
+    let holding = move |slide| {
+        slide == 1
+            && !drawn
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(path, _)| path == "/talk.yml/2.png")
+    };
     film(router, &entry, &out, notes, heard, async |heard| {
-        Ok(Tone::start(heard, 4.0))
+        Ok(Tone::start(heard, 2.5, holding))
     })
     .await
     .unwrap();

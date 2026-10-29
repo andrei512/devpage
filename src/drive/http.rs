@@ -1517,4 +1517,70 @@ mod tests {
             .collect();
         assert_eq!(data, ["comments /a.md", "change"]);
     }
+
+    /// A deck of two slides, `one.md` and `two.md`, in a fresh folder named
+    /// for `name`, served as `talk.yml`: its address.
+    async fn deck(name: &str) -> String {
+        let dir = std::env::temp_dir().join(format!("devpage-deck-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(dir.join("one.md"), "# One\n").unwrap();
+        std::fs::write(dir.join("two.md"), "# Two\n").unwrap();
+        std::fs::write(
+            dir.join("talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md, two.md]\n",
+        )
+        .unwrap();
+        serve(&dir, "talk.yml").await
+    }
+
+    /// Asked for inside a shot, a slide not drawn yet is refused, not drawn:
+    /// no Chrome is started for it.
+    #[tokio::test]
+    async fn inside_a_shot_a_slide_not_yet_drawn_is_refused() {
+        let address = deck("inside-a-shot").await;
+        let response = reqwest::Client::new()
+            .get(format!("{address}/talk.yml/1.png"))
+            .header(crate::adapters::chrome::SHOT_HEADER, "1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 508);
+        assert_eq!(
+            response.text().await.unwrap(),
+            "talk.yml/1.png isn't drawn inside another shot"
+        );
+    }
+
+    /// A slide's PNG past the deck's last slide, before its first, or of a
+    /// page that isn't a deck is not found, and nothing is drawn.
+    #[tokio::test]
+    async fn a_png_of_no_slide_is_not_found() {
+        let address = deck("no-slide").await;
+        for path in ["talk.yml/3.png", "talk.yml/0.png", "one.md/1.png"] {
+            assert_eq!(get(&format!("{address}/{path}")).await.0, 404, "{path}");
+        }
+    }
+
+    /// A Mermaid fence is served drawn, in the page's HTML: nothing in the
+    /// browser draws it.
+    #[tokio::test]
+    async fn a_page_is_served_with_its_diagrams_drawn() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-diagram-route-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        std::fs::write(
+            dir.join("a.md"),
+            "# A\n\n```mermaid\nflowchart LR\n  a[Alpha] --> b[Beta]\n  click b href \"b.md\" \"Beta\"\n```\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("b.md"), "# Beta page\n").unwrap();
+        let address = serve(&dir, "a.md").await;
+        let (status, page) = get(&format!("{address}/a.md")).await;
+        assert_eq!(status, 200);
+        assert!(page.contains("<div class=\"diagram\"><svg"), "{page}");
+    }
 }

@@ -528,54 +528,179 @@ fn platform() -> Option<Platform> {
     }
 }
 
-/// What the Chrome tests drive the browser with: Chrome launched in a
-/// profile as devpage launches it, the router a test's pages load from served
-/// on loopback, and the waits a test needs on a page.
+/// What the Chrome tests drive the browser with: one Chrome for the whole
+/// run, launched in the shot profile as devpage launches it, a browser of its
+/// own for each test inside it, the router a test's pages load from served on
+/// loopback, and the waits a test needs on a page.
 #[cfg(test)]
 pub(crate) mod testing {
-    use std::sync::{Arc, Mutex};
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex, OnceLock};
 
     use axum::Router;
     use chromiumoxide::Page;
+    use chromiumoxide::cdp::browser_protocol::browser::BrowserContextId;
+    use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
+    use chromiumoxide::cdp::browser_protocol::target::{
+        CreateBrowserContextParams, CreateTargetParams,
+    };
     use serde::de::DeserializeOwned;
 
     use super::{Launched, Profile, READY_WITHIN};
 
-    /// A launched Chrome, used as chromiumoxide's `Browser`. Dropped, its
-    /// process is killed and its profile folder deleted.
-    pub(crate) struct Browser(Launched);
+    /// The one Chrome every test's [`Browser`] lives in, and the runtime
+    /// that carries its DevTools events: a runtime of its own, since each
+    /// test's runtime ends with the test.
+    struct Shared {
+        chrome: Launched,
+        runtime: tokio::runtime::Handle,
+    }
 
-    impl std::ops::Deref for Browser {
-        type Target = chromiumoxide::Browser;
-        fn deref(&self) -> &Self::Target {
-            &self.0.browser
+    static SHARED: tokio::sync::OnceCell<Shared> = tokio::sync::OnceCell::const_new();
+
+    /// The run's Chrome, launched by the first test that asks for it. Its
+    /// runtime's thread blocks forever, and so keeps it running until the run
+    /// exits — when Chrome is killed and its profile folder deleted, as
+    /// nothing in a `static` is ever dropped.
+    async fn shared() -> &'static Shared {
+        SHARED
+            .get_or_init(|| async {
+                let (sent, launched) = tokio::sync::oneshot::channel();
+                std::thread::spawn(move || {
+                    let runtime = tokio::runtime::Builder::new_multi_thread()
+                        .worker_threads(2)
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    let chrome = runtime.block_on(Launched::new(Profile::Shot, |chrome| chrome));
+                    let running = chrome.is_ok();
+                    sent.send(chrome.map(|chrome| Shared {
+                        chrome,
+                        runtime: runtime.handle().clone(),
+                    }))
+                    .ok();
+                    if running {
+                        runtime.block_on(std::future::pending::<()>());
+                    }
+                });
+                let mut shared = launched.await.unwrap().unwrap();
+                killed_at_exit(&mut shared.chrome);
+                shared
+            })
+            .await
+    }
+
+    /// What the run kills and deletes as it exits: the shared Chrome's
+    /// process and its profile folder.
+    static AT_EXIT: OnceLock<(u32, PathBuf)> = OnceLock::new();
+
+    #[cfg(unix)]
+    fn killed_at_exit(chrome: &mut Launched) {
+        extern "C" fn kill() {
+            if let Some((process, folder)) = AT_EXIT.get() {
+                // SAFETY: a signal sent to a process id; nothing is shared.
+                unsafe { libc::kill(*process as libc::pid_t, libc::SIGKILL) };
+                std::fs::remove_dir_all(folder).ok();
+            }
+        }
+        let process = chrome
+            .browser
+            .get_mut_child()
+            .and_then(|child| child.as_mut_inner().id());
+        if let Some(process) = process
+            && AT_EXIT.set((process, chrome._folder.0.clone())).is_ok()
+        {
+            // SAFETY: registers a plain function, which runs once at exit.
+            unsafe { libc::atexit(kill) };
         }
     }
 
-    impl std::ops::DerefMut for Browser {
-        fn deref_mut(&mut self) -> &mut Self::Target {
-            &mut self.0.browser
-        }
+    #[cfg(not(unix))]
+    fn killed_at_exit(_: &mut Launched) {}
+
+    /// A test's browser: a browser context of the run's one Chrome, with its
+    /// own storage, cache, cookies and connections, so tests share nothing
+    /// but the process and run side by side. Like any browser it keeps at
+    /// most six connections to one server, and a page devpage serves holds up
+    /// to two open — its event stream and its watch stream — so more than
+    /// three pages open at once against one server take a browser each.
+    /// Closed or dropped, its pages close and its storage goes.
+    pub(crate) struct Browser {
+        context: Option<BrowserContextId>,
+        screen: Option<(u32, u32)>,
     }
 
-    /// Chrome in the shot profile.
-    pub(crate) async fn launch() -> Browser {
-        Browser(Launched::new(Profile::Shot, |chrome| chrome).await.unwrap())
+    /// A browser of the test's own, its pages laid out on chromiumoxide's
+    /// 800 × 600 screen.
+    pub(crate) async fn browser() -> Browser {
+        browser_with(None).await
     }
 
-    /// Chrome in the shot profile, its pages laid out on a `width` ×
+    /// A browser of the test's own, its pages laid out on a `width` ×
     /// `height` screen.
-    pub(crate) async fn launch_on(width: u32, height: u32) -> Browser {
-        let screen = chromiumoxide::handler::viewport::Viewport {
-            width,
-            height,
-            ..Default::default()
-        };
-        Browser(
-            Launched::new(Profile::Shot, |chrome| chrome.viewport(screen))
-                .await
-                .unwrap(),
-        )
+    pub(crate) async fn browser_on(width: u32, height: u32) -> Browser {
+        browser_with(Some((width, height))).await
+    }
+
+    async fn browser_with(screen: Option<(u32, u32)>) -> Browser {
+        let context = shared()
+            .await
+            .chrome
+            .browser
+            .create_browser_context(CreateBrowserContextParams::default())
+            .await
+            .unwrap();
+        Browser {
+            context: Some(context),
+            screen,
+        }
+    }
+
+    /// The run's one Chrome, as chromiumoxide drives it.
+    pub(crate) async fn chrome() -> &'static chromiumoxide::Browser {
+        &shared().await.chrome.browser
+    }
+
+    impl Browser {
+        /// A new tab, its screen set, at `url`.
+        pub(crate) async fn new_page(&self, url: impl Into<String>) -> chromiumoxide::Result<Page> {
+            let mut blank = CreateTargetParams::new("about:blank");
+            blank.browser_context_id = self.context.clone();
+            let page = chrome().await.new_page(blank).await?;
+            if let Some((width, height)) = self.screen {
+                page.execute(SetDeviceMetricsOverrideParams::new(
+                    i64::from(width),
+                    i64::from(height),
+                    1.0,
+                    false,
+                ))
+                .await?;
+            }
+            let url = url.into();
+            if url != "about:blank" {
+                page.goto(url).await?;
+            }
+            Ok(page)
+        }
+
+        /// Closes every tab of the browser and forgets its storage.
+        pub(crate) async fn close(&mut self) -> chromiumoxide::Result<()> {
+            if let Some(context) = self.context.take() {
+                chrome().await.dispose_browser_context(context).await?;
+            }
+            Ok(())
+        }
+    }
+
+    impl Drop for Browser {
+        fn drop(&mut self) {
+            if let (Some(context), Some(shared)) = (self.context.take(), SHARED.get()) {
+                let chrome = &shared.chrome.browser;
+                shared.runtime.spawn(async move {
+                    chrome.dispose_browser_context(context).await.ok();
+                });
+            }
+        }
     }
 
     /// `router` served on a free loopback port for the test's lifetime: its
@@ -651,6 +776,61 @@ pub(crate) mod testing {
         panic!("never true: {js}");
     }
 
+    /// Waits until `js`, made a string, is `expected` in `page`, for up to
+    /// 20 s; panics with what it last was if it never is.
+    pub(crate) async fn until_is(page: &Page, js: &str, expected: &str) {
+        let asked = format!("String({js})");
+        let started = tokio::time::Instant::now();
+        let mut last = None;
+        while started.elapsed() < READY_WITHIN {
+            last = page
+                .evaluate(asked.as_str())
+                .await
+                .ok()
+                .and_then(|answer| answer.into_value::<String>().ok());
+            if last.as_deref() == Some(expected) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("{js} is {last:?}, never {expected:?}");
+    }
+
+    /// Waits until the router has answered `count` requests whose path
+    /// `path` accepts, for up to 20 s; panics with what it answered if it
+    /// never has.
+    pub(crate) async fn until_answered(
+        answered: &Answered,
+        path: impl Fn(&str) -> bool,
+        count: usize,
+    ) {
+        let started = tokio::time::Instant::now();
+        while started.elapsed() < READY_WITHIN {
+            if answered
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(p, _)| path(p))
+                .count()
+                >= count
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("never answered {count}: {:?}", answered.lock().unwrap());
+    }
+
+    /// Waits until `page` has drawn two more frames: whatever it painted
+    /// before is on the screen.
+    pub(crate) async fn next_frames(page: &Page) {
+        eval::<bool>(
+            page,
+            "new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(true))))",
+        )
+        .await;
+    }
+
     /// Waits until `page` has loaded and its script has finished starting:
     /// its widgets mounted.
     pub(crate) async fn loaded(page: &Page) {
@@ -663,7 +843,7 @@ pub(crate) mod testing {
     }
 
     /// `url` opened in a new tab of `browser`, once it has [`loaded`].
-    pub(crate) async fn open(browser: &chromiumoxide::Browser, url: &str) -> Page {
+    pub(crate) async fn open(browser: &Browser, url: &str) -> Page {
         let page = browser.new_page(url).await.unwrap();
         loaded(&page).await;
         page
@@ -837,6 +1017,46 @@ mod tests {
         for (url, status) in futures::future::join_all(asked).await {
             assert_eq!(status, reqwest::StatusCode::OK, "{url}");
         }
+    }
+
+    /// Two tests' browsers are one Chrome — the second launches nothing —
+    /// each with storage of its own. Drives chrome-headless-shell; run with
+    /// `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn every_tests_browser_is_one_chrome_with_storage_of_its_own() {
+        use chromiumoxide::cdp::browser_protocol::target::GetTargetsParams;
+        let page = "<html><body>storage</body></html>";
+        let address = testing::serve(Router::new().route(
+            "/",
+            axum::routing::get(move || async move { axum::response::Html(page) }),
+        ))
+        .await;
+        let one = testing::browser().await;
+        let two = testing::browser().await;
+        let a = one.new_page(address.as_str()).await.unwrap();
+        let b = two.new_page(address.as_str()).await.unwrap();
+        let targets = testing::chrome()
+            .await
+            .execute(GetTargetsParams::default())
+            .await
+            .unwrap();
+        for page in [&a, &b] {
+            assert!(
+                targets
+                    .result
+                    .target_infos
+                    .iter()
+                    .any(|t| &t.target_id == page.target_id()),
+                "a browser's page is in another Chrome"
+            );
+        }
+        testing::eval::<bool>(&a, "(localStorage.setItem('kept', 'one'), true)").await;
+        assert_eq!(
+            testing::eval::<String>(&b, "String(localStorage.getItem('kept'))").await,
+            "null",
+            "the second browser sees the first's storage"
+        );
     }
 
     /// A session's tab opens its page once it is ready, carries the shot

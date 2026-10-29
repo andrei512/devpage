@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
+
 use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
 use chromiumoxide::cdp::browser_protocol::page::{
     AddScriptToEvaluateOnNewDocumentParams, CaptureScreenshotParams, Viewport,
@@ -16,7 +16,7 @@ use futures::StreamExt;
 
 use devpage_design::compare::{self, Difference};
 
-use crate::adapters::chrome::testing::{self, eval, until};
+use crate::adapters::chrome::testing::{self, Browser, eval, until};
 use crate::drive::http;
 use devpage_core::designs::Designs;
 use devpage_core::document::Document;
@@ -178,30 +178,18 @@ async fn pixel(page: &Page, at: Point) -> [u8; 3] {
     .await
 }
 
-/// How the screenshot `shot` differs from the server's PNG at `png`, laid over
-/// the page's background as the screen shows it and with `margin` pixels of
-/// that background around it — compared by the engine's own rule, so the test
-/// and the constraint can't drift apart. The margin is where a surface that
-/// drew more than the drawing would show it.
-async fn difference(
-    page: &Page,
-    address: &str,
-    shot: &[u8],
-    png: &str,
-    margin: usize,
-) -> Option<Difference> {
+/// How the screenshot `shot` differs from the server's PNG `served`, laid
+/// over the page's background as the screen shows it and with `margin` pixels
+/// of that background around it — compared by the engine's own rule, so the
+/// test and the constraint can't drift apart. The margin is where a surface
+/// that drew more than the drawing would show it.
+async fn difference(page: &Page, shot: &[u8], served: &[u8], margin: usize) -> Option<Difference> {
     let background: [f64; 3] = eval(
         page,
         "getComputedStyle(document.body).backgroundColor.match(/[\\d.]+/g).slice(0, 3).map(Number)",
     )
     .await;
-    let served = reqwest::get(format!("{address}{png}"))
-        .await
-        .unwrap()
-        .bytes()
-        .await
-        .unwrap();
-    let (drawing, width, height) = compare::pixels(&served).unwrap();
+    let (drawing, width, height) = compare::pixels(served).unwrap();
     let (width, height) = (width as usize, height as usize);
     let outer = width + 2 * margin;
     let page_color = [
@@ -228,6 +216,48 @@ async fn difference(
     compare::compare(&a, &b, outer)
 }
 
+/// Waits until the screen shows the design painted on `page`'s canvas as the
+/// server's PNG at `png` draws it, by [`difference`] with `margin` pixels of
+/// the page around it: a painted frame reaches the screen a moment after the
+/// canvas says it is painted. Gives up after 20 s with the last difference,
+/// keeping that screen in the temporary folder for a look.
+async fn until_shows_png(
+    page: &Page,
+    address: &str,
+    png: &str,
+    margin: usize,
+) -> Result<(), String> {
+    let [width, height]: [f64; 2] = eval(
+        page,
+        "document.querySelector('canvas.design').dataset.size.split(',').map(Number)",
+    )
+    .await;
+    let served = reqwest::get(format!("{address}{png}"))
+        .await
+        .unwrap()
+        .bytes()
+        .await
+        .unwrap();
+    let started = std::time::Instant::now();
+    loop {
+        let shot = screenshot(page, width, height, margin as f64).await;
+        let d = difference(page, &shot, &served, margin).await;
+        if d.is_some_and(|d| d.within_tolerance()) {
+            return Ok(());
+        }
+        if started.elapsed() > Duration::from_secs(20) {
+            let name: String = png
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .collect();
+            let at = std::env::temp_dir().join(format!("devpage-screen{name}.png"));
+            std::fs::write(&at, &shot).ok();
+            return Err(format!("{png}: {d:?}; the screen is {}", at.display()));
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// Each example design on the canvas page matches the server's PNG of it
 /// within the engine's tolerance: the CPU canvas is that very painting, the
 /// GPU canvas another rasterizer of the same display list.
@@ -242,66 +272,50 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
 /// Each design at `paths` on the canvas page, in each theme, on the GPU or
 /// the CPU, matches the server's PNG of it within the engine's tolerance.
 async fn canvases_match_their_pngs(address: &str, paths: &[String], webgpu: bool) {
-    let mut browser = testing::launch().await;
-    let mut failures = Vec::new();
-    for (theme, path) in ["light", "dark"]
+    // All at once, each in a browser of its own: a browser keeps at most six
+    // connections to one server, and each page holds two open.
+    let compared = ["light", "dark"]
         .into_iter()
         .flat_map(|theme| paths.iter().map(move |path| (theme, path)))
-    {
-        let name = path.as_str();
-        let page = browser.new_page("about:blank").await.unwrap();
-        // Room for the tallest example at 100%, at one device pixel per pixel.
-        page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
-            .await
-            .unwrap();
-        if !webgpu {
-            // A browser without WebGPU, from the page's first script on.
-            page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
-                "delete Navigator.prototype.gpu;",
-            ))
-            .await
-            .unwrap();
-        }
-        page.goto(format!("{address}{path}?theme={theme}"))
-            .await
-            .unwrap();
-        until(
-            &page,
-            "document.querySelector('canvas.design')?.dataset.painted === 'true'",
-        )
-        .await;
-        let backend: String = eval(
-            &page,
-            "document.querySelector('canvas.design').dataset.backend",
-        )
-        .await;
-        assert_eq!(backend, if webgpu { "gpu" } else { "cpu" });
-        let [zoom, width, height]: [f64; 3] = eval(
-            &page,
-            "(() => { const c = document.querySelector('canvas.design');              return [Number(c.dataset.view.split(',')[0]), ...c.dataset.size.split(',').map(Number)]; })()",
-        )
-        .await;
-        assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
-        // Let the GPU's frame reach the screen.
-        tokio::time::sleep(Duration::from_millis(300)).await;
-        const MARGIN: usize = 24;
-        let shot = screenshot(&page, width, height, MARGIN as f64).await;
-        let d = difference(
-            &page,
-            address,
-            &shot,
-            &format!("{path}.png?theme={theme}"),
-            MARGIN,
-        )
-        .await;
-        eprintln!("{backend} {theme} {name}: {d:?}");
-        if !d.is_some_and(|d| d.within_tolerance()) {
-            failures.push(format!("{backend} {theme} {name}: {d:?}"));
-        }
-        page.close().await.ok();
-    }
+        .map(|(theme, path)| matches_its_png(address, theme, path, webgpu));
+    let failures: Vec<String> = futures::future::join_all(compared)
+        .await
+        .into_iter()
+        .filter_map(Result::err)
+        .collect();
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// The design at `path` on its canvas page in `theme`, on the GPU or the
+/// CPU, against the server's PNG of it.
+async fn matches_its_png(
+    address: &str,
+    theme: &str,
+    path: &str,
+    webgpu: bool,
+) -> Result<(), String> {
+    let mut browser = testing::browser().await;
+    // Room for the tallest example at 100%, at one device pixel per pixel.
+    let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
+    page.goto(format!("{address}{path}?theme={theme}"))
+        .await
+        .unwrap();
+    until(&page, PAINTED).await;
+    let backend: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.backend",
+    )
+    .await;
+    assert_eq!(backend, if webgpu { "gpu" } else { "cpu" });
+    let zoom: f64 = eval(
+        &page,
+        "Number(document.querySelector('canvas.design').dataset.view.split(',')[0])",
+    )
+    .await;
+    assert_eq!(zoom, 1.0, "{path} isn't shown at 100%");
+    let shown = until_shows_png(&page, address, &format!("{path}.png?theme={theme}"), 24).await;
     browser.close().await.ok();
+    shown.map_err(|why| format!("{backend} {theme}: {why}"))
 }
 
 /// A design that mixes families — a variable font at weights from 300 to
@@ -373,7 +387,7 @@ async fn the_canvas_on_the_cpu_matches_the_png() {
 async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
     let dir = folder("click");
     let address = serve(&dir, "screen.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -390,18 +404,19 @@ async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
     )
     .await;
 
-    // Pay navigates: the address changes and the next design is drawn.
+    // Pay navigates: the address changes and the next design is drawn —
+    // its yellow beside the button, where the screen is grey.
+    let beside = on_screen(&page, "body > canvas.design", 300.0, 40.0).await;
     page.click(pay).await.unwrap();
     until(&page, "location.pathname === '/next.design'").await;
-    until(&page, painted).await;
+    until_pixel(&page, beside, [0xfe, 0xf3, 0xc7]).await;
     // Back, on the next screen, returns.
     let back = on_screen(&page, "body > canvas.design", 120.0, 40.0).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
     page.click(back).await.unwrap();
     until(&page, "location.pathname === '/screen.design'").await;
+    until_pixel(&page, beside, [0xf8, 0xfa, 0xfc]).await;
 
     // Sheet opens the overlay, centered; its Close closes it.
-    tokio::time::sleep(Duration::from_millis(500)).await;
     let sheet = on_screen(&page, "body > canvas.design", 120.0, 100.0).await;
     page.click(sheet).await.unwrap();
     until(
@@ -445,7 +460,7 @@ async fn an_interaction_inside_an_instance_from_another_folder_opens_its_own_tar
         std::fs::write(path, source).unwrap();
     }
     let address = serve(&dir, "app/home.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/app/home.design").as_str())
         .await
@@ -471,7 +486,7 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -553,7 +568,7 @@ async fn a_doc_prints_its_embedded_design() {
 async fn the_wheel_zooms_about_the_pointer_and_pans() {
     let dir = folder("zoom");
     let address = serve(&dir, "screen.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -617,7 +632,7 @@ async fn the_wheel_zooms_about_the_pointer_and_pans() {
 async fn an_undone_typo_clears_the_problems() {
     let dir = folder("undo");
     let (address, designs) = serve_designs(&dir, "screen.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -662,7 +677,7 @@ async fn a_deleted_design_comes_back_on(at: &str) {
     )
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     // Count the watch calls the page makes.
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
@@ -683,11 +698,6 @@ async fn a_deleted_design_comes_back_on(at: &str) {
     designs.changed(&file);
     until(&page, "!!document.querySelector('.design-problems')").await;
     let calls: u32 = eval(&page, "window.watchCalls").await;
-    // Deleted, it isn't asked for again and again: the one stream stays
-    // open for it. Long enough for three reconnects, were it reconnecting.
-    tokio::time::sleep(Duration::from_millis(3500)).await;
-    let later: u32 = eval(&page, "window.watchCalls").await;
-    assert_eq!(later, calls, "{at}: the page kept reopening its stream");
     // The page fetched again — a branch switch touches every file — and
     // the design written back: it draws again, without a reload.
     if at == "page.md" {
@@ -696,6 +706,10 @@ async fn a_deleted_design_comes_back_on(at: &str) {
     std::fs::write(&file, source).unwrap();
     designs.changed(&file);
     until(&page, "!document.querySelector('.design-problems')").await;
+    // Deleted, it wasn't asked for again: the stream that said it was gone
+    // stayed open, and is the one that brought it back.
+    let later: u32 = eval(&page, "window.watchCalls").await;
+    assert_eq!(later, calls, "{at}: the page reopened its stream");
     page.close().await.ok();
     browser.close().await.ok();
 }
@@ -705,7 +719,7 @@ async fn a_deleted_design_comes_back_on(at: &str) {
 async fn a_canvas_says_so_when_the_engine_does_not_load() {
     let dir = folder("no-engine");
     let address = serve(&dir, "screen.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     // A browser that can't compile the module.
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
@@ -769,7 +783,7 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
 
     // A wide window: 400 × 300, as the design is, centred on its backdrop.
     let page = embedded(&mut browser, &address, "/page.md", 1280, 1000).await;
@@ -829,7 +843,7 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     )
     .unwrap();
     let address = serve(&dir, "notes/page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = embedded(&mut browser, &address, "/notes/page.md", 1280, 1000).await;
     let link = "document.querySelector('.design-embed a.design-open')";
     let theme: String = eval(&page, "document.documentElement.dataset.theme").await;
@@ -860,7 +874,7 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
 async fn a_small_design_is_not_enlarged_on_its_canvas_page() {
     let dir = folder("small");
     let address = serve(&dir, "button.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = embedded(&mut browser, &address, "/button.design", 1280, 1000).await;
     let view: String = eval(
         &page,
@@ -911,7 +925,7 @@ async fn eight_embedded_designs_paint_through_one_stream_and_the_page_still_load
     let dir = folder("eight");
     eight(&dir, "page.md");
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -992,7 +1006,7 @@ async fn leaving_the_last_design_in_place_closes_the_stream() {
     .unwrap();
     std::fs::write(dir.join("plain.md"), "# Plain\n\nNo design.\n").unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -1029,7 +1043,7 @@ async fn an_embed_with_problems_survives_a_page_refetch() {
     )
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1090,7 +1104,7 @@ async fn the_canvas_page_switches_theme_and_paints_behind_the_design_in_it() {
     let dir = folder("theme-page");
     std::fs::write(dir.join("glass.design"), GLASS).unwrap();
     let address = serve(&dir, "glass.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/glass.design").as_str())
         .await
@@ -1176,7 +1190,7 @@ async fn an_embed_follows_its_page_and_its_own_switch_turns_only_it() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = tab_in(&mut browser, "dark").await;
     page.goto(format!("{address}/page.md")).await.unwrap();
     until(
@@ -1257,7 +1271,7 @@ async fn the_canvas_page_shows_the_theme_its_address_names() {
     let dir = folder("theme-address");
     themed(&dir);
     let address = serve(&dir, "tile.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = tab_in(&mut browser, "light").await;
     page.goto(format!("{address}/tile.design?theme=dark"))
         .await
@@ -1300,7 +1314,7 @@ async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
     std::fs::write(dir.join("glass.design"), GLASS).unwrap();
     std::fs::write(dir.join("page.md"), "# Page\n\n![Glass](glass.design)\n").unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1361,7 +1375,7 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
     // A design on a slide that isn't shown waits; shown, it fits the room
     // the slide leaves it, inside the slide's 1080 pixels.
     let address = serve(&dir, "deck.yml").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/deck.yml#1").as_str())
         .await
@@ -1427,7 +1441,7 @@ async fn an_embed_in_a_widget_keeps_where_it_navigated_across_a_page_refetch() {
     )
     .unwrap();
     let address = serve(&dir, "doc.yml").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/doc.yml").as_str())
         .await
@@ -1478,7 +1492,7 @@ async fn the_canvas_pages_switch_leaves_the_problems_bar_whole() {
     )
     .unwrap();
     let address = serve(&dir, "broken.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/broken.design").as_str())
         .await
@@ -1527,7 +1541,7 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
     )
     .unwrap();
     let address = serve(&dir, "devpage.yml").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/sub/page.md").as_str())
         .await
@@ -1575,7 +1589,7 @@ async fn a_design_in_a_tab_opened_later_draws_when_it_appears() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1643,7 +1657,7 @@ async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
     )
     .unwrap();
     let address = serve(&dir, "deck.yml").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     for (width, height) in [(1280, 720), (1600, 900)] {
         let page = browser.new_page("about:blank").await.unwrap();
         page.execute(SetDeviceMetricsOverrideParams::new(
@@ -1664,8 +1678,6 @@ async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
             "document.querySelector('canvas.design')?.dataset.painted === 'true'",
         )
         .await;
-        // Let the GPU's frame reach the screen.
-        tokio::time::sleep(Duration::from_millis(300)).await;
         // The canvas's box on the screen, with the slide's scale applied.
         let [left, top, w, h]: [f64; 4] = eval(
             &page,
@@ -1681,11 +1693,9 @@ async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
             (at(0.9, 0.9), [255, 255, 0], "bottom right"),
             (at(0.5, 0.5), [255, 255, 255], "middle"),
         ] {
-            let seen = pixel(&page, point).await;
-            assert_eq!(
-                seen, color,
-                "{width}×{height}, webgpu {webgpu}: the {corner} shows {seen:?}"
-            );
+            // Once the painted frame reaches the screen.
+            eprintln!("{width}×{height}, webgpu {webgpu}: the {corner}");
+            until_pixel(&page, point, color).await;
         }
         // The bottom-right square, where the reader sees it, navigates.
         page.click(at(0.9, 0.9)).await.unwrap();
@@ -1756,23 +1766,17 @@ async fn gpu_against_png_within(
     )
     .await;
     assert_eq!(zoom, 1.0, "{name} isn't shown at 100%");
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let shot = screenshot(page, width, height, margin as f64).await;
-    let d = difference(page, address, &shot, &format!("/{name}.design.png"), margin).await;
-    eprintln!("gpu {name}: {d:?}");
-    if d.is_some_and(|d| d.within_tolerance()) {
-        return Ok(());
-    }
-    let at = std::env::temp_dir().join(format!("devpage-gpu-{name}.png"));
-    std::fs::write(&at, &shot).ok();
-    Err(format!("gpu {name}: {d:?}; the screen is {}", at.display()))
+    assert!(width > 0.0 && height > 0.0, "{name} has no size");
+    until_shows_png(page, address, &format!("/{name}.design.png"), margin)
+        .await
+        .map_err(|why| format!("gpu {why}"))
 }
 
 /// Opens each design in `dir` on its canvas page, on the GPU, and compares
 /// it with its PNG.
 async fn the_gpu_matches_the_png(dir: &Path, names: &[&str]) {
     let address = serve(dir, &format!("{}.design", names[0])).await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let mut failures = Vec::new();
     for name in names {
         let page = browser.new_page("about:blank").await.unwrap();
@@ -1847,7 +1851,7 @@ async fn images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png() {
     // A save that swaps six of them for six new ones: drawn with an atlas
     // of its own, the new drawing's images don't compete with the last's.
     let (address, designs) = serve_designs(&dir, "many.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
         .await
@@ -1944,7 +1948,7 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     .unwrap();
     std::fs::write(dir.join("page.md"), "# Page\n\n![A](a.design)\n").unwrap();
     let address = serve(&dir, "a.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let mut failures = Vec::new();
     for (start, margin) in ["a.design", "page.md"].into_iter().zip([24, 0]) {
         let page = browser.new_page("about:blank").await.unwrap();
@@ -2005,7 +2009,7 @@ async fn a_fill_saved_on_the_gpu_repaints_its_tiles_with_their_images() {
     let file = dir.join("fill.design");
     std::fs::write(&file, design("#000000")).unwrap();
     let (address, designs) = serve_designs(&dir, "fill.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, true, 1280, 1000).await;
     page.goto(format!("{address}/fill.design")).await.unwrap();
     gpu_against_png(&page, &address, "fill").await.unwrap();
@@ -2055,7 +2059,7 @@ async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
     let file = dir.join("grows.design");
     std::fs::write(&file, design("#000000")).unwrap();
     let (address, designs) = serve_designs(&dir, "grows.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, true, 1280, 1000).await;
     page.goto(format!("{address}/grows.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2132,7 +2136,7 @@ async fn a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(
     let file = dir.join("tall.design");
     std::fs::write(&file, design("#dc0000")).unwrap();
     let (address, designs) = serve_designs(&dir, "tall.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
     page.goto(format!("{address}/tall.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2218,7 +2222,7 @@ async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_wid
     )
     .unwrap();
     let address = serve(&dir, "doc.yml").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -2370,7 +2374,7 @@ async fn the_cpu_paints_the_middle_first_a_few_at_a_time() {
     let dir = folder("huge-order-cpu");
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, false, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2414,7 +2418,7 @@ async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
     });
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2484,7 +2488,7 @@ async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(webgpu: bool) {
     let dir = folder(if webgpu { "pan-gpu" } else { "pan-cpu" });
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let mut medians = Vec::new();
     for name in ["screen", "huge"] {
         let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
@@ -2581,6 +2585,24 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
     )
     .await
     .unwrap();
+    // Once the painted frame reaches the screen, for up to 20 s.
+    let started = std::time::Instant::now();
+    loop {
+        let seen = shot_of(page, width, height).await;
+        let d = compare::compare(&seen, &expected, width).unwrap();
+        if d.within_tolerance() {
+            return seen;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "at {k}×: {d:?}"
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The top-left `width` × `height` of the window, opaque.
+async fn shot_of(page: &Page, width: usize, height: usize) -> Vec<u8> {
     let shot = page
         .screenshot(
             CaptureScreenshotParams::builder()
@@ -2600,8 +2622,6 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
     for px in seen.chunks_mut(4) {
         px[3] = 255;
     }
-    let d = compare::compare(&seen, &expected, width).unwrap();
-    assert!(d.within_tolerance(), "at {k}×: {d:?}");
     seen
 }
 
@@ -2613,7 +2633,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
 async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let address = serve(root, "docs/designs/checkout/checkout.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let mut shots = Vec::new();
     for webgpu in [true, false] {
         let page = canvas_page(&mut browser, webgpu, 800, 600).await;
@@ -2624,7 +2644,6 @@ async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
         .unwrap();
         until(&page, PAINTED).await;
         zoom_to(&page, 4.0, 100.0, 100.0).await;
-        tokio::time::sleep(Duration::from_millis(300)).await;
         shots.push(zoomed_against_the_engine(&page, 800, 600).await);
         page.close().await.ok();
     }
@@ -2640,7 +2659,7 @@ async fn an_edit_repaints_only_the_tiles_around_it(webgpu: bool) {
     let dir = folder(if webgpu { "edit-gpu" } else { "edit-cpu" });
     huge(&dir, None);
     let (address, designs) = serve_designs(&dir, "huge.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2694,7 +2713,8 @@ async fn an_edit_repaints_only_the_tiles_around_it_on_the_cpu() {
 /// A page without WebGPU paints its tiles in a worker, which loads the engine
 /// after the page: a canvas whose scene arrives — and is handed to the worker
 /// — while the worker is still loading the engine paints all the same. The
-/// worker's requests for the engine are held two seconds to make sure.
+/// worker's requests for the engine are held until the canvas has its scene
+/// and has asked for tiles, to make sure.
 #[tokio::test]
 #[ignore]
 async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded() {
@@ -2704,7 +2724,7 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
     use chromiumoxide::cdp::browser_protocol::network::SetCacheDisabledParams;
     let dir = folder("worker-late");
     let address = serve(&dir, "screen.design").await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = canvas_page(&mut browser, false, 800, 600).await;
     page.execute(SetCacheDisabledParams::new(true))
         .await
@@ -2722,8 +2742,9 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
     .await
     .unwrap();
     let held = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let early = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let holder = {
-        let (page, held) = (page.clone(), held.clone());
+        let (page, held, early) = (page.clone(), held.clone(), early.clone());
         tokio::spawn(async move {
             let mut worker = false;
             while let Some(event) = paused.next().await {
@@ -2732,18 +2753,26 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
                 let hold = worker && url.contains("design-engine");
                 worker |= url.contains("design-worker");
                 let page = page.clone();
-                let held = held.clone();
+                let (held, early) = (held.clone(), early.clone());
                 tokio::spawn(async move {
                     if hold {
                         held.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        // The scene is in: the canvas has laid it out, and
+                        // asked the worker for tiles it can't paint yet.
+                        until(
+                            &page,
+                            "!!document.querySelector('canvas.design')?.dataset.size",
+                        )
+                        .await;
+                        if eval::<bool>(&page, PAINTED).await {
+                            early.store(true, std::sync::atomic::Ordering::Relaxed);
+                        }
                     }
                     page.execute(ContinueRequestParams::new(id)).await.ok();
                 });
             }
         })
     };
-    let start = std::time::Instant::now();
     page.goto(format!("{address}/screen.design")).await.unwrap();
     until(&page, PAINTED).await;
     let backend: String = eval(
@@ -2756,7 +2785,10 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
         held.load(std::sync::atomic::Ordering::Relaxed) > 0,
         "the worker's requests for the engine were never seen"
     );
-    assert!(start.elapsed() >= Duration::from_secs(2));
+    assert!(
+        !early.load(std::sync::atomic::Ordering::Relaxed),
+        "painted before the worker had its engine"
+    );
     // The screen's own background, painted from the worker's tiles.
     let at = on_screen(&page, "canvas.design", 390.0, 290.0).await;
     assert_eq!(pixel(&page, at).await, [0xf8, 0xfa, 0xfc]);

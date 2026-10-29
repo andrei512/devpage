@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::page_script::{open, text, widget_folder};
-use crate::drive::pdf::{doc_params, print};
+use crate::drive::pdf::print;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
 
@@ -53,7 +53,7 @@ async fn a_design_with_problems_does_not_delay_a_pdf() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
-async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
+async fn the_fixture_doc_prints_on_a4() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(
         Document::load(
@@ -62,24 +62,8 @@ async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
         )
         .unwrap(),
     );
-    let Kind::Doc { pdf, .. } = &document.kind else {
-        panic!()
-    };
-    let params = doc_params(pdf);
-    assert!(
-        params
-            .header_template
-            .unwrap()
-            .contains("Offline sync — draft")
-    );
-    let footer = params.footer_template.unwrap();
-    assert!(
-        footer.contains(
-            "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
-        ),
-        "{footer}"
-    );
-
+    // Its print call — the paper, the header and the footer — is
+    // `pdf::tests::a_docs_print_call_carries_its_paper_header_and_footer`.
     let pages = pages(&print(document).await.unwrap());
     assert!(!pages.is_empty());
     for (width, height) in pages {

@@ -8,15 +8,15 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 549 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 116 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                  # 553 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 117 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 156 in `devpage`, one of
+`cargo test` runs every crate in the workspace: 160 in `devpage`, one of
 them in `tests/`, 227 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
@@ -25,7 +25,19 @@ the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
 `canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
 `server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
-launches Chrome, serves the test's router on loopback and waits on its pages.
+launches one Chrome for the whole run and gives each test a browser of its
+own inside it — a browser context, with its own storage, cache and
+connections — serves the test's router on loopback and waits on its pages.
+A test waits on the condition it is after — a state of the DOM or the page
+script with `until` and `until_is`, a request answered with
+`until_answered`, frames drawn with `next_frames`, the promise the page
+script's own `load` returns, a screen that shows the server's PNG — never a
+fixed time; where it checks that something does not happen, it first waits
+for a sign that it would have by then, such as a later request answered or a
+later key's effect. What a page's server produces — its HTML, a route's
+answer, a print call — is tested without Chrome, beside that code; a Chrome
+test is kept for what only a browser does: layout, the page script, painting,
+input and live updates.
 Below, each suite's tests are listed under the module whose behaviour they
 pin. The `tests/`
 folder holds two, [the search's quality](#the-searchs-quality) and
@@ -39,7 +51,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 116 tests marked `#[ignore]`, 107 drive Chrome, and one of them also
+Of the 117 tests marked `#[ignore]`, 108 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
@@ -54,8 +66,10 @@ chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
-They run in parallel, so the longest bounds the run: the `video` test that
-records a deck, which takes as long as its slides play. Run them with
+They run in parallel, so the longest bounds the run: the `video` tests,
+which record a deck as long as its slides play, and start last in the
+run's order — [how long they take](#how-long-the-chrome-suites-take). Run
+them with
 `--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
 `devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
@@ -116,6 +130,42 @@ macOS — those tests fail while everything else passes. That says nothing
 about the change under test; run them where file events work before calling
 the suite green.
 
+### How long the Chrome suites take
+
+`cargo test --bin devpage -- --ignored` — every Chrome suite, the GPT-Live
+test passing at once without a key — on an Apple M5 Max with 18 cores, the
+binary already built: before the suites shared one Chrome and waited on
+conditions, and after.
+
+| | Before | After |
+| --- | --- | --- |
+| The run, in parallel | 22.4–23.5 s | 18.8–19.7 s |
+| Every test one at a time | 145 s | 74 s |
+| `page_script`, one at a time | 27.3 s | 4.3 s |
+| `canvas`, one at a time | 75.9 s | 34.6 s |
+
+The slowest tests, one at a time:
+
+| Test | Before | After |
+| --- | --- | --- |
+| `video::a_recorded_slide_showing_a_slides_png_gets_it_drawn` | 18.9 s | 13.0 s |
+| `video::a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice` | 13.4 s | 13.0 s |
+| `canvas::images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png` | 6.0 s | 2.8 s |
+| `canvas::the_canvas_on_the_gpu_matches_the_png` | 5.4 s | 0.9 s |
+| `canvas::the_canvas_on_the_cpu_matches_the_png` | 5.4 s | 0.6 s |
+| `canvas::a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_gpu` | 5.1 s | 4.9 s |
+| `canvas::a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded` | 4.3 s | 0.3 s |
+| `canvas::a_deleted_design_comes_back_when_written_again` | 3.8 s | 0.25 s |
+| `page_script::widgets_mount_on_load_and_after_a_live_update` | 3.3 s | 0.08 s |
+
+What is left is what the tests are about. A recorded deck plays in real
+time: a slide's voice must be buffered two seconds before it plays, and is
+over once it has been quiet for one and a half. A pan is timed over 60 frames
+on each of two designs. In parallel the run is bounded by the two `video`
+tests, which the test runner, taking tests in the order of their names,
+starts last; one at a time, the rest of the run — less the test that asks
+Google's server for the pinned Chrome — takes about 45 s.
+
 ## By module
 
 `devpage-core`'s modules by their names; the binary's by their paths under
@@ -170,6 +220,7 @@ the suite green.
 In Chrome:
 
 - A tab opened once its page is ready, sending the shot header only when opened to be shot, and evaluated in, a promise awaited.
+- Two tests' browsers one Chrome, each with storage of its own.
 
 On the network:
 
@@ -420,10 +471,11 @@ an ignored folder but reaches into none, watching none.
 *And in Chrome, in `drive::browser_tests::pdf`.*
 
 - A site refused.
+- The fixture doc's print call: A4, its header, and its footer with Chrome's page-number fields.
 
 In Chrome:
 
-- The fixture doc on A4 with its header and footer.
+- The fixture doc printed on A4.
 - A doc embedding a design with problems printed without waiting for it.
 - The devpage talk one 16:9 page per slide.
 - A printed doc showing each widget's first render, terminal lines wrapping on paper, and its diagram on paper with its node's link in the PDF.
@@ -432,10 +484,10 @@ In Chrome:
 
 *All in Chrome, in `drive::browser_tests::page_script`.*
 
-- The logo loaded at 22px before the navbar's title, centred on it, and the tab's icon.
+- The logo loaded at 22px before the navbar's title and centred on it; the tab's icon is the head's, under [`page`](#page).
 - The navbar's dropdown by click and keyboard, its highlight following an in-place link.
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
-- A diagram in the page's HTML as served, its shapes taking the theme's `--surface` in light and again in dark after the switch, and its node's link opening the page in place.
+- A diagram, served drawn, its shapes taking the theme's `--surface` in light and again in dark after the switch, and its node's link opening the page in place.
 - The navbar folding into a menu on a narrow screen.
 - A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
 - A doc's outline click scrolling without a fetch.
@@ -452,7 +504,7 @@ In Chrome:
 - A link swapping in a page built off-screen, at the top, and back and forward restoring each page's scroll.
 - Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
-- A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
+- A broken helper's message shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering; an unknown tag's error is the served HTML's, under [`widgets`](#widgets).
 - The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
 - The sidebar's search box, its searches answered by a stand-in for the endpoint in its answer's shape: typing showing results in the tree's place, grouped by page — the page's row, its sections under it, the more row — the lede of a page found by its title, another document's title over its page, the snippet's words marked; the first row selected the page found by its title, else the best section; arrows moving through every row, round; Escape and the clear button clearing it and bringing the tree back. A section's result swapped in through the page swap, landing on its first matched word with the heading scrolled past — again when scrolled away — its words marked in the section and not in code, a widget, its heading or the next section, the box keeping its text; Escape on the page taking the marks out and leaving the text as it was; opening another section moving them, back taking them out; a doc's chapter loaded whole landing the same way. A page found by its title opening at its top with nothing marked, the page shown and another. `/`, ⌘K and Ctrl+K focusing it, the `/` not typed. A slow answer to earlier text never replacing a later one's results.
@@ -543,6 +595,8 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A server and the watcher its app starts announcing a comment write once.
 - A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
+- A page served with its Mermaid diagram drawn in its HTML.
+- A slide's PNG asked for inside a shot and not drawn yet refused with `508`, and `404` for a slide the deck doesn't have — past its last, before its first, or a page that isn't a deck — neither starting Chrome.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone — trimmed, and a blank one refused.
 - A thread on a page that isn't a file in the served folder refused with `422`.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
@@ -586,10 +640,10 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 In Chrome:
 
-- A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
+- A slide served as a 1920 × 1080 PNG, each slide a different picture.
 - A slide beside one with a design drawn in under 3 seconds, without waiting for the design; the design's own slide drawn with it painted.
 - A slide showing its own PNG answered promptly.
-- A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot, `508` there for one not drawn — until a change, after which the slide is drawn again.
+- A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot — until a change, after which the slide is drawn again.
 - Chrome closed when told, and started again for the next shot.
 - A slide shot without its comments: drawn again after a thread is started on it, the same picture.
 

@@ -184,9 +184,8 @@ async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
         }
         request.send()
     };
-    // Inside another shot, a slide not yet drawn isn't drawn.
-    assert_eq!(shot(None, true).await.unwrap().status(), 508);
-
+    // Inside another shot, a slide not yet drawn isn't drawn:
+    // `http::tests::inside_a_shot_a_slide_not_yet_drawn_is_refused`.
     let first = shot(None, false).await.unwrap();
     let etag = first.headers()["etag"].to_str().unwrap().to_string();
     let first = first.bytes().await.unwrap();
@@ -296,12 +295,5 @@ async fn a_slide_is_served_as_a_1920_by_1080_png() {
         .await
         .unwrap();
     assert_ne!(first, png);
-
-    for path in ["talk.yml/3.png", "talk.yml/0.png", "one.md/1.png"] {
-        let status = reqwest::get(format!("{address}/{path}"))
-            .await
-            .unwrap()
-            .status();
-        assert_eq!(status, 404, "{path}");
-    }
+    // A PNG of no slide is `http::tests::a_png_of_no_slide_is_not_found`.
 }

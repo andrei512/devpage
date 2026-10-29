@@ -1,7 +1,9 @@
 //! Every test suite that drives Chrome, one module per suite, each on
-//! [`chrome::testing`](crate::adapters::chrome::testing): the browser launched as
-//! devpage launches it, a router served on loopback for it to load, and the
-//! waits a test needs on a page. They are `#[ignore]`d; run them with
+//! [`chrome::testing`](crate::adapters::chrome::testing): one Chrome for the
+//! run, launched as devpage launches it, a browser of its own inside it for
+//! each test, a router served on loopback for it to load, and the waits a test
+//! needs on a page — each on the condition it is after, never a fixed time.
+//! They run side by side, and are `#[ignore]`d; run them with
 //! `cargo test -- --ignored`.
 
 /// The canvas: painting on the GPU and the CPU against the server's PNG,

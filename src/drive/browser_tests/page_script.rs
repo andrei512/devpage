@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chromiumoxide::Page;
-use futures::StreamExt;
+use futures::{FutureExt, StreamExt};
 
-use crate::adapters::chrome::testing::{self, Answered, eval, until};
+use crate::adapters::chrome::testing::{self, Answered, eval, until, until_is};
 use crate::drive::http;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
@@ -46,30 +46,21 @@ async fn widgets_mount_on_load_and_after_a_live_update() {
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/docs/README.md").as_str())
         .await
         .unwrap();
-    let count = |page: Page| async move {
-        let value: String = page
-                .evaluate("document.documentElement.dataset.ready + ':' + document.querySelectorAll('aside.callout').length + ':' + !!document.querySelector('.callout-warning strong')")
-                .await
-                .unwrap()
-                .into_value()
-                .unwrap();
-        value
-    };
-    tokio::time::sleep(Duration::from_millis(1500)).await;
-    assert_eq!(count(page.clone()).await, "true:3:true");
+    let count = "document.documentElement.dataset.ready + ':' + document.querySelectorAll('aside.callout').length + ':' + !!document.querySelector('.callout-warning strong')";
+    until_is(&page, count, "true:3:true").await;
     std::fs::write(
         &page_file,
         "# W\n\n<Callout>one</Callout>\n\n<Callout>two</Callout>\n\n<Pair />\n",
     )
     .unwrap();
+    // `load` resolves once the page is swapped in, its widgets mounted.
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
-    assert_eq!(count(page.clone()).await, "true:4:false");
+    assert_eq!(text(&page, count).await, "true:4:false");
     // An edited widget is fetched again on the next live update.
     std::fs::write(
             dir.join("docs/widgets/Pair.tsx"),
@@ -77,8 +68,7 @@ async fn widgets_mount_on_load_and_after_a_live_update() {
         )
         .unwrap();
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
-    assert_eq!(count(page.clone()).await, "true:3:false");
+    assert_eq!(text(&page, count).await, "true:3:false");
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -99,6 +89,7 @@ async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         panic!()
     };
     let last = format!("{0}#{0}", slides.len());
+    let before_last = format!("{0}#{0}", slides.len() - 1);
     let url = document.entry();
     let changes = crate::adapters::changes::Changes::default();
     let router = http::router(
@@ -106,44 +97,35 @@ async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}{url}").as_str())
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    let shown = |page: Page| async move {
-        let value: String = page
-                .evaluate("[...document.querySelectorAll('.slide.shown')].map(s => s.dataset.slide).join(',') + location.hash")
-                .await
-                .unwrap()
-                .into_value()
-                .unwrap();
-        value
-    };
-    assert_eq!(shown(page.clone()).await, "1");
+    testing::loaded(&page).await;
+    let shown = "[...document.querySelectorAll('.slide.shown')].map(s => s.dataset.slide).join(',') + location.hash";
+    assert_eq!(text(&page, shown).await, "1");
+    // A key sets the address's #fragment; the slide follows it.
     page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowRight'}))")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(shown(page.clone()).await, "2#2");
+    until_is(&page, shown, "2#2").await;
     page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'End'}))")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(shown(page.clone()).await, last);
-    // ⌘← is the browser's, not the deck's.
+    until_is(&page, shown, &last).await;
+    // ⌘← is the browser's, not the deck's: the ← after it moves one slide
+    // back, not two.
     page.evaluate(
-        "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', metaKey: true}))",
+        "document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft', metaKey: true})); \
+         document.dispatchEvent(new KeyboardEvent('keydown', {key: 'ArrowLeft'}))",
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(shown(page.clone()).await, last);
+    until_is(&page, shown, &before_last).await;
     // A live update swaps the deck in place and stays on the slide shown.
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(shown(page.clone()).await, last);
+    assert_eq!(text(&page, shown).await, before_last);
     browser.close().await.ok();
 }
 
@@ -176,12 +158,12 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
     let changes = crate::adapters::changes::Changes::default();
     let router = http::router(http::App::testing(document, changes));
     let address = testing::serve(router).await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser
         .new_page(format!("{address}/docs/talk.yml").as_str())
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
+    testing::loaded(&page).await;
     // Even with comment mode remembered as on, nothing offers a comment.
     page.evaluate("localStorage.setItem('devpage-comment-mode', 'on')")
         .await
@@ -192,7 +174,8 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
     page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'c'}))")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Nothing to wait for: the handlers ran inside `dispatchEvent`, and with
+    // comments off the page never asks for a thread.
     assert_eq!(
             text(
                 &page,
@@ -225,7 +208,7 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
-    let mut browser = testing::launch().await;
+    let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
     let layout = |width: i64| {
         let page = page.clone();
@@ -235,7 +218,7 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
                 .await
                 .unwrap();
             page.goto(url.as_str()).await.unwrap();
-            tokio::time::sleep(Duration::from_millis(300)).await;
+            testing::loaded(&page).await;
             let value: String = page
                     .evaluate("(() => { const n = document.getElementById('devpage-nav').getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); return n.bottom <= a.top ? 'above' : n.right <= a.left ? 'beside' : 'overlap'; })()")
                     .await
@@ -288,7 +271,7 @@ async fn open_logged(dir: &Path, path: &str) -> (testing::Browser, Page, Answere
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ));
     let address = testing::serve(router).await;
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     let page = testing::open(&browser, &format!("{address}{path}")).await;
     (browser, page, answered)
 }
@@ -354,7 +337,12 @@ async fn a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_it
         .await
         .unwrap();
     testing::loaded(&cold).await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The embedded design's engine has loaded once it shows its problems.
+    until(
+        &cold,
+        "!!document.querySelector('canvas.design')?.dataset.painted",
+    )
+    .await;
     assert_eq!(
             text(
                 &cold,
@@ -365,8 +353,9 @@ async fn a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_it
             "the diagram and the card drew"
         );
     let mut modules = Vec::new();
-    while let Ok(Some(event)) = tokio::time::timeout(Duration::from_millis(200), sent.next()).await
-    {
+    // Every request the page made was reported before the answer that said
+    // it was painted: they are all in the stream.
+    while let Some(Some(event)) = sent.next().now_or_never() {
         if event.r#type == Some(ResourceType::Script)
             && event.request.url.contains("/__devpage/")
             && !event.request.url.contains("/__devpage/devpage.")
@@ -463,12 +452,10 @@ async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
         ],
     );
     let (mut browser, page) = open(&dir, "/docs/README.md").await;
-    // Loaded, 22px, before the title and centred on it, and the tab's icon.
-    let shown = "(() => { const i = document.querySelector('.navbar-title .logo'), t = document.querySelector('.navbar-title'); const a = i.getBoundingClientRect(), b = t.getBoundingClientRect(); return [i.complete && i.naturalWidth > 0, a.width, a.height, i === t.firstElementChild, Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5, document.querySelector('link[rel=icon]').getAttribute('href')].join(' '); })()";
-    assert_eq!(
-        text(&page, shown).await,
-        "true 22 22 true true /docs/logo.svg"
-    );
+    // Loaded, 22px, before the title and centred on it. The tab's icon is
+    // the head's: `page::tests::every_frame_carries_the_logo_as_its_tab_icon`.
+    let shown = "(() => { const i = document.querySelector('.navbar-title .logo'), t = document.querySelector('.navbar-title'); const a = i.getBoundingClientRect(), b = t.getBoundingClientRect(); return [i.complete && i.naturalWidth > 0, a.width, a.height, i === t.firstElementChild, Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2) < 1.5].join(' '); })()";
+    assert_eq!(text(&page, shown).await, "true 22 22 true true");
     browser.close().await.ok();
 }
 
@@ -525,8 +512,8 @@ async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
     page.evaluate("document.activeElement.click()")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(text(&page, "location.pathname").await, "/docs/plan.md");
+    // The swap's commit moves the address and the navbar in one task.
+    until_is(&page, "location.pathname", "/docs/plan.md").await;
     assert_eq!(
         text(&page, "document.querySelector('.navbar-menu').className").await,
         "navbar-menu current"
@@ -596,7 +583,7 @@ async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
     );
     // A reload keeps it, before anything paints.
     page.reload().await.unwrap();
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    testing::loaded(&page).await;
     assert_eq!(text(&page, theme).await, "dark");
     assert_eq!(text(&page, background).await, "rgb(0, 0, 0)");
     // One click back to light, the moon showing.
@@ -622,15 +609,8 @@ async fn a_diagram_comes_drawn_follows_the_theme_and_its_nodes_are_links() {
         &[("docs/beta.md", "# Beta page\n")],
     );
     let (mut browser, page) = open(&dir, "/docs/README.md").await;
-    // In the HTML as served: nothing in the browser drew it.
-    assert_eq!(
-            text(
-                &page,
-                "fetch(location.href).then(r => r.text()).then(t => String(t.includes('<div class=\"diagram\"><svg')))"
-            )
-            .await,
-            "true"
-        );
+    // Served drawn, nothing in the browser drawing it, as
+    // `http::tests::a_page_is_served_with_its_diagrams_drawn` pins.
     let fill = "getComputedStyle(document.querySelector('.diagram rect')).fill";
     let surface = "(() => { const probe = document.createElement('i'); probe.style.color = 'var(--surface)'; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color; })()";
     page.evaluate("document.documentElement.dataset.theme = 'light'")
@@ -666,7 +646,7 @@ async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
     page.execute(SetDeviceMetricsOverrideParams::new(390, 800, 1.0, false))
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    testing::next_frames(&page).await;
     let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-toggle').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
     assert_eq!(text(&page, fits).await, "true true true");
     assert_eq!(
@@ -774,7 +754,7 @@ async fn every_system_widget_renders() {
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    testing::next_frames(&page).await;
     assert_eq!(
             text(&page, "[...document.querySelectorAll('.example-source, .terminal pre')].map(p => p.scrollWidth > p.clientWidth && getComputedStyle(p).overflowX === 'auto').join(',') + '|' + (document.documentElement.scrollWidth <= innerWidth) + '|' + [...document.querySelectorAll('.example')].every(e => e.getBoundingClientRect().right <= document.querySelector('#devpage-page').getBoundingClientRect().right + 1)").await,
             "false,false,true,true|true|true"
@@ -783,15 +763,12 @@ async fn every_system_widget_renders() {
     page.evaluate("document.querySelectorAll('.tabs-bar button')[1].click()")
         .await
         .unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(
-        text(
-            &page,
-            "document.querySelector('.tabs-panel').textContent.trim()"
-        )
-        .await,
-        "second tab"
-    );
+    until_is(
+        &page,
+        "document.querySelector('.tabs-panel').textContent.trim()",
+        "second tab",
+    )
+    .await;
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -849,7 +826,7 @@ async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
     )
     .await
     .unwrap();
-    tokio::time::sleep(Duration::from_millis(1200)).await;
+    testing::loaded(&page).await;
     assert_eq!(
         text(
             &page,
@@ -882,14 +859,11 @@ async fn an_edited_helper_reaches_open_pages() {
         text(&page, "document.querySelector('.label').textContent").await,
         "before"
     );
-    tokio::time::sleep(Duration::from_millis(20)).await;
-    std::fs::write(
-        dir.join("docs/widgets/word.ts"),
+    rewrite(
+        &dir.join("docs/widgets/word.ts"),
         "export const word = \"after\";",
-    )
-    .unwrap();
+    );
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(
         text(&page, "document.querySelector('.label').textContent").await,
         "after"
@@ -921,15 +895,12 @@ async fn an_edited_widget_rendered_by_name_reaches_open_pages() {
         text(&page, "document.querySelector('.card .badge').textContent").await,
         "before"
     );
-    tokio::time::sleep(Duration::from_millis(20)).await;
     // Badge's address moves; Card's, which names Badge only by name, doesn't.
-    std::fs::write(
-        dir.join("docs/widgets/Badge.tsx"),
+    rewrite(
+        &dir.join("docs/widgets/Badge.tsx"),
         "export default () => <span className=\"badge\">after</span>;",
-    )
-    .unwrap();
+    );
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(800)).await;
     assert_eq!(
         text(&page, "document.querySelector('.card .badge').textContent").await,
         "after"
@@ -1018,6 +989,34 @@ fn since(answered: &Answered, from: usize) -> Vec<(String, u16)> {
         .collect()
 }
 
+/// The address [`settled`] asks for, which nothing else does.
+const SETTLED: &str = "/__devpage/settled";
+
+/// What the server answered since `from`, less the event stream, once a
+/// request `page` makes now has been answered: anything the page asked for
+/// before it has been answered by then.
+async fn settled(page: &Page, answered: &Answered, from: usize) -> Vec<(String, u16)> {
+    eval::<bool>(page, &format!("fetch('{SETTLED}').then(() => true)")).await;
+    since(answered, from)
+        .into_iter()
+        .filter(|(path, _)| path != SETTLED)
+        .collect()
+}
+
+/// Writes `text` to the widget file `path`, its time moved on past the
+/// last write's, so the module cache — which keys a file by its time and
+/// length — reads it again however soon after that write it comes.
+fn rewrite(path: &Path, text: &str) {
+    let last = std::fs::metadata(path).unwrap().modified().unwrap();
+    std::fs::write(path, text).unwrap();
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_modified(last + Duration::from_secs(1))
+        .unwrap();
+}
+
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
@@ -1036,33 +1035,31 @@ async fn a_slide_change_fetches_nothing_and_every_frame_shows_a_slide() {
         ],
     );
     let (mut browser, page, answered) = open_logged(&dir, "/docs/talk.yml").await;
-    // The comments the page asked for on load have come.
-    tokio::time::sleep(Duration::from_millis(1000)).await;
+    // The comments the page asked for on load, one request a slide, have come.
+    testing::until_answered(&answered, |path| path == "/__devpage/comments", 3).await;
     page.evaluate(SAMPLER).await.unwrap();
     let from = answered.lock().unwrap().len();
-    for key in ["ArrowRight", "ArrowRight", "ArrowLeft"] {
+    let shown = "document.querySelector('.slide.shown').dataset.slide + location.hash";
+    for (key, then) in [
+        ("ArrowRight", "2#2"),
+        ("ArrowRight", "3#3"),
+        ("ArrowLeft", "2#2"),
+    ] {
         page.evaluate(format!(
             "document.dispatchEvent(new KeyboardEvent('keydown', {{ key: '{key}' }}))"
         ))
         .await
         .unwrap();
-        tokio::time::sleep(Duration::from_millis(150)).await;
+        until_is(&page, shown, then).await;
     }
     page.evaluate("history.back()").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    until_is(&page, shown, "3#3").await;
     assert_eq!(
-        text(
-            &page,
-            "document.querySelector('.slide.shown').dataset.slide + location.hash"
-        )
-        .await,
-        "3#3"
-    );
-    assert_eq!(
-        since(&answered, from),
+        settled(&page, &answered, from).await,
         vec![],
         "a slide change fetches nothing"
     );
+    until(&page, "window.sampled.length > 5").await;
     assert_eq!(
             text(&page, "String(window.sampled.length > 5 && window.sampled.every((f) => f.slide && !f.unmounted))").await,
             "true",
@@ -1097,9 +1094,8 @@ async fn an_outline_click_scrolls_without_a_fetch() {
             .await
             .unwrap();
     until(&page, "location.hash.endsWith('far-down') && scrollY > 500").await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
-        since(&answered, from),
+        settled(&page, &answered, from).await,
         vec![],
         "an outline click fetches nothing"
     );
@@ -1177,7 +1173,8 @@ async fn a_live_update_keeps_unchanged_widgets_their_state_and_the_scroll() {
 async fn live_updates_during_a_load_make_one_more_load() {
     let dir = widget_folder("coalesce", "# W\n\n<Callout>one</Callout>\n", &[]);
     let (mut browser, page, answered) = open_logged(&dir, "/docs/README.md").await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // The page's first look at its own cache is over: it isn't a load.
+    eval::<bool>(&page, "seeded.then(() => true)").await;
     std::fs::write(
         dir.join("docs/README.md"),
         "# W\n\n<Callout>two</Callout>\n",
@@ -1192,7 +1189,8 @@ async fn live_updates_during_a_load_make_one_more_load() {
         "document.querySelector('.callout')?.textContent.includes('two')",
     )
     .await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
+    // No load runs and none is owed: there will be no other.
+    until(&page, "running === null && !again").await;
     let pages = since(&answered, from)
         .into_iter()
         .filter(|(path, _)| path == "/docs/README.md")
@@ -1448,8 +1446,13 @@ async fn the_sidebar_stays_mounted_across_swaps_and_opens_the_branch_navigated_t
             "Deep Guide,Deep,Fields"
         );
     page.evaluate("history.back()").await.unwrap();
-    until(&page, "location.pathname === '/docs/guide/README.md'").await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    // Swapped back in: the page shown is the guide's.
+    until(
+        &page,
+        "location.pathname === '/docs/guide/README.md' \
+         && document.querySelector('#devpage-page article').dataset.source === '/docs/guide/README.md'",
+    )
+    .await;
     assert_eq!(
             text(&page, "[window.fields === document.querySelector('#devpage-nav li[data-href$=\"/fields.md\"]'), document.querySelector('#devpage-nav a.current').textContent].join(' ')").await,
             "true Guide",
@@ -1460,6 +1463,7 @@ async fn the_sidebar_stays_mounted_across_swaps_and_opens_the_branch_navigated_t
         "Guide,Deep,Fields",
         "open stays open"
     );
+    until(&page, "window.frames_.length > 5").await;
     assert_eq!(
             text(
                 &page,
@@ -1566,16 +1570,20 @@ const SEARCH_ANSWERS: &str = r#"{
 
 /// Has the page's searches answered from [`SEARCH_ANSWERS`] — no pages
 /// for any other text — until ticket 04's endpoint gives that shape. The
-/// text `slow` names is answered after 1.5 s, whether aborted or not.
+/// text `slow` names is answered only once `release()` is called, whether
+/// aborted or not; `window.answered` lists each text as it is answered.
 async fn stub_search(page: &Page, slow: &str) {
     page.evaluate(format!(
-            "window.asked = []; const fetch_ = window.fetch; const answers = {SEARCH_ANSWERS};
-            window.fetch = (url, options) => {{
+            "window.asked = []; window.answered = []; const fetch_ = window.fetch; const answers = {SEARCH_ANSWERS};
+            let released; const held = new Promise((done) => {{ released = done; }}); window.release = released;
+            window.fetch = async (url, options) => {{
               if (!String(url).includes('/__devpage/search')) return fetch_(url, options);
               const q = new URL(url, location.href).searchParams.get('q');
               window.asked.push(q);
               const body = JSON.stringify(answers[q] ?? {{ pages: [] }});
-              return new Promise((done) => setTimeout(() => done(new Response(body, {{ headers: {{ 'content-type': 'application/json' }} }})), q === '{slow}' ? 1500 : 0));
+              if (q === '{slow}') await held;
+              window.answered.push(q);
+              return new Response(body, {{ headers: {{ 'content-type': 'application/json' }} }});
             }}; 0"
         ))
         .await
@@ -1796,12 +1804,8 @@ async fn a_section_result_lands_on_its_first_word_marked_until_escape() {
         &format!("location.hash === '#the-outbox' && {FOUND} === 'outbox,Outboxes'"),
     )
     .await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(
-        text(&page, &format!("String({})", landed_on_word("the-outbox"))).await,
-        "true",
-        "on the page shown, the #fragment set lands on the word too"
-    );
+    // On the page shown, the #fragment set lands on the word too.
+    until(&page, &landed_on_word("the-outbox")).await;
     page.evaluate("history.back(); 0").await.unwrap();
     until(
         &page,
@@ -1918,7 +1922,10 @@ async fn a_slow_earlier_search_never_replaces_a_later_ones_results() {
     until(&page, "window.asked.includes('retries')").await;
     input.press_key("Escape").await.unwrap();
     search_outbox(&page).await;
-    tokio::time::sleep(Duration::from_millis(2000)).await;
+    // The earlier search's answer comes only now, after the later one's.
+    eval::<bool>(&page, "(release(), true)").await;
+    until(&page, "window.answered.includes('retries')").await;
+    testing::next_frames(&page).await;
     assert!(text(&page, ROWS).await.starts_with("hit-page Outbox|"));
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
@@ -1945,23 +1952,20 @@ async fn comments_are_asked_for_each_page_source_at_once() {
         ],
     );
     let (mut browser, page) = open(&dir, "/docs/talk.yml").await;
-    // The comments the page asked for on load have come.
-    tokio::time::sleep(Duration::from_millis(1000)).await;
-    page.evaluate(
-        "window.asked = []; window.open_ = 0; window.peak = 0; const f = window.fetch;
+    // Counted from here, through one load of them: every request it makes
+    // starts before its first answer comes, and it resolves after the last.
+    assert_eq!(
+        text(
+            &page,
+            "(() => { window.asked = []; window.open_ = 0; window.peak = 0; const f = window.fetch;
             window.fetch = async (url, options) => {
               if (!String(url).includes('/__devpage/comments')) return f(url, options);
               window.asked.push(decodeURIComponent(String(url).split('page=')[1]));
               window.peak = Math.max(window.peak, ++window.open_);
               try { return await f(url, options); } finally { window.open_--; }
-            }; loadComments(); 0",
-    )
-    .await
-    .unwrap();
-    until(&page, "window.asked.length >= 3 && window.open_ === 0").await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(
-        text(&page, "window.asked.sort().join(',') + ' ' + window.peak").await,
+            }; return loadComments().then(() => window.asked.sort().join(',') + ' ' + window.peak); })()",
+        )
+        .await,
         "/docs/one.md,/docs/three.md,/docs/two.md 3",
         "only the slides, all at once"
     );
@@ -1980,8 +1984,8 @@ async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
             .unwrap();
     // Another file of the site changes; this page renders as it did.
     std::fs::write(dir.join("docs/other.md"), "# Other\n").unwrap();
+    // `load` resolves once the page is found unchanged, or swapped in.
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
             text(
                 &page,
@@ -1993,7 +1997,6 @@ async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
     // Its own file changes: the content is swapped.
     std::fs::write(dir.join("docs/README.md"), "# W\n\n<Callout>d</Callout>\n").unwrap();
     page.evaluate("load(location.href)").await.unwrap();
-    tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(
             text(
                 &page,
@@ -2053,16 +2056,8 @@ async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
         errors.contains("<Counter>: docs/widgets/fmt.ts does not compile: line 1:"),
         "{errors}"
     );
-    // An unknown tag is an error in its place, its content not shown.
-    assert!(errors.contains("<Nope> is not a widget"), "{errors}");
-    assert_eq!(
-            text(
-                &page,
-                "document.querySelector('article').textContent.includes('hidden') ? 'shown' : 'not shown'"
-            )
-            .await,
-            "not shown"
-        );
+    // An unknown tag is an error in its place, its content not shown — as
+    // served: `widgets::tags::tests::an_unknown_tag_is_replaced_by_an_error_not_passed_through`.
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -2080,15 +2075,12 @@ async fn a_comment_anchors_on_text_inside_a_widget() {
         )],
     );
     let (mut browser, page) = open(&dir, "/docs/README.md").await;
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(
-        text(
-            &page,
-            "document.querySelector('aside.callout mark.comment')?.textContent ?? 'none'"
-        )
-        .await,
-        "names the reader"
-    );
+    until_is(
+        &page,
+        "document.querySelector('aside.callout mark.comment')?.textContent ?? 'none'",
+        "names the reader",
+    )
+    .await;
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
 }
