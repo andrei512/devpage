@@ -1,23 +1,27 @@
 //! A slide's PNG, shot by chrome-headless-shell: drawn without its comments,
 //! without waiting for a design on another slide, never shooting itself,
-//! kept until a file changes, and Chrome closed and started again.
+//! kept until a file its deck is drawn from changes, and Chrome closed and
+//! started again.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::adapters::changes::{Change, Changes};
+use crate::adapters::changes::Changes;
 use crate::adapters::chrome::testing;
 use crate::drive::http;
 use crate::drive::slide_png::Shots;
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
+use devpage_core::watch::SlidePngs;
 
 /// A design that paints.
 const BOX: &str = "<Frame width={400} height={300} fill=\"#2563eb\" />";
 
-/// A folder of `files`, served with `talk.yml` as its entry; its address
-/// and the channel that tells the server a file changed.
-async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
+/// A folder of `files`, served with `talk.yml` as its entry; its address,
+/// the folder, and the slide PNGs, to tell of a changed file as the watcher
+/// would.
+async fn deck(name: &str, files: &[(&str, &str)]) -> (String, PathBuf, Shots) {
     let dir = std::env::temp_dir().join(format!("devpage-shots-{}-{name}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -27,19 +31,17 @@ async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
     let dir = dir.canonicalize().unwrap();
     let document =
         Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let changes = Changes::default();
-    let router = http::router(
-        http::App::testing(document, changes.clone())
-            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
-    );
-    (testing::serve(router).await, changes)
+    let app = http::App::testing(document, Changes::default())
+        .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into()));
+    let shots = app.shots();
+    (testing::serve(http::router(app)).await, dir, shots)
 }
 
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_is_shot_without_its_comments() {
-    let (address, changes) = deck(
+    let (address, dir, shots) = deck(
         "comments",
         &[
             ("one.md", "# One\n\nThe client retries every write.\n"),
@@ -62,7 +64,7 @@ async fn a_slide_is_shot_without_its_comments() {
         .unwrap();
     assert_eq!(made.status(), 200);
     // Drawn again, as it is now: the thread is not on it.
-    changes.publish(Change::Refresh);
+    shots.changed(&[dir.join("one.md")]);
     let after = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
     assert!(after == before, "the comment shows in the slide's PNG");
 }
@@ -71,7 +73,7 @@ async fn a_slide_is_shot_without_its_comments() {
 #[tokio::test]
 #[ignore]
 async fn a_slide_beside_a_design_is_drawn_without_waiting_for_it() {
-    let (address, _changes) = deck(
+    let (address, _, _) = deck(
         "beside",
         &[
             ("box.design", BOX),
@@ -108,7 +110,7 @@ async fn a_slide_beside_a_design_is_drawn_without_waiting_for_it() {
 #[tokio::test]
 #[ignore]
 async fn a_slide_showing_its_own_png_returns_promptly() {
-    let (address, _changes) = deck(
+    let (address, _, _) = deck(
         "itself",
         &[
             ("one.md", "# One\n\n![Itself](talk.yml/1.png)\n"),
@@ -132,7 +134,7 @@ async fn a_slide_showing_its_own_png_returns_promptly() {
 #[tokio::test]
 #[ignore]
 async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
-    let (address, changes) = deck(
+    let (address, dir, shots) = deck(
         "cache",
         &[
             ("one.md", "# One\n"),
@@ -174,12 +176,8 @@ async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
     );
 
     // A change: the slide is drawn again, as it is now.
-    let dir = std::env::temp_dir()
-        .join(format!("devpage-shots-{}-cache", std::process::id()))
-        .canonicalize()
-        .unwrap();
     std::fs::write(dir.join("one.md"), "# Changed\n").unwrap();
-    changes.publish(Change::Refresh);
+    shots.changed(&[dir.join("one.md")]);
     let changed = shot(Some(etag.clone()), false).await.unwrap();
     assert_eq!(changed.status(), 200);
     assert_ne!(changed.headers()["etag"], etag.as_str());
@@ -190,8 +188,7 @@ async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
 #[tokio::test]
 #[ignore]
 async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
-    let changes = Changes::default();
-    let shots = Shots::new(&changes);
+    let shots = Shots::new();
     let dir = std::env::temp_dir().join(format!("devpage-shots-{}-close", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
@@ -205,12 +202,23 @@ async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
     let document =
         Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let serve = || http::router(http::App::printing(document.clone()));
-    shots.png("/talk.yml", 1, serve).await.unwrap();
+    let deck = dir.join("talk.yml");
+    let drawn_from = |deck: &PathBuf| {
+        let deck = deck.clone();
+        move || vec![deck]
+    };
+    shots
+        .png("/talk.yml", 1, drawn_from(&deck), serve)
+        .await
+        .unwrap();
     assert!(shots.running().await);
     shots.close().await;
     assert!(!shots.running().await);
-    changes.publish(Change::Refresh);
-    shots.png("/talk.yml", 1, serve).await.unwrap();
+    shots.changed(std::slice::from_ref(&deck));
+    shots
+        .png("/talk.yml", 1, drawn_from(&deck), serve)
+        .await
+        .unwrap();
     assert!(shots.running().await);
     shots.close().await;
 }

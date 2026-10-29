@@ -97,6 +97,24 @@ impl ServedFolder {
     }
 }
 
+/// `path` with its `.` and `..` components resolved by name, not on disk:
+/// the path a link or an import names when the file may not exist yet, so it
+/// still gets an address (and a problem). The one rule for it.
+pub(crate) fn lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 impl AsRef<Path> for ServedFolder {
     fn as_ref(&self) -> &Path {
         &self.0

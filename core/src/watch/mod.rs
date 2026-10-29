@@ -2,7 +2,8 @@
 //! turns the platform's file events into bursts of changed paths and hands
 //! each burst here; everything that follows from it is decided here, in one
 //! order: the folder follows the paths, the design store and the widget
-//! modules forget what they read of them, open pages hear what changed —
+//! modules forget what they read of them, the slide PNGs kept forget each
+//! slide whose deck a path is part of, open pages hear what changed —
 //! a page's comments for each thread another hand changed, then at most one
 //! refresh — and last the search index reads them again, so indexing text
 //! never holds up a refresh. Server mode has none of this: a published
@@ -21,6 +22,15 @@ use crate::folder::Folder;
 use crate::search::Search;
 use crate::widgets::Modules;
 
+/// The slide PNGs a server keeps — the binary's, drawn by Chrome — told of
+/// the files that changed so each forgets the slides whose deck a change
+/// reaches ([`crate::check::drawn_from`]) and no other.
+pub trait SlidePngs: Send + Sync {
+    /// `files` — canonical, or as reported when gone — changed, appeared or
+    /// vanished.
+    fn changed(&self, files: &[PathBuf]);
+}
+
 /// Who hears about the files that change in the served folder, and the bus
 /// open pages hear it on.
 pub struct Listeners {
@@ -33,6 +43,8 @@ pub struct Listeners {
     changes: Arc<dyn Publish>,
     /// The search index, when this devpage answers searches.
     search: Option<Arc<Search>>,
+    /// The slide PNGs kept, when this devpage draws them.
+    slide_pngs: Option<Arc<dyn SlidePngs>>,
 }
 
 impl Listeners {
@@ -53,6 +65,17 @@ impl Listeners {
             comments,
             changes,
             search,
+            slide_pngs: None,
+        }
+    }
+
+    /// With the slide PNGs `slide_pngs` told of every change, before open
+    /// pages hear of it, so a page that asks for a slide's PNG again gets it
+    /// drawn as it is now.
+    pub fn with_slide_pngs(self, slide_pngs: Arc<dyn SlidePngs>) -> Self {
+        Self {
+            slide_pngs: Some(slide_pngs),
+            ..self
         }
     }
 
@@ -65,10 +88,11 @@ impl Listeners {
     /// vanished. The folder follows them; the design store and the widget
     /// modules forget every one in the served folder and outside
     /// `.devpage/`, whatever `watch` says, since any file may be part of a
-    /// design; open pages hear a page's comments for each thread another
-    /// hand changed — never the server's own write, announced as it landed,
-    /// and none with comments off — then what the folder says; then the
-    /// search index reads them again.
+    /// design, and the slide PNGs hear of the same ones; open pages hear a
+    /// page's comments for each thread another hand changed — never the
+    /// server's own write, announced as it landed, and none with comments
+    /// off — then what the folder says; then the search index reads them
+    /// again.
     /// Says whether the folders to watch may differ now.
     pub fn changed(&self, paths: &[PathBuf]) -> bool {
         let mut heard = self
@@ -90,6 +114,11 @@ impl Listeners {
         for file in &files {
             self.designs.changed(file);
             self.modules.forget(file);
+        }
+        if let Some(slide_pngs) = &self.slide_pngs
+            && !files.is_empty()
+        {
+            slide_pngs.changed(&files);
         }
         heard.extend(folder.changes);
         for change in heard {

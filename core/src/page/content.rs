@@ -21,6 +21,7 @@ pub struct Rendered {
     source: String,
     html: String,
     links: Vec<Link>,
+    embeds: Vec<String>,
     tags: Vec<String>,
 }
 
@@ -55,6 +56,13 @@ impl Rendered {
         &self.links
     }
 
+    /// What the content draws from other files, as written: every `src` —
+    /// an image, a design's canvas, a frame — and every design the Markdown
+    /// embeds. A link only to be followed is not among them.
+    pub fn embeds(&self) -> &[String] {
+        &self.embeds
+    }
+
     /// What expanding the widgets' tags found wrong — a tag that is no
     /// widget, a misplaced one — each as `line: message`.
     pub(crate) fn tag_problems(&self) -> &[String] {
@@ -67,10 +75,14 @@ pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     let mut tags = Vec::new();
     let html = markdown(&crate::widgets::expand(&source, widgets.names(), &mut tags));
     let mut targets = html::values(&html, "href");
-    targets.extend(html::values(&html, "src"));
+    let mut embeds = html::values(&html, "src");
+    targets.extend(embeds.iter().cloned());
     // A design embedded with `![…](x.design)`, read from the Markdown itself,
     // whatever HTML the page renders it as.
     for design in embedded_designs(&source) {
+        if !embeds.contains(&design) {
+            embeds.push(design.clone());
+        }
         if !targets.contains(&design) {
             targets.push(design);
         }
@@ -90,6 +102,7 @@ pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
         source,
         html,
         links,
+        embeds,
         tags,
     }
 }

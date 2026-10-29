@@ -220,3 +220,45 @@ fn the_search_index_hears_of_saved_and_deleted_pages() {
     listeners.changed(&[page]);
     assert!(found(&search, "beaver").is_empty());
 }
+
+/// What one burst's listeners did, in order: the slide PNGs told of files,
+/// and changes published.
+#[derive(Default)]
+struct Order(Mutex<Vec<String>>);
+
+impl Publish for Order {
+    fn publish(&self, change: Change) {
+        self.0.lock().unwrap().push(change.message());
+    }
+}
+
+impl SlidePngs for Order {
+    fn changed(&self, files: &[PathBuf]) {
+        let names = files
+            .iter()
+            .map(|file| file.file_name().unwrap().to_string_lossy());
+        self.0
+            .lock()
+            .unwrap()
+            .push(format!("slides {}", names.collect::<Vec<_>>().join(" ")));
+    }
+}
+
+#[test]
+fn the_slide_pngs_hear_a_saved_file_before_open_pages_do_and_never_one_under_devpage() {
+    let dir = served("slides", "kind: site\ntitle: T\nroot: README.md\n");
+    std::fs::create_dir_all(dir.join(".devpage")).unwrap();
+    let order = Arc::new(Order::default());
+    let folder = opened(&dir);
+    let listeners = Listeners::new(
+        folder.clone(),
+        Designs::new(folder.served()),
+        Modules::default(),
+        None,
+        order.clone(),
+        None,
+    )
+    .with_slide_pngs(order.clone());
+    listeners.changed(&[dir.join("docs/README.md"), dir.join(".devpage/x.yml")]);
+    assert_eq!(*order.0.lock().unwrap(), ["slides README.md", "change"]);
+}

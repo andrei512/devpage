@@ -715,3 +715,36 @@ fn the_frozen_docs_answer_alike_after_every_page_is_saved() {
         assert_eq!(kept.search(query), fresh.search(query), "{query:?}");
     }
 }
+
+#[test]
+fn a_section_is_at_an_id_the_check_lets_a_link_land_on() {
+    let dir = std::env::temp_dir().join(format!("devpage-search-ids-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    let served = ServedFolder::new(&dir).unwrap();
+    let page = dir.join("page.md");
+    let source = "# Use `code` *here*\n\n## Same\n\n## Same\n\n## devpage-page\n\n\
+        ## [A link](x.md) & more\n\n<h2 id=\"raw\">Raw</h2>\n\n## Title[^1]\n\n[^1]: A note.\n";
+    std::fs::write(&page, source).unwrap();
+    let sections: Vec<String> = gather::read(source)
+        .sections
+        .into_iter()
+        .filter_map(|section| section.id)
+        .collect();
+    assert_eq!(
+        sections,
+        [
+            "use-code-here",
+            "same",
+            "same-1",
+            "devpage-page-heading",
+            "a-link--more",
+            "title"
+        ]
+    );
+    let landed = crate::page::ids(&page, &served);
+    for id in &sections {
+        assert!(landed.contains(id), "{id} isn't an id of {landed:?}");
+    }
+}

@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::addresses::{Owned, address};
 use crate::document::{Document, Paper, Pdf};
-use crate::folder::ServedFolder;
+use crate::folder::{ServedFolder, lexical};
 use crate::html::{Link, escape};
 use crate::markup::title;
 use crate::nav;
@@ -320,7 +320,7 @@ fn rebase(html: &str, file: &Path, document: &Document) -> String {
             // A file outside the served folder has no address: the link
             // keeps its target as written, and the check reports it.
             Link::File { path, fragment } if !path.is_empty() && !path.starts_with('/') => {
-                match document.url(&normalize(&folder.join(path))) {
+                match document.url(&lexical(&folder.join(path))) {
                     Some(address) => {
                         out.push_str(&address);
                         if value.contains('#') {
@@ -336,22 +336,6 @@ fn rebase(html: &str, file: &Path, document: &Document) -> String {
         rest = &rest[end..];
     }
     out.push_str(rest);
-    out
-}
-
-/// Resolves `.` and `..` in a path without touching the disk, so a link to a
-/// file that doesn't exist yet still gets an address (and a problem).
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        match part {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
     out
 }
 

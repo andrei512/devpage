@@ -14,7 +14,7 @@ use sha2::{Digest, Sha256};
 use super::compile::{compile, relative_imports};
 use super::{SYSTEM, system};
 use crate::addresses::{Owned, address};
-use crate::folder::ServedFolder;
+use crate::folder::{ServedFolder, lexical};
 
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]
@@ -188,23 +188,6 @@ impl Modules {
         }
         Some(read)
     }
-}
-
-/// `path` with its `.` and `..` components resolved by name, not on disk: a
-/// specifier's path when the file it names may not exist.
-fn lexical(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// The files a module is made from, each read once: the module and every

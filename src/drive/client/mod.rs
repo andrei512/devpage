@@ -210,7 +210,7 @@ pub async fn run(
             let version = version.unwrap_or(document.latest);
             let bytes = api.download(&id, version).await?;
             let output = output.unwrap_or_else(|| {
-                crate::drive::pdf::default_output(&document.title).with_extension(extension)
+                devpage_core::document::download_name(&document.title, extension)
             });
             std::fs::write(&output, &bytes)
                 .with_context(|| format!("writing {}", output.display()))?;

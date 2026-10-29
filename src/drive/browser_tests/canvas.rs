@@ -1715,7 +1715,7 @@ fn painted_png(w: u32, h: u32, fill: &str) -> Vec<u8> {
     )]
     .into();
     let scene = devpage_design::resolve(&files, "p.design").unwrap();
-    devpage_design::png(
+    devpage_design::png::fresh(
         &mut devpage_design::Renderer::new(),
         &scene,
         devpage_design::Theme::Light,

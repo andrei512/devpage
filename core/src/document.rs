@@ -582,9 +582,45 @@ pub fn kind_of(file: &Path) -> Option<KindName> {
     }
 }
 
+/// The file a document is saved as when nothing names one — what `devpage
+/// pdf` and `devpage video` write and what a version downloads as: its
+/// `title`, with the characters a file name can't hold replaced by `-`, and
+/// `extension`.
+pub fn download_name(title: &str, extension: &str) -> PathBuf {
+    let name: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect();
+    let name = name.trim().trim_start_matches('.');
+    let name = if name.is_empty() { "document" } else { name };
+    PathBuf::from(format!("{name}.{extension}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_download_name_is_the_title_made_safe() {
+        assert_eq!(
+            download_name("Offline sync", "pdf"),
+            Path::new("Offline sync.pdf")
+        );
+        assert_eq!(
+            download_name("A/B: why?", "pdf"),
+            Path::new("A-B- why-.pdf")
+        );
+        assert_eq!(download_name("...", "pdf"), Path::new("document.pdf"));
+        assert_eq!(
+            download_name("A/B: v1.2", "mp4"),
+            Path::new("A-B- v1.2.mp4")
+        );
+        assert_eq!(download_name("Screen", "png"), Path::new("Screen.png"));
+    }
 
     fn folder(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("devpage-doc-{name}-{}", std::process::id()));

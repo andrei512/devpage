@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use comrak::nodes::{AstNode, NodeValue};
-use comrak::{Anchorizer, Arena, parse_document};
+use comrak::{Arena, parse_document};
 use ignore::WalkBuilder;
 
 use crate::document::{Document, Kind};
@@ -339,8 +339,9 @@ pub(super) fn slide_title(source: &str, read: &Read, number: &str) -> String {
 }
 
 /// A Markdown file split at its headings, each heading with the id the
-/// rendered page gives it (`page::markdown`), and its text sorted by kind:
-/// prose — with a diagram's labels and a widget's text — and code.
+/// rendered page gives it (`page::markdown::heading_ids`), and its text
+/// sorted by kind: prose — with a diagram's labels and a widget's text — and
+/// code.
 pub(super) fn read(source: &str) -> Read {
     let arena = Arena::new();
     let root = parse_document(&arena, source, &crate::page::markdown::options());
@@ -349,19 +350,15 @@ pub(super) fn read(source: &str) -> Read {
         .find(|node| matches!(node.data().value, NodeValue::Paragraph))
         .map(|node| squeeze(&node.collect_text()))
         .unwrap_or_default();
-    let mut anchorizer = Anchorizer::new();
+    let mut ids = crate::page::markdown::heading_ids(source).into_iter();
     let mut sections = vec![Section::default()];
     let mut stack: Vec<&AstNode> = root.reverse_children().collect();
     while let Some(node) = stack.pop() {
         if let NodeValue::Heading(heading) = node.data().value {
             let text = node.collect_text();
-            let mut id = anchorizer.anchorize(&text);
-            if crate::page::markdown::FRAME_IDS.contains(&id.as_str()) {
-                id.push_str("-heading");
-            }
             sections.push(Section {
                 heading: text.trim().to_string(),
-                id: Some(id),
+                id: ids.next(),
                 level: heading.level,
                 ..Section::default()
             });

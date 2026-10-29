@@ -154,10 +154,15 @@ slides' PNGs, on the first one asked for. Each slide is shot in a tab of its
 own, closed after, two at a time. Chrome is closed once it has drawn nothing
 for a minute, and when devpage stops; the next PNG starts it again.
 
-**Kept until a file changes.** A slide drawn once is kept, and asking again
+**Kept until its deck changes.** A slide drawn once is kept, and asking again
 answers at once; the PNG carries an `ETag`, so a request already holding it
-gets `304 Not Modified`. Any change to a watched file forgets every kept
-slide. A slide is shot without its comments — the deck is served to that
+gets `304 Not Modified`. A slide is forgotten when a file its deck is drawn
+from changes, appears or goes: the deck's file, its slides, what they embed —
+images, designs and every file a design is made of, another deck's slide
+PNG and that deck's files — and the deck's widgets folder, every widget in
+it and every module they import. Saving one deck's files forgets none of
+another deck's slides, and a page a slide only links to is not what it is
+drawn from. A slide is shot without its comments — the deck is served to that
 Chrome with comments off — so starting, replying to or resolving a thread
 forgets none. At most 64 MB of PNGs are kept; the oldest go first.
 

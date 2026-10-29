@@ -6,7 +6,7 @@
 pub mod narrator;
 pub mod silence;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,11 +32,6 @@ const VOICE_STARTS_WITHIN: Duration = Duration::from_secs(60);
 /// The recording comes back in pieces this big, so a long talk doesn't have
 /// to fit in one DevTools message.
 const CHUNK: usize = 4 << 20;
-
-/// The file `devpage video` writes when `-o` names none: the pdf rule, `.mp4`.
-pub fn default_output(title: &str) -> PathBuf {
-    crate::drive::pdf::default_output(title).with_extension("mp4")
-}
 
 /// What the narrator is told, checked before anything slow: the session's
 /// instructions and one request per slide. A document that isn't a deck, a
@@ -327,6 +322,7 @@ async fn flush(tab: &Tab, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
 pub(super) mod tests {
     use super::*;
     use devpage_core::folder::ServedFolder;
+    use std::path::PathBuf;
 
     /// A folder holding `talk.yml`, a deck of `slides`, each `(file, text)`.
     pub(in crate::drive) fn deck(name: &str, slides: &[(&str, &str)]) -> (PathBuf, Arc<Document>) {
@@ -350,12 +346,6 @@ pub(super) mod tests {
             Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
         );
         (dir, document)
-    }
-
-    #[test]
-    fn the_default_file_name_is_the_title_made_safe_as_mp4() {
-        assert_eq!(default_output("Launch"), Path::new("Launch.mp4"));
-        assert_eq!(default_output("A/B: v1.2"), Path::new("A-B- v1.2.mp4"));
     }
 
     #[test]

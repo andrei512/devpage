@@ -60,7 +60,7 @@ fn the_drawing_is_the_root_plus_what_is_painted_outside_it() {
 fn a_drawing_of_any_size_is_a_picture() {
     let mut r = Renderer::new();
     let s = scene(r##"<Frame width={70000} height={10} fill="#000000" />"##);
-    let (px, w, h) = pixels(&crate::png(&mut r, &s, Theme::Light).unwrap()).unwrap();
+    let (px, w, h) = pixels(&crate::png::fresh(&mut r, &s, Theme::Light).unwrap()).unwrap();
     assert_eq!((w, h), (70000, 10));
     assert_eq!(&px[px.len() - 4..], &[0, 0, 0, 255]);
 }

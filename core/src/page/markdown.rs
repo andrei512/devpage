@@ -47,6 +47,30 @@ pub(crate) const FRAME_IDS: [&str; 8] = [
 /// turning an image of a design into its canvas (see `embed_designs`) and
 /// drawing each Mermaid fence (see `diagrams`).
 pub(crate) fn markdown(source: &str) -> String {
+    crate::diagrams::draw_fences(&embed_designs(&headed(source)))
+}
+
+/// The id each Markdown heading of `source` is rendered with, in order: read
+/// from the HTML [`markdown`] makes of it, so the page, the check and search
+/// name a heading by the one id the page gives it. A heading written as raw
+/// HTML is no Markdown heading.
+pub(crate) fn heading_ids(source: &str) -> Vec<String> {
+    // Every Markdown heading ends with the anchor that links to it.
+    const ANCHOR: &str = " aria-label=\"Link to heading '";
+    headed(source)
+        .split("<a href=\"#")
+        .skip(1)
+        .filter_map(|rest| {
+            let (id, after) = rest.split_once('"')?;
+            after.starts_with(ANCHOR).then(|| crate::html::unescape(id))
+        })
+        .collect()
+}
+
+/// `source` as comrak renders it, wide tables in their scrolling box and
+/// frame ids kept free: the HTML before designs are embedded and diagrams
+/// drawn.
+fn headed(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
     // A wide table scrolls inside its own box rather than widening the page.
@@ -63,7 +87,7 @@ pub(crate) fn markdown(source: &str) -> String {
                 );
         }
     }
-    crate::diagrams::draw_fences(&embed_designs(&html))
+    html
 }
 
 /// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas

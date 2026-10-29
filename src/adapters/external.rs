@@ -27,16 +27,18 @@ pub fn checker(changes: Option<Changes>) -> Arc<External> {
 /// external addresses are the CLI's to ask, before it uploads, so a page
 /// served from the cluster never waits on the internet.
 pub fn offline() -> Arc<External> {
-    External::new(
-        Arc::new(Http::new()),
-        Arc::new(Nowhere),
-        Waits::default(),
-        None,
-    )
+    External::new(Arc::new(Nowhere), Arc::new(Nowhere), Waits::default(), None)
 }
 
-/// Runs nothing: a preview with it never asks in the background.
+/// Asks nothing and runs nothing: a preview with it never asks in the
+/// background, so nothing is ever asked of it.
 struct Nowhere;
+
+impl Ask for Nowhere {
+    fn ask<'a>(&'a self, _: &'a str, _: Duration) -> BoxFuture<'a, Outcome> {
+        Box::pin(async { Outcome::Unreachable("server mode asks no external address".into()) })
+    }
+}
 
 impl Background for Nowhere {
     fn spawn(&self, _: BoxFuture<'static, ()>) -> bool {

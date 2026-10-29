@@ -233,7 +233,7 @@ impl App {
             modules: devpage_core::widgets::Modules::default(),
             search: None,
             designs,
-            shots: Shots::new(&changes),
+            shots: Shots::new(),
             comments: comments.map(Arc::new),
             changes,
             preview,
@@ -250,20 +250,23 @@ impl App {
     }
 
     /// Starts the watcher this server pairs with: its listeners hold the
-    /// same served folder, design store, widget modules, change bus and
-    /// search index, and the same comments, so a thread the server wrote is
-    /// announced once, by the server.
+    /// same served folder, design store, widget modules, slide PNGs, change
+    /// bus and search index, and the same comments, so a thread the server
+    /// wrote is announced once, by the server.
     pub fn watch(&self) -> anyhow::Result<crate::adapters::watch::Watch> {
-        crate::adapters::watch::start(devpage_core::watch::Listeners::new(
-            self.folder.clone(),
-            self.designs.clone(),
-            self.modules.clone(),
-            self.comments
-                .as_ref()
-                .map(|comments| comments.threads.clone()),
-            Arc::new(self.changes.clone()),
-            self.search.clone(),
-        ))
+        crate::adapters::watch::start(
+            devpage_core::watch::Listeners::new(
+                self.folder.clone(),
+                self.designs.clone(),
+                self.modules.clone(),
+                self.comments
+                    .as_ref()
+                    .map(|comments| comments.threads.clone()),
+                Arc::new(self.changes.clone()),
+                self.search.clone(),
+            )
+            .with_slide_pngs(Arc::new(self.shots.clone())),
+        )
     }
 
     /// The Chrome that draws this server's slides as PNGs, for its owner to
@@ -418,7 +421,7 @@ async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Respo
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         },
         Answer::DesignPng { design, theme } => design_png(state, headers, design, theme).await,
-        Answer::SlidePng { page, n } => slide_png(state, headers, &page, n).await,
+        Answer::SlidePng { page, n, deck } => slide_png(state, headers, &page, n, deck).await,
     }
 }
 
@@ -516,12 +519,19 @@ async fn design_png(
     }
 }
 
-/// Slide `n` of the deck whose page is at `page`, drawn by Chrome from these
-/// routes with comments off, so a slide is shot without them. A slide drawn
-/// since the last file change comes from the cache, and is a 304 for a
-/// request that already holds it. Asked for by a page devpage's own Chrome
-/// is shooting, it is never drawn: the cache's copy, or 508.
-async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) -> Response {
+/// Slide `n` of the deck whose page is at `page` and whose file is `deck`,
+/// drawn by Chrome from these routes with comments off, so a slide is shot
+/// without them. A slide drawn since a file its deck is drawn from last
+/// changed comes from the cache, and is a 304 for a request that already
+/// holds it. Asked for by a page devpage's own Chrome is shooting, it is
+/// never drawn: the cache's copy, or 508.
+async fn slide_png(
+    state: &AppState,
+    headers: &HeaderMap,
+    page: &str,
+    n: usize,
+    deck: std::path::PathBuf,
+) -> Response {
     let shot = if headers.contains_key(crate::adapters::chrome::SHOT_HEADER) {
         match state.shots.cached(page, n) {
             Some(shot) => shot,
@@ -538,18 +548,23 @@ async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) 
             comments: None,
             ..state.clone()
         };
-        match state.shots.png(page, n, move || routes(shooting)).await {
+        let drawn_from = {
+            let served = state.folder.served().clone();
+            let (designs, modules) = (state.designs.clone(), state.modules.clone());
+            move || devpage_core::check::drawn_from(&deck, &served, &designs, &modules)
+        };
+        match state
+            .shots
+            .png(page, n, drawn_from, move || routes(shooting))
+            .await
+        {
             Ok(shot) => shot,
             Err(error) => {
                 return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();
             }
         }
     };
-    let held = headers
-        .get(header::IF_NONE_MATCH)
-        .and_then(|value| value.to_str().ok())
-        .is_some_and(|tags| tags.split(',').any(|tag| tag.trim() == shot.etag));
-    let mut response = if held {
+    let mut response = if crate::drive::validators::already_has(headers, &shot.etag) {
         StatusCode::NOT_MODIFIED.into_response()
     } else {
         ([(header::CONTENT_TYPE, "image/png")], shot.png).into_response()
