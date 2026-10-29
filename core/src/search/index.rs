@@ -2,7 +2,7 @@
 //! published into the sections it is searched by, and keeping it current a
 //! page at a time.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -15,7 +15,9 @@ use tantivy::{
     IndexSettings, IndexSortByField, IndexWriter, Order, ReloadPolicy, TantivyDocument, Term,
 };
 
+use crate::document::Document;
 use crate::folder::Folder;
+use crate::widgets::{Modules, Widgets};
 
 use super::*;
 
@@ -180,7 +182,7 @@ impl Search {
             .into_iter()
             .map(|unit| (unit.url(), unit))
             .collect();
-        let read = |unit: &Unit| paths.iter().any(|path| unit.file.starts_with(path));
+        let read = |unit: &Unit| paths.iter().any(|path| unit.reached(path));
         let mut pages = self
             .snapshot
             .read()
@@ -193,9 +195,24 @@ impl Search {
                 pages.remove(url);
             }
         }
+        // Each document's widgets are read once per pass, through a cache
+        // of the pass's own: what a page's tags expand to is what its page
+        // shows now.
+        let modules = Modules::default();
+        let mut widgets: HashMap<PathBuf, Option<Widgets>> = HashMap::new();
         for (url, unit) in &now {
             if units.get(url).is_none_or(|was| was != unit || read(unit)) {
-                self.add(writer, unit, &mut pages);
+                let Some(shown) = &unit.shown_in else {
+                    continue;
+                };
+                let set = widgets.entry(shown.file.clone()).or_insert_with(|| {
+                    Document::load(&shown.file, folder.served())
+                        .ok()
+                        .map(|document| Widgets::of(&document, &modules))
+                });
+                if let Some(set) = set {
+                    self.add(writer, unit, set, &mut pages);
+                }
             }
         }
         if writer.commit().is_err() {
@@ -210,8 +227,15 @@ impl Search {
             Arc::new(Snapshot::new(self.reader.searcher(), pages));
     }
 
-    /// Adds the sections of one page, and its record.
-    pub(super) fn add(&self, writer: &IndexWriter, unit: &Unit, pages: &mut Pages) {
+    /// Adds the sections of one page, its content rendered as its page
+    /// shows it, with the tags of `widgets` expanded, and its record.
+    pub(super) fn add(
+        &self,
+        writer: &IndexWriter,
+        unit: &Unit,
+        widgets: &Widgets,
+        pages: &mut Pages,
+    ) {
         let Ok(source) = std::fs::read_to_string(&unit.file) else {
             return;
         };
@@ -219,7 +243,7 @@ impl Search {
         if front.search == Some(false) {
             return;
         }
-        let read = read(&source);
+        let read = read(&crate::page::content(widgets, &unit.file, source.clone()));
         let title = match unit.kind {
             PageKind::Slide => slide_title(&source, &read, unit.name.as_deref().unwrap_or("")),
             _ => crate::markup::title(&source, &unit.file),

@@ -8,9 +8,9 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::document::{Document, Kind};
-use crate::folder::ServedFolder;
+use crate::folder::{Folder, Owner};
 use crate::html;
-use crate::widgets::Widgets;
+use crate::widgets::{Modules, Widgets};
 
 use super::frame::chapter_names;
 use super::markdown::markdown;
@@ -19,6 +19,7 @@ use super::markdown::markdown;
 pub struct Rendered {
     file: PathBuf,
     source: String,
+    expanded: String,
     html: String,
     links: Vec<Link>,
     embeds: Vec<String>,
@@ -46,9 +47,29 @@ impl Rendered {
         &self.source
     }
 
+    /// The Markdown its HTML is made from: the source with its widgets'
+    /// tags expanded, `<Notes>` taken out and an unknown tag replaced by
+    /// its error — what search reads a page by.
+    pub fn expanded(&self) -> &str {
+        &self.expanded
+    }
+
     /// The content's HTML, links as written.
     pub fn html(&self) -> &str {
         &self.html
+    }
+
+    /// Every id the content's HTML holds — its headings', a footnote's, a
+    /// raw element's — a link's `#fragment` can land on.
+    pub fn ids(&self) -> BTreeSet<String> {
+        html::values(&self.html, "id").into_iter().collect()
+    }
+
+    /// The id of each Markdown heading the content shows, in order — a
+    /// heading inside a widget among them, one inside an unknown tag not,
+    /// since its page doesn't show it.
+    pub fn heading_ids(&self) -> Vec<String> {
+        super::markdown::heading_ids(&self.html)
     }
 
     /// Every link the content holds, in the order its HTML holds them.
@@ -73,7 +94,8 @@ impl Rendered {
 /// `file`'s content from `source`, the tags of `widgets` expanded first.
 pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     let mut tags = Vec::new();
-    let html = markdown(&crate::widgets::expand(&source, widgets.names(), &mut tags));
+    let expanded = crate::widgets::expand(&source, widgets.names(), &mut tags);
+    let html = markdown(&expanded);
     let mut targets = html::values(&html, "href");
     let mut embeds = html::values(&html, "src");
     targets.extend(embeds.iter().cloned());
@@ -100,6 +122,7 @@ pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     Rendered {
         file: file.to_path_buf(),
         source,
+        expanded,
         html,
         links,
         embeds,
@@ -117,21 +140,38 @@ pub fn read(widgets: &Widgets, file: &Path) -> Rendered {
     )
 }
 
-/// Every id a link's `#fragment` into `file` can land on, as its page
-/// renders them — without building the page. A Markdown file's are its
-/// content's ids; a doc's are its chapters', each prefixed with its
-/// chapter's name when there is more than one, and the chapters' own names.
-/// Anything else has none.
-pub fn ids(file: &Path, served: &ServedFolder) -> BTreeSet<String> {
-    if file.extension().is_some_and(|ext| ext == "md") {
-        return own_ids(file);
+/// The document a Markdown file is shown in at its own address: its nearest
+/// site; in no site, the file alone, as a doc of one chapter. `None` when
+/// its site can't be read: its page then shows why, and none of the file.
+pub fn shown_in(file: &Path, folder: &Folder) -> Option<Document> {
+    match folder.owner(file) {
+        Some(Owner { document, .. }) => document.ok(),
+        None => Document::load(file, folder.served()).ok(),
     }
+}
+
+/// Every id a link's `#fragment` into `file` can land on, as its page
+/// renders them: the ids of the content phase, the tags of its document's
+/// widgets expanded, read through `modules` — without building the frame.
+/// A Markdown file's are its content's, as the document it is
+/// [shown in](shown_in) renders it; a doc's are its chapters', each
+/// prefixed with its chapter's name when there is more than one, and the
+/// chapters' own names. Anything else has none.
+pub fn ids(file: &Path, folder: &Folder, modules: &Modules) -> BTreeSet<String> {
+    if file.extension().is_some_and(|ext| ext == "md") {
+        return shown_in(file, folder)
+            .map(|document| read(&Widgets::of(&document, modules), file).ids())
+            .unwrap_or_default();
+    }
+    let served = folder.served();
     let Ok(document) = Document::load(file, served) else {
         return BTreeSet::new();
     };
     let Kind::Doc { chapters, .. } = &document.kind else {
         return BTreeSet::new();
     };
+    let widgets = Widgets::of(&document, modules);
+    let own_ids = |chapter: &Path| read(&widgets, chapter).ids();
     if chapters.len() == 1 {
         return own_ids(&chapters[0]);
     }
@@ -146,12 +186,6 @@ pub fn ids(file: &Path, served: &ServedFolder) -> BTreeSet<String> {
         ids.insert(name.clone());
     }
     ids
-}
-
-/// The ids a Markdown file's content renders.
-fn own_ids(file: &Path) -> BTreeSet<String> {
-    let html = markdown(&std::fs::read_to_string(file).unwrap_or_default());
-    html::values(&html, "id").into_iter().collect()
 }
 
 /// The `.design` files a page's Markdown embeds or links to, read from its

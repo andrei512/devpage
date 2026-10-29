@@ -50,15 +50,13 @@ pub(crate) fn markdown(source: &str) -> String {
     crate::diagrams::draw_fences(&embed_designs(&headed(source)))
 }
 
-/// The id each Markdown heading of `source` is rendered with, in order: read
-/// from the HTML [`markdown`] makes of it, so the page, the check and search
-/// name a heading by the one id the page gives it. A heading written as raw
-/// HTML is no Markdown heading.
-pub(crate) fn heading_ids(source: &str) -> Vec<String> {
-    // Every Markdown heading ends with the anchor that links to it.
+/// The id of each Markdown heading in `html`, which [`markdown`] made, in
+/// order: read from the anchor every Markdown heading ends with, so the
+/// page, the check and search name a heading by the one id the page gives
+/// it. A heading written as raw HTML is no Markdown heading.
+pub(crate) fn heading_ids(html: &str) -> Vec<String> {
     const ANCHOR: &str = " aria-label=\"Link to heading '";
-    headed(source)
-        .split("<a href=\"#")
+    html.split("<a href=\"#")
         .skip(1)
         .filter_map(|rest| {
             let (id, after) = rest.split_once('"')?;

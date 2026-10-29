@@ -298,7 +298,8 @@ fn internal(
             }
         }
         let rendered = page::read(&widgets, &page);
-        let (found, reached) = page_links_with(owner, designs, &rendered, external);
+        let (found, reached) =
+            page_links_with(folder, owner, &modules, designs, &rendered, external);
         problems.extend(found);
         checked.push(rendered);
         for target in reached {
@@ -353,9 +354,12 @@ fn notes_problems(document: &Document, rendered: &Rendered, slide: bool) -> Vec<
 
 /// One page's problems and reached files, judged from its `rendered`
 /// content — the content its page shows; its external links are collected
-/// in `external` as (file, line, address).
+/// in `external` as (file, line, address). A heading another page holds is
+/// one that page's content shows, its widgets read through `modules`.
 fn page_links_with(
+    folder: &Folder,
     document: &Document,
+    modules: &Modules,
     designs: &Designs,
     rendered: &Rendered,
     external: &mut Vec<Link>,
@@ -417,7 +421,8 @@ fn page_links_with(
             });
             continue;
         };
-        // A heading on another page is named by an id that page renders.
+        // A heading is named by an id its page's content renders, widgets
+        // expanded: this page's own, or the linked page's as shown.
         let no_heading = || Problem {
             file: file.clone(),
             line,
@@ -427,7 +432,12 @@ fn page_links_with(
         if !fragment.is_empty()
             && resolved.extension().is_some_and(|ext| ext == "md")
             && fragment.parse::<usize>().is_err()
-            && !page::ids(&resolved, &document.served).contains(fragment)
+            && !if path.is_empty() {
+                rendered.ids()
+            } else {
+                page::ids(&resolved, folder, modules)
+            }
+            .contains(fragment)
         {
             problems.push(no_heading());
         }
@@ -482,7 +492,7 @@ fn page_links_with(
                     kind: Kind::Doc { .. },
                     ..
                 }) if !fragment.is_empty()
-                    && !page::ids(&resolved, &document.served).contains(fragment) =>
+                    && !page::ids(&resolved, folder, modules).contains(fragment) =>
                 {
                     problems.push(no_heading());
                 }
@@ -629,9 +639,11 @@ impl Preview {
         }
     }
 
-    /// The problems on the given pages — each page's content as its page
-    /// shows it, rendered once for both — each design they reach as `designs`
-    /// — the served folder's design store — holds it: each is reported the
+    /// The problems on the given pages of `document` — each page's content
+    /// as its page shows it, rendered once for both — each design they reach
+    /// as `designs` — the served folder's design store — holds it, and each
+    /// page of `folder` they link into as its own content shows it: each is
+    /// reported the
     /// first time it is found, and returned for the page to list. External
     /// addresses are checked in the background: a definite error shows from
     /// the next render, which its answer triggers; an address that can't be
@@ -639,6 +651,7 @@ impl Preview {
     /// until it answers again.
     pub fn problems(
         &self,
+        folder: &Folder,
         document: &Document,
         widgets: &Widgets,
         designs: &Designs,
@@ -648,11 +661,17 @@ impl Preview {
         let mut problems = widget_problems(document, widgets);
         problems.extend(page::navbar::problems(document));
         problems.extend(page::navbar::logo_problem(document));
-        problems.extend(
-            pages
-                .iter()
-                .flat_map(|page| page_links_with(document, designs, page, &mut external).0),
-        );
+        problems.extend(pages.iter().flat_map(|page| {
+            page_links_with(
+                folder,
+                document,
+                widgets.cache(),
+                designs,
+                page,
+                &mut external,
+            )
+            .0
+        }));
         // The pages of a deck are its slides; any other page is not one.
         let slide = matches!(document.kind, Kind::Slides { .. });
         problems.extend(
@@ -794,6 +813,7 @@ mod tests {
                 None,
             ),
             testing::preview().problems(
+                &opened(&doc),
                 &doc,
                 &widgets_of(&doc),
                 &designs_of(&doc),
@@ -844,7 +864,7 @@ mod tests {
         let designs = Designs::new(&doc.served);
         let preview = testing::preview();
         let pages = rendered(&doc, &[dir.join("page.md")]);
-        let found = preview.problems(&doc, &widgets_of(&doc), &designs, &pages);
+        let found = preview.problems(&opened(&doc), &doc, &widgets_of(&doc), &designs, &pages);
         assert_eq!(found.len(), 1, "{found:#?}");
         assert!(
             found[0]
@@ -855,7 +875,7 @@ mod tests {
         assert!(designs.resolve("app/screen.design").is_err());
         assert_eq!(designs.resolutions(), 1, "the page's check kept it");
         crate::designs::testing::save(&designs, &screen, crate::designs::testing::SCREEN);
-        let found = preview.problems(&doc, &widgets_of(&doc), &designs, &pages);
+        let found = preview.problems(&opened(&doc), &doc, &widgets_of(&doc), &designs, &pages);
         assert!(found.is_empty(), "{found:#?}");
     }
 }
@@ -1005,6 +1025,62 @@ mod external {
         assert_eq!(previewed, expected, "{previewed:#?}");
     }
 
+    /// A heading is one the linked page shows: its widgets' tags expanded —
+    /// a system widget's and its own site's — and an unknown tag's content
+    /// not shown.
+    #[tokio::test]
+    async fn a_link_lands_on_a_heading_as_its_page_shows_it_widgets_expanded() {
+        let doc = folder(
+            "widget-anchor",
+            "# Home\n\n[a](other.md#one) [b](other.md#two) [c](other.md#boxed) \
+             [d](other.md#hidden) [e](d/doc.yml#c1--inside) [f](#here)\n\n\
+             <Steps>\n## Here\n</Steps>\n",
+        );
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(doc.base.join("widgets")).unwrap();
+        std::fs::write(
+            doc.base.join("widgets/Box.tsx"),
+            "export default function Box({ children }) { return children; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("other.md"),
+            "# Other\n\n<Steps>\n## One\n## Two\n</Steps>\n\n<Box>\n## Boxed\n</Box>\n\n\
+             <Nope>\n## Hidden\n</Nope>\n",
+        )
+        .unwrap();
+        let d = doc.base.join("d");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("c1.md"), "# One\n\n<Steps>\n## Inside\n</Steps>\n").unwrap();
+        std::fs::write(d.join("c2.md"), "# Two\n").unwrap();
+        std::fs::write(
+            d.join("doc.yml"),
+            "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.path(), &doc.served).unwrap();
+        let broken = "README.md:3: broken link other.md#hidden — no heading #hidden";
+        let checked: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            checked,
+            [broken, "other.md:12: <Nope> is not a widget"],
+            "{checked:#?}"
+        );
+        let previewed: Vec<String> = preview(&doc, &[doc.base.join("README.md")])
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(previewed, [broken], "{previewed:#?}");
+    }
+
     #[tokio::test]
     async fn a_slide_number_must_be_one_the_deck_has() {
         let doc = folder(
@@ -1144,6 +1220,7 @@ mod external {
     /// The problems a fresh preview finds at once.
     fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
         Preview::new(offline(), Arc::new(Recorder::default())).problems(
+            &super::tests::opened(doc),
             doc,
             &widgets_of(doc),
             &designs_of(doc),
@@ -1169,13 +1246,25 @@ mod external {
         let pages = rendered(&doc, &[doc.base.join("README.md")]);
         assert_eq!(
             preview
-                .problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages)
+                .problems(
+                    &super::tests::opened(&doc),
+                    &doc,
+                    &widgets_of(&doc),
+                    &designs_of(&doc),
+                    &pages,
+                )
                 .len(),
             1
         );
         assert_eq!(
             preview
-                .problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages)
+                .problems(
+                    &super::tests::opened(&doc),
+                    &doc,
+                    &widgets_of(&doc),
+                    &designs_of(&doc),
+                    &pages,
+                )
                 .len(),
             1
         );

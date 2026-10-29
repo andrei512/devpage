@@ -207,10 +207,12 @@ impl Search {
     /// Brings the index up to date after `paths` changed, appeared or
     /// vanished — after `folder` has heard of them. Any of them can change
     /// what is published — a page's Topics, a document file, a
-    /// `.gitignore`, a folder — so a burst that holds a Markdown file, a
-    /// YAML file, a `.gitignore`, a folder or a path that is gone finds
-    /// what is published again, and reads again only the pages that are new
-    /// to it, moved in it, or among `paths`.
+    /// `.gitignore`, a folder — and a widget can change which of a page's
+    /// tags are widgets, so a burst that holds a Markdown file, a YAML
+    /// file, a widget's `.tsx`, a `.gitignore`, a folder or a path that is
+    /// gone finds what is published again, and reads again only the pages
+    /// that are new to it, moved in it, or among `paths` — or whose
+    /// document's widgets folder holds one of them.
     pub fn changed(&self, folder: &Folder, paths: &[PathBuf]) {
         let matters = |path: &PathBuf| {
             path.is_dir()
@@ -218,7 +220,7 @@ impl Search {
                 || path.file_name().is_some_and(|name| name == ".gitignore")
                 || path
                     .extension()
-                    .is_some_and(|ext| ext == "md" || ext == "yml" || ext == "yaml")
+                    .is_some_and(|ext| ext == "md" || ext == "yml" || ext == "yaml" || ext == "tsx")
         };
         if paths.iter().any(matters) {
             self.index(folder, paths);

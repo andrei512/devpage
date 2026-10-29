@@ -164,9 +164,11 @@ reads, so a font added to it counts — another deck's slide
 PNG and that deck's files — and the deck's widgets folder, every widget in
 it and every module they import. Saving one deck's files forgets none of
 another deck's slides, and a page a slide only links to is not what it is
-drawn from. A slide is shot without its comments — the deck is served to that
-Chrome with comments off — so starting, replying to or resolving a thread
-forgets none. At most 64 MB of PNGs are kept; the oldest go first.
+drawn from. A slide is shot without its comments and its problems — the deck
+is served to that Chrome with comments off and no problems looked for — so
+starting, replying to or resolving a thread forgets none, and neither does
+fixing a broken link: the file it comes to reach is not one the slide is
+drawn from. At most 64 MB of PNGs are kept; the oldest go first.
 
 **A slide showing a slide's PNG.** The tab Chrome shoots a slide in marks its
 requests with `X-Devpage-Shot: 1`, and a slide's PNG asked for that way is
@@ -182,4 +184,5 @@ Comments attach to the slide's file and show in a panel beside the stage when
 you press <Keys>C</Keys> ([Comments](../comments/README.md)); they never appear in
 fullscreen unless toggled, and never in a PDF or a slide's PNG. A missing slide file, or a
 broken link on a slide, is listed above the stage while you write
-([Checking links](../checking-links/README.md)).
+([Checking links](../checking-links/README.md)) — and, like comments, never
+in a slide's PNG.

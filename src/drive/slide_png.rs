@@ -4,9 +4,10 @@
 //!
 //! One Chrome session draws every slide for a server: started on the first
 //! shot, a tab per shot, two shots at a time, closed once idle. A slide is
-//! shot without comments, so what it drew is kept until a file its deck is
-//! drawn from changes, whatever is commented meanwhile, and whatever another
-//! deck's files do.
+//! shot without comments and without problems, so what it drew is kept until
+//! a file its deck is drawn from changes, whatever is commented meanwhile,
+//! whatever a link on it comes to reach, and whatever another deck's files
+//! do.
 
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -109,7 +110,7 @@ impl Shots {
     /// Slide `n` (1-based) of the deck served at `deck`, as a 1920 × 1080
     /// PNG: from the cache, or drawn by Chrome loading the deck from the
     /// router `serve` makes — started, like Chrome, on the first shot. That
-    /// router serves the deck with comments off. `drawn_from` names the
+    /// router serves the deck with comments and problems off. `drawn_from` names the
     /// files the deck is drawn from, read before the slide is drawn; the
     /// slide is kept until one of them changes.
     pub async fn png(
@@ -204,7 +205,9 @@ impl Shots {
 /// The watcher's word that files changed: every kept slide whose deck is
 /// drawn from one of them is forgotten, and every slide being drawn from
 /// one — or whose files aren't known yet — won't be kept. A comment changes
-/// no file of a deck: no slide is shot with its comments.
+/// no file of a deck: no slide is shot with its comments. Nor does a file a
+/// slide only links to, whose arrival fixes a broken link: no slide is shot
+/// with its problems.
 impl devpage_core::watch::SlidePngs for Shots {
     fn changed(&self, files: &[PathBuf]) {
         let mut cache = self.0.cache.lock().unwrap();

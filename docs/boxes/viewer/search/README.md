@@ -62,11 +62,20 @@ Each page searched is one of three kinds, at its own address:
 
 ## What is indexed
 
+A page is read as its page shows it: its content rendered — the content
+phase of [rendering a page](../rendering-a-page/README.md), the tags of
+its document's [widgets](../widgets/README.md) expanded — with the widgets
+of the document that shows it: its site, its doc or deck, or, in no site,
+the page alone. So a heading inside a widget, `<Steps>` around `## Install`,
+is a section, and a heading inside a tag that is no widget is not: the page
+shows only the tag's error in its place.
+
 A **section** is the text from one heading to the next, of any level; the
 text before a page's first heading is one too, when there is any. A heading's
 id is the one the rendered page gives it — comrak's, with `-heading` added
 when it would be one of the [frame's ids](../rendering-a-page/README.md) — so
-a section's address lands on its heading. A slide's section is all of its
+a section's address lands on its heading, and is an id
+[`devpage check`](../checking-links/README.md) lets a link land on. A slide's section is all of its
 text, headed by the slide's title: its first `# ` heading, else its first
 `title="…"` — a `<Slide>`'s or a `<Hero>`'s — else `Slide <n>`.
 
@@ -88,7 +97,10 @@ itself. Of a diagram, only what its nodes, edges and messages say is text: no
 ids, arrows, styles or `click` lines. Of an HTML block, what is between its
 tags and its attributes' quoted values are, except those that aren't text
 (`href`, `src`, `class`, `id`, `style`, `icon`, `logo`, `kind`, `delivery` and
-the like) and addresses; `{…}` expressions never are.
+the like) and addresses; `{…}` expressions never are. A widget's content is
+the page's own Markdown, read like the rest of it; of its tag, its string
+props are text, by the same rule — `title="Heads up"` is, `icon="rocket"` and
+`values={["rocket"]}` are not. An unknown tag's error is no text.
 
 `en_stem` is tantivy's default tokenizer, lowercased, with English stemming.
 `title`, `heading` and `prose` each also have an unstemmed twin
@@ -191,17 +203,19 @@ so indexing never holds up a refresh (`Search::changed`). `devpage check`,
 `pdf` and `video` build none.
 
 Any Markdown file can change what is published — a page's Topics add or drop
-pages — as can a document file, a `.gitignore` or a folder. So a burst holding
-a Markdown or YAML file, a `.gitignore`, a folder or a path that is gone finds
-what is published again, whole, and compares it with what the index holds,
-page by page; a burst of anything else leaves it alone. Only what differs is
-indexed again, in one commit:
+pages — as can a document file, a `.gitignore` or a folder; a widget can
+change which of a page's tags are widgets. So a burst holding a Markdown or
+YAML file, a widget's `.tsx`, a `.gitignore`, a folder or a path that is gone
+finds what is published again, whole, and compares it with what the index
+holds, page by page; a burst of anything else leaves it alone. Only what
+differs is indexed again, in one commit:
 
 - a page no longer published leaves;
 - a page newly published comes in;
-- a page whose kind, trail, document, address or place in the nav changed,
-  or whose file is one of the burst's paths or inside one of its folders, is
-  read again.
+- a page whose kind, trail, document, address, place in the nav, or the
+  document that shows it or that document's widgets folder changed, or whose
+  file — or that widgets folder — is one of the burst's paths, inside one of
+  its folders or holding one of them, is read again.
 
 Every other page stays as it was indexed, unread. So a new rule in a
 `.gitignore` takes its folder's pages out at once, a page dropped from every

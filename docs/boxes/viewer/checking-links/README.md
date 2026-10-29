@@ -16,7 +16,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 | What | Must |
 | --- | --- |
 | A target inside the served folder | exist, inside the [served folder](../constraints/the-served-folder-is-the-boundary.md) |
-| A `#fragment` | name a heading or id the page it points at renders — in a doc of several chapters, `<chapter>--<id>` or the chapter's own name |
+| A `#fragment` | name a heading or id the page it points at renders — in a doc of several chapters, `<chapter>--<id>` or the chapter's own name; see [Headings](#headings) |
 | `#n` on a deck | be a slide the deck has |
 | A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |
 | A Topics entry | point at an existing page |
@@ -40,6 +40,18 @@ files like any other.
 Links in a [widget](../widgets/README.md)'s content are checked like any other,
 since devpage renders that Markdown. Links a widget's own code builds in the
 browser are not: devpage never runs widget code on the server.
+
+### Headings
+
+A `#fragment` is checked against the page it points at as that page shows
+it: its content rendered, the tags of its [widgets](../widgets/README.md)
+expanded — the widgets of the document that shows it at its own address: its
+nearest site, or, in no site, the page alone; a doc's own, for a doc. So a
+heading inside a widget can be linked to — `<Steps>` around `## One` renders
+`#one`, and `page.md#one` passes — and a heading inside a tag that is no
+widget can't: the page shows only the tag's error in its place. These are
+the ids [search](../search/README.md#what-is-indexed) gives its sections, so
+every section it finds is somewhere a link can land.
 
 ### Designs
 
