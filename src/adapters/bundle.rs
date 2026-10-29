@@ -1,10 +1,11 @@
-//! What a publish sends: the document as a zip of exactly the files
-//! `devpage check` follows from it — nothing else lying beside it.
+//! A publish's zip: packed by the client from exactly the files `devpage
+//! check` follows from the document — nothing else lying beside it — and
+//! unpacked by the server, to check it and into its cache.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::check;
 use crate::document::Document;
@@ -20,7 +21,7 @@ pub struct Bundle {
 /// Zips `document`: every file the check follows, at its path from the
 /// deepest folder that holds them all — the document's own folder, unless
 /// it links to a file beside it.
-pub fn bundle(document: &Document) -> Result<Bundle> {
+pub fn pack(document: &Document) -> Result<Bundle> {
     let files = check::files(document);
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {
@@ -48,6 +49,32 @@ pub fn bundle(document: &Document) -> Result<Bundle> {
         entry: relative(&document.path()),
         files: names,
     })
+}
+
+/// Unpacks `zip` into `into`, refusing an entry that would land outside it
+/// and a symbolic link.
+pub fn unpack(zip: &[u8], into: &Path) -> Result<()> {
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip))?;
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i)?;
+        if file.is_symlink() {
+            bail!("{}: a symbolic link", file.name());
+        }
+        let Some(relative) = file.enclosed_name() else {
+            bail!("{}: outside the document", file.name());
+        };
+        let target = into.join(relative);
+        if file.is_dir() {
+            std::fs::create_dir_all(&target)?;
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut out = std::fs::File::create(&target)?;
+        std::io::copy(&mut file, &mut out)?;
+    }
+    Ok(())
 }
 
 /// The deepest folder holding every one of `files`.
@@ -127,7 +154,7 @@ mod tests {
         write("docs/.env", b"SECRET=1\n");
         let document =
             Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap();
-        let bundle = bundle(&document).unwrap();
+        let bundle = pack(&document).unwrap();
         assert_eq!(bundle.entry, "devpage.yml");
         assert_eq!(
             names(&bundle.zip),
@@ -169,11 +196,30 @@ mod tests {
             &ServedFolder::new(&dir).unwrap(),
         )
         .unwrap();
-        let bundle = bundle(&document).unwrap();
+        let bundle = pack(&document).unwrap();
         assert_eq!(bundle.entry, "launch/talk.yml");
         assert_eq!(
             names(&bundle.zip),
             ["launch/one.md", "launch/talk.yml", "shared/d.png"]
         );
+    }
+
+    /// What the client packs, the server unpacks file for file.
+    #[test]
+    fn a_packed_document_unpacks_as_it_was() {
+        let dir = folder("round-trip");
+        std::fs::create_dir_all(dir.join("doc/img")).unwrap();
+        std::fs::write(dir.join("doc/notes.md"), "# Notes\n\n![p](img/p.png)\n").unwrap();
+        std::fs::write(dir.join("doc/img/p.png"), "png").unwrap();
+        let document =
+            Document::load(&dir.join("doc/notes.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
+        let bundle = pack(&document).unwrap();
+        let out = folder("round-trip-out");
+        unpack(&bundle.zip, &out).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(out.join(&bundle.entry)).unwrap(),
+            "# Notes\n\n![p](img/p.png)\n"
+        );
+        assert_eq!(std::fs::read(out.join("img/p.png")).unwrap(), b"png");
     }
 }

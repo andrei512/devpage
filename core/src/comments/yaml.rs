@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 
 use super::{Anchor, Listed, Message, Store, Thread, new_id};
 use crate::served::ServedFolder;
@@ -229,21 +229,6 @@ impl Store for Yaml {
                 ))
             })
             .collect())
-    }
-
-    /// A served folder has one version, the files as they are: a thread
-    /// moves to its new anchor, and is never detached — the page shows a
-    /// thread whose text is gone as detached itself.
-    fn carry(&self, id: &str, anchor: Option<&Anchor>) -> Result<()> {
-        let Some(anchor) = anchor else {
-            bail!("a thread in the served folder is never detached");
-        };
-        let Some((file, _)) = self.find(id) else {
-            bail!("no thread {id}");
-        };
-        let mut thread = parse(&file)?;
-        thread.anchor = anchor.clone();
-        self.write(file, &thread)
     }
 
     fn heard(&self, paths: &[PathBuf]) -> Vec<String> {

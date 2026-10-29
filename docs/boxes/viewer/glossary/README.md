@@ -67,7 +67,7 @@ What decides the answer to a request from the documents alone — a page, a redi
 
 ## mount prefix
 
-The address every document a server serves sits under, carried by every redirect the resolver answers with; empty, since `devpage` serves at `/`.
+The address every document a server serves sits under, carried by every redirect the resolver answers with: empty, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
 
 ## design
 
@@ -295,7 +295,7 @@ A comment whose quoted text is no longer on its page. It stays readable, listed 
 
 ## comment store
 
-Where threads are kept, by thread id, behind the `Store` interface — list, create, reply, resolve, carry, and what it heard of hand edits. Locally it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. In server mode it is the SQLite store, one document's threads at a time. Every write reaches it through `Comments`, which holds the rules. See [The comment store](../comments/the-comment-store/README.md).
+Where threads are kept, by thread id, behind the `Store` interface — list, create, reply, resolve, the threads still attached, and what it heard of hand edits. Locally it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. In server mode it is the SQLite store, one document's threads at a time. Every write reaches it through `Comments`, which holds the rules. See [The comment store](../comments/the-comment-store/README.md).
 
 ## author
 
@@ -315,7 +315,7 @@ Deploying devpage with its documents built into the image: `devpage <path>` in a
 
 ## publish
 
-Sending a document to a server as a zip, with `devpage publish`. The first publish creates the document and its id; each one after adds a version.
+Sending a document to a server as a zip, with `devpage publish`. The first publish creates the document and its id; each one after adds a version — recorded together with its threads' carry onto it, or not at all.
 
 ## version
 

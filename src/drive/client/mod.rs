@@ -3,7 +3,6 @@
 //! a document by its id on the current context's server.
 
 pub mod api;
-pub mod bundle;
 pub mod contexts;
 
 use std::collections::BTreeMap;
@@ -323,7 +322,7 @@ async fn publish(
         };
         return Ok(Output { text, code: 1 });
     }
-    let bundle = bundle::bundle(&document)?;
+    let bundle = crate::adapters::bundle::pack(&document)?;
     let (api, name) = connect(home, context)?;
     let file = document.path();
     let mut published: BTreeMap<PathBuf, String> = home.published(&name)?;

@@ -111,30 +111,48 @@ const TILE_BYTES: usize = (TILE * TILE * 4) as usize;
 /// What the store tells when a design's scene or problems change.
 type Listener = Box<dyn Fn(&str) + Send + Sync>;
 
-struct Store {
-    served: ServedFolder,
+/// What every folder's designs in one store share: the renderer, whose
+/// fonts load once, the one capped tile cache, the numbering of kept designs
+/// — which tells their tiles apart in it — and of reads, what tells this
+/// store's versions from another run's, and the folders it holds by mount.
+struct Shared {
     renderer: Mutex<Renderer>,
-    sources: Mutex<HashMap<String, Source>>,
     /// How many files the store has read from disk.
     reads: std::sync::atomic::AtomicU64,
-    /// Locked before `sources` whenever both are.
-    resolved: Mutex<HashMap<String, Resolved>>,
     /// What tells this store's versions from another run's, in an ETag.
     nonce: u64,
-    /// Told the address of each design whose scene or problems changed.
-    listeners: Mutex<Vec<Listener>>,
     /// How many resolves the store has started, numbering each.
     versions: std::sync::atomic::AtomicU64,
+    /// Every design's tiles at 1×, in each theme, of every folder: shared
+    /// and capped. Locked after a folder's own locks.
+    tiles: Mutex<Cache<Arc<[u8]>, Tile>>,
+    /// The folders whose designs are held, by mount, while anything holds
+    /// them.
+    mounts: Mutex<HashMap<String, std::sync::Weak<Folder>>>,
+}
+
+/// The designs of one folder, under its mount: what was read from it and
+/// each design kept from it. Its tiles are in the store's shared cache, and
+/// go with it.
+struct Folder {
+    shared: Arc<Shared>,
+    /// What the folder's designs are told apart by in the store: their
+    /// folder's mount, `""` for the one folder a local devpage serves.
+    mount: String,
+    served: ServedFolder,
+    sources: Mutex<HashMap<String, Source>>,
+    /// Locked before `sources` whenever both are.
+    resolved: Mutex<HashMap<String, Resolved>>,
+    /// Told the address of each design whose scene or problems changed.
+    listeners: Mutex<Vec<Listener>>,
     /// Each design as it is kept, locked one design at a time — while it is
     /// resolved again, and before `renderer`, `resolved` and `tiles`
     /// whenever they are.
     kept: Mutex<HashMap<String, Arc<Mutex<Kept>>>>,
-    /// Every design's tiles at 1×, in each theme, shared and capped.
-    tiles: Mutex<Cache<Arc<[u8]>, Tile>>,
     /// Each design file's last parse, by path, kept across its saves: a new
     /// parse is matched against it, so its elements keep their ids.
     syntax: Mutex<HashMap<String, Arc<devpage_design::parse::File>>>,
-    /// How many tiles the store has painted, for the tests.
+    /// How many tiles the folder's designs were painted in, for the tests.
     #[cfg(test)]
     painted: std::sync::atomic::AtomicUsize,
     /// How many times a design was resolved, for the tests.
@@ -144,6 +162,21 @@ struct Store {
     /// there.
     #[cfg(test)]
     after_read: Mutex<Option<AfterRead>>,
+}
+
+/// A folder no one holds takes its tiles with it, and leaves the store.
+impl Drop for Folder {
+    fn drop(&mut self) {
+        let ids: Vec<u64> = lock(&self.kept).values().map(|k| lock(k).id).collect();
+        lock(&self.shared.tiles).forget(|t| ids.contains(&t.design));
+        let mut mounts = lock(&self.shared.mounts);
+        if mounts
+            .get(&self.mount)
+            .is_some_and(|held| held.strong_count() == 0)
+        {
+            mounts.remove(&self.mount);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -158,7 +191,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The store's files, recording every path a resolving asks for and which
 /// read of it the resolving saw.
 struct Reading<'a> {
-    store: &'a Store,
+    store: &'a Folder,
     asked: RefCell<Vec<String>>,
     seen: RefCell<Vec<(String, u64)>>,
 }
@@ -294,10 +327,11 @@ impl Files for Reading<'_> {
     }
 }
 
-impl Store {
+impl Folder {
     /// The number of the next read from disk, counting from one.
     fn next_read(&self) -> u64 {
         1 + self
+            .shared
             .reads
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
@@ -376,6 +410,7 @@ impl Store {
             Ok(Done::Fresh(res)) => {
                 if k.id == 0 {
                     k.id = 1 + self
+                        .shared
                         .versions
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
@@ -453,7 +488,7 @@ impl Store {
         let scene = res.scene();
         let themes = themes(scene);
         let id = k.id;
-        let mut renderer = lock(&self.renderer);
+        let mut renderer = lock(&self.shared.renderer);
         let mut broke: Option<Undrawable> = None;
         let mut drawings = Vec::new();
         for &theme in themes {
@@ -468,7 +503,7 @@ impl Store {
                             scene,
                             applied.expect("drawings with a patch"),
                         );
-                        let mut tiles = lock(&self.tiles);
+                        let mut tiles = lock(&self.shared.tiles);
                         let mine = |t: &Tile| t.design == id && t.key.theme == theme;
                         match &done {
                             Ok(damage) if damage.all => tiles.damage_all_where(mine),
@@ -485,7 +520,8 @@ impl Store {
                     None => {
                         // A drawing made afresh owes nothing to tiles
                         // painted before it.
-                        lock(&self.tiles).forget(|t: &Tile| t.design == id && t.key.theme == theme);
+                        lock(&self.shared.tiles)
+                            .forget(|t: &Tile| t.design == id && t.key.theme == theme);
                         match renderer.drawing(scene, theme, None) {
                             Ok(d) => Ok((Some(d), None)),
                             Err(u) => Ok((None, Some(u))),
@@ -509,7 +545,7 @@ impl Store {
         }
         drop(renderer);
         // The themes the design no longer shows in, and their tiles.
-        lock(&self.tiles).forget(|t| t.design == id && !themes.contains(&t.key.theme));
+        lock(&self.shared.tiles).forget(|t| t.design == id && !themes.contains(&t.key.theme));
         k.drawings = drawings;
         match broke {
             None => Ok(()),
@@ -526,10 +562,79 @@ impl Store {
     }
 }
 
-/// Every design the server has been asked for, kept resolved in memory, and
-/// the renderer that paints them: its fonts load once.
+/// The design store: every folder's designs it holds, one renderer — its
+/// fonts load once — and one tile cache of [`TILES_CAP`] for them all. A
+/// local devpage holds one folder; a devpage server one per version it
+/// serves, each under that version's own mount, for as long as its routers
+/// hold it.
 #[derive(Clone)]
-pub struct Designs(Arc<Store>);
+pub struct Store(Arc<Shared>);
+
+impl Store {
+    pub fn new() -> Store {
+        Store(Arc::new(Shared {
+            renderer: Mutex::new(Renderer::new()),
+            reads: Default::default(),
+            nonce: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos() as u64),
+            versions: Default::default(),
+            tiles: Mutex::new(Cache::<Arc<[u8]>, Tile>::new(TILES_CAP)),
+            mounts: Mutex::default(),
+        }))
+    }
+
+    /// The designs of `served`, told apart from every other folder's by
+    /// `mount`: the ones held already under it — the same folder's — or
+    /// held from now on. A mount names one folder's files and never other
+    /// files: what is kept under it is never read again.
+    pub fn designs(&self, mount: &str, served: &ServedFolder) -> Designs {
+        let mut mounts = lock(&self.0.mounts);
+        let held = mounts.get(mount).and_then(std::sync::Weak::upgrade);
+        if let Some(folder) = held.as_ref().filter(|f| f.served.path() == served.path()) {
+            return Designs(folder.clone());
+        }
+        let folder = Arc::new(Folder {
+            shared: self.0.clone(),
+            mount: mount.to_string(),
+            served: served.clone(),
+            sources: Mutex::default(),
+            resolved: Mutex::default(),
+            listeners: Mutex::default(),
+            kept: Mutex::default(),
+            syntax: Mutex::default(),
+            #[cfg(test)]
+            painted: Default::default(),
+            #[cfg(test)]
+            resolutions: Default::default(),
+            #[cfg(test)]
+            after_read: Mutex::default(),
+        });
+        mounts.insert(mount.to_string(), Arc::downgrade(&folder));
+        drop(mounts);
+        // The folder it replaces — the same files, unpacked elsewhere — goes
+        // when its last holder lets it, never under the lock it takes then.
+        drop(held);
+        Designs(folder)
+    }
+
+    /// How many folders the store holds designs of.
+    #[cfg(test)]
+    fn folders(&self) -> usize {
+        lock(&self.0.mounts).len()
+    }
+}
+
+impl Default for Store {
+    fn default() -> Self {
+        Store::new()
+    }
+}
+
+/// The designs of one folder, from a [`Store`]: every design asked for,
+/// kept resolved in memory.
+#[derive(Clone)]
+pub struct Designs(Arc<Folder>);
 
 /// A design's address as the engine names files: from the top of the served
 /// folder, without a leading slash.
@@ -538,29 +643,9 @@ pub fn address(path: &str) -> &str {
 }
 
 impl Designs {
-    /// The store for the served folder.
+    /// The designs of the served folder, in a store of their own.
     pub fn new(served: &ServedFolder) -> Designs {
-        Designs(Arc::new(Store {
-            served: served.clone(),
-            renderer: Mutex::new(Renderer::new()),
-            sources: Mutex::default(),
-            reads: Default::default(),
-            resolved: Mutex::default(),
-            nonce: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_nanos() as u64),
-            listeners: Mutex::default(),
-            versions: Default::default(),
-            kept: Mutex::default(),
-            tiles: Mutex::new(Cache::<Arc<[u8]>, Tile>::new(TILES_CAP)),
-            syntax: Mutex::default(),
-            #[cfg(test)]
-            painted: Default::default(),
-            #[cfg(test)]
-            resolutions: Default::default(),
-            #[cfg(test)]
-            after_read: Mutex::default(),
-        }))
+        Store::new().designs("", served)
     }
 
     /// The design at `path` resolved — its scene, copied — or its problems.
@@ -697,9 +782,10 @@ impl Designs {
             return None;
         }
         let text = format!(
-            "{}\0{theme:?}\0{path}\0{}\0{}",
+            "{}\0{theme:?}\0{}\0{path}\0{}\0{}",
             crate::addresses::BUILD,
-            self.0.nonce,
+            self.0.mount,
+            self.0.shared.nonce,
             resolved.version
         );
         Some(crate::addresses::hash(text.as_bytes()))
@@ -749,7 +835,7 @@ impl Designs {
                         Piece::Strip { col, y, rows } => {
                             let mut kept = lock(&kept);
                             let drawing =
-                                prepared(&mut kept, version, theme, &store.renderer, |d| {
+                                prepared(&mut kept, version, theme, &store.shared.renderer, |d| {
                                     let a = d.area();
                                     let (x, y) = (
                                         a.x as f64 + (col * devpage_design::tiles::TILE) as f64,
@@ -782,19 +868,20 @@ impl Designs {
                     if Some(&*kept).filter(|k| k.version == version).is_none() {
                         return Err("the design changed while its PNG was written");
                     }
-                    if let Some((pixels, false)) = lock(&store.tiles).get(&tile) {
+                    if let Some((pixels, false)) = lock(&store.shared.tiles).get(&tile) {
                         return Ok(pixels.clone());
                     }
-                    let drawing = prepared(&mut kept, version, theme, &store.renderer, |d| {
-                        devpage_design::tiles::tile_rect(&d.list, 1.0, col, row)
-                    })?;
+                    let drawing =
+                        prepared(&mut kept, version, theme, &store.shared.renderer, |d| {
+                            devpage_design::tiles::tile_rect(&d.list, 1.0, col, row)
+                        })?;
                     let pixels: Arc<[u8]> =
                         devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
                     #[cfg(test)]
                     store
                         .painted
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    lock(&store.tiles).insert(tile, pixels.clone(), TILE_BYTES);
+                    lock(&store.shared.tiles).insert(tile, pixels.clone(), TILE_BYTES);
                     Ok(pixels)
                 })
                 .map_err(|e| format!("writing the PNG: {e}"))
@@ -1071,6 +1158,47 @@ mod tests {
         }
     }
 
+    /// Two folders in one store — two versions of a document — share its
+    /// one tile cache and nothing else: the same address in each is its own
+    /// design, with its own validator; asked for again under the same mount
+    /// it is the one already kept; and a folder no one holds leaves the
+    /// store with its tiles.
+    #[test]
+    fn folders_in_one_store_share_its_tiles_and_never_each_others_designs() {
+        let one = served("mount-one");
+        let two = served("mount-two");
+        std::fs::write(two.join("app/other.design"), BOX_RED).unwrap();
+        let store = Store::new();
+        let first = store.designs("/d/x/v/1", &ServedFolder::new(&one).unwrap());
+        let second = store.designs("/d/x/v/2", &ServedFolder::new(&two).unwrap());
+        let png_one = first.png("app/other.design", Theme::Light).unwrap();
+        let png_two = second.png("app/other.design", Theme::Light).unwrap();
+        assert_ne!(png_one, png_two, "each folder's own design");
+        assert_ne!(
+            first.etag("app/other.design", Theme::Light),
+            second.etag("app/other.design", Theme::Light),
+            "a validator names the mount"
+        );
+        let tiles = || lock(&store.0.tiles).cost();
+        let both = tiles();
+        assert_eq!(both, 2 * TILE_BYTES, "one cache holds both");
+
+        // The same mount and folder: the design already kept.
+        let again = store.designs("/d/x/v/1", &ServedFolder::new(&one).unwrap());
+        again.png("app/other.design", Theme::Light).unwrap();
+        assert_eq!(painted(&first), 1, "painted once, for the first ask");
+        assert_eq!(store.folders(), 2);
+
+        drop((first, again));
+        assert_eq!(store.folders(), 1);
+        assert_eq!(tiles(), TILE_BYTES, "its tiles went with it");
+        drop(second);
+        assert_eq!((store.folders(), tiles()), (0, 0));
+    }
+
+    const BOX_RED: &str = r##"<Frame width={50} height={50} fill="#ff0000" />
+"##;
+
     /// A design too wide for a row of tiles in one band is banded in strips,
     /// painted and never cached: its PNG is right and the cache stays empty.
     #[test]
@@ -1089,7 +1217,7 @@ mod tests {
         assert_eq!(at(0, 0), vec![255, 255, 255, 255]);
         assert_eq!(at(39_999, 19), vec![0, 0, 255, 255]);
         assert_eq!(painted(&designs), 0);
-        assert_eq!(lock(&designs.0.tiles).cost(), 0);
+        assert_eq!(lock(&designs.0.shared.tiles).cost(), 0);
     }
 
     /// A design 100,000 pixels tall has a PNG, streamed band by band from the
@@ -1111,7 +1239,7 @@ mod tests {
         assert_eq!(&px[at..at + 3], &[(c >> 16) as u8, (c >> 8) as u8, c as u8]);
         // 391 rows of 2 tiles, all painted once; the cache holds 256 of them.
         assert_eq!(painted(&designs), 782);
-        let held = lock(&designs.0.tiles).cost();
+        let held = lock(&designs.0.shared.tiles).cost();
         assert!(held <= TILES_CAP, "{held}");
         assert_eq!(held, TILES_CAP);
         eprintln!("100,000-px PNG: {took:?}, {} bytes", png.len());
@@ -1123,7 +1251,7 @@ mod tests {
         // The last bands were cached; the first ones were dropped for them,
         // and dropping them again as the PNG goes on, all are painted again.
         assert_eq!(painted(&designs), 782);
-        assert!(lock(&designs.0.tiles).cost() <= TILES_CAP);
+        assert!(lock(&designs.0.shared.tiles).cost() <= TILES_CAP);
     }
 
     /// A PNG asked for twice paints nothing the second time; after an edit to
@@ -1147,7 +1275,7 @@ mod tests {
 
         tall(&dir, None);
         // Room for the whole design, to count only what the edit needs.
-        *lock(&designs.0.tiles) = Cache::new(usize::MAX);
+        *lock(&designs.0.shared.tiles) = Cache::new(usize::MAX);
         let before = designs.png("app/huge.design", Theme::Light).unwrap();
         assert_eq!(painted(&designs), 782);
         // Row 500 is y 50,000 to 50,100, inside tile row 195: its two tiles.
@@ -1197,7 +1325,7 @@ mod tests {
         .unwrap();
         designs.changed(&file);
         assert!(
-            lock(&designs.0.tiles)
+            lock(&designs.0.shared.tiles)
                 .iter()
                 .all(|(t, _, _)| t.key.theme == Theme::Light)
         );

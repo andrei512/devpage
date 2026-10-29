@@ -105,11 +105,8 @@ impl Config {
             Some(text) => text.parse().ok().context("DEVPAGE_PORT is not a port")?,
             None => 3030,
         };
+        // Read by `Bucket::open`, the one place it is parsed.
         let bucket_url = required("DEVPAGE_BUCKET_URL")?.to_string();
-        let scheme = bucket_url.split_once("://").map(|(scheme, _)| scheme);
-        if !matches!(scheme, Some("s3" | "az" | "azure" | "file")) {
-            bail!("DEVPAGE_BUCKET_URL is not an s3://, az:// or file:// URL");
-        }
         let data_dir = PathBuf::from(required("DEVPAGE_DATA_DIR")?);
         if !data_dir.is_dir() {
             bail!("DEVPAGE_DATA_DIR is not a folder");
@@ -328,13 +325,6 @@ mod tests {
             (
                 minimal(&[("DEVPAGE_BUKET_URL", secret)]),
                 "DEVPAGE_BUKET_URL is not a variable devpage server reads",
-            ),
-            (
-                vars(&[
-                    ("DEVPAGE_DATA_DIR", &data_dir()),
-                    ("DEVPAGE_BUCKET_URL", secret),
-                ]),
-                "DEVPAGE_BUCKET_URL is not an s3://, az:// or file:// URL",
             ),
             (
                 vars(&[

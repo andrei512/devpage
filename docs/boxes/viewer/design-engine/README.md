@@ -664,7 +664,11 @@ streams send as a patch: only the dirty part is laid out, only dirty
 chunks are made, only their index entries move, and only the tiles over the
 damage go stale. A changed component file touches only the designs made from
 it. The store's tiles, at 1× in each theme, share one cache capped at 64 MB of
-pixels, least recently used dropped first. A drawing whose tiles don't all fit
+pixels, least recently used dropped first. A [server](../server/README.md)
+holds every version it serves in one store, so that cap — and one renderer —
+is the whole server's: each version's designs are kept under its own mount,
+`/d/<id>/v/<n>`, whichever address shows it, its validators name that mount,
+and a version no router holds any more leaves the store with its tiles. A drawing whose tiles don't all fit
 — about 11,600 pixels tall at 1,440 wide, with nothing else cached — has its
 PNG painted afresh each time it is asked for: the cap costs time, never
 memory.
