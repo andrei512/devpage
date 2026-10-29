@@ -10,6 +10,7 @@ use crate::document::{Document, Kind};
 use crate::render;
 
 use crate::external::{External, Link};
+use crate::html;
 use crate::problem::Problem;
 use crate::widgets::Widgets;
 
@@ -212,7 +213,7 @@ fn page_links_with(
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let source = std::fs::read_to_string(page).unwrap_or_default();
     let mut unknown = Vec::new();
-    let html = render::markdown(&crate::widgets::expand(
+    let rendered = render::markdown(&crate::widgets::expand(
         &source,
         widgets.names(),
         &mut unknown,
@@ -229,8 +230,8 @@ fn page_links_with(
         });
     }
     let mut reached = Vec::new();
-    let mut targets = attributes(&html, "href");
-    targets.extend(attributes(&html, "src"));
+    let mut targets = html::values(&rendered, "href");
+    targets.extend(html::values(&rendered, "src"));
     // A design embedded with `![…](x.design)`, read from the Markdown itself,
     // whatever HTML the page renders it as.
     for target in embedded_designs(&source) {
@@ -245,14 +246,14 @@ fn page_links_with(
         let line = source
             .find(&target)
             .map(|at| source[..at].lines().count().max(1));
-        if target.starts_with("http://") || target.starts_with("https://") {
-            external.push((file.clone(), line, target));
-            continue;
-        }
-        if target.contains(':') {
-            continue; // mailto: and other schemes are not checked
-        }
-        let (path, fragment) = target.split_once('#').unwrap_or((&target, ""));
+        let (path, fragment) = match html::Link::classify(&target) {
+            html::Link::File { path, fragment } => (path, fragment),
+            html::Link::Web(_) => {
+                external.push((file.clone(), line, target));
+                continue;
+            }
+            html::Link::Elsewhere => continue, // mailto: and other schemes are not checked
+        };
         let resolved = if path.is_empty() {
             Some(page.to_path_buf())
         } else {
@@ -559,16 +560,6 @@ impl Preview {
         }
         problems
     }
-}
-
-/// The values of every `name="…"` attribute in rendered HTML.
-fn attributes(html: &str, name: &str) -> Vec<String> {
-    let pattern = format!(" {name}=\"");
-    html.split(&pattern)
-        .skip(1)
-        .filter_map(|rest| rest.split('"').next())
-        .map(|value| value.replace("&amp;", "&"))
-        .collect()
 }
 
 /// Previews for tests that serve pages.

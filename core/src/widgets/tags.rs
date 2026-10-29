@@ -3,6 +3,7 @@
 //! renders as Markdown; code is left alone, `<Notes>` taken out, and every
 //! unknown or misplaced tag reported. Text in, text out.
 
+use crate::html::escape;
 use crate::markup::{
     NOTES, UNREADABLE_NOTES, code_ranges, find_close, parse_open, unreadable_notes,
 };
@@ -114,11 +115,11 @@ fn expand_in(
         } else {
             inner
         };
-        let props = escape(&tag.props);
+        let props = attribute(&tag.props);
         let source_html = if SHOWS_SOURCE.contains(&tag.name.as_str()) {
             format!(
                 r#" data-widget-source-html="{}""#,
-                escape(&crate::highlight::highlight(
+                attribute(&crate::highlight::highlight(
                     "markdown",
                     inner.trim_matches('\n')
                 ))
@@ -129,7 +130,7 @@ fn expand_in(
         let open = format!(
             r#"<{element} data-widget="{name}" data-props="{props}" data-widget-source="{src}"{source_html}>"#,
             name = tag.name,
-            src = escape(inner.trim_matches('\n')),
+            src = attribute(inner.trim_matches('\n')),
         );
         // Widgets inside the content are expanded too, then left for comrak to
         // render as Markdown: blank lines around a block widget's content
@@ -191,14 +192,10 @@ fn card_icons(inner: &str, lines_before: usize, problems: &mut Vec<String>) -> S
     out
 }
 
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('"', "&quot;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        // An attribute stays on one line, or a blank line in it would end the
-        // HTML block before the widget's content.
-        .replace('\n', "&#10;")
+/// `text` as an attribute's value. It stays on one line, or a blank line in
+/// it would end the HTML block before the widget's content.
+fn attribute(text: &str) -> String {
+    escape(text).replace('\n', "&#10;")
 }
 
 #[cfg(test)]

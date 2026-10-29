@@ -15,6 +15,8 @@ use syntect::html::{ClassStyle, ClassedHTMLGenerator};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
+use crate::html::escape;
+
 /// The languages bat ships, which include Swift, TypeScript, TOML and YAML
 /// besides syntect's defaults. Loaded once, on first use.
 static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
@@ -86,10 +88,4 @@ impl SyntaxHighlighterAdapter for Highlighter {
     ) -> fmt::Result {
         output.write_str("<code>")
     }
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }

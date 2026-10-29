@@ -233,8 +233,8 @@ impl Search {
         }
         let mut at = from;
         for &(begin, end, matched) in tokens.iter().filter(|(b, e, _)| *b >= from && *e <= to) {
-            html.push_str(&crate::render::escape(&prose[at..begin]));
-            let word = crate::render::escape(&prose[begin..end]);
+            html.push_str(&crate::html::escape(&prose[at..begin]));
+            let word = crate::html::escape(&prose[begin..end]);
             if matched.is_some() {
                 html.push_str(&format!("<mark>{word}</mark>"));
             } else {
@@ -242,7 +242,7 @@ impl Search {
             }
             at = end;
         }
-        html.push_str(&crate::render::escape(&prose[at..to]));
+        html.push_str(&crate::html::escape(&prose[at..to]));
         if to < prose.len() && !ends_sentence(&prose[..to]) {
             html.push('…');
         }

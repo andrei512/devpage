@@ -4,17 +4,11 @@ mod frame;
 mod markdown;
 mod sidebar;
 
+pub use crate::html::escape;
 pub use crate::markup::title;
 pub use frame::{doc, html_open, invalid, page, slides, tab_title};
 pub(crate) use markdown::options;
 pub use markdown::{FRAME_IDS, front_matter, markdown, markdown_in};
-
-pub fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
 
 #[cfg(test)]
 mod tests;

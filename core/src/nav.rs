@@ -11,6 +11,7 @@ use comrak::nodes::{AstNode, NodeValue};
 use comrak::{Arena, Options, parse_document};
 
 use crate::document::Document;
+use crate::html::Link;
 
 /// One entry of the tree: a page and its own children. A page listed more
 /// than once is an entry only at its position: its shallowest listing, the
@@ -136,10 +137,10 @@ pub enum Target {
 
 /// What a Topics link on `page` names.
 pub fn resolve(document: &Document, page: &Path, href: &str) -> Target {
-    if href.contains(':') || href.starts_with('#') {
-        return Target::None;
-    }
-    let path = href.split('#').next().unwrap_or(href);
+    let path = match Link::classify(href) {
+        Link::File { path, .. } if !path.is_empty() => path,
+        _ => return Target::None,
+    };
     let Some(target) = page
         .parent()
         .and_then(|folder| document.served.file(&folder.join(path)))

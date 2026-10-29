@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 477 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 482 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 151 in `devpage`, 174 in its
+`cargo test` runs every crate in the workspace: 151 in `devpage`, 179 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -281,6 +281,15 @@ In Chrome:
 - Outside a runtime, the preview asking nothing.
 - The preview showing an unreachable address only after three failures in a row, and clearing it when it answers.
 
+### `html`
+
+*4 tests, on strings.*
+
+- Text escaped for an element's text and a quoted attribute, and back.
+- A tag's attributes read however they are quoted, spaced or capitalised.
+- Every value of one attribute found in tags only — never in a comment, escaped code or text, or under another name such as `xlink:href`.
+- An address on the web, with another scheme, or a file with its fragment — a colon in a path or a fragment being no scheme.
+
 ### `icons`
 
 *1 test.*
@@ -311,11 +320,12 @@ In Chrome:
 
 ### `navbar`
 
-*6 tests.*
+*7 tests.*
 
 - Links, dropdowns, icons and icon-only links rendered in order.
 - The link holding the page shown highlighted, a dropdown holding it too.
 - Missing files and unknown icons as problems.
+- A target outside the served folder a problem, followed neither as a file nor as an address on the web.
 - No navbar rendering nothing, the comment-mode switch in the corner, and the theme selector off with `theme-selector: false` while the switch stays; with comments off, no switch.
 - A logo before the title and as the tab's icon, for a doc and a deck too.
 - A missing logo as a problem and the page shown without it.

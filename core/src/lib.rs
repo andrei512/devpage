@@ -17,6 +17,7 @@ pub mod diagrams;
 pub mod document;
 pub mod external;
 pub mod highlight;
+pub(crate) mod html;
 pub mod icons;
 pub mod index;
 pub mod markup;
