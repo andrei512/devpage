@@ -206,9 +206,25 @@ Any Markdown file can change what is published — a page's Topics add or drop
 pages — as can a document file, a `.gitignore` or a folder; a widget can
 change which of a page's tags are widgets. So a burst holding a Markdown or
 YAML file, a widget's `.tsx`, a `.gitignore`, a folder or a path that is gone
-finds what is published again, whole, and compares it with what the index
-holds, page by page; a burst of anything else leaves it alone. Only what
-differs is indexed again, in one commit:
+is indexed; a burst of anything else leaves it alone.
+
+**What is published is kept between bursts.** With every page published,
+the index keeps the documents loaded finding them, and each Markdown file's
+**footprint**: what of it decides what is published, as far as it does where
+it is — its Topics, when a site's nav reads them; its title, when it is the
+trail of one of a doc's several chapters; and, for a page the walk reaches
+nowhere, its front matter's `search`, and out of every site the title its
+own document takes. Everything else in a file is its content, which only its
+page shows. A burst finds what is published again, whole, only when it can
+change it — a folder, a path gone, a `.gitignore`, a YAML file, a Markdown
+file new to it or whose footprint differs. Any other burst — a page's text
+saved, a widget's `.tsx` — leaves what is published as it was, and costs only
+its own pages: no document is loaded, no page's Topics read, and a saved file
+is read for its footprint only when it has one (a site's page no nav reads,
+or a slide, has none).
+
+When what is published is found again, it is compared with what the index
+holds, page by page. Only what differs is indexed again, in one commit:
 
 - a page no longer published leaves;
 - a page newly published comes in;
@@ -217,11 +233,12 @@ differs is indexed again, in one commit:
   file — or that widgets folder — is one of the burst's paths, inside one of
   its folders or holding one of them, is read again.
 
-Every other page stays as it was indexed, unread. So a new rule in a
-`.gitignore` takes its folder's pages out at once, a page dropped from every
-Topics section leaves, a deleted chapter takes its doc out until it is back,
-and a saved page is read again alone — unless it moved in the nav, as every
-page after a page added above it does.
+When it is not, only the pages whose file or widgets folder the burst
+reaches, as above, are read again. Every other page stays as it was indexed,
+unread. So a new rule in a `.gitignore` takes its folder's pages out at once,
+a page dropped from every Topics section leaves, a deleted chapter takes its
+doc out until it is back, and a saved page is read again alone — unless it
+moved in the nav, as every page after a page added above it does.
 
 **It answers as one built fresh.** After each commit the index is merged into
 one segment without the sections it replaced: until then they would still
@@ -237,9 +254,12 @@ of its pages they meet — a site of a hundred pages is loaded once, not a
 hundred times — and read a document's widgets once, only when a page it
 shows is read again: a saved page reads only its own document's.
 
-On devpage's own docs, in a release build, a saved page takes about 32 ms,
-against about 67 ms to read every page again: about 18 ms of it is finding
-what is published, which every burst does whole.
+In a release build, on devpage's own docs (106 pages), a page's text saved
+takes about 15 ms, and a page's Topics saved about 22 ms, of which about 8 ms
+is finding what is published again; on a generated site of 5,051 pages,
+about 19 ms and about 200 ms. Most of what a page's text saved still costs
+is the merge into one segment, which grows with the site: about 10 ms of the
+15, and 15 of the 19.
 
 ## The endpoint
 

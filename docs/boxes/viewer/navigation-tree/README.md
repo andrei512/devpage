@@ -95,8 +95,10 @@ from the root page (breadth first, in list order), remembering for each file
 the page listing it and the listing's index; the root page is its own
 position, so a listing of it is never one.
 
-Then `tree` calls `children` on the root. `children` reads the page from disk
-(an unreadable page has no children), and for each resolved topic:
+Then `tree` calls `children` on the root. `children` takes the page's Topics
+— each page is read from disk once a tree, by `homes` or `children`,
+whichever meets it first; an unreadable page has no children — and for each
+resolved topic:
 
 - skips the topic unless this listing is the file's position; a page entry
   gets its children built recursively, a document entry never has children;
@@ -113,7 +115,10 @@ twice, with another group between, gives two separate groups.
 The tree is rebuilt for every page request, reading every page it reaches; no
 result is kept between requests. It is built once per page: the sidebar is
 drawn from it, and the navbar finds in the same tree the link that holds the
-page shown.
+page shown. `tree_and_topics` returns the tree with the Topics of every page
+it read, an unreadable page's as none: the search keeps them, to tell whether
+a page saved changed its Topics
+([search](../search/README.md#how-it-stays-current)).
 
 ## Rendering the sidebar
 

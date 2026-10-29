@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 566 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 569 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -17,7 +17,7 @@ $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call 
 ## How they are written
 
 `cargo test` runs every crate in the workspace: 163 in `devpage`, one of
-them in `tests/`, 237 in its
+them in `tests/`, 240 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -562,7 +562,8 @@ In Chrome:
 - Front matter read, never shown, and its keywords searched.
 - An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
-- A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn.
+- A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn; and through random edits and bursts of them — text, titles, Topics, front matter, pages added and deleted, folders deleted, `.gitignore` rules, a doc's chapters — publishing the same pages as one built fresh and answering every query alike.
+- What is published kept between saves: a save of a page's text loading no document and reading no page's Topics, only the page saved — and nothing at all when nothing in it decides what is published, as in a slide; a page's Topics, a chapter's title and a page out of the nav given `search: true` finding it again. A rescan loading each document once however many pages it shows, and reading only the widgets of the document of the page read again.
 - Sections keeping the rendered ids — every one an id the check lets a link land on, inline code, a duplicate, a frame id, a link and a footnote in a heading among them — their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
 ### The search's quality

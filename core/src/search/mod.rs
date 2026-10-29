@@ -210,9 +210,13 @@ impl Search {
     /// `.gitignore`, a folder — and a widget can change which of a page's
     /// tags are widgets, so a burst that holds a Markdown file, a YAML
     /// file, a widget's `.tsx`, a `.gitignore`, a folder or a path that is
-    /// gone finds what is published again, and reads again only the pages
-    /// that are new to it, moved in it, or among `paths` — or whose
-    /// document's widgets folder holds one of them.
+    /// gone is indexed. What is published is kept from the last burst, and
+    /// found again only when the burst can change it — a Markdown file's
+    /// footprint changed (its Topics, a chapter's title, an unlisted page's
+    /// `search`), or a file came or went, or is a document file or a
+    /// `.gitignore`. Then only the pages new to it, moved in it, or among
+    /// `paths` — or whose document's widgets folder holds one of them — are
+    /// read again.
     pub fn changed(&self, folder: &Folder, paths: &[PathBuf]) {
         let matters = |path: &PathBuf| {
             path.is_dir()

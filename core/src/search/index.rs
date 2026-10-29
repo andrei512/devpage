@@ -52,11 +52,11 @@ pub(super) struct Fields {
     pub(super) heading_exact: Field,
 }
 
-/// The index's one writer, and the pages it last indexed — every page
-/// published then, by address, read or not.
+/// The index's one writer, and what was published when it last indexed —
+/// every page, by address, read or not — once it has.
 pub(super) struct Indexer {
     writer: IndexWriter,
-    units: BTreeMap<String, Unit>,
+    published: Option<Published>,
 }
 
 /// One section, ready to be a tantivy document.
@@ -157,7 +157,7 @@ impl Search {
             reader,
             indexer: Mutex::new(Indexer {
                 writer,
-                units: BTreeMap::new(),
+                published: None,
             }),
             stemmed,
             plain,
@@ -168,23 +168,18 @@ impl Search {
         search
     }
 
-    /// Brings the index up to what is published now, a page at a time: a
-    /// page no longer published leaves; a page newly published, or whose
-    /// unit — kind, trail, document, address, place in the nav — differs,
-    /// or whose file is one of `paths` or under one, is read again; every
-    /// other page stays as it was indexed. All in one commit, then
-    /// compacted, so the index answers as one built fresh would.
+    /// Brings the index up to what is published now, a page at a time. When
+    /// `paths` can change what is published ([`Published::moved_by`]), it is
+    /// found again, whole: a page no longer published leaves; a page newly
+    /// published, or whose unit — kind, trail, document, address, place in
+    /// the nav — differs, or whose file is one of `paths` or under one, is
+    /// read again. Otherwise what is published is as it was, and only the
+    /// pages `paths` reach are read again. Every other page stays as it was
+    /// indexed. All in one commit, then compacted, so the index answers as
+    /// one built fresh would.
     pub(super) fn index(&self, folder: &Folder, paths: &[PathBuf]) {
         let mut indexer = lock(&self.indexer);
-        let Indexer { writer, units } = &mut *indexer;
-        // Each document is loaded once per pass, and its widgets read once,
-        // through the pass's own cache: what a page's tags expand to is what
-        // its page shows now.
-        let mut pass = Pass::new(folder);
-        let now: BTreeMap<String, Unit> = scope(&mut pass, &self.entry)
-            .into_iter()
-            .map(|unit| (unit.url(), unit))
-            .collect();
+        let Indexer { writer, published } = &mut *indexer;
         let read = |unit: &Unit| paths.iter().any(|path| unit.reached(path));
         let mut pages = self
             .snapshot
@@ -192,32 +187,89 @@ impl Search {
             .unwrap_or_else(|p| p.into_inner())
             .pages
             .clone();
-        for (url, was) in units.iter() {
-            if now.get(url).is_none_or(|unit| unit != was || read(unit)) {
-                writer.delete_term(Term::from_field_text(self.fields.page, url));
-                pages.remove(url);
-            }
-        }
-        for (url, unit) in &now {
-            if units.get(url).is_none_or(|was| was != unit || read(unit)) {
-                let Some(shown) = &unit.shown_in else {
-                    continue;
-                };
-                if let Some(set) = pass.widgets(shown) {
-                    self.add(writer, unit, set, &mut pages);
+        let remove = |url: &str, pages: &mut Pages| {
+            writer.delete_term(Term::from_field_text(self.fields.page, url));
+            pages.remove(url);
+        };
+        // Each document is loaded once per pass, and its widgets read once,
+        // through the pass's own cache: what a page's tags expand to is what
+        // its page shows now.
+        let (found, mut pass, again): (Option<Published>, Pass, Vec<Unit>) = match published {
+            Some(was) if !was.moved_by(paths) => {
+                let again: Vec<Unit> = was
+                    .units
+                    .values()
+                    .filter(|unit| read(unit))
+                    .cloned()
+                    .collect();
+                for unit in &again {
+                    remove(&unit.url(), &mut pages);
                 }
+                let documents = std::mem::take(&mut was.documents);
+                (None, Pass::with(folder, documents), again)
+            }
+            _ => {
+                let mut pass = Pass::new(folder);
+                let now = Published::find(&mut pass, &self.entry);
+                let none = BTreeMap::new();
+                let was = published.as_ref().map_or(&none, |was| &was.units);
+                for (url, unit) in was {
+                    if now
+                        .units
+                        .get(url)
+                        .is_none_or(|now| now != unit || read(now))
+                    {
+                        remove(url, &mut pages);
+                    }
+                }
+                let again = now
+                    .units
+                    .iter()
+                    .filter(|(url, unit)| {
+                        was.get(*url).is_none_or(|was| was != *unit || read(unit))
+                    })
+                    .map(|(_, unit)| unit.clone())
+                    .collect();
+                (Some(now), pass, again)
+            }
+        };
+        for unit in &again {
+            let Some(shown) = &unit.shown_in else {
+                continue;
+            };
+            if let Some(set) = pass.widgets(shown) {
+                self.add(writer, unit, set, &mut pages);
             }
         }
-        if writer.commit().is_err() {
-            // Back to the last commit, which `units` and `pages` describe.
+        let documents = pass.into_documents();
+        let committed = writer.commit().is_ok();
+        match (found, published.as_mut()) {
+            (Some(mut now), _) if committed => {
+                now.documents = documents;
+                *published = Some(now);
+            }
+            (None, Some(was)) => was.documents = documents,
+            _ => {}
+        }
+        if !committed {
+            // Back to the last commit, which `published` and `pages` describe.
             let _ = writer.rollback();
             return;
         }
         compact(writer);
         let _ = self.reader.reload();
-        *units = now;
         *self.snapshot.write().unwrap_or_else(|p| p.into_inner()) =
             Arc::new(Snapshot::new(self.reader.searcher(), pages));
+    }
+
+    /// Every page published as the index last found it, by address.
+    #[cfg(test)]
+    pub(super) fn units(&self) -> BTreeMap<String, Unit> {
+        lock(&self.indexer)
+            .published
+            .as_ref()
+            .map(|published| published.units.clone())
+            .unwrap_or_default()
     }
 
     /// Adds the sections of one page, its content rendered as its page
