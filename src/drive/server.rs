@@ -249,21 +249,21 @@ impl App {
         }
     }
 
-    /// Starts the watcher this server pairs with: the same served folder,
-    /// widget modules, search index, design store and change bus, and the
-    /// same comments, so a thread the server wrote is announced once, by the
-    /// server.
+    /// Starts the watcher this server pairs with: its listeners hold the
+    /// same served folder, design store, widget modules, change bus and
+    /// search index, and the same comments, so a thread the server wrote is
+    /// announced once, by the server.
     pub fn watch(&self) -> anyhow::Result<crate::watch::Watch> {
-        crate::watch::start(
+        crate::watch::start(devpage_core::watch::Listeners::new(
             self.folder.clone(),
-            self.modules.clone(),
-            self.search.clone(),
             self.designs.clone(),
-            self.changes.clone(),
+            self.modules.clone(),
             self.comments
                 .as_ref()
                 .map(|comments| comments.threads.clone()),
-        )
+            Arc::new(self.changes.clone()),
+            self.search.clone(),
+        ))
     }
 
     /// The Chrome that draws this server's slides as PNGs, for its owner to

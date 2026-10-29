@@ -8,21 +8,23 @@ it in place. It also covers why
 there is one stream per tab; [the page script](../page-script/README.md) is
 the browser's side. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
-`src/adapters/watch.rs`, `src/adapters/changes.rs`, `src/drive/server.rs` or `core/assets/devpage.js`.
+`src/adapters/watch.rs`, `core/src/watch/`, `src/adapters/changes.rs`, `src/drive/server.rs` or `core/assets/devpage.js`.
 
 ```mermaid
 sequenceDiagram
   participant Editor as Person or agent
   participant Disk as Markdown file
   participant Watcher as watcher (src/adapters/watch.rs)
+  participant Listeners as listeners (core/src/watch/)
   participant Channel as change bus (src/adapters/changes.rs)
   participant Server as server (src/drive/server.rs)
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
   Watcher->>Watcher: out of sight? collect the burst
-  Watcher->>Watcher: watched?
-  Watcher->>Channel: publish(Refresh, documents at /)
+  Watcher->>Listeners: changed(burst)
+  Listeners->>Listeners: watched?
+  Listeners->>Channel: publish(Refresh)
   Channel-->>Server: one change per open stream of those documents
   Server-->>Page: event stream: data change
   Page->>Server: GET the current page (If-None-Match: its ETag)
@@ -42,9 +44,12 @@ When devpage starts, `watch::start` in `src/adapters/watch.rs` plans the
 [served folder](../writing-a-document/README.md#the-served-folder) — every
 folder in sight, and nothing out of sight — and has the
 [platform's watcher](#per-platform) watch it. Every event the platform
-reports goes to one handler, whose work happens in two steps:
+reports goes to one handler, whose work happens in two steps. The watcher
+only turns file events into bursts of paths; what a burst means, and who hears
+it in what order, is the core's `Listeners` in `core/src/watch/` — the same
+concept on two sides, as the change bus is.
 
-1. **Sifting, as each event arrives** (`Listeners::sift`, which asks the
+1. **Sifting, as each event arrives** (`sift`, which asks the
    served folder, `Folder::matters`). Accesses (a read,
    not a change) and errors are dropped, and so is every path that can't
    matter, judged from the path alone with no file system call: a path with a
@@ -57,10 +62,11 @@ reports goes to one handler, whose work happens in two steps:
    watch set, the platform reports almost nothing out of sight; sifting is
    the backstop for the rest — a folder that went out of sight before the
    next re-plan, and platforms that can't leave a subtree out.
-2. **Handling, a burst at a time** (`Listeners::changed`, on a thread of its
-   own). The paths that survive go to a thread that waits for one, collects
-   whatever else arrives within 50 ms (`BURST`), and handles each path of the
-   burst once, deciding it like this:
+2. **Handling, a burst at a time** (on a thread of its own). The paths that
+   survive go to a thread that waits for one, collects whatever else arrives
+   within 50 ms (`BURST`), canonicalizes each path of the burst once, and
+   hands the burst to `Listeners::changed`, which decides each path like
+   this:
 
 ```mermaid
 flowchart TD
@@ -75,32 +81,42 @@ flowchart TD
   click seen href "#what-is-out-of-sight" "What is out of sight"
 ```
 
-Before the decision, a path is canonicalized — falling back to the path as
-reported, as for a deleted file — and skipped if it isn't inside the served
-folder; only paths that survived sifting are. A thread file in the comment store
-(`.devpage/comments/<page>/<id>.yml`) is a change to that page's comments —
-unless the server wrote it: a write through the comment store announces that
-page's comments as it lands, and the store remembers the bytes it wrote. The
-watcher asks the comments it shares with the server what they heard of the
-burst's paths (`Comments::heard`), and they answer a page only for a thread
-file whose bytes differ from what open pages last heard of, as after a hand
-edit; decoding a thread file's path is the store's, not the watcher's. With
-comments off (`--no-comments`) there are no comments to ask, and a thread
-file announces nothing. The comment store is watched whatever a
-site's `watch` says, and never refreshes pages itself; nothing else under `.devpage/` is looked at. Every other path is first
-handed to the design store — see [Designs](#designs) — and the module cache
-forgets the file, so the next
-[widget address](../widgets/how-widgets-run/README.md#compiling) reads it
-again. Then the burst's paths go to the
-[served folder](../document-index/README.md#the-index) (`Folder::changed`, in
-`core/src/folder/`), which brings its document index up to date — a new,
-edited or deleted document file or `.gitignore` is reflected at once —
-re-reads the entry document's own file — so `/` and the `watch` list follow
-the file, which refreshes whatever `watch` says — and answers whether open
-pages refresh and whether the watch set may differ. Once the
-burst is decided and its changes published, its paths go to the
-[search index](../search/README.md#how-it-stays-current) (`Search::changed`),
-which reads everything published again when one of them can change it.
+Before the decision, the watcher canonicalizes a path — falling back to the
+path as reported, as for a deleted file; only paths that survived sifting are.
+`Listeners::changed` then answers the burst in one order:
+
+1. **The comments.** A thread file in the comment store
+   (`.devpage/comments/<page>/<id>.yml`) is a change to that page's comments —
+   unless the server wrote it: a write through the comment store announces
+   that page's comments as it lands, and the store remembers the bytes it
+   wrote. The listeners ask the comments they share with the server what they
+   heard of the burst's paths (`Comments::heard`), and they answer a page only
+   for a thread file whose bytes differ from what open pages last heard of, as
+   after a hand edit; decoding a thread file's path is the store's. With
+   comments off (`--no-comments`) there are no comments to ask, and a thread
+   file announces nothing. The comment store is watched whatever a site's `watch` says, and never
+   refreshes pages itself; nothing else under `.devpage/` is looked at.
+2. **The folder.** The burst's paths go to the
+   [served folder](../document-index/README.md#the-index) (`Folder::changed`,
+   in `core/src/folder/`), which brings its document index up to date — a
+   new, edited or deleted document file or `.gitignore` is reflected at once
+   — re-reads the entry document's own file — so `/` and the `watch` list
+   follow the file, which refreshes whatever `watch` says — and answers
+   whether open pages refresh and whether the watch set may differ.
+3. **The designs and the widgets.** Every path inside the served folder and
+   outside `.devpage/` is handed to the design store — see
+   [Designs](#designs) — and the module cache forgets the file, so the next
+   [widget address](../widgets/how-widgets-run/README.md#compiling) reads it
+   again.
+4. **Open pages.** The page comments, then the folder's refresh, are
+   published on the bus.
+5. **Search, last.** The same paths go to the
+   [search index](../search/README.md#how-it-stays-current)
+   (`Search::changed`), which reads everything published again when one of
+   them can change it — after the pages hear, so indexing text never holds up
+   a refresh.
+
+The watcher then re-plans the watch set when the listeners say it may differ, or when the burst reaches past what the platform watches.
 
 ### What is out of sight
 
@@ -259,13 +275,11 @@ gets the new version, whichever version it loaded, and keeps hearing the next
 publish through the same bus; a page under `/d/<id>/v/<n>` hears nothing,
 since a version never changes.
 
-The watcher decides a burst in two halves: `Listeners::forget` has every cache
-forget what changed — the design store and the module cache — and the served
-folder follow it — its document index and the entry document — and returns
-the changes the burst means, publishing nothing;
-`Listeners::changed` publishes them on the bus, then hands the
-paths to the search index. The forgetting is the watcher's own, never traffic
-on the bus.
+The listeners decide a burst in one function, `Listeners::changed`: the
+caches forget what changed — the design store and the module cache — and the
+served folder follows it before anything is published, so a page that
+refetches on the refresh reads the files as they are now. The forgetting is
+the listeners' own, never traffic on the bus.
 
 `GET /__devpage/events` (`events` in `src/drive/server.rs`) subscribes to the
 server's bus and answers with a server-sent event
@@ -278,7 +292,7 @@ subscribes the same way and forgets what it drew on any change it hears.
 ## Designs
 
 A design on its canvas, or embedded in a page, is kept current by its own
-gRPC-Web watch stream rather than by refetching: the watcher hands every
+gRPC-Web watch stream rather than by refetching: the watcher's listeners hand every
 changed path outside `.devpage/` that survives
 [sifting](#the-watcher) to the server's store of resolved designs — whatever a
 site's `watch` list says, since any file may be part of a design — and the store resolves again only the designs made from that
@@ -324,7 +338,7 @@ back until it is shown.
   nothing.
 - **The watcher reports an error.** The platform's watcher hands the
   handler in `src/adapters/watch.rs` either an event or an error, and an error is dropped
-  silently by `Listeners::sift` — nothing is logged and
+  silently by `sift` — nothing is logged and
   devpage keeps serving. A watch that has broken this way shows only as pages
   that stop refreshing while requests still work; restart devpage to start a
   new watcher. Only a watcher that can't be started at all is reported, when
