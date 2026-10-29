@@ -11,20 +11,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use axum::Router;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
-use chromiumoxide::cdp::browser_protocol::browser::{
-    Bounds, GetWindowBoundsParams, GetWindowForTargetParams, SetWindowBoundsParams,
-};
-use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
-use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
-use futures::StreamExt;
-use serde::de::DeserializeOwned;
 
+use crate::chrome::{Open, Profile, Session, Tab};
 use crate::document::{Document, Kind};
-use crate::pdf::{Profile, READY};
 use crate::server;
 use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
@@ -108,9 +100,15 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
 pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
     let (instructions, requests) = told(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
-    film(document, output, requests, heard.clone(), async |heard| {
-        live::Live::start(config, &instructions, heard).await
-    })
+    let (router, deck) = served(document);
+    film(
+        router,
+        &deck,
+        output,
+        requests,
+        heard.clone(),
+        async |heard| live::Live::start(config, &instructions, heard).await,
+    )
     .await
 }
 
@@ -158,78 +156,50 @@ impl Heard {
     }
 }
 
-/// Serves the deck, opens it in Chrome for Testing, starts the voice once the
-/// recorder is armed, and records every slide. Chrome is killed however this
-/// ends.
+/// The router `document` is recorded from, as `devpage pdf` serves it, and
+/// its entry.
+fn served(document: Arc<Document>) -> (Router, String) {
+    let entry = document.entry();
+    let router = server::router(server::Options::printing(
+        document,
+        crate::changes::Changes::default(),
+    ));
+    (router, entry)
+}
+
+/// Serves the deck from `router`, opens it at `deck` in a recording
+/// session, starts the voice once the recorder is armed, and records every
+/// slide. Chrome is killed however this ends.
 async fn film<V: Voice>(
-    document: Arc<Document>,
+    router: Router,
+    deck: &str,
     output: &Path,
     notes: Vec<String>,
     heard: Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<()> {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let url = format!("http://{}{}", listener.local_addr()?, document.entry());
-    let changes = crate::changes::Changes::default();
-    let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            server::router(server::Options::printing(document, changes)),
-        )
-        .await
-        .ok();
-    });
-    let profile = Profile::new();
-    let config = profile
-        .chrome_for_testing()
-        .await?
-        .viewport(None)
-        .disable_default_args()
-        // Headless as the prototype ran it: chromiumoxide's own headless flags
-        // add `--mute-audio`.
-        .with_head()
-        .arg(("headless", "new"))
-        .arg("hide-scrollbars")
-        .arg("auto-accept-this-tab-capture")
-        .arg(("autoplay-policy", "no-user-gesture-required"))
-        .window_size(1920, 1167)
-        .build()
-        .map_err(anyhow::Error::msg)?;
-    let (mut browser, mut handler) = Browser::launch(config)
-        .await
-        .context("starting Chrome for Testing")?;
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+    let session = Session::start(Profile::Recording, router).await?;
     let result = async {
-        let page = browser.new_page("about:blank").await?;
-        let bytes = narrate(&page, &url, &notes, &heard, voice).await?;
+        let tab = session.open(deck, Open::default()).await?;
+        let bytes = narrate(&tab, &notes, &heard, voice).await?;
         std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))
     }
     .await;
-    browser.kill().await;
-    browser.wait().await.ok();
-    events.abort();
-    server.abort();
+    session.close().await;
     result
 }
 
 async fn narrate<V: Voice>(
-    page: &Page,
-    url: &str,
+    tab: &Tab,
     notes: &[String],
     heard: &Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<Vec<u8>> {
-    page.goto(url).await?;
-    for _ in 0..400 {
-        if page.evaluate(READY).await?.into_value::<bool>()? {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    run::<()>(page, &format!("{RECORDER}\nundefined")).await?;
-    run::<()>(page, &format!("devpageVideo.start({RATE})")).await?;
-    fit(page).await?;
-    run::<u32>(page, "devpageVideo.arm()").await?;
+    tab.eval::<()>(&format!("{RECORDER}\nundefined")).await?;
+    tab.eval::<()>(&format!("devpageVideo.start({RATE})"))
+        .await?;
+    fit(tab).await?;
+    tab.eval::<u32>("devpageVideo.arm()").await?;
 
     let voice = voice(heard.clone()).await?;
     let total = notes.len();
@@ -258,7 +228,7 @@ async fn narrate<V: Voice>(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         // Resume in the same evaluation the audio lands in, so neither leads.
-        flush(page, heard, true).await?;
+        flush(tab, heard, true).await?;
         eprintln!("slide {n}/{total}");
         loop {
             let quiet = {
@@ -270,39 +240,40 @@ async fn narrate<V: Voice>(
                 break;
             }
             tokio::time::sleep(PUSH_EVERY).await;
-            flush(page, heard, false).await?;
+            flush(tab, heard, false).await?;
         }
         heard.lock().unwrap().trimmer.end_slide();
-        flush(page, heard, false).await?;
-        if let Some(stuck) = run::<Option<serde_json::Value>>(page, "devpageVideo.drain()").await? {
+        flush(tab, heard, false).await?;
+        if let Some(stuck) = tab
+            .eval::<Option<serde_json::Value>>("devpageVideo.drain()")
+            .await?
+        {
             eprintln!("slide {n}: the player did not empty: {stuck}");
         }
         if n < total {
             // Change the slide while recording, and pause only once the new
             // slide has been on screen for its lead: the recording resumes on
             // whatever it last saw, so that must be the new slide.
-            next(page).await?;
+            tab.press("ArrowRight", 39).await?;
             tokio::time::sleep(Duration::from_secs_f64(SLIDE_LEAD_SECONDS)).await;
-            let shown: String = run(page, "devpageVideo.shown()").await?;
+            let shown: String = tab.eval("devpageVideo.shown()").await?;
             if shown != (n + 1).to_string() {
                 bail!(
                     "the deck shows slide {shown} after slide {n}, not slide {}",
                     n + 1
                 );
             }
-            run::<()>(page, "devpageVideo.pause()").await?;
+            tab.eval::<()>("devpageVideo.pause()").await?;
         }
     }
     voice.close().await;
 
-    let size: usize = run(page, "devpageVideo.stop()").await?;
+    let size: usize = tab.eval("devpageVideo.stop()").await?;
     let mut bytes = Vec::with_capacity(size);
     while bytes.len() < size {
-        let piece: String = run(
-            page,
-            &format!("devpageVideo.chunk({}, {CHUNK})", bytes.len()),
-        )
-        .await?;
+        let piece: String = tab
+            .eval(&format!("devpageVideo.chunk({}, {CHUNK})", bytes.len()))
+            .await?;
         let piece = STANDARD.decode(piece).context("reading the recording")?;
         if piece.is_empty() {
             bail!("the recording ended early");
@@ -315,18 +286,11 @@ async fn narrate<V: Voice>(
 /// Capturing adds a "sharing this tab" bar a moment later, which shrinks the
 /// page: keep correcting the window until the page reads 1920 × 1080 three
 /// times in a row.
-async fn fit(page: &Page) -> Result<()> {
-    let window = page
-        .execute(GetWindowForTargetParams {
-            target_id: Some(page.target_id().clone()),
-        })
-        .await?
-        .result
-        .window_id;
+async fn fit(tab: &Tab) -> Result<()> {
     let mut settled = 0;
     for _ in 0..40 {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        let [width, height, ..]: [i64; 4] = run(page, "devpageVideo.size()").await?;
+        let [width, height, ..]: [i64; 4] = tab.eval("devpageVideo.size()").await?;
         if (width, height) == (WIDTH, HEIGHT) {
             settled += 1;
             if settled == 3 {
@@ -335,23 +299,9 @@ async fn fit(page: &Page) -> Result<()> {
             continue;
         }
         settled = 0;
-        let bounds = page
-            .execute(GetWindowBoundsParams::new(window))
-            .await?
-            .result
-            .bounds;
-        let grow = |now: Option<i64>, inner: i64, want: i64| now.map(|n| n + want - inner);
-        page.execute(SetWindowBoundsParams::new(
-            window,
-            Bounds {
-                width: grow(bounds.width, width, WIDTH),
-                height: grow(bounds.height, height, HEIGHT),
-                ..Default::default()
-            },
-        ))
-        .await?;
+        tab.grow_window(WIDTH - width, HEIGHT - height).await?;
     }
-    let size: [i64; 4] = run(page, "devpageVideo.size()").await?;
+    let size: [i64; 4] = tab.eval("devpageVideo.size()").await?;
     bail!(
         "the page never held still at {WIDTH} × {HEIGHT}: it is {} × {}",
         size[0],
@@ -361,52 +311,18 @@ async fn fit(page: &Page) -> Result<()> {
 
 /// Hands whatever voice is ready to the player; `play` resumes the recorder
 /// in the same evaluation.
-async fn flush(page: &Page, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
+async fn flush(tab: &Tab, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
     let pcm = heard.lock().unwrap().trimmer.drain();
     if pcm.is_empty() {
         return Ok(());
     }
     let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
     let resume = if play { "devpageVideo.play();" } else { "" };
-    run::<()>(
-        page,
-        &format!("{resume}devpageVideo.push(\"{}\")", STANDARD.encode(bytes)),
-    )
+    tab.eval::<()>(&format!(
+        "{resume}devpageVideo.push(\"{}\")",
+        STANDARD.encode(bytes)
+    ))
     .await
-}
-
-/// Presses → on the deck.
-async fn next(page: &Page) -> Result<()> {
-    for kind in [DispatchKeyEventType::KeyDown, DispatchKeyEventType::KeyUp] {
-        page.execute(
-            DispatchKeyEventParams::builder()
-                .r#type(kind)
-                .key("ArrowRight")
-                .code("ArrowRight")
-                .windows_virtual_key_code(39)
-                .build()
-                .map_err(anyhow::Error::msg)?,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-/// Evaluates `expression` in the page as a user gesture, awaiting a promise,
-/// and reads its value.
-async fn run<T: DeserializeOwned>(page: &Page, expression: &str) -> Result<T> {
-    let params = EvaluateParams::builder()
-        .expression(expression)
-        .user_gesture(true)
-        .await_promise(true)
-        .return_by_value(true)
-        .build()
-        .map_err(anyhow::Error::msg)?;
-    let result = page.evaluate_expression(params).await?;
-    match result.value() {
-        Some(_) => Ok(result.into_value()?),
-        None => Ok(serde_json::from_value(serde_json::Value::Null)?),
-    }
 }
 
 #[cfg(test)]
@@ -640,8 +556,9 @@ mod tests {
         let (_, notes) = told(&talk).unwrap();
         let out = dir.join("Talk.mp4");
         let heard = Arc::new(Mutex::new(Heard::default()));
+        let (router, entry) = served(talk);
         // `film` fails unless the deck shows slide 2 after slide 1.
-        film(talk, &out, notes, heard, async |heard| {
+        film(router, &entry, &out, notes, heard, async |heard| {
             Ok(Tone::start(heard, 2.5))
         })
         .await
@@ -654,6 +571,55 @@ mod tests {
             tracks,
             [("soun".to_string(), 0, 0), ("vide".to_string(), 1920, 1080)]
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    /// A slide showing a slide's PNG while it is recorded: the recording
+    /// tab isn't one devpage shoots, so the PNG is drawn for it, never
+    /// refused as if asked for inside a shot. Drives Chrome for Testing and
+    /// chrome-headless-shell, no GPT-Live; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
+        let (dir, talk) = deck(
+            "embeds",
+            &[
+                (
+                    "one.md",
+                    "# One\n\n![Slide two](talk.yml/2.png)\n\n<Notes>First.</Notes>\n",
+                ),
+                ("two.md", "# Two\n\n<Notes>Second.</Notes>\n"),
+            ],
+        );
+        let (_, notes) = told(&talk).unwrap();
+        let out = dir.join("Talk.mp4");
+        let heard = Arc::new(Mutex::new(Heard::default()));
+        let answered = Arc::new(Mutex::new(Vec::<(String, u16)>::new()));
+        let log = answered.clone();
+        let (router, entry) = served(talk);
+        let router = router.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let log = log.clone();
+                async move {
+                    let path = request.uri().path().to_string();
+                    let response = next.run(request).await;
+                    log.lock().unwrap().push((path, response.status().as_u16()));
+                    response
+                }
+            },
+        ));
+        // Long enough slides for the slide's PNG to be drawn while they play.
+        film(router, &entry, &out, notes, heard, async |heard| {
+            Ok(Tone::start(heard, 4.0))
+        })
+        .await
+        .unwrap();
+        let answered = answered.lock().unwrap();
+        let png: Vec<_> = answered
+            .iter()
+            .filter(|(path, _)| path == "/talk.yml/2.png")
+            .collect();
+        assert_eq!(png, [&("/talk.yml/2.png".to_string(), 200)], "{answered:?}");
         std::fs::remove_dir_all(&dir).ok();
     }
 

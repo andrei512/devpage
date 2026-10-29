@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use devpage_core::addresses::{Owned, address};
@@ -171,11 +171,10 @@ async fn rendered(
     };
     // Held while it renders: the version is not evicted meanwhile.
     let served = version_router(state, id, n, &format!("/d/{id}/v/{n}"), &entry).await?;
-    let scratch = state.scratch.clone();
     let bytes = state
         .cache
         .download(&served, extension, |folder| async move {
-            render(&folder, &entry, extension, &scratch).await
+            render(&folder, &entry, extension).await
         })
         .await?;
     let stem = crate::pdf::default_output(&version.title);
@@ -188,12 +187,7 @@ async fn rendered(
 
 /// The document at `entry` in `folder` rendered: printed by Chrome as
 /// `devpage pdf` prints it, or a design painted as its PNG, in light.
-async fn render(
-    folder: &std::path::Path,
-    entry: &str,
-    extension: &str,
-    scratch: &std::path::Path,
-) -> Result<Vec<u8>> {
+async fn render(folder: &std::path::Path, entry: &str, extension: &str) -> Result<Vec<u8>> {
     let served = ServedFolder::new(folder)?;
     if extension == "png" {
         let designs = Designs::new(&served);
@@ -203,14 +197,5 @@ async fn render(
             .map_err(anyhow::Error::msg);
     }
     let document = Document::load(&served.path().join(entry), &served)?;
-    let output = scratch.join(format!("{}.pdf", uuid::Uuid::new_v4().simple()));
-    let printed = crate::pdf::print(Arc::new(document), &output).await;
-    let bytes = std::fs::read(&output).with_context(|| "reading the printed PDF".to_string());
-    let _ = std::fs::remove_file(&output);
-    printed?;
-    let bytes = bytes?;
-    if bytes.is_empty() {
-        bail!("Chrome printed nothing");
-    }
-    Ok(bytes)
+    crate::pdf::print(Arc::new(document)).await
 }

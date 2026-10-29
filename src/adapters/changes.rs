@@ -57,14 +57,16 @@ impl Subscription {
         }
     }
 
-    /// Whether this subscriber heard anything since it last asked, without
-    /// waiting — for a cache that any change clears.
-    pub fn heard(&mut self) -> bool {
-        let mut heard = false;
+    /// Whether a refresh reached this subscriber since it last asked,
+    /// without waiting — for a cache that a file change clears and a comment
+    /// change doesn't. Falling behind counts, as in [`Subscription::next`].
+    pub fn refreshed(&mut self) -> bool {
+        let mut refreshed = false;
         loop {
             match self.0.try_recv() {
-                Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => heard = true,
-                Err(_) => return heard,
+                Ok(change) => refreshed |= change == Change::Refresh,
+                Err(broadcast::error::TryRecvError::Lagged(_)) => refreshed = true,
+                Err(_) => return refreshed,
             }
         }
     }
@@ -117,12 +119,19 @@ mod tests {
     }
 
     #[test]
-    fn heard_is_any_change_since_the_last_look() {
+    fn refreshed_is_a_refresh_since_the_last_look() {
         let changes = Changes::default();
         let mut heard = changes.subscribe();
-        assert!(!heard.heard());
+        assert!(!heard.refreshed());
         changes.publish(Change::Comments("/c.md".into()));
-        assert!(heard.heard());
-        assert!(!heard.heard());
+        assert!(!heard.refreshed());
+        changes.publish(Change::Refresh);
+        assert!(heard.refreshed());
+        assert!(!heard.refreshed());
+        // Comments merged by falling behind may have hidden a refresh.
+        for n in 0..CAPACITY + 1 {
+            changes.publish(Change::Comments(format!("/{n}.md")));
+        }
+        assert!(heard.refreshed());
     }
 }

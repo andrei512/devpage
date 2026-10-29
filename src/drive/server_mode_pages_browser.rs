@@ -7,10 +7,9 @@ use std::time::Duration;
 
 use chromiumoxide::Page;
 use chromiumoxide::browser::Browser;
-use futures::StreamExt;
 
 use super::server_mode::{Config, router};
-use crate::pdf::Profile;
+use crate::chrome::testing;
 
 fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
     use std::io::Write;
@@ -95,12 +94,8 @@ async fn open(browser: &Browser, url: &str) -> Page {
     page
 }
 
-async fn chrome() -> (Browser, tokio::task::JoinHandle<()>) {
-    let profile = Profile::new();
-    let config = profile.chrome().await.unwrap().build().unwrap();
-    let (browser, mut handler) = Browser::launch(config).await.unwrap();
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
-    (browser, events)
+async fn chrome() -> testing::Browser {
+    testing::launch().await
 }
 
 const TEXT: &str = "document.getElementById('devpage-page').textContent";
@@ -111,7 +106,7 @@ const MENU: &str = "document.querySelector('#devpage-versions summary')?.textCon
 async fn a_page_open_at_the_link_swaps_in_each_new_version() {
     let base = start("live").await;
     let id = publish(&base, None, doc("The first plan.")).await;
-    let (browser, events) = chrome().await;
+    let browser = chrome().await;
     let page = open(&browser, &format!("{base}/d/{id}/")).await;
     until(&page, &format!("{MENU} === 'Version 1 · latest'")).await;
     assert!(
@@ -142,7 +137,6 @@ async fn a_page_open_at_the_link_swaps_in_each_new_version() {
         "the latest has no banner"
     );
     drop(browser);
-    events.abort();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -151,7 +145,7 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
     let base = start("old").await;
     let id = publish(&base, None, doc("The first plan.")).await;
     publish(&base, Some(&id), doc("The second plan.")).await;
-    let (browser, events) = chrome().await;
+    let browser = chrome().await;
     let page = open(&browser, &format!("{base}/d/{id}/v/1/")).await;
     until(&page, "!!document.getElementById('devpage-version-banner')").await;
     let banner: String = eval(
@@ -189,7 +183,6 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
     let text: String = eval(&page, TEXT).await;
     assert!(text.contains("The first plan."), "{text}");
     drop(browser);
-    events.abort();
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -197,7 +190,7 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
 async fn a_docs_download_button_saves_its_pdf_printed_once() {
     let base = start("pdf").await;
     let id = publish(&base, None, doc("The plan, on paper.")).await;
-    let (browser, events) = chrome().await;
+    let browser = chrome().await;
     let page = open(&browser, &format!("{base}/d/{id}/")).await;
     until(&page, "!!document.querySelector('.version-download')").await;
     assert_eq!(
@@ -215,7 +208,6 @@ async fn a_docs_download_button_saves_its_pdf_printed_once() {
     .await;
     assert_eq!(href, format!("/d/{id}/v/1/download"));
     drop(browser);
-    events.abort();
 
     let first = std::time::Instant::now();
     let response = reqwest::get(format!("{base}{href}")).await.unwrap();
@@ -268,7 +260,7 @@ async fn the_banner_and_the_version_bar_cover_nothing() {
         .collect();
     let site = publish(&base, None, zip_of(&files)).await;
     publish(&base, Some(&site), zip_of(&files)).await;
-    let (browser, events) = chrome().await;
+    let browser = chrome().await;
     const SHOWN: &str = "!!document.querySelector('#devpage-versions summary')
         && !!document.getElementById('devpage-version-banner')";
 
@@ -318,5 +310,4 @@ async fn the_banner_and_the_version_bar_cover_nothing() {
     );
     page.close().await.ok();
     drop(browser);
-    events.abort();
 }

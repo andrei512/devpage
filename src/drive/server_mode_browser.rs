@@ -8,10 +8,9 @@ use axum::extract::Request;
 use axum::middleware::Next;
 use chromiumoxide::Page;
 use chromiumoxide::browser::Browser;
-use futures::StreamExt;
 
 use super::server_mode::{Config, router};
-use crate::pdf::Profile;
+use crate::chrome::testing;
 
 /// Every request the server answered, by path, with its status.
 type Heard = Arc<Mutex<Vec<(String, u16)>>>;
@@ -244,10 +243,7 @@ async fn a_published_document_asks_only_under_its_mount() {
     let answer: serde_json::Value = response.json().await.unwrap();
     let id = answer["id"].as_str().unwrap().to_string();
 
-    let profile = Profile::new();
-    let config = profile.chrome().await.unwrap().build().unwrap();
-    let (browser, mut handler) = Browser::launch(config).await.unwrap();
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+    let browser = testing::launch().await;
 
     // The latest, in place at the link, and the same version at its own
     // address.
@@ -255,5 +251,4 @@ async fn a_published_document_asks_only_under_its_mount() {
     every_request_stays_under(&browser, &base, &heard, &format!("/d/{id}/v/1")).await;
 
     drop(browser);
-    events.abort();
 }

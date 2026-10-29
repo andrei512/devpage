@@ -211,6 +211,7 @@ in Printing to PDF). devpage downloads it the
 first time a video is made — about 370 MB once unpacked, into
 `~/Library/Caches/devpage/chrome-for-testing` on macOS,
 `~/.cache/devpage/chrome-for-testing` elsewhere, beside the shell — and uses
-that copy from then on, in headless mode. Each run starts its own Chrome, with
-its own temporary profile and a debugging port Chrome picks, and kills it when
+that copy from then on, in headless mode — the **recording profile**, beside
+the shot profile `devpage pdf` and a slide's PNG use. Each run starts its own Chrome, with
+its own temporary profile folder and a debugging port Chrome picks, and kills it when
 the run ends, however it ends — done, failed, Ctrl-C, `SIGTERM` or `SIGHUP`.
