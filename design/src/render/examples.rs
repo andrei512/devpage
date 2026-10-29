@@ -26,7 +26,7 @@ fn the_examples_paint_as_their_references() {
             let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
             assert!(scene.themed, "{name}");
-            let png = crate::png(&mut renderer, &scene, theme).unwrap();
+            let png = crate::png::fresh(&mut renderer, &scene, theme).unwrap();
             let name = format!("{name}{suffix}");
             let reference = dir.join(format!("{name}.png"));
             if update {
@@ -62,7 +62,7 @@ fn tiles_paint_the_examples_as_the_whole_drawing() {
         for name in ["button", "checkout", "confirmation", "details"] {
             let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap();
-            let tiled = crate::png(&mut renderer, &scene, theme).unwrap();
+            let tiled = crate::png::fresh(&mut renderer, &scene, theme).unwrap();
             let whole = std::fs::read(dir.join(format!("{name}{suffix}.png"))).unwrap();
             let (a, w, h) = pixels(&whole).unwrap();
             let (b, tw, th) = pixels(&tiled).unwrap();

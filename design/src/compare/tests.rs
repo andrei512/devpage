@@ -32,7 +32,7 @@ fn a_missing_divider_or_icon_is_outside_the_tolerance() {
     let mut renderer = Renderer::new();
     let mut paint = |files: &dyn Files| {
         let scene = crate::resolve(files, path).unwrap_or_else(|p| panic!("{p:?}"));
-        pixels(&crate::png(&mut renderer, &scene, Theme::Light).unwrap()).unwrap()
+        pixels(&crate::png::fresh(&mut renderer, &scene, Theme::Light).unwrap()).unwrap()
     };
     let whole = paint(&repo());
     for (part, hidden) in [

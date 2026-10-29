@@ -18,7 +18,7 @@
 //!
 //! **Adapters** plug into its one port, [`display::Target`] — paint this area
 //! at this scale: [`cpu`], `vello_cpu`; the module's `vello` on WebGPU. And
-//! [`png`](mod@png) writes the PNG band by band from whatever gives it tiles. The
+//! [`png`] writes the PNG band by band from whatever gives it tiles. The
 //! core names no adapter; a test holds it to that.
 
 // The core.
@@ -69,21 +69,6 @@ impl fmt::Display for Problem {
     }
 }
 
-/// Paints a scene's whole drawing at 1× in `theme` and encodes it as a PNG,
-/// band by band, or says why it can't: see [`Renderer::drawing`]. A drawing
-/// made afresh and kept by nothing: the server's PNG comes from its kept
-/// drawings and tiles instead. This is the reference the engine's, the
-/// module's and the canvas's tests compare a drawing against — one call,
-/// from a scene, with nothing kept.
-pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u8>, String> {
-    let drawing = renderer
-        .drawing(scene, theme, None)
-        .map_err(|e| e.message)?;
-    let mut png = Vec::new();
-    self::png::write(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
-    Ok(png)
-}
-
 // SAFETY: a drawing isn't `Send` only because taffy's `CompactLength`, in
 // the layout tree it keeps, packs a length into a `*const ()`. That value is
 // a pointer only for a `calc()` length, behind taffy's `calc` feature, which
@@ -95,7 +80,7 @@ unsafe impl Send for render::Drawing {}
 
 /// The core names no adapter and links no rasterizer: no module of it
 /// mentions `vello_cpu`, `vello`, `wgpu`, the PNG encoder, or [`cpu`] and
-/// [`png`](mod@png) — outside its tests. Dependencies point inward.
+/// [`png`] — outside its tests. Dependencies point inward.
 #[cfg(test)]
 #[test]
 fn the_core_names_no_adapter() {

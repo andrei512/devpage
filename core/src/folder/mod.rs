@@ -21,6 +21,7 @@ use crate::document::{Document, KindName};
 use index::Index;
 
 pub use served::ServedFolder;
+pub(crate) use served::lexical;
 pub use sight::WatchSet;
 
 /// A served folder opened on its entry document.

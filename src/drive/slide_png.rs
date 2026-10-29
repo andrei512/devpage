@@ -4,10 +4,13 @@
 //!
 //! One Chrome session draws every slide for a server: started on the first
 //! shot, a tab per shot, two shots at a time, closed once idle. A slide is
-//! shot without comments, so what it drew is kept until a watched file
-//! changes, whatever is commented meanwhile.
+//! shot without comments, so what it drew is kept until a file its deck is
+//! drawn from changes, whatever is commented meanwhile, and whatever another
+//! deck's files do.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
@@ -15,7 +18,6 @@ use anyhow::Result;
 use axum::Router;
 use tokio::sync::Semaphore;
 
-use crate::adapters::changes::{Changes, Subscription};
 use crate::adapters::chrome::{Open, Profile, Session};
 
 /// devpage's own controls, which are not part of the slide.
@@ -48,51 +50,91 @@ struct Inner {
     session: tokio::sync::Mutex<Option<Arc<Session>>>,
     turns: Semaphore,
     cache: Mutex<Cache>,
-    /// The server's changes, read on each use: a refresh clears the cache.
-    changes: Mutex<Subscription>,
+    /// The shots being drawn, each told of changes as the kept ones are.
+    drawing: Mutex<Vec<Weak<Drawing>>>,
     used: Mutex<Instant>,
+}
+
+/// What a slide's PNG is kept with: the picture and the files its deck was
+/// drawn from.
+struct Kept {
+    shot: Shot,
+    files: Vec<PathBuf>,
 }
 
 #[derive(Default)]
 struct Cache {
-    shots: HashMap<(String, usize), Shot>,
+    shots: HashMap<(String, usize), Kept>,
     order: VecDeque<(String, usize)>,
     bytes: usize,
-    /// Bumped each time a change clears the cache.
-    generation: u64,
+}
+
+/// A shot being drawn: the files its deck is drawn from, once they are
+/// known, and whether one of them — or, before they are known, any file —
+/// changed since it started, so its picture may be stale.
+#[derive(Default)]
+struct Drawing {
+    files: Mutex<Option<Vec<PathBuf>>>,
+    stale: AtomicBool,
+}
+
+impl Default for Shots {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Shots {
-    /// No Chrome yet and nothing drawn; a refresh on `changes` clears what
-    /// will be.
-    pub fn new(changes: &Changes) -> Self {
+    /// No Chrome yet and nothing drawn.
+    pub fn new() -> Self {
         Self(Arc::new(Inner {
             session: tokio::sync::Mutex::new(None),
             turns: Semaphore::new(AT_ONCE as usize),
             cache: Mutex::new(Cache::default()),
-            changes: Mutex::new(changes.subscribe()),
+            drawing: Mutex::new(Vec::new()),
             used: Mutex::new(Instant::now()),
         }))
     }
 
-    /// Slide `n` of the deck served at `deck`, if it was drawn since the last
-    /// change.
+    /// Slide `n` of the deck served at `deck`, if it was drawn since a file
+    /// its deck is drawn from last changed.
     pub fn cached(&self, deck: &str, n: usize) -> Option<Shot> {
-        self.0.generation();
         let cache = self.0.cache.lock().unwrap();
-        cache.shots.get(&(deck.to_string(), n)).cloned()
+        cache
+            .shots
+            .get(&(deck.to_string(), n))
+            .map(|kept| kept.shot.clone())
     }
 
     /// Slide `n` (1-based) of the deck served at `deck`, as a 1920 × 1080
     /// PNG: from the cache, or drawn by Chrome loading the deck from the
     /// router `serve` makes — started, like Chrome, on the first shot. That
-    /// router serves the deck with comments off.
-    pub async fn png(&self, deck: &str, n: usize, serve: impl FnOnce() -> Router) -> Result<Shot> {
+    /// router serves the deck with comments off. `drawn_from` names the
+    /// files the deck is drawn from, read before the slide is drawn; the
+    /// slide is kept until one of them changes.
+    pub async fn png(
+        &self,
+        deck: &str,
+        n: usize,
+        drawn_from: impl FnOnce() -> Vec<PathBuf> + Send + 'static,
+        serve: impl FnOnce() -> Router,
+    ) -> Result<Shot> {
         if let Some(shot) = self.cached(deck, n) {
             return Ok(shot);
         }
         let _turn = self.0.turns.acquire().await?;
-        let generation = self.0.generation();
+        // Heard of from now on, so a change while the files are read, or
+        // while the slide is drawn, isn't missed.
+        let drawing = Arc::new(Drawing::default());
+        {
+            let mut drawings = self.0.drawing.lock().unwrap();
+            // Those drawn already go, even where no change is ever heard.
+            drawings.retain(|drawn| drawn.strong_count() > 0);
+            drawings.push(Arc::downgrade(&drawing));
+        }
+        // Reading a deck and resolving its designs block.
+        let files = tokio::task::spawn_blocking(drawn_from).await?;
+        *drawing.files.lock().unwrap() = Some(files.clone());
         let session = self.session(serve).await?;
         let drawn = capture(&session, &format!("{deck}#{n}")).await;
         *self.0.used.lock().unwrap() = Instant::now();
@@ -102,16 +144,30 @@ impl Shots {
             png: png.into(),
             ready,
         };
-        // A file changed while it was drawn: the picture may be stale, so it
-        // isn't kept.
-        if self.0.generation() == generation {
-            self.0
-                .cache
-                .lock()
-                .unwrap()
-                .insert((deck.to_string(), n), shot.clone());
+        // Checked and kept under the cache's lock, which a change takes
+        // first: a change either made it stale already, or finds it kept.
+        let mut cache = self.0.cache.lock().unwrap();
+        if !drawing.stale.load(Ordering::SeqCst) {
+            cache.insert(
+                (deck.to_string(), n),
+                Kept {
+                    shot: shot.clone(),
+                    files,
+                },
+            );
         }
         Ok(shot)
+    }
+
+    /// Slide `n` of `deck` kept as drawn from `files`, without Chrome: for
+    /// the tests.
+    #[cfg(test)]
+    pub(in crate::drive) fn keep(&self, deck: &str, n: usize, shot: Shot, files: Vec<PathBuf>) {
+        self.0
+            .cache
+            .lock()
+            .unwrap()
+            .insert((deck.to_string(), n), Kept { shot, files });
     }
 
     /// The running session, started — Chrome with the router `serve` makes —
@@ -145,22 +201,50 @@ impl Shots {
     }
 }
 
-impl Inner {
-    /// The cache's generation, after clearing it if a refresh arrived since
-    /// the last look. A comment change doesn't clear it: no slide is shot
-    /// with its comments.
-    fn generation(&self) -> u64 {
-        let refreshed = self.changes.lock().unwrap().refreshed();
-        let mut cache = self.cache.lock().unwrap();
-        if refreshed {
-            *cache = Cache {
-                generation: cache.generation + 1,
-                ..Cache::default()
-            };
+/// The watcher's word that files changed: every kept slide whose deck is
+/// drawn from one of them is forgotten, and every slide being drawn from
+/// one — or whose files aren't known yet — won't be kept. A comment changes
+/// no file of a deck: no slide is shot with its comments.
+impl devpage_core::watch::SlidePngs for Shots {
+    fn changed(&self, files: &[PathBuf]) {
+        let mut cache = self.0.cache.lock().unwrap();
+        let gone: Vec<(String, usize)> = cache
+            .shots
+            .iter()
+            .filter(|(_, kept)| reaches(files, &kept.files))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in gone {
+            cache.remove(&key);
         }
-        cache.generation
+        self.0.drawing.lock().unwrap().retain(|drawing| {
+            let Some(drawing) = drawing.upgrade() else {
+                return false;
+            };
+            let stale = match &*drawing.files.lock().unwrap() {
+                Some(drawn_from) => reaches(files, drawn_from),
+                None => true,
+            };
+            if stale {
+                drawing.stale.store(true, Ordering::SeqCst);
+            }
+            true
+        });
     }
+}
 
+/// Whether a change to `changed` reaches what was drawn from `drawn_from`:
+/// one of them changed, a file inside one of them — a widgets folder — or a
+/// folder holding one.
+fn reaches(changed: &[PathBuf], drawn_from: &[PathBuf]) -> bool {
+    changed.iter().any(|changed| {
+        drawn_from
+            .iter()
+            .any(|file| changed.starts_with(file) || file.starts_with(changed))
+    })
+}
+
+impl Inner {
     /// Closes Chrome — when `idle`, only if it has drawn nothing for
     /// [`IDLE`]. It takes every turn first, so no shot is cut short and none
     /// starts until Chrome is closed.
@@ -186,20 +270,24 @@ async fn close(session: Arc<Session>) {
 }
 
 impl Cache {
-    fn insert(&mut self, key: (String, usize), shot: Shot) {
-        if let Some(old) = self.shots.remove(&key) {
-            self.bytes -= old.png.len();
-            self.order.retain(|k| k != &key);
-        }
-        self.bytes += shot.png.len();
-        self.shots.insert(key.clone(), shot);
+    fn insert(&mut self, key: (String, usize), kept: Kept) {
+        self.remove(&key);
+        self.bytes += kept.shot.png.len();
+        self.shots.insert(key.clone(), kept);
         self.order.push_back(key);
         while self.bytes > CACHE_BYTES
             && let Some(oldest) = self.order.pop_front()
         {
             if let Some(old) = self.shots.remove(&oldest) {
-                self.bytes -= old.png.len();
+                self.bytes -= old.shot.png.len();
             }
+        }
+    }
+
+    fn remove(&mut self, key: &(String, usize)) {
+        if let Some(old) = self.shots.remove(key) {
+            self.bytes -= old.shot.png.len();
+            self.order.retain(|k| k != key);
         }
     }
 }
@@ -259,26 +347,131 @@ async fn capture(session: &Session, path: &str) -> Result<(Vec<u8>, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapters::changes::Change;
+    use devpage_core::designs::Designs;
+    use devpage_core::document::Document;
+    use devpage_core::folder::{Folder, ServedFolder};
+    use devpage_core::watch::Listeners;
+    use devpage_core::widgets::Modules;
 
-    #[test]
-    fn a_refresh_clears_the_kept_slides_and_a_comment_does_not() {
-        let changes = Changes::default();
-        let shots = Shots::new(&changes);
-        let drawn = Shot {
+    use crate::adapters::changes::Changes;
+
+    fn shot() -> Shot {
+        Shot {
             png: axum::body::Bytes::from_static(b"png"),
             etag: etag(b"png"),
             ready: true,
-        };
-        shots
-            .0
-            .cache
-            .lock()
-            .unwrap()
-            .insert(("/talk.yml".into(), 1), drawn);
-        changes.publish(Change::Comments("/one.md".into()));
-        assert!(shots.cached("/talk.yml", 1).is_some());
-        changes.publish(Change::Refresh);
-        assert!(shots.cached("/talk.yml", 1).is_none());
+        }
+    }
+
+    /// A served folder of two decks: `a.yml`, whose slide embeds an image
+    /// and a design that shows another image, and widgets from `widgets/`;
+    /// and `b.yml`, a slide of its own. The watcher's listeners on it, telling
+    /// `shots`, and its slides kept as drawn.
+    fn two_decks(name: &str, shots: &Shots) -> (PathBuf, Listeners) {
+        let dir = std::env::temp_dir().join(format!("devpage-shots-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let write = |file: &str, text: &str| std::fs::write(dir.join(file), text).unwrap();
+        write(
+            "a.md",
+            "# A\n\n![Logo](logo.png)\n\n![Screen](screen.design)\n\n[B](b.md)\n",
+        );
+        write("logo.png", "png");
+        write("photo.png", "png");
+        write(
+            "screen.design",
+            "<Frame width={10} height={10}><Image src=\"photo.png\" width={10} height={10} /></Frame>\n",
+        );
+        write(
+            "widgets/Badge.tsx",
+            "export default function Badge() { return null; }\n",
+        );
+        write(
+            "a.yml",
+            "kind: slides\ntitle: A\nslides: [a.md]\nwidgets: widgets\n",
+        );
+        write("b.md", "# B\n");
+        write("b.yml", "kind: slides\ntitle: B\nslides: [b.md]\n");
+        let served = ServedFolder::new(&dir).unwrap();
+        let entry = Document::load(&dir.join("a.yml"), &served).unwrap();
+        let folder = Arc::new(Folder::new(Arc::new(entry)));
+        let designs = Designs::new(&served);
+        let modules = Modules::default();
+        for deck in ["a.yml", "b.yml"] {
+            let files =
+                devpage_core::check::drawn_from(&dir.join(deck), &served, &designs, &modules);
+            shots.keep(&format!("/{deck}"), 1, shot(), files);
+        }
+        let listeners = Listeners::new(
+            folder,
+            designs,
+            modules,
+            None,
+            Arc::new(Changes::default()),
+            None,
+        )
+        .with_slide_pngs(Arc::new(shots.clone()));
+        (dir, listeners)
+    }
+
+    #[test]
+    fn saving_a_file_of_one_deck_keeps_another_decks_slides() {
+        for file in ["a.md", "a.yml"] {
+            let shots = Shots::new();
+            let (dir, listeners) = two_decks("own", &shots);
+            listeners.changed(&[dir.join(file)]);
+            assert!(shots.cached("/a.yml", 1).is_none(), "{file}");
+            assert!(shots.cached("/b.yml", 1).is_some(), "{file}");
+        }
+    }
+
+    #[test]
+    fn saving_a_file_a_deck_embeds_forgets_its_slides() {
+        for file in [
+            "logo.png",
+            "screen.design",
+            "photo.png",
+            "widgets/Badge.tsx",
+            "widgets/New.tsx",
+        ] {
+            let shots = Shots::new();
+            let (dir, listeners) = two_decks("embeds", &shots);
+            listeners.changed(&[dir.join(file)]);
+            assert!(shots.cached("/a.yml", 1).is_none(), "{file}");
+            assert!(shots.cached("/b.yml", 1).is_some(), "{file}");
+        }
+    }
+
+    #[test]
+    fn a_page_a_slide_only_links_to_is_not_what_it_is_drawn_from() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks("linked", &shots);
+        listeners.changed(&[dir.join("b.md")]);
+        assert!(shots.cached("/a.yml", 1).is_some());
+        assert!(shots.cached("/b.yml", 1).is_none());
+    }
+
+    #[test]
+    fn a_slide_being_drawn_when_its_files_change_is_not_kept() {
+        use devpage_core::watch::SlidePngs;
+        let shots = Shots::new();
+        let unknown = Arc::new(Drawing::default());
+        let other = Arc::new(Drawing::default());
+        let own = Arc::new(Drawing::default());
+        *other.files.lock().unwrap() = Some(vec![PathBuf::from("/x/b.md")]);
+        *own.files.lock().unwrap() = Some(vec![PathBuf::from("/x/a.md")]);
+        for drawing in [&unknown, &other, &own] {
+            shots
+                .0
+                .drawing
+                .lock()
+                .unwrap()
+                .push(Arc::downgrade(drawing));
+        }
+        shots.changed(&[PathBuf::from("/x/a.md")]);
+        assert!(unknown.stale.load(Ordering::SeqCst));
+        assert!(!other.stale.load(Ordering::SeqCst));
+        assert!(own.stale.load(Ordering::SeqCst));
     }
 }

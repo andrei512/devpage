@@ -6,6 +6,8 @@
 use std::io::Write;
 
 use crate::display::List;
+use crate::render::Renderer;
+use crate::scene::{Scene, Theme};
 use crate::tiles::TILE;
 
 /// The most pixel bytes a band holds: a band is as many rows as fit, at least
@@ -28,6 +30,21 @@ pub enum Piece {
 pub fn rows_per_band(width: u32) -> u32 {
     let padded = width.max(1).div_ceil(TILE) as usize * TILE as usize * 4;
     (BAND_BYTES / padded).clamp(1, TILE as usize) as u32
+}
+
+/// A scene's whole drawing, painted at 1× in `theme` and encoded as a PNG,
+/// band by band, or why it can't be: see [`Renderer::drawing`]. A drawing
+/// made afresh and kept by nothing: the server's PNG comes from its kept
+/// drawings and tiles instead. This is the reference the engine's, the
+/// module's and the canvas's tests compare a drawing against — one call,
+/// from a scene, with nothing kept.
+pub fn fresh(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u8>, String> {
+    let drawing = renderer
+        .drawing(scene, theme, None)
+        .map_err(|e| e.message)?;
+    let mut png = Vec::new();
+    write(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
+    Ok(png)
 }
 
 /// The drawing at 1× as a PNG written to `out`, band by band.

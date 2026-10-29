@@ -1390,7 +1390,7 @@ mod tests {
         )]
         .into();
         let scene = devpage_design::resolve(&files, "p.design").unwrap();
-        devpage_design::png(&mut Renderer::new(), &scene, Theme::Light).unwrap()
+        devpage_design::png::fresh(&mut Renderer::new(), &scene, Theme::Light).unwrap()
     }
 
     /// An image that grows mid-session past what the GPU's atlas holds —

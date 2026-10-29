@@ -323,8 +323,7 @@ impl Published {
                 render(&designs, &mount, &folder, &entry, extension).await
             })
             .await?;
-        let name = crate::drive::pdf::default_output(&row.title)
-            .with_extension(extension)
+        let name = devpage_core::document::download_name(&row.title, extension)
             .to_string_lossy()
             .into_owned();
         Ok(Some(Download { bytes, media, name }))

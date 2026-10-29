@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::designs::Designs;
-use crate::document::{Document, Kind};
-use crate::folder::Folder;
+use crate::document::{Document, Kind, KindName};
+use crate::folder::{Folder, ServedFolder, lexical};
 use crate::page::{self, Rendered};
 
 use crate::external::{External, Link};
@@ -76,6 +76,126 @@ pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
         Some(&mut files),
     );
     files.into_iter().collect()
+}
+
+/// Every file a slide of the deck at `deck` is drawn from, in path order:
+/// the deck's file, its slides, what each slide embeds — an image, a design
+/// and every file `designs` resolved it from, another deck's slide PNG and
+/// that deck's files in turn — and the deck's widgets folder with every
+/// widget in it and every module they import. The folder itself is among
+/// them: a widget added, renamed or removed changes which tags on a slide
+/// are widgets. An embedded file that isn't there yet is named as it would
+/// be, so its arrival reaches the deck. A link a slide only points at is not
+/// what it is drawn from. A deck that can't be loaded is drawn from its file.
+pub fn drawn_from(
+    deck: &Path,
+    served: &ServedFolder,
+    designs: &Designs,
+    modules: &Modules,
+) -> Vec<PathBuf> {
+    let mut files = BTreeSet::new();
+    deck_drawn_from(deck, served, designs, modules, &mut files);
+    files.into_iter().collect()
+}
+
+fn deck_drawn_from(
+    deck: &Path,
+    served: &ServedFolder,
+    designs: &Designs,
+    modules: &Modules,
+    files: &mut BTreeSet<PathBuf>,
+) {
+    // A deck reached again — a slide showing its own deck's PNG — adds
+    // nothing.
+    if !files.insert(deck.to_path_buf()) {
+        return;
+    }
+    let Ok(document) = Document::load(deck, served) else {
+        return;
+    };
+    let Kind::Slides { slides, .. } = &document.kind else {
+        return;
+    };
+    let widgets = Widgets::of(&document, modules);
+    if let Some(folder) = &document.widgets {
+        files.insert(folder.clone());
+        for widget in widget_files(folder) {
+            let snapshot = modules.snapshot(served, &widget);
+            files.extend(
+                snapshot
+                    .closure(&widget)
+                    .into_iter()
+                    .map(|(module, _)| module),
+            );
+        }
+    }
+    for slide in slides {
+        files.insert(slide.file.clone());
+        let rendered = page::read(&widgets, &slide.file);
+        let folder = slide.file.parent().unwrap_or(Path::new("."));
+        for target in rendered.embeds() {
+            let html::Link::File { path, .. } = html::Link::classify(target) else {
+                continue;
+            };
+            // A query — a design PNG's theme — names no other file.
+            let path = path.split('?').next().unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            // A path from the top is from the top of the served folder.
+            let named = match path.strip_prefix('/') {
+                Some(top) => served.path().join(top),
+                None => folder.join(path),
+            };
+            if let Some(real) = served.file(&named) {
+                if real.extension().is_some_and(|ext| ext == "design")
+                    && let Some(address) = document.name(&real)
+                {
+                    files.extend(designs.files(&address));
+                }
+                files.insert(real);
+                continue;
+            }
+            // A design's PNG address, with no real file of that name: the
+            // design drawn.
+            if let Some(design) = named
+                .to_str()
+                .and_then(|named| named.strip_suffix(".png"))
+                .filter(|p| p.ends_with(".design"))
+                .and_then(|design| served.file(Path::new(design)))
+            {
+                if let Some(address) = document.name(&design) {
+                    files.extend(designs.files(&address));
+                }
+                files.insert(design);
+                continue;
+            }
+            // A slide's PNG: `<deck>/<n>.png` is drawn from that deck.
+            if let Some(other) = named
+                .parent()
+                .filter(|_| named.extension().is_some_and(|ext| ext == "png"))
+                .and_then(|parent| served.file(parent))
+                .filter(|parent| crate::document::kind_of(parent) == Some(KindName::Slides))
+            {
+                deck_drawn_from(&other, served, designs, modules, files);
+                continue;
+            }
+            files.insert(missing(&named));
+        }
+    }
+}
+
+/// The path a file that isn't there would have: its folder as the disk
+/// resolves it, when the folder is there, and its name.
+fn missing(named: &Path) -> PathBuf {
+    let lexical = lexical(named);
+    match (lexical.parent(), lexical.file_name()) {
+        (Some(parent), Some(name)) => parent
+            .canonicalize()
+            .map(|parent| parent.join(name))
+            .unwrap_or(lexical),
+        _ => lexical,
+    }
 }
 
 /// A file the walk followed, kept when the caller asked for them: only
@@ -1236,5 +1356,52 @@ mod documents {
         .map(ToString::to_string)
         .collect();
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn a_deck_is_drawn_from_what_its_slides_embed_and_not_what_they_link_to() {
+        let dir = std::env::temp_dir().join(format!("devpage-drawn-from-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("talk")).unwrap();
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let write = |file: &str, text: &str| std::fs::write(dir.join(file), text).unwrap();
+        write(
+            "talk/one.md",
+            "# One\n\n![Dark](../screen.design.png?theme=dark)\n\n![Later](../img/later.png)\n\n![Other](../other.yml/1.png)\n\n![Top](/img/top.png)\n\n[Linked](../linked.md)\n\n<img src=\"https://example.com/x.png\">\n",
+        );
+        write(
+            "talk/talk.yml",
+            "kind: slides\ntitle: T\nslides: [one.md]\n",
+        );
+        write("screen.design", "<Frame width={10} height={10} />\n");
+        write("img/top.png", "png");
+        write("linked.md", "# Linked\n");
+        write("other.md", "# Other\n\n![Back](talk/talk.yml/1.png)\n");
+        write("other.yml", "kind: slides\ntitle: O\nslides: [other.md]\n");
+        let served = ServedFolder::new(&dir).unwrap();
+        let designs = Designs::new(&served);
+        let files = drawn_from(
+            &dir.join("talk/talk.yml"),
+            &served,
+            &designs,
+            &Modules::default(),
+        );
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| file.strip_prefix(&dir).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "img/later.png",
+                "img/top.png",
+                "other.md",
+                "other.yml",
+                "screen.design",
+                "talk/one.md",
+                "talk/talk.yml",
+            ]
+        );
     }
 }

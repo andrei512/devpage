@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
     // The composition root's own names, kept to it: every other module names
     // the core's and the binary's modules by their paths.
     use adapters::{changes, external, git, terminal};
-    use devpage_core::document::Document;
+    use devpage_core::document::{Document, download_name};
     use devpage_core::folder::{self, Folder};
     use devpage_core::{check, comments, designs, diagrams};
     use drive::{http, pdf, video};
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
     match cli.command.take() {
         Some(Command::Pdf { path, output }) => {
             let document = Arc::new(Document::load(&path, &served()?)?);
-            let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
+            let output = output.unwrap_or_else(|| download_name(&document.title, "pdf"));
             let bytes = pdf::print(document).await?;
             std::fs::write(&output, bytes)
                 .with_context(|| format!("writing {}", output.display()))?;
@@ -112,7 +112,7 @@ async fn main() -> Result<()> {
         Some(Command::Video { path, output }) => {
             let config = video::narrator::Config::from_env()?;
             let document = Arc::new(Document::load(&path, &served()?)?);
-            let output = output.unwrap_or_else(|| video::default_output(&document.title));
+            let output = output.unwrap_or_else(|| download_name(&document.title, "mp4"));
             // However the run ends — done, failed or interrupted — the
             // recording future is dropped, and its Chrome with it.
             tokio::select! {

@@ -28,8 +28,13 @@ pub enum Answer {
     /// The PNG of the design at `design`, a path in the served folder.
     DesignPng { design: String, theme: Theme },
     /// Slide `n` of the deck whose page is at `page` — the deck's own
-    /// address, without the mount prefix, as Chrome asks the server for it.
-    SlidePng { page: String, n: usize },
+    /// address, without the mount prefix, as Chrome asks the server for it;
+    /// `deck` is its file.
+    SlidePng {
+        page: String,
+        n: usize,
+        deck: PathBuf,
+    },
     /// A widget's module, compiled; `immutable` when asked for at its current
     /// address, since what answers that never changes.
     Module { js: String, immutable: bool },
@@ -244,6 +249,7 @@ impl<'a> Answers<'a> {
             Some(n) => Answer::SlidePng {
                 page: document.entry(),
                 n,
+                deck: document.path(),
             },
             None => Answer::NotFound(format!(
                 "{deck} has {count} slide{}",
@@ -552,7 +558,8 @@ mod tests {
             answers.path("notes/talk.yml/1.png", None),
             Answer::SlidePng {
                 page: "/notes/talk.yml".into(),
-                n: 1
+                n: 1,
+                deck: dir.join("notes/talk.yml"),
             }
         );
         for (path, reason) in [

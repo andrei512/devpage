@@ -57,22 +57,6 @@ pub async fn print(document: Arc<Document>) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The file `devpage pdf` writes when `-o` names none: the document's title,
-/// with the characters a file name can't hold replaced by `-`.
-pub fn default_output(title: &str) -> std::path::PathBuf {
-    let name: String = title
-        .chars()
-        .map(|c| match c {
-            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
-            c if c.is_control() => '-',
-            c => c,
-        })
-        .collect();
-    let name = name.trim().trim_start_matches('.');
-    let name = if name.is_empty() { "document" } else { name };
-    std::path::PathBuf::from(format!("{name}.pdf"))
-}
-
 /// The print call for a doc: its paper, and its header and footer, whose
 /// `{page}` and `{pages}` become Chrome's page-number fields.
 pub(super) fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
@@ -105,19 +89,8 @@ pub(super) fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     use devpage_core::folder::ServedFolder;
-
-    #[test]
-    fn the_default_file_name_is_the_title_made_safe() {
-        assert_eq!(
-            default_output("Offline sync"),
-            Path::new("Offline sync.pdf")
-        );
-        assert_eq!(default_output("A/B: why?"), Path::new("A-B- why-.pdf"));
-        assert_eq!(default_output("..."), Path::new("document.pdf"));
-    }
 
     #[tokio::test]
     async fn a_site_is_refused() {

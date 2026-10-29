@@ -83,7 +83,7 @@ module of the core names an adapter or a rasterizer.
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
 | `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
-| `png` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
+| `png` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips; `png::fresh`, a scene drawn afresh and kept by nothing, as the PNG the tests compare a drawing against. |
 
 In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — the
 engine's `design` and the canvas's frame plan, bound for the page: a stream

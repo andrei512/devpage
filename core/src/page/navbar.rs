@@ -1,9 +1,10 @@
 //! A site's navbar — its title, then the links, dropdowns and icons its
 //! `navbar` field lists — and the light/dark selector every page carries.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::document::{Document, NavItem, NavLink};
+use crate::folder::lexical;
 use crate::html::{Link, escape};
 use crate::problem::Problem;
 use crate::{icons, nav};
@@ -28,7 +29,7 @@ fn target(document: &Document, written: &str) -> Target {
             };
         }
     };
-    let file = normalize(&document.base.join(path));
+    let file = lexical(&document.base.join(path));
     // A file outside the served folder has no address: the link keeps its
     // target as written, and the check reports it.
     let href = match document.url(&file) {
@@ -46,20 +47,6 @@ fn target(document: &Document, written: &str) -> Target {
         file: Some(file),
         web: false,
     }
-}
-
-fn normalize(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for part in path.components() {
-        match part {
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            std::path::Component::CurDir => {}
-            other => out.push(other),
-        }
-    }
-    out
 }
 
 /// The site name an icon-only link to the web is known by: `github.com`.
@@ -396,6 +383,7 @@ pub(super) fn theme_script(switchable: bool) -> String {
 mod tests {
     use super::*;
     use crate::folder::ServedFolder;
+    use std::path::Path;
 
     fn site(dir: &Path, yaml: &str) -> Document {
         std::fs::write(dir.join("devpage.yml"), yaml).unwrap();

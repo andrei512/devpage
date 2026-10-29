@@ -276,7 +276,9 @@ publish through the same bus; a page under `/d/<id>/v/<n>` hears nothing,
 since a version never changes.
 
 The listeners decide a burst in one function, `Listeners::changed`: the
-caches forget what changed — the design store and the module cache — and the
+caches forget what changed — the design store, the module cache and the
+slide PNGs, each slide whose deck is drawn from a changed file
+([Making slides](../making-slides/README.md#a-slide-as-an-image)) — and the
 served folder follows it before anything is published, so a page that
 refetches on the refresh reads the files as they are now. The forgetting is
 the listeners' own, never traffic on the bus.
@@ -286,8 +288,7 @@ server's bus and answers with a server-sent event
 stream. Every change it hears becomes one event whose data is its message —
 `change`, or `comments` and the page's path. A subscriber that falls more than
 64 changes behind hears a refresh, so a slow page still hears that something
-changed. The stream sends a keep-alive every 15 seconds. The slide-PNG cache
-subscribes the same way and forgets what it drew on any change it hears.
+changed. The stream sends a keep-alive every 15 seconds.
 
 ## Designs
 

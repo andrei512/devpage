@@ -218,6 +218,7 @@ On the network:
 - The preview reporting each problem once to its reporter.
 - A design checked and its files followed through the design store the check is given, resolved there once; a page's problems naming an embedded design as the server's store holds it, a save the store is told of clearing them.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
+- What a deck is drawn from: its file, its slides, what they embed — a design's PNG by its design, an image not there yet, a path from the top, another deck's slide PNG and that deck in turn, once however they embed each other — and never a page a slide only links to or an address on the web.
 
 ### `comments`
 
@@ -322,6 +323,7 @@ In Chrome:
 - A document outside it refused.
 - A site's `watch` list.
 - Only YAML with a devpage `kind` is a document file.
+- The download name — what `devpage pdf` and `devpage video` write, and what a version downloads as — the title made safe, with its extension.
 
 ### `external`
 
@@ -414,7 +416,6 @@ an ignored folder but reaches into none, watching none.
 
 *And in Chrome, in `drive::browser_tests::pdf`.*
 
-- The default file name made safe.
 - A site refused.
 
 In Chrome:
@@ -500,7 +501,7 @@ In Chrome:
 - An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn.
-- Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
+- Sections keeping the rendered ids — every one an id the check lets a link land on, inline code, a duplicate, a frame id, a link and a footnote in a heading among them — their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
 ### The search's quality
 
@@ -578,7 +579,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 *And in Chrome, in `drive::browser_tests::slide_png`.*
 
-- A refresh forgetting every kept slide, and a page's comments forgetting none.
+- Saving a file of one deck — its file, a slide — forgetting its slides and none of another deck's; saving what a deck embeds — an image, a design, an image the design shows, a widget, a new widget file — forgetting its slides; saving a page a slide only links to forgetting none of its deck's; a slide being drawn when a file it is drawn from changes, or before its files are known, not kept.
 
 In Chrome:
 
@@ -612,7 +613,7 @@ In Chrome:
   instructions and each slide's request with its delivery; the
   making-a-video page showing the template and request exactly as the code
   sends them.
-- The default file name; every slide needing notes, the error naming the ones
+- Every slide needing notes, the error naming the ones
   without; a deck without `audience` or `goal` refused, naming them; a site
   and a doc refused.
 
@@ -675,6 +676,7 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 - A saved page refreshing open pages before the search index reads it, the design store having forgotten the design saved in the same burst by then.
 - A changed file reaching the design store, and none under `.devpage/`.
+- A saved file reaching the slide PNGs before open pages hear of it, and none under `.devpage/`.
 - A comment thread heard before the refresh it shares a burst with; with comments off, none announced.
 - A new `.gitignore` rule taking effect without a restart, and saying the folders to watch may differ.
 - The search index hearing of saved and deleted pages.

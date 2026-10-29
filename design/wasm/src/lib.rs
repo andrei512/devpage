@@ -518,7 +518,7 @@ mod tests {
             let theme = design.theme;
             let (held, r) = design.held().unwrap();
             assert_eq!(held.drawing(r, theme).unwrap().frames(), frames);
-            let png = devpage_design::png(&mut server, scene, Theme::Light).unwrap();
+            let png = devpage_design::png::fresh(&mut server, scene, Theme::Light).unwrap();
             let (expected, w, h) = devpage_design::compare::pixels(&png).unwrap();
             let mut painted = design.paint(1.0).unwrap();
             assert_eq!((painted.width(), painted.height()), (w, h));
@@ -708,7 +708,7 @@ mod tests {
                 format!(r##"<Frame width={{{side}}} height={{{side}}} fill="{fill}" />"##),
             )]);
             let scene = devpage_design::resolve(&files, "p.design").unwrap();
-            devpage_design::png(&mut Renderer::new(), &scene, Theme::Light).unwrap()
+            devpage_design::png::fresh(&mut Renderer::new(), &scene, Theme::Light).unwrap()
         };
         let mut files: HashMap<String, Vec<u8>> = ["#dc0000", "#00c800", "#0000dc", "#dcdc00"]
             .iter()
@@ -780,7 +780,7 @@ mod tests {
         assert_eq!(design.apply(&patch(&broken, &again)), Applied::Changed);
         assert!(design.problems().is_empty());
         assert_eq!(paint_view(&mut design, 800, 600, 0.0).len(), tiles);
-        let png = devpage_design::png(&mut Renderer::new(), &again, Theme::Light).unwrap();
+        let png = devpage_design::png::fresh(&mut Renderer::new(), &again, Theme::Light).unwrap();
         let (expected, w, h) = devpage_design::compare::pixels(&png).unwrap();
         let mut painted = design.paint(1.0).unwrap();
         assert_eq!((painted.width(), painted.height()), (w, h));
