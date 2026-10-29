@@ -1,15 +1,19 @@
-//! The tantivy index: its schema and tokenizers, and turning each page
-//! published into the sections it is searched by.
+//! The tantivy index: its schema and tokenizers, turning each page
+//! published into the sections it is searched by, and keeping it current a
+//! page at a time.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
 
+use tantivy::indexer::NoMergePolicy;
 use tantivy::schema::{
-    FAST, Field, IndexRecordOption, STORED, Schema, TextFieldIndexing, TextOptions,
+    FAST, Field, IndexRecordOption, STORED, STRING, Schema, TextFieldIndexing, TextOptions,
 };
 use tantivy::tokenizer::{LowerCaser, TextAnalyzer, WhitespaceTokenizer};
-use tantivy::{IndexWriter, ReloadPolicy, TantivyDocument};
+use tantivy::{
+    IndexSettings, IndexSortByField, IndexWriter, Order, ReloadPolicy, TantivyDocument, Term,
+};
 
 use crate::folder::Folder;
 
@@ -22,6 +26,11 @@ pub(super) const STEMMED: &str = "en_stem";
 pub(super) const PLAIN: &str = "default";
 pub(super) const CODE: &str = "code";
 pub(super) const RAW: &str = "raw";
+
+/// The fast field the index is sorted by: a section's place in what is
+/// published, in reading order — its page's place in the nav, then its own
+/// on the page.
+const PLACE: &str = "place";
 
 #[derive(Clone, Copy)]
 pub(super) struct Fields {
@@ -40,6 +49,13 @@ pub(super) struct Fields {
     pub(super) prose_words: Field,
     pub(super) title_exact: Field,
     pub(super) heading_exact: Field,
+}
+
+/// The index's one writer, and the pages it last indexed — every page
+/// published then, by address, read or not.
+pub(super) struct Indexer {
+    writer: IndexWriter,
+    units: BTreeMap<String, Unit>,
 }
 
 /// One section, ready to be a tantivy document.
@@ -76,7 +92,8 @@ impl Search {
         let plain = text(PLAIN, IndexRecordOption::Basic, false);
         let raw = text(RAW, IndexRecordOption::Basic, false);
         let fields = Fields {
-            page: schema.add_text_field("page", STORED),
+            // Indexed whole, so a page's sections are deleted by its address.
+            page: schema.add_text_field("page", STRING | STORED),
             url: schema.add_text_field("url", STORED),
             path: schema.add_text_field("path", STORED),
             title: schema.add_text_field("title", ranked(true)),
@@ -92,10 +109,22 @@ impl Search {
             title_exact: schema.add_text_field("title_exact", raw.clone()),
             heading_exact: schema.add_text_field("heading_exact", raw),
         };
-        for name in ["depth", "order", "nav"] {
+        for name in ["depth", "order", "nav", PLACE] {
             schema.add_u64_field(name, FAST);
         }
-        let tantivy = tantivy::Index::create_in_ram(schema.build());
+        // Sections stay in reading order, however their pages were indexed,
+        // so sections that score alike rank as they read.
+        let tantivy = tantivy::Index::builder()
+            .schema(schema.build())
+            .settings(IndexSettings {
+                sort_by_field: Some(IndexSortByField {
+                    field: PLACE.to_string(),
+                    order: Order::Asc,
+                }),
+                ..IndexSettings::default()
+            })
+            .create_in_ram()
+            .expect("an index in memory can always be made");
         tantivy.tokenizers().register(
             CODE,
             TextAnalyzer::builder(WhitespaceTokenizer::default())
@@ -111,43 +140,78 @@ impl Search {
         let (stemmed, plain) = (analyzer(STEMMED), analyzer(PLAIN));
         // One thread at the smallest budget tantivy allows, 15 MB: a docs
         // folder is small, and the index lives in memory.
-        let writer = tantivy
+        let writer: IndexWriter = tantivy
             .writer_with_num_threads(1, 15_000_000)
             .expect("an index in memory has no lock to contend for");
+        // It merges only when told, after each change (`compact`).
+        writer.set_merge_policy(Box::new(NoMergePolicy));
         let reader = tantivy
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
             .try_into()
             .expect("an index in memory can always be read");
+        let searcher = reader.searcher();
         let search = Self {
             fields,
             reader,
-            writer: Mutex::new(writer),
+            indexer: Mutex::new(Indexer {
+                writer,
+                units: BTreeMap::new(),
+            }),
             stemmed,
             plain,
             entry: entry.to_path_buf(),
-            pages: RwLock::new(BTreeMap::new()),
+            snapshot: RwLock::new(Arc::new(Snapshot::new(searcher, BTreeMap::new()))),
         };
-        search.rebuild(folder);
+        search.index(folder, &[]);
         search
     }
 
-    /// Reads everything published again, into a fresh index, in one commit.
-    pub(super) fn rebuild(&self, folder: &Folder) {
-        let mut writer = lock(&self.writer);
-        let _ = writer.delete_all_documents();
-        let mut pages = BTreeMap::new();
-        for (nav, unit) in scope(folder, &self.entry).into_iter().enumerate() {
-            self.add(&writer, &unit, nav as u64, &mut pages);
+    /// Brings the index up to what is published now, a page at a time: a
+    /// page no longer published leaves; a page newly published, or whose
+    /// unit — kind, trail, document, address, place in the nav — differs,
+    /// or whose file is one of `paths` or under one, is read again; every
+    /// other page stays as it was indexed. All in one commit, then
+    /// compacted, so the index answers as one built fresh would.
+    pub(super) fn index(&self, folder: &Folder, paths: &[PathBuf]) {
+        let mut indexer = lock(&self.indexer);
+        let Indexer { writer, units } = &mut *indexer;
+        let now: BTreeMap<String, Unit> = scope(folder, &self.entry)
+            .into_iter()
+            .map(|unit| (unit.url(), unit))
+            .collect();
+        let read = |unit: &Unit| paths.iter().any(|path| unit.file.starts_with(path));
+        let mut pages = self
+            .snapshot
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .pages
+            .clone();
+        for (url, was) in units.iter() {
+            if now.get(url).is_none_or(|unit| unit != was || read(unit)) {
+                writer.delete_term(Term::from_field_text(self.fields.page, url));
+                pages.remove(url);
+            }
         }
-        if writer.commit().is_ok() {
-            let _ = self.reader.reload();
+        for (url, unit) in &now {
+            if units.get(url).is_none_or(|was| was != unit || read(unit)) {
+                self.add(writer, unit, &mut pages);
+            }
         }
-        *self.pages.write().unwrap_or_else(|p| p.into_inner()) = pages;
+        if writer.commit().is_err() {
+            // Back to the last commit, which `units` and `pages` describe.
+            let _ = writer.rollback();
+            return;
+        }
+        compact(writer);
+        let _ = self.reader.reload();
+        *units = now;
+        *self.snapshot.write().unwrap_or_else(|p| p.into_inner()) =
+            Arc::new(Snapshot::new(self.reader.searcher(), pages));
     }
 
     /// Adds the sections of one page, and its record.
-    pub(super) fn add(&self, writer: &IndexWriter, unit: &Unit, nav: u64, pages: &mut Pages) {
+    pub(super) fn add(&self, writer: &IndexWriter, unit: &Unit, pages: &mut Pages) {
         let Ok(source) = std::fs::read_to_string(&unit.file) else {
             return;
         };
@@ -160,18 +224,14 @@ impl Search {
             PageKind::Slide => slide_title(&source, &read, unit.name.as_deref().unwrap_or("")),
             _ => crate::markup::title(&source, &unit.file),
         };
-        let url = match &unit.name {
-            Some(name) => format!("{}#{name}", unit.address),
-            None => unit.address.clone(),
-        };
         let page = Page {
             title,
-            url,
+            url: unit.url(),
             trail: unit.trail.clone(),
             document: unit.document.clone(),
             kind: unit.kind,
             lede: read.lede.clone(),
-            nav,
+            nav: unit.nav,
             title_stems: BTreeSet::new(),
             meta_stems: self.stems(&front.meta),
         };
@@ -287,6 +347,22 @@ impl Search {
         doc.add_u64(fast("depth"), u64::from(entry.depth));
         doc.add_u64(fast("order"), entry.order as u64);
         doc.add_u64(fast("nav"), entry.page.nav);
+        doc.add_u64(fast(PLACE), entry.page.nav << 32 | entry.order as u64);
         let _ = writer.add_document(doc);
+    }
+}
+
+/// Merges the index into one segment, leaving out the sections deleted. A
+/// deleted section still counts in how many sections hold a word until its
+/// segment is merged — in a word's BM25 score, and in whether the index
+/// holds it at all — so without this a page saved would rank, and
+/// near-match, otherwise than in an index built fresh.
+fn compact(writer: &mut IndexWriter) {
+    let Ok(segments) = writer.index().searchable_segment_metas() else {
+        return;
+    };
+    if segments.len() > 1 || segments.iter().any(|segment| segment.has_deletes()) {
+        let ids: Vec<_> = segments.iter().map(|segment| segment.id()).collect();
+        let _ = writer.merge(&ids).wait();
     }
 }

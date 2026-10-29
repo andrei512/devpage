@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 529 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 532 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 155 in `devpage`, 215 in its
+`cargo test` runs every crate in the workspace: 155 in `devpage`, 218 in its
 core `devpage-core`, 147 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -516,7 +516,7 @@ In Chrome:
 
 ### `search`
 
-*20 tests.*
+*23 tests.*
 
 - Only what the served document publishes searched: a page no nav lists and a page out of sight never; front matter's `search: true` putting one in, `search: false` taking one out.
 - A file that is both a page and a chapter found once, as the chapter; a doc's chapters and a deck's slides at their own addresses, a slide by its notes.
@@ -529,6 +529,7 @@ In Chrome:
 - Front matter read, never shown, and its keywords searched.
 - An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
+- A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn.
 - Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
 ### The search's quality

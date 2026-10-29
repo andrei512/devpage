@@ -15,7 +15,9 @@ use crate::folder::Folder;
 
 use super::*;
 
-/// A page to index, as the scope found it.
+/// A page to index, as the scope found it: all it is besides its file's
+/// text, so a page whose unit and file are as they were is indexed as it was.
+#[derive(Debug, Clone, PartialEq)]
 pub(super) struct Unit {
     pub(super) file: PathBuf,
     pub(super) kind: PageKind,
@@ -25,6 +27,19 @@ pub(super) struct Unit {
     pub(super) address: String,
     /// A chapter's name, when its doc has more than one; a slide's number.
     pub(super) name: Option<String>,
+    /// Its place in the nav, counted from the top in reading order.
+    pub(super) nav: u64,
+}
+
+impl Unit {
+    /// Where the page opens: what holds it, at the chapter's name or the
+    /// slide's number. A page's address in the index.
+    pub(super) fn url(&self) -> String {
+        match &self.name {
+            Some(name) => format!("{}#{name}", self.address),
+            None => self.address.clone(),
+        }
+    }
 }
 
 /// One section of a Markdown file: its heading's text, id and level (none
@@ -130,7 +145,11 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
             document,
             address,
             name: None,
+            nav: 0,
         });
+    }
+    for (nav, unit) in units.iter_mut().enumerate() {
+        unit.nav = nav as u64;
     }
     units
 }
@@ -170,6 +189,7 @@ impl Walk<'_> {
                             document: owner.clone(),
                             address: document.url(file),
                             name: None,
+                            nav: 0,
                         });
                     }
                 };
@@ -224,6 +244,7 @@ impl Walk<'_> {
                         document: owner.clone(),
                         address: owner.path.clone(),
                         name: scoped.then_some(name),
+                        nav: 0,
                     });
                 }
             }
@@ -239,6 +260,7 @@ impl Walk<'_> {
                         document: owner.clone(),
                         address: owner.path.clone(),
                         name: Some((n + 1).to_string()),
+                        nav: 0,
                     });
                 }
             }
