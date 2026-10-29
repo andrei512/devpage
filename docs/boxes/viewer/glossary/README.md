@@ -163,7 +163,11 @@ What an update to a scene touched: each changed chunk's old and new bounds, from
 
 ## compositor
 
-What draws a canvas from its tiles: every frame of a pan or zoom only moves and scales cached tiles, and missing or stale ones are painted after it and swapped in. See [The compositor](../design-engine/README.md#the-compositor).
+What draws a canvas from its tiles: every frame of a pan or zoom only moves and scales cached tiles, and missing or stale ones are painted after it and swapped in. It carries out the [frame plan](#frame-plan). See [The compositor](../design-engine/README.md#the-compositor).
+
+## frame plan
+
+What decides, for both compositors, what a canvas's frame draws, which tiles it paints next, and which paintings it lets go — holding the tiles held and in flight, each under a ticket, and their damage, in the module. At most a budget of tiles are in flight at once. See [The frame plan](../design-engine/README.md#the-frame-plan).
 
 ## canvas page
 

@@ -1,6 +1,7 @@
 //! Tiles: squares of a drawing, 256 device pixels a side, painted at one
 //! scale in one theme — where each is in the design, the pyramid's levels,
-//! and the cache that keeps them and marks the ones damage makes stale.
+//! the cache that keeps them and marks the ones damage makes stale, and the
+//! frame plan a browser canvas carries out.
 
 use kurbo::Rect as KRect;
 
@@ -8,8 +9,10 @@ use crate::display::List;
 use crate::scene::Theme;
 
 mod cache;
+mod plan;
 
 pub use cache::*;
+pub use plan::*;
 
 /// A tile's side, in device pixels.
 pub const TILE: u32 = 256;
@@ -62,6 +65,15 @@ impl Key {
     /// `origin`.
     pub fn rect(&self, origin: (f64, f64)) -> KRect {
         square(origin, self.level.scale(), self.col, self.row)
+    }
+
+    /// Whether its square, the drawing's top-left at `origin`, overlaps one
+    /// of `rects`, in the design's coordinates.
+    pub fn overlaps(&self, origin: (f64, f64), rects: &[KRect]) -> bool {
+        let r = self.rect(origin);
+        rects
+            .iter()
+            .any(|d| d.x0 < r.x1 && d.x1 > r.x0 && d.y0 < r.y1 && d.y1 > r.y0)
     }
 }
 

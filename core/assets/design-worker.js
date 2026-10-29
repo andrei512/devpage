@@ -19,10 +19,8 @@ function handle(data) {
     designs.get(data.id)?.free();
     designs.delete(data.id);
   } else if (data.kind === "apply") {
-    const design = designs.get(data.id);
-    design?.apply(data.message);
-    // The page marks its tiles stale from its own copy's damage.
-    design?.take_damage();
+    // The page's own copy of the design says which tiles it made stale.
+    designs.get(data.id)?.apply(data.message);
   } else if (data.kind === "tile") {
     const design = designs.get(data.id);
     // Each tile in the theme it was asked for: the drawing in the other

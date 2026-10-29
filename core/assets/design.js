@@ -18,12 +18,12 @@ import { Host, asked, configure, hosts } from "/__devpage/design-canvas.js";
 
 // The engine, or why it couldn't load: then every canvas says so instead of
 // drawing.
-let Applied, Design, Gpu, failure;
+let Applied, Design, Gpu, level, failure;
 try {
   // build.rs rewrites both addresses to the files' content addresses.
   const engine = await import("/__devpage/design-engine.js");
   await engine.default({ module_or_path: "/__devpage/design-engine.wasm" });
-  ({ Applied, Design, Gpu } = engine);
+  ({ Applied, Design, Gpu, level } = engine);
 } catch (error) {
   failure = error;
 }
@@ -152,7 +152,7 @@ if (document.body.classList.contains("design-page")) {
   });
 }
 
-configure({ Design, Applied, gpu, print, mount });
+configure({ Design, Applied, level, gpu, print, mount });
 start({
   mount,
   print,
