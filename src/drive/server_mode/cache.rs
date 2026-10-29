@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use axum::Router;
 use devpage_core::cache::{Entry, Eviction};
 
-use super::api::unpack;
+use crate::adapters::bundle::unpack;
 
 /// A version: its document's id and its number.
 pub type Key = (String, u64);

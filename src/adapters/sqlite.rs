@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::{Result, bail};
-use devpage_core::comments::{self, Anchor, Listed, Message, Thread};
+use devpage_core::comments::{self, Anchor, Carry, Listed, Message, Thread};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub struct Sqlite(Mutex<Connection>);
@@ -119,10 +119,13 @@ impl Sqlite {
     }
 
     /// Records version `number` as the document's latest — creating the
-    /// document when it is 1. Refused unless `number` is the one
+    /// document when it is 1 — and carries its threads onto it as `carry`
+    /// moves them, in one transaction: the version and its carry land
+    /// together, or neither does. Refused unless `number` is the one
     /// [`Sqlite::next_number`] gives, checked in the same transaction, so two
-    /// publishes never share a number.
-    pub fn record(&self, id: &str, number: u64, publish: &Publish) -> Result<()> {
+    /// publishes never share a number. A thread resolved since the carry was
+    /// worked out has nothing to move.
+    pub fn record(&self, id: &str, number: u64, publish: &Publish, carry: &Carry) -> Result<()> {
         let mut connection = self.connection();
         let tx = connection.transaction()?;
         let last: Option<i64> = tx
@@ -163,6 +166,19 @@ impl Sqlite {
                 publish.sha256
             ],
         )?;
+        for moved in carry.moved() {
+            match &moved.anchor {
+                Some(anchor) => tx.execute(
+                    "UPDATE threads SET quote = ?3, prefix = ?4, suffix = ?5
+                     WHERE document = ?1 AND id = ?2",
+                    params![id, moved.id, anchor.quote, anchor.prefix, anchor.suffix],
+                )?,
+                None => tx.execute(
+                    "UPDATE threads SET detached_in = ?3 WHERE document = ?1 AND id = ?2",
+                    params![id, moved.id, number as i64],
+                )?,
+            };
+        }
         tx.commit()?;
         Ok(())
     }
@@ -401,30 +417,6 @@ impl Sqlite {
             )
             .optional()?)
     }
-
-    /// Carries thread `id` onto version `version`: at `anchor`, or detached
-    /// when its text is gone.
-    pub fn reanchor(
-        &self,
-        document: &str,
-        id: &str,
-        version: u64,
-        anchor: Option<&Anchor>,
-    ) -> Result<()> {
-        let connection = self.connection();
-        match anchor {
-            Some(anchor) => connection.execute(
-                "UPDATE threads SET quote = ?3, prefix = ?4, suffix = ?5
-                 WHERE document = ?1 AND id = ?2",
-                params![document, id, anchor.quote, anchor.prefix, anchor.suffix],
-            )?,
-            None => connection.execute(
-                "UPDATE threads SET detached_in = ?3 WHERE document = ?1 AND id = ?2",
-                params![document, id, version as i64],
-            )?,
-        };
-        Ok(())
-    }
 }
 
 /// The page thread `id` is on, if there is such a thread.
@@ -450,8 +442,7 @@ fn add_message(connection: &Connection, document: &str, id: &str, message: &Mess
 }
 
 /// One document's threads as a comment store: what the comments of a
-/// version write through. A thread started here is on `version`, and a
-/// thread carried here is carried onto it.
+/// version write through. A thread started here is on `version`.
 pub struct DocumentThreads {
     pub store: Arc<Sqlite>,
     pub document: String,
@@ -501,11 +492,6 @@ impl comments::Store for DocumentThreads {
             .filter(|row| !row.detached)
             .map(|row| (row.page.clone(), listed(row)))
             .collect())
-    }
-
-    fn carry(&self, id: &str, anchor: Option<&Anchor>) -> Result<()> {
-        self.store
-            .reanchor(&self.document, id, self.version, anchor)
     }
 
     fn heard(&self, _: &[std::path::PathBuf]) -> Vec<String> {
@@ -559,10 +545,18 @@ mod tests {
     fn a_number_is_given_once_even_after_its_version_is_deleted() {
         let store = store("numbers");
         assert_eq!(store.next_number("d").unwrap(), 1);
-        store.record("d", 1, &publish("One")).unwrap();
-        store.record("d", 2, &publish("Two")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
+        store
+            .record("d", 2, &publish("Two"), &Carry::default())
+            .unwrap();
         // A publish that read the same next number loses.
-        assert!(store.record("d", 2, &publish("Late")).is_err());
+        assert!(
+            store
+                .record("d", 2, &publish("Late"), &Carry::default())
+                .is_err()
+        );
         assert_eq!(store.delete_version("d", 2).unwrap(), Deleted::Version);
         assert_eq!(store.latest("d").unwrap(), Some(1));
         assert_eq!(store.next_number("d").unwrap(), 3);
@@ -575,7 +569,9 @@ mod tests {
     #[test]
     fn deleting_the_only_version_deletes_the_document() {
         let store = store("only");
-        store.record("d", 1, &publish("One")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
         assert_eq!(store.delete_version("d", 9).unwrap(), Deleted::Nothing);
         assert_eq!(store.delete_version("d", 1).unwrap(), Deleted::Document);
         assert!(store.get("d").unwrap().is_none());
@@ -585,9 +581,15 @@ mod tests {
     #[test]
     fn deleting_a_document_deletes_its_versions() {
         let store = store("delete");
-        store.record("d", 1, &publish("One")).unwrap();
-        store.record("d", 2, &publish("Two")).unwrap();
-        store.record("e", 1, &publish("Else")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
+        store
+            .record("d", 2, &publish("Two"), &Carry::default())
+            .unwrap();
+        store
+            .record("e", 1, &publish("Else"), &Carry::default())
+            .unwrap();
         assert_eq!(store.delete("d").unwrap(), Some(vec![1, 2]));
         assert_eq!(store.delete("d").unwrap(), None);
         assert_eq!(store.entry("d", 1).unwrap(), None);

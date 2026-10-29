@@ -3,11 +3,14 @@
 //! API, or by a publish carrying threads onto a new version — and it holds
 //! every rule of a write: the page key, a new thread's page being a file in
 //! the served or version folder, replies and resolves going by thread id,
-//! and the one announcement each write makes on the change bus. [`Identity`]
-//! says who writes. The [`Store`] port is only where threads are kept, by
-//! thread id: the YAML files under `.devpage/comments/` ([`yaml`]), server
-//! mode's SQLite store, and memory for tests ([`memory`]). [`anchor`] finds
-//! a carried thread's quote in the new version's text.
+//! where a carry moves each thread, and the one announcement each write
+//! makes on the change bus. A carry is the one write it hands over: the
+//! publish commits it together with the version, so both land or neither
+//! does. [`Identity`] says who writes. The [`Store`] port is only where
+//! threads are kept, by thread id: the YAML files under `.devpage/comments/`
+//! ([`yaml`]), server mode's SQLite store, and memory for tests
+//! ([`memory`]). [`anchor`] finds a carried thread's quote in the new
+//! version's text.
 
 pub mod anchor;
 pub mod yaml;
@@ -65,6 +68,29 @@ pub struct Listed {
     pub detached: bool,
 }
 
+/// Where a publish carries a document's threads: each one that moves, and
+/// the pages they are on. Made by [`Comments::carry`].
+#[derive(Debug, Default, PartialEq)]
+pub struct Carry {
+    moved: Vec<Moved>,
+    pages: std::collections::BTreeSet<String>,
+}
+
+impl Carry {
+    /// The threads that move, each once.
+    pub fn moved(&self) -> &[Moved] {
+        &self.moved
+    }
+}
+
+/// A thread carried onto a new version: to `anchor`, or detached — `None` —
+/// when its text is gone.
+#[derive(Debug, PartialEq)]
+pub struct Moved {
+    pub id: String,
+    pub anchor: Option<Anchor>,
+}
+
 /// The comment store port: where one served folder's — or one published
 /// document's — threads are kept, by thread id. A `page` here is always a
 /// page key, `/a.md`, made by [`Comments`]; an `id` is always one that
@@ -84,9 +110,6 @@ pub trait Store: Send + Sync {
     /// Every thread still attached, each with its page: what a publish
     /// carries onto the new version.
     fn attached(&self) -> Result<Vec<(String, Listed)>>;
-    /// Carries thread `id` onto the version this store writes: at `anchor`,
-    /// or detached when its text is gone.
-    fn carry(&self, id: &str, anchor: Option<&Anchor>) -> Result<()>;
     /// The pages whose threads changed among `paths` by a hand other than
     /// this store's — a thread file edited in an editor. Asking marks them
     /// heard: whoever asks announces them. A store with no files hears
@@ -209,38 +232,46 @@ impl Comments {
         Ok(())
     }
 
-    /// Carries every attached thread onto the version whose entry document
+    /// Where every attached thread goes on the version whose entry document
     /// is `entry`, loaded from this folder: each finds its quote in its
     /// page's text as the page shows it — front matter left out, widget
     /// tags expanded — by its context where it can, and is detached when
-    /// the quote, or the page, is gone. Each page whose threads changed is
-    /// announced once. It renders pages, which draws their diagrams: it
-    /// blocks.
-    pub fn carry(&self, entry: &Document) -> Result<()> {
+    /// the quote, or the page, is gone. Nothing is written: the publish
+    /// commits the [`Carry`] together with its version, so both land or
+    /// neither does, and then [`Comments::carried`] announces it. It renders
+    /// pages, which draws their diagrams: it blocks.
+    pub fn carry(&self, entry: &Document) -> Result<Carry> {
         let index = Index::build(&self.folder);
         let mut pages: std::collections::BTreeMap<String, Vec<Listed>> = Default::default();
         for (page, thread) in self.store.attached()? {
             pages.entry(page).or_default().push(thread);
         }
+        let mut carry = Carry::default();
         for (page, threads) in pages {
             let text = self
                 .content(entry, &index, &page)
                 .map(|html| anchor::text(&html));
-            let mut moved = false;
             for listed in threads {
                 let found = text
                     .as_deref()
                     .and_then(|text| anchor::reanchor(&listed.thread.anchor, text));
                 if found.as_ref() != Some(&listed.thread.anchor) {
-                    self.store.carry(&listed.id, found.as_ref())?;
-                    moved = true;
+                    carry.moved.push(Moved {
+                        id: listed.id,
+                        anchor: found,
+                    });
+                    carry.pages.insert(page.clone());
                 }
             }
-            if moved {
-                self.announce(page);
-            }
         }
-        Ok(())
+        Ok(carry)
+    }
+
+    /// A carry committed: each page whose threads moved is announced once.
+    pub fn carried(&self, carry: Carry) {
+        for page in carry.pages {
+            self.announce(page);
+        }
     }
 
     /// The changes open pages should hear for `paths`, changed by another
@@ -443,7 +474,7 @@ mod tests {
         let (comments, _, store, _) = folder("by-id", &[("a.md", "# A\n")]);
         let id = comments.create("/a.md", anchor(), "Ana", "x").unwrap();
         // Detached: its text is gone from the version shown.
-        store.carry(&id, None).unwrap();
+        store.detach(&id);
         comments.reply(&id, "Bo", "still here").unwrap();
         let listed = comments.list("/a.md").unwrap();
         assert!(listed[0].detached);
@@ -486,11 +517,25 @@ mod tests {
             .unwrap();
         changes.drain();
         let entry = Document::load(&served.path().join("a.md"), &served).unwrap();
-        comments.carry(&entry).unwrap();
-        let listed = store.list("/a.md").unwrap();
-        let detached = |id: &str| listed.iter().find(|t| t.id == id).unwrap().detached;
-        assert!(!detached(&kept), "the widget's text, as the page shows it");
-        assert!(detached(&gone));
+        let carry = comments.carry(&entry).unwrap();
+        assert_eq!(
+            carry.moved(),
+            [Moved {
+                id: gone,
+                anchor: None
+            }],
+            "the widget's text is found as the page shows it; front matter never is"
+        );
+        assert!(
+            store.list("/a.md").unwrap().iter().all(|t| !t.detached),
+            "nothing written: the publish commits the carry"
+        );
+        let _ = kept;
+        assert!(
+            changes.drain().is_empty(),
+            "nothing written, nothing announced"
+        );
+        comments.carried(carry);
         assert_eq!(changes.drain(), [Change::Comments("/a.md".into())]);
     }
 

@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 498 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 504 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,8 +16,8 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 159 in `devpage`, 183 in its
-core `devpage-core`, 140 in the engine `devpage-design`, 9 in
+`cargo test` runs every crate in the workspace: 166 in `devpage`, 184 in its
+core `devpage-core`, 143 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
@@ -128,6 +128,19 @@ the suite green.
 - An asset naming the others by their content addresses.
 - A system widget's address carrying its own version.
 
+### `adapters::bucket`
+
+*1 test.*
+
+- A `DEVPAGE_BUCKET_URL` that is no URL, or names no bucket devpage reads, refused by the variable's name, never echoing its value.
+
+### `adapters::bundle`
+
+*3 tests.*
+
+- The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
+- What is packed unpacking file for file.
+
 ### `adapters::changes`
 
 *4 tests.*
@@ -212,7 +225,7 @@ On the network:
 - Every write announcing its page once, keyed `/a.md` however it was named, and a failed one nothing.
 - A thread started only on a file in the served folder: a lone page no document links to accepted; a missing page, a folder, an empty page and one that climbs out refused.
 - A reply and a resolve going by the thread's id alone, a detached thread included.
-- Carry reading a page as it is shown: front matter left out, a widget tag expanded, and only the changed page announced.
+- Carry reading a page as it is shown: front matter left out, a widget tag expanded; writing nothing itself, and only the changed page announced once it is committed.
 - A header author trimmed, and a missing or blank one refused.
 - Timestamps.
 - A thread's whole life, found by its id alone, leaving `git status` clean.
@@ -233,7 +246,7 @@ In Chrome:
 
 ### `designs`
 
-*17 tests in the store; 16 more through the server, in `drive::server`, and 44 in Chrome, in `drive::browser_tests::canvas`.*
+*18 tests in the store; 16 more through the server, in `drive::server`, and 44 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
@@ -244,6 +257,7 @@ In Chrome:
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
 - Nothing outside the served folder read.
+- Two folders in one store — two versions of a document — sharing its one tile cache and nothing else: the same address in each its own design with its own validator, the same mount and folder the design already kept, and a folder no one holds leaving the store with its tiles.
 - A design's PNG answering `304` from its scene without painting, until a design it uses changes.
 - A PNG, or `422` and the problems, and `404` for a design outside the served folder or missing.
 - A design as the entry document; the canvas page titled without `.design`.
@@ -378,9 +392,8 @@ In Chrome:
 
 ### `drive::client`
 
-*17 tests. Every server command runs against a real `devpage server` on a `file://` bucket, with each request it hears recorded.*
+*15 tests. Every server command runs against a real `devpage server` on a `file://` bucket, with each request it hears recorded.*
 
-- The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
 - A broken link stopping `publish` before any request, in text and `--json`.
 - `publish` remembering the document per context in `published.yml`, adding a version the second time, the bucket keeping the zip it sent and its link rendering the new version; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
 - Contexts added, used and listed, the current one marked; `DEVPAGE_CONTEXT`; no context saying how to add one; a token command's output sent as the bearer token and stored nowhere.
@@ -540,7 +553,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*33 tests, and 5 of its configuration; 5 in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
+*37 tests, and 5 of its configuration; 5 in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -549,6 +562,8 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With a user header, a write without it refused with `401` and each version recording its author; without one, every write `anonymous`.
 - Documents listed and read with their versions; a document deleted from the store, the bucket and the cache; deleting the latest version making the one before it latest; an id that is no UUID naming no document.
 - Concurrent publishes to one document taking one number each.
+- A carry that fails publishing nothing: no version recorded, no zip left in the bucket, every thread where it was, and the next publish taking the same number.
+- A deleted document leaving no change bus and no lock behind; a mount's path, `/d/<id>` or `/d/<id>/v/<n>`.
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
@@ -561,7 +576,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A detached thread taking replies by its id, from the page and from the API; a made-up thread `404`.
 - Carry reading each page as it is shown: a thread on bold text inside a widget, under front matter, staying attached.
 - The front page saying how to connect, linking to the repository, carrying the logo and listing no documents; `/favicon.ico` being devpage's logo; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
-- A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
+- A new version of a design never answered with the old one's PNG or `304` at the document's link, and the old version still showing its own; a design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
 - A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.
 - In Chrome: a page at the link swapping in each new version, its version menu following; an old version's banner linking to the latest, its menu listing every version, and a publish leaving it unchanged; the banner above a doc's page, never over it, wide and narrow, and a long sidebar's last link above the version bar; a doc's download button saving its PDF, printed once and then read from the cache; every request a published page makes staying under its mount.
 

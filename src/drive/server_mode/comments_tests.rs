@@ -609,3 +609,68 @@ async fn carry_reads_each_page_as_it_is_shown() {
     let carried = all.iter().find(|t| t["id"] == thread.as_str()).unwrap();
     assert_eq!(carried["detached"], false, "{all:?}");
 }
+
+/// A carry that fails publishes nothing: the version is not recorded, its
+/// zip is not left in the bucket, every thread stays where it was, and the
+/// next publish takes the same number.
+#[tokio::test]
+async fn a_carry_that_fails_publishes_nothing() {
+    let config = config("carry-fails");
+    let app = router(&config).unwrap();
+    let id = publish(
+        &app,
+        "/api/documents",
+        site("The client retries every write.", None),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    comment(
+        &app,
+        &id,
+        "/README.md",
+        anchor("The client ", "retries every write", "."),
+        "detached by the next version",
+    )
+    .await;
+
+    // The store refuses to move a thread, as a full disk or a lost lock
+    // would.
+    let store = rusqlite::Connection::open(config.data_dir.join("store.db")).unwrap();
+    store
+        .execute_batch(
+            "CREATE TRIGGER no_carry BEFORE UPDATE ON threads
+             BEGIN SELECT RAISE(ABORT, 'the carry failed'); END;",
+        )
+        .unwrap();
+    let next = site("Every write is retried.", None);
+    let request = Request::post(format!("/api/documents/{id}/versions"))
+        .body(Body::from(next.clone()))
+        .unwrap();
+    let (status, answer) = ask(&app, request).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{answer}");
+    assert!(
+        answer.as_str().unwrap().contains("the carry failed"),
+        "{answer}"
+    );
+
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(document["latest"], 1);
+    assert_eq!(document["versions"].as_array().unwrap().len(), 1);
+    let bucket = std::path::PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap());
+    assert!(
+        !bucket
+            .join(format!("documents/{id}/versions/2.zip"))
+            .exists()
+    );
+    let listed = threads(&app, &id).await;
+    assert_eq!(listed[0]["detached"], false);
+    assert_eq!(listed[0]["detached_in"], Value::Null);
+
+    store.execute_batch("DROP TRIGGER no_carry;").unwrap();
+    let again = publish(&app, &format!("/api/documents/{id}/versions"), next).await;
+    assert_eq!(again["version"], 2, "the number nothing took");
+    let listed = threads(&app, &id).await;
+    assert_eq!(listed[0]["detached_in"], 2);
+}

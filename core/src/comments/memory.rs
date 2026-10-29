@@ -26,6 +26,13 @@ impl Memory {
     fn threads(&self) -> MutexGuard<'_, BTreeMap<String, Kept>> {
         self.threads.lock().unwrap_or_else(|p| p.into_inner())
     }
+
+    /// Detaches thread `id`, as a publish whose version lost its text does.
+    pub fn detach(&self, id: &str) {
+        if let Some(kept) = self.threads().get_mut(id) {
+            kept.detached = true;
+        }
+    }
 }
 
 fn listed(id: &str, kept: &Kept) -> Listed {
@@ -86,16 +93,6 @@ impl Store for Memory {
             .filter(|(_, kept)| !kept.detached)
             .map(|(id, kept)| (kept.page.clone(), listed(id, kept)))
             .collect())
-    }
-
-    fn carry(&self, id: &str, anchor: Option<&Anchor>) -> Result<()> {
-        if let Some(kept) = self.threads().get_mut(id) {
-            match anchor {
-                Some(anchor) => kept.thread.anchor = anchor.clone(),
-                None => kept.detached = true,
-            }
-        }
-        Ok(())
     }
 
     fn heard(&self, _: &[PathBuf]) -> Vec<String> {

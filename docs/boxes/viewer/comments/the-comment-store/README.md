@@ -102,7 +102,9 @@ served or version folder. It holds every rule of a write:
   a refused write announces nothing.
 - **Carrying** a thread onto a new version reads each page as the page shows
   it — front matter left out, widget tags expanded — through the served
-  folder.
+  folder. `Comments` works out where each thread goes and writes nothing: the
+  publish records the version and those moves in one transaction, so a carry
+  that fails publishes nothing, and only then are the moved pages announced.
 
 Where threads are kept is the comment store's only job, behind the `Store`
 port, by thread id: the YAML files above locally (`comments::yaml`, which finds
