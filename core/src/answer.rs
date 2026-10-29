@@ -82,11 +82,11 @@ impl<'a> Answers<'a> {
     /// file is invalid, shows why.
     pub fn home(&self) -> Answer {
         match self.folder.entry_error() {
-            Some(error) => Answer::Html(page::invalid(
-                &self.folder.entry(),
-                self.folder.entry_file(),
-                &error,
-            )),
+            Some(error) => page::invalid(&self.folder.entry(), self.folder.entry_file(), &error)
+                .map_or_else(
+                    || Answer::NotFound("/ is not part of the served folder".to_string()),
+                    Answer::Html,
+                ),
             None => self.redirect(self.folder.entry().entry()),
         }
     }
@@ -155,7 +155,8 @@ impl<'a> Answers<'a> {
         if document::kind_of(&file).is_some() {
             return match Document::load(&file, served) {
                 Ok(document) => self.show(&document, print),
-                Err(error) => Answer::Html(page::invalid(&entry, &file, &format!("{error:#}"))),
+                Err(error) => page::invalid(&entry, &file, &format!("{error:#}"))
+                    .map_or_else(outside, Answer::Html),
             };
         }
         if file.extension().is_none_or(|ext| ext != "md") {
@@ -181,18 +182,14 @@ impl<'a> Answers<'a> {
                     self.designs,
                     std::slice::from_ref(&rendered),
                 );
-                Answer::Html(page::page(
-                    &site,
-                    &widgets,
-                    &rendered,
-                    self.comments,
-                    &found,
-                ))
+                page::page(&site, &widgets, &rendered, self.comments, &found)
+                    .map_or_else(outside, Answer::Html)
             }
             Some(Owner {
                 file: site,
                 document: Err(error),
-            }) if !print => Answer::Html(page::invalid(&entry, &site, &format!("{error:#}"))),
+            }) if !print => page::invalid(&entry, &site, &format!("{error:#}"))
+                .map_or_else(outside, Answer::Html),
             owner => match Document::load(&file, served) {
                 Ok(mut doc) => {
                     // A page keeps its site's widgets when printed on its own.

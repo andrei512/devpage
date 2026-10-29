@@ -322,6 +322,45 @@ fn chapters_and_slides_from_other_folders_keep_their_links() {
 }
 
 #[test]
+fn a_link_out_of_the_served_folder_is_never_named() {
+    let top = std::env::temp_dir().join(format!("devpage-render-out-{}", std::process::id()));
+    let dir = top.join("served");
+    std::fs::create_dir_all(dir.join("doc")).unwrap();
+    std::fs::create_dir_all(dir.join("shared")).unwrap();
+    std::fs::write(top.join("secret.md"), "# Secret\n").unwrap();
+    std::fs::write(
+        dir.join("shared/part.md"),
+        "# Part\n\n[out](../../secret.md) [in](../doc/d.yml)\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("doc/d.yml"),
+        "kind: doc\ntitle: Plan\nchapters: [../shared/part.md]\n",
+    )
+    .unwrap();
+    let document =
+        Document::load(&dir.join("doc/d.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
+    let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
+        panic!()
+    };
+    let html = doc(
+        &document,
+        &widgets_of(&document),
+        &rendered(&document, chapters),
+        pdf,
+        false,
+        true,
+        &[],
+    );
+    // The link inside is rebased; the one outside keeps its target as
+    // written, and the file's path is nowhere on the page.
+    assert!(html.contains("href=\"/doc/d.yml\""), "{html}");
+    assert!(html.contains("href=\"../../secret.md\""), "{html}");
+    let top = top.canonicalize().unwrap();
+    assert!(!html.contains(&*top.to_string_lossy()), "{html}");
+}
+
+#[test]
 fn a_one_file_doc_has_no_separate_title() {
     let dir = std::env::temp_dir().join(format!("devpage-render-one-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -389,7 +428,8 @@ fn every_frame_carries_the_logo_as_its_tab_icon() {
         ),
         true,
         &[],
-    );
+    )
+    .unwrap();
     assert!(html.contains(icon), "{html}");
     assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
     // A doc: before its title in the outline.
@@ -415,6 +455,8 @@ fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
     let dir =
         std::env::temp_dir().join(format!("devpage-render-no-comments-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
+    // Canonical, as the served folder is: a page has an address only inside it.
+    let dir = dir.canonicalize().unwrap();
     std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
     std::fs::write(
         dir.join("devpage.yml"),
@@ -453,7 +495,8 @@ fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
                 ),
                 comments,
                 &[],
-            ),
+            )
+            .unwrap(),
             doc(
                 &doc_file,
                 &widgets_of(&doc_file),
@@ -542,7 +585,8 @@ fn site_page(name: &str, readme: &str, files: &[(&str, &str)]) -> (PathBuf, Stri
         ),
         true,
         &[],
-    );
+    )
+    .unwrap();
     (dir, html)
 }
 
@@ -684,10 +728,11 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
         ),
         true,
         &[],
-    );
+    )
+    .unwrap();
     let nav = &html[html.find("<nav id=\"devpage-nav\"").unwrap()..];
     let nav = &nav[..nav.find("</nav>").unwrap() + 6];
-    let url = |file: &str| site.url(&dir.join(file));
+    let url = |file: &str| site.url(&dir.join(file)).unwrap();
     let branch = |file: &str, label: &str, open: bool, current: bool| {
         format!(
             "<li class=\"branch{}\" data-href=\"{href}\"><div class=\"entry\"><a href=\"{href}\"{}>{label}</a><button type=\"button\" class=\"chevron\" aria-expanded=\"{open}\" aria-label=\"{label}\"></button></div>",
@@ -745,7 +790,10 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
         .unwrap();
     let data: serde_json::Value = serde_json::from_str(data).unwrap();
     assert_eq!(data["document"], site.entry());
-    assert_eq!(data["document_path"], site.url(&dir.join("devpage.yml")));
+    assert_eq!(
+        data["document_path"],
+        site.url(&dir.join("devpage.yml")).unwrap()
+    );
     assert_eq!(data["current"], url("deep.md"));
     assert_eq!(data["title"]["label"], "S");
     assert_eq!(data["groups"][1]["title"], "Reference");
@@ -785,7 +833,8 @@ fn a_site_with_sidebar_false_has_no_sidebar_and_loads_nothing_for_it() {
         ),
         true,
         &[],
-    );
+    )
+    .unwrap();
     assert!(!html.contains("devpage-nav"), "{html}");
     assert!(!html.contains("devpage-sidebar"), "{html}");
     assert!(linked(&html, "modulepreload").is_empty(), "{html}");
@@ -847,7 +896,7 @@ fn the_content_holds_its_own_links_by_line_and_none_of_the_frames() {
             .all(|link| link.file == dir.join("README.md"))
     );
     // The frame puts the navbar round it; its links are the frame's.
-    let html = page(&site, &widgets_of(&site), &rendered, true, &[]);
+    let html = page(&site, &widgets_of(&site), &rendered, true, &[]).unwrap();
     assert!(html.contains("href=\"/away.md\""), "{html}");
     assert!(!links.iter().any(|(target, _)| target.contains("away")));
 }

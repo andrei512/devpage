@@ -59,7 +59,7 @@ The document devpage was started with, where `/` leads. While its file is invali
 
 ## served folder
 
-The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to. In the code, `Folder` (`core/src/folder/`) is the served folder opened on its entry document — its document index, its owners, what a change to it means — and `folder::ServedFolder` is its boundary and its mount. It keeps no document but the entry: every other is loaded from its file when asked for. See [The index](../document-index/README.md#the-index).
+The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read, linked to or named: a path outside has no address and no name. In the code, `Folder` (`core/src/folder/`) is the served folder opened on its entry document — its document index, its owners, what a change to it means — and `folder::ServedFolder` is its boundary and its mount. It keeps no document but the entry: every other is loaded from its file when asked for. See [The index](../document-index/README.md#the-index).
 
 ## document index
 

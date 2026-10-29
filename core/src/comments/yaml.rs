@@ -244,8 +244,11 @@ impl Store for Yaml {
 pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate::problem::Problem> {
     let store = Yaml::new(&document.served);
     // A page names its threads by its path in the served folder, whatever
-    // the folder's mount.
-    let (_, unparsable) = store.read(&format!("/{}", document.name(page)));
+    // the folder's mount; a page outside it has none.
+    let Some(name) = document.name(page) else {
+        return Vec::new();
+    };
+    let (_, unparsable) = store.read(&format!("/{name}"));
     unparsable
         .into_iter()
         .map(|(file, error)| crate::problem::Problem {

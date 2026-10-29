@@ -274,10 +274,18 @@ impl Snapshot {
 
     /// The address `file` is served at, carrying its [version](Self::hash):
     /// the one a page names it by and an import of it asks for.
+    ///
+    /// Panics on a file outside the served folder, which has no address: a
+    /// snapshot reads and imports only modules inside it, so that is a
+    /// mistake in devpage, not in a document.
     pub fn address(&self, file: &Path, known: &[String]) -> String {
+        let name = self
+            .served
+            .name(file)
+            .unwrap_or_else(|| panic!("{} is outside the served folder", file.display()));
         address(Owned::Module {
             mount: self.served.mount(),
-            name: &self.served.name(file),
+            name: &name,
             hash: &self.hash(file, known),
         })
     }

@@ -61,22 +61,23 @@ fn page_script(print: bool, comments: bool) -> String {
 /// the file's `rendered` content and the scripts that mount its widgets and
 /// keep it live. `comments` is whether comments are on; `found` is the page's
 /// problems, listed above it. The navbar and the sidebar are drawn from one
-/// navigation tree, built once for the page.
+/// navigation tree, built once for the page. `None` for a file outside the
+/// served folder, which is never shown.
 pub fn page(
     document: &Document,
     widgets: &Widgets,
     rendered: &Rendered,
     comments: bool,
     found: &[Problem],
-) -> String {
-    let current = document.url(rendered.file());
+) -> Option<String> {
+    let current = document.url(rendered.file())?;
     let content = rendered.html();
     let tree = if document.sidebar || !document.navbar.is_empty() {
         nav::tree(document)
     } else {
         Vec::new()
     };
-    format!(
+    Some(format!(
         r#"<!doctype html>
 {html}
 <head>
@@ -119,7 +120,7 @@ pub fn page(
                 &[]
             }
         ),
-    )
+    ))
 }
 
 /// A doc: every chapter's `rendered` content on one page, in order, with an
@@ -163,7 +164,7 @@ pub fn doc(
         };
         content.push_str(&format!(
             "<section class=\"chapter\"{id} data-source=\"{}\">{html}</section>",
-            document.url(chapter)
+            document.part_url(chapter)
         ));
     }
     let paper = match pdf.paper {
@@ -316,11 +317,18 @@ fn rebase(html: &str, file: &Path, document: &Document) -> String {
         let value = &rest[..end];
         match Link::classify(value) {
             // A path from the top is an address already.
+            // A file outside the served folder has no address: the link
+            // keeps its target as written, and the check reports it.
             Link::File { path, fragment } if !path.is_empty() && !path.starts_with('/') => {
-                out.push_str(&document.url(&normalize(&folder.join(path))));
-                if value.contains('#') {
-                    out.push('#');
-                    out.push_str(fragment);
+                match document.url(&normalize(&folder.join(path))) {
+                    Some(address) => {
+                        out.push_str(&address);
+                        if value.contains('#') {
+                            out.push('#');
+                            out.push_str(fragment);
+                        }
+                    }
+                    None => out.push_str(value),
                 }
             }
             _ => out.push_str(value),
@@ -347,10 +355,11 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// A document file that can't be loaded: a page listing what is wrong with it.
-pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
-    let address = entry.url(file);
-    format!(
+/// A document file that can't be loaded: a page listing what is wrong with
+/// it — `None` for a file outside the served folder, which is never shown.
+pub fn invalid(entry: &Document, file: &Path, error: &str) -> Option<String> {
+    let address = entry.url(file)?;
+    Some(format!(
         r#"<!doctype html>
 {html}
 <head>
@@ -373,7 +382,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
         document = escape(&entry.title),
         theme = navbar::head(entry),
         error = escape(error),
-    )
+    ))
 }
 
 /// The page's problems, listed above it, with each broken link marked.
@@ -411,7 +420,7 @@ pub fn slides(
         content.push_str(&format!(
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
-            document.url(slide.file()),
+            document.part_url(slide.file()),
             rebase(slide.html(), slide.file(), document)
         ));
     }

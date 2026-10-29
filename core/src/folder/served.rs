@@ -83,15 +83,17 @@ impl ServedFolder {
     }
 
     /// A file's address: its path from the top of the folder, after `/` and
-    /// the mount prefix.
-    pub fn url(&self, file: &Path) -> String {
-        format!("{}/{}", self.1, self.name(file))
+    /// the mount prefix. `None` when it lies outside: a path outside the
+    /// folder has no address.
+    pub fn url(&self, file: &Path) -> Option<String> {
+        Some(format!("{}/{}", self.1, self.name(file)?))
     }
 
     /// A file's name: its path from the top of the folder, as problems and
-    /// labels show it.
-    pub fn name(&self, file: &Path) -> String {
-        self.relative(file).unwrap_or(file).display().to_string()
+    /// labels show it. `None` when it lies outside: a path outside the
+    /// folder is never named.
+    pub fn name(&self, file: &Path) -> Option<String> {
+        Some(self.relative(file)?.display().to_string())
     }
 }
 
@@ -141,7 +143,8 @@ mod tests {
         assert_eq!(served.at("/docs/a.md"), Some(a.clone()));
         assert_eq!(served.file_at("/docs/a.md"), Some(a.clone()));
         assert_eq!(served.file_at("/docs"), None, "a folder is no file");
-        assert_eq!(served.url(&a), "/docs/a.md");
+        assert_eq!(served.url(&a).as_deref(), Some("/docs/a.md"));
+        assert_eq!(served.name(&a).as_deref(), Some("docs/a.md"));
         assert_eq!(served.relative(&a), Some(Path::new("docs/a.md")));
     }
 
@@ -150,8 +153,12 @@ mod tests {
         let (top, served) = fixture("mounted");
         let a = top.join("served/docs/a.md");
         let mounted = served.clone().mounted("/d/x/v/2");
-        assert_eq!(mounted.url(&a), "/d/x/v/2/docs/a.md");
-        assert_eq!(mounted.name(&a), "docs/a.md", "a name is the same anywhere");
+        assert_eq!(mounted.url(&a).as_deref(), Some("/d/x/v/2/docs/a.md"));
+        assert_eq!(
+            mounted.name(&a).as_deref(),
+            Some("docs/a.md"),
+            "a name is the same anywhere"
+        );
         assert_eq!(mounted.mount(), "/d/x/v/2");
         // A folder made from its path is served at `/`.
         assert_eq!(ServedFolder::new(&top.join("served")).unwrap(), served);
@@ -171,6 +178,13 @@ mod tests {
         assert_eq!(served.inside(&top.join("served/missing.md")), None);
         assert!(!served.contains(&top.join("outside.txt")));
         assert_eq!(served.relative(&top.join("outside.txt")), None);
+        // Neither named nor addressed: no absolute path stands in.
+        assert_eq!(served.name(&top.join("outside.txt")), None);
+        assert_eq!(served.url(&top.join("outside.txt")), None);
+        assert_eq!(
+            served.clone().mounted("/d/x").url(&top.join("outside.txt")),
+            None
+        );
     }
 
     #[test]
