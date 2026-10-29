@@ -1,11 +1,10 @@
-//! The page script's side of comments, in chrome-headless-shell. Run with
-//! `cargo test -- --ignored`.
+//! The page script's side of comments, in chrome-headless-shell.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::chrome::testing;
+use crate::chrome::testing::{self, eval, until};
 
 use crate::comments::*;
 use crate::document::Document;
@@ -32,8 +31,6 @@ async fn open_off(
     path: &str,
 ) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
     let changes = crate::changes::Changes::default();
     let index = Arc::new(crate::index::Index::build(&document.served));
     let entry = Arc::new(crate::document::Entry::new(document));
@@ -47,56 +44,16 @@ async fn open_off(
         preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes.clone())
     };
-    let _watcher = options.watch().unwrap();
-    let router = server::router(options);
+    let watcher = options.watch().unwrap();
+    let address = testing::serve(server::router(options)).await;
+    // Watching as long as the page is served: until the test ends.
     tokio::spawn(async move {
-        let _watcher = _watcher;
-        axum::serve(listener, router).await.ok();
+        let _watcher = watcher;
+        std::future::pending::<()>().await;
     });
     let browser = testing::launch_on(1400, 900).await;
-    let page = browser
-        .new_page(format!("http://{address}{path}").as_str())
-        .await
-        .unwrap();
-    loaded(&page).await;
+    let page = testing::open(&browser, &format!("{address}{path}")).await;
     (browser, page)
-}
-
-/// Waits until `page` has loaded and its script has finished starting —
-/// widgets mounted, comments asked for — however long a loaded machine
-/// takes, rather than for a fixed while; for up to 20 seconds.
-async fn loaded(page: &chromiumoxide::Page) {
-    for _ in 0..1000 {
-        let ready = page
-            .evaluate(
-                "document.readyState === 'complete' \
-                 && document.documentElement.dataset.ready === 'true'",
-            )
-            .await
-            .ok()
-            .and_then(|v| v.into_value::<bool>().ok())
-            .unwrap_or(false);
-        if ready {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("the page never finished loading");
-}
-
-async fn eval<T: serde::de::DeserializeOwned>(page: &chromiumoxide::Page, js: &str) -> T {
-    page.evaluate(js).await.unwrap().into_value().unwrap()
-}
-
-/// Polls `js` until it returns true, for up to four seconds.
-async fn until(page: &chromiumoxide::Page, js: &str) -> bool {
-    for _ in 0..40 {
-        if eval::<bool>(page, js).await {
-            return true;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    false
 }
 
 fn folder(name: &str) -> PathBuf {
@@ -130,19 +87,17 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
     assert_eq!(eval::<String>(&page, pressed).await, "true");
     eval::<bool>(&page, "(document.querySelector('article h1').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)").await;
     eval::<bool>(&page, hover).await;
-    assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+    until(&page, "!!document.querySelector('.comment-button')").await;
     eval::<bool>(
         &page,
         "(document.querySelector('.comment-button').click(), true)",
     )
     .await;
-    assert!(
-        until(
-            &page,
-            "!!document.querySelector('#devpage-comments .composer textarea')"
-        )
-        .await
-    );
+    until(
+        &page,
+        "!!document.querySelector('#devpage-comments .composer textarea')",
+    )
+    .await;
     eval::<bool>(
         &page,
         "(() => { const box = document.querySelector('#devpage-comments .composer textarea');
@@ -150,12 +105,12 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
            box.closest('form').requestSubmit(); return true; })()",
     )
     .await;
-    assert!(until(&page, "!!document.querySelector('mark.comment')").await);
+    until(&page, "!!document.querySelector('mark.comment')").await;
 
     // Remembered: after a reload the switch is still on, and turning it off
     // removes the icon while the thread stays.
     page.reload().await.unwrap();
-    loaded(&page).await;
+    testing::loaded(&page).await;
     assert_eq!(eval::<String>(&page, pressed).await, "true");
     eval::<bool>(
         &page,
@@ -165,13 +120,11 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
     eval::<bool>(&page, hover).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!eval::<bool>(&page, "!!document.querySelector('.comment-button')").await);
-    assert!(
-        until(
-            &page,
-            "!!document.querySelector('#devpage-comments .thread')"
-        )
-        .await
-    );
+    until(
+        &page,
+        "!!document.querySelector('#devpage-comments .thread')",
+    )
+    .await;
 
     browser.close().await.ok();
 }
@@ -197,19 +150,17 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
            p.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); return true; })()",
     )
     .await;
-    assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+    until(&page, "!!document.querySelector('.comment-button')").await;
     eval::<bool>(
         &page,
         "document.querySelector('.comment-button').click(), true",
     )
     .await;
-    assert!(
-        until(
-            &page,
-            "!!document.querySelector('#devpage-comments .composer textarea')"
-        )
-        .await
-    );
+    until(
+        &page,
+        "!!document.querySelector('#devpage-comments .composer textarea')",
+    )
+    .await;
     eval::<bool>(
         &page,
         "(() => { const box = document.querySelector('#devpage-comments .composer textarea');
@@ -217,13 +168,11 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
            box.closest('form').requestSubmit(); return true; })()",
     )
     .await;
-    assert!(
-        until(
-            &page,
-            "document.querySelector('mark.comment')?.textContent === 'retries every write'"
-        )
-        .await
-    );
+    until(
+        &page,
+        "document.querySelector('mark.comment')?.textContent === 'retries every write'",
+    )
+    .await;
     let layout: String = eval(
         &page,
         "innerWidth + ' ' + document.getElementById('devpage-comments').className
@@ -251,14 +200,11 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
 
     // Rewrite the sentence: the thread is detached, not lost.
     std::fs::write(root.join("a.md"), "# A\n\nThe client gives up.\n").unwrap();
-    assert!(
-        until(
+    until(
             &page,
             "(document.getElementById('devpage-comments')?.textContent ?? '').includes('Detached comments')
              && !document.querySelector('mark.comment')"
-        )
-        .await
-    );
+        ).await;
     browser.close().await.ok();
 }
 
@@ -287,7 +233,7 @@ async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
               document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)",
         )
         .await;
-        assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+        until(&page, "!!document.querySelector('.comment-button')").await;
         let fits: String = eval(
             &page,
             "(() => { const b = document.querySelector('.comment-button').getBoundingClientRect();
@@ -319,7 +265,7 @@ async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload(
         "(document.querySelector('article li').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)",
     )
     .await;
-    assert!(until(&page, "!!document.querySelector('.comment-button')").await);
+    until(&page, "!!document.querySelector('.comment-button')").await;
     eval::<bool>(
         &page,
         "document.querySelector('.comment-button').click(), true",
@@ -340,25 +286,20 @@ async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload(
            box.value = 'Why a day?'; box.closest('form').requestSubmit(); return true; })()",
     )
     .await;
-    assert!(
-        until(
-            &page,
-            "document.querySelectorAll('mark.comment').length > 0"
-        )
-        .await
-    );
+    until(
+        &page,
+        "document.querySelectorAll('mark.comment').length > 0",
+    )
+    .await;
 
     page.reload().await.unwrap();
-    loaded(&page).await;
-    assert!(
-        until(
+    testing::loaded(&page).await;
+    until(
             &page,
             "[...document.querySelectorAll('mark.comment')].map(m => m.textContent).join('|')
                .replace(/\\s+/g, ' ') .includes('retried until acknowledged')
              && !(document.getElementById('devpage-comments')?.textContent ?? '').includes('Detached')"
-        )
-        .await
-    );
+        ).await;
     browser.close().await.ok();
 }
 
@@ -389,14 +330,14 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
     let (mut browser, page) = open(&root, &root.join("devpage.yml"), "/devpage.yml").await;
 
     let shown = "getComputedStyle(document.getElementById('devpage-comments')).display !== 'none'";
-    assert!(until(&page, "!!document.querySelector('mark.comment')").await);
+    until(&page, "!!document.querySelector('mark.comment')").await;
     assert!(!eval::<bool>(&page, shown).await, "hidden until asked for");
     eval::<bool>(
         &page,
         "(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' })), true)",
     )
     .await;
-    assert!(until(&page, shown).await);
+    until(&page, shown).await;
     let text: String = eval(
         &page,
         "document.getElementById('devpage-comments').innerText",
@@ -408,7 +349,7 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
         "(document.dispatchEvent(new KeyboardEvent('keydown', { key: 'c' })), true)",
     )
     .await;
-    assert!(until(&page, &format!("!({shown})")).await);
+    until(&page, &format!("!({shown})")).await;
     browser.close().await.ok();
 }
 
@@ -427,13 +368,11 @@ async fn a_live_update_with_the_comments_shown_swaps_the_page_in_place() {
     )
     .await;
     std::fs::write(root.join("a.md"), "# A\n\nThe second draft.\n").unwrap();
-    assert!(
-        until(
-            &page,
-            "document.querySelector('article p')?.textContent === 'The second draft.'"
-        )
-        .await
-    );
+    until(
+        &page,
+        "document.querySelector('article p')?.textContent === 'The second draft.'",
+    )
+    .await;
     assert!(
         eval::<bool>(&page, "window.notReloaded === true").await,
         "the page was swapped in place, not reloaded"

@@ -201,11 +201,7 @@ pub(crate) struct Open {
 impl Session {
     /// Serves `router` and launches Chrome in `profile` to load from it.
     pub(crate) async fn start(profile: Profile, router: Router) -> Result<Self> {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let address = listener.local_addr()?;
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.ok();
-        });
+        let (address, server) = serve(router).await?;
         match Launched::new(profile, |chrome| chrome).await {
             Ok(chrome) => Ok(Self {
                 chrome,
@@ -407,6 +403,17 @@ impl Tab {
     }
 }
 
+/// `router` served on a free loopback port, for a Chrome to load from: its
+/// address, and the task serving it.
+async fn serve(router: Router) -> Result<(SocketAddr, JoinHandle<()>)> {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+    let address = listener.local_addr()?;
+    let server = tokio::spawn(async move {
+        axum::serve(listener, router).await.ok();
+    });
+    Ok((address, server))
+}
+
 /// A Chrome profile folder of its own for one Chrome, in the system's
 /// temporary folder. It is deleted when Chrome is done with it.
 struct Folder(PathBuf);
@@ -521,11 +528,18 @@ fn platform() -> Option<Platform> {
     }
 }
 
-/// Chrome for the Chrome tests, which drive the browser themselves: launched
-/// in a profile as devpage launches it, with no router of its own.
+/// What the Chrome tests drive the browser with: Chrome launched in a
+/// profile as devpage launches it, the router a test's pages load from served
+/// on loopback, and the waits a test needs on a page.
 #[cfg(test)]
 pub(crate) mod testing {
-    use super::{Launched, Profile};
+    use std::sync::{Arc, Mutex};
+
+    use axum::Router;
+    use chromiumoxide::Page;
+    use serde::de::DeserializeOwned;
+
+    use super::{Launched, Profile, READY_WITHIN};
 
     /// A launched Chrome, used as chromiumoxide's `Browser`. Dropped, its
     /// process is killed and its profile folder deleted.
@@ -562,6 +576,80 @@ pub(crate) mod testing {
                 .await
                 .unwrap(),
         )
+    }
+
+    /// `router` served on a free loopback port for the test's lifetime: its
+    /// address, `http://127.0.0.1:<port>`.
+    pub(crate) async fn serve(router: Router) -> String {
+        let (address, server) = super::serve(router).await.unwrap();
+        // Detached: it serves until the test's runtime ends.
+        drop(server);
+        format!("http://{address}")
+    }
+
+    /// Every request a router answered, as `(path, status)`, in order.
+    pub(crate) type Answered = Arc<Mutex<Vec<(String, u16)>>>;
+
+    /// `router`, keeping every request it answers in the [`Answered`] it
+    /// hands back.
+    pub(crate) fn answering(router: Router) -> (Router, Answered) {
+        let answered = Answered::default();
+        let log = answered.clone();
+        let router = router.layer(axum::middleware::from_fn(
+            move |request: axum::extract::Request, next: axum::middleware::Next| {
+                let log = log.clone();
+                async move {
+                    let path = request.uri().path().to_string();
+                    let response = next.run(request).await;
+                    log.lock().unwrap().push((path, response.status().as_u16()));
+                    response
+                }
+            },
+        ));
+        (router, answered)
+    }
+
+    /// `js` evaluated in `page`, its value read as a `T`.
+    pub(crate) async fn eval<T: DeserializeOwned>(page: &Page, js: &str) -> T {
+        page.evaluate(js).await.unwrap().into_value().unwrap()
+    }
+
+    /// Waits until `js` is truthy in `page`, however long a loaded machine
+    /// takes, for up to 20 s; panics naming it if it never is. A page being
+    /// loaded whole has no context to ask yet, which counts as not yet.
+    pub(crate) async fn until(page: &Page, js: &str) {
+        let asked = format!("!!({js})");
+        let started = tokio::time::Instant::now();
+        while started.elapsed() < READY_WITHIN {
+            let truthy = page
+                .evaluate(asked.as_str())
+                .await
+                .ok()
+                .and_then(|answer| answer.into_value::<bool>().ok());
+            if truthy == Some(true) {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("never true: {js}");
+    }
+
+    /// Waits until `page` has loaded and its script has finished starting:
+    /// its widgets mounted.
+    pub(crate) async fn loaded(page: &Page) {
+        until(
+            page,
+            "document.readyState === 'complete' \
+             && document.documentElement.dataset.ready === 'true'",
+        )
+        .await;
+    }
+
+    /// `url` opened in a new tab of `browser`, once it has [`loaded`].
+    pub(crate) async fn open(browser: &chromiumoxide::Browser, url: &str) -> Page {
+        let page = browser.new_page(url).await.unwrap();
+        loaded(&page).await;
+        page
     }
 }
 
