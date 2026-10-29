@@ -29,7 +29,7 @@ pub use config::Config;
 
 use crate::adapters::bucket::Bucket;
 use crate::adapters::sqlite::Sqlite;
-use crate::changes::{Change, Changes, Scope};
+use crate::changes::{Change, Changes};
 use crate::server;
 use cache::Cache;
 
@@ -74,7 +74,7 @@ impl ServerMode {
 
     /// Tells every page open at `/d/<id>` that its latest version changed.
     fn announce(&self, id: &str) {
-        self.bus(id).publish(&Scope::root(), Change::Refresh);
+        self.bus(id).publish(Change::Refresh);
     }
 }
 

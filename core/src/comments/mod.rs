@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::changes::{Change, Publish, Scope};
+use crate::changes::{Change, Publish};
 
 /// What a thread is attached to: rendered text, with a little context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -74,23 +74,18 @@ pub trait Store: Send + Sync {
     fn resolve(&self, page: &str, id: &str) -> Result<()>;
 }
 
-/// The comments of the documents under one scope: a store, and the bus every
-/// successful write is announced on — `comments <page>`, once, as the write
+/// The comments of the documents one bus serves: a store, and that bus,
+/// which every successful write is announced on — `comments <page>`, once, as the write
 /// lands — so open pages fetch that page's threads again.
 #[derive(Clone)]
 pub struct Comments {
     store: Arc<dyn Store>,
     changes: Arc<dyn Publish>,
-    scope: Scope,
 }
 
 impl Comments {
-    pub fn new(store: Arc<dyn Store>, changes: Arc<dyn Publish>, scope: Scope) -> Self {
-        Self {
-            store,
-            changes,
-            scope,
-        }
+    pub fn new(store: Arc<dyn Store>, changes: Arc<dyn Publish>) -> Self {
+        Self { store, changes }
     }
 
     pub fn list(&self, page: &str) -> Result<Vec<Listed>> {
@@ -117,7 +112,7 @@ impl Comments {
 
     fn announce(&self, page: &str) {
         let page = format!("/{}", page.trim_start_matches('/'));
-        self.changes.publish(&self.scope, Change::Comments(page));
+        self.changes.publish(Change::Comments(page));
     }
 }
 
@@ -204,11 +199,7 @@ mod tests {
     #[test]
     fn every_write_announces_its_page_once_and_a_failed_one_nothing() {
         let changes = Arc::new(crate::changes::Recorder::default());
-        let comments = Comments::new(
-            Arc::new(memory::Memory::default()),
-            changes.clone(),
-            Scope::root(),
-        );
+        let comments = Comments::new(Arc::new(memory::Memory::default()), changes.clone());
         let id = comments
             .create("/a.md", anchor(), "Ana", "Every write?")
             .unwrap();
@@ -220,7 +211,7 @@ mod tests {
         assert!(comments.create("/../x.md", anchor(), "Ana", "no").is_err());
         let comments_of_a = Change::Comments("/a.md".into());
         assert_eq!(
-            changes.drain(&Scope::root()),
+            changes.drain(),
             [comments_of_a.clone(), comments_of_a.clone(), comments_of_a],
             "one per write that landed, none for the two refused"
         );
