@@ -13,6 +13,7 @@ pub mod metrics;
 mod pages;
 #[cfg(test)]
 mod pages_tests;
+mod searches;
 #[cfg(test)]
 mod tests;
 mod versions;
@@ -51,6 +52,8 @@ struct ServerMode {
     /// comment written through the API reaches those pages as one written on
     /// them does.
     buses: Arc<Mutex<HashMap<String, Changes>>>,
+    /// The versions' search indexes, each built on its first search.
+    searches: Arc<searches::Searches>,
 }
 
 impl ServerMode {
@@ -97,6 +100,7 @@ pub fn router(config: &Config) -> Result<Router> {
         user_header: config.user_header.clone(),
         publishing: Arc::default(),
         buses: Arc::default(),
+        searches: Arc::new(searches::Searches::new(searches::BUDGET)),
     };
     let api = Router::new()
         .route("/api/documents", post(api::create).get(api::list))

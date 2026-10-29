@@ -543,3 +543,29 @@ fn near_matches_count_a_swap_as_one_edit() {
     assert_eq!(distance("layout", "layuot"), 1);
     assert_eq!(distance("", "abc"), 3);
 }
+
+#[test]
+fn a_frozen_index_answers_as_a_live_one_does_and_keeps_no_writer() {
+    let dir = served("frozen");
+    let live = index(&dir);
+    let plain = Index::build(&ServedFolder::new(&dir).unwrap());
+    let frozen = Search::frozen(&plain, &dir.join("docs/devpage.yml"));
+    for query in [
+        "sidebar",
+        "walrus",
+        "quokka",
+        "pelican",
+        "context",
+        "nothing-here",
+    ] {
+        assert_eq!(frozen.search(query), find(&live, query), "{query}");
+    }
+    assert!(!frozen.is_live(), "no writer left open");
+    assert!(live.search().unwrap().is_live());
+    assert!(frozen.bytes() > 0, "it knows what it holds");
+    // A frozen index never changes, whatever it hears.
+    std::fs::write(dir.join("docs/guide/layout.md"), "# Layout\n\nA narwhal.\n").unwrap();
+    frozen.changed(&plain, &[dir.join("docs/guide/layout.md")]);
+    assert!(frozen.search("narwhal").pages.is_empty());
+    assert_eq!(urls(&frozen.search("sidebar")).len(), 1);
+}

@@ -783,3 +783,25 @@ async fn an_evicted_version_is_made_again_under_both_its_mounts() {
     }
     assert_eq!(makes.load(Ordering::SeqCst), 5, "both made again");
 }
+
+#[tokio::test]
+async fn a_versions_search_answers_from_the_index_its_first_search_builds() {
+    let config = config("search-on-demand");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Field notes", "A walrus on the ice.")).await;
+    let (status, _) = ask(&app, get(&format!("/d/{id}/README.md"))).await;
+    assert_eq!(status, StatusCode::OK);
+    for mount in [format!("/d/{id}"), format!("/d/{id}/v/1")] {
+        let (status, found) = ask(&app, get(&format!("{mount}/__devpage/search?q=walrus"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            found["pages"][0]["url"],
+            format!("{mount}/README.md"),
+            "found, under the mount it was asked under: {found}"
+        );
+        let (_, again) = ask(&app, get(&format!("{mount}/__devpage/search?q=walrus"))).await;
+        assert_eq!(again, found, "the second search answers the same");
+        let (_, none) = ask(&app, get(&format!("{mount}/__devpage/search?q=narwhal"))).await;
+        assert_eq!(none, serde_json::json!({ "pages": [] }));
+    }
+}

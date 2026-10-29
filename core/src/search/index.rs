@@ -122,7 +122,7 @@ impl Search {
         let search = Self {
             fields,
             reader,
-            writer: Mutex::new(writer),
+            writer: Mutex::new(Some(writer)),
             stemmed,
             plain,
             entry: entry.to_path_buf(),
@@ -132,13 +132,28 @@ impl Search {
         search
     }
 
+    /// Indexes what `entry` publishes, commits it once and lets the writer
+    /// go, threads and all: for files that never change, such as a
+    /// published version's.
+    pub fn frozen(index: &Index, entry: &Path) -> Self {
+        let search = Self::build(index, entry);
+        if let Some(writer) = lock(&search.writer).take() {
+            let _ = writer.wait_merging_threads();
+        }
+        search
+    }
+
     /// Reads everything published again, into a fresh index, in one commit.
+    /// A frozen index has no writer, and stays as it is.
     pub(super) fn rebuild(&self, index: &Index) {
-        let mut writer = lock(&self.writer);
+        let mut guard = lock(&self.writer);
+        let Some(writer) = guard.as_mut() else {
+            return;
+        };
         let _ = writer.delete_all_documents();
         let mut pages = BTreeMap::new();
         for (nav, unit) in scope(index, &self.entry).into_iter().enumerate() {
-            self.add(&writer, &unit, nav as u64, &mut pages);
+            self.add(writer, &unit, nav as u64, &mut pages);
         }
         if writer.commit().is_ok() {
             let _ = self.reader.reload();

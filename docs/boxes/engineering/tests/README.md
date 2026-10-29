@@ -23,7 +23,8 @@ core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 the code they test — the canvas's Chrome tests in
 `src/drive/server/canvas_tests.rs` and the comments' in
 `src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
-folder holds two, [the search's quality](#the-searchs-quality) and
+folder holds three, [the search's quality](#the-searchs-quality),
+[a server's threads](#a-servers-threads) and
 [the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
 a deck of three slides with notes that the live video test records, and
@@ -426,7 +427,7 @@ In Chrome:
 
 ### `search`
 
-*20 tests.*
+*21 tests.*
 
 - Only what the served document publishes searched: a page no nav lists and a page out of sight never; front matter's `search: true` putting one in, `search: false` taking one out.
 - A file that is both a page and a chapter found once, as the chapter; a doc's chapters and a deck's slides at their own addresses, a slide by its notes.
@@ -438,6 +439,7 @@ In Chrome:
 - A diagram's labels as prose, its source not text; code found by its identifiers whole and by their parts, never in a snippet; a widget's text attributes as prose, its others not.
 - Front matter read, never shown, and its keywords searched.
 - An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
+- A frozen index answering as a live one does over the same files, with no writer left, its bytes known, and unchanged by any change it hears.
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
@@ -474,6 +476,16 @@ every one, prints each query's rank, and holds the set's mean reciprocal rank
 and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
 ranking's result when they were set. A change to ranking that lowers either
 fails it; one that raises them raises the floor with it.
+
+### A server's threads
+
+`tests/server_threads.rs`, one test, alone in its process so the threads it
+counts are the server's: it starts the real `devpage server` on free ports,
+publishes 205 small sites and reads each, and finds the server's thread count
+no higher after the last 200 than after the first five — a version holds no
+search index until it is searched — and still none higher once one is
+searched. With every version building its index as its router is made, it
+counted 53 threads before and 1,252 after.
 
 ### The restore of a deploy
 
@@ -551,7 +563,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*29 tests, and 5 of its configuration; 4 in Chrome.*
+*33 tests, and 5 of its configuration; 4 in Chrome.*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -563,6 +575,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
+- A version's search answered from the index its first search builds, under the mount it was asked under — the latest's and the version's own — and the second search answering the same; a version's index built once however many searches arrive, and past the 256 MB budget the least recently searched dropped and built again on its next search; an index bigger than the budget still answering.
 - A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.

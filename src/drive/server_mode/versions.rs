@@ -13,6 +13,7 @@ use axum::response::{IntoResponse, Response};
 use devpage_core::check::Preview;
 use devpage_core::document::Document;
 use devpage_core::index::Index;
+use devpage_core::search::Search;
 use devpage_core::served::ServedFolder;
 use tower::ServiceExt;
 
@@ -146,9 +147,18 @@ pub(super) async fn version_router(
             let _made = Made(std::time::Instant::now());
             let served = ServedFolder::new(dir)?.mounted(mount);
             let document = Document::load(&served.path().join(entry), &served)?;
-            let index = Index::build(&served).with_search(&document.path());
+            // No search index until the version's first search asks for one.
+            let index = Arc::new(Index::build(&served));
+            let file = document.path();
             let mut options = server::Options::new(Arc::new(document), changes.clone());
-            options.index = Arc::new(index);
+            options.index = index.clone();
+            let (searches, key) = (
+                state.searches.clone(),
+                (id.to_string(), n, mount.to_string()),
+            );
+            options.search_on_demand = Some(Arc::new(move || {
+                searches.get(&key, || Search::frozen(&index, &file))
+            }));
             options.comments = None;
             if latest {
                 options.store = Arc::new(DocumentThreads {
