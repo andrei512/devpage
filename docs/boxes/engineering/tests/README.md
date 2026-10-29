@@ -128,10 +128,10 @@ the suite green.
 
 *4 tests.*
 
-- A subscriber hearing its own scope and every-document changes, never another mount's.
+- Every subscriber hearing every change, in order.
 - One that falls behind hearing a refresh rather than losing an update.
-- `heard` reporting any change in scope since the last look, without waiting.
-- `next` waiting for its scope and ending when the bus is gone.
+- `heard` reporting any change since the last look, without waiting.
+- `next` waiting for a change and ending when the bus is gone.
 
 ### `adapters::http`
 
@@ -483,7 +483,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back.
 - Comment threads over HTTP, against the in-memory store; each write reaching open pages without a watcher.
 - A server and the watcher its options start announcing a comment write once.
-- A page's event stream carrying only its documents' changes.
+- A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone.
 - A thread on a page outside the served folder refused.

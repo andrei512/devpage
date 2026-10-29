@@ -25,7 +25,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
 
-use crate::changes::{Changes, Scope};
+use crate::changes::Changes;
 use crate::check::Preview;
 use crate::comments::{self, Anchor};
 use crate::designs::Designs;
@@ -193,7 +193,7 @@ pub fn router(options: Options) -> Router {
     let router = routes(AppState {
         comments: comments.map(|identity| {
             Arc::new(Commenting {
-                threads: comments::Comments::new(store, Arc::new(changes.clone()), Scope::root()),
+                threads: comments::Comments::new(store, Arc::new(changes.clone())),
                 identity,
             })
         }),
@@ -435,12 +435,12 @@ async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) 
     response
 }
 
-/// Server-sent events: one message per change the server's documents —
-/// mounted at `/` — hear on the change bus.
+/// Server-sent events: one message per change published on the server's
+/// change bus.
 async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    let heard = state.changes.subscribe(Scope::root());
+    let heard = state.changes.subscribe();
     let stream = futures::stream::unfold(heard, |mut heard| async move {
         let change = heard.next().await?;
         Some((Ok(Event::default().data(change.message())), heard))
@@ -860,7 +860,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_server_and_the_watcher_its_options_start_announce_a_write_once() {
-        use crate::changes::{Change, Scope};
+        use crate::changes::Change;
         let dir = std::env::temp_dir().join(format!("devpage-paired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -880,7 +880,7 @@ mod tests {
         // Let the watcher settle on the new `.devpage/` before listening.
         tokio::time::sleep(Duration::from_millis(300)).await;
 
-        let mut heard = changes.subscribe(Scope::root());
+        let mut heard = changes.subscribe();
         let created = reqwest::Client::new()
             .post(format!("{address}/__devpage/comments"))
             .json(&new_thread())
@@ -898,10 +898,10 @@ mod tests {
 
     #[tokio::test]
     async fn each_write_reaches_open_pages_without_a_watcher() {
-        use crate::changes::{Change, Scope};
+        use crate::changes::Change;
         let (address, _, changes) =
             serve_comments_on("announce", Some(Identity::Local("Ana".into()))).await;
-        let mut heard = changes.subscribe(Scope::root());
+        let mut heard = changes.subscribe();
         let client = reqwest::Client::new();
         let created: Value = client
             .post(format!("{address}/__devpage/comments"))
@@ -1556,8 +1556,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_pages_event_stream_carries_only_its_documents_changes() {
-        use crate::changes::{Change, Changes, Scope};
+    async fn a_pages_event_stream_carries_each_change_on_its_bus_in_order() {
+        use crate::changes::{Change, Changes};
         let root = std::env::temp_dir().join(format!("devpage-events-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
@@ -1578,11 +1578,8 @@ mod tests {
         // moment to subscribe before anything is published.
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Another mount's change never reaches it; its own, and one for
-        // every document, do — in order.
-        changes.publish(&Scope::Mount("/d/other".into()), Change::Refresh);
-        changes.publish(&Scope::root(), Change::Comments("/a.md".into()));
-        changes.publish(&Scope::Every, Change::Refresh);
+        changes.publish(Change::Comments("/a.md".into()));
+        changes.publish(Change::Refresh);
         let mut heard = String::new();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while heard.matches("data:").count() < 2 {

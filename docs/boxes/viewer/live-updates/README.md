@@ -232,10 +232,12 @@ and the listeners are the same everywhere.
 ## The bus and the stream
 
 The change bus (`Changes` in `src/adapters/changes.rs`) carries typed changes: a
-`Refresh`, or the `Comments` of the Markdown file at an address. Each is
-published for a **scope** — the documents served under one mount prefix (`/`
-for everything a local devpage serves), or every document, which is how the
-external-link checker announces an answer any page may link to. `src/main.rs`
+`Refresh`, or the `Comments` of the Markdown file at an address. A bus serves
+one set of documents, so every subscriber hears every change published on it,
+with nothing to filter: a page hears only its own documents' changes because
+its documents have a bus of their own, never because a change names whom it is
+for. That is also how the external-link checker announces an answer — a
+refresh on the bus, which any page on it may link to. `src/main.rs`
 makes one bus and hands it to its producers — the watcher, the external-link
 checker, and the server, whose comment writes each publish that page's
 `Comments` as they land — and to its subscribers. Publishing with no one subscribed is not an
@@ -252,12 +254,12 @@ since a version never changes.
 The watcher decides a burst in two halves: `Listeners::forget` has every cache
 forget what changed — the design store, the index with its widget modules, the
 entry document — and returns the changes the burst means, publishing nothing;
-`Listeners::changed` publishes them for the documents at `/`, then hands the
+`Listeners::changed` publishes them on the bus, then hands the
 paths to the search index. The forgetting is the watcher's own, never traffic
 on the bus.
 
 `GET /__devpage/events` (`events` in `src/drive/server.rs`) subscribes to the
-documents the server serves, at `/`, and answers with a server-sent event
+server's bus and answers with a server-sent event
 stream. Every change it hears becomes one event whose data is its message —
 `change`, or `comments` and the page's path. A subscriber that falls more than
 64 changes behind hears a refresh, so a slow page still hears that something

@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 
-use crate::changes::{Change, Publish, Scope};
+use crate::changes::{Change, Publish};
 
 use crate::problem::Problem;
 
@@ -222,8 +222,8 @@ impl External {
             if shown_now != shown_before
                 && let Some(changes) = &self.changes
             {
-                // Any page may link to the address, whatever its document.
-                changes.publish(&Scope::Every, Change::Refresh);
+                // Any page on the bus may link to the address.
+                changes.publish(Change::Refresh);
             }
             if done {
                 return;
@@ -350,7 +350,7 @@ mod tests {
     struct Heard(tokio::sync::mpsc::UnboundedSender<Change>);
 
     impl Publish for Heard {
-        fn publish(&self, _scope: &Scope, change: Change) {
+        fn publish(&self, change: Change) {
             let _ = self.0.send(change);
         }
     }

@@ -251,11 +251,7 @@ An open page fetching itself again and swapping in its content and navigation, i
 
 ## change bus
 
-What tells open pages there is something new to show: typed changes — a refresh, or the comments of a Markdown file — each published for a scope, by the watcher, the external-link checker and the server's comment writes (`Changes`). See [The bus and the stream](../live-updates/README.md#the-bus-and-the-stream).
-
-## scope
-
-Which open pages a change on the change bus is for: the documents under one mount prefix, or every document (`Scope`).
+What tells open pages there is something new to show: typed changes — a refresh, or the comments of a Markdown file — published by the watcher, the external-link checker and the server's comment writes (`Changes`). See [The bus and the stream](../live-updates/README.md#the-bus-and-the-stream).
 
 ## out of sight
 

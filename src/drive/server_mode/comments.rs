@@ -11,7 +11,7 @@ use axum::Json;
 use axum::extract::{Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use devpage_core::changes::{Change, Scope};
+use devpage_core::changes::Change;
 use devpage_core::comments::{self, Anchor, Comments, anchor};
 use serde::Deserialize;
 
@@ -53,7 +53,6 @@ pub async fn create(
             version,
         }),
         Arc::new(state.bus(&id)),
-        Scope::root(),
     );
     let thread = threads
         .create(&new.page, new.anchor, &author, &new.text)
@@ -89,9 +88,7 @@ pub async fn reply(
     if !state.store.reply(&id, None, &thread, &message)? {
         return Err(Refused::NotFound);
     }
-    state
-        .bus(&id)
-        .publish(&Scope::root(), Change::Comments(page));
+    state.bus(&id).publish(Change::Comments(page));
     Ok(StatusCode::CREATED.into_response())
 }
 
@@ -107,9 +104,7 @@ pub async fn resolve(
     if !state.store.resolve(&id, None, &thread)? {
         return Err(Refused::NotFound);
     }
-    state
-        .bus(&id)
-        .publish(&Scope::root(), Change::Comments(page));
+    state.bus(&id).publish(Change::Comments(page));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
@@ -146,7 +141,7 @@ pub async fn carry(state: &ServerMode, id: &str, version: u64, files: &Path) -> 
             .await??;
     let changes = state.bus(id);
     for page in changed {
-        changes.publish(&Scope::root(), Change::Comments(page));
+        changes.publish(Change::Comments(page));
     }
     Ok(())
 }

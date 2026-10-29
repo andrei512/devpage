@@ -128,7 +128,7 @@ mod tests {
     use devpage_core::widgets::{Modules, Widgets};
 
     use super::*;
-    use crate::changes::{Change, Scope, Subscription};
+    use crate::changes::{Change, Subscription};
 
     /// A local web server for external-link tests, so the suite needs no
     /// network: `/ok` answers 200, anything else 404, and it counts the requests
@@ -245,7 +245,7 @@ mod tests {
     /// channel it announces on.
     fn previewing(waits: Waits) -> (Preview, Subscription) {
         let changes = Changes::default();
-        let heard = changes.subscribe(Scope::root());
+        let heard = changes.subscribe();
         let external = External::new(
             Arc::new(Http::new()),
             Arc::new(Tokio),

@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use notify::event::{CreateKind, EventKind, RemoveKind};
 
-use crate::changes::{Change, Changes, Scope};
+use crate::changes::{Change, Changes};
 use crate::comments::yaml::Yaml;
 use crate::designs::Designs;
 use crate::document::{Document, Entry, KindName};
@@ -53,9 +53,9 @@ pub struct Watch {
 
 /// Starts watching. A change to a watched file publishes a refresh on the
 /// change bus; a change to a comment thread publishes that page's comments,
-/// whatever the site's `watch` says — both for the documents at `/` — unless
-/// `threads`, the comment store the server writes through, made it itself:
-/// that write was announced as it landed.
+/// whatever the site's `watch` says, unless `threads`, the comment store the
+/// server writes through, made it itself: that write was announced as it
+/// landed.
 /// A path out of sight — under `.git`, or excluded by a `.gitignore` and not
 /// named by its site's `watch` — is dropped as it arrives, before any
 /// listener hears of it. Every other changed file outside `.devpage/` also
@@ -76,7 +76,6 @@ pub fn start(
         index,
         designs,
         changes,
-        scope: Scope::root(),
         threads,
     };
     let watching = Arc::new(OnceLock::new());
@@ -174,8 +173,6 @@ struct Listeners {
     index: Arc<Index>,
     designs: Designs,
     changes: Changes,
-    /// The documents the watched folder's changes concern.
-    scope: Scope,
     /// The comment store the server writes through, which knows the thread
     /// files it wrote — and announced — itself.
     threads: Arc<Yaml>,
@@ -297,7 +294,7 @@ impl Listeners {
     fn changed(&self, paths: &[PathBuf]) {
         let (heard, searched) = self.forget(paths);
         for change in heard {
-            self.changes.publish(&self.scope, change);
+            self.changes.publish(change);
         }
         // After the pages hear, so indexing text never holds up a refresh.
         if let Some(search) = self.index.search() {
@@ -649,7 +646,6 @@ mod tests {
             index: Arc::new(Index::build(dir)),
             designs: Designs::new(dir.to_path_buf()),
             changes,
-            scope: Scope::root(),
             threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
         }
     }
@@ -794,7 +790,7 @@ mod tests {
     fn a_burst_of_changes_to_one_file_sends_one_change() {
         let dir = served("burst", "kind: site\ntitle: T\nroot: README.md\n");
         let changes = Changes::default();
-        let mut received = changes.subscribe(Scope::root());
+        let mut received = changes.subscribe();
         let handler = intake(listeners(&dir, changes), Arc::default());
         // Saves trickling in, as an editor or a build writes, within one burst.
         for _ in 0..5 {
@@ -855,7 +851,7 @@ mod tests {
         let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
         let index = Arc::new(Index::build(dir));
         let changes = Changes::default();
-        let mut received = changes.subscribe(Scope::root());
+        let mut received = changes.subscribe();
         let designs = Designs::new(dir.to_path_buf());
         let _watcher = start(
             Arc::new(Entry::new(document)),
@@ -910,7 +906,6 @@ mod tests {
             index: Arc::new(Index::build(&dir)),
             designs: designs.clone(),
             changes: Changes::default(),
-            scope: Scope::root(),
             threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
         };
         assert!(designs.resolve("docs/screen.design").is_ok());
@@ -962,8 +957,7 @@ mod tests {
             &dir,
             threads,
             |changes| {
-                let comments =
-                    crate::comments::Comments::new(store, Arc::new(changes.clone()), Scope::root());
+                let comments = crate::comments::Comments::new(store, Arc::new(changes.clone()));
                 let anchor = crate::comments::Anchor {
                     quote: "x".into(),
                     prefix: String::new(),
@@ -1018,7 +1012,7 @@ mod tests {
         let entry = Arc::new(Entry::new(document));
         let index = Arc::new(Index::build(&dir));
         let changes = Changes::default();
-        let mut received = changes.subscribe(Scope::root());
+        let mut received = changes.subscribe();
         let designs = Designs::new(dir.clone());
         let threads = Arc::new(Yaml::new(&dir));
         let _watcher = start(entry.clone(), index, designs, changes, threads).unwrap();

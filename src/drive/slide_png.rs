@@ -20,7 +20,7 @@ use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
 use futures::StreamExt;
 use tokio::sync::Semaphore;
 
-use crate::changes::{Changes, Scope, Subscription};
+use crate::changes::{Changes, Subscription};
 use tokio::task::JoinHandle;
 
 use crate::pdf::{Profile, shot, wait_ready};
@@ -85,7 +85,7 @@ impl Shots {
             chrome: tokio::sync::Mutex::new(None),
             turns: Semaphore::new(AT_ONCE as usize),
             cache: Mutex::new(Cache::default()),
-            changes: Mutex::new(changes.subscribe(Scope::root())),
+            changes: Mutex::new(changes.subscribe()),
             used: Mutex::new(Instant::now()),
         }))
     }
@@ -448,7 +448,7 @@ mod tests {
             .canonicalize()
             .unwrap();
         std::fs::write(dir.join("one.md"), "# Changed\n").unwrap();
-        changes.publish(&Scope::root(), Change::Refresh);
+        changes.publish(Change::Refresh);
         let changed = shot(Some(etag.clone()), false).await.unwrap();
         assert_eq!(changed.status(), 200);
         assert_ne!(changed.headers()["etag"], etag.as_str());
@@ -477,7 +477,7 @@ mod tests {
         assert!(shots.running().await);
         shots.close().await;
         assert!(!shots.running().await);
-        changes.publish(&Scope::root(), Change::Refresh);
+        changes.publish(Change::Refresh);
         shots.png("/talk.yml", 1, serve).await.unwrap();
         assert!(shots.running().await);
         shots.close().await;

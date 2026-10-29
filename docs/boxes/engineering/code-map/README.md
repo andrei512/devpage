@@ -43,10 +43,10 @@ flowchart LR
 | `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `core/src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
 | `core/src/search/` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. `mod.rs` holds `Search` — `build`, `changed`, `search` — and the answer's types; `gather.rs` reads what is published into sections; `index.rs` is the schema and the indexing; `query.rs` turns a query into words and tantivy queries; `rank.rs` ranks sections and makes snippets. |
-| `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus for the documents at `/` — a thread file only when the server's comment store didn't just write it — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
+| `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus — a thread file only when the server's comment store didn't just write it — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
 | `core/src/lib.rs` | The core crate's modules, and what it may not depend on. |
-| `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) scoped to the documents under one mount prefix, or to every document, and the `Publish` port a producer publishes them through. |
-| `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches each subscriber — a page's event stream, the slide-PNG cache — that hears its scope. |
+| `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) and the `Publish` port a producer publishes them through, `publish(change)`: a bus serves one set of documents, so a change names no audience. |
+| `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches every subscriber — a page's event stream, the slide-PNG cache. Server mode keeps one per published document. |
 | `src/adapters/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
 | `src/adapters/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/adapters/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
@@ -127,11 +127,11 @@ with an error before anything is served.
    the watcher and the server share it too.
 
 3. Create the change bus
-   The bus carrying typed changes — a refresh, or a page's comments — each
-   scoped to the documents it concerns
+   The bus carrying typed changes — a refresh, or a page's comments — to
+   every open page of the served folder
    ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream)).
    The link checker gets it too, through its `Publish` port, and publishes a
-   refresh for every document when a background check of an external address
+   refresh when a background check of an external address
    changes what pages show; the server's comment writes publish each page's
    comments on it as they land.
 
