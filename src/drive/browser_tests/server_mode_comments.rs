@@ -1,99 +1,36 @@
 //! Comments on a published document in chrome-headless-shell: a thread
 //! made on the page is the document's, one made through the API reaches the
 //! open page, and a publish that removes a thread's text lists it detached.
-//! Run with `cargo test -- --ignored`.
 
-use std::time::Duration;
-
-use chromiumoxide::Page;
 use serde_json::{Value, json};
 
-use super::server_mode::{Config, router};
-use crate::chrome::testing;
+use super::{publish, server_mode, zip_of};
+use crate::chrome::testing::{self, eval, until};
 
 fn site(text: &str) -> Vec<u8> {
-    use std::io::Write;
-    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (name, body) in [
+    zip_of(&[
         (
             "devpage.yml",
-            "kind: site\ntitle: Launch\nroot: README.md\n".to_string(),
+            "kind: site\ntitle: Launch\nroot: README.md\n",
         ),
-        ("README.md", format!("# Launch\n\n{text}\n")),
-    ] {
-        out.start_file(name, zip::write::SimpleFileOptions::default())
-            .unwrap();
-        out.write_all(body.as_bytes()).unwrap();
-    }
-    out.finish().unwrap().into_inner()
-}
-
-/// `devpage server` on a free port, against a bucket in a folder.
-async fn start() -> String {
-    let dir = std::env::temp_dir().join(format!("devpage-commented-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("bucket")).unwrap();
-    let config = Config::local(&dir.join("data"), &dir.join("bucket"), 1 << 30);
-    let app = router(&config).unwrap();
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
-    format!("http://{address}")
-}
-
-async fn eval<T: serde::de::DeserializeOwned>(page: &Page, js: &str) -> T {
-    page.evaluate(js).await.unwrap().into_value().unwrap()
-}
-
-/// Waits until `js` is true, for up to 20 seconds.
-async fn until(page: &Page, js: &str) {
-    for _ in 0..1000 {
-        if page
-            .evaluate(js)
-            .await
-            .ok()
-            .and_then(|v| v.into_value::<bool>().ok())
-            .unwrap_or(false)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("never true: {js}");
-}
-
-async fn loaded(page: &Page) {
-    until(
-        page,
-        "document.readyState === 'complete' && document.documentElement.dataset.ready === 'true'",
-    )
-    .await;
+        ("README.md", &format!("# Launch\n\n{text}\n")),
+    ])
 }
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "drives Chrome"]
 async fn a_published_documents_threads_are_its_own_across_the_page_the_api_and_a_publish() {
-    let base = start().await;
+    let base = testing::serve(server_mode("comments")).await;
     let http = reqwest::Client::new();
-    let published: Value = http
-        .post(format!("{base}/api/documents"))
-        .body(site(
-            "The client retries every write until the server acknowledges it.",
-        ))
-        .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
-    let id = published["id"].as_str().unwrap().to_string();
+    let id = publish(
+        &base,
+        None,
+        site("The client retries every write until the server acknowledges it."),
+    )
+    .await;
 
     let browser = testing::launch().await;
-    let page = browser
-        .new_page(format!("{base}/d/{id}/README.md").as_str())
-        .await
-        .unwrap();
-    loaded(&page).await;
+    let page = testing::open(&browser, &format!("{base}/d/{id}/README.md")).await;
 
     // A thread made on the page, as anywhere: comment mode, a selection,
     // the composer.
@@ -172,15 +109,14 @@ async fn a_published_documents_threads_are_its_own_across_the_page_the_api_and_a
 
     // Version 2 drops the second quote: on the latest, that thread is
     // listed detached, the first still marked in the text.
-    let updated = http
-        .post(format!("{base}/api/documents/{id}/versions"))
-        .body(site("The client retries every write until a peer replies."))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(updated.status(), 201);
+    publish(
+        &base,
+        Some(&id),
+        site("The client retries every write until a peer replies."),
+    )
+    .await;
     page.reload().await.unwrap();
-    loaded(&page).await;
+    testing::loaded(&page).await;
     until(&page, "!!document.querySelector('.detached-heading')").await;
     let detached: String = eval(
         &page,

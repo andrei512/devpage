@@ -3,10 +3,6 @@
 
 mod canvas;
 #[cfg(test)]
-mod canvas_tests;
-#[cfg(test)]
-mod comments_browser;
-#[cfg(test)]
 pub(crate) mod design_tests;
 mod watch_stream;
 

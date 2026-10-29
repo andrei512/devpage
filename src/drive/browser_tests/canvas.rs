@@ -1,6 +1,5 @@
 //! The canvas in Chrome: painting on the GPU and the CPU against the server's
-//! PNG, interactions, embedding and printing. They drive chrome-headless-shell;
-//! run them with `cargo test -- --ignored`.
+//! PNG, interactions, embedding and printing. They drive chrome-headless-shell.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +16,8 @@ use futures::StreamExt;
 
 use devpage_design::compare::{self, Difference};
 
-use crate::chrome::testing;
+use crate::chrome::testing::{self, eval, until};
+use crate::designs::Designs;
 use crate::document::Document;
 use crate::served::ServedFolder;
 use crate::server;
@@ -75,23 +75,20 @@ fn folder(name: &str) -> PathBuf {
 async fn serve(dir: &Path, entry: &str) -> String {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
     let changes = crate::changes::Changes::default();
-    let router = server::router(server::Options {
+    testing::serve(server::router(server::Options {
         comments: Some(crate::comments::Identity::Local("T".into())),
         ..server::Options::new(document, changes)
-    });
-    tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-    format!("http://{address}")
+    }))
+    .await
 }
 
 /// Serves `dir`, entered at `entry`, and hands back its design store, so a
 /// test can tell it about a saved file as the watcher would.
-async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
+async fn serve_designs(dir: &Path, entry: &str) -> (String, Designs) {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
-    let designs = super::Designs::new(&document.served);
+    let designs = Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
         designs: designs.clone(),
@@ -99,31 +96,7 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
         preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes)
     });
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-    (format!("http://{address}"), designs)
-}
-
-async fn eval<T: serde::de::DeserializeOwned>(page: &Page, js: &str) -> T {
-    page.evaluate(js).await.unwrap().into_value().unwrap()
-}
-
-/// Waits until `js` is true, for up to 20 seconds.
-async fn until(page: &Page, js: &str) {
-    for _ in 0..200 {
-        if page
-            .evaluate(js)
-            .await
-            .ok()
-            .and_then(|v| v.into_value::<bool>().ok())
-            .unwrap_or(false)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-    panic!("timed out waiting for {js}");
+    (testing::serve(router).await, designs)
 }
 
 /// Where a design pixel is on the screen: the canvas's view, as the design
@@ -2336,7 +2309,7 @@ async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_cpu() {
 /// screenshot's pixels.
 async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> Vec<u8> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scene = super::Designs::new(&ServedFolder::new(root).unwrap())
+    let scene = Designs::new(&ServedFolder::new(root).unwrap())
         .resolve("docs/designs/checkout/checkout.design")
         .unwrap();
     let drawing = devpage_design::Renderer::new()

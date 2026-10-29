@@ -1,31 +1,12 @@
 //! A published document in chrome-headless-shell: every request its pages
-//! make stays under their mount. Run with `cargo test -- --ignored`.
+//! make stays under their mount.
 
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use axum::extract::Request;
-use axum::middleware::Next;
-use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
+use chromiumoxide::Browser;
 
-use super::server_mode::{Config, router};
-use crate::chrome::testing;
-
-/// Every request the server answered, by path, with its status.
-type Heard = Arc<Mutex<Vec<(String, u16)>>>;
-
-/// A zip of `files`, as `devpage publish` sends one.
-fn zip_of(files: &[(&str, &str)]) -> Vec<u8> {
-    use std::io::Write;
-    let mut out = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-    for (name, text) in files {
-        out.start_file(*name, zip::write::SimpleFileOptions::default())
-            .unwrap();
-        out.write_all(text.as_bytes()).unwrap();
-    }
-    out.finish().unwrap().into_inner()
-}
+use super::{publish, server_mode, zip_of};
+use crate::chrome::testing::{self, Answered, eval, until};
 
 /// A site with everything a page asks its server for: a sidebar with
 /// search, a navbar, a system widget, a project widget that renders one, an
@@ -53,56 +34,6 @@ fn site() -> Vec<u8> {
     ])
 }
 
-/// `devpage server` on a free port, against a bucket in a folder, recording
-/// every request it answers.
-async fn start() -> (String, Heard) {
-    let dir = std::env::temp_dir().join(format!("devpage-mounted-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(dir.join("bucket")).unwrap();
-    let config = Config::local(&dir.join("data"), &dir.join("bucket"), 1 << 30);
-    let heard = Heard::default();
-    let recording = heard.clone();
-    let app = router(&config).unwrap().layer(axum::middleware::from_fn(
-        move |request: Request, next: Next| {
-            let heard = recording.clone();
-            async move {
-                let path = request.uri().path().to_string();
-                let response = next.run(request).await;
-                heard
-                    .lock()
-                    .unwrap()
-                    .push((path, response.status().as_u16()));
-                response
-            }
-        },
-    ));
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let address = listener.local_addr().unwrap();
-    tokio::spawn(async move { axum::serve(listener, app).await.ok() });
-    (format!("http://{address}"), heard)
-}
-
-async fn eval<T: serde::de::DeserializeOwned>(page: &Page, js: &str) -> T {
-    page.evaluate(js).await.unwrap().into_value().unwrap()
-}
-
-/// Waits until `js` is true, for up to 20 seconds.
-async fn until(page: &Page, js: &str) {
-    for _ in 0..1000 {
-        if page
-            .evaluate(js)
-            .await
-            .ok()
-            .and_then(|v| v.into_value::<bool>().ok())
-            .unwrap_or(false)
-        {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
-    panic!("never true: {js}");
-}
-
 /// Whether `path` is a built-in asset's address: the same for every
 /// document, so outside any mount.
 fn built_in(path: &str) -> bool {
@@ -113,17 +44,9 @@ fn built_in(path: &str) -> bool {
 
 /// Opens `mount`'s root page and uses everything on it, then checks that
 /// every request the page made was answered, under `mount`.
-async fn every_request_stays_under(browser: &Browser, base: &str, heard: &Heard, mount: &str) {
+async fn every_request_stays_under(browser: &Browser, base: &str, heard: &Answered, mount: &str) {
     heard.lock().unwrap().clear();
-    let page = browser
-        .new_page(format!("{base}{mount}/README.md").as_str())
-        .await
-        .unwrap();
-    until(
-        &page,
-        "document.readyState === 'complete' && document.documentElement.dataset.ready === 'true'",
-    )
-    .await;
+    let page = testing::open(browser, &format!("{base}{mount}/README.md")).await;
     assert_eq!(
         eval::<String>(&page, "document.documentElement.dataset.mount").await,
         mount
@@ -232,16 +155,9 @@ async fn every_request_stays_under(browser: &Browser, base: &str, heard: &Heard,
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "drives Chrome"]
 async fn a_published_document_asks_only_under_its_mount() {
-    let (base, heard) = start().await;
-    let response = reqwest::Client::new()
-        .post(format!("{base}/api/documents"))
-        .body(site())
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(response.status(), 201);
-    let answer: serde_json::Value = response.json().await.unwrap();
-    let id = answer["id"].as_str().unwrap().to_string();
+    let (router, heard) = testing::answering(server_mode("mounted"));
+    let base = testing::serve(router).await;
+    let id = publish(&base, None, site()).await;
 
     let browser = testing::launch().await;
 

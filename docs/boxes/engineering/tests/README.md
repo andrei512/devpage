@@ -20,9 +20,13 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
-the code they test — the canvas's Chrome tests in
-`src/drive/server/canvas_tests.rs` and the comments' in
-`src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
+the code they test, except the tests that drive Chrome: each Chrome suite is
+a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
+`canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
+`server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
+launches Chrome, serves the test's router on loopback and waits on its pages.
+Below, each suite's tests are listed under the module whose behaviour they
+pin. The `tests/`
 folder holds two, [the search's quality](#the-searchs-quality) and
 [the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
@@ -97,7 +101,7 @@ platform's watcher:
 - two `drive::server` tests —
   `the_entry_document_follows_its_file_without_a_restart` and
   `a_server_and_the_watcher_its_options_start_announce_a_write_once`;
-- two Chrome tests in `drive::server::comments_browser` —
+- two Chrome tests in `drive::browser_tests::comments` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
 
@@ -202,7 +206,7 @@ On the network:
 
 ### `comments`
 
-*17 tests — 7 of `Comments`, 5 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::server::comments_browser`, and 1 on a published document.*
+*17 tests — 7 of `Comments`, 5 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::browser_tests::comments`, and 1 on a published document, in `drive::browser_tests::server_mode_comments`.*
 
 - A page that climbs out of the served folder and a made-up id refused.
 - Every write announcing its page once, keyed `/a.md` however it was named, and a failed one nothing.
@@ -229,7 +233,7 @@ In Chrome:
 
 ### `designs`
 
-*17 tests in the store; 15 more through the server, and 44 in Chrome, in `drive::server`.*
+*17 tests in the store; 15 more through the server, in `drive::server`, and 44 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
@@ -384,21 +388,27 @@ In Chrome:
 
 ### `drive::pdf`
 
-*2 tests, 35 in Chrome.*
+*2 tests; 4 in Chrome, in `drive::browser_tests::pdf`.*
 
 - The default file name made safe.
 - A site refused.
 
 In Chrome:
 
+- The fixture doc on A4 with its header and footer.
+- A doc embedding a design with problems printed without waiting for it.
+- The devpage talk one 16:9 page per slide.
+- A printed doc showing each widget's first render, terminal lines wrapping on paper, and its diagram on paper with its node's link in the PDF.
+
+### The page script
+
+*31 tests, all in Chrome, in `drive::browser_tests::page_script`.*
+
 - The logo loaded at 22px before the navbar's title, centred on it, and the tab's icon.
 - The navbar's dropdown by click and keyboard, its highlight following an in-place link.
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
 - A diagram in the page's HTML as served, its shapes taking the theme's `--surface` in light and again in dark after the switch, and its node's link opening the page in place.
 - The navbar folding into a menu on a narrow screen.
-- The fixture doc on A4 with its header and footer.
-- A doc embedding a design with problems printed without waiting for it.
-- The devpage talk one 16:9 page per slide.
 - A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
 - A doc's outline click scrolling without a fetch.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
@@ -414,7 +424,6 @@ In Chrome:
 - A link swapping in a page built off-screen, at the top, and back and forward restoring each page's scroll.
 - Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
-- A printed doc showing each widget's first render, terminal lines wrapping on paper, and its diagram on paper with its node's link in the PDF.
 - A broken helper's message and an unknown tag's error shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering.
 - The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar staying mounted across links, back and a live update: the same element in the same place in every frame, never empty, highlighting the page the frame shows, the highlight moving in the swap's own commit, the branch navigated to opening and opened branches staying open, the tree edited by a live update reaching it, and the widget never fetched again.
@@ -508,9 +517,9 @@ on the example deploy. Without Litestream's restore it fails.
 
 ### `drive::server`
 
-*30 tests, 37 in Chrome.*
+*30 tests.*
 
-The design tests through the server — a PNG, its `304`, its theme, the watch stream and the canvas page — are listed under [`designs`](#designs), and the Chrome tests under `designs` and `comments`.
+The design tests through the server — a PNG, its `304`, its theme, the watch stream and the canvas page — are listed under [`designs`](#designs), and the Chrome suites of the pages it serves — `drive::browser_tests::canvas` and `::comments` — under `designs` and `comments`.
 
 - Widgets served compiled, for the document they belong to, each helper imported by its own address; `immutable` at the current version, `no-cache` at any other.
 - Every built-in asset `immutable` at its content address, its bare name and a stale hash answering `no-cache`, and the page naming them.
@@ -530,7 +539,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*33 tests, and 5 of its configuration; 4 in Chrome.*
+*33 tests, and 5 of its configuration; 5 in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -557,7 +566,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::slide_png`
 
-*1 test, 6 in Chrome.*
+*1 test; 6 in Chrome, in `drive::browser_tests::slide_png`.*
 
 - A refresh forgetting every kept slide, and a page's comments forgetting none.
 
@@ -579,7 +588,7 @@ In Chrome:
 
 ### `drive::video`
 
-*19 tests, 3 in Chrome.*
+*19 tests; 3 in Chrome, in `drive::browser_tests::video`.*
 
 - The silence rules: a pause inside a slide capped at a second and one under
   it kept whole; silence held until what follows is known; a slide's end
