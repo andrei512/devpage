@@ -31,9 +31,9 @@ pub fn rows_per_band(width: u32) -> u32 {
 }
 
 /// The drawing at 1× as a PNG written to `out`, band by band.
-pub fn png(list: &List, out: impl Write) -> Result<(), png::EncodingError> {
+pub fn write(list: &List, out: impl Write) -> Result<(), png::EncodingError> {
     let (w, h) = (list.area.width as u32, list.area.height as u32);
-    bands(w, h, out, |piece| {
+    write_bands(w, h, out, |piece| {
         Ok::<_, std::convert::Infallible>(match piece {
             Piece::Tile { col, row } => crate::cpu::tile(list, 1.0, col, row),
             Piece::Strip { col, y, rows } => crate::cpu::strip(list, col, y, rows),
@@ -65,7 +65,7 @@ impl<E: std::fmt::Display> std::fmt::Display for Band<E> {
 /// from `piece` — whole tiles while a row of them fits in [`BAND_BYTES`],
 /// shorter strips otherwise — its rows streamed to the encoder as each band
 /// is had, so what is held at once is one band.
-pub fn bands<P: AsRef<[u8]>, E>(
+pub fn write_bands<P: AsRef<[u8]>, E>(
     width: u32,
     height: u32,
     out: impl Write,

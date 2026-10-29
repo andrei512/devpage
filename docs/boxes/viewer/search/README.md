@@ -223,7 +223,7 @@ what is published, which every burst does whole, and about 10 ms the merge.
 
 ## The endpoint
 
-`GET /__devpage/search?q=<query>` (`search` in `src/drive/server.rs`) answers
+`GET /__devpage/search?q=<query>` (`search` in `src/drive/http.rs`) answers
 `200` with the pages found, whether comments are on or off; a missing or
 blank `q` answers none:
 
@@ -269,7 +269,7 @@ code, as the text spells them — `Designs`, `design` — each once, in the orde
 they first appear, for the page to find and mark. Stopwords and excluded
 words are never among them.
 
-`server::App::printing`, which `devpage pdf` and `video` serve through, has no
+`http::App::printing`, which `devpage pdf` and `video` serve through, has no
 search index, and finds nothing.
 
 The index is written by one thread with a 15 MB memory arena, the least

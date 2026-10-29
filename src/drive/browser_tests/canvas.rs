@@ -17,7 +17,7 @@ use futures::StreamExt;
 use devpage_design::compare::{self, Difference};
 
 use crate::adapters::chrome::testing::{self, eval, until};
-use crate::drive::server;
+use crate::drive::http;
 use devpage_core::designs::Designs;
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
@@ -76,8 +76,8 @@ async fn serve(dir: &Path, entry: &str) -> String {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let changes = crate::adapters::changes::Changes::default();
-    testing::serve(server::router(
-        server::App::testing(document, changes)
+    testing::serve(http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ))
     .await
@@ -90,8 +90,8 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, Designs) {
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let designs = Designs::new(&document.served);
     let changes = crate::adapters::changes::Changes::default();
-    let router = server::router(
-        server::App::testing(document, changes)
+    let router = http::router(
+        http::App::testing(document, changes)
             .with_designs(designs.clone())
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );

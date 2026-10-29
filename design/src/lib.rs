@@ -18,7 +18,7 @@
 //!
 //! **Adapters** plug into its one port, [`display::Target`] — paint this area
 //! at this scale: [`cpu`], `vello_cpu`; the module's `vello` on WebGPU. And
-//! [`bands`] writes the PNG band by band from whatever gives it tiles. The
+//! [`png`](mod@png) writes the PNG band by band from whatever gives it tiles. The
 //! core names no adapter; a test holds it to that.
 
 // The core.
@@ -29,19 +29,19 @@ pub mod display;
 pub mod fonts;
 pub mod ids;
 pub mod parse;
+pub mod prefix_sums;
 pub mod proto;
 pub mod render;
 pub mod resolve;
 pub mod scene;
 pub mod shadow;
-pub mod sums;
 pub mod tiles;
 pub mod tree;
 pub mod wire;
 
 // Adapters.
-pub mod bands;
 pub mod cpu;
+pub mod png;
 
 use std::fmt;
 
@@ -80,7 +80,7 @@ pub fn png(renderer: &mut Renderer, scene: &Scene, theme: Theme) -> Result<Vec<u
         .drawing(scene, theme, None)
         .map_err(|e| e.message)?;
     let mut png = Vec::new();
-    bands::png(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
+    self::png::write(&drawing.list, &mut png).map_err(|e| format!("encoding the PNG: {e}"))?;
     Ok(png)
 }
 
@@ -95,12 +95,12 @@ unsafe impl Send for render::Drawing {}
 
 /// The core names no adapter and links no rasterizer: no module of it
 /// mentions `vello_cpu`, `vello`, `wgpu`, the PNG encoder, or [`cpu`] and
-/// [`bands`] — outside its tests. Dependencies point inward.
+/// [`png`](mod@png) — outside its tests. Dependencies point inward.
 #[cfg(test)]
 #[test]
 fn the_core_names_no_adapter() {
     let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let adapters = ["lib.rs", "cpu", "bands"];
+    let adapters = ["lib.rs", "cpu", "png"];
     let forbidden = [
         "vello_cpu",
         "vello::",
@@ -108,7 +108,7 @@ fn the_core_names_no_adapter() {
         "png::Encoder",
         "png::Stream",
         "crate::cpu",
-        "crate::bands",
+        "crate::png",
     ];
     let mut stack = vec![src.clone()];
     while let Some(dir) = stack.pop() {

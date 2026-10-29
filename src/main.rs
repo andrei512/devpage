@@ -75,11 +75,11 @@ enum Command {
 async fn main() -> Result<()> {
     // The composition root's own names, kept to it: every other module names
     // the core's and the binary's modules by their paths.
-    use adapters::{changes, git, http, terminal};
+    use adapters::{changes, external, git, terminal};
     use devpage_core::document::Document;
     use devpage_core::folder::{self, Folder};
     use devpage_core::{check, comments, designs, diagrams};
-    use drive::{pdf, server, video};
+    use drive::{http, pdf, video};
     let mut cli = Cli::parse();
     diagrams::start();
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -93,7 +93,7 @@ async fn main() -> Result<()> {
         )?;
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
-        let problems = check::document(&folder, &designs, Some(&http::external(None))).await;
+        let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -110,7 +110,7 @@ async fn main() -> Result<()> {
             return Ok(());
         }
         Some(Command::Video { path, output }) => {
-            let config = video::live::Config::from_env()?;
+            let config = video::narrator::Config::from_env()?;
             let document = Arc::new(Document::load(&path, &served()?)?);
             let output = output.unwrap_or_else(|| video::default_output(&document.title));
             // However the run ends — done, failed or interrupted — the
@@ -149,7 +149,7 @@ async fn main() -> Result<()> {
     // no one: comments are off.
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(
-        http::external(Some(changes.clone())),
+        external::checker(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
     let identity = if cli.no_comments {
@@ -167,9 +167,9 @@ async fn main() -> Result<()> {
             Arc::new(changes.clone()),
             document.served.clone(),
         );
-        server::Commenting::new(threads, identity)
+        http::Commenting::new(threads, identity)
     });
-    let app = server::App::local(document.clone(), changes, preview, comments);
+    let app = http::App::local(document.clone(), changes, preview, comments);
     let _watcher = app.watch()?;
     let shots = app.shots();
 
@@ -186,7 +186,7 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    let router = server::logged(server::router(app));
+    let router = http::logged(http::router(app));
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

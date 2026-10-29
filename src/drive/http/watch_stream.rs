@@ -150,7 +150,7 @@ mod tests {
     use prost::Message;
 
     use super::*;
-    use crate::drive::server::design_tests::start;
+    use crate::drive::http::design_tests::start;
     use devpage_core::designs::testing::{BUTTON, OTHER, SCREEN, THEMES, save, served};
 
     /// A change that only makes a scene themed, or no longer themed, is

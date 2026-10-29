@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 548 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 549 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 116 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,8 @@ $ cargo test -- --ignored     # the 116 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 155 in `devpage`, 227 in its
+`cargo test` runs every crate in the workspace: 156 in `devpage`, one of
+them in `tests/`, 227 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -35,10 +36,10 @@ a deck of three slides with notes that the live video test records, and
 search's quality is measured on. Route tests start the real router on
 a free port on `127.0.0.1` and talk to it with `reqwest`. The core's
 external-link tests ask a scripted table through the checker's `Ask` port,
-and the HTTP adapter's point it at a local web server, so the suite needs no
+and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 111 tests marked `#[ignore]`, 102 drive Chrome, and one of them also
+Of the 116 tests marked `#[ignore]`, 107 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
@@ -98,7 +99,7 @@ platform's watcher:
   a file saved and its folder passed from an FSEvents stream to kqueue at
   once, as the first comment's `.devpage/` does to the served folder, still
   reported;
-- two `drive::server` tests —
+- two `drive::http` tests —
   `the_entry_document_follows_its_file_without_a_restart` and
   `a_server_and_the_watcher_its_app_starts_announce_a_write_once`;
 - two Chrome tests in `drive::browser_tests::comments` —
@@ -122,15 +123,13 @@ the suite green.
 
 ### `addresses`
 
-*3 tests.*
-
 - Every built-in asset at its content address, the hash of its bytes; its bare name and a stale hash finding it, not as current.
 - An asset naming the others by their content addresses.
 - A widget's address carrying the mount and the version it is given.
 
 ### `answer`
 
-*12 tests, without a socket.*
+*Without a socket.*
 
 - A widget's module answered compiled for the document whose widgets folder holds it, each helper imported by its own address; immutable at the address its page names it by, and at any other the current module, never immutable; an import without an extension finding the `.ts`; a system widget the same, an unknown one not found; nothing outside the served folder.
 - A widget whose helper — reached through another helper — doesn't compile answered by a module that throws, naming that helper.
@@ -147,20 +146,14 @@ the suite green.
 
 ### `adapters::bucket`
 
-*1 test.*
-
 - A `DEVPAGE_BUCKET_URL` that is no URL, or names no bucket devpage reads, refused by the variable's name, never echoing its value.
 
 ### `adapters::bundle`
-
-*3 tests.*
 
 - The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
 - What is packed unpacking file for file.
 
 ### `adapters::changes`
-
-*4 tests.*
 
 - Every subscriber hearing every change, in order.
 - One that falls behind hearing a refresh rather than losing an update.
@@ -168,8 +161,6 @@ the suite green.
 - `next` waiting for a change and ending when the bus is gone.
 
 ### `adapters::chrome`
-
-*4 tests, 1 in Chrome, 1 on the network.*
 
 - Chrome's sandbox on unless `DEVPAGE_CHROME_SANDBOX` is `off`, in either profile, and any other setting refused.
 - The shot profile drawing with the GPU, and the recording one capturing its own tab, playing audio without a gesture and hiding scrollbars.
@@ -184,22 +175,20 @@ On the network:
 
 - Both browsers' zips at the pinned version answering `200` for every platform.
 
-### `adapters::git`
+### `adapters::external`
 
-*1 test.*
-
-- The user name without a `.git` folder.
-
-### `adapters::http`
-
-*2 tests, against a local web server.*
+*Against a local web server.*
 
 - `devpage check` asking each external address once and reporting every link to it.
 - The preview checking in the background and refreshing open pages.
 
+### `adapters::git`
+
+- The user name without a `.git` folder.
+
 ### `adapters::sqlite`
 
-*3 tests; its threads are tested through `drive::server_mode`.*
+*Its threads are tested through `drive::server_mode`.*
 
 - A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
 - Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
@@ -207,19 +196,13 @@ On the network:
 
 ### `cache`
 
-*2 tests.*
-
 - The least recently read versions going, oldest first, until the cache is at 90% of its limit; nothing going under it.
 
 ### `changes`
 
-*1 test.*
-
 - The page reading the same `change` and `comments /<page>` messages as before the bus was typed.
 
 ### `check`
-
-*18 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
@@ -238,7 +221,7 @@ On the network:
 
 ### `comments`
 
-*17 tests — 7 of `Comments`, 5 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::browser_tests::comments`, and 1 on a published document, in `drive::browser_tests::server_mode_comments`.*
+*Of `Comments`, of its YAML adapter and of re-anchoring; in Chrome, in `drive::browser_tests::comments`, and on a published document, in `drive::browser_tests::server_mode_comments`.*
 
 - A page that climbs out of the served folder and a made-up id refused.
 - Every write announcing its page once, keyed `/a.md` however it was named, and a failed one nothing.
@@ -265,7 +248,7 @@ In Chrome:
 
 ### `designs`
 
-*22 tests in the store; 14 more through the server, in `drive::server`, and 50 in Chrome, in `drive::browser_tests::canvas`.*
+*In the store; through the server, in `drive::http`; and in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
@@ -321,8 +304,6 @@ In Chrome:
 
 ### `diagrams`
 
-*6 tests.*
-
 - A flowchart drawn to SVG with its `click` links, its tooltip as their title, an `https://` target kept through the engine's `URL`, and its colors left as `--pele-*` variables.
 - pele's error as the diagram's — a parse error, no diagram type — and the engine drawing the next one.
 - A diagram drawn before, or one pele rejected, coming from the cache; only new ones sent to the thread.
@@ -331,8 +312,6 @@ In Chrome:
 - Fences in rendered HTML replaced by their drawings or by the error block with the source, escaped; other code left alone.
 
 ### `document`
-
-*10 tests.*
 
 - Each kind parsed.
 - A deck's audience, goal, tone and pronounce, each slide's notes and delivery; those fields refused on the other kinds, and `context` refused.
@@ -346,7 +325,7 @@ In Chrome:
 
 ### `external`
 
-*3 tests, against a scripted `Ask`.*
+*Against a scripted `Ask`.*
 
 - `devpage check` asking an unreachable address once more before reporting it, and a broken one once.
 - Outside a runtime, the preview asking nothing.
@@ -354,7 +333,7 @@ In Chrome:
 
 ### `folder`
 
-*25 tests, on real folders, without a watcher.*
+*On real folders, without a watcher.*
 
 The served folder, `ServedFolder`:
 
@@ -389,7 +368,7 @@ an ignored folder but reaches into none, watching none.
 
 ### `html`
 
-*4 tests, on strings.*
+*On strings.*
 
 - Text escaped for an element's text and a quoted attribute, and back.
 - A tag's attributes read however they are quoted, spaced or capitalised.
@@ -398,26 +377,20 @@ an ignored folder but reaches into none, watching none.
 
 ### `icons`
 
-*1 test.*
-
 - Lucide icons and GitHub's mark drawn.
 - Unknown names known as such.
 
 ### `main`
 
-*1 test.*
-
 - Taking the next port when the first is busy.
 
 ### `markup`
 
-*6 tests, on strings.*
+*On strings.*
 
 - `<Notes>` found with its line, none in code or comments; its text kept without its indentation; its `delivery` kept; one whose attributes can't be read keeping its text and no delivery; an unclosed one running to the end of the page.
 
 ### `nav`
-
-*4 tests.*
 
 - Links and `###` groups read from the Topics section only.
 - The tree stopping at a cycle.
@@ -425,13 +398,11 @@ an ignored folder but reaches into none, watching none.
 
 ### `drive::api_types`
 
-*1 test.*
-
 - Every refusal the server answers — not found, unauthorized, unprocessable, a failure — read back by the client as the same refusal.
 
 ### `drive::client`
 
-*15 tests. Every server command runs against a real `devpage server` on a `file://` bucket, with each request it hears recorded.*
+*Every server command runs against a real `devpage server` on a `file://` bucket, with each request it hears recorded.*
 
 - A broken link stopping `publish` before any request, in text and `--json`.
 - `publish` remembering the document per context in `published.yml`, adding a version the second time, the bucket keeping the zip it sent and its link rendering the new version; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
@@ -441,7 +412,7 @@ an ignored folder but reaches into none, watching none.
 
 ### `drive::pdf`
 
-*2 tests; 4 in Chrome, in `drive::browser_tests::pdf`.*
+*And in Chrome, in `drive::browser_tests::pdf`.*
 
 - The default file name made safe.
 - A site refused.
@@ -455,7 +426,7 @@ In Chrome:
 
 ### The page script
 
-*31 tests, all in Chrome, in `drive::browser_tests::page_script`.*
+*All in Chrome, in `drive::browser_tests::page_script`.*
 
 - The logo loaded at 22px before the navbar's title, centred on it, and the tab's icon.
 - The navbar's dropdown by click and keyboard, its highlight following an in-place link.
@@ -488,8 +459,6 @@ In Chrome:
 
 ### `page`
 
-*35 tests.*
-
 - A page's content holding its own links by file and line — a heading's anchor, a link, an address on the web, an embedded design — and none of the navbar the frame puts round it.
 - `ids` as a Markdown file and a doc render them: a file's own, one chapter's unprefixed, several chapters' each under its chapter's name with the chapter's own, none for a deck or a missing file; each one an id the doc's page renders.
 - The canvas page titled without `.design`, and carrying its mount.
@@ -518,8 +487,6 @@ In Chrome:
 - A missing logo as a problem and the page shown without it.
 
 ### `search`
-
-*23 tests.*
 
 - Only what the served document publishes searched: a page no nav lists and a page out of sight never; front matter's `search: true` putting one in, `search: false` taking one out.
 - A file that is both a page and a chapter found once, as the chapter; a doc's chapters and a deck's slides at their own addresses, a slide by its notes.
@@ -558,9 +525,7 @@ an empty one, and finds both versions, the thread, the latest at the link and
 version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
 on the example deploy. Without Litestream's restore it fails.
 
-### `drive::server`
-
-*30 tests.*
+### `drive::http`
 
 The design tests through the server — a PNG, its `304`, its theme, the watch stream and a design as the entry document — are listed under [`designs`](#designs), and the Chrome suites of the pages it serves — `drive::browser_tests::canvas` and `::comments` — under `designs` and `comments`.
 
@@ -582,7 +547,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*37 tests, and 5 of its configuration; 5 in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
+*With its configuration's; in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -611,7 +576,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::slide_png`
 
-*1 test; 6 in Chrome, in `drive::browser_tests::slide_png`.*
+*And in Chrome, in `drive::browser_tests::slide_png`.*
 
 - A refresh forgetting every kept slide, and a page's comments forgetting none.
 
@@ -626,14 +591,12 @@ In Chrome:
 
 ### `drive::validators`
 
-*2 tests.*
-
 - `If-None-Match` compared the weak way, as a list, and `*`.
 - Brotli preferred over gzip, and an encoding with `q=0` refused.
 
 ### `drive::video`
 
-*19 tests; 3 in Chrome, in `drive::browser_tests::video`.*
+*And in Chrome, in `drive::browser_tests::video`.*
 
 - The silence rules: a pause inside a slide capped at a second and one under
   it kept whole; silence held until what follows is known; a slide's end
@@ -664,8 +627,6 @@ In Chrome:
   when `DEVPAGE_OPENAI_API_KEY` is set. The Azure path has no live test.
 
 ### `adapters::watch`
-
-*20 tests.*
 
 Counting the paths the platform's watcher hands the handler, before sifting,
 on real folders:
@@ -705,7 +666,7 @@ Without waiting on file-system events, fed made-up `notify` events:
 
 ### `watch`
 
-*6 tests, on real folders, without a platform watcher.*
+*On real folders, without a platform watcher.*
 
 Local mode's response to a burst of saved paths, `Listeners::changed`, ported from the watcher so its order is pinned on every platform:
 
@@ -716,8 +677,6 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - The search index hearing of saved and deleted pages.
 
 ### `widgets`
-
-*29 tests.*
 
 - A system widget's address carrying its own version, each one's its own.
 - `<Notes>` taken out of the page, and a project `Notes.tsx` a clash; an unclosed one a problem, so none of it is shown; its `delivery` never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown — finding `<Notes>` itself is [`markup`](#markup)'s.
@@ -739,30 +698,26 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 ### `devpage-design`
 
-*154 tests.*
-
-- `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
-- `ids`, 9: a first parse numbering elements in order; an insert at the front, a removal and an edit keeping every other element's id; keyed siblings keeping theirs when reordered; a matched element's children matched too and new ones numbered, a different root a new one; 100,000 siblings matched in a pass; the edit script a longest common subsequence; a list rewritten past the edit cap — every third row removed, shuffled, reversed, half replaced — keeping the id of every row that survived and giving none another's; gaps nested past the depth cap still giving every row an id of its own. A release bench, ignored, times rewritten lists at 1,000, 10,000 and 100,000 rows.
-- `tree`, 3: keys spread evenly sorting in order; a key placed between two — before the first, after the last, in the middle, 2,000 times over — always sorting between them and staying short; children inserted anywhere keeping their order, the same children placed otherwise the same.
-- `resolve`, 36: a `key` a string unique among its siblings, two instances of one file their own nodes; props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.
-- `resolve::again`, 4: random saves of a design — rows inserted at the front, middle and end, removed, moved, keyed and not, made instances and frames, their text edited, their frame's layout and fill, a component's attributes, a theme's colour — read by rows and through a component's `props` defaults — a line added above everything — each resolved again only as far as it reaches, never whole, its edits applied once to the scene its holder holds — the resolution keeps none — that scene a fresh resolve's and the patch bringing the browser's copy there, a problem every problem; an edit to one row's text and a row inserted before the first one operation each, resolving again costing at 100,000 rows what reading the saved file costs and a little more, as at 1,000; a component's save reaching only its instances' roots, a theme's only the nodes that read it, a component's tint from its `props` defaults among them; saves while a design has problems kept, and the fix bringing the last scene across all of them.
-- `render`, 53: an edit in every kind of frame — a list's widest row made wider, a list's own fill changed, a child of a frame with no layout resized and one inserted first, a sibling of a `"fill"` child resized, a child of a `"space-between"` frame resized, a fixed-width card of wrapping text in a frame with no layout made wider — visiting the same nodes at 1,000 siblings as at 10,000, none beside what changed, and leaving a drawing laid out and painted as a fresh one, with their numbers at 1,000, 10,000 and 100,000 in an ignored bench; a list's new `align` placing every row again and nothing in them, and every attribute that places a list's children — `align`, `justify`, `padding`, `gap`, its direction — changed from each value to every other on 1,000 rows, each leaving a drawing laid out and painted as a fresh one; a frame with no layout that grows laying out again a child whose size its box reaches; a row of fractional height inserted before the first of 10,000 visiting only the new row, a tile rounding only the rows it shows anew, and the drawing then a fresh one's, box for box and pixel for pixel; layout boundaries and runs — 400 random trees of rows, columns and frames with no layout, every `align` and `justify`, children fixed, hugging, stretching and filling, wrapping text, runs inside runs and boxes placed absolutely, at places in eighths of a pixel — laid out box for box as taffy lays the whole tree out, an edge differing only where taffy's own unrounded edge lies within a thousandth of a pixel of a rounding boundary; one row of a column edited — its text, its height, a row inserted before the first — visiting the same three nodes at 1,000 and 10,000 rows, the damage from the row to the column's end, and the drawing laid out, painted, hit-tested as a fresh one; a row inserted before the first of 1,000 or of 10,000 one insert in the patch and one chunk made, two nodes visited; random saves of a list — inserts at the front, middle and end, removals, moves, resizes, keyed and not — resolved from the saved text and patched onto the canvas's scene, every row the save didn't touch keeping its id and the drawing painting as a fresh one; auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out as the layout lays it out, align and justify, and absolute placement; boxes — a box placed absolutely in a frame with no layout inside auto layout, measured from its own parent frame, and 300 random trees of auto layout and none at fractional places in eighths — rounded box for box as taffy rounds a whole tree; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing 70,000 pixels wide painted whole; a design 100,000 pixels tall streaming its PNG, a tile at its bottom asking the index for a handful of commands; a click on it answered from the index, the topmost interaction, none where a clip hides it; an edit to one row damaging only that row, its tiles as a fresh drawing's; updates — a row growing, a clipping parent resizing, a row added, a child past the top-left, rows removed — painting as a fresh drawing, the area's new strip damaged, a moved corner damaging all; an edit to one row's text visiting only its path — three nodes — on 1,000 rows and on 10,000; an edit applied as a canvas applies it — the patch onto its scene, the drawing by what the patch replaced — costing as much on a balanced design of 10,000 rows as on one of 100; a row that grows moving only the rows after it; random edits of every kind to the checkout design, each applied by its patch as a canvas applies it — attributes, text, sizes, layouts, clips, opacities, children added, removed, moved to the front, the root replaced — each leaving a drawing laid out, painted and holding property-tree nodes as a fresh one; the examples painted tile by tile within 2 of 255 of their references, and a tile the same part of one paint of the whole; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs, through tiles; a text laid out in its font, and in a variable one at its weight's point on the axis, which its glyph runs carry; a renderer that drew other fonts laying out as a fresh one, holding one scene's font files.
-- `scene`, 7: edits between two scenes — an insert before the first of 100,000 one insert; moves, removes and changes found by id, a row moved out of its parent a new one; a new root replacing the scene — applied as they say, the files' counts and the id index following; edits that can't be applied whole — an id the scene hasn't, a sibling under another parent, a node it has already, a move under itself — changing nothing after the edits before them did; edits carrying only the files the scene lacks, and a file no node uses any more dropped; the longest run of siblings still in order staying; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color.
-- `wire`, 7: a patch saying what it changed, by id, and carrying only that; edits of every kind coming back from their patch the same; a patch that isn't one — an empty operation, an insert with no node, a node with no id — refused before anything is applied; a scene and a patch carrying both themes; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused; a font file the same, the browser keeping the one it checked.
-- `fonts`, 2: a font file knowing its family, its weight or its weight axis; a folder's italic faces passed over, and one of italic faces only a problem.
-- `atlas`, 1: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
-- `sums`, 2: random inserts, removes and replacements agreeing with a sorted map on every prefix, search and walk; an insert before the first of 100,000 and a prefix at the end in log time.
-- `display`, 1: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
-- `compare`, 2: the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
-- `bands`, 4: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; a band holding as many rows as fit in 16 MB, a whole row of tiles up to 16,384 pixels wide, at least one row however wide; a drawing 1,000,000 pixels wide written in strips holding at most 16 MB at once, its pixels right at both ends and across a strip's seam and a band's; a strip painting as the part of the tile it replaces.
-- `design`, 5: a new design staling every tile of both themes, an edit damaging only where it changed, from the drawing's top-left, in each theme drawn and no other, the drawing then painting tile by tile as a fresh one; an edit leaving the scene too many images for the GPU's atlas saying why, damaging no tile and showing the last good drawing — its size, its images and every tile a view needs, a pan's and a zoom's never painted before included, through later saves — and the edit that mends it damaging every tile and painting as a fresh drawing; a whole scene that can't be drawn after one that could showing the one before; a whole scene that can't be drawn from the start tried again only once it changes; a whole scene redrawing both themes, and a theme let go left alone.
-- `tiles`, 9: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again; the frame plan — the JavaScript compositor's rules, ported — asking for the missing tiles middle first while fewer than its budget are in flight, and after arrivals only as many as arrived; an unsettled frame asking for nothing and counting what it lacks; an answer to a ticket never given, answered already or given by another plan dropped, and a tile painted as nothing asked for again under a new ticket; a tile damaged in flight arriving stale, kept and asked for again, damage elsewhere or in the other theme leaving it current; every painting let go — past the cap, or replaced — evicted once; a frame drawing coarse levels under fine and the view's own on top, each where it lands.
-- The crate, 1: the core naming no adapter and no rasterizer.
-- `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
+- `parse`: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
+- `ids`: a first parse numbering elements in order; an insert at the front, a removal and an edit keeping every other element's id; keyed siblings keeping theirs when reordered; a matched element's children matched too and new ones numbered, a different root a new one; 100,000 siblings matched in a pass; the edit script a longest common subsequence; a list rewritten past the edit cap — every third row removed, shuffled, reversed, half replaced — keeping the id of every row that survived and giving none another's; gaps nested past the depth cap still giving every row an id of its own. A release bench, ignored, times rewritten lists at 1,000, 10,000 and 100,000 rows.
+- `tree`: keys spread evenly sorting in order; a key placed between two — before the first, after the last, in the middle, 2,000 times over — always sorting between them and staying short; children inserted anywhere keeping their order, the same children placed otherwise the same.
+- `resolve`: a `key` a string unique among its siblings, two instances of one file their own nodes; props and defaults; an import name unique and never a built-in element's; sizes and spacing never negative; `justify` naming all it takes; `x` and `y` in a frame with auto layout, a negative size, an attribute given twice and an import of something other than a design each a problem; `props` only on the root, and no `x` or `y` on it; `"fill"` only under auto layout; a colour with anything but hex digits in it a problem, not a panic; a tree nested too deep through instances; an instance taking its props and the attributes every element takes; values parsed into their types; opacity kept between 0 and 1; every problem reported at once and each at its place; a missing import a problem at its line, used or not; a design that uses itself; paths kept inside the served folder; an image that doesn't decode — a broken PNG, a truncated JPEG — a problem at its `src`, and a good one's pixels going with the scene; `clip` only on a frame; numbers inside a gradient, a `viewBox` and a `d` held to the same limits as any other; an interaction relative to the file that wrote it, one to nowhere a problem, and one only ever to a design; a valid design having none; a text set in the font its `font` names through the `themes.yml` files above it — a lower one adding and overriding names — or in Inter, one design mixing families; a `themes.yml`'s `fonts` a map of lowercase names to paths, anything else a problem at its line, and `font` no key of it; weight picking the face, and a scene carrying only the faces its texts use, once; a weight the font lacks a problem listing those it has, at the `weight` or at the `Text`; an unknown name a problem at the `font`, listing the names there are; every way a font can't be used — missing, outside the served folder, not a font, WOFF, WOFF2, a collection, over 4 MB, unreadable, a folder of no fonts, of two families, of two files of one weight, or holding a bad file — a problem at its `fonts` entry, once; a value given as a prop — `src`, `font`, an interaction — read where it was written, its problem there.
+- `resolve::again`: random saves of a design — rows inserted at the front, middle and end, removed, moved, keyed and not, made instances and frames, their text edited, their frame's layout and fill, a component's attributes, a theme's colour — read by rows and through a component's `props` defaults — a line added above everything — each resolved again only as far as it reaches, never whole, its edits applied once to the scene its holder holds — the resolution keeps none — that scene a fresh resolve's and the patch bringing the browser's copy there, a problem every problem; an edit to one row's text and a row inserted before the first one operation each, resolving again costing at 100,000 rows what reading the saved file costs and a little more, as at 1,000; a component's save reaching only its instances' roots, a theme's only the nodes that read it, a component's tint from its `props` defaults among them; saves while a design has problems kept, and the fix bringing the last scene across all of them.
+- `render`: an edit in every kind of frame — a list's widest row made wider, a list's own fill changed, a child of a frame with no layout resized and one inserted first, a sibling of a `"fill"` child resized, a child of a `"space-between"` frame resized, a fixed-width card of wrapping text in a frame with no layout made wider — visiting the same nodes at 1,000 siblings as at 10,000, none beside what changed, and leaving a drawing laid out and painted as a fresh one, with their numbers at 1,000, 10,000 and 100,000 in an ignored bench; a list's new `align` placing every row again and nothing in them, and every attribute that places a list's children — `align`, `justify`, `padding`, `gap`, its direction — changed from each value to every other on 1,000 rows, each leaving a drawing laid out and painted as a fresh one; a frame with no layout that grows laying out again a child whose size its box reaches; a row of fractional height inserted before the first of 10,000 visiting only the new row, a tile rounding only the rows it shows anew, and the drawing then a fresh one's, box for box and pixel for pixel; layout boundaries and runs — 400 random trees of rows, columns and frames with no layout, every `align` and `justify`, children fixed, hugging, stretching and filling, wrapping text, runs inside runs and boxes placed absolutely, at places in eighths of a pixel — laid out box for box as taffy lays the whole tree out, an edge differing only where taffy's own unrounded edge lies within a thousandth of a pixel of a rounding boundary; one row of a column edited — its text, its height, a row inserted before the first — visiting the same three nodes at 1,000 and 10,000 rows, the damage from the row to the column's end, and the drawing laid out, painted, hit-tested as a fresh one; a row inserted before the first of 1,000 or of 10,000 one insert in the patch and one chunk made, two nodes visited; random saves of a list — inserts at the front, middle and end, removals, moves, resizes, keyed and not — resolved from the saved text and patched onto the canvas's scene, every row the save didn't touch keeping its id and the drawing painting as a fresh one; auto layout, hug, fill, a root that fills on its own hugging, a drawing laid out as the layout lays it out, align and justify, and absolute placement; boxes — a box placed absolutely in a frame with no layout inside auto layout, measured from its own parent frame, and 300 random trees of auto layout and none at fractional places in eighths — rounded box for box as taffy rounds a whole tree; a hugging frame with no layout taking its children's extent, nested ones too; the drawing being the root plus what is painted outside it, cut by clipping, and a drawing 70,000 pixels wide painted whole; a design 100,000 pixels tall streaming its PNG, a tile at its bottom asking the index for a handful of commands; a click on it answered from the index, the topmost interaction, none where a clip hides it; an edit to one row damaging only that row, its tiles as a fresh drawing's; updates — a row growing, a clipping parent resizing, a row added, a child past the top-left, rows removed — painting as a fresh drawing, the area's new strip damaged, a moved corner damaging all; an edit to one row's text visiting only its path — three nodes — on 1,000 rows and on 10,000; an edit applied as a canvas applies it — the patch onto its scene, the drawing by what the patch replaced — costing as much on a balanced design of 10,000 rows as on one of 100; a row that grows moving only the rows after it; random edits of every kind to the checkout design, each applied by its patch as a canvas applies it — attributes, text, sizes, layouts, clips, opacities, children added, removed, moved to the front, the root replaced — each leaving a drawing laid out, painted and holding property-tree nodes as a fresh one; the examples painted tile by tile within 2 of 255 of their references, and a tile the same part of one paint of the whole; no input — hostile values for every attribute of every element, a file cut at every character — making the engine panic; text hugging and centered; fills, gradients along their angle, strokes inside the box, per-corner radius, a shadow following each corner's radius and the spread, sharp and blurred, and its edge the Gaussian at every box size from 100 to 16,000 — fading out with no step, rising 10–90% over 2.563 σ; clip and opacity as one group; vectors scaled into and hugging their view box; images covering their box, PNG and JPEG decoding; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit, one file shown again taking no more room; a drawing painting the same images as the last painting the last one's blobs, and one whose files, order or shadows differ, or made after none, fresh ones; the example designs painting as their reference PNGs, through tiles; a text laid out in its font, and in a variable one at its weight's point on the axis, which its glyph runs carry; a renderer that drew other fonts laying out as a fresh one, holding one scene's font files.
+- `scene`: edits between two scenes — an insert before the first of 100,000 one insert; moves, removes and changes found by id, a row moved out of its parent a new one; a new root replacing the scene — applied as they say, the files' counts and the id index following; edits that can't be applied whole — an id the scene hasn't, a sibling under another parent, a node it has already, a move under itself — changing nothing after the edits before them did; edits carrying only the files the scene lacks, and a file no node uses any more dropped; the longest run of siblings still in order staying; a file larger than 4,096 a side resampled once to fit, by area, a transparent pixel lending no color.
+- `wire`: a patch saying what it changed, by id, and carrying only that; edits of every kind coming back from their patch the same; a patch that isn't one — an empty operation, an insert with no node, a node with no id — refused before anything is applied; a scene and a patch carrying both themes; an image file sent once however many nodes show it, a patch carrying only the files the browser lacks, and one whose nodes show a file never sent refused; a font file the same, the browser keeping the one it checked.
+- `fonts`: a font file knowing its family, its weight or its weight axis; a folder's italic faces passed over, and one of italic faces only a problem.
+- `atlas`: four 4,096-pixel squares filling the atlas at their places, a fifth not fitting.
+- `prefix_sums`: random inserts, removes and replacements agreeing with a sorted map on every prefix, search and walk; an insert before the first of 100,000 and a prefix at the end in log time.
+- `display`: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
+- `compare`: the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
+- `png`: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; a band holding as many rows as fit in 16 MB, a whole row of tiles up to 16,384 pixels wide, at least one row however wide; a drawing 1,000,000 pixels wide written in strips holding at most 16 MB at once, its pixels right at both ends and across a strip's seam and a band's; a strip painting as the part of the tile it replaces.
+- `design`: a new design staling every tile of both themes, an edit damaging only where it changed, from the drawing's top-left, in each theme drawn and no other, the drawing then painting tile by tile as a fresh one; an edit leaving the scene too many images for the GPU's atlas saying why, damaging no tile and showing the last good drawing — its size, its images and every tile a view needs, a pan's and a zoom's never painted before included, through later saves — and the edit that mends it damaging every tile and painting as a fresh drawing; a whole scene that can't be drawn after one that could showing the one before; a whole scene that can't be drawn from the start tried again only once it changes; a whole scene redrawing both themes, and a theme let go left alone.
+- `tiles`: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again; the frame plan — the JavaScript compositor's rules, ported — asking for the missing tiles middle first while fewer than its budget are in flight, and after arrivals only as many as arrived; an unsettled frame asking for nothing and counting what it lacks; an answer to a ticket never given, answered already or given by another plan dropped, and a tile painted as nothing asked for again under a new ticket; a tile damaged in flight arriving stale, kept and asked for again, damage elsewhere or in the other theme leaving it current; every painting let go — past the cap, or replaced — evicted once; a frame drawing coarse levels under fine and the view's own on top, each where it lands.
+- The crate: the core naming no adapter and no rasterizer.
+- `shadow`: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
-
-*10 tests.*
 
 - A scene sized, painted and hit-tested.
 - A design in a font file, by its scene and by a patch bringing another weight, laid out and painted as the server paints its PNG, pixel for pixel.
@@ -776,8 +731,6 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - A patch leaving the design too many images for the GPU's atlas a problem, as the stream's are, the plan still showing the tiles painted, staling none and asking for none, and a zoom's tiles, never painted, painting the last good drawing; the patch that mends it staling every tile and painting as the server's PNG, pixel for pixel.
 
 ### `devpage-design-module`
-
-*2 tests.*
 
 - The vendored module built from the sources as they are.
 - The fingerprint changing with an engine source, the `wasm` profile and a locked version in the module's tree, but not with a package outside it.

@@ -317,7 +317,7 @@ async fn publish(
     let problems = devpage_core::check::document(
         &folder,
         &designs,
-        Some(&crate::adapters::http::external(None)),
+        Some(&crate::adapters::external::checker(None)),
     )
     .await;
     if !problems.is_empty() {

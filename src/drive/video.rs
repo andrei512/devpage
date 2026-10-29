@@ -3,7 +3,7 @@
 //! own tab, the voice played into the recording by the page itself
 //! (`assets/video.js`).
 
-pub mod live;
+pub mod narrator;
 pub mod silence;
 
 use std::path::{Path, PathBuf};
@@ -16,7 +16,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
 use crate::adapters::chrome::{Open, Profile, Session, Tab};
-use crate::drive::server;
+use crate::drive::http;
 use devpage_core::document::{Document, Kind};
 use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
@@ -77,12 +77,12 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
         );
     }
     let count = slides.len();
-    let instructions = live::instructions(&document.title, count, narration);
+    let instructions = narrator::instructions(&document.title, count, narration);
     let requests = slides
         .iter()
         .enumerate()
         .map(|(i, slide)| {
-            live::request(
+            narrator::request(
                 i + 1,
                 count,
                 slide.delivery.as_deref(),
@@ -94,7 +94,11 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
 }
 
 /// Records `document`, narrated by GPT-Live per `config`, to `output`.
-pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
+pub async fn record(
+    document: Arc<Document>,
+    output: &Path,
+    config: &narrator::Config,
+) -> Result<()> {
     let (instructions, requests) = told(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
     let (router, deck) = served(document);
@@ -104,24 +108,24 @@ pub async fn record(document: Arc<Document>, output: &Path, config: &live::Confi
         output,
         requests,
         heard.clone(),
-        async |heard| live::Live::start(config, &instructions, heard).await,
+        async |heard| narrator::Live::start(config, &instructions, heard).await,
     )
     .await
 }
 
 /// The voice that says each slide's notes, its audio arriving in [`Heard`].
 pub(crate) trait Voice {
-    /// Asks for slide `n` with its [`live::request`].
+    /// Asks for slide `n` with its [`narrator::request`].
     fn say(&self, n: usize, request: &str);
     async fn close(self);
 }
 
-impl Voice for live::Live {
+impl Voice for narrator::Live {
     fn say(&self, n: usize, request: &str) {
-        live::Live::say(self, n, request);
+        narrator::Live::say(self, n, request);
     }
     async fn close(self) {
-        live::Live::close(self).await;
+        narrator::Live::close(self).await;
     }
 }
 
@@ -157,7 +161,7 @@ impl Heard {
 /// its entry.
 pub(super) fn served(document: Arc<Document>) -> (Router, String) {
     let entry = document.entry();
-    let router = server::router(server::App::printing(document));
+    let router = http::router(http::App::printing(document));
     (router, entry)
 }
 
@@ -414,11 +418,11 @@ pub(super) mod tests {
             std::fs::write(dir.join("devpage.yml"), yml).unwrap();
             let document =
                 Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
-            let config = live::Config {
-                provider: live::Provider::OpenAi {
+            let config = narrator::Config {
+                provider: narrator::Provider::OpenAi {
                     key: "never".into(),
                 },
-                model: live::DEFAULT_MODEL.into(),
+                model: narrator::DEFAULT_MODEL.into(),
             };
             let out = dir.join("never.mp4");
             let error = record(document, &out, &config).await.unwrap_err();

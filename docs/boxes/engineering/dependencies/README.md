@@ -25,9 +25,9 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/drive/server.rs`, `src/main.rs`, `src/adapters/chrome.rs` |
-| `tokio` (feature `full`; the core's only as a dev dependency) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channels the change bus and the watch stream are made of, running background external-link checks and painting designs off the async threads, and reading files in handlers (`tokio::fs`); the runtime the core's async tests run on. | `src/main.rs`, `src/drive/server.rs`, `src/adapters/changes.rs`, `src/adapters/watch.rs`, `src/adapters/http.rs`, `src/drive/server/watch_stream.rs`, `src/adapters/chrome.rs`, `core/src/` (tests) |
-| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `ReceiverStream` and the `Stream` trait, which make the design store's changes the watch stream's response, and the `Stream` the event route answers with. | `src/drive/server.rs`, `src/drive/server/watch_stream.rs` |
+| `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/drive/http.rs`, `src/main.rs`, `src/adapters/chrome.rs` |
+| `tokio` (feature `full`; the core's only as a dev dependency) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channels the change bus and the watch stream are made of, running background external-link checks and painting designs off the async threads, and reading files in handlers (`tokio::fs`); the runtime the core's async tests run on. | `src/main.rs`, `src/drive/http.rs`, `src/adapters/changes.rs`, `src/adapters/watch.rs`, `src/adapters/external.rs`, `src/drive/http/watch_stream.rs`, `src/adapters/chrome.rs`, `core/src/` (tests) |
+| `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `ReceiverStream` and the `Stream` trait, which make the design store's changes the watch stream's response, and the `Stream` the event route answers with. | `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
 | `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
 
 ## Markdown and code
@@ -62,48 +62,48 @@ except where a code comment says so, and this page doesn't guess.
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/folder/index.rs`, `core/src/search/gather.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
 | `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
-| `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/server.rs` |
+| `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/http.rs` |
 
 ## Documents, comments and data
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/server.rs` |
+| `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/http.rs` |
 | `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/server.rs`, `core/src/page/frame.rs`, `core/src/page/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/http.rs`, `core/src/page/frame.rs`, `core/src/page/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
 
 ## Links and Chrome
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/adapters/http.rs`, `src/drive/server.rs` (tests) |
-| `futures` | 0.3.34 | MIT or Apache-2.0 | The boxed futures of the core's `Ask` and `Background` ports, running external-link checks at once (`join_all`), and driving chromiumoxide's event stream (`StreamExt`). | `core/src/external.rs`, `src/adapters/http.rs`, `src/adapters/chrome.rs`, `src/drive/browser_tests/` (tests) |
+| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/adapters/external.rs`, `src/drive/http.rs` (tests) |
+| `futures` | 0.3.34 | MIT or Apache-2.0 | The boxed futures of the core's `Ask` and `Background` ports, running external-link checks at once (`join_all`), and driving chromiumoxide's event stream (`StreamExt`). | `core/src/external.rs`, `src/adapters/external.rs`, `src/adapters/chrome.rs`, `src/drive/browser_tests/` (tests) |
 | `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/adapters/chrome.rs`; the Chrome tests in `src/drive/browser_tests/` |
 
 ## Video
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `async-tungstenite` (features `tokio-runtime`, `tokio-rustls-native-certs`) | 0.32.1 | MIT | The WebSocket to GPT-Live for `devpage video`, over rustls with the system's root certificates. chromiumoxide already speaks DevTools through it, so it adds no crate. | `src/drive/video/live.rs` |
-| `base64` | 0.22.1 | MIT or Apache-2.0 | The voice's PCM in GPT-Live's events and on its way into the page, and the finished mp4 on its way back out. | `src/drive/video.rs`, `src/drive/video/live.rs` |
+| `async-tungstenite` (features `tokio-runtime`, `tokio-rustls-native-certs`) | 0.32.1 | MIT | The WebSocket to GPT-Live for `devpage video`, over rustls with the system's root certificates. chromiumoxide already speaks DevTools through it, so it adds no crate. | `src/drive/video/narrator.rs` |
+| `base64` | 0.22.1 | MIT or Apache-2.0 | The voice's PCM in GPT-Live's events and on its way into the page, and the finished mp4 on its way back out. | `src/drive/video.rs`, `src/drive/video/narrator.rs` |
 
 ## Designs
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server` in the binary only) | 0.2.3 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/server.rs`, `src/drive/server/watch_stream.rs` |
-| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/server/watch_stream.rs`, `src/drive/server.rs` |
-| `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/server.rs` |
-| `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/server.rs` |
-| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/drive/server/watch_stream.rs` (tests) |
+| `devpage-design` (feature `server` in the binary only) | 0.2.3 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
+| `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/http/watch_stream.rs`, `src/drive/http.rs` |
+| `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/http.rs` |
+| `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/http.rs` |
+| `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/drive/http/watch_stream.rs` (tests) |
 
 ## Caching
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `sha2` (core; and its build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `src/drive/validators.rs` |
-| `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/server.rs` (tests) |
-| `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/server.rs` (tests) |
+| `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/http.rs` (tests) |
+| `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/http.rs` (tests) |
 
 The core's build script, `core/build.rs`, makes the asset manifest: each
 [built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
@@ -155,7 +155,7 @@ Debug assertions and overflow checks stay on.
 | `peniko` | 0.6.1 | Apache-2.0 or MIT | The core's colours, gradients, images and font data, as the display list holds them; depended on directly like `kurbo`. | `design/src/` |
 | `rstar` | 0.12.2 | MIT or Apache-2.0 | The index: the R-tree over a drawing's chunks and the one inside each chunk over its commands, bulk-loaded for a new drawing and updated chunk by chunk. Not 0.13, which panics inserting into a tree it bulk-loaded and then removed from. | `design/src/display/` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend, an adapter of the paint port: an area of the display list into an RGBA buffer, for the server's tiles and PNG and for a canvas without WebGPU. Only `design/src/cpu/` names it; a test holds the core to that. | `design/src/cpu/` |
-| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/scene/`, `design/src/bands/` |
+| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/scene/`, `design/src/png/` |
 | `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/scene/` |
 | `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire/` |
 | `tonic` (feature `codegen`; only with `server`) | 0.14.6 | MIT | What the generated `Designs` server is written against. | generated into `design/src/proto.rs` |

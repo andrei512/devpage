@@ -8,7 +8,7 @@ it in place. It also covers why
 there is one stream per tab; [the page script](../page-script/README.md) is
 the browser's side. It is a
 mechanism page under the [viewer](../README.md), for someone about to change
-`src/adapters/watch.rs`, `core/src/watch/`, `src/adapters/changes.rs`, `src/drive/server.rs` or `core/assets/devpage.js`.
+`src/adapters/watch.rs`, `core/src/watch/`, `src/adapters/changes.rs`, `src/drive/http.rs` or `core/assets/devpage.js`.
 
 ```mermaid
 sequenceDiagram
@@ -17,7 +17,7 @@ sequenceDiagram
   participant Watcher as watcher (src/adapters/watch.rs)
   participant Listeners as listeners (core/src/watch/)
   participant Channel as change bus (src/adapters/changes.rs)
-  participant Server as server (src/drive/server.rs)
+  participant Server as server (src/drive/http.rs)
   participant Page as devpage.js in the tab
   Editor->>Disk: save
   Disk-->>Watcher: file system event
@@ -281,7 +281,7 @@ served folder follows it before anything is published, so a page that
 refetches on the refresh reads the files as they are now. The forgetting is
 the listeners' own, never traffic on the bus.
 
-`GET /__devpage/events` (`events` in `src/drive/server.rs`) subscribes to the
+`GET /__devpage/events` (`events` in `src/drive/http.rs`) subscribes to the
 server's bus and answers with a server-sent event
 stream. Every change it hears becomes one event whose data is its message —
 `change`, or `comments` and the page's path. A subscriber that falls more than

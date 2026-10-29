@@ -1,17 +1,17 @@
 //! The design store: every design asked for kept resolved in memory and
 //! resolved again only when a save touched what it read, its problems and
-//! its PNG. The watch stream and the canvas page that show designs in the
-//! browser are the server's, in `server::watch_stream` and `server::canvas`.
+//! its PNG. The canvas page that shows a design is `page::canvas`; the watch
+//! stream that keeps it current is the binary's, in `http::watch_stream`.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use devpage_design::bands::Piece;
 use devpage_design::display::List;
 use devpage_design::fonts::FontFile;
 use devpage_design::ids::{Parses, Remembering};
+use devpage_design::png::{Piece, write_bands};
 use devpage_design::proto;
 use devpage_design::render::Undrawable;
 use devpage_design::resolve::{Outcome, Resolution};
@@ -886,7 +886,7 @@ impl Designs {
         guarded(
             path,
             || {
-                devpage_design::bands::bands(area.width as u32, area.height as u32, out, |piece| {
+                write_bands(area.width as u32, area.height as u32, out, |piece| {
                     let (col, row) = match piece {
                         Piece::Tile { col, row } => (col, row),
                         // A band of a drawing too wide for whole tiles is

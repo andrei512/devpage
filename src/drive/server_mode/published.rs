@@ -26,7 +26,7 @@ use crate::adapters::sqlite::{
     Deleted, DocumentRow, DocumentThreads, Publish, Sqlite, ThreadRow, VersionRow,
 };
 use crate::drive::api_types::Refusal;
-use crate::drive::server::{self, App, Commenting};
+use crate::drive::http::{self, App, Commenting};
 
 /// Which version of a document an address shows: the latest, in place at
 /// `/d/<id>`, or version `n` at its own `/d/<id>/v/<n>`.
@@ -78,9 +78,10 @@ pub struct Download {
 
 /// Every published document.
 #[derive(Clone)]
-pub struct Published(Arc<Library>);
+pub struct Published(Arc<Parts>);
 
-struct Library {
+/// What [`Published`] is made of, shared by every clone of it.
+struct Parts {
     store: Arc<Sqlite>,
     bucket: Bucket,
     cache: Arc<Cache>,
@@ -113,7 +114,7 @@ impl Published {
         // What a publish that stopped halfway left.
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch)?;
-        Ok(Published(Arc::new(Library {
+        Ok(Published(Arc::new(Parts {
             store: Arc::new(Sqlite::open(&config.data_dir.join("store.db"))?),
             bucket,
             cache: Arc::new(Cache::open(
@@ -151,10 +152,10 @@ impl Published {
         author: &str,
         zip: Vec<u8>,
     ) -> Result<(String, u64), Refusal> {
-        let library = &self.0;
+        let parts = &self.0;
         let id = match to {
             Some(id) => {
-                library.store.latest(id)?.ok_or(Refusal::NotFound)?;
+                parts.store.latest(id)?.ok_or(Refusal::NotFound)?;
                 id.to_string()
             }
             None => uuid::Uuid::new_v4().hyphenated().to_string(),
@@ -163,15 +164,15 @@ impl Published {
         // Unpacked once to read and check it; the bucket keeps the zip
         // unchanged. Kept until the publish is done: the carry reads the new
         // version's pages from it.
-        let scratch = Scratch::new(&library.scratch)?;
-        let (kind, title) = check(&library.designs, &zip, entry, &scratch.0)
+        let scratch = Scratch::new(&parts.scratch)?;
+        let (kind, title) = check(&parts.designs, &zip, entry, &scratch.0)
             .await
             .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
         let sha256 = format!("{:x}", Sha256::digest(&zip));
         let size = zip.len() as u64;
 
-        let _one_at_a_time = library.locks.hold(id).await;
-        let version = library.store.next_number(id)?;
+        let _one_at_a_time = parts.locks.hold(id).await;
+        let version = parts.store.next_number(id)?;
         let folder = ServedFolder::new(&scratch.0)
             .map_err(anyhow::Error::from)?
             .mounted(&Mount::Latest.path(id));
@@ -185,8 +186,8 @@ impl Published {
         })
         .await
         .map_err(anyhow::Error::from)??;
-        library.bucket.put_version(id, version, zip).await?;
-        let recorded = library.store.record(
+        parts.bucket.put_version(id, version, zip).await?;
+        let recorded = parts.store.record(
             id,
             version,
             &Publish {
@@ -201,7 +202,7 @@ impl Published {
         );
         if let Err(error) = recorded {
             // Nothing names it: the next publish takes its number again.
-            let _ = library.bucket.delete_version(id, version).await;
+            let _ = parts.bucket.delete_version(id, version).await;
             return Err(error.into());
         }
         eprintln!("published {id} v{version} by {author}");
@@ -216,26 +217,26 @@ impl Published {
     /// its open pages told; and when the document went — deleting its only
     /// version takes it too — what it alone needed let go.
     pub async fn delete(&self, id: &str, deletion: Deletion, author: &str) -> Result<(), Refusal> {
-        let library = &self.0;
-        let _one_at_a_time = library.locks.hold(id).await;
+        let parts = &self.0;
+        let _one_at_a_time = parts.locks.hold(id).await;
         let (numbers, gone) = match deletion {
-            Deletion::Document => (library.store.delete(id)?.ok_or(Refusal::NotFound)?, true),
-            Deletion::Version(n) => match library.store.delete_version(id, n)? {
+            Deletion::Document => (parts.store.delete(id)?.ok_or(Refusal::NotFound)?, true),
+            Deletion::Version(n) => match parts.store.delete_version(id, n)? {
                 Deleted::Nothing => return Err(Refusal::NotFound),
                 Deleted::Version => (vec![n], false),
                 Deleted::Document => (vec![n], true),
             },
         };
         for &n in &numbers {
-            library.bucket.delete_version(id, n).await?;
-            library.cache.remove(&(id.to_string(), n));
+            parts.bucket.delete_version(id, n).await?;
+            parts.cache.remove(&(id.to_string(), n));
         }
         if gone {
-            library.cache.remove_document(id);
+            parts.cache.remove_document(id);
         }
         self.announce(id);
         if gone {
-            lock(&library.buses).remove(id);
+            lock(&parts.buses).remove(id);
         }
         match deletion {
             Deletion::Document => eprintln!("deleted {id} by {author}"),
@@ -264,16 +265,16 @@ impl Published {
     /// answers: its router kept in the cache, or made on a miss — from the
     /// zip in the bucket when it isn't unpacked yet.
     pub async fn version(&self, id: &str, mount: Mount) -> Result<Version, Refusal> {
-        let library = &self.0;
+        let parts = &self.0;
         let number = match mount {
-            Mount::Latest => library.store.latest(id)?.ok_or(Refusal::NotFound)?,
+            Mount::Latest => parts.store.latest(id)?.ok_or(Refusal::NotFound)?,
             Mount::Pinned(n) => n,
         };
-        let entry = library.store.entry(id, number)?.ok_or(Refusal::NotFound)?;
+        let entry = parts.store.entry(id, number)?.ok_or(Refusal::NotFound)?;
         let key = (id.to_string(), number);
         let at = mount.path(id);
-        let fetch = library.bucket.get_version(id, number);
-        let served = library
+        let fetch = parts.bucket.get_version(id, number);
+        let served = parts
             .cache
             .router(&key, &at, fetch, |dir: &Path| {
                 self.router(id, number, mount, dir, &entry)
@@ -377,7 +378,7 @@ impl Published {
         } else {
             App::published(document, designs, Changes::default(), None)
         };
-        Ok(server::router(app))
+        Ok(http::router(app))
     }
 }
 

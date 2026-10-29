@@ -75,7 +75,7 @@ What a request is answered with, decided from the documents alone — a page (a 
 
 ## mount prefix
 
-The address every document a server serves sits under, carried by every redirect it [answers](#answer) with: empty, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
+The served folder's mount (`ServedFolder::mount`): the address every document in it sits under, carried by every address and redirect it [answers](#answer) with. Empty locally, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
 
 ## design
 

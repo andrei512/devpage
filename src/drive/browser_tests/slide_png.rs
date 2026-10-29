@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::adapters::changes::{Change, Changes};
 use crate::adapters::chrome::testing;
-use crate::drive::server;
+use crate::drive::http;
 use crate::drive::slide_png::Shots;
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
@@ -28,8 +28,8 @@ async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
     let document =
         Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let changes = Changes::default();
-    let router = server::router(
-        server::App::testing(document, changes.clone())
+    let router = http::router(
+        http::App::testing(document, changes.clone())
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     (testing::serve(router).await, changes)
@@ -204,7 +204,7 @@ async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
     let dir = dir.canonicalize().unwrap();
     let document =
         Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let serve = || server::router(server::App::printing(document.clone()));
+    let serve = || http::router(http::App::printing(document.clone()));
     shots.png("/talk.yml", 1, serve).await.unwrap();
     assert!(shots.running().await);
     shots.close().await;
@@ -233,8 +233,8 @@ async fn a_slide_is_served_as_a_1920_by_1080_png() {
     let document =
         Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let changes = Changes::default();
-    let address = testing::serve(server::router(
-        server::App::testing(document, changes)
+    let address = testing::serve(http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ))
     .await;
