@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 492 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 494 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
