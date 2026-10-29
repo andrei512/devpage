@@ -689,16 +689,18 @@ every file it was made from is still the read it saw — otherwise it resolves
 the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it — a `themes.yml` written into a folder between a design and one
-above it, say. A page's problems bar asks the same store for the problems of
+above it, say — and so does adding a file to, or removing one from, a folder
+it listed: a font added to its font folder. A page's problems bar asks the same store for the problems of
 each design the page reaches, so the design a page embeds is resolved once,
 for the page and its canvas alike. `devpage check`, and a publish on the
 CLI's side, make a store of their own for the one run, and a server checks a
 publish in its one store, under the scratch folder's own mount, which leaves
 it when the check ends; each asks it the same: a
-design's problems, and every file it is made of — the files resolving it
-asked for, one that isn't there named as it would be, so that adding it
-reaches a slide's PNG drawn from the design too; a publish zips those that
-are there. The routes are on
+design's problems, and everything it is made of — the files resolving it
+asked for, one that isn't there named as it would be, and the folders it
+listed, a font folder, so that adding a file, or a font to that folder,
+reaches a slide's PNG drawn from the design too; a publish zips the files
+that are there. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
 The store holds each design's scene — its one copy — as the engine's
