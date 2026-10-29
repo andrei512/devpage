@@ -27,7 +27,7 @@ use serde::Deserialize;
 
 use crate::changes::Changes;
 use crate::check::Preview;
-use crate::comments::{self, Anchor};
+use crate::comments::{self, Anchor, Comments, Identity};
 use crate::designs::Designs;
 use crate::document::{Document, Entry};
 use crate::index::Index;
@@ -54,7 +54,7 @@ struct AppState {
 /// Comments on: the threads, announced as they are written, and who
 /// writes them.
 struct Commenting {
-    threads: comments::Comments,
+    threads: Comments,
     identity: Identity,
 }
 
@@ -73,28 +73,23 @@ impl AppState {
     }
 }
 
-/// Who writes a comment: one local author, or — deployed — whoever the auth
-/// proxy names in a header. devpage authenticates no one itself.
-pub enum Identity {
-    Local(String),
-    Header(String),
+/// The author of a write, as `identity` names it from the request's
+/// `headers`: refused when it needs a header the request lacks or leaves
+/// blank.
+pub fn author(identity: &Identity, headers: &HeaderMap) -> Result<String, comments::Refused> {
+    identity.author(|name| headers.get(name).and_then(|value| value.to_str().ok()))
 }
 
-impl Identity {
-    #[allow(clippy::result_large_err)]
-    fn author(&self, headers: &HeaderMap) -> Result<String, Response> {
-        match self {
-            Identity::Local(name) => Ok(name.clone()),
-            Identity::Header(name) => headers
-                .get(name.as_str())
-                .and_then(|value| value.to_str().ok())
-                .filter(|value| !value.is_empty())
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    (StatusCode::UNAUTHORIZED, format!("no {name} header")).into_response()
-                }),
-        }
-    }
+/// A refused comment request as the page's routes answer it: `401` with no
+/// author, `422` for a page that isn't a file in the served folder, `400`
+/// otherwise.
+fn refused(refused: comments::Refused) -> Response {
+    let status = match refused {
+        comments::Refused::Unidentified(_) => StatusCode::UNAUTHORIZED,
+        comments::Refused::NotAPage(_) => StatusCode::UNPROCESSABLE_ENTITY,
+        comments::Refused::NoThread(_) | comments::Refused::Failed(_) => StatusCode::BAD_REQUEST,
+    };
+    (status, refused.to_string()).into_response()
 }
 
 /// Everything a server is made of. [`Options::new`] serves one document
@@ -111,13 +106,11 @@ pub struct Options {
     pub changes: Changes,
     /// Who writes comments, or `None` when they are off (`--no-comments`).
     pub comments: Option<Identity>,
-    /// The served folder's thread files. [`Options::watch`] follows them with
-    /// this same value, so the watcher knows the threads the server wrote —
-    /// and announced — itself.
-    pub threads: Arc<comments::yaml::Yaml>,
-    /// Where threads are kept: [`Options::threads`] unless a caller gives
-    /// another store, such as one in memory.
-    pub store: Arc<dyn comments::Store>,
+    /// The served folder's comments, which every comment write goes
+    /// through. [`Options::watch`] hears thread files through this same
+    /// value, so the watcher knows the threads the server wrote — and
+    /// announced — itself.
+    pub threads: Comments,
     /// The Chrome that draws slides as PNGs, and what it drew.
     pub shots: Shots,
     /// The problems each page lists.
@@ -130,7 +123,11 @@ impl Options {
     /// One document, with a fresh index of its served folder and no search
     /// index, comments on as one local author, nothing logged.
     pub fn new(document: Arc<Document>, changes: Changes) -> Self {
-        let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
+        let threads = Comments::new(
+            Arc::new(comments::yaml::Yaml::new(&document.served)),
+            Arc::new(changes.clone()),
+            document.served.clone(),
+        );
         Self {
             index: Arc::new(Index::build(&document.served)),
             designs: Designs::new(&document.served),
@@ -139,7 +136,6 @@ impl Options {
                 crate::http::external(Some(changes.clone())),
                 Arc::new(crate::terminal::Terminal),
             )),
-            store: threads.clone(),
             threads,
             entry: Arc::new(Entry::new(document)),
             comments: Some(Identity::Local(String::new())),
@@ -184,8 +180,7 @@ pub fn router(options: Options) -> Router {
         designs,
         changes,
         comments,
-        threads: _,
-        store,
+        threads,
         shots,
         preview,
         log,
@@ -193,7 +188,7 @@ pub fn router(options: Options) -> Router {
     let router = routes(AppState {
         comments: comments.map(|identity| {
             Arc::new(Commenting {
-                threads: comments::Comments::new(store, Arc::new(changes.clone())),
+                threads: threads.clone(),
                 identity,
             })
         }),
@@ -641,16 +636,13 @@ struct NewThread {
     text: String,
 }
 
+/// A reply to a thread, or — with no text — resolving it: the thread's id
+/// is all that finds it.
 #[derive(Deserialize)]
 struct Reply {
-    page: String,
     id: String,
     #[serde(default)]
     text: String,
-}
-
-fn failed(error: anyhow::Error) -> Response {
-    (StatusCode::BAD_REQUEST, format!("{error:#}")).into_response()
 }
 
 /// `?q=` of a search; none is an empty query.
@@ -679,7 +671,7 @@ async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQu
     };
     match comments.threads.list(&query.page) {
         Ok(threads) => Json(threads).into_response(),
-        Err(error) => failed(error),
+        Err(error) => refused(error),
     }
 }
 
@@ -692,29 +684,14 @@ async fn create_comment(
         Ok(comments) => comments,
         Err(off) => return off,
     };
-    let author = match comments.identity.author(&headers) {
-        Ok(author) => author,
-        Err(refused) => return refused,
-    };
-    // A thread is about a file that exists in the served folder.
-    if state
-        .entry
-        .document()
-        .file(&new.page)
-        .is_none_or(|file| !file.is_file())
-    {
-        return (
-            StatusCode::BAD_REQUEST,
-            format!("{} is not a page in the served folder", new.page),
-        )
-            .into_response();
-    }
-    match comments
-        .threads
-        .create(&new.page, new.anchor, &author, &new.text)
-    {
+    let created = author(&comments.identity, &headers).and_then(|author| {
+        comments
+            .threads
+            .create(&new.page, new.anchor, &author, &new.text)
+    });
+    match created {
         Ok(id) => Json(serde_json::json!({ "id": id })).into_response(),
-        Err(error) => failed(error),
+        Err(error) => refused(error),
     }
 }
 
@@ -727,16 +704,11 @@ async fn reply_comment(
         Ok(comments) => comments,
         Err(off) => return off,
     };
-    let author = match comments.identity.author(&headers) {
-        Ok(author) => author,
-        Err(refused) => return refused,
-    };
-    match comments
-        .threads
-        .reply(&reply.page, &reply.id, &author, &reply.text)
-    {
+    let replied = author(&comments.identity, &headers)
+        .and_then(|author| comments.threads.reply(&reply.id, &author, &reply.text));
+    match replied {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => failed(error),
+        Err(error) => refused(error),
     }
 }
 
@@ -749,12 +721,11 @@ async fn resolve_comment(
         Ok(comments) => comments,
         Err(off) => return off,
     };
-    if let Err(refused) = comments.identity.author(&headers) {
-        return refused;
-    }
-    match comments.threads.resolve(&reply.page, &reply.id) {
+    let resolved =
+        author(&comments.identity, &headers).and_then(|_| comments.threads.resolve(&reply.id));
+    match resolved {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => failed(error),
+        Err(error) => refused(error),
     }
 }
 
@@ -794,9 +765,14 @@ mod tests {
         let changes = crate::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
+        let threads = Comments::new(
+            Arc::new(comments::memory::Memory::default()),
+            Arc::new(changes.clone()),
+            document.served.clone(),
+        );
         let router = router(Options {
             comments,
-            store: Arc::new(comments::memory::Memory::default()),
+            threads,
             preview: crate::check::testing::preview(),
             ..Options::new(document, changes.clone())
         });
@@ -828,7 +804,7 @@ mod tests {
         let id = created["id"].as_str().unwrap().to_string();
         let reply = client
             .post(format!("{address}/__devpage/comments/reply"))
-            .json(&json!({ "page": "/a.md", "id": id, "text": "Only the outbox." }))
+            .json(&json!({ "id": id, "text": "Only the outbox." }))
             .send()
             .await
             .unwrap();
@@ -849,7 +825,7 @@ mod tests {
 
         let resolved = client
             .post(format!("{address}/__devpage/comments/resolve"))
-            .json(&json!({ "page": "/a.md", "id": id }))
+            .json(&json!({ "id": id }))
             .send()
             .await
             .unwrap();
@@ -924,7 +900,7 @@ mod tests {
         for action in ["reply", "resolve"] {
             let done = client
                 .post(format!("{address}/__devpage/comments/{action}"))
-                .json(&json!({ "page": "/a.md", "id": id, "text": "x" }))
+                .json(&json!({ "id": id, "text": "x" }))
                 .send()
                 .await
                 .unwrap();
@@ -933,7 +909,7 @@ mod tests {
         // A refused write and a read announce nothing.
         let refused = client
             .post(format!("{address}/__devpage/comments/reply"))
-            .json(&json!({ "page": "/a.md", "id": id, "text": "gone" }))
+            .json(&json!({ "id": id, "text": "gone" }))
             .send()
             .await
             .unwrap();
@@ -973,7 +949,7 @@ mod tests {
         for action in ["reply", "resolve"] {
             let refused = client
                 .post(format!("{address}/__devpage/comments/{action}"))
-                .json(&json!({ "page": "/a.md", "id": id, "text": "x" }))
+                .json(&json!({ "id": id, "text": "x" }))
                 .send()
                 .await
                 .unwrap();
@@ -992,10 +968,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_thread_on_a_page_that_isnt_in_the_served_folder_is_refused() {
+    async fn a_thread_on_a_page_that_isnt_a_file_in_the_served_folder_is_refused() {
         let (address, _) = serve_comments("outside", Some(Identity::Local("Ana".into()))).await;
         let mut thread = new_thread();
-        for page in ["/../escape.md", "/missing.md"] {
+        for page in ["/../escape.md", "/missing.md", "/"] {
             thread["page"] = json!(page);
             let refused = reqwest::Client::new()
                 .post(format!("{address}/__devpage/comments"))
@@ -1003,7 +979,7 @@ mod tests {
                 .send()
                 .await
                 .unwrap();
-            assert_eq!(refused.status(), 400, "{page}");
+            assert_eq!(refused.status(), 422, "{page}");
         }
     }
 
@@ -1027,7 +1003,7 @@ mod tests {
         for action in ["reply", "resolve"] {
             let refused = client
                 .post(format!("{address}/__devpage/comments/{action}"))
-                .json(&json!({ "page": "/a.md", "id": "x", "text": "hi" }))
+                .json(&json!({ "id": "x", "text": "hi" }))
                 .send()
                 .await
                 .unwrap();
@@ -1048,15 +1024,23 @@ mod tests {
     }
 
     #[test]
-    fn deployed_authors_come_from_the_proxy_header_or_are_refused() {
+    fn deployed_authors_come_from_the_proxy_header_trimmed_or_are_refused() {
         let deployed = Identity::Header("X-Forwarded-Email".into());
         let mut headers = HeaderMap::new();
-        let refused = deployed.author(&headers).unwrap_err();
-        assert_eq!(refused.status(), StatusCode::UNAUTHORIZED);
-        headers.insert("x-forwarded-email", "ana@example.com".parse().unwrap());
-        assert_eq!(deployed.author(&headers).unwrap(), "ana@example.com");
+        for blank in [None, Some(""), Some("   ")] {
+            if let Some(blank) = blank {
+                headers.insert("x-forwarded-email", blank.parse().unwrap());
+            }
+            let refused = author(&deployed, &headers).unwrap_err();
+            assert!(
+                matches!(refused, comments::Refused::Unidentified(_)),
+                "{blank:?}"
+            );
+        }
+        headers.insert("x-forwarded-email", " ana@example.com ".parse().unwrap());
+        assert_eq!(author(&deployed, &headers).unwrap(), "ana@example.com");
         let local = Identity::Local("Andrei".into());
-        assert_eq!(local.author(&headers).unwrap(), "Andrei");
+        assert_eq!(author(&local, &headers).unwrap(), "Andrei");
     }
 
     /// Serves `dir` as the served folder, with `entry` as the entry document,

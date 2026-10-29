@@ -49,7 +49,8 @@ export, a tarball.
 ## Check
 
 Every path that comes from outside the code — a URL, a link target,
-a `root`, `chapters` or `slides` entry, a comment's page — is resolved with
+a `root`, `chapters` or `slides` entry, a comment's page, a thread file found
+by its id — is resolved with
 symbolic links followed and compared against the served folder's canonical
 path before it is read, and every such comparison is made by one owner, the
 served-folder value (`core/src/served.rs`). A test asks for `/../<file>` and for a symbolic link

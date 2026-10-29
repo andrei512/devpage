@@ -43,7 +43,7 @@ async fn open_off(
         entry,
         index,
         designs,
-        comments: Some(server::Identity::Local("Ana".into())),
+        comments: Some(crate::comments::Identity::Local("Ana".into())),
         preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes.clone())
     };
@@ -235,7 +235,9 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
         "the thread sits beside the text and the composer closed"
     );
 
-    let threads = yaml::Yaml::new(&root).list("/a.md").unwrap();
+    let threads = yaml::Yaml::new(&ServedFolder::new(&root).unwrap())
+        .list("/a.md")
+        .unwrap();
     assert_eq!(threads.len(), 1);
     let thread = &threads[0].thread;
     assert_eq!(thread.anchor.quote, "retries every write");
@@ -376,8 +378,13 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
         prefix: "The ".into(),
         suffix: ".".into(),
     };
-    yaml::Yaml::new(&root)
-        .create("/one.md", anchor, "Bo", "Sharper?")
+    let message = Message {
+        author: "Bo".into(),
+        at: "2026-10-25T18:15:02Z".into(),
+        text: "Sharper?".into(),
+    };
+    yaml::Yaml::new(&ServedFolder::new(&root).unwrap())
+        .create("/one.md", anchor, message)
         .unwrap();
     let (mut browser, page) = open(&root, &root.join("devpage.yml"), "/devpage.yml").await;
 

@@ -30,7 +30,7 @@ use anyhow::Result;
 use notify::event::{CreateKind, EventKind, RemoveKind};
 
 use crate::changes::{Change, Changes};
-use crate::comments::yaml::Yaml;
+use crate::comments::Comments;
 use crate::designs::Designs;
 use crate::document::{Document, Entry, KindName};
 use crate::index::Index;
@@ -52,9 +52,9 @@ pub struct Watch {
 }
 
 /// Starts watching. A change to a watched file publishes a refresh on the
-/// change bus; a change to a comment thread publishes that page's comments,
-/// whatever the site's `watch` says, unless `threads`, the comment store the
-/// server writes through, made it itself: that write was announced as it
+/// change bus; a change to a comment thread publishes what `threads`, the
+/// comments the server writes through, heard of it, whatever the site's
+/// `watch` says — nothing for a write of its own, which was announced as it
 /// landed.
 /// A path out of sight — under `.git`, or excluded by a `.gitignore` and not
 /// named by its site's `watch` — is dropped as it arrives, before any
@@ -66,7 +66,7 @@ pub fn start(
     index: Arc<Index>,
     designs: Designs,
     changes: Changes,
-    threads: Arc<Yaml>,
+    threads: Comments,
 ) -> Result<Watch> {
     let root = entry.document().served.clone();
     let set = WatchSet::plan(&root, &index, &entry);
@@ -173,9 +173,9 @@ struct Listeners {
     index: Arc<Index>,
     designs: Designs,
     changes: Changes,
-    /// The comment store the server writes through, which knows the thread
-    /// files it wrote — and announced — itself.
-    threads: Arc<Yaml>,
+    /// The comments the server writes through, which know the thread files
+    /// they wrote — and announced — themselves.
+    threads: Comments,
 }
 
 impl Listeners {
@@ -314,25 +314,16 @@ impl Listeners {
             threads,
             ..
         } = self;
-        let mut heard = Vec::new();
+        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+        // A thread changed: the pages showing its page fetch comments —
+        // unless the store's own write was announced already.
+        let mut heard = threads.heard(&paths);
         let mut refresh = false;
         let mut searched = Vec::new();
         for path in paths {
-            let path = canonical(path);
             let Some(relative) = served.relative(&path) else {
                 continue;
             };
-            // A thread changed: tell the pages showing its page to fetch
-            // comments — unless the store's own write was announced already.
-            if let Ok(thread) = relative.strip_prefix(".devpage/comments") {
-                if thread.extension().is_some_and(|ext| ext == "yml")
-                    && let Some(page) = thread.parent()
-                    && threads.unheard(&path)
-                {
-                    heard.push(Change::Comments(format!("/{}", page.display())));
-                }
-                continue;
-            }
             if relative.starts_with(".devpage") {
                 continue;
             }
@@ -454,7 +445,7 @@ mod tests {
             Arc::new(Index::build(&served)),
             Designs::new(&served),
             Changes::default(),
-            Arc::new(Yaml::new(dir)),
+            comments(&served, &Changes::default()),
         )
         .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -637,6 +628,15 @@ mod tests {
         assert_eq!(raw(&dir.join("docs/out")), 0);
     }
 
+    /// The comments of `served`, in its thread files, announced on `changes`.
+    fn comments(served: &ServedFolder, changes: &Changes) -> Comments {
+        Comments::new(
+            Arc::new(crate::comments::yaml::Yaml::new(served)),
+            Arc::new(changes.clone()),
+            served.clone(),
+        )
+    }
+
     /// The listeners of the served folder `dir`, started on `docs/`.
     fn listeners(dir: &Path, changes: Changes) -> Listeners {
         let served = ServedFolder::new(dir).unwrap();
@@ -644,10 +644,10 @@ mod tests {
         Listeners {
             index: Arc::new(Index::build(&served)),
             designs: Designs::new(&served),
+            threads: comments(&served, &changes),
             served,
             entry: Arc::new(Entry::new(document)),
             changes,
-            threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
         }
     }
 
@@ -823,32 +823,21 @@ mod tests {
     /// The messages that arrive within 1.5 s after `touch` runs: long enough
     /// for any it causes, so a test that expects none waits it out.
     async fn after(dir: &Path, touch: impl FnOnce()) -> Vec<String> {
-        let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
-        heard(dir, threads, |_| touch(), Duration::from_millis(1500), None).await
+        heard(dir, |_| touch(), Duration::from_millis(1500), None).await
     }
 
     /// The messages that arrive after `touch` runs, up to and including the
     /// first that is `want`, for up to 10 s — a test that expects one goes on
     /// the moment it arrives.
     async fn until(dir: &Path, want: &str, touch: impl FnOnce()) -> Vec<String> {
-        let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
-        heard(
-            dir,
-            threads,
-            |_| touch(),
-            Duration::from_secs(10),
-            Some(want),
-        )
-        .await
+        heard(dir, |_| touch(), Duration::from_secs(10), Some(want)).await
     }
 
-    /// What arrives after `touch` runs, with `threads` as the comment store
-    /// the server writes through; `touch` is given the bus, as a server would
-    /// hold it.
+    /// What arrives after `touch` runs; `touch` is given the comments the
+    /// watcher hears thread files through, as a server would hold them.
     async fn heard(
         dir: &Path,
-        threads: Arc<Yaml>,
-        touch: impl FnOnce(&Changes),
+        touch: impl FnOnce(&Comments),
         within: Duration,
         want: Option<&str>,
     ) -> Vec<String> {
@@ -858,17 +847,18 @@ mod tests {
         let changes = Changes::default();
         let mut received = changes.subscribe();
         let designs = Designs::new(&document.served);
+        let threads = comments(&document.served, &changes);
         let _watcher = start(
             Arc::new(Entry::new(document)),
             index,
             designs,
             changes.clone(),
-            threads,
+            threads.clone(),
         )
         .unwrap();
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
-        touch(&changes);
+        touch(&threads);
         listen(&mut received, within, want).await
     }
 
@@ -908,11 +898,11 @@ mod tests {
         let designs = Designs::new(&served);
         let listeners = Listeners {
             index: Arc::new(Index::build(&served)),
+            threads: comments(&served, &Changes::default()),
             served,
             entry: Arc::new(Entry::new(document)),
             designs: designs.clone(),
             changes: Changes::default(),
-            threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
         };
         assert!(designs.resolve("docs/screen.design").is_ok());
         assert!(designs.resolve(".devpage/screen.design").is_ok());
@@ -957,13 +947,9 @@ mod tests {
     #[tokio::test]
     async fn a_thread_written_through_the_store_is_announced_once_and_a_hand_edit_once() {
         let dir = served("announced", "kind: site\ntitle: T\nroot: README.md\n");
-        let threads = Arc::new(Yaml::new(dir.canonicalize().unwrap()));
-        let store = threads.clone();
         let messages = heard(
             &dir,
-            threads,
-            |changes| {
-                let comments = crate::comments::Comments::new(store, Arc::new(changes.clone()));
+            |comments| {
                 let anchor = crate::comments::Anchor {
                     quote: "x".into(),
                     prefix: String::new(),
@@ -1021,7 +1007,7 @@ mod tests {
         let changes = Changes::default();
         let mut received = changes.subscribe();
         let designs = Designs::new(&served);
-        let threads = Arc::new(Yaml::new(&dir));
+        let threads = comments(&served, &changes);
         let _watcher = start(entry.clone(), index, designs, changes, threads).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 

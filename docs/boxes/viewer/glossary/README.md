@@ -291,11 +291,11 @@ A comment whose quoted text is no longer on its page. It stays readable, listed 
 
 ## comment store
 
-Where threads are kept, behind the `Store` interface — list, create, reply, resolve. On disk it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. See [The comment store](../comments/the-comment-store/README.md).
+Where threads are kept, by thread id, behind the `Store` interface — list, create, reply, resolve, carry, and what it heard of hand edits. Locally it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. In server mode it is the SQLite store, one document's threads at a time. Every write reaches it through `Comments`, which holds the rules. See [The comment store](../comments/the-comment-store/README.md).
 
 ## author
 
-Who wrote a comment: `git config user.name` (or the system's user name) when devpage runs locally, the identity header's value when it is deployed.
+Who wrote a comment: `git config user.name` (or the system's user name) when devpage runs locally, the identity header's trimmed value when it is deployed — a blank one is refused.
 
 ## deployed
 

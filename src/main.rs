@@ -11,7 +11,7 @@ mod adapters;
 mod drive;
 
 // The core's modules and the binary's, each by its own name.
-use adapters::{changes, chrome, http, terminal, watch};
+use adapters::{changes, chrome, git, http, terminal, watch};
 use devpage_core::{
     addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
     resolve, served, widgets,
@@ -158,21 +158,24 @@ async fn main() -> Result<()> {
     let comments = if cli.no_comments {
         None
     } else if cli.host.is_loopback() {
-        Some(server::Identity::Local(comments::local_author(
+        Some(comments::Identity::Local(git::user_name(
             document.served.path(),
         )))
     } else {
-        Some(server::Identity::Header(cli.user_header))
+        Some(comments::Identity::Header(cli.user_header))
     };
     let shots = slide_png::Shots::new(&changes);
-    let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
+    let threads = comments::Comments::new(
+        Arc::new(comments::yaml::Yaml::new(&document.served)),
+        Arc::new(changes.clone()),
+        document.served.clone(),
+    );
     let options = server::Options {
         entry,
         index,
         designs,
         changes,
         comments,
-        store: threads.clone(),
         threads,
         shots: shots.clone(),
         preview,

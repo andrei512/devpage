@@ -30,6 +30,7 @@ pub use config::Config;
 use crate::adapters::bucket::Bucket;
 use crate::adapters::sqlite::Sqlite;
 use crate::changes::{Change, Changes};
+use crate::comments::Identity;
 use crate::server;
 use cache::Cache;
 
@@ -40,7 +41,9 @@ struct ServerMode {
     cache: Arc<Cache>,
     /// Where a publish unpacks its zip to check it, on the PVC.
     scratch: PathBuf,
-    user_header: Option<String>,
+    /// Who writes — a publish, a deletion or a comment: whoever
+    /// `DEVPAGE_USER_HEADER` names, or `anonymous` when it isn't set.
+    identity: Identity,
     /// One lock per document: its publishes and deletions happen one at a
     /// time.
     publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
@@ -93,7 +96,10 @@ pub fn router(config: &Config) -> Result<Router> {
             config.cache_policy.eviction(),
         )?),
         scratch: scratch.canonicalize()?,
-        user_header: config.user_header.clone(),
+        identity: match &config.user_header {
+            Some(header) => Identity::Header(header.clone()),
+            None => Identity::Local("anonymous".into()),
+        },
         publishing: Arc::default(),
         buses: Arc::default(),
     };

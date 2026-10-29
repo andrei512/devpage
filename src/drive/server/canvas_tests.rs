@@ -79,7 +79,7 @@ async fn serve(dir: &Path, entry: &str) -> String {
     let address = listener.local_addr().unwrap();
     let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
-        comments: Some(server::Identity::Local("T".into())),
+        comments: Some(crate::comments::Identity::Local("T".into())),
         ..server::Options::new(document, changes)
     });
     tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -95,7 +95,7 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
         designs: designs.clone(),
-        comments: Some(server::Identity::Local("T".into())),
+        comments: Some(crate::comments::Identity::Local("T".into())),
         preview: crate::check::testing::preview(),
         ..server::Options::new(document, changes)
     });
