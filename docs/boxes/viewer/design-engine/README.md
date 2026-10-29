@@ -79,7 +79,7 @@ module of the core names an adapter or a rasterizer.
 | `display` | core | `draw`: the drawing commands and a node's box after layout. `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale; `plan`: the [frame plan](#the-frame-plan) both browser compositors carry out. The server uses the cache only. |
-| `design` | core | A design as it is held while it is shown — its scene, how many nodes use each file, and its drawing in each theme its holder asks for — each drawing brought along by every edit, the damage to its tiles kept until taken; its size, the interaction at a point, a view's tiles and an area to paint, rounded first; and [one rule for a scene that can't be drawn](#a-design-that-cant-be-drawn). The store and every canvas hold their designs as one. |
+| `design` | core | A design as it is held while it is shown — its scene, the design's one copy, how many nodes use each file, and its drawing in each theme its holder asks for — each drawing brought along by every edit, the damage to its tiles kept until taken; its size, the interaction at a point, a view's tiles and an area to paint, rounded first; and [one rule for a scene that can't be drawn](#a-design-that-cant-be-drawn). The store and every canvas hold their designs as one. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
 | `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
@@ -243,9 +243,13 @@ any other. While a design has problems, what each save reached is kept, and
 the save that makes it valid again resolves all of it against the last scene
 sent; the problems themselves, every one, come from resolving the design
 whole, which a design with problems pays on each save. The engine resolves
-again in `design/src/resolve/again.rs` (`Resolution`), which answers each
-change with the scene unchanged, its problems, or the edits and what they did
-(`Outcome::Changed`); the store keeps one per design, and encodes the edits
+again in `design/src/resolve/again.rs` (`Resolution`): where each node came
+from and the files the scene was made from, but no scene. A design has one
+scene, its holder's — the `Holder` port in `scene`, which the store's held
+`design` is — and resolving again reads it there and applies the edits it
+makes to it there, once; it answers each change with the scene unchanged,
+its problems — the scene left as it was — or the edits and what they did
+(`Outcome::Changed`). The store keeps one per design, and encodes the edits
 as the patch its streams send.
 
 ### Themes
@@ -646,16 +650,23 @@ uploads no image again.
 A scene can stop being drawable mid-session — a save that adds an image, or
 an image file that grows, past what the atlas holds. The held design
 (`design/src/design/`) has one rule for it, in the store and on the canvas
-alike: the drawing in that theme is kept and follows the scene, so the next
-change updates it, but nothing is painted from it and no damage reaches its
-tiles — the tiles painted from the last drawing that could be drawn stay
-what is shown, a view needs no new ones, and a PNG answers with the problem
-instead. Why is the design's problem, where a design's problems already
-show: the problems bar over the canvas, the PNG route and `devpage check`.
-The change that makes the scene drawable again makes every tile of that
-theme stale, and what is painted then is a fresh drawing's. A whole scene
-that can't be drawn has no last drawing to keep; it is tried again only once
-the scene changes.
+alike: it keeps showing its **last good drawing** in that theme — the drawing
+of the last scene that could be drawn — and no damage reaches its tiles.
+Every tile is painted from it, the tiles a pan or a zoom shows that were
+never painted before included, and its size and clicks are its; a PNG
+answers with the problem instead. The last good drawing is made afresh from
+the scene before the edit, the moment the edit leaves the scene undrawable
+— the edit undone, the scene drawn, the edit applied again — so a design
+pays a scene's cost once per break. The drawing that follows the scene is
+kept beside it, so each later change updates it at the change's cost. Why is
+the design's problem, where a design's problems already show: the problems
+bar over the canvas, the PNG route and `devpage check`. The change that makes
+the scene drawable again lets the last good drawing go and makes every tile
+of that theme stale, and what is painted then is a fresh drawing's. A whole
+scene that can't be drawn — a stream sending all of it again — keeps showing
+the drawing of the scene before, rounded whole as the new one arrives; one
+that can't be drawn from the start has nothing to show, and is tried again
+only once the scene changes.
 
 ## In the server
 
@@ -679,14 +690,16 @@ announced to its watch streams. Creating a file a design was missing counts as
 a change to it — a `themes.yml` written into a folder between a design and one
 above it, say. A page's problems bar asks the same store for the problems of
 each design the page reaches, so the design a page embeds is resolved once,
-for the page and its canvas alike. `devpage check`, and a publish on either
-side, make a store of their own for the one run and ask it the same: a
+for the page and its canvas alike. `devpage check`, and a publish on the
+CLI's side, make a store of their own for the one run, and a server checks a
+publish in its one store, under the scratch folder's own mount, which leaves
+it when the check ends; each asks it the same: a
 design's problems, and every file it is made of — what a publish zips —
 which are the files resolving it read. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
-With each design's scene the store holds it as the engine's `design`, its
-**drawing** made in each theme the scene shows in — layout, chunks, property
+The store holds each design's scene — its one copy — as the engine's
+`design`, its **drawing** made in each theme the scene shows in — layout, chunks, property
 trees and index — and a design [resolved again](#resolving-again)
 updates them by the edits that resolving made, the very edits its watch
 streams send as a patch: only the dirty part is laid out, only dirty

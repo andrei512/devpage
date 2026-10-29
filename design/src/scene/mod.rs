@@ -571,47 +571,37 @@ impl Files for HashMap<String, String> {
 }
 
 /// A resolved design: its tree, each distinct image file its `Image`s show
-/// and font file its texts are set in, the files it was made from, and
-/// whether it is **themed** — whether any `theme.` reference reached its
+/// and font file its texts are set in, and whether it is **themed** — whether any `theme.` reference reached its
 /// nodes.
 #[derive(Debug, Clone)]
 pub struct Scene {
     pub root: Node,
     pub images: ImageFiles,
     pub fonts: FontFiles,
-    pub files: Vec<String>,
     pub themed: bool,
     /// Where each node is, by its id: what a patch finds its nodes by.
     pub ids: Ids,
 }
 
-/// Two scenes are the same when they hold the same nodes, files and
-/// themes, however their children were placed.
+/// Two scenes are the same when they hold the same nodes, image and font
+/// files and themes, however their children were placed.
 impl PartialEq for Scene {
     fn eq(&self, other: &Scene) -> bool {
         self.root == other.root
             && self.images == other.images
             && self.fonts == other.fonts
-            && self.files == other.files
             && self.themed == other.themed
     }
 }
 
 impl Scene {
     /// A scene of `root` and its files, its ids indexed.
-    pub fn new(
-        root: Node,
-        images: ImageFiles,
-        fonts: FontFiles,
-        files: Vec<String>,
-        themed: bool,
-    ) -> Scene {
+    pub fn new(root: Node, images: ImageFiles, fonts: FontFiles, themed: bool) -> Scene {
         let ids = Ids::of(&root);
         Scene {
             root,
             images,
             fonts,
-            files,
             themed,
             ids,
         }
@@ -703,4 +693,6 @@ impl PartialEq for ImageFile {
 mod edit;
 #[cfg(test)]
 mod tests;
-pub use edit::{Applied, Edit, Edits, Uses, apply, subtree};
+#[cfg(test)]
+pub(crate) use edit::Bare;
+pub use edit::{Applied, Edit, Edits, Holder, Undo, Uses, applied, apply, subtree};

@@ -159,7 +159,7 @@ A square of 256 device pixels of a drawing, painted at one scale in one theme an
 
 ## damage
 
-What an update to a scene touched: each changed chunk's old and new bounds, from the drawing's top-left — or every tile, when that corner moved. Only the tiles that overlap it are painted again; a scene that can't be drawn damages none until it can, and then every one. See [Tiles](../design-engine/README.md#tiles).
+What an update to a scene touched: each changed chunk's old and new bounds, from the drawing's top-left — or every tile, when that corner moved. Only the tiles that overlap it are painted again; a scene that can't be drawn damages none — its last good drawing is painted meanwhile — until it can, and then every one. See [Tiles](../design-engine/README.md#tiles).
 
 ## compositor
 

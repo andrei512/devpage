@@ -1,5 +1,6 @@
 use super::*;
 use crate::ids::Remembering;
+use crate::scene::{Bare, Uses};
 use crate::wire;
 use std::collections::HashMap;
 
@@ -171,8 +172,10 @@ fn same(a: &Scene, b: &Scene) {
 /// moved, keyed and not, made instances and frames again, their text
 /// edited, the layout and fill of their frame, a component's attributes, a
 /// theme's color, a line added above everything — resolved again only as
-/// far as it reaches: the scene kept is a fresh resolve's every time, the
-/// patch brings the browser's copy there, and a problem is every problem.
+/// far as it reaches: the scene held is a fresh resolve's every time, the
+/// edits that bring it there applied to it once — the resolution keeps no
+/// scene of its own — the patch brings the browser's copy there, and a
+/// problem is every problem, the scene held left as it was.
 #[test]
 fn every_save_resolved_again_is_a_fresh_resolve() {
     for seed in 1..=12u64 {
@@ -180,9 +183,11 @@ fn every_save_resolved_again_is_a_fresh_resolve() {
         let mut m = Model::new(6 + seed as u32);
         let mut saves = Remembering::new(HashMap::<String, String>::new());
         save(&mut saves, &m);
-        let mut res = Resolution::new(&saves, "screen.design").unwrap_or_else(|p| panic!("{p:?}"));
+        let (mut res, scene) =
+            Resolution::new(&saves, "screen.design").unwrap_or_else(|p| panic!("{p:?}"));
+        let mut held = Bare::new(scene);
         let mut browser = wire::decode_scene(
-            &wire::scene(res.scene()),
+            &wire::scene(&held.scene),
             (&Default::default(), &Default::default()),
         )
         .unwrap();
@@ -190,12 +195,19 @@ fn every_save_resolved_again_is_a_fresh_resolve() {
         for step in 0..80 {
             let file = edit(&mut m, &mut rng);
             save(&mut saves, &m);
-            let outcome = res.update(&saves, &[file.to_string()]);
+            let applies = held.applies;
+            let outcome = res.update(&mut held, &saves, &[file.to_string()]);
             let fresh = crate::resolve(&saves, "screen.design");
+            let once = if matches!(outcome, Outcome::Changed(..)) {
+                1
+            } else {
+                0
+            };
+            assert_eq!(held.applies - applies, once, "seed {seed} step {step}");
             match (fresh, outcome) {
-                (Ok(fresh), Outcome::Same) => same(res.scene(), &fresh),
+                (Ok(fresh), Outcome::Same) => same(&held.scene, &fresh),
                 (Ok(fresh), Outcome::Changed(edits, _)) => {
-                    same(res.scene(), &fresh);
+                    same(&held.scene, &fresh);
                     wire::apply(&mut browser, &mut uses, &wire::patch(&edits))
                         .unwrap_or_else(|e| panic!("seed {seed} step {step}: {e}"));
                     assert_eq!(
@@ -246,11 +258,12 @@ fn an_edit_resolves_again_only_what_it_reaches() {
     for n in [1_000usize, 100_000] {
         let mut saves = Remembering::new(HashMap::<String, String>::new());
         saves.files.insert("a.design".into(), list(n, None, false));
-        let mut res = Resolution::new(&saves, "a.design").unwrap();
+        let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+        let mut held = Bare::new(scene);
         saves
             .files
             .insert("a.design".into(), list(n, Some(n / 2), false));
-        let outcome = res.update(&saves, &["a.design".to_string()]);
+        let outcome = res.update(&mut held, &saves, &["a.design".to_string()]);
         let Outcome::Changed(edits, _) = outcome else {
             panic!("{outcome:?}")
         };
@@ -258,19 +271,21 @@ fn an_edit_resolves_again_only_what_it_reaches() {
         saves
             .files
             .insert("a.design".into(), list(n, Some(n / 2), true));
-        let Outcome::Changed(edits, applied) = res.update(&saves, &["a.design".to_string()]) else {
+        let Outcome::Changed(edits, applied) =
+            res.update(&mut held, &saves, &["a.design".to_string()])
+        else {
             panic!()
         };
         assert_eq!(edits.list.len(), 1, "{n}");
         assert_eq!(applied.placed.len(), 1);
-        same(res.scene(), &crate::resolve(&saves, "a.design").unwrap());
+        same(&held.scene, &crate::resolve(&saves, "a.design").unwrap());
         // What resolving again costs beyond reading the file: the update,
         // less a parse and match of the same text.
         saves
             .files
             .insert("a.design".into(), list(n, Some(n / 3), true));
         let t = std::time::Instant::now();
-        let outcome = res.update(&saves, &["a.design".to_string()]);
+        let outcome = res.update(&mut held, &saves, &["a.design".to_string()]);
         let update = t.elapsed();
         assert!(matches!(outcome, Outcome::Changed(..)));
         let t = std::time::Instant::now();
@@ -296,10 +311,12 @@ fn a_component_or_a_theme_reaches_only_what_uses_it() {
     let mut m = Model::new(10);
     let mut saves = Remembering::new(HashMap::<String, String>::new());
     save(&mut saves, &m);
-    let mut res = Resolution::new(&saves, "screen.design").unwrap();
+    let (mut res, scene) = Resolution::new(&saves, "screen.design").unwrap();
+    let mut held = Bare::new(scene);
     m.card_fill = "#dddddd";
     save(&mut saves, &m);
-    let Outcome::Changed(_, applied) = res.update(&saves, &["card.design".to_string()]) else {
+    let Outcome::Changed(_, applied) = res.update(&mut held, &saves, &["card.design".to_string()])
+    else {
         panic!()
     };
     let cards = m.rows.iter().filter(|r| r.3).count();
@@ -309,14 +326,15 @@ fn a_component_or_a_theme_reaches_only_what_uses_it() {
     }
     m.accent = "#16a34a";
     save(&mut saves, &m);
-    let Outcome::Changed(_, applied) = res.update(&saves, &["themes.yml".to_string()]) else {
+    let Outcome::Changed(_, applied) = res.update(&mut held, &saves, &["themes.yml".to_string()])
+    else {
         panic!()
     };
     // Every plain row's fill, and each card's tint: a theme color among its
     // design's props defaults, which the theme change reaches through it.
     assert_eq!(applied.changed.len(), m.rows.len());
     same(
-        res.scene(),
+        &held.scene,
         &crate::resolve(&saves, "screen.design").unwrap(),
     );
 }
@@ -329,24 +347,25 @@ fn saves_while_a_design_has_problems_arrive_with_its_fix() {
     let mut m = Model::new(5);
     let mut saves = Remembering::new(HashMap::<String, String>::new());
     save(&mut saves, &m);
-    let mut res = Resolution::new(&saves, "screen.design").unwrap();
-    let before = res.scene().clone();
+    let (mut res, scene) = Resolution::new(&saves, "screen.design").unwrap();
+    let mut held = Bare::new(scene);
+    let before = held.scene.clone();
     saves.files.insert(
         "card.design".into(),
         "<Frame fill={theme.nothing} />".into(),
     );
     assert!(matches!(
-        res.update(&saves, &["card.design".to_string()]),
+        res.update(&mut held, &saves, &["card.design".to_string()]),
         Outcome::Problems(_)
     ));
     m.rows[0].2 = "While broken".into();
     m.rows.push((99, false, "Added while broken".into(), false));
     saves.files.insert("screen.design".into(), m.screen());
     assert!(matches!(
-        res.update(&saves, &["screen.design".to_string()]),
+        res.update(&mut held, &saves, &["screen.design".to_string()]),
         Outcome::Problems(_)
     ));
-    same(res.scene(), &before);
+    same(&held.scene, &before);
     let mut browser = wire::decode_scene(
         &wire::scene(&before),
         (&Default::default(), &Default::default()),
@@ -354,11 +373,12 @@ fn saves_while_a_design_has_problems_arrive_with_its_fix() {
     .unwrap();
     let mut uses = Uses::of(&browser.root);
     saves.files.insert("card.design".into(), m.card());
-    let Outcome::Changed(edits, _) = res.update(&saves, &["card.design".to_string()]) else {
+    let Outcome::Changed(edits, _) = res.update(&mut held, &saves, &["card.design".to_string()])
+    else {
         panic!()
     };
     let fresh = crate::resolve(&saves, "screen.design").unwrap();
-    same(res.scene(), &fresh);
+    same(&held.scene, &fresh);
     wire::apply(&mut browser, &mut uses, &wire::patch(&edits)).unwrap();
     assert_eq!(wire::encode(&browser.root), wire::encode(&fresh.root));
 }

@@ -1,6 +1,12 @@
 use super::*;
 use crate::scene::*;
 
+/// The files resolving the design at `path` read: what it is made from.
+fn read(files: &dyn Files, path: &str) -> Vec<String> {
+    let (resolution, _) = super::Resolution::new(files, path).unwrap();
+    resolution.files().to_vec()
+}
+
 fn files(list: &[(&str, &str)]) -> HashMap<String, String> {
     list.iter()
         .map(|(p, s)| (p.to_string(), s.to_string()))
@@ -34,7 +40,10 @@ fn an_instance_takes_its_props() {
         })))
     );
     assert_eq!(button.children[0].text.as_ref().unwrap().content, "Pay");
-    assert_eq!(scene.files, vec!["a/screen.design", "a/button.design"]);
+    assert_eq!(
+        read(&fs, "a/screen.design"),
+        ["a/screen.design", "a/button.design"]
+    );
 }
 
 #[test]
@@ -682,7 +691,7 @@ fn values_parse_into_their_types() {
         [2.0, 4.0, 8.0, 16.0]
     );
     assert_eq!(root.children[2].image.as_ref().unwrap().src, "p.png");
-    assert_eq!(scene.files, vec!["a.design", "p.png"]);
+    assert_eq!(read(&fs, "a.design"), ["a.design", "p.png"]);
 }
 
 #[test]
@@ -873,15 +882,12 @@ fn a_theme_color_has_a_value_in_each_theme() {
             stops: vec![(surface, 0.0), (Color::fixed(rgb(255, 0, 0)), 1.0)]
         })
     );
-    assert_eq!(scene.files, vec!["a.design", "themes.yml"]);
+    assert_eq!(read(&fs, "a.design"), ["a.design", "themes.yml"]);
     // A design with no theme color isn't themed, and reads no themes.
-    let plain = resolve(
-        &files(&[("themes.yml", THEMES), ("b.design", "<Frame />")]),
-        "b.design",
-    )
-    .unwrap();
+    let fs = files(&[("themes.yml", THEMES), ("b.design", "<Frame />")]);
+    let plain = resolve(&fs, "b.design").unwrap();
     assert!(!plain.themed);
-    assert_eq!(plain.files, vec!["b.design"]);
+    assert_eq!(read(&fs, "b.design"), ["b.design"]);
 }
 
 /// Files that record every path asked for.

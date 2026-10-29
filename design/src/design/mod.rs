@@ -8,11 +8,14 @@
 //! fresh drawing's.
 //!
 //! **One rule for a scene that can't be drawn** — its images too many for
-//! the GPU's atlas. The drawing in that theme is kept: it follows the scene,
-//! so the next change updates it, but nothing is painted from it and no
-//! damage reaches its tiles, so the tiles painted from the last good drawing
-//! stay what is shown; why is [`Design::problem`]. The change that makes the
-//! scene drawable again damages every tile of that theme.
+//! the GPU's atlas. The design keeps showing its last good drawing in that
+//! theme: the drawing of the last scene that could be drawn, made afresh the
+//! moment the scene stopped being drawable, which every tile, size and
+//! click is answered from meanwhile — a tile no one painted before, after a
+//! pan or a zoom, too — and which no damage reaches; why is
+//! [`Design::problem`]. The drawing that follows the scene is kept beside
+//! it, so the next change updates it at the change's cost, and the change
+//! that makes the scene drawable again damages every tile of that theme.
 //!
 //! It holds no renderer — a server shares one between its designs, a canvas
 //! has its own — and has no mode: the browser draws the theme it shows when
@@ -24,11 +27,11 @@ use peniko::ImageData;
 use crate::display::{Frame, List};
 use crate::proto;
 use crate::render::{Damage, Drawing, Renderer, Undrawable};
-use crate::scene::{self, Edits, Scene, Theme, Uses};
+use crate::scene::{self, Applied, Edits, Scene, Theme, Uses};
 use crate::tiles::{self, Level, View};
 
-/// A design's scene, the files it uses, and its drawing in each theme it was
-/// asked to draw in.
+/// A design's scene — its one copy — the files it uses, and its drawing in
+/// each theme it was asked to draw in.
 pub struct Design {
     scene: Scene,
     uses: Uses,
@@ -51,6 +54,10 @@ struct Shown {
     /// Why the scene can't be drawn in the theme. Nothing is painted from
     /// `drawing` meanwhile.
     broken: Option<Undrawable>,
+    /// While the scene can't be drawn: the drawing of the last scene that
+    /// could be, in the theme — what is shown meanwhile. `None` otherwise,
+    /// or when no scene could be drawn in the theme yet.
+    good: Option<Drawing>,
 }
 
 const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
@@ -80,22 +87,35 @@ impl Design {
 
     /// The scene replaced whole — a watch stream sent all of it again. Every
     /// tile of both themes is stale, and each drawing is made afresh when
-    /// next asked for.
-    pub fn replace(&mut self, scene: Scene) {
-        self.uses = Uses::of(&scene.root);
-        self.scene = scene;
+    /// next asked for; until one can be, the last good drawing in its theme
+    /// is what is shown — rounded first where updates left it unrounded,
+    /// while the scene it shows is still at hand.
+    pub fn replace(&mut self, renderer: &mut Renderer, scene: Scene) {
         for shown in &mut self.themes {
+            if shown.broken.is_some() {
+                // The last good drawing stays; the one that followed the
+                // scene before goes with it.
+                shown.drawing = None;
+            } else if let Some(drawing) = shown.drawing.as_mut().filter(|_| !shown.stale) {
+                drawing.prepare(renderer, &self.scene, everywhere());
+            }
             shown.stale = true;
             shown.broken = None;
         }
+        self.uses = Uses::of(&scene.root);
+        self.scene = scene;
         self.damage.extend(THEMES.iter().map(|&t| (t, Damage::All)));
     }
 
     /// Applies `edits` to the scene and brings every drawing along by what
     /// they did — at the cost of the edits, never the scene's — or says why
-    /// they don't apply, leaving everything as it was.
-    pub fn apply(&mut self, renderer: &mut Renderer, edits: &Edits) -> Result<(), String> {
-        let applied = scene::apply(&mut self.scene, &mut self.uses, edits)?;
+    /// they don't apply, leaving everything as it was. A theme whose scene
+    /// they leave undrawable has its last good drawing made, from the scene
+    /// before them: what it shows until a change makes the scene drawable
+    /// again.
+    pub fn apply(&mut self, renderer: &mut Renderer, edits: &Edits) -> Result<Applied, String> {
+        let (applied, undo) = scene::applied(&mut self.scene, &mut self.uses, edits)?;
+        let mut breaking = Vec::new();
         for theme in THEMES {
             let shown = &mut self.themes[index(theme)];
             let Some(drawing) = shown.drawing.as_mut().filter(|_| !shown.stale) else {
@@ -108,16 +128,32 @@ impl Design {
                     // Back from a scene that couldn't be drawn: its tiles
                     // show the last one that could.
                     let damage = if shown.broken.take().is_some() {
+                        shown.good = None;
                         Damage::All
                     } else {
                         damage
                     };
                     self.damage.push((theme, damage));
                 }
-                Err(undrawable) => shown.broken = Some(undrawable),
+                Err(undrawable) => {
+                    if shown.broken.replace(undrawable).is_none() {
+                        breaking.push(theme);
+                    }
+                }
             }
         }
-        Ok(())
+        if !breaking.is_empty() {
+            // The scene before the edits, which could be drawn, drawn afresh
+            // in each theme they broke — the tiles painted already show it,
+            // so none is damaged — and the edits applied to it again.
+            undo.undo(&mut self.scene, &mut self.uses);
+            for theme in breaking {
+                self.themes[index(theme)].good = renderer.drawing(&self.scene, theme, None).ok();
+            }
+            scene::apply(&mut self.scene, &mut self.uses, edits)
+                .expect("edits apply again to the scene they were just undone from");
+        }
+        Ok(applied)
     }
 
     /// Applies a watch stream's patch: [`Design::apply`] with the edits it
@@ -125,7 +161,7 @@ impl Design {
     /// it.
     pub fn patch(&mut self, renderer: &mut Renderer, patch: &proto::Patch) -> Result<(), String> {
         let edits = crate::wire::edits(patch, &self.scene)?;
-        self.apply(renderer, &edits)
+        self.apply(renderer, &edits).map(|_| ())
     }
 
     /// Draws the scene in `theme`, if it isn't: made afresh the first time,
@@ -146,7 +182,10 @@ impl Design {
             .drawing
             .take()
             .or_else(|| self.themes[1 - i].drawing.take());
-        let made = renderer.drawing(&self.scene, theme, last.as_ref());
+        let made = {
+            let after = last.as_ref().or(self.themes[i].good.as_ref());
+            renderer.drawing(&self.scene, theme, after)
+        };
         // The other theme's drawing, taken to share its images' blobs, goes
         // back.
         let last = match last {
@@ -158,20 +197,22 @@ impl Design {
         };
         let shown = &mut self.themes[i];
         match made {
-            // Its tiles went stale when its scene arrived: nothing was
-            // painted in this theme since.
+            // Its tiles went stale when its scene arrived; any painted since
+            // were the last good drawing's.
             Ok(drawing) => {
                 shown.drawing = Some(drawing);
                 shown.stale = false;
+                if shown.good.take().is_some() {
+                    self.damage.push((theme, Damage::All));
+                }
                 Ok(())
             }
-            // The last drawing in the theme, if there was one, is kept
-            // to share its images' blobs when the scene can be drawn again.
+            // The last drawing in the theme, of the scene before this one —
+            // which could be drawn, or the last good one would be kept
+            // already — is what is shown until a scene can be drawn again.
             Err(undrawable) => {
-                if let Some(last) = last
-                    && last.theme() == theme
-                {
-                    shown.drawing = Some(last);
+                if shown.good.is_none() {
+                    shown.good = last;
                 }
                 Err(shown.broken.insert(undrawable))
             }
@@ -195,14 +236,20 @@ impl Design {
         std::mem::take(&mut self.damage)
     }
 
-    /// The drawing in `theme`, drawn if it isn't — or `None` when there is
-    /// none to show: the scene couldn't be drawn in it from the start.
+    /// The drawing shown in `theme`, drawn if it isn't — the last good one
+    /// while the scene can't be drawn — or `None` when there is none to
+    /// show: no scene could be drawn in it yet.
     pub fn drawing(&mut self, renderer: &mut Renderer, theme: Theme) -> Option<&Drawing> {
-        let _ = self.draw(renderer, theme);
-        self.themes[index(theme)].drawing.as_ref()
+        let drawn = self.draw(renderer, theme).is_ok();
+        let shown = &self.themes[index(theme)];
+        if drawn {
+            shown.drawing.as_ref()
+        } else {
+            shown.good.as_ref()
+        }
     }
 
-    /// The drawing's area in `theme`: its top-left and size, in the
+    /// The shown drawing's area in `theme`: its top-left and size, in the
     /// design's coordinates.
     pub fn area(&mut self, renderer: &mut Renderer, theme: Theme) -> Option<Frame> {
         self.drawing(renderer, theme).map(Drawing::area)
@@ -222,21 +269,14 @@ impl Design {
     }
 
     /// The tiles `view` needs at its own zoom's level, nearest its middle
-    /// first — none while the scene can't be drawn: nothing is painted then.
+    /// first — of the last good drawing while the scene can't be drawn.
     pub fn view_tiles(
         &mut self,
         renderer: &mut Renderer,
         theme: Theme,
         view: &View,
     ) -> Vec<(u32, u32)> {
-        if self.draw(renderer, theme).is_err() {
-            return Vec::new();
-        }
-        let Some(a) = self.themes[index(theme)]
-            .drawing
-            .as_ref()
-            .map(Drawing::area)
-        else {
+        let Some(a) = self.area(renderer, theme) else {
             return Vec::new();
         };
         let area = KRect::new(
@@ -248,19 +288,14 @@ impl Design {
         view.tiles(area, Level::of(view.zoom))
     }
 
-    /// The images the drawing in `theme` paints, in the order it first
-    /// paints them: what the GPU's atlas holds for it. `None` while it can't
-    /// be drawn.
+    /// The images the shown drawing in `theme` paints, in the order it first
+    /// paints them: what the GPU's atlas holds for it.
     pub fn images(&mut self, renderer: &mut Renderer, theme: Theme) -> Option<&[ImageData]> {
-        self.draw(renderer, theme).ok()?;
-        self.themes[index(theme)]
-            .drawing
-            .as_ref()
-            .map(|d| d.images.as_slice())
+        self.drawing(renderer, theme).map(|d| d.images.as_slice())
     }
 
     /// The display list to paint tile `(col, row)` at `scale` from, in
-    /// `theme` — `None` while the scene can't be drawn.
+    /// `theme` — the last good drawing's while the scene can't be drawn.
     pub fn tile(
         &mut self,
         renderer: &mut Renderer,
@@ -277,7 +312,7 @@ impl Design {
     /// The display list to paint a strip of the drawing at 1× from, in
     /// `theme`: [`tiles::TILE`] pixels wide at tile column `col`, `rows`
     /// tall from pixel row `y` — a piece of a PNG band too wide for whole
-    /// tiles. `None` while the scene can't be drawn.
+    /// tiles.
     pub fn strip(
         &mut self,
         renderer: &mut Renderer,
@@ -297,35 +332,40 @@ impl Design {
         })
     }
 
-    /// The display list to paint the whole drawing from, in `theme` —
-    /// `None` while the scene can't be drawn.
+    /// The display list to paint the whole drawing from, in `theme`.
     pub fn whole(&mut self, renderer: &mut Renderer, theme: Theme) -> Option<&List> {
-        self.painted(renderer, theme, |_| KRect::new(-1e12, -1e12, 1e12, 1e12))
+        self.painted(renderer, theme, |_| everywhere())
     }
 
-    /// The display list in `theme`, rounded where `area` — in the design's
-    /// coordinates, from the list — is painted; `None` while the scene can't
-    /// be drawn.
+    /// The shown drawing's display list in `theme`, rounded where `area` —
+    /// in the design's coordinates, from the list — is painted.
     fn painted(
         &mut self,
         renderer: &mut Renderer,
         theme: Theme,
         area: impl FnOnce(&List) -> KRect,
     ) -> Option<&List> {
-        self.draw(renderer, theme).ok()?;
-        let rect = area(&self.themes[index(theme)].drawing.as_ref()?.list);
+        let rect = area(&self.drawing(renderer, theme)?.list);
         self.prepared(renderer, theme, rect).map(|d| &d.list)
     }
 
-    /// The drawing in `theme` with every run child in `rect` — in the
+    /// The shown drawing in `theme` with every run child in `rect` — in the
     /// design's coordinates — rounded where the runs now place it: what is
-    /// read there is a fresh drawing's.
+    /// read there is a fresh drawing's. A last good drawing needs none: it
+    /// was made afresh, or rounded whole when its scene was replaced.
     fn prepared(&mut self, renderer: &mut Renderer, theme: Theme, rect: KRect) -> Option<&Drawing> {
-        let _ = self.draw(renderer, theme);
+        if self.draw(renderer, theme).is_err() {
+            return self.themes[index(theme)].good.as_ref();
+        }
         let drawing = self.themes[index(theme)].drawing.as_mut()?;
         drawing.prepare(renderer, &self.scene, rect);
         Some(drawing)
     }
+}
+
+/// An area holding all of any drawing.
+fn everywhere() -> KRect {
+    KRect::new(-1e12, -1e12, 1e12, 1e12)
 }
 
 #[cfg(test)]

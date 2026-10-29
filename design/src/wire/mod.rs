@@ -368,7 +368,7 @@ pub fn decode_scene(
     let mut images = files(&message.images, held.0)?;
     let mut fonts = font_files(&message.fonts, held.1)?;
     settle(&root, &mut images, &mut fonts)?;
-    let scene = Scene::new(root, images, fonts, Vec::new(), message.themed);
+    let scene = Scene::new(root, images, fonts, message.themed);
     if scene.ids.len() != count(&scene.root) {
         return Err("a scene with two nodes of the same id".into());
     }

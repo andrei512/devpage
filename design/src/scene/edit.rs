@@ -253,7 +253,7 @@ pub struct Applied {
 }
 
 /// One operation done, and how to undo it.
-enum Undo {
+enum Step {
     /// Put back these own attributes at this order.
     Own(Order, Node),
     /// Take out the subtree at this order.
@@ -271,6 +271,17 @@ enum Undo {
 /// nodes by id, and the files no node uses any more are dropped by count,
 /// never by a walk of the scene.
 pub fn apply(scene: &mut Scene, uses: &mut Uses, edits: &Edits) -> Result<Applied, String> {
+    applied(scene, uses, edits).map(|(applied, _)| applied)
+}
+
+/// [`apply`], and what puts the scene back as it was before them, at their
+/// cost again: for a holder that finds only after applying them that the
+/// scene they made can't be drawn, and draws the one before.
+pub fn applied(
+    scene: &mut Scene,
+    uses: &mut Uses,
+    edits: &Edits,
+) -> Result<(Applied, Undo), String> {
     let (images, fonts) = (&edits.images, &edits.fonts);
     let mut undo = Vec::new();
     let mut applied = Applied::default();
@@ -311,17 +322,106 @@ pub fn apply(scene: &mut Scene, uses: &mut Uses, edits: &Edits) -> Result<Applie
         .fonts
         .extend(fonts.iter().map(|(id, f)| (*id, f.clone())));
     uses.settle();
-    scene.images.retain(|id, _| uses.images.contains_key(id));
-    scene.fonts.retain(|id, _| uses.fonts.contains_key(id));
+    let mut back = Undo {
+        steps: undo,
+        images: ImageFiles::new(),
+        fonts: FontFiles::new(),
+        themed: scene.themed,
+    };
+    scene.images.retain(|id, f| {
+        let kept = uses.images.contains_key(id);
+        if !kept {
+            back.images.insert(*id, f.clone());
+        }
+        kept
+    });
+    scene.fonts.retain(|id, f| {
+        let kept = uses.fonts.contains_key(id);
+        if !kept {
+            back.fonts.insert(*id, f.clone());
+        }
+        kept
+    });
     scene.themed = edits.themed;
-    Ok(applied)
+    Ok((applied, back))
+}
+
+/// What puts a scene back as it was before edits applied to it: each step
+/// undone, last first, the files they let go held again, and whether it was
+/// themed.
+pub struct Undo {
+    steps: Vec<Step>,
+    images: ImageFiles,
+    fonts: FontFiles,
+    themed: bool,
+}
+
+impl Undo {
+    /// Puts `scene`, whose files `uses` counts, back as it was before the
+    /// edits this undoes — which must be the last applied to it.
+    pub fn undo(self, scene: &mut Scene, uses: &mut Uses) {
+        for step in self.steps.into_iter().rev() {
+            revert(scene, uses, step);
+        }
+        uses.settle();
+        scene.images.extend(self.images);
+        scene.fonts.extend(self.fonts);
+        scene.images.retain(|id, _| uses.images.contains_key(id));
+        scene.fonts.retain(|id, _| uses.fonts.contains_key(id));
+        scene.themed = self.themed;
+    }
+}
+
+/// Where a design's one scene is held: what resolving it again reads the
+/// scene from, and brings it across by — by edits applied to it there,
+/// once, and to whatever is kept beside it, like a drawing.
+pub trait Holder {
+    /// The scene as it is now.
+    fn scene(&self) -> &Scene;
+
+    /// Applies `edits` to the scene, or says why they don't apply, leaving
+    /// it as it was.
+    fn apply(&mut self, edits: &Edits) -> Result<Applied, String>;
+}
+
+/// A scene held with nothing beside it, counting the edits applied to it:
+/// what the engine's tests resolve again into.
+#[cfg(test)]
+pub(crate) struct Bare {
+    pub scene: Scene,
+    pub uses: Uses,
+    /// How many times edits were applied to it.
+    pub applies: usize,
+}
+
+#[cfg(test)]
+impl Bare {
+    pub fn new(scene: Scene) -> Bare {
+        Bare {
+            uses: Uses::of(&scene.root),
+            scene,
+            applies: 0,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Holder for Bare {
+    fn scene(&self) -> &Scene {
+        &self.scene
+    }
+
+    fn apply(&mut self, edits: &Edits) -> Result<Applied, String> {
+        self.applies += 1;
+        apply(&mut self.scene, &mut self.uses, edits)
+    }
 }
 
 fn run(
     scene: &mut Scene,
     uses: &mut Uses,
     ops: &[Edit],
-    undo: &mut Vec<Undo>,
+    undo: &mut Vec<Step>,
     applied: &mut Applied,
 ) -> Result<(), String> {
     for o in ops {
@@ -335,7 +435,7 @@ fn run(
                 uses.take_own(&own);
                 uses.add_own(place);
                 applied.changed.push((own.id.clone(), own.clone()));
-                undo.push(Undo::Own(order, own));
+                undo.push(Step::Own(order, own));
             }
             Edit::Insert {
                 parent,
@@ -354,7 +454,7 @@ fn run(
                     scene.ids = Ids::of(&scene.root);
                     applied.removed.push(old.id.clone());
                     applied.placed.push(scene.root.id.clone());
-                    undo.push(Undo::Root(old));
+                    undo.push(Step::Root(old));
                     continue;
                 };
                 let parent = order_of(scene, parent)?;
@@ -364,7 +464,7 @@ fn run(
                 let id = node.id.clone();
                 let order = place(scene, &parent, after.as_ref(), node);
                 applied.placed.push(id);
-                undo.push(Undo::Take(order));
+                undo.push(Step::Take(order));
             }
             Edit::Remove(id) => {
                 let order = order_of(scene, id)?;
@@ -378,7 +478,7 @@ fn run(
                 let node = take(scene, &order);
                 uses.take(&node);
                 applied.removed.push(id.clone());
-                undo.push(Undo::Put(parent, key, node));
+                undo.push(Step::Put(parent, key, node));
             }
             Edit::Move { id, parent, after } => {
                 let from = order_of(scene, id)?;
@@ -399,7 +499,7 @@ fn run(
                 let to = place(scene, &parent, after.as_ref(), node);
                 applied.removed.push(id.clone());
                 applied.placed.push(id.clone());
-                undo.push(Undo::Back(to, old_parent, key));
+                undo.push(Step::Back(to, old_parent, key));
             }
         }
     }
@@ -486,20 +586,20 @@ fn take(scene: &mut Scene, order: &Order) -> Node {
     node
 }
 
-fn revert(scene: &mut Scene, uses: &mut Uses, u: Undo) {
+fn revert(scene: &mut Scene, uses: &mut Uses, u: Step) {
     match u {
-        Undo::Own(order, mut own) => {
+        Step::Own(order, mut own) => {
             let place = scene.at_mut(&order).expect("done");
             std::mem::swap(&mut place.children, &mut own.children);
             let new = std::mem::replace(place, own);
             uses.take_own(&new);
             uses.add_own(scene.at(&order).expect("done"));
         }
-        Undo::Take(order) => {
+        Step::Take(order) => {
             let node = take(scene, &order);
             uses.take(&node);
         }
-        Undo::Put(parent, key, node) => {
+        Step::Put(parent, key, node) => {
             uses.add(&node);
             let p = scene.at_mut(&parent).expect("done");
             p.children.put(key.clone(), node);
@@ -507,7 +607,7 @@ fn revert(scene: &mut Scene, uses: &mut Uses, u: Undo) {
             order.push(key);
             index(scene, &order);
         }
-        Undo::Back(now, parent, key) => {
+        Step::Back(now, parent, key) => {
             let node = take(scene, &now);
             let p = scene.at_mut(&parent).expect("done");
             p.children.put(key.clone(), node);
@@ -515,7 +615,7 @@ fn revert(scene: &mut Scene, uses: &mut Uses, u: Undo) {
             order.push(key);
             index(scene, &order);
         }
-        Undo::Root(old) => {
+        Step::Root(old) => {
             let new = std::mem::replace(&mut scene.root, old);
             uses.take(&new);
             uses.add(&scene.root);

@@ -16,12 +16,13 @@ use crate::tree::NodeId;
 
 /// Resolves the design at `path`, reporting every problem found.
 pub fn resolve(files: &dyn Files, path: &str) -> Result<Scene, Vec<Problem>> {
-    resolved(files, path).map(|(scene, _)| scene)
+    resolved(files, path).map(|(scene, ..)| scene)
 }
 
 /// The design at `path` resolved, with the record of where each node came
-/// from and what it read — what resolving it again starts from.
-fn resolved(files: &dyn Files, path: &str) -> Result<(Scene, Record), Vec<Problem>> {
+/// from and what it read — what resolving it again starts from — and the
+/// files it was made from.
+fn resolved(files: &dyn Files, path: &str) -> Result<(Scene, Record, Vec<String>), Vec<Problem>> {
     let mut r = Resolver::new(files);
     let root = r.design(path, &[], None, "", None);
     if r.problems.is_empty() {
@@ -29,10 +30,9 @@ fn resolved(files: &dyn Files, path: &str) -> Result<(Scene, Record), Vec<Proble
             root.expect("no problems means a root"),
             r.images,
             r.fonts,
-            r.read,
             r.themed,
         );
-        Ok((scene, r.record))
+        Ok((scene, r.record, r.read))
     } else {
         Err(r.problems)
     }

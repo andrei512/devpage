@@ -313,8 +313,11 @@ mod tests {
             &scene::Edits::between(&design(&files), &more),
         )
         .unwrap();
+        // The last good drawing is what is shown, and placed, meanwhile.
         assert!(held.problem(light).is_some());
-        assert!(held.images(&mut renderer, light).is_none());
-        assert!(held.whole(&mut renderer, light).is_none());
+        let shown = held.images(&mut renderer, light).unwrap().to_vec();
+        assert_eq!(shown.len(), images.len());
+        let replayed = replay(held.whole(&mut renderer, light).unwrap());
+        agree(&shown, &replayed, "the last good drawing");
     }
 }
