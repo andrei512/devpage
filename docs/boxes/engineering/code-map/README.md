@@ -19,7 +19,9 @@ bus, the network, the terminal, the file watcher — and drives the core from
 `src/drive/`: the HTTP server and Chrome. The [design engine](../../viewer/design-engine/README.md)
 is three more workspace crates beside them: `design/` (`devpage-design`),
 `design/wasm/` (`devpage-design-wasm`) and `design/module/`
-(`devpage-design-module`, which vendors the module).
+(`devpage-design-module`, which vendors the module). `bench/`
+(`devpage-bench`, never published) is [the server's benchmark](../tests/README.md#the-servers-benchmark):
+the corpus generator, the scenarios and the report.
 Each part of the diagram opens the page that explains it.
 
 ```mermaid

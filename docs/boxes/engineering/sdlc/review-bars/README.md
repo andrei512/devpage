@@ -14,7 +14,7 @@ review runs is the [Review stage](../stages/README.md#review).
 
 ## CI
 
-Two workflows run on GitHub, on GitHub-hosted runners only — the repository
+Four workflows run on GitHub, on GitHub-hosted runners only — the repository
 is public and never uses a self-hosted runner.
 
 **`.github/workflows/gates.yml`** runs on every pull request and every push to
@@ -49,6 +49,18 @@ what it tests: it runs on a pull request that touches `deploy/` or the
 workflow, on every push to `main`, and every Monday at 06:00 UTC. A release
 pull request, which moves the image to a version not yet published, fails it
 until the version is.
+
+**`.github/workflows/deploy-server.yml`** keeps the
+[server example](../../../viewer/server/running-a-server/README.md) true: it
+builds the image in `deploy/server/` from the checkout on x86-64, publishes
+into both emulated buckets and downloads a version's PDF, on a pull request
+that touches the code or `deploy/server/`, and on every push to `main`.
+
+**`.github/workflows/bench.yml`** is [the server's benchmark](../../tests/README.md#the-servers-benchmark),
+run by hand from the Actions tab: it reports a server's numbers against the
+envelope's targets and against the last run from `main`. It gates nothing on
+its own; a change to how a server serves, publishes, caches or holds memory
+links its report from the pull request.
 
 <Callout kind="note" title="The Chrome tests run by hand">
 

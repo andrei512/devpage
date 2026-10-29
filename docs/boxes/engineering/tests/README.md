@@ -485,6 +485,48 @@ an empty one, and finds both versions, the thread, the latest at the link and
 version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
 on the example deploy. Without Litestream's restore it fails.
 
+### The server's benchmark
+
+Not a test `cargo test` runs: `.github/workflows/bench.yml`, started by hand,
+loads a server to the [envelope](../../viewer/server/measuring-a-server/README.md#the-envelope)
+and past it, and reports each target met or missed
+([one server holds the envelope](../../viewer/server/constraints/one-server-holds-the-envelope.md)).
+The code is `bench/` (`devpage-bench`), a workspace crate never published; the
+repository holds no corpus and no results.
+
+- **The stack** is `deploy/server/compose.yaml`'s, the image built from the
+  checkout and held to 2 CPUs and 4 GB, with RustFS for S3; the load runs on
+  the runner's other cores.
+- **The corpus** is generated from a seed, the workflow's input, into a
+  temporary folder: 10,000 documents — docs, sites, slides and designs in the
+  proportions teams write them, page sizes, links, `#heading` links, diagrams
+  and code spread around a median with a long tail — and their versions, 5 a
+  document on average, 50,000 in all. The same seed gives the same corpus.
+  devpage's own `docs/` is one of the sites. It is published through the API,
+  eight at a time, and that publishing is the first number: publishes a
+  second.
+- **The load is open**: each request goes at its scheduled time whether or
+  not the last has answered, and its latency counts from that time, so a
+  server that stalls is charged for the requests it kept waiting rather
+  than sent fewer.
+- **The scenarios**, each run three times, the median reported:
+  - *views* — readers following a popularity curve over the documents, a few
+    read often and most rarely, at 50 a second, then a burst of 500 a second;
+    pages, search, a design's PNG and first downloads among them.
+  - *misses* — first views of versions no one has read, so each comes from
+    the bucket.
+  - *writes* — a publish and a comment a second, alongside the views.
+  - *herd* — 500 pages open on one document, and a publish to it.
+  - *open pages* — 2,000 pages listening throughout.
+  - *soak* — the whole envelope for 30 minutes: memory and threads, run once.
+  - *knee* — views of each kind of document raised past 500 a second until
+    their p99 crosses 100 ms.
+- **The report** is the run's summary page: each number beside its target and
+  main's last run, and from `/metrics`, scraped after each scenario, the stage
+  that took the time. The numbers are the run's artifact; a run downloads the
+  last one from `main` to compare against. A number has moved only by more
+  than the spread of its three runs.
+
 ### `drive::server`
 
 *30 tests, 37 in Chrome.*
