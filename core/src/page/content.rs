@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use crate::document::{Document, Kind};
-use crate::folder::{Folder, Owner};
+use crate::folder::Folder;
 use crate::html;
 use crate::widgets::{Modules, Widgets};
 
@@ -144,10 +144,14 @@ pub fn read(widgets: &Widgets, file: &Path) -> Rendered {
 /// site; in no site, the file alone, as a doc of one chapter. `None` when
 /// its site can't be read: its page then shows why, and none of the file.
 pub fn shown_in(file: &Path, folder: &Folder) -> Option<Document> {
-    match folder.owner(file) {
-        Some(Owner { document, .. }) => document.ok(),
-        None => Document::load(file, folder.served()).ok(),
-    }
+    Document::load(&shown_by(file, folder), folder.served()).ok()
+}
+
+/// The file of the document a Markdown file is [shown in](shown_in),
+/// unloaded: its nearest site's document file, or in no site the file
+/// itself.
+pub fn shown_by(file: &Path, folder: &Folder) -> PathBuf {
+    folder.site(file).unwrap_or_else(|| file.to_path_buf())
 }
 
 /// Every id a link's `#fragment` into `file` can land on, as its page

@@ -231,9 +231,15 @@ length over the sections the index holds, summed from their lengths as the
 index keeps them, which a merge keeps too; and the sections stay in reading
 order. So a page saved ranks exactly as it would after a restart.
 
-On devpage's own docs, in a release build, a saved page takes about 35 ms,
-against about 47 ms to read everything again: about 25 ms of it is finding
-what is published, which every burst does whole, and about 10 ms the merge.
+**Each document is loaded once a pass.** Finding what is published, and
+reading the pages that differ, load each document file once, however many
+of its pages they meet — a site of a hundred pages is loaded once, not a
+hundred times — and read a document's widgets once, only when a page it
+shows is read again: a saved page reads only its own document's.
+
+On devpage's own docs, in a release build, a saved page takes about 32 ms,
+against about 67 ms to read every page again: about 18 ms of it is finding
+what is published, which every burst does whole.
 
 ## The endpoint
 

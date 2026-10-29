@@ -9,6 +9,13 @@ use crate::folder::ServedFolder;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
+#[cfg(test)]
+thread_local! {
+    /// Every document file loaded on this thread, for the tests: how often a
+    /// pass loads each.
+    pub(crate) static LOADED: std::cell::RefCell<Vec<PathBuf>> = Default::default();
+}
+
 /// The YAML as written, tagged by `kind`. Paths are relative to its folder.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
@@ -274,6 +281,8 @@ impl Document {
         } else {
             path.to_path_buf()
         };
+        #[cfg(test)]
+        LOADED.with_borrow_mut(|loaded| loaded.push(file.clone()));
         let text = std::fs::read_to_string(&file)
             .with_context(|| format!("reading {}", file.display()))?;
         std::fs::metadata(served.path())

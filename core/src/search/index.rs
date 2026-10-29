@@ -2,7 +2,7 @@
 //! published into the sections it is searched by, and keeping it current a
 //! page at a time.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
 
@@ -15,9 +15,8 @@ use tantivy::{
     IndexSettings, IndexSortByField, IndexWriter, Order, ReloadPolicy, TantivyDocument, Term,
 };
 
-use crate::document::Document;
 use crate::folder::Folder;
-use crate::widgets::{Modules, Widgets};
+use crate::widgets::Widgets;
 
 use super::*;
 
@@ -178,7 +177,11 @@ impl Search {
     pub(super) fn index(&self, folder: &Folder, paths: &[PathBuf]) {
         let mut indexer = lock(&self.indexer);
         let Indexer { writer, units } = &mut *indexer;
-        let now: BTreeMap<String, Unit> = scope(folder, &self.entry)
+        // Each document is loaded once per pass, and its widgets read once,
+        // through the pass's own cache: what a page's tags expand to is what
+        // its page shows now.
+        let mut pass = Pass::new(folder);
+        let now: BTreeMap<String, Unit> = scope(&mut pass, &self.entry)
             .into_iter()
             .map(|unit| (unit.url(), unit))
             .collect();
@@ -195,22 +198,12 @@ impl Search {
                 pages.remove(url);
             }
         }
-        // Each document's widgets are read once per pass, through a cache
-        // of the pass's own: what a page's tags expand to is what its page
-        // shows now.
-        let modules = Modules::default();
-        let mut widgets: HashMap<PathBuf, Option<Widgets>> = HashMap::new();
         for (url, unit) in &now {
             if units.get(url).is_none_or(|was| was != unit || read(unit)) {
                 let Some(shown) = &unit.shown_in else {
                     continue;
                 };
-                let set = widgets.entry(shown.file.clone()).or_insert_with(|| {
-                    Document::load(&shown.file, folder.served())
-                        .ok()
-                        .map(|document| Widgets::of(&document, &modules))
-                });
-                if let Some(set) = set {
+                if let Some(set) = pass.widgets(shown) {
                     self.add(writer, unit, set, &mut pages);
                 }
             }
