@@ -8,7 +8,7 @@ use devpage_core::addresses::{Owned, address};
 use devpage_core::page::escape;
 
 use crate::drive::api_types::Refusal;
-use crate::drive::server_mode::published::{Mount, Published, downloadable};
+use crate::drive::server_mode::published::{Mount, Published};
 
 /// `/`: that this is a devpage server, and how to connect to it. It lists no
 /// documents: a document is reached only through its link.
@@ -80,7 +80,7 @@ pub fn versions(published: &Published, id: &str, mount: Mount) -> Result<Respons
         .iter()
         .find(|v| v.number == shown)
         .ok_or(Refusal::NotFound)?;
-    let download = downloadable(&version.kind).map(|(extension, _)| {
+    let download = devpage_core::document::downloads_as(&version.kind).map(|(extension, _)| {
         serde_json::json!({
             "url": format!("{}/download", Mount::Pinned(shown).path(id)),
             "format": extension.to_uppercase(),

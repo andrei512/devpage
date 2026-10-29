@@ -366,13 +366,22 @@ mod tests {
     /// A served folder of two decks: `a.yml`, whose slide embeds an image
     /// and a design that shows another image, and widgets from `widgets/`;
     /// and `b.yml`, a slide of its own. The watcher's listeners on it, telling
-    /// `shots`, and its slides kept as drawn.
+    /// `shots`, and its slides kept as drawn — every file but those in
+    /// `without`, which aren't there yet.
     fn two_decks(name: &str, shots: &Shots) -> (PathBuf, Listeners) {
+        two_decks_without(name, shots, &[])
+    }
+
+    fn two_decks_without(name: &str, shots: &Shots, without: &[&str]) -> (PathBuf, Listeners) {
         let dir = std::env::temp_dir().join(format!("devpage-shots-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("widgets")).unwrap();
         let dir = dir.canonicalize().unwrap();
-        let write = |file: &str, text: &str| std::fs::write(dir.join(file), text).unwrap();
+        let write = |file: &str, text: &str| {
+            if !without.contains(&file) {
+                std::fs::write(dir.join(file), text).unwrap();
+            }
+        };
         write(
             "a.md",
             "# A\n\n![Logo](logo.png)\n\n![Screen](screen.design)\n\n[B](b.md)\n",
@@ -441,6 +450,18 @@ mod tests {
             assert!(shots.cached("/a.yml", 1).is_none(), "{file}");
             assert!(shots.cached("/b.yml", 1).is_some(), "{file}");
         }
+    }
+
+    /// An image a design on a slide shows, added after the slide was drawn
+    /// without it, forgets that deck's slides.
+    #[test]
+    fn adding_an_image_an_embedded_design_lacks_forgets_its_slides() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks_without("design-lacks", &shots, &["photo.png"]);
+        std::fs::write(dir.join("photo.png"), "png").unwrap();
+        listeners.changed(&[dir.join("photo.png")]);
+        assert!(shots.cached("/a.yml", 1).is_none());
+        assert!(shots.cached("/b.yml", 1).is_some());
     }
 
     #[test]

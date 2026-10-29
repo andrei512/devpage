@@ -59,6 +59,27 @@ impl ServedFolder {
         self.inside(path).filter(|real| real.is_dir())
     }
 
+    /// The file `path` names, as the watcher reports it: resolved, when it
+    /// is a file inside the folder; when nothing is there yet, the path it
+    /// would have — its folder resolved on disk where that folder exists —
+    /// so its arrival can be told apart. `None` for anything else: a path
+    /// outside the folder, or a folder.
+    pub fn named(&self, path: &Path) -> Option<PathBuf> {
+        if let Some(file) = self.file(path) {
+            return Some(file);
+        }
+        let lexical = lexical(path);
+        let would_be = match (lexical.parent(), lexical.file_name()) {
+            (Some(parent), Some(name)) => parent
+                .canonicalize()
+                .map(|parent| parent.join(name))
+                .unwrap_or(lexical),
+            _ => lexical,
+        };
+        (self.contains(&would_be) && std::fs::symlink_metadata(&would_be).is_err())
+            .then_some(would_be)
+    }
+
     /// What a URL path names — any entry, file or folder — when it lies
     /// inside the folder.
     pub fn at(&self, url_path: &str) -> Option<PathBuf> {

@@ -202,10 +202,11 @@ pub async fn run(
         } => {
             let (api, _) = connect(home, &chosen(&remote))?;
             let document = api.describe(&id).await?;
-            let extension = match document.kind.as_str() {
-                "doc" | "slides" => "pdf",
-                "design" => "png",
-                kind => bail!("{id}: a {kind} has no download — only docs, slides and designs do"),
+            let Some((extension, _)) = devpage_core::document::downloads_as(&document.kind) else {
+                bail!(
+                    "{id}: a {} has no download — only docs, slides and designs do",
+                    document.kind
+                );
             };
             let version = version.unwrap_or(document.latest);
             let bytes = api.download(&id, version).await?;

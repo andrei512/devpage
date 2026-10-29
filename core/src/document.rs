@@ -582,6 +582,18 @@ pub fn kind_of(file: &Path) -> Option<KindName> {
     }
 }
 
+/// What a published document of `kind` downloads as — a doc or slides
+/// printed as a PDF, a design painted as its PNG — as its extension and
+/// media type; `None` for a kind that has no download, a site. The one rule
+/// for it, the server's and `devpage download`'s.
+pub fn downloads_as(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "doc" | "slides" => Some(("pdf", "application/pdf")),
+        "design" => Some(("png", "image/png")),
+        _ => None,
+    }
+}
+
 /// The file a document is saved as when nothing names one — what `devpage
 /// pdf` and `devpage video` write and what a version downloads as: its
 /// `title`, with the characters a file name can't hold replaced by `-`, and
@@ -603,6 +615,14 @@ pub fn download_name(title: &str, extension: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docs_and_slides_download_as_a_pdf_a_design_as_a_png_and_a_site_not() {
+        assert_eq!(downloads_as("doc"), Some(("pdf", "application/pdf")));
+        assert_eq!(downloads_as("slides"), Some(("pdf", "application/pdf")));
+        assert_eq!(downloads_as("design"), Some(("png", "image/png")));
+        assert_eq!(downloads_as("site"), None);
+    }
 
     #[test]
     fn the_download_name_is_the_title_made_safe() {

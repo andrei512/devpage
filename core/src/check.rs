@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::designs::Designs;
 use crate::document::{Document, Kind, KindName};
-use crate::folder::{Folder, ServedFolder, lexical};
+use crate::folder::{Folder, ServedFolder};
 use crate::page::{self, Rendered};
 
 use crate::external::{External, Link};
@@ -180,21 +180,8 @@ fn deck_drawn_from(
                 deck_drawn_from(&other, served, designs, modules, files);
                 continue;
             }
-            files.insert(missing(&named));
+            files.extend(served.named(&named));
         }
-    }
-}
-
-/// The path a file that isn't there would have: its folder as the disk
-/// resolves it, when the folder is there, and its name.
-fn missing(named: &Path) -> PathBuf {
-    let lexical = lexical(named);
-    match (lexical.parent(), lexical.file_name()) {
-        (Some(parent), Some(name)) => parent
-            .canonicalize()
-            .map(|parent| parent.join(name))
-            .unwrap_or(lexical),
-        _ => lexical,
     }
 }
 
@@ -215,7 +202,13 @@ fn follow(
         && real.extension().is_some_and(|ext| ext == "design")
         && let Some(address) = document.name(&real)
     {
-        files.extend(designs.files(&address));
+        // A file a design asked for that isn't there is nothing to follow.
+        files.extend(
+            designs
+                .files(&address)
+                .into_iter()
+                .filter_map(|file| document.served.file(&file)),
+        );
     }
 }
 
