@@ -489,7 +489,11 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  Out: ../outside.md\n  Mail: mailto:a@b.c\n",
         )
         .unwrap();
-        let document = Document::load(&served.join("devpage.yml"), &served).unwrap();
+        let document = Document::load(
+            &served.join("devpage.yml"),
+            &ServedFolder::new(&served).unwrap(),
+        )
+        .unwrap();
         let found: Vec<String> = problems(&document).iter().map(|p| p.to_string()).collect();
         assert_eq!(
             found,
