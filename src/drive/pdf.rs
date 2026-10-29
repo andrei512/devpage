@@ -276,7 +276,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
+            comments: Some(crate::comments::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
         });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -338,7 +338,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
+            comments: Some(crate::comments::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
         });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -462,7 +462,7 @@ mod tests {
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
         let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
+            comments: Some(crate::comments::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
         });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -535,7 +535,7 @@ mod tests {
         let answered = Answered::default();
         let log = answered.clone();
         let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
+            comments: Some(crate::comments::Identity::Local("T".into())),
             ..server::Options::new(document, changes)
         })
         .layer(axum::middleware::from_fn(

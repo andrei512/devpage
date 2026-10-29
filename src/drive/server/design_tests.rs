@@ -7,11 +7,12 @@ use std::sync::Arc;
 
 use devpage_core::designs::testing::*;
 
+use crate::comments::Identity;
 use crate::designs::Designs;
 use crate::document::Document;
 use crate::index::Index;
 use crate::served::ServedFolder;
-use crate::server::{Identity, Options, router};
+use crate::server::{Options, router};
 
 pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
     let document =

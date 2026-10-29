@@ -1,11 +1,13 @@
-//! Comments: threads readers leave on a page, kept by a comment store. The
-//! [`Store`] port is what a store must do — list, create, reply, resolve —
-//! and [`Comments`] is what the server writes through: every write it makes
-//! announces itself on the change bus, so open pages hear it whatever keeps
-//! the threads. The YAML files under `.devpage/comments/` are one store
-//! ([`yaml`]); tests keep threads in memory ([`memory`]). Where a store
-//! keeps threads across versions of a document, [`anchor`] carries each one
-//! onto the next version's text.
+//! Comments: threads readers leave on a page, kept by a comment store.
+//! [`Comments`] is the only way a thread is written — from a page, from the
+//! API, or by a publish carrying threads onto a new version — and it holds
+//! every rule of a write: the page key, a new thread's page being a file in
+//! the served or version folder, replies and resolves going by thread id,
+//! and the one announcement each write makes on the change bus. [`Identity`]
+//! says who writes. The [`Store`] port is only where threads are kept, by
+//! thread id: the YAML files under `.devpage/comments/` ([`yaml`]), server
+//! mode's SQLite store, and memory for tests ([`memory`]). [`anchor`] finds
+//! a carried thread's quote in the new version's text.
 
 pub mod anchor;
 pub mod yaml;
@@ -13,7 +15,7 @@ pub mod yaml;
 #[cfg(any(test, feature = "testing"))]
 pub mod memory;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -21,6 +23,10 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::changes::{Change, Publish};
+use crate::document::Document;
+use crate::index::Index;
+use crate::served::ServedFolder;
+use crate::widgets::Widgets;
 
 /// What a thread is attached to: rendered text, with a little context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -59,100 +65,258 @@ pub struct Listed {
     pub detached: bool,
 }
 
-/// The comment store port: where one served folder's threads are kept. A
-/// `page` is the address of the Markdown file a thread is about (`/a.md`);
-/// one that climbs out of the served folder, and an id that isn't a thread's,
-/// are errors. Writes are silent — announcing them is [`Comments`]'s job.
+/// The comment store port: where one served folder's — or one published
+/// document's — threads are kept, by thread id. A `page` here is always a
+/// page key, `/a.md`, made by [`Comments`]; an `id` is always one that
+/// [`is_id`] accepts. Writes are silent — announcing them is [`Comments`]'s
+/// job.
 pub trait Store: Send + Sync {
     /// A page's threads, oldest first.
     fn list(&self, page: &str) -> Result<Vec<Listed>>;
-    /// Starts a thread on `page`; answers its id.
-    fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String>;
-    /// Appends a reply to thread `id`.
-    fn reply(&self, page: &str, id: &str, author: &str, text: &str) -> Result<()>;
-    /// Resolves thread `id`: it is gone.
-    fn resolve(&self, page: &str, id: &str) -> Result<()>;
+    /// Starts a thread on `page` with its first message; answers its id.
+    fn create(&self, page: &str, anchor: Anchor, first: Message) -> Result<String>;
+    /// Appends `message` to thread `id`: the page it is on, or `None` when
+    /// there is no such thread.
+    fn reply(&self, id: &str, message: Message) -> Result<Option<String>>;
+    /// Resolves thread `id` — it is gone: the page it was on, or `None` when
+    /// there was no such thread.
+    fn resolve(&self, id: &str) -> Result<Option<String>>;
+    /// Every thread still attached, each with its page: what a publish
+    /// carries onto the new version.
+    fn attached(&self) -> Result<Vec<(String, Listed)>>;
+    /// Carries thread `id` onto the version this store writes: at `anchor`,
+    /// or detached when its text is gone.
+    fn carry(&self, id: &str, anchor: Option<&Anchor>) -> Result<()>;
+    /// The pages whose threads changed among `paths` by a hand other than
+    /// this store's — a thread file edited in an editor. Asking marks them
+    /// heard: whoever asks announces them. A store with no files hears
+    /// nothing.
+    fn heard(&self, paths: &[PathBuf]) -> Vec<String>;
 }
 
-/// The comments of the documents one bus serves: a store, and that bus,
-/// which every successful write is announced on — `comments <page>`, once, as the write
-/// lands — so open pages fetch that page's threads again.
+/// Why a comment request is refused.
+#[derive(Debug)]
+pub enum Refused {
+    /// The request names no author: the header [`Identity::Header`] names
+    /// is missing or blank.
+    Unidentified(String),
+    /// The page is not a file in the served or version folder.
+    NotAPage(String),
+    /// There is no such thread.
+    NoThread(String),
+    /// The store failed.
+    Failed(anyhow::Error),
+}
+
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Refused::Unidentified(header) => write!(f, "a write needs the {header} header"),
+            Refused::NotAPage(page) => write!(f, "{page} is not a page in the served folder"),
+            Refused::NoThread(id) => write!(f, "no thread {id}"),
+            Refused::Failed(error) => write!(f, "{error:#}"),
+        }
+    }
+}
+
+impl From<anyhow::Error> for Refused {
+    fn from(error: anyhow::Error) -> Self {
+        Refused::Failed(error)
+    }
+}
+
+/// Who writes: one local author — the git name locally, `anonymous` on a
+/// server with no header — or, deployed, whoever the auth proxy names in a
+/// header. devpage authenticates no one itself.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Identity {
+    Local(String),
+    Header(String),
+}
+
+impl Identity {
+    /// The author of a write whose request carries `header`'s value by name:
+    /// the local author, or the header's value trimmed — refused when it is
+    /// missing or blank.
+    pub fn author<'a>(
+        &self,
+        header: impl FnOnce(&str) -> Option<&'a str>,
+    ) -> Result<String, Refused> {
+        match self {
+            Identity::Local(name) => Ok(name.clone()),
+            Identity::Header(name) => header(name)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .ok_or_else(|| Refused::Unidentified(name.clone())),
+        }
+    }
+}
+
+/// The comments of one served or version folder: its store, the bus every
+/// successful write is announced on — `comments <page>`, once, as the write
+/// lands — so open pages fetch that page's threads again, and the folder a
+/// new thread's page must be a file in.
 #[derive(Clone)]
 pub struct Comments {
     store: Arc<dyn Store>,
     changes: Arc<dyn Publish>,
+    folder: ServedFolder,
 }
 
 impl Comments {
-    pub fn new(store: Arc<dyn Store>, changes: Arc<dyn Publish>) -> Self {
-        Self { store, changes }
+    pub fn new(store: Arc<dyn Store>, changes: Arc<dyn Publish>, folder: ServedFolder) -> Self {
+        Self {
+            store,
+            changes,
+            folder,
+        }
     }
 
-    pub fn list(&self, page: &str) -> Result<Vec<Listed>> {
-        self.store.list(page)
+    /// A page's threads, oldest first.
+    pub fn list(&self, page: &str) -> Result<Vec<Listed>, Refused> {
+        Ok(self.store.list(&page_key(page)?)?)
     }
 
-    pub fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String> {
-        let id = self.store.create(page, anchor, author, text)?;
+    /// Starts a thread on `page`, which must be a file in the folder.
+    pub fn create(
+        &self,
+        page: &str,
+        anchor: Anchor,
+        author: &str,
+        text: &str,
+    ) -> Result<String, Refused> {
+        let page = page_key(page)?;
+        if self.folder.file_at(&page).is_none() {
+            return Err(Refused::NotAPage(page));
+        }
+        let id = self.store.create(&page, anchor, message(author, text))?;
         self.announce(page);
         Ok(id)
     }
 
-    pub fn reply(&self, page: &str, id: &str, author: &str, text: &str) -> Result<()> {
-        self.store.reply(page, id, author, text)?;
+    /// Appends a reply to thread `id`, wherever it is — detached included.
+    pub fn reply(&self, id: &str, author: &str, text: &str) -> Result<(), Refused> {
+        let page = self.found(id, |id| self.store.reply(id, message(author, text)))?;
         self.announce(page);
         Ok(())
     }
 
-    pub fn resolve(&self, page: &str, id: &str) -> Result<()> {
-        self.store.resolve(page, id)?;
+    /// Resolves thread `id`: it is gone.
+    pub fn resolve(&self, id: &str) -> Result<(), Refused> {
+        let page = self.found(id, |id| self.store.resolve(id))?;
         self.announce(page);
         Ok(())
     }
 
-    fn announce(&self, page: &str) {
-        let page = format!("/{}", page.trim_start_matches('/'));
+    /// Carries every attached thread onto the version whose entry document
+    /// is `entry`, loaded from this folder: each finds its quote in its
+    /// page's text as the page shows it — front matter left out, widget
+    /// tags expanded — by its context where it can, and is detached when
+    /// the quote, or the page, is gone. Each page whose threads changed is
+    /// announced once. It renders pages, which draws their diagrams: it
+    /// blocks.
+    pub fn carry(&self, entry: &Document) -> Result<()> {
+        let index = Index::build(&self.folder);
+        let mut pages: std::collections::BTreeMap<String, Vec<Listed>> = Default::default();
+        for (page, thread) in self.store.attached()? {
+            pages.entry(page).or_default().push(thread);
+        }
+        for (page, threads) in pages {
+            let text = self
+                .content(entry, &index, &page)
+                .map(|html| anchor::text(&html));
+            let mut moved = false;
+            for listed in threads {
+                let found = text
+                    .as_deref()
+                    .and_then(|text| anchor::reanchor(&listed.thread.anchor, text));
+                if found.as_ref() != Some(&listed.thread.anchor) {
+                    self.store.carry(&listed.id, found.as_ref())?;
+                    moved = true;
+                }
+            }
+            if moved {
+                self.announce(page);
+            }
+        }
+        Ok(())
+    }
+
+    /// The changes open pages should hear for `paths`, changed by another
+    /// hand: a page's comments for each page whose threads changed. Nothing
+    /// is published — the watcher publishes what it heard together.
+    pub fn heard(&self, paths: &[PathBuf]) -> Vec<Change> {
+        self.store
+            .heard(paths)
+            .into_iter()
+            .map(Change::Comments)
+            .collect()
+    }
+
+    /// The page thread `id` was on after `write`, or why there is none.
+    fn found(
+        &self,
+        id: &str,
+        write: impl FnOnce(&str) -> Result<Option<String>>,
+    ) -> Result<String, Refused> {
+        if !is_id(id) {
+            return Err(Refused::NoThread(id.into()));
+        }
+        write(id)?.ok_or_else(|| Refused::NoThread(id.into()))
+    }
+
+    /// The HTML of `page`'s content as its page shows it: rendered with the
+    /// widgets of the document that shows it — its nearest site, or else
+    /// `entry`. `None` when the page is gone.
+    fn content(&self, entry: &Document, index: &Index, page: &str) -> Option<String> {
+        let file = self.folder.file_at(page)?;
+        let source = std::fs::read_to_string(&file).ok()?;
+        let site = index
+            .site_for(&file)
+            .and_then(|site| Document::load(&site, &self.folder).ok());
+        let widgets = Widgets::of(site.as_ref().unwrap_or(entry), index.modules());
+        Some(crate::render::markdown_in(&widgets, &source))
+    }
+
+    fn announce(&self, page: String) {
         self.changes.publish(Change::Comments(page));
+    }
+}
+
+/// A page's key: its address with exactly one leading `/` — or a refusal
+/// when it is empty or climbs out of the folder.
+fn page_key(page: &str) -> Result<String, Refused> {
+    let name = page.trim_start_matches('/');
+    let plain = Path::new(name)
+        .components()
+        .all(|part| matches!(part, std::path::Component::Normal(_)));
+    if name.is_empty() || !plain {
+        return Err(Refused::NotAPage(page.into()));
+    }
+    Ok(format!("/{name}"))
+}
+
+/// A message by `author`, written now.
+fn message(author: &str, text: &str) -> Message {
+    Message {
+        author: author.into(),
+        at: now().0,
+        text: text.into(),
     }
 }
 
 /// A new thread's id: the UTC time it was started, to the second, and four
 /// hex digits from the clock's nanoseconds — so a page's threads list oldest
-/// first — with when it was started.
-pub fn new_id() -> (String, String) {
+/// first.
+pub fn new_id() -> String {
     let (stamp, nanos) = now();
-    let id = format!("{}-{:04x}", stamp.replace(['-', ':'], ""), nanos & 0xffff);
-    (id, stamp)
+    format!("{}-{:04x}", stamp.replace(['-', ':'], ""), nanos & 0xffff)
 }
 
 /// Whether `id` can be a thread's: letters, digits and dashes, never empty.
 pub fn is_id(id: &str) -> bool {
     !id.is_empty() && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-}
-
-/// Whether `page` stays inside the served folder: only plain path parts.
-pub fn is_page(page: &str) -> bool {
-    Path::new(page.trim_start_matches('/'))
-        .components()
-        .all(|part| matches!(part, std::path::Component::Normal(_)))
-}
-
-/// The local author: `git config user.name` as git sees it from the served
-/// folder — its global setting counts, so no `.git` folder is needed — or the
-/// system's user name when git has none.
-pub fn local_author(served: &Path) -> String {
-    std::process::Command::new("git")
-        .arg("-C")
-        .arg(served)
-        .args(["config", "user.name"])
-        .output()
-        .ok()
-        .filter(|output| output.status.success())
-        .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
-        .filter(|name| !name.is_empty())
-        .or_else(|| std::env::var("USER").ok())
-        .or_else(|| std::env::var("USERNAME").ok())
-        .unwrap_or_else(|| "unknown".into())
 }
 
 /// Now, as RFC 3339 UTC to the second, and the sub-second nanoseconds.
@@ -186,7 +350,6 @@ fn now() -> (String, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::process::Command;
 
     fn anchor() -> Anchor {
         Anchor {
@@ -196,40 +359,158 @@ mod tests {
         }
     }
 
+    /// A served folder holding `files`, its comments in memory announcing
+    /// on a recorder.
+    fn folder(
+        name: &str,
+        files: &[(&str, &str)],
+    ) -> (
+        Comments,
+        Arc<crate::changes::Recorder>,
+        Arc<memory::Memory>,
+        ServedFolder,
+    ) {
+        let root =
+            std::env::temp_dir().join(format!("devpage-comments-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for (file, text) in files {
+            let path = root.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::fs::create_dir_all(&root).unwrap();
+        let served = ServedFolder::new(&root).unwrap();
+        let changes = Arc::new(crate::changes::Recorder::default());
+        let store = Arc::new(memory::Memory::default());
+        let comments = Comments::new(store.clone(), changes.clone(), served.clone());
+        (comments, changes, store, served)
+    }
+
     #[test]
     fn every_write_announces_its_page_once_and_a_failed_one_nothing() {
-        let changes = Arc::new(crate::changes::Recorder::default());
-        let comments = Comments::new(Arc::new(memory::Memory::default()), changes.clone());
+        let (comments, changes, _, _) = folder("announce", &[("a.md", "# A\n")]);
         let id = comments
-            .create("/a.md", anchor(), "Ana", "Every write?")
+            .create("a.md", anchor(), "Ana", "Every write?")
             .unwrap();
-        comments
-            .reply("/a.md", &id, "Bo", "Only the outbox.")
-            .unwrap();
-        comments.resolve("/a.md", &id).unwrap();
-        assert!(comments.reply("/a.md", &id, "Bo", "gone").is_err());
-        assert!(comments.create("/../x.md", anchor(), "Ana", "no").is_err());
+        comments.reply(&id, "Bo", "Only the outbox.").unwrap();
+        comments.resolve(&id).unwrap();
+        assert!(matches!(
+            comments.reply(&id, "Bo", "gone"),
+            Err(Refused::NoThread(_))
+        ));
+        assert!(matches!(
+            comments.create("/../x.md", anchor(), "Ana", "no"),
+            Err(Refused::NotAPage(_))
+        ));
         let comments_of_a = Change::Comments("/a.md".into());
         assert_eq!(
             changes.drain(),
             [comments_of_a.clone(), comments_of_a.clone(), comments_of_a],
-            "one per write that landed, none for the two refused"
+            "one per write that landed, keyed `/a.md` however it was named, none for the two refused"
         );
     }
 
     #[test]
-    fn the_local_author_needs_no_git_folder() {
-        let folder = std::env::temp_dir().join(format!("devpage-author-{}", std::process::id()));
-        std::fs::create_dir_all(&folder).unwrap();
-        assert!(!folder.join(".git").exists());
-        let expected = Command::new("git")
-            .args(["config", "--global", "user.name"])
-            .output()
-            .ok()
-            .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
-            .filter(|name| !name.is_empty())
-            .or_else(|| std::env::var("USER").ok());
-        assert_eq!(Some(local_author(&folder)), expected);
+    fn a_thread_starts_only_on_a_file_in_the_folder() {
+        let (comments, changes, _, _) = folder(
+            "create",
+            &[
+                ("a.md", "# A\n"),
+                ("notes/lone.md", "# Lone\n"),
+                ("docs/x", ""),
+            ],
+        );
+        // A lone page no document links to is still a file in the folder.
+        assert!(
+            comments
+                .create("/notes/lone.md", anchor(), "Ana", "ok")
+                .is_ok()
+        );
+        for page in ["/missing.md", "/notes", "/../escape.md", "", "/"] {
+            assert!(
+                matches!(
+                    comments.create(page, anchor(), "Ana", "no"),
+                    Err(Refused::NotAPage(_))
+                ),
+                "{page}"
+            );
+        }
+        assert_eq!(changes.drain(), [Change::Comments("/notes/lone.md".into())]);
+    }
+
+    #[test]
+    fn a_reply_and_a_resolve_go_by_id_whatever_page_it_is_on() {
+        let (comments, _, store, _) = folder("by-id", &[("a.md", "# A\n")]);
+        let id = comments.create("/a.md", anchor(), "Ana", "x").unwrap();
+        // Detached: its text is gone from the version shown.
+        store.carry(&id, None).unwrap();
+        comments.reply(&id, "Bo", "still here").unwrap();
+        let listed = comments.list("/a.md").unwrap();
+        assert!(listed[0].detached);
+        assert_eq!(listed[0].thread.thread[1].text, "still here");
+        comments.resolve(&id).unwrap();
+        assert!(comments.list("/a.md").unwrap().is_empty());
+        assert!(matches!(
+            comments.resolve("../x"),
+            Err(Refused::NoThread(_))
+        ));
+    }
+
+    #[test]
+    fn carry_reads_the_page_as_it_is_shown() {
+        let page = "---\ntitle: Launch\n---\n\n# Launch\n\n<Callout>\nThe client **retries** every write.\n</Callout>\n";
+        let (comments, changes, store, served) = folder("carry", &[("a.md", page)]);
+        let kept = comments
+            .create(
+                "/a.md",
+                Anchor {
+                    quote: "retries every write".into(),
+                    prefix: "The client ".into(),
+                    suffix: ".".into(),
+                },
+                "Ana",
+                "kept",
+            )
+            .unwrap();
+        let gone = comments
+            .create(
+                "/a.md",
+                Anchor {
+                    quote: "title: Launch".into(),
+                    prefix: String::new(),
+                    suffix: String::new(),
+                },
+                "Ana",
+                "front matter is never shown",
+            )
+            .unwrap();
+        changes.drain();
+        let entry = Document::load(&served.path().join("a.md"), &served).unwrap();
+        comments.carry(&entry).unwrap();
+        let listed = store.list("/a.md").unwrap();
+        let detached = |id: &str| listed.iter().find(|t| t.id == id).unwrap().detached;
+        assert!(!detached(&kept), "the widget's text, as the page shows it");
+        assert!(detached(&gone));
+        assert_eq!(changes.drain(), [Change::Comments("/a.md".into())]);
+    }
+
+    #[test]
+    fn a_header_author_is_trimmed_and_a_blank_one_refused() {
+        let deployed = Identity::Header("X-Forwarded-Email".into());
+        for blank in [None, Some(""), Some("   ")] {
+            assert!(
+                matches!(deployed.author(|_| blank), Err(Refused::Unidentified(_))),
+                "{blank:?}"
+            );
+        }
+        assert_eq!(
+            deployed
+                .author(|name| (name == "X-Forwarded-Email").then_some(" ana@example.com "))
+                .unwrap(),
+            "ana@example.com"
+        );
+        let local = Identity::Local("Andrei".into());
+        assert_eq!(local.author(|_| None).unwrap(), "Andrei");
     }
 
     #[test]
@@ -244,8 +525,8 @@ mod tests {
 
     #[test]
     fn a_page_that_climbs_out_and_a_made_up_id_are_refused() {
-        assert!(is_page("/docs/a.md"));
-        assert!(!is_page("/../x.md"));
+        assert_eq!(page_key("docs/a.md").unwrap(), "/docs/a.md");
+        assert!(page_key("/../x.md").is_err());
         assert!(is_id("20261025T181502Z-7f3a"));
         assert!(!is_id("../x") && !is_id(""));
     }

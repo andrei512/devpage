@@ -15,7 +15,7 @@ a core that reaches for one. What it needs from outside it asks for through a
 **port**: `Ask` and `Background` for external links, `Publish` for changes,
 `Store` for comments, `Report` for problems. **The binary**, `src/`
 (`devpage`), plugs **adapters** into those ports — `src/adapters/`: the change
-bus, the network, the terminal, the file watcher, and the Chrome devpage
+bus, the network, the terminal, git, the file watcher, and the Chrome devpage
 drives — and drives the core from `src/drive/`: the HTTP server, and the
 commands that print, shoot and record through Chrome. The [design engine](../../viewer/design-engine/README.md)
 is three more workspace crates beside them: `design/` (`devpage-design`),
@@ -26,7 +26,7 @@ Each part of the diagram opens the page that explains it.
 ```mermaid
 flowchart LR
   main["main.rs<br/>commands, startup"] --> drive["Driving: src/drive/<br/>server.rs, pdf.rs, slide_png.rs, video.rs"]
-  main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, http.rs, terminal.rs, chrome.rs"]
+  main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, http.rs, terminal.rs, chrome.rs, git.rs"]
   drive --> core["The core: core/src/<br/>document.rs, index.rs, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/"]
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
@@ -45,22 +45,23 @@ flowchart LR
 | `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
 | `core/src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
 | `core/src/search/` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. `mod.rs` holds `Search` — `build`, `changed`, `search` — and the answer's types; `gather.rs` reads what is published into sections; `index.rs` is the schema and the indexing; `query.rs` turns a query into words and tantivy queries; `rank.rs` ranks sections and makes snippets. |
-| `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus — a thread file only when the server's comment store didn't just write it — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
+| `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus — the pages whose thread files the server's comments heard changed by another hand (`Comments::heard`), never the server's own write — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
 | `core/src/lib.rs` | The core crate's modules, and what it may not depend on. |
 | `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) and the `Publish` port a producer publishes them through, `publish(change)`: a bus serves one set of documents, so a change names no audience. |
 | `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches every subscriber — a page's event stream, the slide-PNG cache, which a refresh clears and a page's comments don't. Server mode keeps one per published document. |
 | `src/adapters/chrome.rs` | One Chrome session — a Chrome with a profile folder of its own and the router its tabs load from, served on loopback — in one of two profiles: **shot** (chrome-headless-shell with its GPU on, honouring `DEVPAGE_CHROME_SANDBOX`) or **recording** (Chrome for Testing capturing its own tab). `open(path, Open)` waits until the page is ready, sending `X-Devpage-Shot` only when the tab is shot; a tab evaluates, waits, screenshots, prints to bytes, presses keys, sizes its window and closes. Downloads both browsers at the pinned `CHROME_VERSION`. `chrome::testing` launches it for the Chrome tests. |
+| `src/adapters/git.rs` | Git, asked for the user's name: the local comment author. |
 | `src/adapters/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
 | `src/adapters/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/adapters/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
 | `src/adapters/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
 | `core/src/designs.rs` | The design store — every design asked for, kept resolved in memory with the files it read and resolved again only as far as a change to one of them reaches, the patches that made of each design's scene — made once, read by every watch stream (`next`) — and the changes it tells its listeners (`on_change`); a design's PNG and its validator, which block; design problems for `devpage check`. No transport and no runtime: the watch stream, the canvas page and painting off the async threads are the server's. |
-| `src/drive/server.rs` | The HTTP adapter: one router built from one `Options` value — the routes, the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and identity, the canvas page and drawing the PNGs the resolver names on blocking threads, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/drive/server.rs` | The HTTP adapter: one router built from one `Options` value — the routes, the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and the author each names through the comments' `Identity`, the canvas page and drawing the PNGs the resolver names on blocking threads, and the built-in assets, each sent compressed as the browser accepts. |
 | `core/src/resolve.rs` | The resolver: what a path in the served folder answers with — a page, a redirect, a file, a design's or a slide's PNG, or why there is none — decided from the documents alone; every address it answers with is under the served folder's mount. |
 | `src/drive/server/watch_stream.rs` | The `Designs` gRPC service: the watch stream that sends each design a page shows — its scene, then what changed, or its problems — as the design store tells it of changes. |
 | `src/drive/server/design_tests.rs`, `canvas_tests.rs`, `comments_browser.rs` | The tests that need the server: design PNGs and check over HTTP, the canvas in Chrome, the page script's comments in Chrome. |
-| `src/drive/server_mode/` | `devpage server`. `config.rs`: every `DEVPAGE_*` variable, checked before listening, and the cache's limit from the volume's size. `api.rs`: publishing — the zip checked, kept in the bucket, recorded — listing, reading and deleting documents and versions, answered as `api_types`; authors from the user header. `cache.rs`: versions unpacked on the PVC, each with its routers by mount, seeded from disk on start, made once however many misses arrive, never evicted while answering, and what goes chosen by the core's eviction policy. `versions.rs`: a request handed to a version's own router — the latest mounted at `/d/<id>`, a version at `/d/<id>/v/<n>` — whose preview asks no external address, the latest's on the document's own change bus, which a publish announces on., and whose comments, on the latest only, are the document's threads in the store, on that same bus. `comments.rs`: the comments API, and each open thread carried onto a new version as it is published — re-anchored on its page's new text, or detached. `pages.rs`: the front page, from `assets/server-front.html`, and `/favicon.ico`, devpage's logo from `assets/` (`logo.svg`, a copy of `docs/logo.svg`, and `favicon.ico`, it drawn at 64 pixels); a page's versions for its version menu and banner, and a version's download — a PDF printed by Chrome or a design's PNG — rendered once and kept in the cache beside the version, counted with it. |
-| `src/adapters/sqlite.rs` | The store: documents, their versions and their comment threads in one SQLite file — each version's document file, kind, title, author, size and sha-256 — numbers given once, deletes that make the version before the latest; threads and their messages, deleted with their document, and `DocumentThreads`, one document's threads as a comment store. |
+| `src/drive/server_mode/` | `devpage server`. `config.rs`: every `DEVPAGE_*` variable, checked before listening, and the cache's limit from the volume's size. `api.rs`: publishing — the zip checked, kept in the bucket, recorded — listing, reading and deleting documents and versions, answered as `api_types`; authors named by the server's one `comments::Identity`, from the user header or `anonymous`. `cache.rs`: versions unpacked on the PVC, each with its routers by mount, seeded from disk on start, made once however many misses arrive, never evicted while answering, and what goes chosen by the core's eviction policy. `versions.rs`: a request handed to a version's own router — the latest mounted at `/d/<id>`, a version at `/d/<id>/v/<n>` — whose preview asks no external address, the latest's on the document's own change bus, which a publish announces on., and whose comments, on the latest only, are that version's comments, on that same bus. `comments.rs`: `of_version`, the one maker of a version's comments — the document's threads in the store, the version's folder and the document's bus — which the latest's pages, the comments API and a publish's carry all write through. `pages.rs`: the front page, from `assets/server-front.html`, and `/favicon.ico`, devpage's logo from `assets/` (`logo.svg`, a copy of `docs/logo.svg`, and `favicon.ico`, it drawn at 64 pixels); a page's versions for its version menu and banner, and a version's download — a PDF printed by Chrome or a design's PNG — rendered once and kept in the cache beside the version, counted with it. |
+| `src/adapters/sqlite.rs` | The store: documents, their versions and their comment threads in one SQLite file — each version's document file, kind, title, author, size and sha-256 — numbers given once, deletes that make the version before the latest; threads and their messages, deleted with their document, and `DocumentThreads`, one document's threads as a comment store, by thread id. |
 | `src/adapters/bucket.rs` | The bucket: every version's zip, kept as uploaded, in S3, Azure Blob or a folder named by one URL, with credentials from object_store's own reading of the environment. |
 | `core/src/cache.rs` | The cache's entries and the eviction policy port — which entries to delete when the cache is past its limit — with `Lru`, the least recently read first until it is at 90%. Pure. |
 | `src/drive/server_mode_pages_browser.rs` | A published document's pages in Chrome: a page at the link swapping in each new version, an old version's banner and the version menu, and the download button's PDF, printed once. |
@@ -77,8 +78,8 @@ flowchart LR
 | `core/src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `core/src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
 | `core/src/diagrams.rs` | The diagram engine: pele in QuickJS on a thread of its own, with the `URL` pele needs; each `mermaid` block of rendered HTML replaced by its SVG or its error block; the cache of drawings by source; the time and memory limits. |
-| `core/src/comments/mod.rs` | Comments: the comment store port (`Store`: list, create, reply, resolve), `Comments` — the store the server writes through, which announces each write on the change bus — and the local author. |
-| `core/src/comments/yaml.rs` | The comment store as files: one YAML file per thread under `.devpage/comments/`, the problems of a thread file that doesn't parse, and the bytes it last wrote, so the watcher skips the server's own writes. |
+| `core/src/comments/mod.rs` | Comments: `Comments`, the only way a thread is written — the page key, a new thread's page a file in the served or version folder, reply and resolve by thread id, carry onto a new version on the page's content render with widgets expanded, one announcement per write on the change bus, and `heard` for the watcher — `Identity`, who writes, and the comment store port (`Store`: list, create, reply, resolve, attached, carry, heard — by thread id). |
+| `core/src/comments/yaml.rs` | The comment store as files: one YAML file per thread under `.devpage/comments/<page>/`, found by its id through the served folder; the problems of a thread file that doesn't parse; and the bytes it last wrote, so what it heard is never the server's own write. |
 | `core/src/comments/memory.rs` | A comment store in memory, for tests. |
 | `core/src/comments/anchor.rs` | A thread carried onto a new version of its page: the page's text as the page script reads it, and where the thread's quote is in it now — with its context, with new context, or gone. Pure. |
 | `core/src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. External addresses it hands to `core/src/external.rs`. `files` lists every file the check follows from a document — what `devpage publish` zips. The preview reports each problem the first time it finds it through its `Report` port: `src/adapters/terminal.rs` in devpage, a recorder in tests. |
@@ -141,14 +142,15 @@ with an error before anything is served.
 
 4. Gather the server's parts
    Every part above, in one `server::Options`, with the identity — local,
-   `git config user.name`, on a loopback address, and the `--user-header`
-   header otherwise; none with `--no-comments`, and the server has comments
-   off — and the served folder's thread files, which are both the server's
-   comment store and what the watcher follows.
+   `git config user.name` from `adapters::git`, on a loopback address, and the
+   `--user-header` header otherwise; none with `--no-comments`, and the server
+   has comments off — and the served folder's comments: its thread files
+   behind `Comments`, which the server writes through and the watcher hears
+   hand edits through.
 
 5. Start the watcher
    `Options::watch`, on the watch set of the served folder, with the same
-   index, design store, bus and thread files as the server, so a thread the
+   index, design store, bus and comments as the server, so a thread the
    server wrote is announced once
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.

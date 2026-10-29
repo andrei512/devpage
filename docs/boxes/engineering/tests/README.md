@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 483 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 492 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 154 in `devpage`, 179 in its
+`cargo test` runs every crate in the workspace: 159 in `devpage`, 183 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -150,6 +150,12 @@ On the network:
 
 - Both browsers' zips at the pinned version answering `200` for every platform.
 
+### `adapters::git`
+
+*1 test.*
+
+- The user name without a `.git` folder.
+
 ### `adapters::http`
 
 *2 tests, against a local web server.*
@@ -196,16 +202,20 @@ On the network:
 
 ### `comments`
 
-*13 tests — 4 of the port, 4 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::server::comments_browser`, and 1 on a published document.*
+*17 tests — 7 of `Comments`, 5 of its YAML adapter, 5 of re-anchoring; 6 in Chrome, in `drive::server::comments_browser`, and 1 on a published document.*
 
 - A page that climbs out of the served folder and a made-up id refused.
-- Every write announcing its page once, and a failed one nothing.
-- The local author without a `.git` folder.
+- Every write announcing its page once, keyed `/a.md` however it was named, and a failed one nothing.
+- A thread started only on a file in the served folder: a lone page no document links to accepted; a missing page, a folder, an empty page and one that climbs out refused.
+- A reply and a resolve going by the thread's id alone, a detached thread included.
+- Carry reading a page as it is shown: front matter left out, a widget tag expanded, and only the changed page announced.
+- A header author trimmed, and a missing or blank one refused.
 - Timestamps.
-- A thread's whole life leaving `git status` clean.
+- A thread's whole life, found by its id alone, leaving `git status` clean.
+- A thread file reached through a symbolic link out of the served folder never found.
 - A thread file exactly the YAML it always was.
 - A thread file that doesn't parse named and left alone.
-- Only a change the store didn't make itself left for the watcher to announce.
+- Only a change the store didn't make itself heard, for its page; the page itself and another file beside the threads never.
 - A page's text read as the page script reads it — tags gone, entities decoded, white space squeezed, scripts and styles left out; a quote with its context keeping its anchor, one whose context changed taking its new context, counted in characters, and one that is gone detached.
 
 In Chrome:
@@ -512,15 +522,15 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A server and the watcher its options start announcing a comment write once.
 - A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
-- Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone.
-- A thread on a page outside the served folder refused.
+- Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone — trimmed, and a blank one refused.
+- A thread on a page that isn't a file in the served folder refused with `422`.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Nothing outside the served folder served, through HTTP's percent-decoding.
 - On a published document, a thread made on the page listed by the API on the page's own path; one started through the API marked on the open page; after a publish that removes its quote, that thread listed under *Detached comments* and the other still marked.
 
 ### `drive::server_mode`
 
-*29 tests, and 5 of its configuration; 4 in Chrome.*
+*33 tests, and 5 of its configuration; 4 in Chrome.*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -536,6 +546,10 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.
 - Deleting a document deleting its threads.
+- A thread started only on a file in the latest version, by the API and the page alike: a missing page, a folder and one that climbs out refused with `422`, a lone page no document links to accepted.
+- A blank author header refused by both routes, and a padded one trimmed.
+- A detached thread taking replies by its id, from the page and from the API; a made-up thread `404`.
+- Carry reading each page as it is shown: a thread on bold text inside a widget, under front matter, staying attached.
 - The front page saying how to connect, linking to the repository, carrying the logo and listing no documents; `/favicon.ico` being devpage's logo; a page told the version it shows, the latest and every version, version `n` pinned and the latest not.
 - A design's download its PNG, painted once and kept beside its version, gone with it; a site, or a missing version, with none; a download counted with its version, seeded so on restart, deleted when the version goes.
 - A publish, or deleting the latest version, refreshing pages open at the latest — including one that loaded the new version — and never a version's own.

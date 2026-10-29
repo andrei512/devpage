@@ -18,9 +18,8 @@ use tower::ServiceExt;
 
 use super::ServerMode;
 use super::cache::Served;
-use crate::adapters::sqlite::DocumentThreads;
 use crate::changes::Changes;
-use crate::server::{self, Identity};
+use crate::server;
 
 /// `/d/<id>`: the document's folder, `/d/<id>/`, so that the links on its
 /// pages resolve inside it.
@@ -149,15 +148,8 @@ pub(super) async fn version_router(
             options.index = Arc::new(index);
             options.comments = None;
             if latest {
-                options.store = Arc::new(DocumentThreads {
-                    store: state.store.clone(),
-                    document: id.to_string(),
-                    version: n,
-                });
-                options.comments = Some(match &state.user_header {
-                    Some(header) => Identity::Header(header.clone()),
-                    None => Identity::Local("anonymous".into()),
-                });
+                options.threads = super::comments::of_version(state, id, n, served.clone());
+                options.comments = Some(state.identity.clone());
             }
             // External addresses are the CLI's to ask, before it uploads: a
             // published page never waits on the internet.

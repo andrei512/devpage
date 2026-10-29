@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use super::ServerMode;
 use crate::adapters::sqlite::{Deleted, DocumentRow, Publish, VersionRow};
 use crate::drive::api_types::{Described, Listed, Published, Refusal, Version};
+use crate::server;
 
 /// A document id as the server gives them: a UUID. Anything else names no
 /// document — and never reaches a path on disk or in the bucket.
@@ -23,21 +24,6 @@ pub fn document_id(id: &str) -> Result<String, Refusal> {
     uuid::Uuid::parse_str(id)
         .map(|uuid| uuid.hyphenated().to_string())
         .map_err(|_| Refusal::NotFound)
-}
-
-/// Who is writing: the value of `DEVPAGE_USER_HEADER`, which a write must
-/// carry when it is set; `anonymous` when it isn't.
-pub(super) fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refusal> {
-    let Some(header) = &state.user_header else {
-        return Ok("anonymous".into());
-    };
-    headers
-        .get(header.as_str())
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| Refusal::Unauthorized(format!("a write needs the {header} header")))
 }
 
 /// A publish's query: `?entry=<path>`, the document file inside the zip —
@@ -71,7 +57,7 @@ pub async fn create(
     headers: HeaderMap,
     zip: Bytes,
 ) -> Result<Response, Refusal> {
-    let author = author(&state, &headers)?;
+    let author = server::author(&state.identity, &headers)?;
     let entry = query.entry()?;
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
     let version = publish(&state, &id, &entry, &author, zip.to_vec()).await?;
@@ -86,7 +72,7 @@ pub async fn add_version(
     headers: HeaderMap,
     zip: Bytes,
 ) -> Result<Response, Refusal> {
-    let author = author(&state, &headers)?;
+    let author = server::author(&state.identity, &headers)?;
     let entry = query.entry()?;
     let id = document_id(&id)?;
     if state.store.latest(&id)?.is_none() {
@@ -142,7 +128,7 @@ async fn publish(
         },
     )?;
     eprintln!("published {id} v{version} by {author}");
-    super::comments::carry(state, id, version, &scratch).await?;
+    super::comments::carry(state, id, version, &scratch, entry).await?;
     state.announce(id);
     Ok(version)
 }
@@ -261,7 +247,7 @@ pub async fn delete(
     UrlPath(id): UrlPath<String>,
     headers: HeaderMap,
 ) -> Result<Response, Refusal> {
-    let author = author(&state, &headers)?;
+    let author = server::author(&state.identity, &headers)?;
     let id = document_id(&id)?;
     let lock = state.publishing(&id);
     let _one_at_a_time = lock.lock().await;
@@ -282,7 +268,7 @@ pub async fn delete_version(
     UrlPath((id, n)): UrlPath<(String, u64)>,
     headers: HeaderMap,
 ) -> Result<Response, Refusal> {
-    let author = author(&state, &headers)?;
+    let author = server::author(&state.identity, &headers)?;
     let id = document_id(&id)?;
     let lock = state.publishing(&id);
     let _one_at_a_time = lock.lock().await;
