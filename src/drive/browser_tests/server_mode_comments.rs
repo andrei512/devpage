@@ -29,7 +29,7 @@ async fn a_published_documents_threads_are_its_own_across_the_page_the_api_and_a
     )
     .await;
 
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     let page = testing::open(&browser, &format!("{base}/d/{id}/README.md")).await;
 
     // A thread made on the page, as anywhere: comment mode, a selection,

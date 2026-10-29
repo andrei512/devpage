@@ -2,7 +2,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::adapters::chrome::testing::{self, eval, until};
 
@@ -41,7 +40,7 @@ async fn open_off(
         let _watcher = watcher;
         std::future::pending::<()>().await;
     });
-    let browser = testing::launch_on(1400, 900).await;
+    let browser = testing::browser_on(1400, 900).await;
     let page = testing::open(&browser, &format!("{address}{path}")).await;
     (browser, page)
 }
@@ -62,9 +61,10 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
     let hover = "(document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)";
     let pressed = "document.querySelector('.comment-mode').getAttribute('aria-pressed')";
 
-    // Off: hovering offers nothing, and the switch is not pressed.
+    // Off: hovering offers nothing, and the switch is not pressed. The
+    // hover's handler has run once `dispatchEvent` returns: an icon would be
+    // there already.
     eval::<bool>(&page, hover).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!eval::<bool>(&page, "!!document.querySelector('.comment-button')").await);
     assert_eq!(eval::<String>(&page, pressed).await, "false");
 
@@ -108,7 +108,6 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
     )
     .await;
     eval::<bool>(&page, hover).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!eval::<bool>(&page, "!!document.querySelector('.comment-button')").await);
     until(
         &page,
@@ -213,7 +212,7 @@ async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
         page.execute(SetDeviceMetricsOverrideParams::new(width, 800, 1.0, false))
             .await
             .unwrap();
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        testing::next_frames(&page).await;
         // Hover the heading, then the paragraph, so the paragraph counts
         // as newly hovered at each width.
         eval::<bool>(

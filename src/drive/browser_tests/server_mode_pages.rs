@@ -2,8 +2,6 @@
 //! link swaps in each new version, an old version says so and links to the
 //! latest, and the version menu and the download button.
 
-use std::time::Duration;
-
 use super::{publish, server_mode, zip_of};
 use crate::adapters::chrome::testing::{self, eval, until};
 
@@ -31,7 +29,7 @@ const MENU: &str = "document.querySelector('#devpage-versions summary')?.textCon
 async fn a_page_open_at_the_link_swaps_in_each_new_version() {
     let base = start("live").await;
     let id = publish(&base, None, doc("The first plan.")).await;
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     let page = testing::open(&browser, &format!("{base}/d/{id}/")).await;
     until(&page, &format!("{MENU} === 'Version 1 · latest'")).await;
     assert!(
@@ -70,7 +68,7 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
     let base = start("old").await;
     let id = publish(&base, None, doc("The first plan.")).await;
     publish(&base, Some(&id), doc("The second plan.")).await;
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     let page = testing::open(&browser, &format!("{base}/d/{id}/v/1/")).await;
     until(&page, "!!document.getElementById('devpage-version-banner')").await;
     let banner: String = eval(
@@ -102,9 +100,12 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
     .await;
     assert_eq!(current, "Version 1");
 
-    // A publish leaves version 1 as it is.
+    // A publish leaves version 1 as it is: by the time the latest, open
+    // beside it, has swapped the new version in, version 1 would have too.
+    let latest = testing::open(&browser, &format!("{base}/d/{id}/")).await;
+    until(&latest, &format!("{MENU} === 'Version 2 · latest'")).await;
     publish(&base, Some(&id), doc("The third plan.")).await;
-    tokio::time::sleep(Duration::from_millis(1500)).await;
+    until(&latest, &format!("{TEXT}.includes('The third plan.')")).await;
     let text: String = eval(&page, TEXT).await;
     assert!(text.contains("The first plan."), "{text}");
     drop(browser);
@@ -115,7 +116,7 @@ async fn an_old_version_says_so_never_changes_and_lists_every_version() {
 async fn a_docs_download_button_saves_its_pdf_printed_once() {
     let base = start("pdf").await;
     let id = publish(&base, None, doc("The plan, on paper.")).await;
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     let page = testing::open(&browser, &format!("{base}/d/{id}/")).await;
     until(&page, "!!document.querySelector('.version-download')").await;
     assert_eq!(
@@ -185,7 +186,7 @@ async fn the_banner_and_the_version_bar_cover_nothing() {
         .collect();
     let site = publish(&base, None, zip_of(&files)).await;
     publish(&base, Some(&site), zip_of(&files)).await;
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
     const SHOWN: &str = "!!document.querySelector('#devpage-versions summary')
         && !!document.getElementById('devpage-version-banner')";
 

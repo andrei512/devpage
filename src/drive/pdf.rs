@@ -92,6 +92,39 @@ mod tests {
 
     use devpage_core::folder::ServedFolder;
 
+    /// The fixture doc's print call: A4, its header, and its footer with
+    /// Chrome's page-number fields.
+    #[test]
+    fn a_docs_print_call_carries_its_paper_header_and_footer() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let document = devpage_core::document::Document::load(
+            &root.join("tests/fixtures/sync-design"),
+            &ServedFolder::new(root).unwrap(),
+        )
+        .unwrap();
+        let devpage_core::document::Kind::Doc { pdf, .. } = &document.kind else {
+            panic!("the fixture is a doc")
+        };
+        let params = doc_params(pdf);
+        assert_eq!(
+            (params.paper_width, params.paper_height),
+            (Some(8.27), Some(11.69))
+        );
+        assert!(
+            params
+                .header_template
+                .unwrap()
+                .contains("Offline sync — draft")
+        );
+        let footer = params.footer_template.unwrap();
+        assert!(
+            footer.contains(
+                "Page <span class=\"pageNumber\"></span> of <span class=\"totalPages\"></span>"
+            ),
+            "{footer}"
+        );
+    }
+
     #[tokio::test]
     async fn a_site_is_refused() {
         let dir = std::env::temp_dir().join(format!("devpage-pdf-site-{}", std::process::id()));

@@ -1,12 +1,8 @@
 //! A published document in chrome-headless-shell: every request its pages
 //! make stays under their mount.
 
-use std::time::Duration;
-
-use chromiumoxide::Browser;
-
 use super::{publish, server_mode, zip_of};
-use crate::adapters::chrome::testing::{self, Answered, eval, until};
+use crate::adapters::chrome::testing::{self, Answered, Browser, eval, until};
 
 /// A site with everything a page asks its server for: a sidebar with
 /// search, a navbar, a system widget, a project widget that renders one, an
@@ -104,12 +100,7 @@ async fn every_request_stays_under(browser: &Browser, base: &str, heard: &Answer
     }
     // The live-update stream is open, under the mount.
     let events = format!("{mount}/__devpage/events");
-    for _ in 0..500 {
-        if heard.lock().unwrap().iter().any(|(p, _)| *p == events) {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(20)).await;
-    }
+    testing::until_answered(heard, |p| p == events, 1).await;
     // The embed links to its canvas page under the mount, and that page
     // draws the design through the same stream.
     let canvas: String = eval(
@@ -159,7 +150,7 @@ async fn a_published_document_asks_only_under_its_mount() {
     let base = testing::serve(router).await;
     let id = publish(&base, None, site()).await;
 
-    let browser = testing::launch().await;
+    let browser = testing::browser().await;
 
     // The latest, in place at the link, and the same version at its own
     // address.
