@@ -3,8 +3,9 @@
 //! headings into sections of prose and code, with diagram labels and
 //! widget text taken as words.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use comrak::nodes::{AstNode, NodeValue};
 use comrak::{Arena, parse_document};
@@ -13,6 +14,7 @@ use ignore::WalkBuilder;
 use crate::document::{Document, Kind};
 use crate::folder::Folder;
 use crate::page::Rendered;
+use crate::widgets::{Modules, Widgets};
 
 use super::*;
 
@@ -52,10 +54,62 @@ impl Shown {
             widgets: document.widgets.clone(),
         }
     }
+}
 
-    /// The document a Markdown file is shown in at its own address.
-    fn page(file: &Path, folder: &Folder) -> Option<Self> {
-        crate::page::shown_in(file, folder).map(|document| Self::of(&document))
+/// What one pass over what is published reads its documents through: each
+/// document file loaded once, however many of its pages the pass meets,
+/// and each document's widgets read once, only when a page it shows is read.
+pub(super) struct Pass<'a> {
+    pub(super) folder: &'a Folder,
+    /// Each document file loaded, `None` when it can't be.
+    documents: HashMap<PathBuf, Option<Arc<Document>>>,
+    /// Each document's widgets, by its file.
+    widgets: HashMap<PathBuf, Option<Widgets>>,
+    modules: Modules,
+}
+
+impl<'a> Pass<'a> {
+    pub(super) fn new(folder: &'a Folder) -> Self {
+        Self {
+            folder,
+            documents: HashMap::new(),
+            widgets: HashMap::new(),
+            modules: Modules::default(),
+        }
+    }
+
+    /// The document `file` is — `devpage.yml` in a folder — as the pass
+    /// first loaded it.
+    pub(super) fn document(&mut self, file: &Path) -> Option<Arc<Document>> {
+        let file = if file.is_dir() {
+            file.join("devpage.yml")
+        } else {
+            file.to_path_buf()
+        };
+        let served = self.folder.served();
+        self.documents
+            .entry(file)
+            .or_insert_with_key(|file| Document::load(file, served).ok().map(Arc::new))
+            .clone()
+    }
+
+    /// The document a Markdown file is shown in at its own address
+    /// ([`crate::page::shown_in`]).
+    fn shown(&mut self, file: &Path) -> Option<Shown> {
+        let by = crate::page::shown_by(file, self.folder);
+        self.document(&by).map(|document| Shown::of(&document))
+    }
+
+    /// The widgets of the document that shows a page: what its tags expand
+    /// to, as its page shows them now.
+    pub(super) fn widgets(&mut self, shown: &Shown) -> Option<&Widgets> {
+        if !self.widgets.contains_key(&shown.file) {
+            let set = self
+                .document(&shown.file)
+                .map(|document| Widgets::of(&document, &self.modules));
+            self.widgets.insert(shown.file.clone(), set);
+        }
+        self.widgets[&shown.file].as_ref()
     }
 }
 
@@ -136,9 +190,10 @@ impl FrontMatter {
 /// of every document those reach, in reading order. A file that is both a
 /// page and a chapter or slide is a chapter or slide only. A page out of
 /// reach whose front matter says `search: true` comes last.
-pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
+pub(super) fn scope(pass: &mut Pass, entry: &Path) -> Vec<Unit> {
+    let folder = pass.folder;
     let mut walk = Walk {
-        folder,
+        pass,
         documents: BTreeSet::new(),
         units: Vec::new(),
     };
@@ -171,7 +226,7 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
         let Some(address) = folder.served().url(&file) else {
             continue;
         };
-        let site = folder.owner(&file).and_then(|owner| owner.document.ok());
+        let site = folder.site(&file).and_then(|site| pass.document(&site));
         let document = match site {
             Some(site) => Owner {
                 title: site.title.clone(),
@@ -183,7 +238,7 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
             },
         };
         units.push(Unit {
-            shown_in: Shown::page(&file, folder),
+            shown_in: pass.shown(&file),
             file,
             kind: PageKind::Page,
             trail: Vec::new(),
@@ -200,22 +255,22 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
 }
 
 /// The walk from the served document through what it reaches.
-pub(super) struct Walk<'a> {
-    pub(super) folder: &'a Folder,
+pub(super) struct Walk<'p, 'a> {
+    pub(super) pass: &'p mut Pass<'a>,
     pub(super) documents: BTreeSet<PathBuf>,
     pub(super) units: Vec<Unit>,
 }
 
-impl Walk<'_> {
+impl Walk<'_, '_> {
     pub(super) fn in_sight(&self, file: &Path) -> bool {
-        !self.folder.ignored(file, false)
+        !self.pass.folder.ignored(file, false)
     }
 
     pub(super) fn document(&mut self, file: &Path) {
         if !self.documents.insert(file.to_path_buf()) || !self.in_sight(file) {
             return;
         }
-        let Ok(document) = Document::load(file, self.folder.served()) else {
+        let Some(document) = self.pass.document(file) else {
             return;
         };
         let owner = Owner {
@@ -232,7 +287,7 @@ impl Walk<'_> {
                         && let Some(address) = document.url(file)
                     {
                         walk.units.push(Unit {
-                            shown_in: Shown::page(file, walk.folder),
+                            shown_in: walk.pass.shown(file),
                             file: file.to_path_buf(),
                             kind: PageKind::Page,
                             trail: trails.get(file).cloned().unwrap_or_default(),

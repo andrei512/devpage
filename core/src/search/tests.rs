@@ -825,3 +825,68 @@ fn a_widget_added_reads_again_the_pages_whose_tags_it_makes_widgets() {
         ["/docs/guide/layout.md#the-boxed-wombat"]
     );
 }
+
+/// What `pass` loads on this thread: each document file loaded, and each
+/// document whose widgets were read, as often as it was, sorted.
+fn loads(pass: impl FnOnce()) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    crate::document::LOADED.take();
+    crate::widgets::READ.take();
+    pass();
+    let mut documents = crate::document::LOADED.take();
+    let mut widgets = crate::widgets::READ.take();
+    documents.sort();
+    widgets.sort();
+    (documents, widgets)
+}
+
+#[test]
+fn a_rescan_loads_each_document_once_however_many_pages_it_shows() {
+    let dir = served("loads-once");
+    // The site shows more pages than the walk needs it for.
+    for n in 0..5 {
+        std::fs::write(
+            dir.join(format!("docs/guide/extra-{n}.md")),
+            format!("# Extra {n}\n\nMore.\n"),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.join("docs/guide/README.md"),
+        "# Guide\n\nHow to read it.\n\n## Topics\n\n- [Layout](layout.md)\n- [0](extra-0.md)\n- [1](extra-1.md)\n- [2](extra-2.md)\n- [3](extra-3.md)\n- [4](extra-4.md)\n",
+    )
+    .unwrap();
+    let documents: Vec<PathBuf> = [
+        "docs/devpage.yml",
+        "docs/features/features.yml",
+        "plan/plan.yml",
+        "talk/talk.yml",
+    ]
+    .iter()
+    .map(|file| dir.join(file))
+    .collect();
+    let mut sorted = documents.clone();
+    sorted.sort();
+    let (loaded, read) = loads(|| drop(index(&dir)));
+    // The test's own load of the entry, then the build's: each once.
+    let mut expected = vec![dir.join("docs/devpage.yml")];
+    expected.extend(sorted.clone());
+    expected.sort();
+    assert_eq!(loaded, expected, "a build loads each document once");
+    assert_eq!(read, sorted, "a build reads each document's widgets once");
+
+    let index = index(&dir);
+    let layout = dir.join("docs/guide/layout.md");
+    std::fs::write(&layout, "# Layout\n\nA heron stands still.\n").unwrap();
+    index.folder.changed(std::slice::from_ref(&layout));
+    let (loaded, read) = loads(|| index.search.changed(&index.folder, &[layout]));
+    assert_eq!(loaded, sorted, "a rescan loads each document once");
+    assert_eq!(
+        read,
+        [dir.join("docs/devpage.yml")],
+        "a page read again reads only its own document's widgets"
+    );
+    assert_eq!(
+        section_urls(&find(&index, "heron")),
+        ["/docs/guide/layout.md#layout"]
+    );
+}

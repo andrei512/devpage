@@ -61,6 +61,13 @@ pub const SIDEBAR: &str = "DevpageSidebar";
 
 pub use crate::markup::NOTES;
 
+#[cfg(test)]
+thread_local! {
+    /// The document file of every widget set read on this thread, for the
+    /// tests: how often a pass reads each.
+    pub(crate) static READ: std::cell::RefCell<Vec<PathBuf>> = Default::default();
+}
+
 /// The widgets a document's pages can use: name → the address its module is
 /// served at.
 #[derive(Debug, Default)]
@@ -83,6 +90,8 @@ impl Widgets {
     /// each at its [content address](crate::addresses), read and compiled
     /// through `cache`.
     pub fn of(document: &Document, cache: &Modules) -> Self {
+        #[cfg(test)]
+        READ.with_borrow_mut(|read| read.push(document.path()));
         let mut widgets = Self {
             cache: cache.clone(),
             ..Self::default()

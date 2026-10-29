@@ -79,10 +79,16 @@ impl Folder {
         &self.entry.file
     }
 
+    /// The document file of the nearest site whose folder holds `page`,
+    /// unloaded; `None` when no site does.
+    pub fn site(&self, page: &Path) -> Option<PathBuf> {
+        self.index.site_for(page)
+    }
+
     /// The nearest site whose folder holds `page`, loaded now; `None` when
     /// no site does.
     pub fn owner(&self, page: &Path) -> Option<Owner> {
-        let file = self.index.site_for(page)?;
+        let file = self.site(page)?;
         let document = Document::load(&file, self.served());
         Some(Owner { file, document })
     }
