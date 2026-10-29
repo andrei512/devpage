@@ -33,4 +33,9 @@ impl Platform {
     pub fn watches_within(&self, _path: &Path) -> bool {
         false
     }
+
+    #[cfg(test)]
+    pub fn live(&self, _folder: &Path) -> bool {
+        true
+    }
 }

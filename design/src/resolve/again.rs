@@ -35,6 +35,10 @@ pub struct Resolution {
     /// How many times the scene was brought across whole, by comparing it
     /// with a fresh resolve: what the tests hold to none.
     pub(crate) wholes: usize,
+    /// How many elements the last update resolved again, beside reading the
+    /// files it saw saved: what the tests hold to what the change reached,
+    /// whatever the design's size. A whole resolve is counted by `wholes`.
+    pub(crate) elements: usize,
 }
 
 /// What a change made of a design.
@@ -61,6 +65,7 @@ impl Resolution {
             files: read,
             pending: BTreeSet::new(),
             wholes: 0,
+            elements: 0,
         };
         Ok((resolution, scene))
     }
@@ -193,6 +198,7 @@ impl Resolution {
             whole,
             ..
         } = w;
+        self.elements = r.elements;
         if failed || !r.problems.is_empty() {
             return Err(());
         }

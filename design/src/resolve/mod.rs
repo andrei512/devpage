@@ -57,6 +57,7 @@ impl<'a> Resolver<'a> {
             record: Record::default(),
             current: None,
             own_only: false,
+            elements: 0,
         }
     }
 }
@@ -97,6 +98,8 @@ struct Resolver<'a> {
     /// Whether to resolve an element's own attributes only, leaving its
     /// child elements alone: resolving one node again.
     own_only: bool,
+    /// How many elements were resolved: the work resolving again counts.
+    elements: usize,
 }
 
 /// Where a resolved design's nodes came from and what they read: what
@@ -848,6 +851,7 @@ impl Resolver<'_> {
             return None;
         }
         self.depth += 1;
+        self.elements += 1;
         let node = self.element_inner(path, el, props, imports, root, parent);
         self.depth -= 1;
         node

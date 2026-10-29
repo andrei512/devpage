@@ -958,23 +958,14 @@ async fn a_reload_downloads_nothing_again() {
         text(&page, "document.querySelector('.label').textContent").await,
         "w"
     );
-    // The comments the page asked for as it became ready have come, so
-    // they aren't counted as the reload's.
-    for _ in 0..50 {
-        if answered
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|(path, _)| path == "/__devpage/comments")
-        {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
+    // The comments the page asks for as it becomes ready — the last thing
+    // it asks for — have come, so they aren't counted as the reload's.
+    testing::answered_after(&answered, 0, "/__devpage/comments").await;
     let first = answered.lock().unwrap().len();
     page.reload().await.unwrap();
     testing::loaded(&page).await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // And the reloaded page's: everything it asks for has been answered.
+    testing::answered_after(&answered, first, "/__devpage/comments").await;
     assert_eq!(
         text(&page, "document.querySelector('.label').textContent").await,
         "w"

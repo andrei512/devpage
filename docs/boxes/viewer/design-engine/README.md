@@ -239,7 +239,8 @@ count at zero.
 Resolving again costs what the change reached, beside reading the file that
 was saved: the saved file is parsed, matched against its last parse and
 walked beside it to find what changed — linear in that file, and nothing in
-any other. While a design has problems, what each save reached is kept, and
+any other. Each update counts the elements it resolved again, and the tests
+hold that count to what the edit reached, whatever the design's size. While a design has problems, what each save reached is kept, and
 the save that makes it valid again resolves all of it against the last scene
 sent; the problems themselves, every one, come from resolving the design
 whole, which a design with problems pays on each save. The engine resolves

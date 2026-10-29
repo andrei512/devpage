@@ -609,6 +609,23 @@ pub(crate) mod testing {
         (router, answered)
     }
 
+    /// Waits until `answered` holds a request for `path` beyond its first
+    /// `from`, however long a loaded machine takes, for up to 20 s; panics
+    /// naming it if none comes.
+    pub(crate) async fn answered_after(answered: &Answered, from: usize, path: &str) {
+        let started = tokio::time::Instant::now();
+        while started.elapsed() < READY_WITHIN {
+            if answered.lock().unwrap()[from..]
+                .iter()
+                .any(|(answered, _)| answered == path)
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("never answered: {path}");
+    }
+
     /// `js` evaluated in `page`, its value read as a `T`.
     pub(crate) async fn eval<T: DeserializeOwned>(page: &Page, js: &str) -> T {
         page.evaluate(js).await.unwrap().into_value().unwrap()

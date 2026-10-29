@@ -254,10 +254,26 @@ mod tests {
     /// sifting: what the platform reported.
     static RAW: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
+    /// Every path a handler was told was removed, by any watcher in any test.
+    static REMOVED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
     pub fn record(event: &notify::Result<notify::Event>) {
         if let Ok(event) = event {
             RAW.lock().unwrap().extend(event.paths.iter().cloned());
+            if event.kind.is_remove() {
+                REMOVED.lock().unwrap().extend(event.paths.iter().cloned());
+            }
         }
+    }
+
+    /// Whether the platform has reported `path` removed: by then it has
+    /// dropped whatever watch was on it.
+    fn removed(path: &Path) -> bool {
+        REMOVED
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|removed| removed == path)
     }
 
     /// How many paths the platform has reported in `folder`, or that are it.
@@ -278,14 +294,30 @@ mod tests {
     }
 
     /// Waits until the platform has reported something in `folder` since
-    /// `before`, and says whether it did within two seconds.
+    /// `before`, and says whether it did: at once when it does, within ten
+    /// seconds however loaded the machine.
     async fn reported(folder: &Path, before: usize) -> bool {
-        let deadline = Instant::now() + Duration::from_secs(2);
+        let deadline = Instant::now() + Duration::from_secs(10);
         while Instant::now() < deadline {
             if raw(folder) > before {
                 return true;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        false
+    }
+
+    /// Waits until `watch`'s platform watcher is as `ready` says — the
+    /// re-plan a change set off has run — and says whether it was within
+    /// ten seconds. What a test does next is then reported, or not, by the
+    /// watches the change made, never by those it replaces.
+    async fn planned(watch: &Watch, ready: impl Fn(&Platform) -> bool) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Instant::now() < deadline {
+            if ready(&watch._platform.lock().unwrap()) {
+                return true;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
         false
     }
@@ -323,7 +355,7 @@ mod tests {
         std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
         std::fs::create_dir_all(dir.join("target")).unwrap();
         std::fs::write(dir.join("notes.md"), "# Notes").unwrap();
-        let _watch = watching(&dir).await;
+        let watch = watching(&dir).await;
 
         // A file directly in the served folder, which is shallow.
         let notes = dir.join("notes.md");
@@ -342,7 +374,8 @@ mod tests {
         // A new folder in sight, then a file in it.
         std::fs::create_dir(dir.join("plan")).unwrap();
         assert!(reported(&dir.join("plan"), 0).await, "a new folder");
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        let plan = dir.join("plan");
+        assert!(planned(&watch, |p| p.live(&plan)).await, "plan/ watched");
         let page = dir.join("plan/design.md");
         std::fs::write(&page, "# Plan").unwrap();
         assert!(reported(&page, 0).await, "a file in a new folder");
@@ -353,16 +386,25 @@ mod tests {
         let dir = served("gen", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::write(dir.join(".gitignore"), "/target/\n").unwrap();
         std::fs::create_dir(dir.join("gen")).unwrap();
-        let _watch = watching(&dir).await;
+        let watch = watching(&dir).await;
         write_in(&dir.join("gen"));
         assert!(reported(&dir.join("gen/f19"), 0).await);
 
         std::fs::write(dir.join(".gitignore"), "/target/\n/gen/\n").unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let before = raw(&dir.join("gen"));
-        write_in(&dir.join("gen"));
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        assert_eq!(raw(&dir.join("gen")), before);
+        let generated = dir.join("gen");
+        assert!(
+            planned(&watch, |p| !p.covers(&generated)
+                && !p.watches_within(&generated))
+            .await
+        );
+        let before = raw(&generated);
+        write_in(&generated);
+        // Something in sight saved after, so the quiet is the platform's.
+        let page = dir.join("docs/README.md");
+        let heard = raw(&page);
+        std::fs::write(&page, "# Changed").unwrap();
+        assert!(reported(&page, heard).await);
+        assert_eq!(raw(&generated), before);
     }
 
     #[tokio::test]
@@ -370,18 +412,18 @@ mod tests {
         let dir = served("crate", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::create_dir_all(dir.join("crate/src")).unwrap();
         std::fs::write(dir.join("crate/.gitignore"), "target/\n").unwrap();
-        let _watch = watching(&dir).await;
+        let watch = watching(&dir).await;
         // `cargo build` in the crate: its first writes may still be reported.
         write_in(&dir.join("crate/target/debug"));
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let before = raw(&dir.join("crate/target"));
+        let target = dir.join("crate/target");
+        assert!(planned(&watch, |p| !p.covers(&target)).await);
+        let before = raw(&target);
         write_in(&dir.join("crate/target/debug"));
         write_in(&dir.join("crate/target/release"));
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        assert_eq!(raw(&dir.join("crate/target")), before);
-        // The rest of the crate is still watched.
+        // The rest of the crate is still watched, and heard after them.
         std::fs::write(dir.join("crate/src/lib.rs"), "").unwrap();
         assert!(reported(&dir.join("crate/src/lib.rs"), 0).await);
+        assert_eq!(raw(&target), before);
     }
 
     #[tokio::test]
@@ -391,10 +433,14 @@ mod tests {
         // `crate/` holds something out of sight, so it is watched shallow.
         std::fs::create_dir_all(dir.join("crate/target")).unwrap();
         std::fs::write(dir.join("crate/a.md"), "# A").unwrap();
-        let _watch = watching(&dir).await;
+        let watch = watching(&dir).await;
         std::fs::remove_dir_all(dir.join("crate")).unwrap();
         std::fs::create_dir_all(dir.join("crate/target")).unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let folder = dir.join("crate");
+        assert!(
+            planned(&watch, |p| removed(&folder) && p.live(&folder)).await,
+            "crate/ watched again"
+        );
         for n in 0..3 {
             let later = dir.join(format!("crate/later{n}.md"));
             std::fs::write(&later, "# Later").unwrap();
@@ -407,12 +453,18 @@ mod tests {
         let dir = served("checkout", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
         std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
-        let _watch = watching(&dir).await;
+        let watch = watching(&dir).await;
         // `rm -rf docs/guides && git checkout docs/guides`
         std::fs::remove_dir_all(dir.join("docs/guides")).unwrap();
         std::fs::create_dir_all(dir.join("docs/guides/deep")).unwrap();
         std::fs::write(dir.join("docs/guides/a.md"), "# A").unwrap();
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let (guides, deep) = (dir.join("docs/guides"), dir.join("docs/guides/deep"));
+        assert!(
+            planned(&watch, |p| removed(&guides)
+                && p.live(&guides)
+                && p.live(&deep))
+            .await
+        );
         for later in ["docs/guides/later.md", "docs/guides/deep/later.md"] {
             let later = dir.join(later);
             std::fs::write(&later, "# Later").unwrap();
@@ -582,23 +634,39 @@ mod tests {
     }
 
     #[test]
-    fn a_burst_of_changes_to_one_file_sends_one_change() {
+    fn a_burst_holds_each_arrival_once_in_the_order_it_first_arrived() {
+        let (arrivals, arriving) = mpsc::channel();
+        for arrival in ["a", "b", "a", "a", "c", "b"] {
+            arrivals.send(arrival).unwrap();
+        }
+        assert_eq!(next_burst(&arriving), Some(vec!["a", "b", "c"]));
+        drop(arrivals);
+        assert_eq!(next_burst(&arriving), None);
+    }
+
+    #[tokio::test]
+    async fn a_burst_of_changes_to_one_file_sends_one_change() {
         let dir = served("burst", "kind: site\ntitle: T\nroot: README.md\n");
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let handler = intake(listeners(&dir, &changes).0, Arc::default());
-        // Saves trickling in, as an editor or a build writes, within one burst.
+        let (listeners, _, _) = listeners(&dir, &changes);
+        let page = dir.join("docs/README.md");
+        // Saves trickling in, as an editor or a build writes: one burst.
+        let (arrivals, arriving) = mpsc::channel();
         for _ in 0..5 {
-            handler(written(&[dir.join("docs/README.md")]));
-            std::thread::sleep(BURST / 25);
+            arrivals.send(page.clone()).unwrap();
         }
-        std::thread::sleep(BURST * 6);
+        let burst = next_burst(&arriving).unwrap();
+        changed(&listeners, &burst);
         assert_eq!(received.drain(), [Change::Refresh]);
-
         // A later burst is a new one.
-        handler(written(&[dir.join("docs/README.md")]));
-        std::thread::sleep(BURST * 6);
+        changed(&listeners, std::slice::from_ref(&page));
         assert_eq!(received.drain(), [Change::Refresh]);
+        // And what the platform's watcher reports is handed on in bursts.
+        let handler = intake(listeners, Arc::default());
+        handler(written(&[page]));
+        let heard = tokio::time::timeout(Duration::from_secs(10), received.next()).await;
+        assert_eq!(heard.ok().flatten(), Some(Change::Refresh));
     }
 
     fn served(name: &str, site: &str) -> PathBuf {
@@ -689,32 +757,36 @@ mod tests {
     #[tokio::test]
     async fn a_thread_written_through_the_store_is_announced_once_and_a_hand_edit_once() {
         let dir = served("announced", "kind: site\ntitle: T\nroot: README.md\n");
-        let messages = heard(
-            &dir,
-            |comments| {
-                let anchor = devpage_core::comments::Anchor {
-                    quote: "x".into(),
-                    prefix: String::new(),
-                    suffix: String::new(),
-                };
-                let id = comments
-                    .create("/docs/README.md", anchor, "Ana", "hi")
-                    .unwrap();
-                // Then, by hand, a reply appended to the same thread file.
-                let file = dir.join(format!(".devpage/comments/docs/README.md/{id}.yml"));
-                std::thread::sleep(Duration::from_millis(200));
-                let text = std::fs::read_to_string(&file).unwrap();
-                std::fs::write(&file, text + "- author: Bo\n  at: x\n  text: by hand\n").unwrap();
-            },
-            Duration::from_millis(1500),
-            None,
-        )
-        .await;
-        let comments: Vec<_> = messages
-            .iter()
-            .filter(|m| *m == "comments /docs/README.md")
-            .collect();
-        assert_eq!(comments.len(), 2, "the write, then the edit: {messages:?}");
+        let changes = Changes::default();
+        let mut received = changes.subscribe();
+        let (listeners, _, comments) = listeners(&dir, &changes);
+        let _watcher = start(listeners).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let announced = "comments /docs/README.md";
+        let anchor = devpage_core::comments::Anchor {
+            quote: "x".into(),
+            prefix: String::new(),
+            suffix: String::new(),
+        };
+        let id = comments
+            .create("/docs/README.md", anchor, "Ana", "hi")
+            .unwrap();
+        let loud = Duration::from_secs(10);
+        let write = listen(&mut received, loud, Some(announced)).await;
+        assert_eq!(
+            write.last().map(String::as_str),
+            Some(announced),
+            "the write"
+        );
+        // Then, by hand, a reply appended to the same thread file — however
+        // the watcher's bursts fall around the store's write and this edit.
+        let file = dir.join(format!(".devpage/comments/docs/README.md/{id}.yml"));
+        let text = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, text + "- author: Bo\n  at: x\n  text: by hand\n").unwrap();
+        let edit = listen(&mut received, loud, Some(announced)).await;
+        assert_eq!(edit.last().map(String::as_str), Some(announced), "the edit");
+        let rest = listen(&mut received, Duration::from_millis(1500), None).await;
+        assert!(!rest.iter().any(|m| m == announced), "once each: {rest:?}");
     }
 
     #[tokio::test]
@@ -723,16 +795,17 @@ mod tests {
             "comments",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
         );
-        let messages = after(&dir, || {
-            let thread = dir.join(".devpage/comments/docs/README.md");
-            std::fs::create_dir_all(&thread).unwrap();
-            std::fs::write(thread.join("20261025T000000Z-abcd.yml"), "thread: []\n").unwrap();
-        })
-        .await;
-        assert!(
-            messages.iter().any(|m| m == "comments /docs/README.md"),
-            "{messages:?}"
-        );
+        let changes = Changes::default();
+        let mut received = changes.subscribe();
+        let _watcher = start(listeners(&dir, &changes).0).unwrap();
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let thread = dir.join(".devpage/comments/docs/README.md");
+        std::fs::create_dir_all(&thread).unwrap();
+        std::fs::write(thread.join("20261025T000000Z-abcd.yml"), "thread: []\n").unwrap();
+        let announced = "comments /docs/README.md";
+        let mut messages = listen(&mut received, Duration::from_secs(10), Some(announced)).await;
+        assert!(messages.iter().any(|m| m == announced), "{messages:?}");
+        messages.extend(listen(&mut received, Duration::from_millis(1500), None).await);
         assert!(!messages.iter().any(|m| m == "change"), "{messages:?}");
     }
 
