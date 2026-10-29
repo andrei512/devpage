@@ -875,8 +875,13 @@ fn a_rescan_loads_each_document_once_however_many_pages_it_shows() {
     assert_eq!(read, sorted, "a build reads each document's widgets once");
 
     let index = index(&dir);
+    // A page's Topics are its footprint: what is published is found again.
     let layout = dir.join("docs/guide/layout.md");
-    std::fs::write(&layout, "# Layout\n\nA heron stands still.\n").unwrap();
+    std::fs::write(
+        &layout,
+        "# Layout\n\nA heron stands still.\n\n## Topics\n\n- [Extra](extra-0.md)\n",
+    )
+    .unwrap();
     index.folder.changed(std::slice::from_ref(&layout));
     let (loaded, read) = loads(|| index.search.changed(&index.folder, &[layout]));
     assert_eq!(loaded, sorted, "a rescan loads each document once");
@@ -889,4 +894,320 @@ fn a_rescan_loads_each_document_once_however_many_pages_it_shows() {
         section_urls(&find(&index, "heron")),
         ["/docs/guide/layout.md#layout"]
     );
+}
+
+/// What `pass` reads on this thread to find what is published: each
+/// document file loaded, each page whose Topics it read, and each other
+/// Markdown file it read, sorted.
+fn walks(pass: impl FnOnce()) -> (Vec<PathBuf>, Vec<PathBuf>, Vec<PathBuf>) {
+    crate::document::LOADED.take();
+    crate::nav::READ.take();
+    WALKED.take();
+    pass();
+    let sorted = |mut files: Vec<PathBuf>| {
+        files.sort();
+        files
+    };
+    (
+        sorted(crate::document::LOADED.take()),
+        sorted(crate::nav::READ.take()),
+        sorted(WALKED.take()),
+    )
+}
+
+#[test]
+fn a_save_that_leaves_what_is_published_walks_only_its_own_page() {
+    let dir = served("walks");
+    let index = index(&dir);
+    let changed = |path: &Path| {
+        index.folder.changed(&[path.to_path_buf()]);
+        walks(|| index.search.changed(&index.folder, &[path.to_path_buf()]))
+    };
+    let layout = dir.join("docs/guide/layout.md");
+    std::fs::write(
+        &layout,
+        "# Layout\n\nA heron stands still.\n\n## Navigation keys\n\nArrows move.\n",
+    )
+    .unwrap();
+    let (loaded, nav, walked) = changed(&layout);
+    assert_eq!(
+        loaded,
+        Vec::<PathBuf>::new(),
+        "a body save loads no document"
+    );
+    assert_eq!(
+        nav,
+        Vec::<PathBuf>::new(),
+        "a body save reads no page's Topics"
+    );
+    assert_eq!(
+        walked,
+        std::slice::from_ref(&layout),
+        "a body save reads only its own page"
+    );
+    assert_eq!(
+        section_urls(&find(&index, "heron")),
+        ["/docs/guide/layout.md#layout"]
+    );
+
+    // A chapter's body: the same, its title read to see its trail stands.
+    let how = dir.join("plan/how.md");
+    std::fs::write(&how, "# How\n\n## Context\n\nA kingfisher index answers.\n").unwrap();
+    let (loaded, nav, walked) = changed(&how);
+    assert_eq!((loaded.len(), nav.len()), (0, 0));
+    assert_eq!(walked, std::slice::from_ref(&how));
+    assert_eq!(urls(&find(&index, "kingfisher")), ["/plan/plan.yml#how"]);
+
+    // Nothing in a slide decides what is published, and finding that reads
+    // nothing.
+    let one = dir.join("talk/one.md");
+    std::fs::write(&one, "# Hello\n\nWelcome, a narwhal.\n").unwrap();
+    assert_eq!(changed(&one), (vec![], vec![], vec![]));
+    assert_eq!(urls(&find(&index, "narwhal")), ["/talk/talk.yml#1"]);
+
+    // A page out of the nav whose front matter now says `search: true` is
+    // published: its footprint changed, and what is published is found again.
+    let orphan = dir.join("docs/orphan.md");
+    std::fs::write(
+        &orphan,
+        "---\nsearch: true\n---\n# Orphan\n\nA lonely heron.\n",
+    )
+    .unwrap();
+    let (loaded, _, walked) = changed(&orphan);
+    assert!(loaded.contains(&dir.join("docs/devpage.yml")), "{loaded:?}");
+    assert!(walked.len() > 1, "{walked:?}");
+    assert_eq!(urls(&find(&index, "lonely")), ["/docs/orphan.md"]);
+
+    // So are a page's Topics: the guide no longer lists the layout.
+    let guide = dir.join("docs/guide/README.md");
+    std::fs::write(&guide, "# Guide\n\nHow to read it.\n\n## Topics\n\n").unwrap();
+    let (loaded, nav, _) = changed(&guide);
+    assert!(!loaded.is_empty());
+    assert!(nav.contains(&guide), "{nav:?}");
+    assert!(find(&index, "arrows").pages.is_empty());
+
+    // And a chapter's title, which is its trail.
+    let why = dir.join("plan/why.md");
+    std::fs::write(&why, "# Reasons\n\n## Context\n\nUsers scroll forever.\n").unwrap();
+    assert!(!changed(&why).0.is_empty());
+    assert_eq!(find(&index, "forever").pages[0].trail, ["Reasons"]);
+}
+
+/// A small random number generator, the same sequence for the same seed.
+struct Dice(u64);
+
+impl Dice {
+    fn below(&mut self, n: usize) -> usize {
+        self.0 ^= self.0 << 13;
+        self.0 ^= self.0 >> 7;
+        self.0 ^= self.0 << 17;
+        (self.0 % n as u64) as usize
+    }
+
+    fn pick<'a, T>(&mut self, items: &'a [T]) -> &'a T {
+        &items[self.below(items.len())]
+    }
+}
+
+/// One random edit of the served folder `dir`, as a writer makes them: a
+/// page's text, its title, its Topics or front matter, a page added or
+/// deleted, a `.gitignore` rule, a doc's chapters. The paths it touched.
+fn edit(dice: &mut Dice, dir: &Path, step: usize) -> Vec<PathBuf> {
+    const WORDS: &[&str] = &["heron", "otter", "walrus", "quokka", "sidebar", "plan"];
+    let markdown: Vec<PathBuf> = ignore::WalkBuilder::new(dir)
+        .hidden(false)
+        .build()
+        .flatten()
+        .map(|entry| entry.into_path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    let pages: Vec<&PathBuf> = markdown
+        .iter()
+        .filter(|path| path.starts_with(dir.join("docs")))
+        .collect();
+    // Half the time, a file whose footprint decides what is published: a
+    // page out of the nav, a chapter, a page with Topics.
+    let decisive: Vec<&PathBuf> = [
+        "docs/orphan.md",
+        "plan/why.md",
+        "plan/how.md",
+        "docs/README.md",
+        "docs/guide/README.md",
+    ]
+    .iter()
+    .filter_map(|file| markdown.iter().find(|path| path.ends_with(file)))
+    .collect();
+    let any = |dice: &mut Dice| -> PathBuf {
+        if !decisive.is_empty() && dice.below(2) == 0 {
+            dice.pick(&decisive).to_path_buf()
+        } else {
+            dice.pick(&markdown).clone()
+        }
+    };
+    let read = |path: &Path| std::fs::read_to_string(path).unwrap_or_default();
+    let write = |path: &Path, text: &str| {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+        path.to_path_buf()
+    };
+    let word = *dice.pick(WORDS);
+    // A link from `page` to `target`, through the served folder's root.
+    let link = |page: &Path, target: &Path| {
+        let depth = page
+            .parent()
+            .unwrap()
+            .strip_prefix(dir)
+            .unwrap()
+            .components()
+            .count();
+        format!(
+            "{}{}",
+            "../".repeat(depth),
+            target.strip_prefix(dir).unwrap().display()
+        )
+    };
+    match dice.below(12) {
+        0..=2 if !markdown.is_empty() => {
+            let file = &any(dice);
+            vec![write(
+                file,
+                &format!("{}\n\nA {word} paragraph {step}.\n", read(file)),
+            )]
+        }
+        3 if !markdown.is_empty() => {
+            let file = &any(dice);
+            let text = read(file);
+            let text = match text.find("\n# ") {
+                Some(at) => format!("{}\n# {word} {step}{}", &text[..at], &text[at + 2..]),
+                None => format!("# {word} {step}\n\n{text}"),
+            };
+            vec![write(file, &text)]
+        }
+        4 | 5 if !markdown.is_empty() => {
+            let file = &any(dice);
+            let text = read(file);
+            let body =
+                crate::markup::split_front_matter(&text).map_or(text.as_str(), |(_, page)| page);
+            let front = dice.pick(&[
+                "search: true",
+                "search: true",
+                "search: false",
+                "description: a",
+            ]);
+            vec![write(file, &format!("---\n{front}\n---\n{body}"))]
+        }
+        6 if !pages.is_empty() => {
+            let page = *dice.pick(&pages);
+            let targets: Vec<PathBuf> = pages
+                .iter()
+                .map(|page| page.to_path_buf())
+                .chain([
+                    dir.join("plan/plan.yml"),
+                    dir.join("talk/talk.yml"),
+                    dir.join(format!("docs/new-{step}.md")),
+                ])
+                .collect();
+            let target = dice.pick(&targets);
+            vec![write(
+                page,
+                &format!(
+                    "{}\n## Topics\n\n- [{word} {step}]({})\n",
+                    read(page),
+                    link(page, target)
+                ),
+            )]
+        }
+        7 if !pages.is_empty() => {
+            let page = *dice.pick(&pages);
+            let text = read(page);
+            let text = text
+                .split("## Topics")
+                .next()
+                .unwrap_or_default()
+                .to_string();
+            vec![write(page, &text)]
+        }
+        8 => {
+            let folder = *dice.pick(&["docs", "docs/guide", "plan", "talk"]);
+            let file = dir.join(format!("{folder}/new-{step}.md"));
+            let front = if dice.below(2) == 0 {
+                "---\nsearch: true\n---\n"
+            } else {
+                ""
+            };
+            vec![write(
+                &file,
+                &format!("{front}# New {step}\n\nA new {word}.\n"),
+            )]
+        }
+        9 if dice.below(4) == 0 => {
+            let folder = dir.join(dice.pick(&["docs/guide", "docs/features", "talk"]));
+            let _ = std::fs::remove_dir_all(&folder);
+            vec![folder]
+        }
+        9 if !markdown.is_empty() => {
+            let file = dice.pick(&markdown);
+            std::fs::remove_file(file).unwrap();
+            vec![file.clone()]
+        }
+        _ => {
+            let file = dir.join(*dice.pick(&[
+                ".gitignore",
+                "plan/plan.yml",
+                "docs/features/features.yml",
+            ]));
+            let text = match file.file_name().unwrap().to_str().unwrap() {
+                ".gitignore" => dice
+                    .pick(&["", "talk/\n", "docs/guide/\n", "plan/how.md\n"])
+                    .to_string(),
+                "plan.yml" => dice
+                    .pick(&[
+                        "kind: doc\ntitle: The plan\nchapters: [why.md, how.md]\n",
+                        "kind: doc\ntitle: The plan\nchapters: [how.md, why.md]\n",
+                        "kind: doc\ntitle: A plan\nchapters: [why.md]\n",
+                    ])
+                    .to_string(),
+                _ => dice
+                    .pick(&[
+                        "kind: doc\ntitle: Features\nchapters: [tour.md]\n",
+                        "kind: slides\ntitle: Features\nslides: [tour.md]\n",
+                    ])
+                    .to_string(),
+            };
+            vec![write(&file, &text)]
+        }
+    }
+}
+
+/// Random edits, one at a time and in bursts: after each, the index kept
+/// current publishes the same pages, and answers every query, as one built
+/// fresh.
+#[test]
+fn an_index_kept_current_through_random_edits_is_one_built_fresh() {
+    for seed in [7, 42, 1234, 99991, 2026] {
+        let dir = served(&format!("random-{seed}"));
+        let index = index(&dir);
+        let mut dice = Dice(seed);
+        for step in 0..40 {
+            let mut paths = edit(&mut dice, &dir, step);
+            if dice.below(4) == 0 {
+                paths.extend(edit(&mut dice, &dir, step + 1000));
+            }
+            index.folder.changed(&paths);
+            index.search.changed(&index.folder, &paths);
+            let fresh = Search::build(&index.folder, &dir.join("docs/devpage.yml"));
+            assert_eq!(
+                index.search.units(),
+                fresh.units(),
+                "seed {seed}, step {step}: {paths:?}"
+            );
+            for query in ALIKE {
+                assert_eq!(
+                    index.search.search(query),
+                    fresh.search(query),
+                    "seed {seed}, step {step}: {query:?} after {paths:?}"
+                );
+            }
+        }
+    }
 }

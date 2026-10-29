@@ -33,39 +33,81 @@ pub struct Group {
 }
 
 /// A link listed in a Topics section, before it is resolved to a file.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Topic {
     pub group: Option<String>,
     pub label: String,
     pub href: String,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Every page whose Topics were read on this thread, for the tests: how
+    /// many pages a tree walks.
+    pub(crate) static READ: std::cell::RefCell<Vec<PathBuf>> = Default::default();
+}
+
+/// The Topics of every page read making one tree, each page read once:
+/// `None` for a page that can't be read.
+#[derive(Default)]
+struct Read(HashMap<PathBuf, Option<Vec<Topic>>>);
+
+impl Read {
+    fn topics(&mut self, page: &Path) -> Option<Vec<Topic>> {
+        self.0
+            .entry(page.to_path_buf())
+            .or_insert_with(|| {
+                #[cfg(test)]
+                READ.with_borrow_mut(|read| read.push(page.to_path_buf()));
+                std::fs::read_to_string(page)
+                    .ok()
+                    .map(|source| topics(&source))
+            })
+            .clone()
+    }
+}
+
 /// The children of the root page, recursively. Each page is in the tree only
 /// at its position (see [`Entry`]); the root's position is the top, so cycles
 /// end.
 pub fn tree(document: &Document) -> Vec<Group> {
+    tree_and_topics(document).0
+}
+
+/// The [tree](tree), and the Topics of every page read to make it — the
+/// root and the pages it lists, directly or not — by page; none for a page
+/// that can't be read, which the tree takes as listing none.
+pub fn tree_and_topics(document: &Document) -> (Vec<Group>, HashMap<PathBuf, Vec<Topic>>) {
     let crate::document::Kind::Site { root } = &document.kind else {
-        return Vec::new();
+        return (Vec::new(), HashMap::new());
     };
     let root = document.base.join(root);
-    let homes = homes(document, &root);
-    children(document, &root, &homes)
+    let mut read = Read::default();
+    let homes = homes(document, &root, &mut read);
+    let tree = children(document, &root, &homes, &mut read);
+    // A page that can't be read lists nothing, as one with no Topics.
+    let topics = read
+        .0
+        .into_iter()
+        .map(|(page, topics)| (page, topics.unwrap_or_default()))
+        .collect();
+    (tree, topics)
 }
 
 /// Where each page listed in the tree has its position: the page listing it
 /// and the listing's index among that page's Topics links. Found level by
 /// level from the root, so the shallowest listing wins, then the first.
-fn homes(document: &Document, root: &Path) -> HashMap<PathBuf, (PathBuf, usize)> {
+fn homes(document: &Document, root: &Path, read: &mut Read) -> HashMap<PathBuf, (PathBuf, usize)> {
     let mut homes = HashMap::new();
     let mut seen = HashSet::from([root.to_path_buf()]);
     let mut level = vec![root.to_path_buf()];
     while !level.is_empty() {
         let mut next = Vec::new();
         for page in &level {
-            let Ok(source) = std::fs::read_to_string(page) else {
+            let Some(topics) = read.topics(page) else {
                 continue;
             };
-            for (index, topic) in topics(&source).into_iter().enumerate() {
+            for (index, topic) in topics.into_iter().enumerate() {
                 let file = match resolve(document, page, &topic.href) {
                     Target::Page(file) | Target::Document(file) => file,
                     Target::None | Target::Problem(_) => continue,
@@ -85,12 +127,13 @@ fn children(
     document: &Document,
     page: &Path,
     homes: &HashMap<PathBuf, (PathBuf, usize)>,
+    read: &mut Read,
 ) -> Vec<Group> {
-    let Ok(source) = std::fs::read_to_string(page) else {
+    let Some(topics) = read.topics(page) else {
         return Vec::new();
     };
     let mut groups: Vec<Group> = Vec::new();
-    for (index, topic) in topics(&source).into_iter().enumerate() {
+    for (index, topic) in topics.into_iter().enumerate() {
         let (file, page_target) = match resolve(document, page, &topic.href) {
             Target::Page(file) => (file, true),
             Target::Document(file) => (file, false),
@@ -105,7 +148,7 @@ fn children(
         let entry = Entry {
             label: topic.label,
             children: if page_target {
-                children(document, &file, homes)
+                children(document, &file, homes, read)
             } else {
                 Vec::new()
             },
