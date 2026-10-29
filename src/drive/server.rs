@@ -352,6 +352,7 @@ fn answers(state: &AppState) -> Answers<'_> {
     Answers::new(
         &state.folder,
         &state.modules,
+        &state.designs,
         &state.preview,
         state.comments_on(),
     )

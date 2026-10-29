@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 155 in `devpage`, 218 in its
+`cargo test` runs every crate in the workspace: 155 in `devpage`, 221 in its
 core `devpage-core`, 147 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -219,7 +219,7 @@ On the network:
 
 ### `check`
 
-*15 tests.*
+*17 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
@@ -232,6 +232,7 @@ On the network:
 - Topics checked against the page's own site, and a page in no site checked as a doc.
 - A broken linked document named by its address, not an absolute path.
 - The preview reporting each problem once to its reporter.
+- A design checked and its files followed through the design store the check is given, resolved there once; a page's problems naming an embedded design as the server's store holds it, a save the store is told of clearing them.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
 
 ### `comments`
@@ -263,18 +264,19 @@ In Chrome:
 
 ### `designs`
 
-*20 tests in the store; 14 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
+*21 tests in the store; 14 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
-- A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
-- An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
-- A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; a design too wide for a row of tiles in one band banded in strips, its PNG right and nothing cached; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
+- A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in a fresh one, as `devpage check` makes.
+- An image that doesn't decode a problem at its `src` in what `devpage check` reports and in the PNG.
+- A design 100,000 pixels tall drawable in the store, with no problem for `devpage check`, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; a design too wide for a row of tiles in one band banded in strips, its PNG right and nothing cached; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
 - An image growing mid-session past what the GPU's atlas holds the design's problem, at its `src`, in place of a PNG, a save meanwhile kept; once mended, the PNG the one a fresh store paints.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does — the scene keeping the decode it has while the bytes are the same.
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
 - Nothing outside the served folder read.
+- The store knowing every file a design is made of — itself, its import, its themes and its font files, from one resolve — and no folder it listed or file it asked for that isn't there, whether or not it resolves.
 - Two folders in one store — two versions of a document — sharing its one tile cache and nothing else: the same address in each its own design with its own validator, the same mount and folder the design already kept, and a folder no one holds leaving the store with its tiles.
 - A design's PNG answering `304` from its scene without painting, until a design it uses changes.
 - A PNG, or `422` and the problems, and `404` for a design outside the served folder or missing.

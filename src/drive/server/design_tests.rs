@@ -20,6 +20,13 @@ fn opened(dir: &Path, entry: &str) -> Folder {
     Folder::new(Arc::new(Document::load(&dir.join(entry), &served).unwrap()))
 }
 
+/// What `devpage check` finds in the served folder `dir` opened on `entry`,
+/// its designs read through a store of their own.
+async fn checked(dir: &Path, entry: &str) -> Vec<crate::problem::Problem> {
+    let designs = Designs::new(&ServedFolder::new(dir).unwrap());
+    crate::check::document(&opened(dir, entry), &designs, None).await
+}
+
 pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
@@ -183,7 +190,7 @@ async fn a_designs_png_is_a_link_check_accepts() {
         "# Page\n\n![Screen](app/screen.design.png)\n\n![Broken](app/broken.design.png)\n\n![Nothing](app/nothing.design.png)\n",
     )
     .unwrap();
-    let problems: Vec<String> = crate::check::document(&opened(&dir, "page.md"), None)
+    let problems: Vec<String> = checked(&dir, "page.md")
         .await
         .iter()
         .map(|p| p.to_string())
@@ -233,7 +240,7 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
         "# Page\n\n![Screen](app/screen.design)\n\nEmbed with `![Name](name.design)`:\n\n```markdown\n![Gone](gone.design)\n```\n",
     )
     .unwrap();
-    let problems = crate::check::document(&opened(&dir, "page.md"), None).await;
+    let problems = checked(&dir, "page.md").await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     let shown = problems[0].to_string();
     assert!(
@@ -242,7 +249,7 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
     );
     assert!(shown.contains("lable"), "{shown}");
 
-    let problems = crate::check::document(&opened(&dir, "app/screen.design"), None).await;
+    let problems = checked(&dir, "app/screen.design").await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(
         problems[0].to_string().starts_with("app/screen.design:5:"),

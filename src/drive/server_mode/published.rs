@@ -424,7 +424,8 @@ async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str,
         bail!("{entry}: no such file in the zip");
     }
     let folder = Folder::new(Arc::new(Document::load(&file, &scratch)?));
-    let problems = devpage_core::check::document(&folder, None).await;
+    let designs = designs::Designs::new(&scratch);
+    let problems = devpage_core::check::document(&folder, &designs, None).await;
     let document = folder.entry();
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();

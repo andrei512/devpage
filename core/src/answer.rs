@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use devpage_design::Theme;
 
 use crate::check::Preview;
+use crate::designs::Designs;
 use crate::document::{self, Document, Kind};
 use crate::folder::{Folder, Owner};
 use crate::render;
@@ -45,28 +46,33 @@ pub enum Answer {
 }
 
 /// What decides an answer: the served folder with its entry document, its
-/// widget modules, the problems each page lists and whether comments are on.
+/// widget modules, its design store, the problems each page lists and
+/// whether comments are on.
 /// Every address it answers with is under the served folder's mount, which
 /// the documents carry.
 pub struct Answers<'a> {
     folder: &'a Folder,
     modules: &'a Modules,
+    designs: &'a Designs,
     preview: &'a Preview,
     comments: bool,
 }
 
 impl<'a> Answers<'a> {
-    /// Answers from `folder`, its widget `modules` and the `preview` that
-    /// finds each page's problems, with comments shown or not.
+    /// Answers from `folder`, its widget `modules`, its design store
+    /// `designs` and the `preview` that finds each page's problems, with
+    /// comments shown or not.
     pub fn new(
         folder: &'a Folder,
         modules: &'a Modules,
+        designs: &'a Designs,
         preview: &'a Preview,
         comments: bool,
     ) -> Self {
         Self {
             folder,
             modules,
+            designs,
             preview,
             comments,
         }
@@ -167,9 +173,12 @@ impl<'a> Answers<'a> {
                 document: Ok(site), ..
             }) if !print => {
                 let widgets = Widgets::of(&site, self.modules);
-                let found = self
-                    .preview
-                    .problems(&site, &widgets, std::slice::from_ref(&file));
+                let found = self.preview.problems(
+                    &site,
+                    &widgets,
+                    self.designs,
+                    std::slice::from_ref(&file),
+                );
                 Answer::Html(render::page(
                     &site,
                     &widgets,
@@ -253,7 +262,8 @@ impl<'a> Answers<'a> {
             if print {
                 Vec::new()
             } else {
-                self.preview.problems(document, &widgets, pages)
+                self.preview
+                    .problems(document, &widgets, self.designs, pages)
             }
         };
         match &document.kind {
@@ -352,6 +362,7 @@ mod tests {
     struct Served {
         folder: Folder,
         modules: Modules,
+        designs: Designs,
         preview: std::sync::Arc<Preview>,
     }
 
@@ -370,12 +381,19 @@ mod tests {
                     Document::load(&dir.join(entry), &served).unwrap(),
                 )),
                 modules: Modules::default(),
+                designs: Designs::new(&served),
                 preview: crate::check::testing::preview(),
             }
         }
 
         fn at(&self) -> Answers<'_> {
-            Answers::new(&self.folder, &self.modules, &self.preview, true)
+            Answers::new(
+                &self.folder,
+                &self.modules,
+                &self.designs,
+                &self.preview,
+                true,
+            )
         }
     }
 
