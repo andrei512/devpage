@@ -215,7 +215,7 @@ fn text<'a>(node: &'a AstNode<'a>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     #[test]
     fn reads_links_and_groups_from_the_topics_section_only() {

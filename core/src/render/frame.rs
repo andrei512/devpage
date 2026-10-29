@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::addresses::{Owned, address};
 use crate::document::{Document, Paper, Pdf, Slide};
+use crate::folder::ServedFolder;
 use crate::problem::Problem;
-use crate::served::ServedFolder;
 use crate::widgets::Widgets;
 
 use super::sidebar::sidebar;

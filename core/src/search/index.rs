@@ -11,7 +11,7 @@ use tantivy::schema::{
 use tantivy::tokenizer::{LowerCaser, TextAnalyzer, WhitespaceTokenizer};
 use tantivy::{IndexWriter, ReloadPolicy, TantivyDocument};
 
-use crate::index::Index;
+use crate::folder::Folder;
 
 use super::*;
 
@@ -57,8 +57,8 @@ pub(super) struct Entry<'a> {
 }
 
 impl Search {
-    /// Indexes what the document `entry` publishes, among those `index` holds.
-    pub fn build(index: &Index, entry: &Path) -> Self {
+    /// Indexes what the document `entry` publishes, among the documents of `folder`.
+    pub fn build(folder: &Folder, entry: &Path) -> Self {
         let mut schema = Schema::builder();
         let text = |tokenizer: &str, record: IndexRecordOption, stored: bool| {
             let options = TextOptions::default().set_indexing_options(
@@ -128,16 +128,16 @@ impl Search {
             entry: entry.to_path_buf(),
             pages: RwLock::new(BTreeMap::new()),
         };
-        search.rebuild(index);
+        search.rebuild(folder);
         search
     }
 
     /// Reads everything published again, into a fresh index, in one commit.
-    pub(super) fn rebuild(&self, index: &Index) {
+    pub(super) fn rebuild(&self, folder: &Folder) {
         let mut writer = lock(&self.writer);
         let _ = writer.delete_all_documents();
         let mut pages = BTreeMap::new();
-        for (nav, unit) in scope(index, &self.entry).into_iter().enumerate() {
+        for (nav, unit) in scope(folder, &self.entry).into_iter().enumerate() {
             self.add(&writer, &unit, nav as u64, &mut pages);
         }
         if writer.commit().is_ok() {

@@ -11,7 +11,7 @@ use comrak::{Anchorizer, Arena, parse_document};
 use ignore::WalkBuilder;
 
 use crate::document::{Document, Kind};
-use crate::index::Index;
+use crate::folder::Folder;
 
 use super::*;
 
@@ -81,9 +81,9 @@ impl FrontMatter {
 /// of every document those reach, in reading order. A file that is both a
 /// page and a chapter or slide is a chapter or slide only. A page out of
 /// reach whose front matter says `search: true` comes last.
-pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
+pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
     let mut walk = Walk {
-        index,
+        folder,
         documents: BTreeSet::new(),
         units: Vec::new(),
     };
@@ -101,7 +101,7 @@ pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
         .filter(|unit| unit.kind != PageKind::Page || !parts.contains(&unit.file))
         .filter(|unit| unit.kind != PageKind::Page || seen.insert(unit.file.clone()))
         .collect();
-    for file in markdown_files(index, index.served().path()) {
+    for file in markdown_files(folder) {
         if seen.contains(&file) || parts.contains(&file) {
             continue;
         }
@@ -111,10 +111,8 @@ pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
         if FrontMatter::read(&source).search != Some(true) {
             continue;
         }
-        let site = index
-            .site_for(&file)
-            .and_then(|site| Document::load(&site, index.served()).ok());
-        let address = index.served().url(&file);
+        let site = folder.owner(&file).and_then(|owner| owner.document.ok());
+        let address = folder.served().url(&file);
         let document = match site {
             Some(site) => Owner {
                 title: site.title.clone(),
@@ -139,21 +137,21 @@ pub(super) fn scope(index: &Index, entry: &Path) -> Vec<Unit> {
 
 /// The walk from the served document through what it reaches.
 pub(super) struct Walk<'a> {
-    pub(super) index: &'a Index,
+    pub(super) folder: &'a Folder,
     pub(super) documents: BTreeSet<PathBuf>,
     pub(super) units: Vec<Unit>,
 }
 
 impl Walk<'_> {
     pub(super) fn in_sight(&self, file: &Path) -> bool {
-        !self.index.ignored(file, false)
+        !self.folder.ignored(file, false)
     }
 
     pub(super) fn document(&mut self, file: &Path) {
         if !self.documents.insert(file.to_path_buf()) || !self.in_sight(file) {
             return;
         }
-        let Ok(document) = Document::load(file, self.index.served()) else {
+        let Ok(document) = Document::load(file, self.folder.served()) else {
             return;
         };
         let owner = Owner {
@@ -249,11 +247,11 @@ impl Walk<'_> {
     }
 }
 
-/// Every in-sight Markdown file under `folder`. The walk honors the
-/// `.gitignore` files under `folder`, as the index's does, so it never
-/// descends into a build folder; the index judges what those above it say.
-pub(super) fn markdown_files(index: &Index, folder: &Path) -> Vec<PathBuf> {
-    let walk = WalkBuilder::new(folder)
+/// Every in-sight Markdown file of `folder`. The walk honors its
+/// `.gitignore` files, as the document index's does, so it never descends
+/// into a build folder.
+pub(super) fn markdown_files(folder: &Folder) -> Vec<PathBuf> {
+    let walk = WalkBuilder::new(folder.served().path())
         .hidden(false)
         .parents(false)
         .ignore(false)
@@ -267,7 +265,7 @@ pub(super) fn markdown_files(index: &Index, folder: &Path) -> Vec<PathBuf> {
         .filter(|entry| entry.file_type().is_some_and(|kind| kind.is_file()))
         .map(|entry| entry.into_path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
-        .filter(|path| !index.ignored(path, false))
+        .filter(|path| !folder.ignored(path, false))
         .collect();
     files.sort();
     files

@@ -14,8 +14,8 @@ use devpage_core::check::Preview;
 use devpage_core::comments::{Comments, Identity};
 use devpage_core::designs;
 use devpage_core::document::{Document, Kind};
-use devpage_core::index::Index;
-use devpage_core::served::ServedFolder;
+use devpage_core::folder::{Folder, ServedFolder};
+use devpage_core::search::Search;
 use devpage_design::Theme;
 use sha2::{Digest, Sha256};
 
@@ -182,7 +182,8 @@ impl Published {
         let entry_file = folder.path().join(entry);
         // Rendering a page draws its diagrams, which blocks.
         let carry = tokio::task::spawn_blocking(move || {
-            carrying.carry(&Document::load(&entry_file, &folder)?)
+            let version = Folder::new(Arc::new(Document::load(&entry_file, &folder)?));
+            carrying.carry(&version)
         })
         .await
         .map_err(anyhow::Error::from)??;
@@ -368,7 +369,6 @@ impl Published {
         // version's router makes — redirects included — is already under it.
         let served = ServedFolder::new(dir)?.mounted(&mount.path(id));
         let document = Document::load(&served.path().join(entry), &served)?;
-        let index = Index::build(&served).with_search(&document.path());
         let latest = mount == Mount::Latest;
         let changes = if latest {
             self.bus(id)
@@ -376,7 +376,10 @@ impl Published {
             Changes::default()
         };
         let mut options = server::Options::new(Arc::new(document), changes);
-        options.index = Arc::new(index);
+        options.search = Some(Arc::new(Search::build(
+            &options.folder,
+            options.folder.entry_file(),
+        )));
         options.designs = self.0.designs.designs(&Mount::Pinned(n).path(id), &served);
         options.comments = None;
         if latest {
@@ -435,8 +438,9 @@ async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str,
     if !file.is_file() {
         bail!("{entry}: no such file in the zip");
     }
-    let document = Document::load(&file, &scratch)?;
-    let problems = devpage_core::check::document(&document, None).await;
+    let folder = Folder::new(Arc::new(Document::load(&file, &scratch)?));
+    let problems = devpage_core::check::document(&folder, None).await;
+    let document = folder.entry();
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
         bail!("{}", lines.join("\n"));
@@ -447,7 +451,7 @@ async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str,
         Kind::Slides { .. } => "slides",
         Kind::Design => "design",
     };
-    Ok((kind, document.title))
+    Ok((kind, document.title.clone()))
 }
 
 /// A publish's scratch folder, removed however the publish ends.

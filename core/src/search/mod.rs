@@ -1,7 +1,7 @@
 //! Full-text search over what the served document publishes: the pages its
 //! nav reaches, and the chapters and slides of every document those reach,
 //! split at their headings into sections, in a tantivy index held in memory.
-//! Built at start beside the document index and kept current by the watcher,
+//! Built at start beside the served folder's document index and kept current by the watcher,
 //! so a search never reads a file.
 //!
 //! tantivy, because it is a real full-text engine — BM25 ranking, stemming,
@@ -17,7 +17,7 @@ use tantivy::schema::{Field, Value};
 use tantivy::tokenizer::TextAnalyzer;
 use tantivy::{IndexReader, IndexWriter, Score, TantivyDocument};
 
-use crate::index::Index;
+use crate::folder::Folder;
 
 mod gather;
 mod index;
@@ -140,12 +140,12 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl Search {
     /// Brings the index up to date after `paths` changed, appeared or
-    /// vanished — after `index` has heard of them. Any of them can change
+    /// vanished — after `folder` has heard of them. Any of them can change
     /// what is published — a page's Topics, a document file, a
     /// `.gitignore`, a folder — so a burst that holds a Markdown file, a
     /// YAML file, a `.gitignore`, a folder or a path that is gone reads
     /// everything published again.
-    pub fn changed(&self, index: &Index, paths: &[PathBuf]) {
+    pub fn changed(&self, folder: &Folder, paths: &[PathBuf]) {
         let matters = |path: &PathBuf| {
             path.is_dir()
                 || !path.exists()
@@ -155,7 +155,7 @@ impl Search {
                     .is_some_and(|ext| ext == "md" || ext == "yml" || ext == "yaml")
         };
         if paths.iter().any(matters) {
-            self.rebuild(index);
+            self.rebuild(folder);
         }
     }
 

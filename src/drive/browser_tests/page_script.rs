@@ -12,7 +12,7 @@ use futures::StreamExt;
 
 use crate::chrome::testing::{self, Answered, eval, until};
 use crate::document::{Document, Kind};
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::server;
 
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.

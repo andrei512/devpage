@@ -378,7 +378,7 @@ pub fn theme_script(switchable: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     fn site(dir: &Path, yaml: &str) -> Document {
         std::fs::write(dir.join("devpage.yml"), yaml).unwrap();

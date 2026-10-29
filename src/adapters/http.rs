@@ -129,7 +129,7 @@ mod tests {
 
     use super::*;
     use crate::changes::{Change, Subscription};
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     /// A local web server for external-link tests, so the suite needs no
     /// network: `/ok` answers 200, anything else 404, and it counts the requests
@@ -283,7 +283,8 @@ mod tests {
                 web.address
             ),
         );
-        let found: Vec<String> = document(&doc, Some(&checker(300, 3000, 50)))
+        let opened = crate::folder::Folder::new(Arc::new(doc));
+        let found: Vec<String> = document(&opened, Some(&checker(300, 3000, 50)))
             .await
             .iter()
             .map(ToString::to_string)

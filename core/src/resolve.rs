@@ -9,10 +9,10 @@ use std::path::PathBuf;
 use devpage_design::Theme;
 
 use crate::check::Preview;
-use crate::document::{self, Document, Entry, Kind};
-use crate::index::Index;
+use crate::document::{self, Document, Kind};
+use crate::folder::{Folder, Owner};
 use crate::render;
-use crate::widgets::Widgets;
+use crate::widgets::{Modules, Widgets};
 
 /// What a path answers with.
 #[derive(Debug, PartialEq)]
@@ -42,13 +42,13 @@ pub enum Answer {
     Failed(String),
 }
 
-/// What decides an answer: the entry document, the index of its served
-/// folder, the problems each page lists and whether comments are on. Every
-/// address it answers with is under the served folder's mount, which the
-/// documents carry.
+/// What decides an answer: the served folder with its entry document, its
+/// widget modules, the problems each page lists and whether comments are on.
+/// Every address it answers with is under the served folder's mount, which
+/// the documents carry.
 pub struct Resolver<'a> {
-    pub entry: &'a Entry,
-    pub index: &'a Index,
+    pub folder: &'a Folder,
+    pub modules: &'a Modules,
     pub preview: &'a Preview,
     pub comments: bool,
 }
@@ -57,13 +57,13 @@ impl Resolver<'_> {
     /// `/` leads to the entry document as its file says now — or, while the
     /// file is invalid, shows why.
     pub fn home(&self) -> Answer {
-        match self.entry.error() {
+        match self.folder.entry_error() {
             Some(error) => Answer::Html(render::invalid(
-                &self.entry.document(),
-                self.entry.file(),
+                &self.folder.entry(),
+                self.folder.entry_file(),
                 &error,
             )),
-            None => self.redirect(self.entry.document().entry()),
+            None => self.redirect(self.folder.entry().entry()),
         }
     }
 
@@ -79,7 +79,7 @@ impl Resolver<'_> {
         let theme = pairs()
             .find_map(|pair| pair.strip_prefix("theme="))
             .map(|name| Theme::named(name).ok_or(name));
-        let entry = self.entry.document();
+        let entry = self.folder.entry();
         let file_at = |path: &str| entry.served.file_at(path);
         let outside = || Answer::NotFound(format!("{path} is not part of the served folder"));
         let real = file_at(path);
@@ -143,14 +143,11 @@ impl Resolver<'_> {
         // A site is never printed: in print mode a Markdown file is a doc of
         // one chapter, whatever site holds it — what `devpage pdf` prints. A
         // page of a site whose file is invalid shows why, until it is fixed.
-        let site = self.index.site_for(&file);
-        match site
-            .as_ref()
-            .filter(|_| !print)
-            .map(|site| (Document::load(site, served), site))
-        {
-            Some((Ok(site), _)) => {
-                let widgets = Widgets::of(&site, self.index.modules());
+        match self.folder.owner(&file) {
+            Some(Owner {
+                document: Ok(site), ..
+            }) if !print => {
+                let widgets = Widgets::of(&site, self.modules);
                 let found = self
                     .preview
                     .problems(&site, &widgets, std::slice::from_ref(&file));
@@ -163,13 +160,17 @@ impl Resolver<'_> {
                     &found,
                 ))
             }
-            Some((Err(error), site)) => {
-                Answer::Html(render::invalid(&entry, site, &format!("{error:#}")))
-            }
-            None => match Document::load(&file, served) {
+            Some(Owner {
+                file: site,
+                document: Err(error),
+            }) if !print => Answer::Html(render::invalid(&entry, &site, &format!("{error:#}"))),
+            owner => match Document::load(&file, served) {
                 Ok(mut doc) => {
                     // A page keeps its site's widgets when printed on its own.
-                    if let Some(Ok(site)) = site.map(|site| Document::load(&site, served)) {
+                    if let Some(Owner {
+                        document: Ok(site), ..
+                    }) = owner
+                    {
                         doc.widgets = site.widgets;
                     }
                     self.show(&doc, print)
@@ -183,7 +184,7 @@ impl Resolver<'_> {
     /// none: the file isn't a deck, or has no slide `n`. One address per
     /// slide: `2`, never `02`.
     fn slide(&self, deck: &str, file: &std::path::Path, n: &str) -> Answer {
-        let document = match Document::load(file, &self.entry.document().served) {
+        let document = match Document::load(file, self.folder.served()) {
             Ok(document) if matches!(document.kind, Kind::Slides { .. }) => document,
             _ => return Answer::NotFound(format!("{deck} is not a deck")),
         };
@@ -210,7 +211,7 @@ impl Resolver<'_> {
     /// A document as its kind: a site opens on its root page. Printed, a
     /// page lists no problems, so none are looked for.
     fn show(&self, document: &Document, print: bool) -> Answer {
-        let widgets = Widgets::of(document, self.index.modules());
+        let widgets = Widgets::of(document, self.modules);
         let found = |pages: &[PathBuf]| {
             if print {
                 Vec::new()
@@ -291,8 +292,8 @@ mod tests {
     /// The documents of `dir` with `entry` as the entry document: what a
     /// resolver is made from.
     struct Served {
-        entry: Entry,
-        index: Index,
+        folder: Folder,
+        modules: Modules,
         preview: std::sync::Arc<Preview>,
     }
 
@@ -303,22 +304,22 @@ mod tests {
 
         /// The same, its served folder under `mount`.
         fn mounted(dir: &std::path::Path, entry: &str, mount: &str) -> Self {
-            let served = crate::served::ServedFolder::new(dir)
+            let served = crate::folder::ServedFolder::new(dir)
                 .unwrap()
                 .mounted(mount);
             Self {
-                entry: Entry::new(std::sync::Arc::new(
+                folder: Folder::new(std::sync::Arc::new(
                     Document::load(&dir.join(entry), &served).unwrap(),
                 )),
-                index: Index::build(&served),
+                modules: Modules::default(),
                 preview: crate::check::testing::preview(),
             }
         }
 
         fn at(&self) -> Resolver<'_> {
             Resolver {
-                entry: &self.entry,
-                index: &self.index,
+                folder: &self.folder,
+                modules: &self.modules,
                 preview: &self.preview,
                 comments: true,
             }
@@ -540,5 +541,35 @@ mod tests {
             Served::new(&dir, "docs").at().home(),
             Answer::Redirect("/docs/README.md".into())
         );
+    }
+
+    #[test]
+    fn an_edited_gitignored_served_doc_is_served_fresh() {
+        let dir = served("ignored-fresh");
+        std::fs::write(dir.join(".gitignore"), "/drafts/\n").unwrap();
+        std::fs::create_dir_all(dir.join("drafts")).unwrap();
+        std::fs::write(
+            dir.join("drafts/plan.yml"),
+            "kind: doc\ntitle: Plan\nchapters: [a.md]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("drafts/a.md"), "# First draft\n").unwrap();
+        let served = Served::new(&dir, "docs");
+        let resolve = served.at();
+        let page = html(resolve.path("drafts/plan.yml", None));
+        assert!(page.contains("First draft"), "{page}");
+
+        // The watcher never hears of a gitignored file, and nothing has to:
+        // every request reads the document as its files say now.
+        std::fs::write(
+            dir.join("drafts/plan.yml"),
+            "kind: doc\ntitle: Renamed plan\nchapters: [a.md]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("drafts/a.md"), "# Second draft\n").unwrap();
+        let page = html(resolve.path("drafts/plan.yml", None));
+        assert!(page.contains("Renamed plan"), "{page}");
+        assert!(page.contains("Second draft"), "{page}");
+        assert!(!page.contains("First draft"), "{page}");
     }
 }

@@ -1,8 +1,7 @@
 //! The module cache: what was read of each project widget and helper, and
 //! what each compiled to, kept until a file changes — so a widget is read and
 //! compiled once per change rather than once per request. One cache belongs to
-//! one served folder's [index](crate::index::Index), which forgets a file when
-//! the watcher says it changed.
+//! one served folder, and forgets a file when the watcher says it changed.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
@@ -15,7 +14,7 @@ use sha2::{Digest, Sha256};
 use super::compile::{compile, relative_imports};
 use super::{SYSTEM, system};
 use crate::addresses::{Owned, address};
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]

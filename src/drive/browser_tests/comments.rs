@@ -8,7 +8,7 @@ use crate::chrome::testing::{self, eval, until};
 
 use crate::comments::*;
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::server;
 
 /// Serves `entry` from `root`, opens `path` in a headless Chrome with a
@@ -32,13 +32,8 @@ async fn open_off(
 ) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
     let changes = crate::changes::Changes::default();
-    let index = Arc::new(crate::index::Index::build(&document.served));
-    let entry = Arc::new(crate::document::Entry::new(document));
-    let designs = crate::designs::Designs::new(&entry.document().served);
-    let document = entry.document();
+    let designs = crate::designs::Designs::new(&document.served);
     let options = server::Options {
-        entry,
-        index,
         designs,
         comments: Some(crate::comments::Identity::Local("Ana".into())),
         preview: crate::check::testing::preview(),

@@ -1,10 +1,9 @@
-//! Watches the served folder: keeps the index current, tells open pages a
-//! watched file changed, tells them a comment thread changed, and tells the
-//! design store every file that changed and isn't out of sight. Only what is
-//! in sight is watched (the watch set, `set.rs`), through the platform's
-//! watcher: `macos.rs`, `inotify.rs`, or `recursive.rs` elsewhere.
-
-mod set;
+//! Watches the served folder: tells the folder what changed and publishes
+//! what it says open pages should hear, tells them a comment thread changed,
+//! and tells the design store, the widget modules and the search index every
+//! file that changed and isn't out of sight. Only the folders the folder says
+//! to watch are watched, through the platform's watcher: `macos.rs`,
+//! `inotify.rs`, or `recursive.rs` elsewhere.
 
 #[cfg(target_os = "linux")]
 mod inotify;
@@ -32,10 +31,9 @@ use notify::event::{CreateKind, EventKind, RemoveKind};
 use crate::changes::{Change, Changes};
 use crate::comments::Comments;
 use crate::designs::Designs;
-use crate::document::{Document, Entry, KindName};
-use crate::index::Index;
-use crate::served::ServedFolder;
-use set::WatchSet;
+use crate::folder::{Folder, WatchSet};
+use crate::search::Search;
+use crate::widgets::Modules;
 use std::path::{Path, PathBuf};
 
 /// How long a burst of file events is collected before it is handled: each
@@ -56,30 +54,31 @@ pub struct Watch {
 /// comments the server writes through, heard of it, whatever the site's
 /// `watch` says — nothing for a write of its own, which was announced as it
 /// landed.
-/// A path out of sight — under `.git`, or excluded by a `.gitignore` and not
-/// named by its site's `watch` — is dropped as it arrives, before any
+/// A path that can't matter — under `.git`, or excluded by a `.gitignore` and
+/// not named by its site's `watch` — is dropped as it arrives, before any
 /// listener hears of it. Every other changed file outside `.devpage/` also
-/// goes to the design store, whatever `watch` says, since any file may be
-/// part of a design.
+/// goes to the design store, the widget modules and the search index,
+/// whatever `watch` says, since any file may be part of a design.
 pub fn start(
-    entry: Arc<Entry>,
-    index: Arc<Index>,
+    folder: Arc<Folder>,
+    modules: Modules,
+    search: Option<Arc<Search>>,
     designs: Designs,
     changes: Changes,
     threads: Comments,
 ) -> Result<Watch> {
-    let root = entry.document().served.clone();
-    let set = WatchSet::plan(&root, &index, &entry);
+    let root = folder.served().path().to_path_buf();
+    let set = folder.watched();
     let listeners = Listeners {
-        served: root.clone(),
-        entry,
-        index,
+        folder,
+        modules,
+        search,
         designs,
         changes,
         threads,
     };
     let watching = Arc::new(OnceLock::new());
-    let mut platform = Platform::new(root.path(), intake(listeners, watching.clone()))?;
+    let mut platform = Platform::new(&root, intake(listeners, watching.clone()))?;
     platform.apply(set);
     let platform = Arc::new(Mutex::new(platform));
     let _ = watching.set(Arc::downgrade(&platform));
@@ -136,10 +135,10 @@ fn intake(listeners: Listeners, watching: Watching) -> Handler {
                     }
                 })
                 .collect();
-            listeners.changed(&paths);
+            let reshaped = listeners.changed(&paths);
             if let Some(platform) = watching.get().and_then(Weak::upgrade) {
                 let mut platform = platform.lock().unwrap_or_else(|p| p.into_inner());
-                if hidden || listeners.reshapes(&platform, &paths) {
+                if hidden || reshaped || reaches_past(&platform, &paths) {
                     listeners.replan(&mut platform);
                 }
             }
@@ -164,13 +163,15 @@ fn next_burst<T: Clone + Eq + Hash>(arriving: &mpsc::Receiver<T>) -> Option<Vec<
     Some(burst)
 }
 
-/// Who hears about files that change: the caches that forget what changed —
-/// the index (with the widget modules it owns), the design store, the entry
-/// document and the search index — and, through the change bus, open pages.
+/// Who hears about files that change: the served folder, which follows
+/// them and says what open pages should hear; the caches that forget what
+/// changed — the widget modules, the design store and the search index —
+/// and, through the change bus, open pages.
 struct Listeners {
-    served: ServedFolder,
-    entry: Arc<Entry>,
-    index: Arc<Index>,
+    folder: Arc<Folder>,
+    modules: Modules,
+    /// The search index, when this server answers searches.
+    search: Option<Arc<Search>>,
     designs: Designs,
     changes: Changes,
     /// The comments the server writes through, which know the thread files
@@ -179,10 +180,8 @@ struct Listeners {
 }
 
 impl Listeners {
-    /// The paths of `event` that can matter to a listener, decided from the
-    /// path alone — no file system call — so a build rewriting an ignored
-    /// folder costs a lookup per path and nothing more. Accesses and errors
-    /// carry none.
+    /// The paths of `event` that can matter to a listener, as the folder
+    /// judges them from the path alone. Accesses and errors carry none.
     fn sift(&self, event: notify::Result<notify::Event>) -> Vec<PathBuf> {
         let Ok(event) = event else {
             return Vec::new();
@@ -197,27 +196,8 @@ impl Listeners {
         event
             .paths
             .into_iter()
-            .filter(|path| self.can_matter(path, is_dir))
+            .filter(|path| self.folder.matters(path, is_dir))
             .collect()
-    }
-
-    /// Whether a change to `path` can matter: not under `.git`, and either in
-    /// sight or named by its site's `watch` list. A comment thread always
-    /// matters; nothing else under `.devpage/` does. A path not under the
-    /// served folder as reported is kept, to be judged once canonical.
-    fn can_matter(&self, path: &Path, is_dir: bool) -> bool {
-        let Some(relative) = self.served.relative(path) else {
-            return true;
-        };
-        if relative.starts_with(".devpage/comments") {
-            return true;
-        }
-        if relative.starts_with(".devpage")
-            || relative.components().any(|part| part.as_os_str() == ".git")
-        {
-            return false;
-        }
-        !self.index.ignored(path, is_dir) || self.named_by_watch(path)
     }
 
     /// The folders `event` says were created out of sight directly in a
@@ -227,99 +207,62 @@ impl Listeners {
         if event.kind != EventKind::Create(CreateKind::Folder) {
             return Vec::new();
         }
+        let served = self.folder.served();
         event
             .paths
             .iter()
             .filter(|path| {
-                !self.can_matter(path, true)
+                !self.folder.matters(path, true)
                     && path.parent().is_some_and(|parent| {
-                        self.served.contains(parent) && self.can_matter(parent, true)
+                        served.contains(parent) && self.folder.matters(parent, true)
                     })
             })
             .cloned()
             .collect()
     }
 
-    /// Whether the burst of `paths` can change the watch set: a `.gitignore`
-    /// or a site's document file changed, a folder the platform doesn't
-    /// report on appeared, or one holding a watched folder went away.
-    fn reshapes(&self, platform: &Platform, paths: &[PathBuf]) -> bool {
-        paths.iter().any(|path| {
-            let document_file = path
-                .extension()
-                .is_some_and(|ext| ext == "yml" || ext == "yaml");
-            path.file_name().is_some_and(|name| name == ".gitignore")
-                || path == self.entry.file()
-                || self.index.kind(path) == Some(KindName::Site)
-                || (document_file && !path.exists())
-                || if path.is_dir() {
-                    !platform.covers(path)
-                } else {
-                    platform.watches_within(path)
-                }
-        })
-    }
-
-    /// Plans the watch set again and has the platform watch it. What is
-    /// already in a folder the platform didn't report on before is handled
-    /// as changed — a thread written into a new comment folder before its
-    /// watch started still reaches its page.
+    /// Has the platform watch the folders to watch, as the folder plans them
+    /// now. What is already in a folder the platform didn't report on before
+    /// is handled as changed — a thread written into a new comment folder
+    /// before its watch started still reaches its page.
     fn replan(&self, platform: &mut Platform) {
         let mut found = Vec::new();
-        for (folder, deep) in platform.apply(WatchSet::plan(&self.served, &self.index, &self.entry))
-        {
+        for (folder, deep) in platform.apply(self.folder.watched()) {
             within(&folder, deep, &mut found);
             found.push(folder);
         }
-        found.retain(|path| self.can_matter(path, path.is_dir()));
+        found.retain(|path| self.folder.matters(path, path.is_dir()));
         self.changed(&found);
-    }
-
-    /// Whether the `watch` list of the nearest site holding `path` names it.
-    fn named_by_watch(&self, path: &Path) -> bool {
-        let Some(site) = self.index.site_for(path) else {
-            return false;
-        };
-        let document = self.entry.document();
-        if site == document.path() {
-            return document.names(path);
-        }
-        Document::load(&site, &document.served).is_ok_and(|site| site.names(path))
     }
 
     /// `paths` changed, were created or were deleted: every cache forgets
     /// what it read of them, open pages hear what they should show — at most
-    /// one refresh — and then the search index reads them again.
-    fn changed(&self, paths: &[PathBuf]) {
-        let (heard, searched) = self.forget(paths);
+    /// one refresh — and then the search index reads them again. Says whether
+    /// the folders to watch may differ now.
+    fn changed(&self, paths: &[PathBuf]) -> bool {
+        let (heard, searched, reshaped) = self.forget(paths);
         for change in heard {
             self.changes.publish(change);
         }
         // After the pages hear, so indexing text never holds up a refresh.
-        if let Some(search) = self.index.search() {
-            search.changed(&self.index, &searched);
+        if let Some(search) = &self.search {
+            search.changed(&self.folder, &searched);
         }
+        reshaped
     }
 
-    /// The caches forget what they read of `paths`; the changes open pages
-    /// should hear come back — a page's comments as each thread changes, then
-    /// at most one refresh — with the paths the search index should read
-    /// again. Nothing is published.
-    fn forget(&self, paths: &[PathBuf]) -> (Vec<Change>, Vec<PathBuf>) {
-        let Listeners {
-            served,
-            entry,
-            index,
-            designs,
-            threads,
-            ..
-        } = self;
+    /// The caches forget what they read of `paths`, and the folder follows
+    /// them; the changes open pages should hear come back — a page's
+    /// comments as each thread changes, then what the folder says — with the
+    /// paths the search index should read again, and whether the folders to
+    /// watch may differ. Nothing is published.
+    fn forget(&self, paths: &[PathBuf]) -> (Vec<Change>, Vec<PathBuf>, bool) {
         let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
         // A thread changed: the pages showing its page fetch comments —
         // unless the store's own write was announced already.
-        let mut heard = threads.heard(&paths);
-        let mut refresh = false;
+        let mut heard = self.threads.heard(&paths);
         let mut searched = Vec::new();
+        let served = self.folder.served();
         for path in paths {
             let Some(relative) = served.relative(&path) else {
                 continue;
@@ -327,23 +270,27 @@ impl Listeners {
             if relative.starts_with(".devpage") {
                 continue;
             }
-            designs.changed(&path);
-            index.changed(&path);
-            searched.push(path.clone());
-            // The entry's own file: re-read it, so `/` and `watch` follow it,
-            // and refresh open pages whatever `watch` says.
-            if path == entry.file() {
-                entry.reload();
-                refresh = true;
-            } else if !index.ignored(&path, path.is_dir()) && refreshes(entry, index, &path) {
-                refresh = true;
-            }
+            self.designs.changed(&path);
+            self.modules.forget(&path);
+            searched.push(path);
         }
-        if refresh {
-            heard.push(Change::Refresh);
-        }
-        (heard, searched)
+        let folder = self.folder.changed(&searched);
+        heard.extend(folder.changes);
+        (heard, searched, folder.reshaped)
     }
+}
+
+/// Whether the burst of `paths` reaches past what the platform watches: a
+/// folder it doesn't report on appeared, or one holding a watched folder went
+/// away.
+fn reaches_past(platform: &Platform, paths: &[PathBuf]) -> bool {
+    paths.iter().any(|path| {
+        if path.is_dir() {
+            !platform.covers(path)
+        } else {
+            platform.watches_within(path)
+        }
+    })
 }
 
 /// The files and folders directly in `folder`, and when `deep` everything
@@ -366,49 +313,11 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
-/// Whether a change to `path` refreshes open pages. Document files and
-/// widget files always do; any other path is judged by the `watch` list of the
-/// nearest site holding it, and refreshes when there is no such list.
-fn refreshes(entry: &Entry, index: &Index, path: &Path) -> bool {
-    if index.kind(path).is_some() || is_widget_file(entry, index, path) {
-        return true;
-    }
-    let Some(site) = index.site_for(path) else {
-        return true;
-    };
-    let document = entry.document();
-    if site == document.path() {
-        return document.watches(path);
-    }
-    match Document::load(&site, &document.served) {
-        Ok(site) => site.watches(path),
-        Err(_) => true,
-    }
-}
-
-/// Whether `path` is a widget or a helper in the widgets folder of the entry
-/// document or of any indexed document.
-fn is_widget_file(entry: &Entry, index: &Index, path: &Path) -> bool {
-    if !path
-        .extension()
-        .is_some_and(|ext| ext == "ts" || ext == "tsx")
-    {
-        return false;
-    }
-    let document = entry.document();
-    let in_folder = |folder: Option<&Path>| {
-        folder.is_some_and(|folder| crate::widgets::is_widget_file(path, folder))
-    };
-    in_folder(document.widgets.as_deref())
-        || index.documents().iter().any(|file| {
-            Document::load(file, &document.served)
-                .is_ok_and(|other| in_folder(other.widgets.as_deref()))
-        })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::Document;
+    use crate::folder::ServedFolder;
     use notify::event::{DataChange, ModifyKind};
 
     thread_local! {
@@ -438,14 +347,14 @@ mod tests {
     /// Starts watching the served folder `dir`, started on `docs/`, and
     /// lets the platform's watcher settle.
     async fn watching(dir: &Path) -> Watch {
-        let served = ServedFolder::new(dir).unwrap();
-        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
+        let folder = opened(dir);
         let watch = start(
-            Arc::new(Entry::new(document)),
-            Arc::new(Index::build(&served)),
-            Designs::new(&served),
+            folder.clone(),
+            Modules::default(),
+            None,
+            Designs::new(folder.served()),
             Changes::default(),
-            comments(&served, &Changes::default()),
+            comments(folder.served(), &Changes::default()),
         )
         .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -637,16 +546,22 @@ mod tests {
         )
     }
 
-    /// The listeners of the served folder `dir`, started on `docs/`.
-    fn listeners(dir: &Path, changes: Changes) -> Listeners {
+    /// The served folder `dir`, opened on `docs/`.
+    fn opened(dir: &Path) -> Arc<Folder> {
         let served = ServedFolder::new(dir).unwrap();
         let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
+        Arc::new(Folder::new(document))
+    }
+
+    /// The listeners of the served folder `dir`, started on `docs/`.
+    fn listeners(dir: &Path, changes: Changes) -> Listeners {
+        let folder = opened(dir);
         Listeners {
-            index: Arc::new(Index::build(&served)),
-            designs: Designs::new(&served),
-            threads: comments(&served, &changes),
-            served,
-            entry: Arc::new(Entry::new(document)),
+            designs: Designs::new(folder.served()),
+            threads: comments(folder.served(), &changes),
+            folder,
+            modules: Modules::default(),
+            search: None,
             changes,
         }
     }
@@ -698,7 +613,7 @@ mod tests {
         assert_eq!(listeners.sift(Ok(folder)), Vec::<PathBuf>::new());
 
         let before = CANONICALIZED.with(|count| count.get());
-        let (heard, _) = listeners.forget(&listeners.sift(written(&noise)));
+        let (heard, _, _) = listeners.forget(&listeners.sift(written(&noise)));
         assert_eq!(CANONICALIZED.with(|count| count.get()), before);
         assert_eq!(heard, []);
         assert!(
@@ -727,7 +642,7 @@ mod tests {
             page.clone(),
         ]));
         assert_eq!(arrived, vec![thread, named, page]);
-        let (heard, _) = listeners.forget(&arrived);
+        let (heard, _, _) = listeners.forget(&arrived);
         assert_eq!(
             heard,
             [Change::Comments("/docs/README.md".into()), Change::Refresh]
@@ -762,12 +677,12 @@ mod tests {
         let page = dir.join("docs/guide.md");
         std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
         let mut listeners = listeners(&dir, Changes::default());
-        listeners.index = Arc::new(
-            Index::build(&ServedFolder::new(&dir).unwrap())
-                .with_search(&dir.join("docs/devpage.yml")),
-        );
+        listeners.search = Some(Arc::new(Search::build(
+            &listeners.folder,
+            &dir.join("docs/devpage.yml"),
+        )));
         let found = |word: &str| {
-            let search = listeners.index.search().unwrap();
+            let search = listeners.search.as_ref().unwrap();
             search
                 .search(word)
                 .pages
@@ -841,16 +756,15 @@ mod tests {
         within: Duration,
         want: Option<&str>,
     ) -> Vec<String> {
-        let document =
-            Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(dir).unwrap()).unwrap());
-        let index = Arc::new(Index::build(&document.served));
+        let folder = opened(dir);
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(&document.served);
-        let threads = comments(&document.served, &changes);
+        let designs = Designs::new(folder.served());
+        let threads = comments(folder.served(), &changes);
         let _watcher = start(
-            Arc::new(Entry::new(document)),
-            index,
+            folder,
+            Modules::default(),
+            None,
             designs,
             changes.clone(),
             threads.clone(),
@@ -893,17 +807,8 @@ mod tests {
         let broken = "<Frame width={10} height={10} lable=\"x\" />\n";
         std::fs::write(dir.join("docs/screen.design"), valid).unwrap();
         std::fs::write(dir.join(".devpage/screen.design"), valid).unwrap();
-        let served = ServedFolder::new(&dir).unwrap();
-        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
-        let designs = Designs::new(&served);
-        let listeners = Listeners {
-            index: Arc::new(Index::build(&served)),
-            threads: comments(&served, &Changes::default()),
-            served,
-            entry: Arc::new(Entry::new(document)),
-            designs: designs.clone(),
-            changes: Changes::default(),
-        };
+        let listeners = listeners(&dir, Changes::default());
+        let designs = listeners.designs.clone();
         assert!(designs.resolve("docs/screen.design").is_ok());
         assert!(designs.resolve(".devpage/screen.design").is_ok());
 
@@ -1000,15 +905,12 @@ mod tests {
             "relist",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
         );
-        let served = ServedFolder::new(&dir).unwrap();
-        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
-        let entry = Arc::new(Entry::new(document));
-        let index = Arc::new(Index::build(&served));
+        let folder = opened(&dir);
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(&served);
-        let threads = comments(&served, &changes);
-        let _watcher = start(entry.clone(), index, designs, changes, threads).unwrap();
+        let designs = Designs::new(folder.served());
+        let threads = comments(folder.served(), &changes);
+        let _watcher = start(folder, Modules::default(), None, designs, changes, threads).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Its own file changing refreshes pages, though `watch` names only Markdown.

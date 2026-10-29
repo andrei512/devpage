@@ -2,11 +2,10 @@
 //! or a lone Markdown file, which is a doc of one chapter.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
 
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -533,50 +532,6 @@ fn literal_prefix(pattern: &str) -> PathBuf {
                 .contains(['*', '?', '[', '{'])
         })
         .collect()
-}
-
-/// The document devpage was started with, re-read whenever its file changes,
-/// so `/` and the watcher follow the file without a restart. While the file
-/// is invalid, the last valid document stays in use and the error is kept to
-/// show in its place.
-pub struct Entry {
-    /// The entry's file: a document file, or a Markdown file served as a doc.
-    file: PathBuf,
-    state: RwLock<(Arc<Document>, Option<String>)>,
-}
-
-impl Entry {
-    pub fn new(document: Arc<Document>) -> Self {
-        Self {
-            file: document.path(),
-            state: RwLock::new((document, None)),
-        }
-    }
-
-    /// The entry document as last read without error.
-    pub fn document(&self) -> Arc<Document> {
-        self.state.read().unwrap().0.clone()
-    }
-
-    /// Why the entry's file can't be read as a document, if it can't now.
-    pub fn error(&self) -> Option<String> {
-        self.state.read().unwrap().1.clone()
-    }
-
-    pub fn file(&self) -> &Path {
-        &self.file
-    }
-
-    /// Reads the entry's file again: a valid file replaces the document, an
-    /// invalid one keeps it and records the error.
-    pub fn reload(&self) {
-        let served = self.document().served.clone();
-        let mut state = self.state.write().unwrap();
-        match Document::load(&self.file, &served) {
-            Ok(document) => *state = (Arc::new(document), None),
-            Err(error) => state.1 = Some(format!("{error:#}")),
-        }
-    }
 }
 
 /// The kind a YAML file names in its top-level `kind`, when it is one of

@@ -193,7 +193,7 @@ deck's frames carry the same head — the logo's icon link and the theme script 
 and the theme corner. Titles and sidebar labels are HTML-escaped; the page body
 is not, since raw HTML is allowed.
 
-Beyond the index and the drawn diagrams, nothing is cached between requests: each page request
+Beyond the document index, the widget modules and the drawn diagrams, nothing is cached between requests: each page request
 re-reads the page, its site's document file and, to build the sidebar, every
 page the tree reaches. The browser keeps the page, but asks again each time:
 it is served `no-cache` with an ETag, the hash of its HTML, and answered

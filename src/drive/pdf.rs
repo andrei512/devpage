@@ -108,7 +108,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     #[test]
     fn the_default_file_name_is_the_title_made_safe() {

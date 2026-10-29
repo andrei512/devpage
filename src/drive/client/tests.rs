@@ -17,7 +17,7 @@ use super::contexts::{Home, test_home};
 use super::{Command, run, threads_text};
 use crate::drive::api_types::{NewThread, Refusal, Started, Thread};
 use crate::drive::server_mode::{Config, router};
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 
 /// The CLI's own arguments, for parsing a command line in a test.
 #[derive(Parser)]

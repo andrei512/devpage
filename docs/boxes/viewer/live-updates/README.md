@@ -44,14 +44,15 @@ folder in sight, and nothing out of sight — and has the
 [platform's watcher](#per-platform) watch it. Every event the platform
 reports goes to one handler, whose work happens in two steps:
 
-1. **Sifting, as each event arrives** (`Listeners::sift`). Accesses (a read,
+1. **Sifting, as each event arrives** (`Listeners::sift`, which asks the
+   served folder, `Folder::matters`). Accesses (a read,
    not a change) and errors are dropped, and so is every path that can't
    matter, judged from the path alone with no file system call: a path with a
    `.git` component, a path under `.devpage/` other than the comment store,
    and a path [out of sight](#what-is-out-of-sight) by a `.gitignore` — unless
    the `watch` list of the nearest site holding it names it. So a build
    rewriting `target/` costs one lookup per path in memory, and no listener
-   hears of it. The `.gitignore` rules are the index's, so a changed
+   hears of it. The `.gitignore` rules are the document index's, so a changed
    `.gitignore` takes effect on the next event, without a restart. With the
    watch set, the platform reports almost nothing out of sight; sifting is
    the backstop for the rest — a folder that went out of sight before the
@@ -85,24 +86,26 @@ burst's paths (`Comments::heard`), and they answer a page only for a thread
 file whose bytes differ from what open pages last heard of, as after a hand
 edit; decoding a thread file's path is the store's, not the watcher's. The comment store is watched whatever a
 site's `watch` says, and never refreshes pages itself; nothing else under `.devpage/` is looked at. Every other path is first
-handed to the design store — see [Designs](#designs) — and passed to the
-[index](../document-index/README.md#the-index) (`Index::changed`), so a new,
-edited or deleted document file or `.gitignore` is reflected at once, and its
-module cache forgets the file so the next
+handed to the design store — see [Designs](#designs) — and the module cache
+forgets the file, so the next
 [widget address](../widgets/how-widgets-run/README.md#compiling) reads it
-again. The
-entry document's own file is re-read (`Entry::reload`) — so `/` and the
-`watch` list follow the file — and refreshes whatever `watch` says. Once the
+again. Then the burst's paths go to the
+[served folder](../document-index/README.md#the-index) (`Folder::changed`, in
+`core/src/folder/`), which brings its document index up to date — a new,
+edited or deleted document file or `.gitignore` is reflected at once —
+re-reads the entry document's own file — so `/` and the `watch` list follow
+the file, which refreshes whatever `watch` says — and answers whether open
+pages refresh and whether the watch set may differ. Once the
 burst is decided and its changes published, its paths go to the
 [search index](../search/README.md#how-it-stays-current) (`Search::changed`),
 which reads everything published again when one of them can change it.
 
 ### What is out of sight
 
-A path doesn't refresh when the index finds it out of sight — inside a `.git`
+A path doesn't refresh when the document index finds it out of sight — inside a `.git`
 or `.devpage` folder, or excluded by any `.gitignore` in the served folder,
 nested ones included — or when the nearest site holding it has a `watch` list
-that matches none of it (`refreshes` in `src/adapters/watch.rs`, then
+that matches none of it (`Folder::refreshes` in `core/src/folder/sight.rs`, then
 `Document::watches`, patterns relative to that site's folder). A document file
 always counts, and so does a widget or helper — a `.ts` or `.tsx` file
 directly in the widgets folder of the entry document or of any indexed
@@ -111,7 +114,7 @@ devpage was started with.
 
 If any path counted, the burst is one refresh. Nothing in
 this needs a `.git` folder to exist. A `.gitignore`d file a site's `watch`
-names gets past sifting — so the index and the design store hear of it — but
+names gets past sifting — so the served folder and the design store hear of it — but
 still doesn't refresh.
 
 A refresh carries no file name: every open page refreshes, whichever
@@ -139,9 +142,9 @@ fseventsd 5.6 s of CPU with no devpage running, 9.6 s with one watching the
 whole folder, and 42.8 s with eight — about 4.5 s more per devpage, for
 events it threw away. So the watcher never asks for them.
 
-`WatchSet::plan` (`src/adapters/watch/set.rs`) splits the served folder, by the
-index's rules — [out of sight](#what-is-out-of-sight) is the same judgement
-sifting makes — into:
+`Folder::watched` (`core/src/folder/sight.rs`) plans it, splitting the served
+folder by the document index's rules — [out of sight](#what-is-out-of-sight)
+is the same judgement sifting makes — into:
 
 - **deep folders** — the largest folders with nothing out of sight anywhere
   under them, watched recursively;
@@ -172,7 +175,8 @@ the platform applies only the difference — a folder no longer in the set
 stops being watched, a new one starts — when the burst holds:
 
 - a `.gitignore`, or a site's document file (its `watch` list), or the
-  entry's file;
+  entry's file, or a document file that went away — what the served folder
+  answers as `Changed::reshaped`;
 - a folder created in sight that the platform doesn't report on yet — on
   macOS, one in a shallow folder — or a removed one holding a watched
   folder;
@@ -254,8 +258,9 @@ publish through the same bus; a page under `/d/<id>/v/<n>` hears nothing,
 since a version never changes.
 
 The watcher decides a burst in two halves: `Listeners::forget` has every cache
-forget what changed — the design store, the index with its widget modules, the
-entry document — and returns the changes the burst means, publishing nothing;
+forget what changed — the design store and the module cache — and the served
+folder follow it — its document index and the entry document — and returns
+the changes the burst means, publishing nothing;
 `Listeners::changed` publishes them on the bus, then hands the
 paths to the search index. The forgetting is the watcher's own, never traffic
 on the bus.

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::addresses::{Owned, address};
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use crate::widgets::Widgets;
 
 /// `document`'s widget set, read through a cache of its own.

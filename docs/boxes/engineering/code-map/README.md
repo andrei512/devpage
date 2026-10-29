@@ -27,7 +27,7 @@ Each part of the diagram opens the page that explains it.
 flowchart LR
   main["main.rs<br/>commands, startup"] --> drive["Driving: src/drive/<br/>server.rs, pdf.rs, slide_png.rs, video.rs"]
   main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, http.rs, terminal.rs, chrome.rs, git.rs"]
-  drive --> core["The core: core/src/<br/>document.rs, index.rs, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/"]
+  drive --> core["The core: core/src/<br/>document.rs, folder/, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/"]
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
   click main href "#how-main-wires-it-together" "How main wires it together"
@@ -42,16 +42,15 @@ flowchart LR
 | `src/main.rs` | The command line (clap): serving, `check`, `pdf`, `video`, `server` and the server commands; wires the parts together and picks the address. |
 | `src/drive/api_types.rs` | The server API's JSON — `Published`, `Listed`, `Described`, `Version`, `Thread`, `NewThread`, `Started`, `Reply` — and `Refusal`, the status and text of a refused request: written by server mode and read by the client as the same types. The store's rows are not the API's JSON. |
 | `src/drive/client/` | The commands that talk to a devpage server: `mod.rs` parses and runs `context`, `publish`, `list`, `versions`, `comments`, `download` and `delete`, each in text or `--json`; `contexts.rs` keeps the contexts in `~/.devpage/config.yml`, runs a context's token command, and remembers which document each published file is per context; `api.rs` makes the server's API requests and reads a refused one as its typed refusal; the zip it publishes is `adapters::bundle`'s. |
-| `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. `Entry`: the entry document, re-read when its file changes, keeping the last valid one while the file is invalid. |
-| `core/src/index.rs` | The served folder's index of document files and of what `.gitignore` files exclude; finds a page's nearest site; holds the search index when built with one, and the module cache of the folder's widgets. |
+| `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. |
+| `core/src/folder/` | `Folder`: the served folder opened on its entry document. `index.rs`, its document index — every document file by kind, and what `.gitignore` files exclude; the entry document, re-read when its file changes, keeping the last valid one while the file is invalid; `owner`, a page's nearest site loaded as its file says now, and `widgets_owner`, the document naming a widgets folder. `sight.rs`: what a changed path means — whether it can matter at all (`matters`), whether it refreshes open pages by its site's `watch` list, and the folders to watch (`watched`, the watch set, walking only what is in sight); `changed` follows a burst of paths and answers the changes and whether the watch set may differ. It keeps no document but the entry. `served.rs`: `ServedFolder`, the boundary around it — resolving a path, link or URL inside it with symbolic links followed, refusing what lands outside, a file's address under the folder's **mount** and its name without it. Made once where serving starts — from `--root` on the command line, from a version's folder in server mode — and passed as `&ServedFolder` to everything loaded from it, so the mount reaches all of it. Every check that a path lies inside the served folder goes through it. |
 | `core/src/search/` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. `mod.rs` holds `Search` — `build`, `changed`, `search` — and the answer's types; `gather.rs` reads what is published into sections; `index.rs` is the schema and the indexing; `query.rs` turns a query into words and tantivy queries; `rank.rs` ranks sections and makes snippets. |
-| `src/adapters/watch.rs` | Watches the served folder, keeps the index and its search index current, publishes a refresh or a page's comments on the change bus — the pages whose thread files the server's comments heard changed by another hand (`Comments::heard`), never the server's own write — and has the design store and the index — with the widgets' memory of the files they read — forget every changed path, as its own listener rather than through the bus. |
+| `src/adapters/watch.rs` | Watches the folders the served folder says to watch, drops what it says can't matter, and hands each burst to it (`Folder::changed`), publishing the changes it answers and a page's comments on the change bus — the pages whose thread files the server's comments heard changed by another hand (`Comments::heard`), never the server's own write — re-planning the watch when the folder says to or the platform needs it; has the design store and the module cache forget every changed path and the search index read them again, as its own listener rather than through the bus. |
 | `core/src/lib.rs` | The core crate's modules, and what it may not depend on. |
 | `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) and the `Publish` port a producer publishes them through, `publish(change)`: a bus serves one set of documents, so a change names no audience. |
 | `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches every subscriber — a page's event stream, the slide-PNG cache, which a refresh clears and a page's comments don't. Server mode keeps one per published document. |
 | `src/adapters/chrome.rs` | One Chrome session — a Chrome with a profile folder of its own and the router its tabs load from, served on loopback — in one of two profiles: **shot** (chrome-headless-shell with its GPU on, honouring `DEVPAGE_CHROME_SANDBOX`) or **recording** (Chrome for Testing capturing its own tab). `open(path, Open)` waits until the page is ready, sending `X-Devpage-Shot` only when the tab is shot; a tab evaluates, waits, screenshots, prints to bytes, presses keys, sizes its window and closes. Downloads both browsers at the pinned `CHROME_VERSION`. `chrome::testing` is what the Chrome tests drive it with: Chrome launched in the shot profile, a test's router served on loopback, and the waits on a page — `eval`, `until`, `loaded`, `open` — with `answering`, which keeps every request a router answers. |
 | `src/adapters/git.rs` | Git, asked for the user's name: the local comment author. |
-| `src/adapters/watch/set.rs` | The watch set: the served folder's deep and shallow folders, planned from the index's rules and every site's `watch` list, walking only what is in sight. |
 | `src/adapters/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/adapters/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
 | `src/adapters/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
@@ -71,7 +70,6 @@ flowchart LR
 | `src/drive/validators.rs` | The middleware that gives every response but the streams an ETag and answers `304`; `Accept-Encoding` negotiation. |
 | `core/src/render/` | A page, a doc or a deck inside its frame; an image of a `.design` file turned into its canvas; print mode; the problems bar, from the problems it is given — rendering checks nothing itself; an invalid document file's page. `markdown.rs` is Markdown to HTML; `frame.rs` the frame of each kind; `sidebar.rs` a site's sidebar. |
 | `core/src/markup.rs` | A page's Markdown read as text, before rendering: its front matter, its title, its `<Notes>`, and the scanner that finds widget tags outside code. A leaf: it uses nothing else in devpage. Its tests read notes from text alone. |
-| `core/src/served.rs` | `ServedFolder`: the served folder and the boundary around it — resolving a path, link or URL inside it with symbolic links followed, refusing what lands outside, a file's address under the folder's **mount** and its name without it. Made once where serving starts — from `--root` on the command line, from a version's folder in server mode — and passed as `&ServedFolder` to everything loaded from it, so the mount reaches all of it. Every check that a path lies inside the served folder goes through it. A leaf. |
 | `core/src/problem.rs` | `Problem`: one broken thing and where it was found, as checking, the navbar, widgets and comments report it. A leaf. |
 | `core/src/nav.rs` | Reads Topics sections and builds a site's sidebar tree. |
 | `core/src/highlight.rs` | Highlights fenced code for comrak, and marks Mermaid blocks. |
@@ -80,14 +78,14 @@ flowchart LR
 | `core/src/comments/yaml.rs` | The comment store as files: one YAML file per thread under `.devpage/comments/<page>/`, found by its id through the served folder; the problems of a thread file that doesn't parse; and the bytes it last wrote, so what it heard is never the server's own write. |
 | `core/src/comments/memory.rs` | A comment store in memory, for tests. |
 | `core/src/comments/anchor.rs` | A thread carried onto a new version of its page: the page's text as the page script reads it, and where the thread's quote is in it now — with its context, with new context, or gone. Pure. |
-| `core/src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. External addresses it hands to `core/src/external.rs`. `files` lists every file the check follows from a document — what `devpage publish` zips. The preview reports each problem the first time it finds it through its `Report` port: `src/adapters/terminal.rs` in devpage, a recorder in tests. |
+| `core/src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. External addresses it hands to `core/src/external.rs`. Both start from a folder opened on the document, whose owners decide the site each page is checked as. `files` lists every file the check follows from a document — what `devpage publish` zips. The preview reports each problem the first time it finds it through its `Report` port: `src/adapters/terminal.rs` in devpage, a recorder in tests. |
 | `src/adapters/terminal.rs` | The terminal as the preview's reporter: each problem printed on standard error once. |
 | `core/src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a refresh for every document on the change bus. How an address is asked is its `Ask` port, and where the preview's background asking runs its `Background` port: `src/adapters/http.rs` in devpage, a scripted table and the test's runtime in tests. |
 | `src/adapters/http.rs` | The external-link checker devpage uses: `Http`, which asks an address over the network, and `Tokio`, which runs the preview's background asking on devpage's runtime; `offline`, the checker server mode's pages use, which asks none. Its tests run `devpage check` and the preview against a local web server. |
 | `core/src/widgets/mod.rs` | The widget set a document has: the system and project widgets, each at its address, and their problems; a page's load set, preloaded from its head. |
 | `core/src/widgets/tags.rs` | Widget tags in Markdown turned into placeholders (found by `core/src/markup.rs`'s scanner), and a slide's `<Notes>` taken out — text in, text out. |
 | `core/src/widgets/compile.rs` | TSX compiled by oxc: the JSX runtime, the shims for widgets rendered by name, each helper import rewritten to the helper's own address. |
-| `core/src/widgets/modules.rs` | The module cache, owned by the index: each module's files read once per change and its compiles remembered; a module's snapshot and version, from its source and every module it imports inside the served folder. |
+| `core/src/widgets/modules.rs` | The module cache, one per served folder: each module's files read once per change and its compiles remembered; a module's snapshot and version, from its source and every module it imports inside the served folder. |
 | `core/src/navbar.rs` | A site's navbar — its links, dropdowns and icons, which link holds the page shown, and its problems — and the light/dark switch with the head script that sets the theme before the page paints. |
 | `core/src/html.rs` | HTML as devpage reads and writes it: the one `escape` and its inverse, a tag's attributes, every value one attribute takes in a page, and `Link::classify` — what a link's address names: an address on the web, one with another scheme, or a file with its fragment. The renderer, the navbar, the sidebar's Topics and the link check all read links through it. Crate-private: `render` re-exports `escape` for the binary's own HTML. A leaf. |
 | `core/src/icons.rs` | Icons by name, drawn as inline SVG: the vendored Lucide set and GitHub's mark. |
@@ -118,14 +116,16 @@ with an error before anything is served.
 1. Load the document
    From the path argument, or `.`, inside the served folder — the current
    folder or `--root` ([document files](../../viewer/configuration-reference/README.md#document-files)).
-   It becomes the `Entry`, shared by the watcher and the server, which re-reads
-   it whenever its file changes.
+   The served folder is opened on it (`Folder::new`), as its entry document,
+   shared by the watcher and the server; the folder re-reads it whenever its
+   file changes.
 
-2. Build the index and create the design store
-   The index of the served folder's document files and `.gitignore` files
-   ([the index](../../viewer/document-index/README.md#the-index)), with the
-   search index of their sections ([search](../../viewer/search/README.md));
-   the watcher and the server share it. Then the design store, empty: it resolves a design
+2. Index the folder and create the design store
+   Opening the folder indexes its document files and `.gitignore` files
+   ([the index](../../viewer/document-index/README.md#the-index)); beside it,
+   the search index of their sections ([search](../../viewer/search/README.md))
+   and an empty module cache. The watcher and the server share all three.
+   Then the design store, empty: it resolves a design
    the first time one is asked for
    ([in the server](../../viewer/design-engine/README.md#in-the-server)), and
    the watcher and the server share it too.
@@ -149,7 +149,8 @@ with an error before anything is served.
 
 5. Start the watcher
    `Options::watch`, on the watch set of the served folder, with the same
-   index, design store, bus and comments as the server, so a thread the
+   folder, module cache, search index, design store, bus and comments as the
+   server, so a thread the
    server wrote is announced once
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.

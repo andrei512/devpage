@@ -23,7 +23,7 @@ pub use tags::expand;
 
 use crate::addresses::{Owned, address};
 use crate::document::Document;
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 
 /// The widgets devpage ships, compiled into the binary.
 pub const SYSTEM: &[(&str, &str)] = &[

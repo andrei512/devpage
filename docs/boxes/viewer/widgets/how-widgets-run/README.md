@@ -70,10 +70,10 @@ new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
 per request. Both memories are one **module cache** (`Modules`, in
-`core/src/widgets/modules.rs`), owned by the served folder's
-[index](../../document-index/README.md#the-index): every widget set, page and
-widget request built from that index reads and compiles through it, and the
-index forgets a file when the watcher reports it (`Index::changed`). A widget
+`core/src/widgets/modules.rs`), one per served folder, held beside it by the
+server: every widget set, page and widget request the server makes reads and
+compiles through it, and it forgets a file when the watcher reports it
+(`Modules::forget`). `devpage check` reads through one of its own. A widget
 or helper that resolves outside the served folder — a symbolic link pointing
 out — is never read, as nothing outside it is
 ([the served folder is the boundary](../../constraints/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
