@@ -12,27 +12,34 @@ use axum::extract::{Path as UrlPath, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use devpage_core::changes::Change;
-use devpage_core::comments::{self, Anchor, Comments, anchor};
-use serde::Deserialize;
+use devpage_core::comments::{self, Comments, anchor};
 
 use super::ServerMode;
-use super::api::{Refused, author, document_id};
+use super::api::{author, document_id};
 use crate::adapters::sqlite::{DocumentThreads, Sqlite, ThreadRow};
+use crate::drive::api_types::{NewThread, Refusal, Reply, Started, Thread};
 
 /// `GET /api/documents/<id>/comments`: every thread, oldest first.
 pub async fn list(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let id = existing(&state, &id)?;
-    Ok(Json(state.store.threads(&id, None)?).into_response())
-}
-
-#[derive(Deserialize)]
-pub struct NewThread {
-    page: String,
-    anchor: Anchor,
-    text: String,
+    let threads: Vec<Thread> = state
+        .store
+        .threads(&id, None)?
+        .into_iter()
+        .map(|row| Thread {
+            id: row.id,
+            page: row.page,
+            version: row.version,
+            detached: row.detached,
+            detached_in: row.detached_in,
+            anchor: row.anchor,
+            thread: row.thread,
+        })
+        .collect();
+    Ok(Json(threads).into_response())
 }
 
 /// `POST /api/documents/<id>/comments`: a thread started on the latest
@@ -42,10 +49,10 @@ pub async fn create(
     UrlPath(id): UrlPath<String>,
     headers: HeaderMap,
     Json(new): Json<NewThread>,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let id = document_id(&id)?;
-    let version = state.store.latest(&id)?.ok_or(Refused::NotFound)?;
+    let version = state.store.latest(&id)?.ok_or(Refusal::NotFound)?;
     let threads = Comments::new(
         Arc::new(DocumentThreads {
             store: state.store.clone(),
@@ -56,17 +63,15 @@ pub async fn create(
     );
     let thread = threads
         .create(&new.page, new.anchor, &author, &new.text)
-        .map_err(|e| Refused::Unprocessable(format!("{e:#}")))?;
+        .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": thread, "version": version })),
+        Json(Started {
+            id: thread,
+            version,
+        }),
     )
         .into_response())
-}
-
-#[derive(Deserialize)]
-pub struct Reply {
-    text: String,
 }
 
 /// `POST /api/documents/<id>/comments/<thread>/replies`.
@@ -75,7 +80,7 @@ pub async fn reply(
     UrlPath((id, thread)): UrlPath<(String, String)>,
     headers: HeaderMap,
     Json(reply): Json<Reply>,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let id = existing(&state, &id)?;
     let page = page_of(&state.store, &id, &thread)?;
@@ -86,7 +91,7 @@ pub async fn reply(
         text: reply.text,
     };
     if !state.store.reply(&id, None, &thread, &message)? {
-        return Err(Refused::NotFound);
+        return Err(Refusal::NotFound);
     }
     state.bus(&id).publish(Change::Comments(page));
     Ok(StatusCode::CREATED.into_response())
@@ -97,35 +102,35 @@ pub async fn resolve(
     State(state): State<ServerMode>,
     UrlPath((id, thread)): UrlPath<(String, String)>,
     headers: HeaderMap,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     author(&state, &headers)?;
     let id = existing(&state, &id)?;
     let page = page_of(&state.store, &id, &thread)?;
     if !state.store.resolve(&id, None, &thread)? {
-        return Err(Refused::NotFound);
+        return Err(Refusal::NotFound);
     }
     state.bus(&id).publish(Change::Comments(page));
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// The id of a document that exists.
-fn existing(state: &ServerMode, id: &str) -> Result<String, Refused> {
+fn existing(state: &ServerMode, id: &str) -> Result<String, Refusal> {
     let id = document_id(id)?;
-    state.store.latest(&id)?.ok_or(Refused::NotFound)?;
+    state.store.latest(&id)?.ok_or(Refusal::NotFound)?;
     Ok(id)
 }
 
 /// The page thread `thread` is on.
-fn page_of(store: &Sqlite, id: &str, thread: &str) -> Result<String, Refused> {
+fn page_of(store: &Sqlite, id: &str, thread: &str) -> Result<String, Refusal> {
     if !comments::is_id(thread) {
-        return Err(Refused::NotFound);
+        return Err(Refusal::NotFound);
     }
     store
         .threads(id, None)?
         .into_iter()
         .find(|row| row.id == thread)
         .map(|row| row.page)
-        .ok_or(Refused::NotFound)
+        .ok_or(Refusal::NotFound)
 }
 
 /// Carries every open thread of the document onto version `version`, whose

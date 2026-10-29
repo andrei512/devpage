@@ -37,7 +37,7 @@ already on the server.
 | Request | Does |
 | --- | --- |
 | `POST /api/documents?entry=<file>` with a zip | Creates a document: `201 {id, version: 1, url}`. |
-| `POST /api/documents/<id>/versions?entry=<file>` with a zip | Adds a version: `201 {version, url}`. |
+| `POST /api/documents/<id>/versions?entry=<file>` with a zip | Adds a version: `201 {id, version, url}`. |
 | `GET /api/documents` | Every document: `[{id, kind, title, latest}]`. |
 | `GET /api/documents/<id>` | The document and its versions: `{id, kind, title, latest, created, versions: [{number, kind, title, author, published, size, sha256}]}`. |
 | `DELETE /api/documents/<id>` | Deletes it, its versions and its comments: `204`. |

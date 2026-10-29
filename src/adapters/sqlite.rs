@@ -7,12 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use anyhow::{Result, bail};
 use devpage_core::comments::{self, Anchor, Listed, Message, Thread};
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
 
 pub struct Sqlite(Mutex<Connection>);
 
-/// A document as `GET /api/documents` lists it.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// A document as the store records it.
+#[derive(Debug, Clone, PartialEq)]
 pub struct DocumentRow {
     pub id: String,
     pub kind: String,
@@ -22,7 +21,7 @@ pub struct DocumentRow {
 }
 
 /// One publish of a document.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VersionRow {
     pub number: u64,
     pub kind: String,
@@ -285,10 +284,10 @@ impl Sqlite {
     }
 }
 
-/// A thread as `GET /api/documents/<id>/comments` lists it: the comment
-/// store's fields, its page, the version it was started on, whether its
-/// text is gone from the latest version, and the version it left.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+/// A thread as the store records it: the comment store's fields, its page,
+/// the version it was started on, whether its text is gone from the latest
+/// version, and the version it left.
+#[derive(Debug, Clone, PartialEq)]
 pub struct ThreadRow {
     pub id: String,
     pub page: String,

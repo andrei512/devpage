@@ -14,53 +14,20 @@ use devpage_core::served::ServedFolder;
 use sha2::{Digest, Sha256};
 
 use super::ServerMode;
-use crate::adapters::sqlite::{Deleted, Publish};
-
-/// Why a request failed, as its answer.
-pub enum Refused {
-    NotFound,
-    Unauthorized(String),
-    Unprocessable(String),
-    Failed(anyhow::Error),
-}
-
-impl IntoResponse for Refused {
-    fn into_response(self) -> Response {
-        match self {
-            Refused::NotFound => StatusCode::NOT_FOUND.into_response(),
-            Refused::Unauthorized(header) => (
-                StatusCode::UNAUTHORIZED,
-                format!("a write needs the {header} header"),
-            )
-                .into_response(),
-            Refused::Unprocessable(problems) => {
-                (StatusCode::UNPROCESSABLE_ENTITY, problems).into_response()
-            }
-            Refused::Failed(error) => {
-                eprintln!("server error: {error:#}");
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response()
-            }
-        }
-    }
-}
-
-impl From<anyhow::Error> for Refused {
-    fn from(error: anyhow::Error) -> Refused {
-        Refused::Failed(error)
-    }
-}
+use crate::adapters::sqlite::{Deleted, DocumentRow, Publish, VersionRow};
+use crate::drive::api_types::{Described, Listed, Published, Refusal, Version};
 
 /// A document id as the server gives them: a UUID. Anything else names no
 /// document — and never reaches a path on disk or in the bucket.
-pub fn document_id(id: &str) -> Result<String, Refused> {
+pub fn document_id(id: &str) -> Result<String, Refusal> {
     uuid::Uuid::parse_str(id)
         .map(|uuid| uuid.hyphenated().to_string())
-        .map_err(|_| Refused::NotFound)
+        .map_err(|_| Refusal::NotFound)
 }
 
 /// Who is writing: the value of `DEVPAGE_USER_HEADER`, which a write must
 /// carry when it is set; `anonymous` when it isn't.
-pub(super) fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refused> {
+pub(super) fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, Refusal> {
     let Some(header) = &state.user_header else {
         return Ok("anonymous".into());
     };
@@ -70,26 +37,26 @@ pub(super) fn author(state: &ServerMode, headers: &HeaderMap) -> Result<String, 
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
-        .ok_or_else(|| Refused::Unauthorized(header.clone()))
+        .ok_or_else(|| Refusal::Unauthorized(format!("a write needs the {header} header")))
 }
 
 /// A publish's query: `?entry=<path>`, the document file inside the zip —
 /// `devpage.yml` when it is left out.
 #[derive(serde::Deserialize)]
-pub struct Published {
+pub struct Entry {
     entry: Option<String>,
 }
 
-impl Published {
+impl Entry {
     /// The entry, checked to be a path inside the zip.
-    fn entry(&self) -> Result<String, Refused> {
+    fn entry(&self) -> Result<String, Refusal> {
         let entry = self.entry.as_deref().unwrap_or("devpage.yml");
         let inside = !entry.is_empty()
             && Path::new(entry)
                 .components()
                 .all(|c| matches!(c, std::path::Component::Normal(_)));
         if !inside {
-            return Err(Refused::Unprocessable(format!(
+            return Err(Refusal::Unprocessable(format!(
                 "entry {entry}: not a path inside the document"
             )));
         }
@@ -100,43 +67,38 @@ impl Published {
 /// `POST /api/documents`: a zip becomes version 1 of a new document.
 pub async fn create(
     State(state): State<ServerMode>,
-    Query(query): Query<Published>,
+    Query(query): Query<Entry>,
     headers: HeaderMap,
     zip: Bytes,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let entry = query.entry()?;
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
     let version = publish(&state, &id, &entry, &author, zip.to_vec()).await?;
-    Ok(published(&id, version, true))
+    Ok(published(id, version))
 }
 
 /// `POST /api/documents/<id>/versions`: a zip becomes its next version.
 pub async fn add_version(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
-    Query(query): Query<Published>,
+    Query(query): Query<Entry>,
     headers: HeaderMap,
     zip: Bytes,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let entry = query.entry()?;
     let id = document_id(&id)?;
     if state.store.latest(&id)?.is_none() {
-        return Err(Refused::NotFound);
+        return Err(Refusal::NotFound);
     }
     let version = publish(&state, &id, &entry, &author, zip.to_vec()).await?;
-    Ok(published(&id, version, false))
+    Ok(published(id, version))
 }
 
-fn published(id: &str, version: u64, created: bool) -> Response {
+fn published(id: String, version: u64) -> Response {
     let url = format!("/d/{id}");
-    let body = if created {
-        serde_json::json!({ "id": id, "version": version, "url": url })
-    } else {
-        serde_json::json!({ "version": version, "url": url })
-    };
-    (StatusCode::CREATED, Json(body)).into_response()
+    (StatusCode::CREATED, Json(Published { id, version, url })).into_response()
 }
 
 /// Checks the zip, keeps it in the bucket, then records it as the
@@ -148,7 +110,7 @@ async fn publish(
     entry: &str,
     author: &str,
     zip: Vec<u8>,
-) -> Result<u64, Refused> {
+) -> Result<u64, Refusal> {
     // Unpacked once to read and check it; the bucket keeps the zip unchanged.
     let scratch = state
         .scratch
@@ -159,7 +121,7 @@ async fn publish(
     let _scratch = Scratch(scratch.clone());
     let (kind, title) = check(&zip, entry, &scratch)
         .await
-        .map_err(|e| Refused::Unprocessable(format!("{e:#}")))?;
+        .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
     let sha256 = format!("{:x}", Sha256::digest(&zip));
     let size = zip.len() as u64;
 
@@ -246,17 +208,8 @@ pub fn unpack(zip: &[u8], into: &Path) -> Result<()> {
 }
 
 /// `GET /api/documents`: every document — id, kind, title, latest version.
-pub async fn list(State(state): State<ServerMode>) -> Result<Response, Refused> {
-    let documents: Vec<serde_json::Value> = state
-        .store
-        .list()?
-        .into_iter()
-        .map(|d| {
-            serde_json::json!({
-                "id": d.id, "kind": d.kind, "title": d.title, "latest": d.latest,
-            })
-        })
-        .collect();
+pub async fn list(State(state): State<ServerMode>) -> Result<Response, Refusal> {
+    let documents: Vec<Listed> = state.store.list()?.into_iter().map(listed).collect();
     Ok(Json(documents).into_response())
 }
 
@@ -264,18 +217,41 @@ pub async fn list(State(state): State<ServerMode>) -> Result<Response, Refused> 
 pub async fn get_one(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let id = document_id(&id)?;
-    let (document, versions) = state.store.get(&id)?.ok_or(Refused::NotFound)?;
-    Ok(Json(serde_json::json!({
-        "id": document.id,
-        "kind": document.kind,
-        "title": document.title,
-        "latest": document.latest,
-        "created": document.created,
-        "versions": versions,
-    }))
-    .into_response())
+    let (document, versions) = state.store.get(&id)?.ok_or(Refusal::NotFound)?;
+    Ok(Json(described(document, versions)).into_response())
+}
+
+fn listed(row: DocumentRow) -> Listed {
+    Listed {
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        latest: row.latest,
+    }
+}
+
+fn described(row: DocumentRow, versions: Vec<VersionRow>) -> Described {
+    Described {
+        id: row.id,
+        kind: row.kind,
+        title: row.title,
+        latest: row.latest,
+        created: row.created,
+        versions: versions
+            .into_iter()
+            .map(|v| Version {
+                number: v.number,
+                kind: v.kind,
+                title: v.title,
+                author: v.author,
+                published: v.published,
+                size: v.size,
+                sha256: v.sha256,
+            })
+            .collect(),
+    }
 }
 
 /// `DELETE /api/documents/<id>`: the document, its versions — in the store,
@@ -284,12 +260,12 @@ pub async fn delete(
     State(state): State<ServerMode>,
     UrlPath(id): UrlPath<String>,
     headers: HeaderMap,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let id = document_id(&id)?;
     let lock = state.publishing(&id);
     let _one_at_a_time = lock.lock().await;
-    let numbers = state.store.delete(&id)?.ok_or(Refused::NotFound)?;
+    let numbers = state.store.delete(&id)?.ok_or(Refusal::NotFound)?;
     for n in &numbers {
         state.bucket.delete_version(&id, *n).await?;
     }
@@ -305,14 +281,14 @@ pub async fn delete_version(
     State(state): State<ServerMode>,
     UrlPath((id, n)): UrlPath<(String, u64)>,
     headers: HeaderMap,
-) -> Result<Response, Refused> {
+) -> Result<Response, Refusal> {
     let author = author(&state, &headers)?;
     let id = document_id(&id)?;
     let lock = state.publishing(&id);
     let _one_at_a_time = lock.lock().await;
     let deleted = state.store.delete_version(&id, n)?;
     if deleted == Deleted::Nothing {
-        return Err(Refused::NotFound);
+        return Err(Refusal::NotFound);
     }
     state.bucket.delete_version(&id, n).await?;
     state.cache.remove(&(id.clone(), n));
