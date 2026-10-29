@@ -32,15 +32,10 @@ async fn open_off(
 ) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
     let changes = crate::changes::Changes::default();
-    let designs = crate::designs::Designs::new(&document.served);
-    let options = server::Options {
-        designs,
-        comments: Some(crate::comments::Identity::Local("Ana".into())),
-        preview: crate::check::testing::preview(),
-        ..server::Options::new(document, changes.clone())
-    };
-    let watcher = options.watch().unwrap();
-    let address = testing::serve(server::router(options)).await;
+    let app = server::App::testing(document, changes.clone())
+        .with_comments_on_disk(crate::comments::Identity::Local("Ana".into()));
+    let watcher = app.watch().unwrap();
+    let address = testing::serve(server::router(app)).await;
     // Watching as long as the page is served: until the test ends.
     tokio::spawn(async move {
         let _watcher = watcher;

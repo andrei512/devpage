@@ -53,7 +53,7 @@ pub struct Watch {
 /// change bus; a change to a comment thread publishes what `threads`, the
 /// comments the server writes through, heard of it, whatever the site's
 /// `watch` says — nothing for a write of its own, which was announced as it
-/// landed.
+/// landed, and nothing at all with comments off (`threads` is `None`).
 /// A path that can't matter — under `.git`, or excluded by a `.gitignore` and
 /// not named by its site's `watch` — is dropped as it arrives, before any
 /// listener hears of it. Every other changed file outside `.devpage/` also
@@ -65,7 +65,7 @@ pub fn start(
     search: Option<Arc<Search>>,
     designs: Designs,
     changes: Changes,
-    threads: Comments,
+    threads: Option<Comments>,
 ) -> Result<Watch> {
     let root = folder.served().path().to_path_buf();
     let set = folder.watched();
@@ -175,8 +175,8 @@ struct Listeners {
     designs: Designs,
     changes: Changes,
     /// The comments the server writes through, which know the thread files
-    /// they wrote — and announced — themselves.
-    threads: Comments,
+    /// they wrote — and announced — themselves; `None` with comments off.
+    threads: Option<Comments>,
 }
 
 impl Listeners {
@@ -260,7 +260,11 @@ impl Listeners {
         let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
         // A thread changed: the pages showing its page fetch comments —
         // unless the store's own write was announced already.
-        let mut heard = self.threads.heard(&paths);
+        let mut heard = self
+            .threads
+            .as_ref()
+            .map(|threads| threads.heard(&paths))
+            .unwrap_or_default();
         let mut searched = Vec::new();
         let served = self.folder.served();
         for path in paths {
@@ -354,7 +358,7 @@ mod tests {
             None,
             Designs::new(folder.served()),
             Changes::default(),
-            comments(folder.served(), &Changes::default()),
+            Some(comments(folder.served(), &Changes::default())),
         )
         .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
@@ -558,7 +562,7 @@ mod tests {
         let folder = opened(dir);
         Listeners {
             designs: Designs::new(folder.served()),
-            threads: comments(folder.served(), &changes),
+            threads: Some(comments(folder.served(), &changes)),
             folder,
             modules: Modules::default(),
             search: None,
@@ -647,6 +651,20 @@ mod tests {
             heard,
             [Change::Comments("/docs/README.md".into()), Change::Refresh]
         );
+    }
+
+    #[test]
+    fn with_comments_off_a_thread_file_announces_nothing() {
+        let dir = served("off", "kind: site\ntitle: T\nroot: README.md\n");
+        let listeners = Listeners {
+            threads: None,
+            ..listeners(&dir, Changes::default())
+        };
+        let thread = dir.join(".devpage/comments/docs/README.md/20261025T000000Z-abcd.yml");
+        let arrived = listeners.sift(written(std::slice::from_ref(&thread)));
+        assert_eq!(arrived, vec![thread]);
+        let (heard, _, _) = listeners.forget(&arrived);
+        assert_eq!(heard, []);
     }
 
     #[test]
@@ -767,7 +785,7 @@ mod tests {
             None,
             designs,
             changes.clone(),
-            threads.clone(),
+            Some(threads.clone()),
         )
         .unwrap();
         // Let the platform's watcher settle before changing anything.
@@ -910,7 +928,15 @@ mod tests {
         let mut received = changes.subscribe();
         let designs = Designs::new(folder.served());
         let threads = comments(folder.served(), &changes);
-        let _watcher = start(folder, Modules::default(), None, designs, changes, threads).unwrap();
+        let _watcher = start(
+            folder,
+            Modules::default(),
+            None,
+            designs,
+            changes,
+            Some(threads),
+        )
+        .unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Its own file changing refreshes pages, though `watch` names only Markdown.

@@ -11,7 +11,7 @@ use crate::comments::Identity;
 use crate::designs::Designs;
 use crate::document::Document;
 use crate::folder::{Folder, ServedFolder};
-use crate::server::{Options, router};
+use crate::server::{App, router};
 
 /// The served folder `dir`, opened on `entry` in it, as `devpage check`
 /// opens one.
@@ -25,12 +25,11 @@ pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let designs = Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
-    let router = router(Options {
-        designs: designs.clone(),
-        comments: Some(Identity::Local("T".into())),
-        preview: crate::check::testing::preview(),
-        ..Options::new(document, changes)
-    });
+    let router = router(
+        App::testing(document, changes)
+            .with_designs(designs.clone())
+            .with_comments_on_disk(Identity::Local("T".into())),
+    );
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = format!("http://{}", listener.local_addr().unwrap());
     tokio::spawn(async move { axum::serve(listener, router).await.ok() });

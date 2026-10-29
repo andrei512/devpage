@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 160 in `devpage`, 202 in its
+`cargo test` runs every crate in the workspace: 161 in `devpage`, 202 in its
 core `devpage-core`, 143 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -100,7 +100,7 @@ platform's watcher:
   reported;
 - two `drive::server` tests —
   `the_entry_document_follows_its_file_without_a_restart` and
-  `a_server_and_the_watcher_its_options_start_announce_a_write_once`;
+  `a_server_and_the_watcher_its_app_starts_announce_a_write_once`;
 - two Chrome tests in `drive::browser_tests::comments` —
   `selected_text_becomes_a_thread_in_the_margin_and_in_the_store` and
   `a_live_update_with_the_comments_shown_swaps_the_page_in_place`.
@@ -561,7 +561,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A page naming its widgets and carrying their placeholders, code left alone.
 - `/` and the site's pages following the entry file's changes without a restart, through an invalid state and back.
 - Comment threads over HTTP, against the in-memory store; each write reaching open pages without a watcher.
-- A server and the watcher its options start announcing a comment write once.
+- A server and the watcher its app starts announcing a comment write once.
 - A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone — trimmed, and a blank one refused.
@@ -681,7 +681,7 @@ Through the listeners:
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
-- A comment thread always reaching its page; one the server wrote through the store announced once, by the server, and a hand edit of it once, by the watcher.
+- A comment thread always reaching its page; one the server wrote through the store announced once, by the server, and a hand edit of it once, by the watcher; with comments off, none announced.
 - The `watch` list following the entry file.
 - A site's `watch` narrowing only its own folder, whichever document devpage was started with.
 - Widget files refreshing whatever `watch` says.

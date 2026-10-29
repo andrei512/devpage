@@ -76,10 +76,10 @@ async fn serve(dir: &Path, entry: &str) -> String {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let changes = crate::changes::Changes::default();
-    testing::serve(server::router(server::Options {
-        comments: Some(crate::comments::Identity::Local("T".into())),
-        ..server::Options::new(document, changes)
-    }))
+    testing::serve(server::router(
+        server::App::testing(document, changes)
+            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+    ))
     .await
 }
 
@@ -90,12 +90,11 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, Designs) {
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let designs = Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
-    let router = server::router(server::Options {
-        designs: designs.clone(),
-        comments: Some(crate::comments::Identity::Local("T".into())),
-        preview: crate::check::testing::preview(),
-        ..server::Options::new(document, changes)
-    });
+    let router = server::router(
+        server::App::testing(document, changes)
+            .with_designs(designs.clone())
+            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+    );
     (testing::serve(router).await, designs)
 }
 

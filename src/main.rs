@@ -145,18 +145,17 @@ async fn main() -> Result<()> {
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served()?)?);
-    let folder = Arc::new(Folder::new(document.clone()));
-    let search = Arc::new(search::Search::build(&folder, &document.path()));
 
-    let designs = designs::Designs::new(&document.served);
-
+    // The process-wide parts: the change bus, the link checker on the
+    // network reporting to the terminal, and who writes a comment — the
+    // local git name on a loopback address, the user header otherwise — or
+    // no one: comments are off.
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(
         http::external(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
-    // Who writes a comment — or no one: comments are off.
-    let comments = if cli.no_comments {
+    let identity = if cli.no_comments {
         None
     } else if cli.host.is_loopback() {
         Some(comments::Identity::Local(git::user_name(
@@ -165,25 +164,17 @@ async fn main() -> Result<()> {
     } else {
         Some(comments::Identity::Header(cli.user_header))
     };
-    let shots = slide_png::Shots::new(&changes);
-    let threads = comments::Comments::new(
-        Arc::new(comments::yaml::Yaml::new(&document.served)),
-        Arc::new(changes.clone()),
-        document.served.clone(),
-    );
-    let options = server::Options {
-        folder,
-        modules: widgets::Modules::default(),
-        search: Some(search),
-        designs,
-        changes,
-        comments,
-        threads,
-        shots: shots.clone(),
-        preview,
-        log: true,
-    };
-    let _watcher = options.watch()?;
+    let comments = identity.map(|identity| {
+        let threads = comments::Comments::new(
+            Arc::new(comments::yaml::Yaml::new(&document.served)),
+            Arc::new(changes.clone()),
+            document.served.clone(),
+        );
+        server::Commenting::new(threads, identity)
+    });
+    let app = server::App::local(document.clone(), changes, preview, comments);
+    let _watcher = app.watch()?;
+    let shots = app.shots();
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -198,7 +189,7 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    let router = server::router(options);
+    let router = server::logged(server::router(app));
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,
