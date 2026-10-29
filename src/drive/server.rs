@@ -281,9 +281,22 @@ fn resolver(state: &AppState) -> Resolver<'_> {
     }
 }
 
+/// What `resolve` answers, worked out on a blocking thread: reading the file,
+/// checking the page and rendering it block, so a slow page waits its own
+/// turn and the async threads go on answering everything else.
+async fn resolved(
+    state: &AppState,
+    resolve: impl FnOnce(Resolver<'_>) -> Answer + Send + 'static,
+) -> Answer {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || resolve(resolver(&state)))
+        .await
+        .unwrap_or_else(|error| Answer::Failed(error.to_string()))
+}
+
 /// `/`: whatever the resolver says the entry document leads to now.
 async fn home(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let answer = resolver(&state).home();
+    let answer = resolved(&state, |resolver| resolver.home()).await;
     respond(&state, &headers, answer).await
 }
 
@@ -294,7 +307,10 @@ async fn file(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let answer = resolver(&state).path(&path, query.as_deref());
+    let answer = resolved(&state, move |resolver| {
+        resolver.path(&path, query.as_deref())
+    })
+    .await;
     respond(&state, &headers, answer).await
 }
 
@@ -1117,6 +1133,82 @@ mod tests {
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         address
+    }
+
+    /// The server on one async thread of its own, so a page resolved on it
+    /// would hold up everything else; the requests come from the test's.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn slow_pages_hold_up_no_asset_and_no_cheap_page() {
+        let dir = std::env::temp_dir().join(format!("devpage-slow-pages-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        // Checking `slow.md` renders `long.md` once for each of its links to a
+        // heading of it.
+        let long: String = (0..300)
+            .map(|n| {
+                format!(
+                    "## Heading {n}\n\n{}\n\n",
+                    "Words of a long page. ".repeat(20)
+                )
+            })
+            .collect();
+        std::fs::write(dir.join("long.md"), format!("# Long\n\n{long}")).unwrap();
+        let links: String = (0..100)
+            .map(|n| format!("- [{n}](long.md#heading-{n})\n"))
+            .collect();
+        std::fs::write(dir.join("slow.md"), format!("# Slow\n\n{links}")).unwrap();
+        std::fs::write(dir.join("cheap.md"), "# Cheap\n\nA line.\n").unwrap();
+        let document = Arc::new(
+            Document::load(&dir.join("slow.md"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
+        let router = router(Options {
+            preview: crate::check::testing::preview(),
+            ..Options::new(document, crate::changes::Changes::default())
+        });
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                    axum::serve(listener, router).await.ok()
+                })
+        });
+        let timed = |path: &'static str| {
+            let url = format!("{address}/{path}");
+            async move {
+                let started = std::time::Instant::now();
+                let response = reqwest::get(url).await.unwrap();
+                assert_eq!(response.status(), 200, "{path}");
+                response.bytes().await.unwrap();
+                started.elapsed()
+            }
+        };
+        // The fastest of three, so a busy machine can't make it look slow.
+        let mut slow = timed("slow.md").await;
+        for _ in 0..2 {
+            slow = slow.min(timed("slow.md").await);
+        }
+
+        let held: Vec<_> = (0..8).map(|_| tokio::spawn(timed("slow.md"))).collect();
+        tokio::time::sleep(slow / 2).await;
+        let (asset, cheap) = tokio::join!(timed("__devpage/devpage.js"), timed("cheap.md"));
+        for slow in held {
+            slow.await.unwrap();
+        }
+        assert!(
+            asset < slow / 4,
+            "the asset took {asset:?}; one slow page {slow:?}"
+        );
+        assert!(
+            cheap < slow / 4,
+            "the cheap page took {cheap:?}; one slow page {slow:?}"
+        );
     }
 
     #[tokio::test]

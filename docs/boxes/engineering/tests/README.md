@@ -573,7 +573,7 @@ next one's baseline.
 
 ### `drive::server`
 
-*30 tests, 37 in Chrome.*
+*31 tests, 37 in Chrome.*
 
 The design tests through the server — a PNG, its `304`, its theme, the watch stream and the canvas page — are listed under [`designs`](#designs), and the Chrome tests under `designs` and `comments`.
 
@@ -587,6 +587,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A server and the watcher its options start announcing a comment write once.
 - A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
+- Slow pages resolved at once — the server on one async thread of its own — holding up no asset and no cheap page.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone.
 - A thread on a page outside the served folder refused.
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
