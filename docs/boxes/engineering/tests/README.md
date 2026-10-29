@@ -513,11 +513,17 @@ repository holds no corpus and no results.
 - **The stack** is `deploy/server/compose.yaml`'s, the image built from the
   checkout and held to 2 CPUs and 4 GB, with RustFS for S3; the load runs on
   the runner's other cores.
+- **A run takes about five minutes**, and the report prints how long it took.
+  What grows on a server grows with the work it does — the versions read, the
+  requests answered — not with the clock, so every scenario drives its work as
+  fast as it needs and none waits on a timer to see something grow.
 - **The corpus** is generated from a seed, the workflow's input, in memory:
-  10,000 documents — half docs, then sites, slides and a few designs, page
+  1,000 documents — half docs, then sites, slides and a few designs, page
   counts and sizes, links, `#heading` links, diagrams and code spread around a
   median with a long tail — and their versions, one to nine a document, five
-  on average, 50,000 in all. A document's pages are the same in every
+  on average, 5,000 in all: two and a half times the versions memory holds,
+  so the run reads past every limit the server has. `--scale 10` generates
+  the whole envelope's 10,000 documents and 50,000 versions. A document's pages are the same in every
   version; what they say changes. The same seed gives the same corpus.
   devpage's own `docs/` is one more site. It is published through the API,
   eight documents at a time, and that publishing is the first number:
@@ -527,7 +533,8 @@ repository holds no corpus and no results.
   not the last has answered, and its latency counts from that time, so a
   server that stalls is charged for the requests it kept waiting rather
   than sent fewer.
-- **The scenarios**, each run three times, the median reported:
+- **The scenarios**, each a few seconds to a minute, each run three times, the
+  median reported:
   - *views* — readers following a popularity curve over the documents, a few
     read often and most rarely, at 50 a second, then a burst of 500 a second;
     pages, search, a design's PNG and first downloads among them, each
@@ -538,10 +545,14 @@ repository holds no corpus and no results.
   - *herd* — 500 pages open on one document, and a publish to it; each page,
     on hearing of it, fetches the page and the versions again, as a reader's
     page does.
-  - *open pages* — 2,000 pages listening throughout.
-  - *soak* — the whole envelope for 30 minutes: memory and threads, run once.
+  - *open pages* — 2,000 pages listening throughout the run.
+  - *churn* — every version read once, as fast as the server answers, with
+    the open pages listening: memory and threads stay flat past the memory
+    cache's limit, and every open page is still open at the end. Run once.
   - *knee* — views of each kind of document, from 50 a second and doubling,
-    until their p99 crosses 100 ms.
+    until their p99 crosses 100 ms, a few seconds a step.
+  - *soak*, only when asked for with `--soak <minutes>`: the whole envelope at
+    its rates for that long, for leaks the work-driven scenarios can't reach.
 - **The report** is the run's summary page: each number beside its target and
   main's last run, and from `/metrics`, scraped before and after each
   scenario, the stages that took the time. The numbers are the run's
