@@ -39,7 +39,7 @@ pub async fn document(
     let mut external = Vec::new();
     let mut problems = internal(folder, designs, document, &mut external, None);
     if let Kind::Design = document.kind {
-        let address = document.name(&document.path());
+        let address = document.part_name(&document.path());
         problems.extend(
             designs
                 .problems(&address)
@@ -93,8 +93,8 @@ fn follow(
     if let Some(real) = document.served.file(file)
         && files.insert(real.clone())
         && real.extension().is_some_and(|ext| ext == "design")
+        && let Some(address) = document.name(&real)
     {
-        let address = document.name(&real);
         files.extend(designs.files(&address));
     }
 }
@@ -171,7 +171,7 @@ fn internal(
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
             problems.extend(page::navbar::problems(owner));
             let (reached_files, web) = page::navbar::reached(owner);
-            let file = owner.name(&owner.path());
+            let file = owner.part_name(&owner.path());
             external.extend(web.into_iter().map(|address| (file.clone(), None, address)));
             for target in reached_files {
                 follow(document, designs, &mut files, &target);
@@ -214,7 +214,11 @@ fn internal(
 /// A page's `<Notes>` that are out of place: any on a page that isn't a
 /// slide, and every one after the first on a slide.
 fn notes_problems(document: &Document, rendered: &Rendered, slide: bool) -> Vec<Problem> {
-    let file = document.name(rendered.file());
+    // A page outside the served folder is no page of the check: the link to
+    // it is the problem.
+    let Some(file) = document.name(rendered.file()) else {
+        return Vec::new();
+    };
     // A slide's first `<Notes>` is its notes; a page has none.
     crate::markup::notes(rendered.source())
         .iter()
@@ -243,7 +247,11 @@ fn page_links_with(
 ) -> (Vec<Problem>, Vec<PathBuf>) {
     let page = rendered.file();
     let source = rendered.source();
-    let file = document.name(page);
+    // A page outside the served folder is no page of the check: the link to
+    // it is the problem.
+    let Some(file) = document.name(page) else {
+        return (Vec::new(), Vec::new());
+    };
     let mut problems = Vec::new();
     for found in rendered.tag_problems() {
         let (line, message) = found.split_once(": ").unwrap_or(("", found));
@@ -308,8 +316,9 @@ fn page_links_with(
         {
             problems.push(no_heading());
         }
-        if resolved.extension().is_some_and(|ext| ext == "design") {
-            let address = document.name(&resolved);
+        if resolved.extension().is_some_and(|ext| ext == "design")
+            && let Some(address) = document.name(&resolved)
+        {
             for problem in designs.problems(&address) {
                 problems.push(Problem {
                     file: file.clone(),
@@ -459,9 +468,13 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
         return problems;
     };
     for file in widget_files(folder) {
+        // A widget file outside the served folder is never read.
+        let Some(name) = document.name(&file) else {
+            continue;
+        };
         if let Err(error) = widgets.compile(&file) {
             problems.push(Problem {
-                file: document.name(&file),
+                file: name,
                 line: None,
                 message: format!("does not compile: {error}"),
                 target: None,

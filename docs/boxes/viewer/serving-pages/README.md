@@ -101,6 +101,11 @@ pointing outside, a missing file, a folder — gets `404` with the body
 `<path> is not part of the served folder`. A file that exists but can't be read
 gets `500` with the error's text.
 
+A path outside the served folder has no address, so a page never carries one:
+a link in a page, chapter, slide or navbar that leads out keeps its target as
+written — never the file's absolute path — and
+[`devpage check`](../checking-links/README.md) reports it.
+
 ## What a file is served as
 
 A file that passes the checks is one of four things:

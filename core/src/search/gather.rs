@@ -126,12 +126,16 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
         if FrontMatter::read(&source).search != Some(true) {
             continue;
         }
+        // The walk stays in the served folder; a file it can't name is
+        // outside it, and never indexed.
+        let Some(address) = folder.served().url(&file) else {
+            continue;
+        };
         let site = folder.owner(&file).and_then(|owner| owner.document.ok());
-        let address = folder.served().url(&file);
         let document = match site {
             Some(site) => Owner {
                 title: site.title.clone(),
-                path: site.url(&site.path()),
+                path: site.part_url(&site.path()),
             },
             None => Owner {
                 title: crate::markup::title(&source, &file),
@@ -175,19 +179,23 @@ impl Walk<'_> {
         };
         let owner = Owner {
             title: document.title.clone(),
-            path: document.url(&document.path()),
+            path: document.part_url(&document.path()),
         };
         match &document.kind {
             Kind::Site { root } => {
                 let trails = trails(&document);
+                // A page outside the served folder has no address, and is
+                // never indexed.
                 let page = |walk: &mut Self, file: &Path| {
-                    if walk.in_sight(file) {
+                    if walk.in_sight(file)
+                        && let Some(address) = document.url(file)
+                    {
                         walk.units.push(Unit {
                             file: file.to_path_buf(),
                             kind: PageKind::Page,
                             trail: trails.get(file).cloned().unwrap_or_default(),
                             document: owner.clone(),
-                            address: document.url(file),
+                            address,
                             name: None,
                             nav: 0,
                         });

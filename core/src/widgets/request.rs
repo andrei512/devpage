@@ -54,6 +54,7 @@ pub fn project_module(
     let file = IMPORT_EXTENSIONS
         .iter()
         .find_map(|ext| served.file_at(&format!("{path}{ext}")))?;
+    let name = served.name(&file)?;
     let owner = file
         .parent()
         .and_then(|widgets| folder.widgets_owner(widgets))
@@ -61,11 +62,11 @@ pub fn project_module(
     let known = Widgets::of(&owner, modules).names().to_vec();
     let snapshot = modules.snapshot(served, &file);
     let current = version == Some(snapshot.hash(&file, &known).as_str());
+    // The closure reaches only helpers inside the served folder, so each
+    // has a name.
     let broken = |file: &std::path::Path| {
-        snapshot
-            .compile(file, &known)
-            .err()
-            .map(|error| format!("{} does not compile: {error}", served.name(file)))
+        let error = snapshot.compile(file, &known).err()?;
+        Some(format!("{} does not compile: {error}", served.name(file)?))
     };
     let helper = snapshot
         .closure(&file)
@@ -79,6 +80,6 @@ pub fn project_module(
         snapshot
             .compile(&file, &known)
             .map(|js| Compiled { js, current })
-            .map_err(|error| format!("{} does not compile: {error}", served.name(&file))),
+            .map_err(|error| format!("{name} does not compile: {error}")),
     )
 }

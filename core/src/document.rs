@@ -463,9 +463,36 @@ impl Document {
     /// Where `/` leads: a site's root page, or the document file itself.
     pub fn entry(&self) -> String {
         match &self.kind {
-            Kind::Site { root } => self.url(&self.base.join(root)),
-            _ => self.url(&self.path()),
+            Kind::Site { root } => self.part_url(&self.base.join(root)),
+            _ => self.part_url(&self.path()),
         }
+    }
+
+    /// The address of one of the document's parts — its file, a site's
+    /// root, a chapter or a slide.
+    ///
+    /// Panics on any other file outside the served folder: [`Document::load`]
+    /// refuses a document whose part lies outside it, so a part always has
+    /// an address. Any other file's is [`Document::url`].
+    pub fn part_url(&self, part: &Path) -> String {
+        self.part(part, self.url(part))
+    }
+
+    /// The name of one of the document's parts, as its problems show it;
+    /// panics as [`Document::part_url`] does.
+    pub fn part_name(&self, part: &Path) -> String {
+        self.part(part, self.name(part))
+    }
+
+    fn part(&self, part: &Path, named: Option<String>) -> String {
+        named.unwrap_or_else(|| {
+            panic!(
+                "{} is no part of {}: it lies outside the served folder {}",
+                part.display(),
+                self.path().display(),
+                self.served.path().display()
+            )
+        })
     }
 
     /// The document file itself.
@@ -479,16 +506,18 @@ impl Document {
     pub fn logo_url(&self) -> Option<String> {
         let written = self.logo.as_ref()?;
         let file = self.served.file(&self.base.join(written))?;
-        Some(self.url(&file))
+        self.url(&file)
     }
 
-    /// A file's address: its path from the top of the served folder.
-    pub fn url(&self, file: &Path) -> String {
+    /// A file's address: its path from the top of the served folder;
+    /// `None` for a file outside it, which has none.
+    pub fn url(&self, file: &Path) -> Option<String> {
         self.served.url(file)
     }
 
-    /// A file's name from the top of the served folder, for labels.
-    pub fn name(&self, file: &Path) -> String {
+    /// A file's name from the top of the served folder, for labels; `None`
+    /// for a file outside it, which is never named.
+    pub fn name(&self, file: &Path) -> Option<String> {
         self.served.name(file)
     }
 

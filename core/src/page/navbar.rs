@@ -29,11 +29,18 @@ fn target(document: &Document, written: &str) -> Target {
         }
     };
     let file = normalize(&document.base.join(path));
-    let mut href = document.url(&file);
-    if !fragment.is_empty() {
-        href.push('#');
-        href.push_str(fragment);
-    }
+    // A file outside the served folder has no address: the link keeps its
+    // target as written, and the check reports it.
+    let href = match document.url(&file) {
+        Some(mut href) => {
+            if !fragment.is_empty() {
+                href.push('#');
+                href.push_str(fragment);
+            }
+            href
+        }
+        None => written.to_string(),
+    };
     Target {
         href,
         file: Some(file),
@@ -78,7 +85,7 @@ fn links(document: &Document) -> impl Iterator<Item = &NavLink> {
 /// The navbar's problems: a link to a file that isn't in the served folder,
 /// and an icon devpage doesn't have. They belong to the document file.
 pub(crate) fn problems(document: &Document) -> Vec<Problem> {
-    let file = document.name(&document.path());
+    let file = document.part_name(&document.path());
     let mut problems = Vec::new();
     let mut icon = |name: &Option<String>| {
         if let Some(name) = name
@@ -149,7 +156,12 @@ fn active(document: &Document, tree: &[nav::Group], current: &str) -> Option<Str
         trail: &mut Vec<String>,
     ) -> bool {
         for entry in groups.iter().flat_map(|group| &group.entries) {
-            trail.push(document.url(&entry.file));
+            // An entry is a file the served folder resolved, so it has an
+            // address; one without could hold no page.
+            let Some(url) = document.url(&entry.file) else {
+                continue;
+            };
+            trail.push(url);
             if trail.last().is_some_and(|url| url == current)
                 || path(document, &entry.children, current, trail)
             {
@@ -281,7 +293,7 @@ pub(crate) fn logo_problem(document: &Document) -> Option<Problem> {
         return None;
     }
     Some(Problem {
-        file: document.name(&document.path()),
+        file: document.part_name(&document.path()),
         line: None,
         message: format!("logo: {written} — no such file"),
         target: Some(written.clone()),
@@ -515,6 +527,10 @@ mod tests {
             .find(|link| link.contains("<span>Out</span>"))
             .unwrap_or_else(|| panic!("{html}"));
         assert!(!out.contains("rel=\"noopener\""), "{out}");
+        // Never named: the link keeps the target as written, and no address
+        // or path of the file outside reaches the page.
+        assert!(out.contains("href=\"../outside.md\""), "{out}");
+        assert!(!html.contains(&*dir.to_string_lossy()), "{html}");
     }
 
     #[test]

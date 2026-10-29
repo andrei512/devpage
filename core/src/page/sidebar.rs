@@ -49,7 +49,7 @@ pub(super) fn sidebar(document: &Document, groups: &[nav::Group], current: &str)
     html.push_str("</nav>");
     let data = SidebarData {
         document: document.entry(),
-        document_path: document.url(&document.path()),
+        document_path: document.part_url(&document.path()),
         current: current.to_string(),
         title,
         groups,
@@ -114,14 +114,18 @@ impl SidebarGroup {
             entries: group
                 .entries
                 .iter()
-                .map(|entry| SidebarEntry {
-                    label: entry.label.clone(),
-                    href: document.url(&entry.file),
-                    children: entry
-                        .children
-                        .iter()
-                        .map(|g| SidebarGroup::of(document, g))
-                        .collect(),
+                // An entry is a file the served folder resolved; one outside
+                // it would have no address, and is left out.
+                .filter_map(|entry| {
+                    Some(SidebarEntry {
+                        label: entry.label.clone(),
+                        href: document.url(&entry.file)?,
+                        children: entry
+                            .children
+                            .iter()
+                            .map(|g| SidebarGroup::of(document, g))
+                            .collect(),
+                    })
                 })
                 .collect(),
         }

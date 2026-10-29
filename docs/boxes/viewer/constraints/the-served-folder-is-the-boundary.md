@@ -15,8 +15,10 @@ devpage serves, reads, watches and links only within the **served folder** —
 the folder it was started from, or the one `--root` names. A request, a link, a
 chapter, a slide or a Topics entry that resolves outside it — through `..` or
 through a symbolic link — is not part of any document: a request for it gets
-`404`, and the link checker reports it as a problem. Nothing about the boundary
-depends on git: devpage never looks for a `.git` folder.
+`404`, and the link checker reports it as a problem. Nor is it ever named: a
+path outside has no address and no name, so no page, problem or label shows
+it. Nothing about the boundary depends on git: devpage never looks for a
+`.git` folder.
 
 In [server mode](../server/README.md) each version's served folder is the root
 of its zip: an entry with `..`, an absolute path or a symbolic link refuses the
@@ -53,6 +55,8 @@ a `root`, `chapters` or `slides` entry, a comment's page, a thread file found
 by its id — is resolved with
 symbolic links followed and compared against the served folder's canonical
 path before it is read, and every such comparison is made by one owner, the
-served-folder value (`core/src/folder/served.rs`). A test asks for `/../<file>` and for a symbolic link
-pointing outside, and gets `404` for both; no code opens or searches for
-`.git`.
+served-folder value (`core/src/folder/served.rs`). Its `name` and `url` refuse
+a path outside — `None` — rather than stand its absolute path in for one, and
+each caller handles the refusal. A test asks for `/../<file>` and for a symbolic link
+pointing outside, and gets `404` for both; a page linking out never carries the
+file's path; no code opens or searches for `.git`.

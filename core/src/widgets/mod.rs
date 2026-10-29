@@ -105,18 +105,21 @@ impl Widgets {
         files.sort();
         let mut own = Vec::new();
         for file in files {
-            // A file that resolves outside the served folder is never read.
+            // A file that resolves outside the served folder is never read,
+            // or named.
             if file.extension().is_none_or(|ext| ext != "tsx")
                 || document.served.file(&file).is_none()
             {
                 continue;
             }
+            let Some(label) = document.name(&file) else {
+                continue;
+            };
             let name = file
                 .file_stem()
                 .unwrap_or_default()
                 .to_string_lossy()
                 .into_owned();
-            let label = document.name(&file);
             if !name.starts_with(|c: char| c.is_ascii_uppercase()) {
                 // A lowercase .tsx is a helper a widget imports, not a widget.
                 continue;
