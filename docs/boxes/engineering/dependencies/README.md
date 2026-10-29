@@ -171,10 +171,10 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 | --- | --- | --- | --- | --- |
 | `devpage-design` | 0.2.3 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
-| `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: an area of the display list replayed into a vello scene and rendered into a tile's texture with WebGPU through `wgpu`, which also runs the compositor's pass. | `design/wasm/src/vello_backend.rs`, `design/wasm/src/gpu/` |
-| `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/gpu/` |
-| `wasm-bindgen-futures` | 0.4.79 | MIT or Apache-2.0 | Exporting `Gpu::open`, which awaits WebGPU's adapter and device, as an `async` function the page receives as a promise. | `design/wasm/src/gpu/` |
-| `web-sys` (feature `HtmlCanvasElement`) | 0.3.106 | MIT or Apache-2.0 | The `<canvas>` element a GPU target draws into. | `design/wasm/src/gpu/` |
+| `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: an area of the display list replayed into a vello scene and rendered into a tile's texture with WebGPU through `wgpu`, which also runs the compositor's pass. | `design/wasm/src/vello_backend.rs`, `design/wasm/src/compositor/` |
+| `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/compositor/` |
+| `wasm-bindgen-futures` | 0.4.79 | MIT or Apache-2.0 | Exporting `Gpu::open`, which awaits WebGPU's adapter and device, as an `async` function the page receives as a promise. | `design/wasm/src/compositor/` |
+| `web-sys` (feature `HtmlCanvasElement`) | 0.3.106 | MIT or Apache-2.0 | The `<canvas>` element a GPU target draws into. | `design/wasm/src/compositor/` |
 
 ### `devpage-design-module`, the module's builder
 

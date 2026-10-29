@@ -157,7 +157,7 @@ addresses.
 | `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design; it loads the engine and starts the page's canvases | `text/javascript` |
 | `design-canvas.js` | `core/assets/design-canvas.js`, a design's canvas: its view, pointer and interactions, overlays and an embed's backdrop | `text/javascript` |
 | `design-stream.js` | `core/assets/design-stream.js`, the page's one watch stream | `text/javascript` |
-| `design-tiles.js` | `core/assets/design-tiles.js`, the compositor's tiles on the CPU, painted by the worker | `text/javascript` |
+| `design-tiles.js` | `core/assets/design-tiles.js`, the compositor on the CPU, carrying out the frame plan with the worker's paintings | `text/javascript` |
 | `design-worker.js` | `core/assets/design-worker.js`, the worker that paints those tiles with the engine's `vello_cpu` backend | `text/javascript` |
 | `design-engine.js` | `core/assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
 | `design-engine.wasm` | `core/assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |

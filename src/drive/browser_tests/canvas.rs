@@ -2215,7 +2215,7 @@ async fn zoom_to(page: &Page, to: f64, x: f64, y: f64) {
 /// Without WebGPU, the tiles a view needs are asked of the worker nearest
 /// the view's middle first, a few at a time: zoomed to 4× on the huge
 /// design, the first tile painted at that scale is the one under the view's
-/// middle, and no more than the per-frame budget are ever in flight.
+/// middle, and no more than the plan's budget are ever in flight.
 #[tokio::test]
 #[ignore]
 async fn the_cpu_paints_the_middle_first_a_few_at_a_time() {

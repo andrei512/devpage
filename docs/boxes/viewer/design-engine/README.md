@@ -78,7 +78,7 @@ module of the core names an adapter or a rasterizer.
 | `render` | core | The renderer — its fonts and text shaping. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
 | `display` | core | `draw`: the drawing commands and a node's box after layout. `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
-| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
+| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale; `plan`: the [frame plan](#the-frame-plan) both browser compositors carry out. The server uses the cache only. |
 | `design` | core | A design as it is held while it is shown — its scene, how many nodes use each file, and its drawing in each theme its holder asks for — each drawing brought along by every edit, the damage to its tiles kept until taken; its size, the interaction at a point, a view's tiles and an area to paint, rounded first; and [one rule for a scene that can't be drawn](#a-design-that-cant-be-drawn). The store and every canvas hold their designs as one. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
 | `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
@@ -86,11 +86,13 @@ module of the core names an adapter or a rasterizer.
 | `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
 
 In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — the
-engine's `design`, bound for the page: a stream message applied to it, the
-damage since the last frame, a tile on the CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
-backend; `gpu/` the compositor on WebGPU — `mod.rs` a frame (damage, the
-view's missing tiles, the budget), `paint.rs` painting a tile into its
-texture, `pass.rs` the composite pass. The page's part is the design script
+engine's `design` and the canvas's frame plan, bound for the page: a stream
+message applied to it, its damage handed to the plan without leaving the
+module, a frame's work and a tile's arrival for the CPU's compositor, a tile
+on the CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
+backend; `compositor/` the compositor on WebGPU — `mod.rs` a frame of the
+plan carried out, `paint.rs` painting a tile into its texture, `pass.rs` the
+composite pass. The page's part is the design script
 and its modules ([in the browser](#in-the-browser)).
 
 ## Parsing
@@ -489,7 +491,8 @@ each gradient goes to the GPU moved half a device pixel.
 What paint makes is cached as **tiles**: squares of 256 device pixels, keyed
 by theme, scale and position — column and row from the drawing's top-left at
 that scale — so the tiles of every scale painted so far form a pyramid. A
-cache holds a capped number of tiles and drops the least recently used. A
+cache is cost-capped — each tile costs what its holder says, bytes of pixels
+or one — and drops the least recently used past its cap. A
 theme has tiles of its own, so switching back to one is instant.
 
 An update to the scene marks **damage**: for each chunk it touched, the
@@ -775,8 +778,8 @@ the engine and starts the page's canvases, and the modules it imports, each
 a [built-in asset](../serving-pages/README.md#built-in-assets):
 `design-stream.js`, the page's one watch stream; `design-canvas.js`, a
 canvas — its view, pointer, interactions, overlays and an embed's backdrop;
-`design-tiles.js`, the compositor's tiles on the CPU and the worker,
-`design-worker.js`, that paints them.
+`design-tiles.js`, the compositor on the CPU, and the worker,
+`design-worker.js`, that paints its tiles.
 
 ### The compositor
 
@@ -785,7 +788,7 @@ pan or a zoom only places the cached tiles of the view — moved and scaled —
 into a `<canvas>` sized to the screen's device pixels; nothing is painted for
 it. Tiles the view needs that are missing or stale are painted after the
 frame, nearest the view's middle first, at the zoom's real resolution, a few
-each frame, and each is swapped in when it is ready. Until then the view
+at a time, and each is swapped in when it is ready. Until then the view
 shows what the cache has — the stale tile, or the same place at another
 scale, stretched — so nothing flashes, and a view is sharp once its zoom
 settles. The view is shown at the scale tiles are painted at — the zoom in
@@ -795,7 +798,8 @@ is taken back through the same. A canvas keeps at most 384 tiles — more than
 a 4K screen at twice its pixels shows — least recently used dropped first.
 Each update to the design marks stale only the tiles its
 [damage](#tiles) overlaps, in each theme it has been drawn in; another
-design — a navigation — starts with none. A switch of theme keeps the other
+design — a navigation — starts with none. What each frame shows and paints
+is decided once, by the [frame plan](#the-frame-plan), for both compositors. A switch of theme keeps the other
 theme's drawing and its tiles, so switching back makes and paints nothing.
 
 - **On the GPU**: tiles are painted by `vello` through `wgpu` on WebGPU, each
@@ -813,11 +817,38 @@ theme's drawing and its tiles, so switching back makes and paints nothing.
   same stream messages, while the page's own copy says which tiles an update
   made stale — and composited into a 2D canvas. Messages that reach the
   worker while it is still loading the engine wait for it.
-  The same tiles, the same scales — the page's copy of the design names the
-  tiles a view needs, nearest its middle first, as the GPU's are found —
-  asked of the worker in that order, a few in flight at once; no
-  whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
+  The page's copy of the design holds the plan, so the tiles, the scales and
+  the order are the GPU's; the page asks the worker for what the plan
+  requests, keeps each painting by its ticket, and draws what the plan
+  draws; no whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
   which Chrome prints reliably.
+
+### The frame plan
+
+Both compositors carry out one **frame plan**, `tiles::Plan`, which the
+canvas's `Design` holds in the module along with all of its state: the tiles
+held, by the ticket each painting arrived under, cost-capped at 384 with the
+least recently used let go; the tiles in flight — asked for and not yet
+arrived — each under a ticket no plan gives twice; and whether damage
+reached each one. A host keeps only the paintings — textures on the GPU,
+bitmaps on the CPU — by ticket. Damage never leaves the module: each stream
+message's reaches the plan as the message is applied.
+
+- **`frame`** gives a frame's work: the paintings to draw, coarser levels
+  under finer ones and the view's own level on top, each where it lands; the
+  tiles to paint, the view's missing or stale ones nearest its middle first,
+  once a zoom has settled; the paintings to free, which the plan let go since
+  the last frame; and how many tiles the view still lacks.
+- **`arrived`** takes a painting back by its ticket. One whose ticket isn't in
+  flight — answered already, or asked for by the design the canvas showed
+  before — is dropped. One whose tile damage reached while it was painted is
+  kept and shown, stale, and asked for again. A tile painted as nothing
+  (`missed`) is asked for again.
+
+**One budget rule**: at most 6 tiles are in flight. The GPU paints each tile
+the plan asks for at once, inside the frame, so it paints up to 6 a frame;
+the CPU's worker answers later, so a frame asks it only for as many as have
+arrived since the last.
 
 On a slide, the 1920 × 1080 stage is scaled to the window by a transform the
 canvas's CSS size doesn't see, so the bitmap follows the canvas's box on the

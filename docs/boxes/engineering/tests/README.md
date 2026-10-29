@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 532 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 541 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -17,7 +17,7 @@ $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call 
 ## How they are written
 
 `cargo test` runs every crate in the workspace: 155 in `devpage`, 221 in its
-core `devpage-core`, 147 in the engine `devpage-design`, 10 in
+core `devpage-core`, 153 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
@@ -300,7 +300,7 @@ In Chrome:
 - A design 100,000 pixels tall at 100% painting only the tiles of its view, on the GPU and the CPU; a pan over it painting no tile and costing a frame no more than on a 400 × 300 design.
 - Zoomed in 4× into the checkout, the GPU and the CPU each showing what the engine paints there at 4×, and agreeing.
 - An edit to one row of the 100,000-pixel design repainting only the tile it touches, and one out of view none, on the GPU and the CPU.
-- A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine; asking the worker for the tile under the view's middle first, and never more than the frame's budget at once.
+- A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine; asking the worker for the tile under the view's middle first, and never more than the plan's budget in flight at once.
 - An undone typo clearing the problems.
 - An image growing mid-session past what the GPU's atlas holds putting the problem on the problems bar, a save meanwhile kept, and once mended the canvas, on the CPU, matching the PNG.
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
@@ -738,7 +738,7 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 ### `devpage-design`
 
-*147 tests.*
+*153 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `ids`, 9: a first parse numbering elements in order; an insert at the front, a removal and an edit keeping every other element's id; keyed siblings keeping theirs when reordered; a matched element's children matched too and new ones numbered, a different root a new one; 100,000 siblings matched in a pass; the edit script a longest common subsequence; a list rewritten past the edit cap — every third row removed, shuffled, reversed, half replaced — keeping the id of every row that survived and giving none another's; gaps nested past the depth cap still giving every row an id of its own. A release bench, ignored, times rewritten lists at 1,000, 10,000 and 100,000 rows.
@@ -755,13 +755,13 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - `compare`, 2: the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
 - `bands`, 4: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; a band holding as many rows as fit in 16 MB, a whole row of tiles up to 16,384 pixels wide, at least one row however wide; a drawing 1,000,000 pixels wide written in strips holding at most 16 MB at once, its pixels right at both ends and across a strip's seam and a band's; a strip painting as the part of the tile it replaces.
 - `design`, 4: a new design staling every tile of both themes, an edit damaging only where it changed, from the drawing's top-left, in each theme drawn and no other, the drawing then painting tile by tile as a fresh one; an edit leaving the scene too many images for the GPU's atlas keeping the drawing, saying why, damaging no tile and painting none, and the edit that mends it damaging every tile and painting as a fresh drawing; a whole scene that can't be drawn tried again only once it changes; a whole scene redrawing both themes, and a theme let go left alone.
-- `tiles`, 3: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again.
+- `tiles`, 9: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again; the frame plan — the JavaScript compositor's rules, ported — asking for the missing tiles middle first while fewer than its budget are in flight, and after arrivals only as many as arrived; an unsettled frame asking for nothing and counting what it lacks; an answer to a ticket never given, answered already or given by another plan dropped, and a tile painted as nothing asked for again under a new ticket; a tile damaged in flight arriving stale, kept and asked for again, damage elsewhere or in the other theme leaving it current; every painting let go — past the cap, or replaced — evicted once; a frame drawing coarse levels under fine and the view's own on top, each where it lands.
 - The crate, 1: the core naming no adapter and no rasterizer.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
 
 ### `devpage-design-wasm`
 
-*9 tests.*
+*10 tests.*
 
 - A scene sized, painted and hit-tested.
 - A design in a font file, by its scene and by a patch bringing another weight, laid out and painted as the server paints its PNG, pixel for pixel.
@@ -771,8 +771,8 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - Problems keeping the scene until a patch clears them.
 - A theme switch painting the scene again in the other theme.
 - A click landing only on what a clip shows.
-- A whole scene damaging every tile of both themes, a patch only where the node it changed was and is, in each theme drawn, and a theme switched back to keeping its drawing.
-- A patch leaving the design too many images for the GPU's atlas a problem, as the stream's are, with no tile damaged or painted; the patch that mends it damaging every tile and painting as the server's PNG, pixel for pixel.
+- The damage of each message reaching the canvas's frame plan in the module: a whole scene staling every tile of both themes, a patch only the tiles over where the node it changed was and is, in each theme drawn, and a theme switched back to keeping its drawing and its tiles.
+- A patch leaving the design too many images for the GPU's atlas a problem, as the stream's are, the plan still showing the tiles painted, staling none and asking for none; the patch that mends it staling every tile and painting as the server's PNG, pixel for pixel.
 
 ### `devpage-design-module`
 
