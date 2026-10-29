@@ -18,6 +18,7 @@ use tower::ServiceExt;
 
 use super::ServerMode;
 use super::cache::Served;
+use super::metrics::{self, Stage};
 use crate::adapters::sqlite::DocumentThreads;
 use crate::changes::Changes;
 use crate::server::{self, Identity};
@@ -66,7 +67,7 @@ fn versioned(rest: &str) -> Option<(u64, String)> {
 
 /// The request answered by the latest version, mounted at `/d/<id>`.
 async fn latest(state: &ServerMode, id: &str, path: &str, request: Request) -> Response {
-    match state.store.latest(id) {
+    match metrics::time(Stage::Store, || state.store.latest(id)) {
         Ok(Some(n)) => serve(state, id, n, &format!("/d/{id}"), path, request).await,
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
@@ -83,7 +84,7 @@ async fn serve(
     path: &str,
     request: Request,
 ) -> Response {
-    let entry = match state.store.entry(id, n) {
+    let entry = match metrics::time(Stage::Store, || state.store.entry(id, n)) {
         Ok(Some(entry)) => entry,
         Ok(None) => return StatusCode::NOT_FOUND.into_response(),
         Err(error) => {
@@ -142,6 +143,7 @@ pub(super) async fn version_router(
     state
         .cache
         .router(&key, mount, fetch, |dir: &Path| {
+            let _made = Made(std::time::Instant::now());
             let served = ServedFolder::new(dir)?.mounted(mount);
             let document = Document::load(&served.path().join(entry), &served)?;
             let index = Index::build(&served).with_search(&document.path());
@@ -171,4 +173,13 @@ pub(super) async fn version_router(
             Ok(server::router(options))
         })
         .await
+}
+
+/// Times a version's router as it is made, whichever way the making ends.
+struct Made(std::time::Instant);
+
+impl Drop for Made {
+    fn drop(&mut self) {
+        metrics::observe(Stage::Router, self.0.elapsed());
+    }
 }
