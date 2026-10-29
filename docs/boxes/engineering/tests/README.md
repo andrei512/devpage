@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 553 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 554 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 117 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 117 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 160 in `devpage`, one of
+`cargo test` runs every crate in the workspace: 161 in `devpage`, one of
 them in `tests/`, 227 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
