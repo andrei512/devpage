@@ -269,7 +269,7 @@ mod tests {
     /// image and in pieces — replayed as the canvas replays it: vello places
     /// its images where the engine says, and the drawing's images are
     /// exactly those its scene paints. One more large file and they no
-    /// longer fit, for the engine and for vello alike.
+    /// longer fit: nothing is painted from the drawing then.
     #[test]
     fn a_drawings_images_are_placed_by_vello_where_the_engine_says() {
         let design = |files: &[&str]| {
@@ -295,34 +295,26 @@ mod tests {
             "1200x900-c.png",
             "4000x1000-d.png",
         ];
-        let mut drawing = renderer
-            .drawing(&design(&files), devpage_design::Theme::Light, None)
-            .unwrap();
-        let replayed = replay(&drawing.list);
+        let light = devpage_design::Theme::Light;
+        let mut held = devpage_design::Design::new(design(&files));
+        let images = held.images(&mut renderer, light).unwrap().to_vec();
+        let replayed = replay(held.whole(&mut renderer, light).unwrap());
         let painted = vello_places(&replayed);
-        assert_eq!(painted.len(), drawing.images.len());
-        assert!(drawing.images.len() > 8, "{}", drawing.images.len());
-        agree(&drawing.images, &replayed, "the drawing");
+        assert_eq!(painted.len(), images.len());
+        assert!(images.len() > 8, "{}", images.len());
+        agree(&images, &replayed, "the drawing");
 
         let mut more = files.to_vec();
         more.extend(["4096x4096-e.png", "4096x4096-f.png"]);
         let more = design(&more);
-        assert!(
-            renderer
-                .drawing(&more, devpage_design::Theme::Light, None)
-                .is_err()
-        );
-        // The same drawing, painted anyway — an update leaves the drawing
-        // the new scene's even when it can't be painted: vello leaves out
-        // the image the engine said it would.
-        let mut held = design(&files);
-        let mut uses = scene::Uses::of(&held.root);
-        let edits = scene::Edits::between(&held, &more);
-        let applied = scene::apply(&mut held, &mut uses, &edits).unwrap();
-        assert!(drawing.update(&mut renderer, &held, &applied).is_err());
-        let images = drawing.images.clone();
-        let sizes: Vec<_> = images.iter().map(|i| (i.width, i.height)).collect();
-        assert!(atlas::place(&sizes).is_err());
-        agree(&images, &replay(&drawing.list), "too many");
+        assert!(renderer.drawing(&more, light, None).is_err());
+        held.apply(
+            &mut renderer,
+            &scene::Edits::between(&design(&files), &more),
+        )
+        .unwrap();
+        assert!(held.problem(light).is_some());
+        assert!(held.images(&mut renderer, light).is_none());
+        assert!(held.whole(&mut renderer, light).is_none());
     }
 }

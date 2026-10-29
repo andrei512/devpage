@@ -79,7 +79,7 @@ The address every document a server serves sits under, carried by every redirect
 
 ## design
 
-A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch.
+A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch. The engine holds one while it is shown as a `Design`: its scene and its [drawing](#drawing) in each theme asked for, brought along by each [edit](#edits). See [How the engine is built](../design-engine/README.md#how-the-engine-is-built).
 
 ## instance
 
@@ -159,7 +159,7 @@ A square of 256 device pixels of a drawing, painted at one scale in one theme an
 
 ## damage
 
-What an update to a scene touched: each changed chunk's old and new bounds. Only the tiles that overlap it are painted again. See [Tiles](../design-engine/README.md#tiles).
+What an update to a scene touched: each changed chunk's old and new bounds, from the drawing's top-left — or every tile, when that corner moved. Only the tiles that overlap it are painted again; a scene that can't be drawn damages none until it can, and then every one. See [Tiles](../design-engine/README.md#tiles).
 
 ## compositor
 

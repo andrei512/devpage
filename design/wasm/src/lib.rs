@@ -1,11 +1,11 @@
-//! The design engine for the browser. Each canvas holds a `Design`: the scene
-//! its watch stream built and the drawing made from it — updated by each
-//! patch — whose tiles `Gpu` paints and composites on the GPU, or a worker
-//! paints on the CPU with `Design::paint_tile`, and which answers clicks.
+//! The design engine for the browser. Each canvas holds a `Design`: the
+//! engine's [`devpage_design::Design`] — the scene its watch stream built,
+//! drawn in the theme the page shows, brought along by each patch — whose
+//! tiles `Gpu` paints and composites on the GPU, or a worker paints on the
+//! CPU with `Design::paint_tile`, and which answers clicks.
 
 use devpage_design::proto::{Update, update::Body};
-use devpage_design::scene::Uses;
-use devpage_design::{Drawing, Renderer, Scene, Theme, wire};
+use devpage_design::{Damage, Renderer, Theme, wire};
 use prost::Message;
 use wasm_bindgen::prelude::*;
 
@@ -26,44 +26,18 @@ pub enum Applied {
     Problems = 2,
 }
 
-/// One canvas's design: its scene, its problems, its drawing in each theme
-/// it has been shown in — each updated by every patch — and the damage those
-/// updates did, until the canvas takes it.
+/// One canvas's design: the engine's, once a scene arrives, the problems
+/// the stream last reported, and the theme the page draws it in.
 #[wasm_bindgen]
 pub struct Design {
     engine: Renderer,
     /// Which design this is, among every one the page has made: a canvas's
     /// tiles are of one design.
     id: u32,
-    scene: Option<Scene>,
-    /// How many of the scene's nodes use each of its files, so a patch
-    /// drops a file no node uses without walking the scene.
-    uses: Uses,
+    design: Option<devpage_design::Design>,
     problems: Vec<String>,
-    /// The scene laid out and made into its display list, in the light theme
-    /// and the dark one; `None` before it is first shown in that theme, or
-    /// when the scene can't be drawn — the server reports that as the
-    /// design's problem.
-    drawings: [Option<Drawing>; 2],
-    /// Whether a theme's drawing must be made afresh: a whole scene arrived.
-    stale: [bool; 2],
-    /// What changed since the canvas last took it, per theme.
-    damage: Vec<(Theme, Damage)>,
     /// The theme the page draws this design in.
     theme: Theme,
-}
-
-/// What an update did to the tiles of one theme of a design.
-#[derive(Clone, Debug, PartialEq)]
-pub enum Damage {
-    /// Every tile: a new scene, or the drawing's top-left moved.
-    All,
-    /// The tiles over these rects, in the design's coordinates, of a
-    /// drawing whose top-left is `origin`.
-    Rects {
-        origin: (f64, f64),
-        rects: Vec<vello::kurbo::Rect>,
-    },
 }
 
 fn index(theme: Theme) -> usize {
@@ -72,8 +46,6 @@ fn index(theme: Theme) -> usize {
         Theme::Dark => 1,
     }
 }
-
-const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
 
 static NEXT_ID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
 
@@ -116,12 +88,8 @@ impl Design {
         Design {
             engine: Renderer::new(),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
-            scene: None,
-            uses: Uses::default(),
+            design: None,
             problems: Vec::new(),
-            drawings: [None, None],
-            stale: [false, false],
-            damage: Vec::new(),
             theme: Theme::Light,
         }
     }
@@ -145,7 +113,7 @@ impl Design {
     /// `x0, y0, x1, y1` in the design's coordinates.
     pub fn take_damage(&mut self) -> Vec<f64> {
         let mut out = Vec::new();
-        for (theme, damage) in self.damage.drain(..) {
+        for (theme, damage) in self.drain_damage() {
             out.push(index(theme) as f64);
             match damage {
                 Damage::All => out.extend([1.0, 0.0, 0.0, 0.0]),
@@ -163,10 +131,12 @@ impl Design {
     /// Whether any `theme.` reference reached the scene: what puts an
     /// embed's own theme switch on its backdrop.
     pub fn themed(&self) -> bool {
-        self.scene.as_ref().is_some_and(|s| s.themed)
+        self.design.as_ref().is_some_and(|d| d.scene().themed)
     }
 
     /// Applies one watch-stream message: a whole scene, a patch or problems.
+    /// A patch that leaves the scene undrawable is a problem like any the
+    /// stream reports: the canvas keeps the tiles it painted last.
     pub fn apply(&mut self, bytes: &[u8]) -> Applied {
         let Ok(update) = Update::decode(bytes) else {
             return Applied::Nothing;
@@ -175,52 +145,20 @@ impl Design {
             Some(Body::Scene(whole)) => {
                 // Image and font files the canvas already holds aren't
                 // decoded or checked again.
-                let (images, fonts) = self
-                    .scene
-                    .take()
-                    .map(|s| (s.images, s.fonts))
+                let held = self
+                    .design
+                    .as_ref()
+                    .map(|d| (d.scene().images.clone(), d.scene().fonts.clone()))
                     .unwrap_or_default();
-                wire::decode_scene(&whole, (&images, &fonts)).map(|scene| {
-                    self.uses = Uses::of(&scene.root);
-                    self.scene = Some(scene);
-                    self.stale = [true, true];
-                    for theme in THEMES {
-                        self.damage.push((theme, Damage::All));
-                    }
+                wire::decode_scene(&whole, (&held.0, &held.1)).map(|scene| match &mut self.design {
+                    Some(design) => design.replace(scene),
+                    None => self.design = Some(devpage_design::Design::new(scene)),
                 })
             }
-            Some(Body::Patch(patch)) => match self.scene.as_mut() {
-                Some(scene) => {
-                    // The patch's work only: what it did, by id, handed to
-                    // each drawing — never a copy of the scene.
-                    wire::apply(scene, &mut self.uses, &patch).map(|applied| {
-                        // Each drawing follows the patch, by what it changed.
-                        for theme in THEMES {
-                            let i = index(theme);
-                            let Some(d) = self.drawings[i].as_mut() else {
-                                continue;
-                            };
-                            if self.stale[i] {
-                                continue;
-                            }
-                            let damage = match d.update(&mut self.engine, scene, &applied) {
-                                Ok(damage) if damage.all => Damage::All,
-                                Ok(damage) => {
-                                    let a = d.area();
-                                    Damage::Rects {
-                                        origin: (a.x as f64, a.y as f64),
-                                        rects: damage.rects,
-                                    }
-                                }
-                                Err(_) => {
-                                    self.drawings[i] = None;
-                                    Damage::All
-                                }
-                            };
-                            self.damage.push((theme, damage));
-                        }
-                    })
-                }
+            Some(Body::Patch(patch)) => match self.design.as_mut() {
+                // The patch's work only: what it did, by id, handed to each
+                // drawing — never a copy of the scene.
+                Some(design) => design.patch(&mut self.engine, &patch),
                 None => return Applied::Nothing,
             },
             Some(Body::Problems(problems)) => {
@@ -233,6 +171,23 @@ impl Design {
             self.problems = vec![format!(
                 "the watch stream sent what the engine can't use: {e}"
             )];
+            return Applied::Problems;
+        }
+        let undrawable = self.design.as_ref().and_then(|d| {
+            [Theme::Light, Theme::Dark]
+                .into_iter()
+                .find_map(|theme| d.problem(theme))
+        });
+        if let Some(undrawable) = undrawable {
+            // A scene from the stream knows no files: where it broke is
+            // the server's to say.
+            self.problems = vec![match &undrawable.at {
+                Some(at) if !at.file.is_empty() => format!(
+                    "{}:{}:{}: {}",
+                    at.file, at.pos.line, at.pos.col, undrawable.message
+                ),
+                _ => undrawable.message.clone(),
+            }];
             return Applied::Problems;
         }
         self.problems.clear();
@@ -248,8 +203,9 @@ impl Design {
     /// The size of the design's drawing in its own pixels, `[width, height]`,
     /// or empty before the first scene.
     pub fn size(&mut self) -> Vec<f32> {
-        match self.laid_out() {
-            Some(d) => vec![d.area().width, d.area().height],
+        let theme = self.theme;
+        match self.held().and_then(|(d, r)| d.area(r, theme)) {
+            Some(a) => vec![a.width, a.height],
             None => Vec::new(),
         }
     }
@@ -257,10 +213,11 @@ impl Design {
     /// The interaction of the topmost node at `(x, y)`, in the drawing's
     /// pixels, that has one: asked of the drawing's index.
     pub fn action_at(&mut self, x: f32, y: f32) -> Option<String> {
-        let area = self.laid_out()?.area();
+        let theme = self.theme;
+        let (design, r) = self.held()?;
+        let area = design.area(r, theme)?;
         let (x, y) = ((x + area.x) as f64, (y + area.y) as f64);
-        let d = self.prepared(vello::kurbo::Rect::new(x, y, x, y))?;
-        d.action_at(x as f32, y as f32).map(str::to_string)
+        design.action_at(r, theme, x, y).map(str::to_string)
     }
 
     /// The tiles a view of `width` × `height` device pixels needs at
@@ -269,7 +226,8 @@ impl Design {
     /// column, row… The engine's [`View`](devpage_design::tiles::View), so
     /// the CPU's compositor asks for the very tiles the GPU's would.
     pub fn view_tiles(&mut self, width: u32, height: u32, scale: f32, x: f32, y: f32) -> Vec<u32> {
-        let Some(d) = self.laid_out() else {
+        let theme = self.theme;
+        let Some((design, r)) = self.held() else {
             return Vec::new();
         };
         let view = devpage_design::tiles::View {
@@ -278,18 +236,21 @@ impl Design {
             zoom: scale as f64,
             origin: (x.round() as f64, y.round() as f64),
         };
-        d.view_tiles(&view)
+        design
+            .view_tiles(r, theme, &view)
             .into_iter()
             .flat_map(|(c, r)| [c, r])
             .collect()
     }
 
     /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with
-    /// `vello_cpu`: 256 device pixels a side, straight alpha.
+    /// `vello_cpu`: 256 device pixels a side, straight alpha. Nothing while
+    /// the scene can't be drawn.
     pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
-        let rect = devpage_design::tiles::tile_rect(&self.laid_out()?.list, scale as f64, col, row);
-        let d = self.prepared(rect)?;
-        let rgba = devpage_design::cpu::tile(&d.list, scale as f64, col, row);
+        let theme = self.theme;
+        let (design, r) = self.held()?;
+        let list = design.tile(r, theme, scale as f64, col, row)?;
+        let rgba = devpage_design::cpu::tile(list, scale as f64, col, row);
         Some(Pixels {
             width: devpage_design::tiles::TILE,
             height: devpage_design::tiles::TILE,
@@ -310,46 +271,17 @@ impl Design {
     }
 
     /// The damage since it was last taken.
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     fn drain_damage(&mut self) -> Vec<(Theme, Damage)> {
-        std::mem::take(&mut self.damage)
+        self.design
+            .as_mut()
+            .map(devpage_design::Design::take_damage)
+            .unwrap_or_default()
     }
 
-    /// The drawing in the theme it is shown in — made afresh after a whole
-    /// scene, or the first time that theme is shown, painting the last
-    /// drawing's images when it paints the same ones, so the GPU keeps them.
-    fn laid_out(&mut self) -> Option<&Drawing> {
-        let i = index(self.theme);
-        if self.stale[i] || self.drawings[i].is_none() {
-            self.stale[i] = false;
-            let scene = self.scene.as_ref()?;
-            let last = self.drawings[i]
-                .take()
-                .or_else(|| self.drawings[1 - i].take());
-            let made = self.engine.drawing(scene, self.theme, last.as_ref()).ok();
-            // The other theme's drawing, taken to share its images' blobs,
-            // goes back.
-            if let Some(last) = last
-                && last.theme() != self.theme
-            {
-                self.drawings[1 - i] = Some(last);
-            }
-            self.drawings[i] = made;
-        }
-        self.drawings[i].as_ref()
-    }
-
-    /// The drawing with every run child in `rect` — in the design's
-    /// coordinates — rounded where the runs now place it: what is read
-    /// there is a fresh drawing's.
-    pub(crate) fn prepared(&mut self, rect: vello::kurbo::Rect) -> Option<&Drawing> {
-        self.laid_out()?;
-        let i = index(self.theme);
-        let (Some(scene), Some(d)) = (self.scene.as_ref(), self.drawings[i].as_mut()) else {
-            return None;
-        };
-        d.prepare(&mut self.engine, scene, rect);
-        self.drawings[i].as_ref()
+    /// The engine's design, once a scene arrived, and the renderer that
+    /// draws it.
+    pub(crate) fn held(&mut self) -> Option<(&mut devpage_design::Design, &mut Renderer)> {
+        Some((self.design.as_mut()?, &mut self.engine))
     }
 }
 
@@ -358,22 +290,17 @@ impl Design {
     /// The whole drawing painted on the CPU at `scale`, as its tiles are,
     /// in one: straight alpha.
     fn paint(&mut self, scale: f32) -> Option<Pixels> {
-        let a = self.laid_out()?.area();
-        let whole = vello::kurbo::Rect::new(
-            a.x as f64,
-            a.y as f64,
-            (a.x + a.width) as f64,
-            (a.y + a.height) as f64,
-        );
-        let d = self.prepared(whole)?;
-        let a = d.area();
+        let theme = self.theme;
+        let (design, r) = self.held()?;
+        let list = design.whole(r, theme)?;
+        let a = list.area;
         let rect = vello::kurbo::Rect::new(
             a.x as f64,
             a.y as f64,
             (a.x + a.width) as f64,
             (a.y + a.height) as f64,
         );
-        let pixmap = devpage_design::cpu::paint_area(&d.list, rect, scale as f64);
+        let pixmap = devpage_design::cpu::paint_area(list, rect, scale as f64);
         let mut rgba = pixmap.data_as_u8_slice().to_vec();
         devpage_design::cpu::unpremultiply(&mut rgba);
         Some(Pixels {
@@ -479,7 +406,9 @@ mod tests {
                 assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
             }
             let frames = server.layout(scene);
-            assert_eq!(design.laid_out().unwrap().frames(), frames);
+            let theme = design.theme;
+            let (held, r) = design.held().unwrap();
+            assert_eq!(held.drawing(r, theme).unwrap().frames(), frames);
             let png = devpage_design::png(&mut server, scene, Theme::Light).unwrap();
             let (expected, w, h) = devpage_design::compare::pixels(&png).unwrap();
             let mut painted = design.paint(1.0).unwrap();
@@ -605,7 +534,8 @@ mod tests {
             design.drain_damage(),
             vec![(Theme::Light, Damage::All), (Theme::Dark, Damage::All)]
         );
-        design.laid_out().unwrap();
+        design.size();
+        assert!(design.drain_damage().is_empty(), "drawing damages nothing");
         let patch = Update {
             body: Some(Body::Patch(wire::patch(
                 &devpage_design::scene::Edits::between(&first, &second),
@@ -644,13 +574,89 @@ mod tests {
                 .all(|r| r[1] >= 1490.0 && r[3] <= 1560.0)
         );
         assert!(design.take_damage().is_empty());
-        // Dark, then light again: the light drawing is the one kept.
+        // Dark, then light again: each drawing is made once, kept, and
+        // damages no tile.
         assert!(design.set_theme(true));
-        design.laid_out().unwrap();
-        assert!(design.drawings[0].is_some() && design.drawings[1].is_some());
+        design.size();
         assert!(design.set_theme(false));
-        let kept = design.drawings[0].as_ref().unwrap() as *const Drawing;
-        assert!(std::ptr::eq(design.laid_out().unwrap(), kept));
+        design.size();
+        assert!(design.drain_damage().is_empty());
+    }
+
+    /// A patch that leaves the design undrawable — four images filling the
+    /// GPU's atlas and a fifth — is the design's problem, where the stream's
+    /// problems show: the canvas keeps the tiles it painted, damages none and
+    /// paints none. The patch that makes it drawable again damages every
+    /// tile, and the canvas paints as the server paints its PNG.
+    #[test]
+    fn a_patch_that_cant_be_drawn_keeps_the_tiles_painted_until_one_can() {
+        // An image file `side` pixels a side, of one `fill`.
+        let png = |side: u32, fill: &str| {
+            let files = HashMap::from([(
+                "p.design".to_string(),
+                format!(r##"<Frame width={{{side}}} height={{{side}}} fill="{fill}" />"##),
+            )]);
+            let scene = devpage_design::resolve(&files, "p.design").unwrap();
+            devpage_design::png(&mut Renderer::new(), &scene, Theme::Light).unwrap()
+        };
+        let mut files: HashMap<String, Vec<u8>> = ["#dc0000", "#00c800", "#0000dc", "#dcdc00"]
+            .iter()
+            .enumerate()
+            .map(|(n, fill)| (format!("{n}.png"), png(4096, fill)))
+            .collect();
+        files.insert("4.png".to_string(), png(8, "#c800c8"));
+        let scene = |more: bool, fill: &str| {
+            let n = if more { 5 } else { 4 };
+            let images: String = (0..n)
+                .map(|n| format!(r#"<Image src="{n}.png" width={{40}} height={{40}} />"#))
+                .collect();
+            let source = format!(
+                r##"<Frame layout="row" gap={{4}} padding={{8}} fill="#ffffff">{images}<Rect width={{40}} height={{40}} fill="{fill}" /></Frame>"##
+            );
+            let mut files = files.clone();
+            files.insert("a.design".to_string(), source.into_bytes());
+            devpage_design::resolve(&Bytes(files), "a.design").unwrap()
+        };
+        let (good, broken, again) = (
+            scene(false, "#ff0000"),
+            scene(true, "#00ff00"),
+            scene(false, "#0000ff"),
+        );
+        let message = |body| {
+            Update {
+                body: Some(body),
+                ..Default::default()
+            }
+            .encode_to_vec()
+        };
+        let patch = |a, b| {
+            message(Body::Patch(wire::patch(
+                &devpage_design::scene::Edits::between(a, b),
+            )))
+        };
+        let mut design = Design::new();
+        design.apply(&message(Body::Scene(wire::scene(&good))));
+        assert!(design.paint_tile(1.0, 0, 0).is_some());
+        design.drain_damage();
+
+        assert_eq!(design.apply(&patch(&good, &broken)), Applied::Problems);
+        let problems = design.problems();
+        assert!(
+            problems.len() == 1 && problems[0].starts_with("an image doesn't fit"),
+            "{problems:?}"
+        );
+        assert!(design.drain_damage().is_empty());
+        assert!(design.paint_tile(1.0, 0, 0).is_none());
+        assert!(design.view_tiles(800, 600, 1.0, 0.0, 0.0).is_empty());
+
+        assert_eq!(design.apply(&patch(&broken, &again)), Applied::Changed);
+        assert!(design.problems().is_empty());
+        assert_eq!(design.drain_damage(), vec![(Theme::Light, Damage::All)]);
+        let png = devpage_design::png(&mut Renderer::new(), &again, Theme::Light).unwrap();
+        let (expected, w, h) = devpage_design::compare::pixels(&png).unwrap();
+        let mut painted = design.paint(1.0).unwrap();
+        assert_eq!((painted.width(), painted.height()), (w, h));
+        assert_eq!(painted.take(), expected);
     }
 
     #[test]

@@ -380,6 +380,7 @@ fn count(n: &Node) -> usize {
 }
 
 mod patch;
+pub(crate) use patch::edits;
 pub use patch::{apply, patch};
 
 #[cfg(test)]

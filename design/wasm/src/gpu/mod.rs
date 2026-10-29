@@ -13,6 +13,7 @@ use vello::wgpu;
 use wasm_bindgen::prelude::*;
 
 use crate::Design;
+use devpage_design::Damage;
 use devpage_design::tiles::{Cache, Key, Level, View};
 
 mod paint;
@@ -153,18 +154,17 @@ impl Gpu {
         // go stale, and are shown until they are painted again.
         for (theme, damage) in design.drain_damage() {
             match damage {
-                crate::Damage::All => target.tiles.damage_all(theme),
-                crate::Damage::Rects { origin, rects } => {
-                    target.tiles.damage(theme, origin, &rects)
-                }
+                Damage::All => target.tiles.damage_all(theme),
+                Damage::Rects { origin, rects } => target.tiles.damage(theme, origin, &rects),
             }
         }
-        let Some(drawing) = design.laid_out() else {
+        let Some((design, renderer)) = design.held() else {
             return -1;
         };
-        let list = &drawing.list;
+        let Some(a) = design.area(renderer, theme) else {
+            return -1;
+        };
         let level = Level::of(zoom as f64);
-        let a = list.area;
         let area = vello::kurbo::Rect::new(
             a.x as f64,
             a.y as f64,
@@ -183,8 +183,9 @@ impl Gpu {
             col,
             row,
         };
-        let missing: Vec<Key> = drawing
-            .view_tiles(&view)
+        // None while the scene can't be drawn: the tiles painted last stay.
+        let missing: Vec<Key> = design
+            .view_tiles(renderer, theme, &view)
             .into_iter()
             .map(key)
             .filter(|k| target.tiles.get(k).is_none_or(|(_, stale)| stale))
@@ -216,7 +217,9 @@ impl Gpu {
         // Then, after the frame, up to `budget` of the tiles it still needs,
         // nearest the middle first: swapped in by the next frame.
         if settled && !missing.is_empty() {
-            let images = drawing.images.clone();
+            let Some(images) = design.images(renderer, theme).map(<[_]>::to_vec) else {
+                return -1;
+            };
             let blobs: Vec<u64> = images.iter().map(|i| i.data.id()).collect();
             if !matches!(&target.vello, Some((held, _)) if *held == blobs) {
                 // A fresh atlas for other images. Tiles already painted are
@@ -227,21 +230,14 @@ impl Gpu {
                 }
             }
             for k in missing.iter().take(budget as usize) {
-                let Some((_, renderer)) = target.vello.as_mut() else {
+                let Some((_, vello)) = target.vello.as_mut() else {
                     return -1;
                 };
                 // What the tile shows, rounded where its runs now place it.
-                let rect = devpage_design::tiles::tile_rect(
-                    &design.laid_out().expect("drawn").list,
-                    k.level.scale(),
-                    k.col,
-                    k.row,
-                );
-                let Some(drawing) = design.prepared(rect) else {
+                let Some(list) = design.tile(renderer, theme, k.level.scale(), k.col, k.row) else {
                     return -1;
                 };
-                let list = &drawing.list;
-                let Some(tile) = self.paint(renderer, list, k, (&target.layout, &target.sampler))
+                let Some(tile) = self.paint(vello, list, k, (&target.layout, &target.sampler))
                 else {
                     return -1;
                 };

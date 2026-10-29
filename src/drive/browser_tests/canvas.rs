@@ -1976,6 +1976,81 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     browser.close().await.ok();
 }
 
+/// An image that grows mid-session past what the GPU's atlas holds — three
+/// 4096-pixel squares and two small images, one of which turns into a fourth
+/// square — puts the design's problem on the problems bar, over the last
+/// drawing that could be drawn; a save in the meantime is kept. Once the
+/// image is small again the bar goes, and the canvas shows what the
+/// server's PNG of the mended design does.
+#[tokio::test]
+#[ignore]
+async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
+    let dir = folder("image-breaks");
+    for (name, fill) in [("a", "#dc0000"), ("b", "#00c800"), ("c", "#0000dc")] {
+        std::fs::write(
+            dir.join(format!("{name}.png")),
+            painted_png(4096, 4096, fill),
+        )
+        .unwrap();
+    }
+    let small = painted_png(8, 8, "#c800c8");
+    std::fs::write(dir.join("x.png"), &small).unwrap();
+    std::fs::write(dir.join("y.png"), painted_png(8, 8, "#00c8c8")).unwrap();
+    let design = |fill: &str| {
+        let images: String = "abcxy"
+            .chars()
+            .map(|c| format!(r#"<Image src="./{c}.png" width={{40}} height={{40}} />"#))
+            .collect();
+        format!(
+            r##"<Frame layout="row" gap={{4}} padding={{8}} fill="#ffffff">{images}<Rect width={{40}} height={{40}} fill="{fill}" /></Frame>"##
+        )
+    };
+    let file = dir.join("grows.design");
+    std::fs::write(&file, design("#000000")).unwrap();
+    let (address, designs) = serve_designs(&dir, "grows.design").await;
+    let mut browser = testing::launch().await;
+    let page = canvas_page(&mut browser, false, 1280, 1000).await;
+    page.goto(format!("{address}/grows.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    let backend: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.backend",
+    )
+    .await;
+    assert_eq!(backend, "cpu");
+
+    std::fs::write(dir.join("x.png"), painted_png(4096, 4096, "#c800c8")).unwrap();
+    designs.changed(&dir.join("x.png"));
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    let bar: String = eval(
+        &page,
+        "document.querySelector('.design-problems').textContent",
+    )
+    .await;
+    assert!(bar.contains("doesn't fit"), "{bar}");
+    std::fs::write(&file, design("#ffaa00")).unwrap();
+    designs.changed(&file);
+
+    eval::<bool>(
+        &page,
+        "(document.querySelector('canvas.design').dataset.painted = 'false', true)",
+    )
+    .await;
+    std::fs::write(dir.join("x.png"), &small).unwrap();
+    designs.changed(&dir.join("x.png"));
+    until(&page, "!document.querySelector('.design-problems')").await;
+    until(&page, PAINTED).await;
+    let [width, height]: [f64; 2] = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.size.split(',').map(Number)",
+    )
+    .await;
+    let shot = screenshot(&page, width, height, 24.0).await;
+    let d = difference(&page, &address, &shot, "/grows.design.png", 24).await;
+    assert!(d.is_some_and(|d| d.within_tolerance()), "{d:?}");
+    browser.close().await.ok();
+}
+
 #[tokio::test]
 #[ignore]
 async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_widgets() {
@@ -2311,8 +2386,10 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
     let scene = Designs::new(&ServedFolder::new(root).unwrap())
         .resolve("docs/designs/checkout/checkout.design")
         .unwrap();
-    let drawing = devpage_design::Renderer::new()
-        .drawing(&scene, devpage_design::Theme::Light, None)
+    let mut renderer = devpage_design::Renderer::new();
+    let mut design = devpage_design::Design::new(scene);
+    let list = design
+        .whole(&mut renderer, devpage_design::Theme::Light)
         .unwrap();
     let [k, ox, oy]: [f64; 3] = serde_json::from_str(&format!(
         "[{}]",
@@ -2321,7 +2398,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
     .unwrap();
     // The window's area in the design, as a square `side` device pixels
     // across from the window's top-left, its rows past the window dropped.
-    let area = drawing.area();
+    let area = list.area;
     let side = width.max(height);
     let rect = devpage_design::tiles::square(
         (area.x as f64 - ox / k, area.y as f64 - oy / k),
@@ -2329,7 +2406,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
         0,
         0,
     );
-    let pixmap = devpage_design::cpu::paint_area(&drawing.list, rect, k);
+    let pixmap = devpage_design::cpu::paint_area(list, rect, k);
     assert_eq!(pixmap.width() as usize, side);
     let mut expected: Vec<u8> = pixmap
         .data_as_u8_slice()

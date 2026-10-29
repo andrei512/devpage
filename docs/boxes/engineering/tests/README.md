@@ -8,16 +8,16 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 520 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                  # 527 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 158 in `devpage`, 208 in its
-core `devpage-core`, 143 in the engine `devpage-design`, 9 in
+`cargo test` runs every crate in the workspace: 158 in `devpage`, 209 in its
+core `devpage-core`, 147 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
@@ -38,7 +38,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 110 tests marked `#[ignore]`, 101 drive Chrome, and one of them also
+Of the 111 tests marked `#[ignore]`, 102 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
@@ -246,13 +246,14 @@ In Chrome:
 
 ### `designs`
 
-*18 tests in the store; 16 more through the server, in `drive::server`, and 44 in Chrome, in `drive::browser_tests::canvas`.*
+*20 tests in the store; 16 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
 - A change to a font file, or to any file in a font folder, resolving again only the design set in it; a folder with two regular faces a problem at its `fonts` entry in the `themes.yml`, in the store and in what `devpage check` reads.
 - An image that doesn't decode a problem at its `src` in what `devpage check` reads and in the PNG.
 - A design 100,000 pixels tall drawable in the store and in what `devpage check` reads, its PNG streamed band by band from the store's tile cache, which never holds more than its 64 MB; a PNG asked for again painting no tile, and after an edit to one row only the tiles over it — undone, those again, and the PNG as before; each theme of a themed design keeping its own tiles, and a design that stops using its themes dropping the dark ones; a writer that fails stopping the painting within the first band; a save landing while a PNG's reader has stopped reading, the PNG then ending rather than finishing from the next scene; a design too wide for a row of tiles in one band banded in strips, its PNG right and nothing cached; images too many for the GPU's atlas a problem at the `src` of the first that doesn't fit.
+- An image growing mid-session past what the GPU's atlas holds the design's problem, at its `src`, in place of a PNG, a save meanwhile kept; once mended, the PNG the one a fresh store paints.
 - An image file decoded once per read of it: a save of the design showing it doesn't decode it again, a save of the file does — the scene keeping the decode it has while the bytes are the same.
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
@@ -282,6 +283,7 @@ In Chrome:
 - An edit to one row of the 100,000-pixel design repainting only the tile it touches, and one out of view none, on the GPU and the CPU.
 - A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine; asking the worker for the tile under the view's middle first, and never more than the frame's budget at once.
 - An undone typo clearing the problems.
+- An image growing mid-session past what the GPU's atlas holds putting the problem on the problems bar, a save meanwhile kept, and once mended the canvas, on the CPU, matching the PNG.
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
 - A canvas saying so when the engine doesn't load.
 - An embedded design drawing at its own size and surviving a page edit; centred at its own size and only ever scaled down, to the page's width or the window's height.
@@ -307,7 +309,7 @@ In Chrome:
 
 ### `document`
 
-*9 tests.*
+*10 tests.*
 
 - Each kind parsed.
 - A deck's audience, goal, tone and pronounce, each slide's notes and delivery; those fields refused on the other kinds, and `context` refused.
@@ -728,7 +730,7 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 ### `devpage-design`
 
-*143 tests.*
+*147 tests.*
 
 - `parse`, 9: imports, attributes and text with props; JSX's strings without escapes, bare attributes and names with `-`; nesting and numbers kept within their limits, arrays and objects counting as levels and numbers too small named so; JSX whitespace in text; every syntax error, and each problem, at its line and column.
 - `ids`, 9: a first parse numbering elements in order; an insert at the front, a removal and an edit keeping every other element's id; keyed siblings keeping theirs when reordered; a matched element's children matched too and new ones numbered, a different root a new one; 100,000 siblings matched in a pass; the edit script a longest common subsequence; a list rewritten past the edit cap — every third row removed, shuffled, reversed, half replaced — keeping the id of every row that survived and giving none another's; gaps nested past the depth cap still giving every row an id of its own. A release bench, ignored, times rewritten lists at 1,000, 10,000 and 100,000 rows.
@@ -744,6 +746,7 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - `display`, 1: the extent of the chunks' covers knowing its least and greatest edge as they come and go.
 - `compare`, 2: the comparison forgiving anti-aliased edges only, and catching a missing divider or icon on the checkout design.
 - `bands`, 4: the band writer holding one row of tiles at a time and writing their rows in order, a tile it can't have stopping it; a band holding as many rows as fit in 16 MB, a whole row of tiles up to 16,384 pixels wide, at least one row however wide; a drawing 1,000,000 pixels wide written in strips holding at most 16 MB at once, its pixels right at both ends and across a strip's seam and a band's; a strip painting as the part of the tile it replaces.
+- `design`, 4: a new design staling every tile of both themes, an edit damaging only where it changed, from the drawing's top-left, in each theme drawn and no other, the drawing then painting tile by tile as a fresh one; an edit leaving the scene too many images for the GPU's atlas keeping the drawing, saying why, damaging no tile and painting none, and the edit that mends it damaging every tile and painting as a fresh drawing; a whole scene that can't be drawn tried again only once it changes; a whole scene redrawing both themes, and a theme let go left alone.
 - `tiles`, 3: a view needing the tiles it crosses, its middle first, and a tile it doesn't show landing nowhere; the tile cache holding its cap, the least recently used dropped first; damage making exactly the tiles it overlaps stale at every level, a stale tile still there until painted again.
 - The crate, 1: the core naming no adapter and no rasterizer.
 - `shadow`, 1: a shadow in pieces matching it as one image, with no seam and within the bound for how wide its blur is on the screen, at fractional scales, for every kind of piece, a box thinner than its blur, and a dozen random outlines.
@@ -755,12 +758,13 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - A scene sized, painted and hit-tested.
 - A design in a font file, by its scene and by a patch bringing another weight, laid out and painted as the server paints its PNG, pixel for pixel.
 - The engine's atlas model and vello's own resolver, as the module ships it, agreeing on 4,000 random sets of images: whether they fit, the first left out, and each one's place.
-- The two agreeing on a real drawing's image files and shadows, replayed through the one paint entry point as a tile is, and on the same drawing updated to too many files.
+- The two agreeing on a real drawing's image files and shadows, replayed through the one paint entry point as a tile is; the same design updated to too many files painting nothing.
 - A patch before any scene, or garbage, doing nothing.
 - Problems keeping the scene until a patch clears them.
 - A theme switch painting the scene again in the other theme.
 - A click landing only on what a clip shows.
 - A whole scene damaging every tile of both themes, a patch only where the node it changed was and is, in each theme drawn, and a theme switched back to keeping its drawing.
+- A patch leaving the design too many images for the GPU's atlas a problem, as the stream's are, with no tile damaged or painted; the patch that mends it damaging every tile and painting as the server's PNG, pixel for pixel.
 
 ### `devpage-design-module`
 

@@ -7,7 +7,10 @@
 //! next, are [`scene`]'s) → layout, the painter's commands and a kept,
 //! updatable drawing ([`render`]) → chunks under property trees with their
 //! index, the one paint entry point and hit testing ([`display`]) → tiles,
-//! their cache and the damage that makes them stale ([`tiles`]); with the
+//! their cache and the damage that makes them stale ([`tiles`]) — and a
+//! design as it is held while shown, its scene and its drawings brought
+//! along by each edit, with one rule for a scene that can't be drawn
+//! ([`design`]); with the
 //! shadows' sampling ([`shadow`]), the GPU atlas's model ([`atlas`]), the
 //! wire form of scenes and their edits ([`wire`], [`proto`]) and the rule two
 //! drawings are compared by ([`compare`]). Its geometry and colours are
@@ -21,6 +24,7 @@
 // The core.
 pub mod atlas;
 pub mod compare;
+pub mod design;
 pub mod display;
 pub mod fonts;
 pub mod ids;
@@ -41,6 +45,7 @@ pub mod cpu;
 
 use std::fmt;
 
+pub use design::Design;
 pub use kurbo::Rect as KRect;
 pub use render::{Damage, Drawing, Renderer};
 pub use resolve::resolve;

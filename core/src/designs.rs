@@ -9,13 +9,15 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use devpage_design::bands::Piece;
+use devpage_design::display::List;
 use devpage_design::fonts::FontFile;
+use devpage_design::ids::{Parses, Remembering};
 use devpage_design::proto;
-use devpage_design::render::{Drawing, Undrawable};
+use devpage_design::render::Undrawable;
 use devpage_design::resolve::{Outcome, Resolution};
-use devpage_design::scene::{Applied, ImageFile};
+use devpage_design::scene::{Edits, ImageFile};
 use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
-use devpage_design::{Files, Problem, Renderer, Scene, Theme, wire};
+use devpage_design::{Damage, Design, Files, Problem, Renderer, Scene, Theme, wire};
 
 use crate::folder::ServedFolder;
 
@@ -53,8 +55,8 @@ struct Source {
 
 /// A design as the store keeps it: kept resolved — its last valid scene, and
 /// where each node came from — with that scene's version, its problems now,
-/// its drawing in each theme it shows in, and the patches that brought the
-/// scene to its version, for the watch streams.
+/// the scene held as a [`Design`], drawn in each theme it shows in, and the
+/// patches that brought the scene to its version, for the watch streams.
 #[derive(Default)]
 struct Kept {
     /// What tells this design's tiles apart in the store's cache.
@@ -64,7 +66,9 @@ struct Kept {
     resolution: Option<Resolution>,
     /// The design's problems now — resolving it, or drawing its scene.
     problems: Option<Vec<Problem>>,
-    drawings: Vec<Drawing>,
+    /// The resolution's scene, drawn in every theme it shows in: `None`
+    /// before it is first drawn, or after the engine panicked on it.
+    design: Option<Design>,
     /// The last patches, each from the version before it: what a stream that
     /// sent that version sends next.
     log: std::collections::VecDeque<(u64, Arc<proto::Patch>)>,
@@ -151,7 +155,7 @@ struct Folder {
     kept: Mutex<HashMap<String, Arc<Mutex<Kept>>>>,
     /// Each design file's last parse, by path, kept across its saves: a new
     /// parse is matched against it, so its elements keep their ids.
-    syntax: Mutex<HashMap<String, Arc<devpage_design::parse::File>>>,
+    parses: Parses,
     /// How many tiles the folder's designs were painted in, for the tests.
     #[cfg(test)]
     painted: std::sync::atomic::AtomicUsize,
@@ -265,19 +269,6 @@ impl Files for Reading<'_> {
         self.source(path)
     }
 
-    /// A design file parsed and matched against its last parse, so its
-    /// elements keep their ids across saves.
-    fn parse(&self, path: &str, source: &str) -> Result<Arc<devpage_design::parse::File>, Problem> {
-        let fresh = devpage_design::parse::parse(source)?;
-        let mut syntax = lock(&self.store.syntax);
-        let file = Arc::new(match syntax.get(path) {
-            Some(last) => devpage_design::ids::matched(fresh, last),
-            None => fresh,
-        });
-        syntax.insert(path.to_string(), file.clone());
-        Ok(file)
-    }
-
     /// A folder's files, listed once and kept until the watcher reports a
     /// change to any file directly in it.
     fn list(&self, path: &str) -> Option<Vec<String>> {
@@ -385,11 +376,14 @@ impl Folder {
         #[cfg(test)]
         self.resolutions
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let reading = Reading {
-            store: self,
-            asked: RefCell::new(Vec::new()),
-            seen: RefCell::new(Vec::new()),
-        };
+        let reading = Remembering::with(
+            Reading {
+                store: self,
+                asked: RefCell::new(Vec::new()),
+                seen: RefCell::new(Vec::new()),
+            },
+            &self.parses,
+        );
         enum Done {
             Fresh(Box<Resolution>),
             Again(Outcome),
@@ -402,7 +396,7 @@ impl Folder {
             },
             |p| vec![p],
         );
-        let asked = reading.asked.into_inner();
+        let asked = reading.files.asked.take();
         k.missing = lock(&self.sources)
             .get(path)
             .is_none_or(|source| source.bytes.is_none());
@@ -420,25 +414,21 @@ impl Folder {
                 // patched into: each is sent it whole.
                 k.log.clear();
                 k.asked = asked;
+                k.design = None;
                 k.problems = self.draw(path, k, None).err();
             }
             Ok(Done::Again(Outcome::Same)) => {
                 k.asked.extend(asked);
-                let shown = k.resolution.as_ref().map_or(0, |r| themes(r.scene()).len());
-                k.problems = if k.drawings.len() == shown {
-                    None
-                } else {
-                    self.draw(path, k, None).err()
-                };
+                k.problems = self.draw(path, k, None).err();
             }
-            Ok(Done::Again(Outcome::Changed(edits, applied))) => {
+            Ok(Done::Again(Outcome::Changed(edits, _))) => {
                 k.asked.extend(asked);
                 k.log.push_back((k.version, Arc::new(wire::patch(&edits))));
                 if k.log.len() > LOG {
                     k.log.pop_front();
                 }
                 k.version += 1;
-                k.problems = self.draw(path, k, Some(&applied)).err();
+                k.problems = self.draw(path, k, Some(&edits)).err();
             }
             Ok(Done::Again(Outcome::Problems(problems))) => {
                 k.asked.extend(asked);
@@ -459,7 +449,7 @@ impl Folder {
         }
         k.asked.sort();
         k.asked.dedup();
-        reading.seen.into_inner()
+        reading.files.seen.into_inner()
     }
 
     /// The kept state of the design at `path`, made the first time.
@@ -470,83 +460,80 @@ impl Folder {
             .clone()
     }
 
-    /// Brings the design's drawings to its scene: each theme's drawing
-    /// updated by `applied` — only the tiles over the damage going stale —
-    /// or made, the first time or with no patch; a theme the design no
-    /// longer shows in dropped, with its tiles. Or why the scene can't be
-    /// drawn, its drawings the scene's all the same, so the next scene
-    /// updates from it.
-    fn draw(
-        &self,
-        path: &str,
-        k: &mut Kept,
-        applied: Option<&Applied>,
-    ) -> Result<(), Vec<Problem>> {
-        let Some(res) = k.resolution.as_ref() else {
+    /// Brings the design to its resolution's scene — by `edits`, or held
+    /// afresh the first time — drawn in each theme the scene shows in, the
+    /// tiles its changes damaged gone stale and those of a theme it no
+    /// longer shows in dropped. Or why the scene can't be drawn: the design
+    /// keeps its drawings, so the next change updates them, and paints
+    /// nothing from them until one can be drawn again — the tiles painted
+    /// last stay.
+    fn draw(&self, path: &str, k: &mut Kept, edits: Option<&Edits>) -> Result<(), Vec<Problem>> {
+        let Kept {
+            id,
+            resolution,
+            design: held,
+            ..
+        } = k;
+        let Some(res) = resolution.as_ref() else {
             return Ok(());
         };
-        let scene = res.scene();
+        let (id, scene) = (*id, res.scene());
         let themes = themes(scene);
-        let id = k.id;
         let mut renderer = lock(&self.shared.renderer);
-        let mut broke: Option<Undrawable> = None;
-        let mut drawings = Vec::new();
-        for &theme in themes {
-            let at = applied.and(k.drawings.iter().position(|d| d.theme() == theme));
-            let made = guarded(
-                path,
-                || match at {
-                    Some(i) => {
-                        let mut d = k.drawings.swap_remove(i);
-                        let done = d.update(
-                            &mut renderer,
-                            scene,
-                            applied.expect("drawings with a patch"),
-                        );
-                        let mut tiles = lock(&self.shared.tiles);
-                        let mine = |t: &Tile| t.design == id && t.key.theme == theme;
-                        match &done {
-                            Ok(damage) if damage.all => tiles.damage_all_where(mine),
-                            Ok(damage) => {
-                                let a = d.area();
-                                tiles.damage_where(mine, (a.x as f64, a.y as f64), &damage.rects)
-                            }
-                            // Nothing is painted from a drawing that can't be.
-                            Err(_) => tiles.forget(mine),
-                        }
-                        drop(tiles);
-                        Ok((Some(d), done.err()))
+        let drawn = guarded(
+            path,
+            || {
+                let mut design = match (held.take(), edits) {
+                    // Edits the resolution's scene took apply to the same
+                    // scene here; were they ever refused, it starts again
+                    // from the resolution's.
+                    (Some(mut design), Some(edits)) => match design.apply(&mut renderer, edits) {
+                        Ok(()) => design,
+                        Err(_) => Design::new(scene.clone()),
+                    },
+                    (Some(design), None) => design,
+                    (None, _) => Design::new(scene.clone()),
+                };
+                for theme in [Theme::Light, Theme::Dark] {
+                    if !themes.contains(&theme) {
+                        design.forget(theme);
                     }
-                    None => {
-                        // A drawing made afresh owes nothing to tiles
-                        // painted before it.
-                        lock(&self.shared.tiles)
-                            .forget(|t: &Tile| t.design == id && t.key.theme == theme);
-                        match renderer.drawing(scene, theme, None) {
-                            Ok(d) => Ok((Some(d), None)),
-                            Err(u) => Ok((None, Some(u))),
-                        }
+                }
+                let mut broke = None;
+                for &theme in themes {
+                    if let Err(undrawable) = design.draw(&mut renderer, theme) {
+                        broke.get_or_insert_with(|| undrawable.clone());
                     }
-                },
-                |p| Undrawable {
-                    message: p.message,
-                    at: None,
-                },
-            );
-            let (drawing, problem) = match made {
-                Ok(made) => made,
-                // A drawing the engine panicked on is made again next time.
-                Err(u) => (None, Some(u)),
-            };
-            drawings.extend(drawing);
-            if broke.is_none() {
-                broke = problem;
+                }
+                let damage = design.take_damage();
+                *held = Some(design);
+                Ok((damage, broke))
+            },
+            |p| Undrawable {
+                message: p.message,
+                at: None,
+            },
+        );
+        drop(renderer);
+        let mut tiles = lock(&self.shared.tiles);
+        let (damage, broke) = match drawn {
+            Ok(drawn) => drawn,
+            // A design the engine panicked on is held afresh next time, and
+            // owes nothing to tiles painted before.
+            Err(undrawable) => {
+                tiles.forget(|t| t.design == id);
+                (Vec::new(), Some(undrawable))
+            }
+        };
+        for (theme, damage) in damage {
+            let mine = |t: &Tile| t.design == id && t.key.theme == theme;
+            match damage {
+                Damage::All => tiles.damage_all_where(mine),
+                Damage::Rects { origin, rects } => tiles.damage_where(mine, origin, &rects),
             }
         }
-        drop(renderer);
         // The themes the design no longer shows in, and their tiles.
-        lock(&self.shared.tiles).forget(|t| t.design == id && !themes.contains(&t.key.theme));
-        k.drawings = drawings;
+        tiles.forget(|t| t.design == id && !themes.contains(&t.key.theme));
         match broke {
             None => Ok(()),
             Some(u) => Err(problem(path, u)),
@@ -602,7 +589,7 @@ impl Store {
             resolved: Mutex::default(),
             listeners: Mutex::default(),
             kept: Mutex::default(),
-            syntax: Mutex::default(),
+            parses: Parses::default(),
             #[cfg(test)]
             painted: Default::default(),
             #[cfg(test)]
@@ -762,10 +749,9 @@ impl Designs {
         // A design file no design reads any more takes its last parse with
         // it.
         let resolved = lock(&store.resolved);
-        let mut syntax = lock(&store.syntax);
         for key in &forgotten {
-            if syntax.contains_key(key) && !resolved.values().any(|r| r.asked.contains(key)) {
-                syntax.remove(key);
+            if store.parses.holds(key) && !resolved.values().any(|r| r.asked.contains(key)) {
+                store.parses.forget(key);
             }
         }
     }
@@ -811,18 +797,18 @@ impl Designs {
         }
         let kept = store.kept(path);
         let (id, version, area, theme) = {
-            let k = lock(&kept);
+            let mut k = lock(&kept);
             if let Some(problems) = &k.problems {
                 return Err(lines(problems));
             }
             let themed = k.resolution.as_ref().is_some_and(|r| r.scene().themed);
             let theme = if themed { theme } else { Theme::Light };
-            let drawing = k
-                .drawings
-                .iter()
-                .find(|d| d.theme() == theme)
+            let area = k
+                .design
+                .as_mut()
+                .and_then(|d| d.area(&mut lock(&store.shared.renderer), theme))
                 .ok_or_else(|| format!("{path}: the design has no drawing in {theme:?}"))?;
-            (k.id, k.version, drawing.area(), theme)
+            (k.id, k.version, area, theme)
         };
         guarded(
             path,
@@ -834,22 +820,12 @@ impl Designs {
                         // painted in strips, never cached.
                         Piece::Strip { col, y, rows } => {
                             let mut kept = lock(&kept);
-                            let drawing =
-                                prepared(&mut kept, version, theme, &store.shared.renderer, |d| {
-                                    let a = d.area();
-                                    let (x, y) = (
-                                        a.x as f64 + (col * devpage_design::tiles::TILE) as f64,
-                                        a.y as f64 + y as f64,
-                                    );
-                                    devpage_design::KRect::new(
-                                        x,
-                                        y,
-                                        x + devpage_design::tiles::TILE as f64,
-                                        y + rows as f64,
-                                    )
+                            let list =
+                                prepared(&mut kept, version, &store.shared.renderer, |d, r| {
+                                    d.strip(r, theme, col, y, rows)
                                 })?;
                             return Ok::<_, &str>(
-                                devpage_design::cpu::strip(&drawing.list, col, y, rows).into(),
+                                devpage_design::cpu::strip(list, col, y, rows).into(),
                             );
                         }
                     };
@@ -871,12 +847,10 @@ impl Designs {
                     if let Some((pixels, false)) = lock(&store.shared.tiles).get(&tile) {
                         return Ok(pixels.clone());
                     }
-                    let drawing =
-                        prepared(&mut kept, version, theme, &store.shared.renderer, |d| {
-                            devpage_design::tiles::tile_rect(&d.list, 1.0, col, row)
-                        })?;
-                    let pixels: Arc<[u8]> =
-                        devpage_design::cpu::tile(&drawing.list, 1.0, col, row).into();
+                    let list = prepared(&mut kept, version, &store.shared.renderer, |d, r| {
+                        d.tile(r, theme, 1.0, col, row)
+                    })?;
+                    let pixels: Arc<[u8]> = devpage_design::cpu::tile(list, 1.0, col, row).into();
                     #[cfg(test)]
                     store
                         .painted
@@ -900,33 +874,22 @@ impl Designs {
     }
 }
 
-/// The drawing of `kept` in `theme` — if it is still `version`'s — with
-/// what the area `rect` picks rounded where its runs now place it, so what
-/// is painted there is a fresh drawing's.
+/// The display list `list` picks from `kept`'s design — if it is still
+/// `version`'s — rounded where it is painted, so what is painted there is a
+/// fresh drawing's. The renderer is locked only while it rounds, never
+/// while the list is painted.
 fn prepared<'a>(
     kept: &'a mut Kept,
     version: u64,
-    theme: Theme,
     renderer: &Mutex<Renderer>,
-    rect: impl FnOnce(&devpage_design::Drawing) -> devpage_design::KRect,
-) -> Result<&'a devpage_design::Drawing, &'static str> {
+    list: impl FnOnce(&'a mut Design, &mut Renderer) -> Option<&'a List>,
+) -> Result<&'a List, &'static str> {
     let gone = "the design changed while its PNG was written";
     if kept.version != version {
         return Err(gone);
     }
-    let Kept {
-        resolution,
-        drawings,
-        ..
-    } = kept;
-    let scene = resolution.as_ref().ok_or(gone)?.scene();
-    let drawing = drawings
-        .iter_mut()
-        .find(|d| d.theme() == theme)
-        .ok_or(gone)?;
-    let area = rect(drawing);
-    drawing.prepare(&mut lock(renderer), scene, area);
-    Ok(drawing)
+    let design = kept.design.as_mut().ok_or(gone)?;
+    list(design, &mut lock(renderer)).ok_or(gone)
 }
 
 /// The design at `path`'s problems, read straight from disk: what
@@ -1332,6 +1295,72 @@ mod tests {
         // Not themed: the dark PNG is the light one.
         let green = designs.png("app/t.design", Theme::Light).unwrap();
         assert_eq!(designs.png("app/t.design", Theme::Dark).unwrap(), green);
+    }
+
+    /// A PNG file `w` × `h` pixels of one `fill`, painted by the engine.
+    fn png_file(w: u32, h: u32, fill: &str) -> Vec<u8> {
+        let files: HashMap<String, String> = [(
+            "p.design".to_string(),
+            format!(r##"<Frame width={{{w}}} height={{{h}}} fill="{fill}" />"##),
+        )]
+        .into();
+        let scene = devpage_design::resolve(&files, "p.design").unwrap();
+        devpage_design::png(&mut Renderer::new(), &scene, Theme::Light).unwrap()
+    }
+
+    /// An image that grows mid-session past what the GPU's atlas holds —
+    /// three 4096-pixel squares and two small images, one of which turns
+    /// into a fourth square — makes the design's problem, at its `src`, in
+    /// place of a PNG; a save in the meantime is kept. Once the image is
+    /// small again, the PNG is the one a fresh store paints: every tile the
+    /// last good drawing left is painted again.
+    #[test]
+    fn an_image_that_breaks_mid_session_draws_as_fresh_once_mended() {
+        let dir = served("image-breaks");
+        for (name, fill) in [("a", "#dc0000"), ("b", "#00c800"), ("c", "#0000dc")] {
+            std::fs::write(
+                dir.join(format!("app/{name}.png")),
+                png_file(4096, 4096, fill),
+            )
+            .unwrap();
+        }
+        let small = png_file(8, 8, "#c800c8");
+        std::fs::write(dir.join("app/x.png"), &small).unwrap();
+        std::fs::write(dir.join("app/y.png"), png_file(8, 8, "#00c8c8")).unwrap();
+        let design = |fill: &str| {
+            let images: String = "abcxy"
+                .chars()
+                .map(|c| format!("\n  <Image src=\"./{c}.png\" width={{40}} height={{40}} />"))
+                .collect();
+            format!(
+                r##"<Frame layout="row" gap={{4}} padding={{8}} fill="#ffffff">{images}
+  <Rect width={{40}} height={{40}} fill="{fill}" />
+</Frame>
+"##
+            )
+        };
+        let file = dir.join("app/grows.design");
+        std::fs::write(&file, design("#000000")).unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        designs.png("app/grows.design", Theme::Light).unwrap();
+
+        std::fs::write(dir.join("app/x.png"), png_file(4096, 4096, "#c800c8")).unwrap();
+        designs.changed(&dir.join("app/x.png"));
+        let broken = designs.png("app/grows.design", Theme::Light).unwrap_err();
+        assert!(
+            broken.starts_with("app/grows.design:") && broken.contains("doesn't fit"),
+            "{broken}"
+        );
+        save(&designs, &file, &design("#ffaa00"));
+        assert!(designs.png("app/grows.design", Theme::Light).is_err());
+
+        std::fs::write(dir.join("app/x.png"), &small).unwrap();
+        designs.changed(&dir.join("app/x.png"));
+        let mended = designs.png("app/grows.design", Theme::Light).unwrap();
+        let fresh = Designs::new(&ServedFolder::new(&dir).unwrap())
+            .png("app/grows.design", Theme::Light)
+            .unwrap();
+        assert!(mended == fresh, "the mended PNG isn't a fresh one");
     }
 
     /// A PNG whose reader has stopped reading holds up no save: the store

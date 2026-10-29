@@ -40,7 +40,7 @@ fn op(edit: &Edit) -> proto::Op {
 /// The edits a patch to `scene` carries, or why it doesn't: each image and
 /// font file the scene holds already is taken from it, not decoded or
 /// checked again.
-fn edits(patch: &proto::Patch, scene: &Scene) -> Result<Edits, String> {
+pub(crate) fn edits(patch: &proto::Patch, scene: &Scene) -> Result<Edits, String> {
     let list = patch
         .ops
         .iter()
