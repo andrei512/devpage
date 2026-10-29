@@ -162,7 +162,7 @@ the suite green.
 
 ### `check`
 
-*15 tests.*
+*17 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
@@ -175,6 +175,7 @@ the suite green.
 - Topics checked against the page's own site, and a page in no site checked as a doc.
 - A broken linked document named by its address, not an absolute path.
 - The preview reporting each problem once to its reporter.
+- A preview of files that never change checking each page once, the same problems on every later view; one of files that change checking on every view.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
 
 ### `comments`
@@ -551,7 +552,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*29 tests, and 5 of its configuration; 4 in Chrome.*
+*30 tests, and 5 of its configuration; 4 in Chrome.*
 
 - Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
@@ -563,6 +564,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
+- A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own.
 - A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.
