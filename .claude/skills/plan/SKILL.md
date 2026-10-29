@@ -1,7 +1,6 @@
 ---
 name: plan
 description: Turn a settled design into an ordered set of tickets that agents can build in parallel.
-disable-model-invocation: true
 ---
 
 # Plan

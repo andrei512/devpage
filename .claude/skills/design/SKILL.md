@@ -1,7 +1,6 @@
 ---
 name: design
 description: Work out how the system should change, until the understanding is shared — then write it into the design docs.
-disable-model-invocation: true
 ---
 
 # Design
