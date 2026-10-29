@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 515 tests in the six crates; needs no network and no Chrome
+$ cargo test                  # 518 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -19,7 +19,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 `cargo test` runs every crate in the workspace: 169 in `devpage`, 182 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, 2 in
-`devpage-design-module` and 13 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
+`devpage-design-module` and 16 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
 `src/drive/server/canvas_tests.rs` and the comments' in
 `src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
@@ -548,9 +548,11 @@ repository holds no corpus and no results.
   - *open pages* — 2,000 pages listening throughout the run.
   - *churn* — every version read once, as fast as the server answers, with
     the open pages listening: memory and threads stay flat past the memory
-    cache's limit, and every open page is still open at the end. Run once.
+    cache's limit — judged from the first sample holding the most versions
+    memory held, since before it memory fills and the blocking pool warms up —
+    and every open page is still open at the end. Run once.
   - *knee* — views of each kind of document, from 50 a second and doubling,
-    until their p99 crosses 100 ms, a few seconds a step.
+    until their p99 crosses 100 ms, a second a step.
   - *soak*, only when asked for with `--soak <minutes>`: the whole envelope at
     its rates for that long, for leaks the work-driven scenarios can't reach.
 - **The report** is the run's summary page: each number beside its target and
@@ -564,15 +566,17 @@ repository holds no corpus and no results.
 The workflow lays `bench/compose.yaml` over the example's compose file: the
 server held to 2 CPUs and 4 GB with no swap, its cache sized as on a 10 GB
 PVC, its metrics port at 9031. The same binary runs from a laptop against
-any server; `--scale` shrinks the corpus, the open pages and the durations,
-never the rates:
+any server. `--scale` sets the corpus; above 1 it never stretches the time
+or raises the envelope's pages, and below 1 it shrinks those too, for a run of
+seconds — never the rates. Every pass schedules its load from one plan, and
+the run prints how much before it starts and how long it took at the end:
 
 <Terminal>
 
 ```text
 $ docker compose -f deploy/server/compose.yaml -f bench/compose.yaml up --build --wait devpage-s3
 $ cargo run --release -p devpage-bench -- --server http://127.0.0.1:3031 \
-    --metrics http://127.0.0.1:9031/metrics --scale 0.01 --runs 1
+    --metrics http://127.0.0.1:9031/metrics --docs docs   # about five minutes
 ```
 
 </Terminal>

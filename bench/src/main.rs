@@ -1,12 +1,13 @@
 //! devpage-bench: publishes a seeded corpus to a server, loads it the ways
 //! the envelope says — views and bursts, misses, writes, a herd, open pages,
-//! the knee, a soak — and reports each number beside its target and a
-//! baseline's, with the time the server says each stage took.
+//! the knee, the churn, and a soak when asked for — and reports each number
+//! beside its target and a baseline's, with the time the server says each
+//! stage took. A run takes about five minutes.
 //!
 //!     devpage-bench --server http://127.0.0.1:3031 --metrics http://127.0.0.1:9031/metrics \
 //!       [--seed 1] [--scale 1] [--runs 3] [--scenarios views,herd] [--docs docs] \
-//!       [--memory-limit 4294967296] [--out results.json] [--report report.md] \
-//!       [--baseline main.json]
+//!       [--soak <minutes>] [--memory-limit 4294967296] [--out results.json] \
+//!       [--report report.md] [--baseline main.json]
 
 mod corpus;
 mod load;
@@ -33,6 +34,8 @@ struct Args {
     out: Option<PathBuf>,
     report: Option<PathBuf>,
     baseline: Option<PathBuf>,
+    /// Minutes of soak, after everything else; none unless asked for.
+    soak: Option<f64>,
 }
 
 fn args() -> Result<Args> {
@@ -88,6 +91,15 @@ fn args() -> Result<Args> {
         out: path("out"),
         report: path("report"),
         baseline: path("baseline"),
+        soak: given
+            .get("soak")
+            .map(|v| {
+                v.parse::<f64>()
+                    .ok()
+                    .filter(|m| *m > 0.0)
+                    .context("--soak is a number of minutes above 0")
+            })
+            .transpose()?,
     })
 }
 
@@ -118,6 +130,7 @@ fn raise_open_files() {}
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = args()?;
+    let started = std::time::Instant::now();
     raise_open_files();
     let baseline = match &args.baseline {
         Some(path) if path.exists() => {
@@ -143,21 +156,39 @@ async fn main() -> Result<()> {
         args.memory_limit,
     )?;
     let mut results = report::Results::default();
-    eprintln!("seeding: the corpus, scale {}", args.scale);
+    eprintln!(
+        "seeding: the corpus, scale {}; {:.0} s of load to schedule after it",
+        args.scale,
+        bench.plan().scheduled(args.runs)
+    );
     bench.seed(&mut results, folder).await?;
+    let asked = |name: &str| args.scenarios.iter().any(|s| s == name);
+    if asked("open") || asked("churn") || args.soak.is_some() {
+        eprintln!("opening the pages, to listen throughout");
+        bench.listen(&mut results).await;
+    }
     let bench = Arc::new(bench);
     for run in 1..=args.runs {
-        for scenario in args.scenarios.iter().filter(|s| *s != "soak") {
+        for scenario in args.scenarios.iter().filter(|s| *s != "churn") {
             eprintln!("run {run}/{}: {scenario}", args.runs);
             bench.run(scenario, &mut results).await?;
         }
     }
-    if args.scenarios.iter().any(|s| s == "soak") {
-        eprintln!("soak, once");
-        bench.run("soak", &mut results).await?;
+    if asked("churn") {
+        eprintln!("churn, once");
+        bench.run("churn", &mut results).await?;
     }
+    if let Some(minutes) = args.soak {
+        eprintln!("soak, {minutes} minutes");
+        bench.soak(&mut results, minutes).await;
+    }
+    let took = started.elapsed().as_secs();
     let about = format!(
-        "{} at seed {}, scale {}: {} of {}, the median of each; the soak once.",
+        "{} at seed {}, scale {}: {} of {}, the median of each; the churn once{}. \
+         The run took {}m {:02}s. Memory and threads are judged from when the \
+         memory cache was full — the first sample holding the most versions it \
+         held — to the end: before that, memory fills with versions and the \
+         blocking pool warms up.",
         args.server,
         args.seed,
         args.scale,
@@ -165,7 +196,13 @@ async fn main() -> Result<()> {
             1 => "1 run".to_string(),
             n => format!("{n} runs"),
         },
-        args.scenarios.join(", ")
+        args.scenarios.join(", "),
+        match args.soak {
+            Some(minutes) => format!(", then a {minutes}-minute soak"),
+            None => String::new(),
+        },
+        took / 60,
+        took % 60,
     );
     let markdown = report::markdown(&results, &about, baseline.as_ref());
     println!("{markdown}");
@@ -179,6 +216,8 @@ async fn main() -> Result<()> {
             "scale": args.scale,
             "runs": args.runs,
             "scenarios": args.scenarios,
+            "soak_minutes": args.soak,
+            "seconds": took,
         });
         std::fs::write(path, serde_json::to_string_pretty(&results.to_json(about))?)?;
     }
