@@ -160,10 +160,7 @@ impl Heard {
 /// its entry.
 pub(super) fn served(document: Arc<Document>) -> (Router, String) {
     let entry = document.entry();
-    let router = server::router(server::Options::printing(
-        document,
-        crate::changes::Changes::default(),
-    ));
+    let router = server::router(server::App::printing(document));
     (router, entry)
 }
 

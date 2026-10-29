@@ -243,7 +243,7 @@ code, as the text spells them — `Designs`, `design` — each once, in the orde
 they first appear, for the page to find and mark. Stopwords and excluded
 words are never among them.
 
-`server::Options::printing`, which `devpage pdf` and `video` serve through, has no
+`server::App::printing`, which `devpage pdf` and `video` serve through, has no
 search index, and finds nothing.
 
 The index is written by one thread with a 15 MB memory arena, the least

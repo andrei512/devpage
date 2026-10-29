@@ -55,7 +55,7 @@ flowchart LR
 | `src/adapters/watch/inotify.rs` | The Linux watcher: `notify`'s inotify watcher, non-recursive on every folder in sight. |
 | `src/adapters/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |
 | `core/src/designs.rs` | The design store — every design asked for, kept resolved in memory with the files it read and resolved again only as far as a change to one of them reaches, the patches that made of each design's scene — encoded once from the edits resolving made, read by every watch stream (`next`) — and the changes it tells its listeners (`on_change`); a design's PNG and its validator, which block; design problems for `devpage check`. One `Store` — one renderer, one 64 MB tile cache — holds the `Designs` of any number of folders, each under its mount, which its validators name; a folder no one holds leaves it with its tiles. No transport and no runtime: the watch stream, the canvas page and painting off the async threads are the server's. |
-| `src/drive/server.rs` | The HTTP adapter: one router built from one `Options` value — the routes, the gRPC-Web watch route and the search among them — request logging, the event stream, the comment requests and the author each names through the comments' `Identity`, the canvas page and drawing the PNGs the resolver names on blocking threads, and the built-in assets, each sent compressed as the browser accepts. |
+| `src/drive/server.rs` | The HTTP adapter: one router built from one `App` — made by `App::local` for `devpage`, `App::printing` for what Chrome prints and records, `App::published` for a version in server mode, and `App::testing` for the tests, each taking only what varies, comments as `Commenting` (the threads and who writes them) or none — the routes, the gRPC-Web watch route and the search among them — request logging (`logged`), the event stream, the comment requests and the author each names through the comments' `Identity`, the canvas page and drawing the PNGs the resolver names on blocking threads, and the built-in assets, each sent compressed as the browser accepts. |
 | `core/src/resolve.rs` | The resolver: what a path in the served folder answers with — a page, a redirect, a file, a design's or a slide's PNG, or why there is none — decided from the documents alone; every address it answers with is under the served folder's mount. |
 | `src/drive/server/watch_stream.rs` | The `Designs` gRPC service: the watch stream that sends each design a page shows — its scene, then what changed, or its problems — as the design store tells it of changes. |
 | `src/drive/server/design_tests.rs` | The design tests that need the server: design PNGs and check over HTTP. |
@@ -116,52 +116,49 @@ with an error before anything is served.
 1. Load the document
    From the path argument, or `.`, inside the served folder — the current
    folder or `--root` ([document files](../../viewer/configuration-reference/README.md#document-files)).
-   The served folder is opened on it (`Folder::new`), as its entry document,
-   shared by the watcher and the server; the folder re-reads it whenever its
-   file changes.
+   It becomes the entry document of the folder the app opens on it
+   (`Folder::new`, below), shared by the watcher and the server; the folder
+   re-reads it whenever its file changes.
 
-2. Index the folder and create the design store
-   Opening the folder indexes its document files and `.gitignore` files
-   ([the index](../../viewer/document-index/README.md#the-index)); beside it,
-   the search index of their sections ([search](../../viewer/search/README.md))
-   and an empty module cache. The watcher and the server share all three.
-   Then the design store, empty: it resolves a design
-   the first time one is asked for
-   ([in the server](../../viewer/design-engine/README.md#in-the-server)), and
-   the watcher and the server share it too.
-
-3. Create the change bus
+2. Create the process-wide parts
    The bus carrying typed changes — a refresh, or a page's comments — to
    every open page of the served folder
-   ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream)).
-   The link checker gets it too, through its `Publish` port, and publishes a
-   refresh when a background check of an external address
-   changes what pages show; the server's comment writes publish each page's
-   comments on it as they land.
+   ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream));
+   the link checker, on the network and reporting to the terminal, which
+   gets the bus through its `Publish` port and publishes a refresh when a
+   background check of an external address changes what pages show; and
+   the identity — local, `git config user.name` from `adapters::git`, on a
+   loopback address, and the `--user-header` header otherwise; none with
+   `--no-comments`, and the server has comments off. With an identity come
+   the served folder's comments: its thread files behind `Comments`, which
+   the server writes through — publishing each page's comments on the bus as
+   they land — and the watcher hears hand edits through.
 
-4. Gather the server's parts
-   Every part above, in one `server::Options`, with the identity — local,
-   `git config user.name` from `adapters::git`, on a loopback address, and the
-   `--user-header` header otherwise; none with `--no-comments`, and the server
-   has comments off — and the served folder's comments: its thread files
-   behind `Comments`, which the server writes through and the watcher hears
-   hand edits through.
+3. Make the app
+   `server::App::local` takes them and builds the rest. Opening the folder on
+   the document indexes its document files and `.gitignore` files
+   ([the index](../../viewer/document-index/README.md#the-index)); beside it,
+   the search index of their sections ([search](../../viewer/search/README.md)),
+   an empty module cache, and the design store, empty: it resolves a design
+   the first time one is asked for
+   ([in the server](../../viewer/design-engine/README.md#in-the-server)).
+   The watcher and the server share all four.
 
-5. Start the watcher
-   `Options::watch`, on the watch set of the served folder, with the same
+4. Start the watcher
+   `App::watch`, on the watch set of the served folder, with the same
    folder, module cache, search index, design store, bus and comments as the
    server, so a thread the
    server wrote is announced once
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.
 
-6. Bind the address
+5. Bind the address
    Exactly `--port`, or the first free port from 3030 up, on `--host` —
    `127.0.0.1` by default ([the address](../../viewer/serving-pages/README.md#the-address)).
 
-7. Print the address and serve
+6. Print the address and serve
    `<title> → http://<host>:<port>` — `localhost` for a loopback address — then
-   serve until devpage is stopped (`server::router(options)`,
+   serve until devpage is stopped (`server::logged(server::router(app))`,
    [routes](../../viewer/serving-pages/README.md#routes)).
 
 </Steps>

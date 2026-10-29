@@ -84,7 +84,9 @@ page's comments as it lands, and the store remembers the bytes it wrote. The
 watcher asks the comments it shares with the server what they heard of the
 burst's paths (`Comments::heard`), and they answer a page only for a thread
 file whose bytes differ from what open pages last heard of, as after a hand
-edit; decoding a thread file's path is the store's, not the watcher's. The comment store is watched whatever a
+edit; decoding a thread file's path is the store's, not the watcher's. With
+comments off (`--no-comments`) there are no comments to ask, and a thread
+file announces nothing. The comment store is watched whatever a
 site's `watch` says, and never refreshes pages itself; nothing else under `.devpage/` is looked at. Every other path is first
 handed to the design store — see [Designs](#designs) — and the module cache
 forgets the file, so the next

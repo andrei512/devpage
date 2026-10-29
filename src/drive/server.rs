@@ -49,13 +49,6 @@ struct AppState {
     preview: Arc<Preview>,
 }
 
-/// Comments on: the threads, announced as they are written, and who
-/// writes them.
-struct Commenting {
-    threads: Comments,
-    identity: Identity,
-}
-
 impl AppState {
     /// The comments, or — when they are off — the 404 every comment route
     /// answers, as if it weren't there.
@@ -90,81 +83,176 @@ fn refused(refused: comments::Refused) -> Response {
     (status, refused.to_string()).into_response()
 }
 
-/// Everything a server is made of. [`Options::new`] serves one document
-/// the way tests and `devpage check` want it; a caller changes the fields it
-/// cares about with struct update syntax, so a new dependency never reaches
-/// every caller.
-pub struct Options {
+/// Comments on: the threads, announced as they are written, and who writes
+/// them.
+pub struct Commenting {
+    threads: Comments,
+    identity: Identity,
+}
+
+impl Commenting {
+    pub fn new(threads: Comments, identity: Identity) -> Self {
+        Self { threads, identity }
+    }
+}
+
+/// Everything one server is made of: one document under its served folder,
+/// served in one of four ways, each a constructor that takes exactly what
+/// varies — [`App::local`] for `devpage`, [`App::printing`] for what Chrome
+/// prints and records, [`App::published`] for one version in server mode,
+/// and [`App::testing`] for the tests.
+pub struct App {
     /// The served folder, opened on the entry document, which it follows
     /// as its file changes.
-    pub folder: Arc<Folder>,
+    folder: Arc<Folder>,
     /// What was read and compiled of the served folder's widgets.
-    pub modules: crate::widgets::Modules,
+    modules: crate::widgets::Modules,
     /// The search index of what the entry document publishes, or `None`:
     /// every search then finds nothing.
-    pub search: Option<Arc<Search>>,
-    pub designs: Designs,
+    search: Option<Arc<Search>>,
+    designs: Designs,
     /// What tells open pages there is something new to show.
-    pub changes: Changes,
-    /// Who writes comments, or `None` when they are off (`--no-comments`).
-    pub comments: Option<Identity>,
-    /// The served folder's comments, which every comment write goes
-    /// through. [`Options::watch`] hears thread files through this same
-    /// value, so the watcher knows the threads the server wrote — and
-    /// announced — itself.
-    pub threads: Comments,
+    changes: Changes,
+    /// `None` when comments are off.
+    comments: Option<Arc<Commenting>>,
     /// The Chrome that draws slides as PNGs, and what it drew.
-    pub shots: Shots,
+    shots: Shots,
     /// The problems each page lists.
-    pub preview: Arc<Preview>,
-    /// Whether every request is logged, as `devpage` does.
-    pub log: bool,
+    preview: Arc<Preview>,
 }
 
-impl Options {
-    /// One document, with its served folder opened on it and no search
-    /// index, comments on as one local author, nothing logged.
-    pub fn new(document: Arc<Document>, changes: Changes) -> Self {
+impl App {
+    /// `devpage`: `document` with the search index of what it publishes, its
+    /// own design store, announcing on `changes`, its problems found by
+    /// `preview`, and `comments` — or none, `--no-comments`.
+    pub fn local(
+        document: Arc<Document>,
+        changes: Changes,
+        preview: Arc<Preview>,
+        comments: Option<Commenting>,
+    ) -> Self {
+        let designs = Designs::new(&document.served);
+        Self::of(document, designs, changes, preview, comments).searched()
+    }
+
+    /// What `devpage pdf`, `devpage video` and a version's download serve
+    /// only Chrome: no search index, a bus of its own, problems checked
+    /// against the network and announced to no one, and the served folder's
+    /// own comments, shown as they are.
+    pub fn printing(document: Arc<Document>) -> Self {
+        let changes = Changes::default();
+        let comments = Commenting::new(
+            Comments::new(
+                Arc::new(comments::yaml::Yaml::new(&document.served)),
+                Arc::new(changes.clone()),
+                document.served.clone(),
+            ),
+            Identity::Local(String::new()),
+        );
+        let preview = Arc::new(Preview::new(
+            crate::http::external(None),
+            Arc::new(crate::terminal::Terminal),
+        ));
+        let designs = Designs::new(&document.served);
+        Self::of(document, designs, changes, preview, Some(comments))
+    }
+
+    /// One published version, `document` in its unpacked folder: the search
+    /// index of what it publishes, its `designs` from the store every
+    /// version shares, announcing on `changes`, asking no external address —
+    /// they are the CLI's to ask, before it uploads — and `comments`, or none
+    /// for a version that never changes.
+    pub fn published(
+        document: Arc<Document>,
+        designs: Designs,
+        changes: Changes,
+        comments: Option<Commenting>,
+    ) -> Self {
+        let preview = Arc::new(Preview::new(
+            crate::http::offline(),
+            Arc::new(crate::terminal::Terminal),
+        ));
+        Self::of(document, designs, changes, preview, comments).searched()
+    }
+
+    /// `document` for a test: no search index, a design store of its own,
+    /// announcing on `changes`, its problems found without the network and
+    /// reported to no one, and comments off until [`App::with_comments`].
+    #[cfg(test)]
+    pub fn testing(document: Arc<Document>, changes: Changes) -> Self {
+        let designs = Designs::new(&document.served);
+        let preview = crate::check::testing::preview();
+        Self::of(document, designs, changes, preview, None)
+    }
+
+    /// Comments on, written by `identity`, its threads kept in memory.
+    #[cfg(test)]
+    pub fn with_comments(self, identity: Identity) -> Self {
+        let store = Arc::new(comments::memory::Memory::default());
+        self.commenting(store, identity)
+    }
+
+    /// Comments on, written by `identity`, its threads in the served
+    /// folder's `.devpage/` as `devpage` keeps them: for a test whose threads
+    /// are files, written beforehand or heard by a watcher.
+    #[cfg(test)]
+    pub fn with_comments_on_disk(self, identity: Identity) -> Self {
+        let store = Arc::new(comments::yaml::Yaml::new(self.folder.served()));
+        self.commenting(store, identity)
+    }
+
+    #[cfg(test)]
+    fn commenting(self, store: Arc<dyn comments::Store>, identity: Identity) -> Self {
         let threads = Comments::new(
-            Arc::new(comments::yaml::Yaml::new(&document.served)),
-            Arc::new(changes.clone()),
-            document.served.clone(),
+            store,
+            Arc::new(self.changes.clone()),
+            self.folder.served().clone(),
         );
         Self {
+            comments: Some(Arc::new(Commenting::new(threads, identity))),
+            ..self
+        }
+    }
+
+    /// The design store `designs` in place of its own, for a test that tells
+    /// it of a saved file as the watcher would.
+    #[cfg(test)]
+    pub fn with_designs(self, designs: Designs) -> Self {
+        Self { designs, ..self }
+    }
+
+    fn of(
+        document: Arc<Document>,
+        designs: Designs,
+        changes: Changes,
+        preview: Arc<Preview>,
+        comments: Option<Commenting>,
+    ) -> Self {
+        Self {
+            folder: Arc::new(Folder::new(document)),
             modules: crate::widgets::Modules::default(),
             search: None,
-            designs: Designs::new(&document.served),
+            designs,
             shots: Shots::new(&changes),
-            preview: Arc::new(Preview::new(
-                crate::http::external(Some(changes.clone())),
-                Arc::new(crate::terminal::Terminal),
-            )),
-            threads,
-            folder: Arc::new(Folder::new(document)),
-            comments: Some(Identity::Local(String::new())),
+            comments: comments.map(Arc::new),
             changes,
-            log: false,
+            preview,
         }
     }
 
-    /// The server for `devpage pdf` and `devpage video`, which serves only
-    /// Chrome: nothing logged, and problems announced to no one.
-    pub fn printing(document: Arc<Document>, changes: Changes) -> Self {
+    /// With the search index of what the entry document publishes.
+    fn searched(self) -> Self {
+        let search = Search::build(&self.folder, self.folder.entry_file());
         Self {
-            preview: Arc::new(Preview::new(
-                crate::http::external(None),
-                Arc::new(crate::terminal::Terminal),
-            )),
-            ..Self::new(document, changes)
+            search: Some(Arc::new(search)),
+            ..self
         }
     }
-}
 
-impl Options {
-    /// Starts the watcher these options' server pairs with: the same served
-    /// folder, widget modules, search index, design store and change bus, and
-    /// the same thread files, so a thread the server wrote is announced once,
-    /// by the server.
+    /// Starts the watcher this server pairs with: the same served folder,
+    /// widget modules, search index, design store and change bus, and the
+    /// same comments, so a thread the server wrote is announced once, by the
+    /// server.
     pub fn watch(&self) -> anyhow::Result<crate::watch::Watch> {
         crate::watch::start(
             self.folder.clone(),
@@ -172,32 +260,33 @@ impl Options {
             self.search.clone(),
             self.designs.clone(),
             self.changes.clone(),
-            self.threads.clone(),
+            self.comments
+                .as_ref()
+                .map(|comments| comments.threads.clone()),
         )
+    }
+
+    /// The Chrome that draws this server's slides as PNGs, for its owner to
+    /// close when the server stops.
+    pub fn shots(&self) -> Shots {
+        self.shots.clone()
     }
 }
 
-/// The server `options` describe.
-pub fn router(options: Options) -> Router {
-    let Options {
+/// The server `app` describes, logging nothing.
+pub fn router(app: App) -> Router {
+    let App {
         folder,
         modules,
         search,
         designs,
         changes,
         comments,
-        threads,
         shots,
         preview,
-        log,
-    } = options;
-    let router = routes(AppState {
-        comments: comments.map(|identity| {
-            Arc::new(Commenting {
-                threads: threads.clone(),
-                identity,
-            })
-        }),
+    } = app;
+    routes(AppState {
+        comments,
         design_updates: watch_stream::hear(&designs),
         designs,
         folder,
@@ -206,12 +295,12 @@ pub fn router(options: Options) -> Router {
         changes,
         shots,
         preview,
-    });
-    if log {
-        router.layer(middleware::from_fn(log_request))
-    } else {
-        router
-    }
+    })
+}
+
+/// `router`, logging each request, as `devpage` does.
+pub fn logged(router: Router) -> Router {
+    router.layer(middleware::from_fn(log_request))
 }
 
 /// Every route, on `state`, logging nothing.
@@ -761,16 +850,10 @@ mod tests {
         let changes = crate::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
-        let threads = Comments::new(
-            Arc::new(comments::memory::Memory::default()),
-            Arc::new(changes.clone()),
-            document.served.clone(),
-        );
-        let router = router(Options {
-            comments,
-            threads,
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes.clone())
+        let app = App::testing(document, changes.clone());
+        let router = router(match comments {
+            Some(identity) => app.with_comments(identity),
+            None => app,
         });
         tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         (address, root, changes)
@@ -838,7 +921,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_server_and_the_watcher_its_options_start_announce_a_write_once() {
+    async fn a_server_and_the_watcher_its_app_starts_announce_a_write_once() {
         use crate::changes::Change;
         let dir = std::env::temp_dir().join(format!("devpage-paired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -848,12 +931,10 @@ mod tests {
         let document =
             Arc::new(Document::load(&dir.join("a.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
-        let options = Options {
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes.clone())
-        };
-        let _watcher = options.watch().unwrap();
-        let router = router(options);
+        let app = App::testing(document, changes.clone())
+            .with_comments_on_disk(Identity::Local(String::new()));
+        let _watcher = app.watch().unwrap();
+        let router = router(app);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1045,10 +1126,9 @@ mod tests {
         let document =
             Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
-        let router = router(Options {
-            comments: Some(Identity::Local("T".into())),
-            ..Options::new(document, changes)
-        });
+        let router = router(
+            App::testing(document, changes).with_comments_on_disk(Identity::Local("T".into())),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1074,16 +1154,12 @@ mod tests {
         .unwrap();
         let document = Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
-        let mut options = Options {
-            comments: None,
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes)
-        };
-        options.search = Some(Arc::new(Search::build(
-            &options.folder,
-            &dir.join("devpage.yml"),
-        )));
-        let router = router(options);
+        let router = router(App::local(
+            document,
+            changes,
+            crate::check::testing::preview(),
+            None,
+        ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1211,15 +1287,10 @@ mod tests {
 
         let document = Arc::new(Document::load(&site, &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
-        let designs = Designs::new(&document.served);
-        let options = Options {
-            designs,
-            comments: Some(Identity::Local("T".into())),
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes.clone())
-        };
-        let _watcher = options.watch().unwrap();
-        let router = router(options);
+        let app = App::testing(document, changes.clone())
+            .with_comments_on_disk(Identity::Local("T".into()));
+        let _watcher = app.watch().unwrap();
+        let router = router(app);
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
@@ -1559,10 +1630,7 @@ mod tests {
         let changes = Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
-        let router = router(Options {
-            preview: crate::check::testing::preview(),
-            ..Options::new(document, changes.clone())
-        });
+        let router = router(App::testing(document, changes.clone()));
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         let mut events = reqwest::get(format!("{address}/__devpage/events"))
             .await

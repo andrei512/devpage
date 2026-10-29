@@ -28,8 +28,7 @@ pub async fn print(document: Arc<Document>) -> Result<Vec<u8>> {
         Kind::Design => bail!("pdf prints a doc or slides, not a design"),
     };
     let path = format!("{}?print", document.entry());
-    let changes = crate::changes::Changes::default();
-    let router = server::router(server::Options::printing(document, changes));
+    let router = server::router(server::App::printing(document));
     let session = Session::start(Profile::Shot, router).await?;
     // The page is laid out as paper from the start, not only when Chrome
     // prints it: every slide of a deck is shown in print, so an embedded

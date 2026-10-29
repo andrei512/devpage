@@ -10,12 +10,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::{Result, bail};
 use axum::Router;
-use devpage_core::check::Preview;
 use devpage_core::comments::{Comments, Identity};
 use devpage_core::designs;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::{Folder, ServedFolder};
-use devpage_core::search::Search;
 use devpage_design::Theme;
 use sha2::{Digest, Sha256};
 
@@ -28,7 +26,7 @@ use crate::adapters::sqlite::{
 };
 use crate::changes::{Change, Changes};
 use crate::drive::api_types::Refusal;
-use crate::server;
+use crate::server::{self, App, Commenting};
 
 /// Which version of a document an address shows: the latest, in place at
 /// `/d/<id>`, or version `n` at its own `/d/<id>/v/<n>`.
@@ -368,31 +366,18 @@ impl Published {
         // The served folder carries the mount, so every address the
         // version's router makes — redirects included — is already under it.
         let served = ServedFolder::new(dir)?.mounted(&mount.path(id));
-        let document = Document::load(&served.path().join(entry), &served)?;
-        let latest = mount == Mount::Latest;
-        let changes = if latest {
-            self.bus(id)
+        let document = Arc::new(Document::load(&served.path().join(entry), &served)?);
+        let designs = self.0.designs.designs(&Mount::Pinned(n).path(id), &served);
+        let app = if mount == Mount::Latest {
+            let comments = Commenting::new(
+                self.comments_of(id, n, served.clone()),
+                self.0.identity.clone(),
+            );
+            App::published(document, designs, self.bus(id), Some(comments))
         } else {
-            Changes::default()
+            App::published(document, designs, Changes::default(), None)
         };
-        let mut options = server::Options::new(Arc::new(document), changes);
-        options.search = Some(Arc::new(Search::build(
-            &options.folder,
-            options.folder.entry_file(),
-        )));
-        options.designs = self.0.designs.designs(&Mount::Pinned(n).path(id), &served);
-        options.comments = None;
-        if latest {
-            options.threads = self.comments_of(id, n, served.clone());
-            options.comments = Some(self.0.identity.clone());
-        }
-        // External addresses are the CLI's to ask, before it uploads: a
-        // published page never waits on the internet.
-        options.preview = Arc::new(Preview::new(
-            crate::http::offline(),
-            Arc::new(crate::terminal::Terminal),
-        ));
-        Ok(server::router(options))
+        Ok(server::router(app))
     }
 }
 
