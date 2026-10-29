@@ -124,7 +124,11 @@ that answers it are on [Which document a file belongs to](../document-index/READ
 ## Rendering a Markdown file
 
 How a page is turned into HTML and put in its frame is on
-[Rendering a page](../rendering-a-page/README.md).
+[Rendering a page](../rendering-a-page/README.md). Resolving a path — reading
+the file, checking the page, rendering it in its frame — blocks, so it runs on
+a blocking thread (`spawn_blocking`), never on the async threads that answer
+everything else: a slow page waits its own turn, and a cheap page, an asset,
+the live-update stream or a publish never waits behind it.
 
 ## Other files
 

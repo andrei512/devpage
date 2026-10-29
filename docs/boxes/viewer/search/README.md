@@ -183,7 +183,10 @@ file), after the document files are found, and the
 [watcher](../live-updates/README.md#the-watcher) hands it each burst's paths
 after the index has heard of them and after the open pages have been told —
 so indexing never holds up a refresh (`Search::changed`). `devpage check`,
-`pdf` and `video` build none.
+`pdf` and `video` build none. In server mode a version never changes, so its
+index is built on its first search, committed once and kept with no writer;
+the most recently searched versions' indexes are kept, up to 256 MB
+([what a version holds in memory](../server/storage/README.md#what-a-version-holds-in-memory)).
 
 Any Markdown file can change what is published — a page's Topics add or drop
 pages — as can a document file, a `.gitignore` or a folder. So a burst holding

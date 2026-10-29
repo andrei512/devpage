@@ -102,6 +102,13 @@ address that has answered is not asked again for as long as devpage runs.
 Each change reaches open pages through the
 [live-update stream](../live-updates/README.md), like a saved file.
 
+On a [server](../server/README.md), a published version never changes, so a
+page's problems are found on its first view and kept: every later view shows
+the same bar without checking again
+([what a version holds in memory](../server/storage/README.md#what-a-version-holds-in-memory)).
+External links are not asked there at all — the CLI asked them before the
+upload.
+
 ## `devpage check`
 
 <Terminal>
