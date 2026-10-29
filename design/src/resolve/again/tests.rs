@@ -1,5 +1,6 @@
 use super::*;
 use crate::ids::testing::Saves;
+use crate::wire;
 
 /// A design and the files it reads, as a test edits them.
 #[derive(Clone)]
@@ -192,9 +193,9 @@ fn every_save_resolved_again_is_a_fresh_resolve() {
             let fresh = crate::resolve(&saves, "screen.design");
             match (fresh, outcome) {
                 (Ok(fresh), Outcome::Same) => same(res.scene(), &fresh),
-                (Ok(fresh), Outcome::Changed(patch, _)) => {
+                (Ok(fresh), Outcome::Changed(edits, _)) => {
                     same(res.scene(), &fresh);
-                    wire::apply(&mut browser, &mut uses, &patch)
+                    wire::apply(&mut browser, &mut uses, &wire::patch(&edits))
                         .unwrap_or_else(|e| panic!("seed {seed} step {step}: {e}"));
                     assert_eq!(
                         wire::encode(&browser.root),
@@ -247,15 +248,15 @@ fn an_edit_resolves_again_only_what_it_reaches() {
         let mut res = Resolution::new(&saves, "a.design").unwrap();
         saves.save("a.design", list(n, Some(n / 2), false));
         let outcome = res.update(&saves, &["a.design".to_string()]);
-        let Outcome::Changed(patch, _) = outcome else {
+        let Outcome::Changed(edits, _) = outcome else {
             panic!("{outcome:?}")
         };
-        assert_eq!(patch.ops.len(), 1, "{n}");
+        assert_eq!(edits.list.len(), 1, "{n}");
         saves.save("a.design", list(n, Some(n / 2), true));
-        let Outcome::Changed(patch, applied) = res.update(&saves, &["a.design".to_string()]) else {
+        let Outcome::Changed(edits, applied) = res.update(&saves, &["a.design".to_string()]) else {
             panic!()
         };
-        assert_eq!(patch.ops.len(), 1, "{n}");
+        assert_eq!(edits.list.len(), 1, "{n}");
         assert_eq!(applied.placed.len(), 1);
         same(res.scene(), &crate::resolve(&saves, "a.design").unwrap());
         // What resolving again costs beyond reading the file: the update,
@@ -343,11 +344,11 @@ fn saves_while_a_design_has_problems_arrive_with_its_fix() {
     .unwrap();
     let mut uses = Uses::of(&browser.root);
     saves.save("card.design", m.card());
-    let Outcome::Changed(patch, _) = res.update(&saves, &["card.design".to_string()]) else {
+    let Outcome::Changed(edits, _) = res.update(&saves, &["card.design".to_string()]) else {
         panic!()
     };
     let fresh = crate::resolve(&saves, "screen.design").unwrap();
     same(res.scene(), &fresh);
-    wire::apply(&mut browser, &mut uses, &patch).unwrap();
+    wire::apply(&mut browser, &mut uses, &wire::patch(&edits)).unwrap();
     assert_eq!(wire::encode(&browser.root), wire::encode(&fresh.root));
 }

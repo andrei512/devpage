@@ -1,7 +1,7 @@
 use crate::Files;
 use crate::render::Renderer;
 use crate::render::testing::*;
-use crate::resolve::Theme;
+use crate::scene::Theme;
 
 use super::*;
 

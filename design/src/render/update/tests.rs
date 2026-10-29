@@ -2,7 +2,7 @@ use crate::cpu::*;
 use std::collections::HashMap;
 
 use crate::render::testing::*;
-use crate::resolve::{self, Layout, Node, Scene, Theme};
+use crate::scene::{self, Layout, Node, Scene, Theme};
 
 use super::*;
 
@@ -25,15 +25,19 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
             format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
         )]
         .into();
-        resolve::resolve(&files, "a.design").unwrap()
+        crate::resolve(&files, "a.design").unwrap()
     };
     let (old, new) = (design("Row 500"), design("Edited"));
     let mut r = Renderer::new();
     let mut live = r.drawing(&old, Theme::Light, None).unwrap();
     let mut held = old.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let t = std::time::Instant::now();
-    let applied = crate::wire::bring(&mut held, &mut uses, &new).unwrap();
+    let applied = {
+        let edits = crate::scene::Edits::between(&held, &new);
+        crate::scene::apply(&mut held, &mut uses, &edits)
+    }
+    .unwrap();
     let damage = live.update(&mut r, &held, &applied).unwrap();
     eprintln!("update {:?}, damage {damage:?}", t.elapsed());
     assert!(!damage.all && !damage.rects.is_empty());
@@ -74,7 +78,7 @@ fn an_update_paints_as_a_fresh_drawing() {
             format!("<Frame layout=\"none\" fill=\"#ffffff\"><Frame layout=\"column\">{body}</Frame>{extra}</Frame>"),
         )]
         .into();
-        resolve::resolve(&files, "a.design").unwrap()
+        crate::resolve(&files, "a.design").unwrap()
     };
     let mut r = Renderer::new();
     let paint = |d: &Drawing| {
@@ -92,9 +96,13 @@ fn an_update_paints_as_a_fresh_drawing() {
     ];
     let mut live = r.drawing(&steps[0], Theme::Light, None).unwrap();
     let mut held = steps[0].clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     for (n, pair) in steps.windows(2).enumerate() {
-        let applied = crate::wire::bring(&mut held, &mut uses, &pair[1]).unwrap();
+        let applied = {
+            let edits = crate::scene::Edits::between(&held, &pair[1]);
+            crate::scene::apply(&mut held, &mut uses, &edits)
+        }
+        .unwrap();
         let damage = live.update(&mut r, &held, &applied).unwrap();
         let fresh = r.drawing(&pair[1], Theme::Light, None).unwrap();
         assert_eq!(live.area(), fresh.area(), "step {n}");
@@ -134,7 +142,7 @@ fn tall(rows: usize, edit: usize, label: &str) -> Scene {
         format!("<Frame layout=\"column\" fill=\"#ffffff\">{body}</Frame>"),
     )]
     .into();
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 /// The fastest of several updates of row `rows / 2`'s text, back and
@@ -148,12 +156,16 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
     let mut held = a.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let mut best = std::time::Duration::MAX;
     for n in 0..12 {
         let new = if n % 2 == 0 { &b } else { &a };
         let t = std::time::Instant::now();
-        let applied = crate::wire::bring(&mut held, &mut uses, new).unwrap();
+        let applied = {
+            let edits = crate::scene::Edits::between(&held, new);
+            crate::scene::apply(&mut held, &mut uses, &edits)
+        }
+        .unwrap();
         let damage = d.update(&mut r, &held, &applied).unwrap();
         best = best.min(t.elapsed());
         assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
@@ -182,12 +194,16 @@ fn an_edit_visits_only_its_path() {
 fn a_row_that_grows_moves_the_rows_after_it() {
     let a = tall(50, 20, "Row 00020");
     let mut b = a.clone();
-    b.root.children.nth_mut(20).unwrap().height = resolve::Size::Px(160.0);
+    b.root.children.nth_mut(20).unwrap().height = scene::Size::Px(160.0);
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
     let mut held = a.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
-    let applied = crate::wire::bring(&mut held, &mut uses, &b).unwrap();
+    let mut uses = crate::scene::Uses::of(&held.root);
+    let applied = {
+        let edits = crate::scene::Edits::between(&held, &b);
+        crate::scene::apply(&mut held, &mut uses, &edits)
+    }
+    .unwrap();
     let damage = d.update(&mut r, &held, &applied).unwrap();
     assert!(!damage.all);
     assert!(
@@ -269,7 +285,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
         )
         .unwrap();
         let mut d = r.drawing(&held, theme, None).unwrap();
-        let mut uses = crate::wire::Uses::of(&held.root);
+        let mut uses = crate::scene::Uses::of(&held.root);
         for step in 0..STEPS {
             let mut next = scene.clone();
             let mut all = Vec::new();
@@ -281,7 +297,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 match kind {
                     0 => n.opacity = if n.opacity < 1.0 { 1.0 } else { 0.5 },
                     1 => n.clip = !n.clip,
-                    2 => n.width = resolve::Size::Px(40.0 + rng.next(300) as f32),
+                    2 => n.width = scene::Size::Px(40.0 + rng.next(300) as f32),
                     3 => n.x += 7.0,
                     4 => {
                         if let Some(t) = &mut n.text {
@@ -322,7 +338,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             // child of a frame with no layout.
             fn valid(n: &Node) -> bool {
                 let fills =
-                    |c: &Node| c.width == resolve::Size::Fill || c.height == resolve::Size::Fill;
+                    |c: &Node| c.width == scene::Size::Fill || c.height == scene::Size::Fill;
                 !(n.layout == Layout::None && n.children.iter().any(fills))
                     && n.children.iter().all(valid)
             }
@@ -330,10 +346,10 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 continue;
             }
             // Edited by hand, so indexed again.
-            next.ids = crate::resolve::Ids::of(&next.root);
+            next.ids = crate::scene::Ids::of(&next.root);
             // By the very patch the canvas gets, applied as the canvas
             // applies it.
-            let patch = crate::wire::patch(&scene, &next);
+            let patch = crate::wire::patch(&crate::scene::Edits::between(&scene, &next));
             let replaced = crate::wire::apply(&mut held, &mut uses, &patch).unwrap_or_else(|e| {
                 panic!(
                     "{theme:?} step {step} kind {kind} at {at:?}: {e}\n{:?}",
@@ -358,7 +374,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 )
             });
             assert!(held.root == next.root, "the patch carries the scene");
-            assert_eq!(uses, crate::wire::Uses::of(&held.root));
+            assert_eq!(uses, crate::scene::Uses::of(&held.root));
             d.update(&mut r, &held, &replaced).unwrap();
             // What the update moved by a fraction of a pixel rounds when read.
             d.prepare_all(&mut r, &held);
@@ -417,7 +433,7 @@ fn balanced(depth: u32, edit: usize, label: &str) -> Scene {
     let mut s = String::new();
     go(depth, 0, edit, label, &mut s);
     let files: HashMap<String, String> = [("a.design".to_string(), s)].into();
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 /// The fastest of several edits of one row's text, back and forth, on a
@@ -427,13 +443,16 @@ fn patch_cost(depth: u32) -> std::time::Duration {
     let n = 10usize.pow(depth);
     let a = balanced(depth, n / 2, &format!("Row {:06}", n / 2));
     let b = balanced(depth, n / 2, "Edited!!!!");
-    let (there, back) = (crate::wire::patch(&a, &b), crate::wire::patch(&b, &a));
+    let (there, back) = (
+        crate::wire::patch(&crate::scene::Edits::between(&a, &b)),
+        crate::wire::patch(&crate::scene::Edits::between(&b, &a)),
+    );
     let mut held = crate::wire::decode_scene(
         &crate::wire::scene(&a),
         (&Default::default(), &Default::default()),
     )
     .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let mut r = Renderer::new();
     let mut d = r.drawing(&held, Theme::Light, None).unwrap();
     let mut best = std::time::Duration::MAX;
@@ -492,14 +511,14 @@ fn an_insert_before_the_first_is_one_insert_and_one_chunk() {
         let mut saves = crate::ids::testing::Saves::default();
         let old = rows_saved(&mut saves, n, false);
         let new = rows_saved(&mut saves, n, true);
-        let p = crate::wire::patch(&old, &new);
+        let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
         assert_eq!(p.ops.len(), 1, "{n}");
         let mut held = crate::wire::decode_scene(
             &crate::wire::scene(&old),
             (&Default::default(), &Default::default()),
         )
         .unwrap();
-        let mut uses = crate::wire::Uses::of(&held.root);
+        let mut uses = crate::scene::Uses::of(&held.root);
         let mut r = Renderer::new();
         let mut d = r.drawing(&held, Theme::Light, None).unwrap();
         let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
@@ -570,7 +589,7 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
         (&Default::default(), &Default::default()),
     )
     .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let mut r = Renderer::new();
     let mut d = r.drawing(&held, Theme::Light, None).unwrap();
     let mut next_label = 100;
@@ -636,7 +655,7 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
                 );
             }
         }
-        let p = crate::wire::patch(&sent, &next);
+        let p = crate::wire::patch(&crate::scene::Edits::between(&sent, &next));
         assert!(p.ops.len() <= 4, "step {step}: {} operations", p.ops.len());
         let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
         assert!(held.root == next.root, "step {step}");
@@ -716,13 +735,13 @@ fn column_edit(
         old
     };
     let new = edit(&mut saves);
-    let p = crate::wire::patch(&old, &new);
+    let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
     let mut held = crate::wire::decode_scene(
         &crate::wire::scene(&old),
         (&Default::default(), &Default::default()),
     )
     .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let mut r = Renderer::new();
     let mut d = r.drawing(&held, Theme::Light, None).unwrap();
     let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
@@ -776,13 +795,13 @@ fn a_column_edit_visits_the_same_nodes_at_any_length() {
             let mut saves = crate::ids::testing::Saves::default();
             let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
             let new = edit(&mut saves);
-            let p = crate::wire::patch(&old, &new);
+            let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
             let mut held = crate::wire::decode_scene(
                 &crate::wire::scene(&old),
                 (&Default::default(), &Default::default()),
             )
             .unwrap();
-            let mut uses = crate::wire::Uses::of(&held.root);
+            let mut uses = crate::scene::Uses::of(&held.root);
             let mut r = Renderer::new();
             let mut d = r.drawing(&held, Theme::Light, None).unwrap();
             let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
@@ -824,13 +843,13 @@ fn rows_moved_by_a_fraction_round_when_read() {
     let mut saves = crate::ids::testing::Saves::default();
     let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, true);
     let new = column_saved(&mut saves, n, (usize::MAX, ""), None, true, true);
-    let p = crate::wire::patch(&old, &new);
+    let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
     let mut held = crate::wire::decode_scene(
         &crate::wire::scene(&old),
         (&Default::default(), &Default::default()),
     )
     .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut uses = crate::scene::Uses::of(&held.root);
     let mut r = Renderer::new();
     let mut d = r.drawing(&held, Theme::Light, None).unwrap();
     let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();

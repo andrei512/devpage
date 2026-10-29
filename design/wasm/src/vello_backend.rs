@@ -4,7 +4,7 @@
 //! the GPU; the tests hand it to vello's own resolver, to hold the engine's
 //! atlas model to vello's.
 
-use devpage_design::render::{Draw, Paint};
+use devpage_design::display::{Draw, Paint};
 use vello::kurbo::Affine;
 use vello::peniko::{BlendMode, Compose, Fill, ImageBrush, Mix};
 
@@ -91,9 +91,9 @@ mod tests {
     use super::*;
     use devpage_design::Renderer;
     use devpage_design::atlas;
+    use devpage_design::display::Frame;
     use devpage_design::display::List;
-    use devpage_design::render::Frame;
-    use devpage_design::resolve::{self, ImageFile, ImageId};
+    use devpage_design::scene::{self, ImageFile, ImageId};
     use std::collections::HashMap;
     use std::sync::Arc;
     use vello::low_level::vello_encoding::Resolver;
@@ -285,7 +285,7 @@ mod tests {
 </Frame>"##
             );
             let files = Sized([("a.design".to_string(), source)].into());
-            resolve::resolve(&files, "a.design").unwrap()
+            devpage_design::resolve(&files, "a.design").unwrap()
         };
         let mut renderer = Renderer::new();
         let files = [
@@ -316,8 +316,9 @@ mod tests {
         // the new scene's even when it can't be painted: vello leaves out
         // the image the engine said it would.
         let mut held = design(&files);
-        let mut uses = devpage_design::wire::Uses::of(&held.root);
-        let applied = devpage_design::wire::bring(&mut held, &mut uses, &more).unwrap();
+        let mut uses = scene::Uses::of(&held.root);
+        let edits = scene::Edits::between(&held, &more);
+        let applied = scene::apply(&mut held, &mut uses, &edits).unwrap();
         assert!(drawing.update(&mut renderer, &held, &applied).is_err());
         let images = drawing.images.clone();
         let sizes: Vec<_> = images.iter().map(|i| (i.width, i.height)).collect();

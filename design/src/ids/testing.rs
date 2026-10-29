@@ -31,7 +31,7 @@ impl Files for Saves {
         self.files.get(path).map(|s| s.clone().into_bytes())
     }
     fn list(&self, path: &str) -> Option<Vec<String>> {
-        crate::resolve::listed(self.files.keys(), path)
+        crate::scene::listed(self.files.keys(), path)
     }
     fn parse(&self, path: &str, source: &str) -> Result<Arc<File>, Problem> {
         let fresh = parse::parse(source)?;

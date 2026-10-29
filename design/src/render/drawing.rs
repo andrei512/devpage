@@ -9,7 +9,7 @@ use peniko::ImageData;
 use crate::display::{
     Blend, Builder, Chunk, Clip, Effect, Id, List, Order, Placed, RunId, Space, Transform,
 };
-use crate::resolve::{self, ImageId, Node, Origin, Scene, Theme};
+use crate::scene::{self, ImageId, Node, Origin, Scene, Theme};
 use crate::tree::{NodeId as SceneId, OrderKey};
 
 use super::*;
@@ -143,7 +143,7 @@ impl Drawing {
     }
 
     /// Updates the drawing to `new` by the patch that made it: `applied`,
-    /// what [`crate::wire::apply`] did to the scene the drawing showed — the
+    /// what [`crate::scene::apply`] did to the scene the drawing showed — the
     /// subtrees removed and placed and the nodes changed, by id. Only those
     /// are laid out and painted again, and nodes that only moved keep their
     /// chunks — the work is the patch's, never the scene's. The damage it
@@ -154,7 +154,7 @@ impl Drawing {
         &mut self,
         renderer: &mut Renderer,
         new: &Scene,
-        applied: &crate::wire::Applied,
+        applied: &crate::scene::Applied,
     ) -> Result<Damage, Undrawable> {
         renderer.update(self, new, applied)
     }
@@ -349,7 +349,7 @@ impl Renderer {
                     "{what} doesn't fit: the images a drawing paints — its image files, \
                      at most {side} pixels a side, and its shadows — share the GPU's one \
                      {atlas}×{atlas} atlas, and the {n} before this {w}×{h} fill it",
-                    side = resolve::MAX_IMAGE_SIDE,
+                    side = scene::MAX_IMAGE_SIDE,
                     atlas = crate::atlas::SIDE,
                     w = data.width,
                     h = data.height,
@@ -653,7 +653,7 @@ impl Renderer {
             )
         };
         // Only in auto layout does one child's size move its siblings.
-        let flows = node.layout != resolve::Layout::None;
+        let flows = node.layout != scene::Layout::None;
         if all {
             for k in node.children.entries().map(|(k, _)| k) {
                 visit(self, d, w, k, all_below);
@@ -734,7 +734,7 @@ impl Renderer {
             // children it laid out again, which the layout lists.
             is_new
                 || dr.row != row
-                || (dr.line != line as f64 && run.align != crate::resolve::Align::Start)
+                || (dr.line != line as f64 && run.align != crate::scene::Align::Start)
         };
         // Where its children start and how far apart they are are the run's
         // own: a change of either moves every child by the sums, rounded
@@ -928,7 +928,7 @@ impl Renderer {
                 space: down.space.clone(),
                 clip: down.clip,
                 effect: down.effect,
-                align: crate::resolve::Align::Start,
+                align: crate::scene::Align::Start,
             },
         );
         let relaid = std::mem::take(&mut d.laid.runs.get_mut(rid).relaid);
@@ -1117,7 +1117,7 @@ pub(super) struct RunContext {
     pub(super) clip: Id,
     pub(super) effect: Option<Id>,
     /// The run's `align` when its children were last placed.
-    pub(super) align: crate::resolve::Align,
+    pub(super) align: crate::scene::Align,
 }
 
 /// What a node's children are visited under.

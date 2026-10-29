@@ -2,7 +2,7 @@ use crate::cpu::*;
 use std::collections::HashMap;
 
 use crate::render::testing::*;
-use crate::resolve::{self, Kind, Theme};
+use crate::scene::{self, Kind, Theme};
 
 use super::*;
 
@@ -196,8 +196,8 @@ fn an_image_covers_its_box() {
     });
     let mut s = scene(r#"<Frame width={20} height={20} />"#);
     s.root.kind = Kind::Image;
-    let file = std::sync::Arc::new(resolve::ImageFile::new(image).unwrap());
-    s.root.image = Some(resolve::Image {
+    let file = std::sync::Arc::new(scene::ImageFile::new(image).unwrap());
+    s.root.image = Some(scene::Image {
         src: "i.png".into(),
         id: file.id,
         at: Default::default(),
@@ -214,17 +214,17 @@ fn an_image_covers_its_box() {
 
 #[test]
 fn png_and_jpeg_decode() {
-    let png = resolve::decode(&png_bytes(3, 2, |_, _| [1, 2, 3, 4])).unwrap();
+    let png = scene::decode(&png_bytes(3, 2, |_, _| [1, 2, 3, 4])).unwrap();
     assert_eq!((png.width, png.height, png.data.data().len()), (3, 2, 24));
     let jpeg = std::fs::read(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../docs/designs/checkout/shirt.jpg"
     ))
     .unwrap();
-    let jpeg = resolve::decode(&jpeg).unwrap();
+    let jpeg = scene::decode(&jpeg).unwrap();
     assert_eq!((jpeg.width, jpeg.height), (160, 160));
     assert_eq!(jpeg.data.data().len(), 160 * 160 * 4);
-    assert!(resolve::decode(b"\x89PNG\r\n\x1a\nbroken").is_err());
+    assert!(scene::decode(b"\x89PNG\r\n\x1a\nbroken").is_err());
 }
 
 /// A drawing is made for a theme: each color its value there.
@@ -245,7 +245,7 @@ fn a_drawing_takes_each_colors_value_in_its_theme() {
         ),
     ]
     .into();
-    let s = resolve::resolve(&files, "a.design").unwrap();
+    let s = crate::resolve(&files, "a.design").unwrap();
     let mut r = Renderer::new();
     for (theme, bg, edge) in [
         (Theme::Light, [255, 255, 255, 255], [255, 0, 0, 255]),

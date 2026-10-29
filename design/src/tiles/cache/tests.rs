@@ -1,4 +1,4 @@
-use crate::resolve::Theme;
+use crate::scene::Theme;
 
 use super::*;
 

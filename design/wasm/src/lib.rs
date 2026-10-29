@@ -4,6 +4,7 @@
 //! paints on the CPU with `Design::paint_tile`, and which answers clicks.
 
 use devpage_design::proto::{Update, update::Body};
+use devpage_design::scene::Uses;
 use devpage_design::{Drawing, Renderer, Scene, Theme, wire};
 use prost::Message;
 use wasm_bindgen::prelude::*;
@@ -37,7 +38,7 @@ pub struct Design {
     scene: Option<Scene>,
     /// How many of the scene's nodes use each of its files, so a patch
     /// drops a file no node uses without walking the scene.
-    uses: wire::Uses,
+    uses: Uses,
     problems: Vec<String>,
     /// The scene laid out and made into its display list, in the light theme
     /// and the dark one; `None` before it is first shown in that theme, or
@@ -116,7 +117,7 @@ impl Design {
             engine: Renderer::new(),
             id: NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             scene: None,
-            uses: wire::Uses::default(),
+            uses: Uses::default(),
             problems: Vec::new(),
             drawings: [None, None],
             stale: [false, false],
@@ -180,7 +181,7 @@ impl Design {
                     .map(|s| (s.images, s.fonts))
                     .unwrap_or_default();
                 wire::decode_scene(&whole, (&images, &fonts)).map(|scene| {
-                    self.uses = wire::Uses::of(&scene.root);
+                    self.uses = Uses::of(&scene.root);
                     self.scene = Some(scene);
                     self.stale = [true, true];
                     for theme in THEMES {
@@ -427,7 +428,7 @@ mod tests {
             self.0.get(path).cloned()
         }
         fn list(&self, path: &str) -> Option<Vec<String>> {
-            devpage_design::resolve::listed(self.0.keys(), path)
+            devpage_design::scene::listed(self.0.keys(), path)
         }
     }
 
@@ -470,7 +471,9 @@ mod tests {
         for scene in [&first, &heavier] {
             if scene == &heavier {
                 let patch = Update {
-                    body: Some(Body::Patch(wire::patch(&first, &heavier))),
+                    body: Some(Body::Patch(wire::patch(
+                        &devpage_design::scene::Edits::between(&first, &heavier),
+                    ))),
                     ..Default::default()
                 };
                 assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
@@ -520,7 +523,7 @@ mod tests {
 
         // The root replaced by a wider one: laid out again, problems gone.
         let mut wider = devpage_design::resolve(&files(), "screen.design").unwrap();
-        wider.root.width = devpage_design::resolve::Size::Px(300.0);
+        wider.root.width = devpage_design::scene::Size::Px(300.0);
         let patch = Update {
             body: Some(Body::Patch(Patch {
                 ops: vec![Op {
@@ -604,7 +607,9 @@ mod tests {
         );
         design.laid_out().unwrap();
         let patch = Update {
-            body: Some(Body::Patch(wire::patch(&first, &second))),
+            body: Some(Body::Patch(wire::patch(
+                &devpage_design::scene::Edits::between(&first, &second),
+            ))),
             ..Default::default()
         };
         assert_eq!(design.apply(&patch.encode_to_vec()), Applied::Changed);
@@ -624,7 +629,9 @@ mod tests {
         }
         // The flat form the page reads: theme, all, top-left, count, rects.
         let back = Update {
-            body: Some(Body::Patch(wire::patch(&second, &first))),
+            body: Some(Body::Patch(wire::patch(
+                &devpage_design::scene::Edits::between(&second, &first),
+            ))),
             ..Default::default()
         };
         design.apply(&back.encode_to_vec());

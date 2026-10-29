@@ -1,6 +1,6 @@
 //! Comparing two drawings of the same scene, by the engine's one rule.
 
-use crate::resolve::{self};
+use crate::scene::{self};
 
 /// A PNG's or JPEG's pixels, straight RGBA.
 /// How far apart two drawings of the same scene may be. Two rasterizers of one
@@ -111,7 +111,7 @@ pub fn matches(a: &[u8], b: &[u8], width: usize) -> Result<(), Option<Difference
 /// A PNG's or JPEG's pixels as straight RGBA, with its width and height —
 /// for comparing drawings.
 pub fn pixels(data: &[u8]) -> Option<(Vec<u8>, u32, u32)> {
-    let image = resolve::decode(data).ok()?;
+    let image = scene::decode(data).ok()?;
     Some((image.data.data().to_vec(), image.width, image.height))
 }
 

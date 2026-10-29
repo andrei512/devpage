@@ -5,8 +5,8 @@
 //! 100,000 siblings, the save resolved again and the drawing brought across.
 
 use crate::render::Drawing;
-use crate::resolve::Theme;
 use crate::resolve::{Outcome, Resolution};
+use crate::scene::Theme;
 
 use super::super::*;
 

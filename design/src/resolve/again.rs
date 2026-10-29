@@ -3,7 +3,7 @@
 //! design file, the elements whose own attributes changed and those
 //! inserted, removed or moved, in every instance of the file; for a
 //! `themes.yml`, a font or an image, the nodes that read it. What was
-//! resolved again is the patch that brings the scene across: no scene is
+//! resolved again is the [`Edits`] that bring the scene across: no scene is
 //! compared with another.
 //!
 //! What stays linear is reading the saved file: parsing it, matching its
@@ -13,12 +13,11 @@
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
-use super::{Caller, Instance, Layout, Node, Record, Resolver, Scene, resolved};
+use super::{Caller, Instance, Record, Resolver, resolved};
+use crate::Problem;
 use crate::parse::{self, Child, Element, TextPart};
-use crate::proto;
+use crate::scene::{self, Applied, Edit, Edits, Files, Layout, Node, Scene, Uses};
 use crate::tree::NodeId;
-use crate::wire::{self, Applied, Edit, Uses};
-use crate::{Files, Problem};
 
 /// A design kept resolved: its last valid scene, where each of its nodes came
 /// from, and the files changed since it was last valid.
@@ -41,9 +40,9 @@ pub struct Resolution {
 pub enum Outcome {
     /// Its scene is as it was, and valid.
     Same,
-    /// Its scene changed by this patch — what the browser is sent — and the
-    /// scene kept was brought across as `applied` says.
-    Changed(proto::Patch, Applied),
+    /// Its scene changed by these edits — what the browser is sent, as a
+    /// patch — and the scene kept was brought across as `applied` says.
+    Changed(Edits, Applied),
     /// It has these problems, every one; its last valid scene is kept.
     Problems(Vec<Problem>),
 }
@@ -104,85 +103,35 @@ impl Resolution {
         }
     }
 
-    /// The scene brought across to `scene`, resolved afresh, by the patch
+    /// The scene brought across to `scene`, resolved afresh, by the edits
     /// between the two.
     fn whole(&mut self, scene: Scene, record: Record) -> Outcome {
         self.wholes += 1;
         let was_themed = self.scene.themed;
-        let edits = wire::edits(&self.scene, &scene);
-        let patch = self.patch(&edits, &scene.images, &scene.fonts, scene.themed);
-        let images = scene.images.clone();
-        let fonts = scene.fonts.clone();
-        match wire::apply_edits(
-            &mut self.scene,
-            &mut self.uses,
-            edits,
-            images,
-            fonts,
-            scene.themed,
-        ) {
+        let edits = Edits::between(&self.scene, &scene);
+        match scene::apply(&mut self.scene, &mut self.uses, &edits) {
             Ok(applied) => {
                 self.scene.files = scene.files;
                 self.record = record;
-                if patch.ops.is_empty() && was_themed == patch.themed {
+                if edits.list.is_empty() && was_themed == edits.themed {
                     Outcome::Same
                 } else {
-                    Outcome::Changed(patch, applied)
+                    Outcome::Changed(edits, applied)
                 }
             }
             Err(_) => {
-                // A patch made between two scenes applies to the first; if
-                // it ever didn't, the scene starts again from the new one.
+                // Edits made between two scenes apply to the first; if they
+                // ever didn't, the scene starts again from the new one.
                 self.uses = Uses::of(&scene.root);
                 self.scene = scene;
                 self.record = record;
-                let patch = proto::Patch {
-                    ops: wire::encode_edits(&[Edit::Insert {
-                        parent: None,
-                        after: None,
-                        node: self.scene.root.clone(),
-                    }]),
-                    images: self.scene.images.values().map(|f| wire::file(f)).collect(),
-                    fonts: self
-                        .scene
-                        .fonts
-                        .values()
-                        .map(|f| wire::font_file(f))
-                        .collect(),
-                    themed: self.scene.themed,
-                };
                 let applied = Applied {
                     removed: vec![],
                     placed: vec![self.scene.root.id.clone()],
                     changed: vec![],
                 };
-                Outcome::Changed(patch, applied)
+                Outcome::Changed(Edits::whole(&self.scene), applied)
             }
-        }
-    }
-
-    /// The patch of `edits`, carrying the image and font files of `images`
-    /// and `fonts` the scene doesn't have yet.
-    fn patch(
-        &self,
-        edits: &[Edit],
-        images: &super::ImageFiles,
-        fonts: &crate::fonts::FontFiles,
-        themed: bool,
-    ) -> proto::Patch {
-        proto::Patch {
-            ops: wire::encode_edits(edits),
-            images: images
-                .values()
-                .filter(|f| !self.scene.images.contains_key(&f.id))
-                .map(|f| wire::file(f))
-                .collect(),
-            fonts: fonts
-                .values()
-                .filter(|f| !self.scene.fonts.contains_key(&f.id))
-                .map(|f| wire::font_file(f))
-                .collect(),
-            themed,
         }
     }
 
@@ -255,23 +204,15 @@ impl Resolution {
         if edits.is_empty() && themed == self.scene.themed {
             return Ok(Outcome::Same);
         }
-        let patch = self.patch(&edits, &r.images, &r.fonts, themed);
-        let applied = wire::apply_edits(
-            &mut self.scene,
-            &mut self.uses,
-            edits,
-            r.images,
-            r.fonts,
-            themed,
-        )
-        .map_err(|_| ())?;
+        let edits = Edits::onto(&self.scene, edits, &r.images, &r.fonts, themed);
+        let applied = scene::apply(&mut self.scene, &mut self.uses, &edits).map_err(|_| ())?;
         for file in r.read {
             if !self.scene.files.contains(&file) {
                 self.scene.files.push(file);
             }
         }
         // Even no node changed when only whether the scene is themed did.
-        Ok(Outcome::Changed(patch, applied))
+        Ok(Outcome::Changed(edits, applied))
     }
 }
 
@@ -774,7 +715,7 @@ impl Work<'_, '_> {
         self.drop_subtree(was);
         if node.id == *was {
             self.edits
-                .extend(wire::subtree(&self.res.scene, &order, &node));
+                .extend(scene::subtree(&self.res.scene, &order, &node));
         } else {
             self.edits.push(Edit::Remove(was.clone()));
             self.edits.push(Edit::Insert {

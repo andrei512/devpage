@@ -33,7 +33,7 @@ fn bands_hold_one_row_of_tiles_at_a_time() {
     })
     .unwrap();
     assert_eq!((alive.get(), most.get()), (0, 3));
-    let image = crate::resolve::decode(&png).unwrap();
+    let image = crate::scene::decode(&png).unwrap();
     assert_eq!((image.width, image.height), (w, h));
     let at = |x: u32, y: u32| {
         let i = ((y * w + x) * 4) as usize;
@@ -81,7 +81,7 @@ fn a_drawing_a_million_pixels_wide_has_its_png_within_a_band() {
 </Frame>"##;
     let files: std::collections::HashMap<String, String> =
         [("a.design".to_string(), src.to_string())].into();
-    let scene = crate::resolve::resolve(&files, "a.design").unwrap();
+    let scene = crate::resolve(&files, "a.design").unwrap();
     let d = crate::Renderer::new()
         .drawing(&scene, crate::Theme::Light, None)
         .unwrap();
@@ -110,7 +110,7 @@ fn a_drawing_a_million_pixels_wide_has_its_png_within_a_band() {
     })
     .unwrap();
     assert!(most.get() <= BAND_BYTES, "{}", most.get());
-    let image = crate::resolve::decode(&png).unwrap();
+    let image = crate::scene::decode(&png).unwrap();
     assert_eq!((image.width, image.height), (1_000_000, 12));
     let at = |x: u32, y: u32| {
         let i = ((y as usize * 1_000_000) + x as usize) * 4;
