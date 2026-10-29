@@ -740,7 +740,8 @@ impl Designs {
     /// file a resolve of it has read since it was last resolved whole,
     /// whether or not it resolves. Folders it lists are not files; the
     /// fonts it then reads from them are. A file it asked for that isn't
-    /// there is none of them.
+    /// there is one of them too, named as it would be: adding it changes
+    /// the design.
     pub fn files(&self, path: &str) -> Vec<PathBuf> {
         let served = &self.0.served;
         self.0
@@ -748,7 +749,7 @@ impl Designs {
             .asked
             .iter()
             .filter(|key| !key.ends_with('/'))
-            .filter_map(|key| served.file(&served.path().join(key)))
+            .filter_map(|key| served.named(&served.path().join(key)))
             .collect()
     }
 
@@ -1159,8 +1160,9 @@ mod tests {
 
     /// The store knows every file a design is made of — itself, what it
     /// imports, its themes and the font files its text is set in — from the
-    /// one resolve that keeps it: no folder it listed, and no file it asked
-    /// for that isn't there, whether or not the design resolves.
+    /// one resolve that keeps it, whether or not the design resolves: a file
+    /// it asked for that isn't there too, named as it would be — a
+    /// `themes.yml` above it, an image to come — and no folder it listed.
     #[test]
     fn the_store_knows_every_file_a_design_is_made_of() {
         let dir = served("files");
@@ -1200,12 +1202,16 @@ mod tests {
                 "app/fonts/Body/Body-Regular.ttf",
                 "app/set.design",
                 "app/themes.yml",
+                "themes.yml",
             ]
         );
         assert!(designs.problems("app/set.design").is_empty());
-        assert_eq!(names("app/gone.design"), ["app/gone.design"]);
+        assert_eq!(
+            names("app/gone.design"),
+            ["app/gone.design", "app/gone.png"]
+        );
         assert_eq!(designs.problems("app/gone.design").len(), 1);
-        assert!(names("app/nothing.design").is_empty());
+        assert_eq!(names("app/nothing.design"), ["app/nothing.design"]);
         assert_eq!(designs.resolutions(), 3, "each resolved once");
     }
 
@@ -1734,6 +1740,36 @@ mod tests {
         let png = designs.png("app/other.design", Theme::Light).unwrap();
         let (_, w, h) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!((w, h), (20, 20));
+    }
+
+    /// An image a design shows that isn't there yet is one of its files,
+    /// named as it would be: once it is added, the design is announced,
+    /// and draws with it.
+    #[test]
+    fn adding_a_missing_image_redraws_the_design_with_it() {
+        let dir = served("missing-image");
+        std::fs::write(
+            dir.join("app/later.design"),
+            "<Frame>\n  <Image src=\"./later.png\" width={8} height={8} />\n</Frame>\n",
+        )
+        .unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let updates = announced(&designs);
+        assert!(designs.png("app/later.design", Theme::Light).is_err());
+        assert!(
+            designs
+                .files("app/later.design")
+                .contains(&dir.join("app/later.png")),
+            "{:?}",
+            designs.files("app/later.design")
+        );
+        std::fs::write(dir.join("app/later.png"), png_file(8, 8, "#00c800")).unwrap();
+        designs.changed(&dir.join("app/later.png"));
+        assert_eq!(updates.try_recv().unwrap(), "app/later.design");
+        let png = designs.png("app/later.design", Theme::Light).unwrap();
+        let (pixels, w, h) = devpage_design::compare::pixels(&png).unwrap();
+        assert_eq!((w, h), (8, 8));
+        assert_eq!(&pixels[..3], &[0x00, 0xc8, 0x00]);
     }
 
     #[test]

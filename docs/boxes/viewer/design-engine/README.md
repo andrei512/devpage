@@ -695,8 +695,10 @@ for the page and its canvas alike. `devpage check`, and a publish on the
 CLI's side, make a store of their own for the one run, and a server checks a
 publish in its one store, under the scratch folder's own mount, which leaves
 it when the check ends; each asks it the same: a
-design's problems, and every file it is made of — what a publish zips —
-which are the files resolving it read. The routes are on
+design's problems, and every file it is made of — the files resolving it
+asked for, one that isn't there named as it would be, so that adding it
+reaches a slide's PNG drawn from the design too; a publish zips those that
+are there. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
 The store holds each design's scene — its one copy — as the engine's

@@ -309,7 +309,7 @@ impl Published {
         let Some(row) = versions.into_iter().find(|v| v.number == n) else {
             return Ok(None);
         };
-        let Some((extension, media)) = downloadable(&row.kind) else {
+        let Some((extension, media)) = devpage_core::document::downloads_as(&row.kind) else {
             return Ok(None);
         };
         let version = self.version(id, Mount::Pinned(n)).await?;
@@ -378,15 +378,6 @@ impl Published {
             App::published(document, designs, Changes::default(), None)
         };
         Ok(http::router(app))
-    }
-}
-
-/// What a version of `kind` downloads as: its extension and media type.
-pub fn downloadable(kind: &str) -> Option<(&'static str, &'static str)> {
-    match kind {
-        "doc" | "slides" => Some(("pdf", "application/pdf")),
-        "design" => Some(("png", "image/png")),
-        _ => None,
     }
 }
 

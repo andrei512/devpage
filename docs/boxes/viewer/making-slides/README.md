@@ -158,7 +158,8 @@ for a minute, and when devpage stops; the next PNG starts it again.
 answers at once; the PNG carries an `ETag`, so a request already holding it
 gets `304 Not Modified`. A slide is forgotten when a file its deck is drawn
 from changes, appears or goes: the deck's file, its slides, what they embed —
-images, designs and every file a design is made of, another deck's slide
+images, designs and every file a design is made of — one it asks for that
+isn't there yet among them, so adding it counts — another deck's slide
 PNG and that deck's files — and the deck's widgets folder, every widget in
 it and every module they import. Saving one deck's files forgets none of
 another deck's slides, and a page a slide only links to is not what it is

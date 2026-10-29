@@ -262,7 +262,8 @@ In Chrome:
 - A real file named like a design's PNG served as it is; a link to a design's PNG checked as the design.
 - No design file — a pasted zero-width space in a colour, deep nesting, a huge number, a truncated file — stopping the store, which still sees saves afterwards.
 - Nothing outside the served folder read.
-- The store knowing every file a design is made of — itself, its import, its themes and its font files, from one resolve — and no folder it listed or file it asked for that isn't there, whether or not it resolves.
+- The store knowing every file a design is made of — itself, its import, its themes and its font files, from one resolve, whether or not it resolves — a file it asked for that isn't there named as it would be, a `themes.yml` above it or the design's own missing file, and no folder it listed.
+- An image a design shows added after it: the design announced and drawn with it.
 - Two folders in one store — two versions of a document — sharing its one tile cache and nothing else: the same address in each its own design with its own validator, the same mount and folder the design already kept, and a folder no one holds leaving the store with its tiles.
 - A design's PNG answering `304` from its scene without painting, until a design it uses changes.
 - A PNG, or `422` and the problems, and `404` for a design outside the served folder or missing.
@@ -323,6 +324,7 @@ In Chrome:
 - A document outside it refused.
 - A site's `watch` list.
 - Only YAML with a devpage `kind` is a document file.
+- What a kind downloads as: a doc or slides a PDF, a design a PNG, a site nothing.
 - The download name — what `devpage pdf` and `devpage video` write, and what a version downloads as — the title made safe, with its extension.
 
 ### `external`
@@ -579,7 +581,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 *And in Chrome, in `drive::browser_tests::slide_png`.*
 
-- Saving a file of one deck — its file, a slide — forgetting its slides and none of another deck's; saving what a deck embeds — an image, a design, an image the design shows, a widget, a new widget file — forgetting its slides; saving a page a slide only links to forgetting none of its deck's; a slide being drawn when a file it is drawn from changes, or before its files are known, not kept.
+- Saving a file of one deck — its file, a slide — forgetting its slides and none of another deck's; saving what a deck embeds — an image, a design, an image the design shows, a widget, a new widget file — forgetting its slides, and so does adding an image the design shows that wasn't there; saving a page a slide only links to forgetting none of its deck's; a slide being drawn when a file it is drawn from changes, or before its files are known, not kept.
 
 In Chrome:
 
