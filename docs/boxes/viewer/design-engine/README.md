@@ -670,8 +670,12 @@ every file it was made from is still the read it saw — otherwise it resolves
 the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it — a `themes.yml` written into a folder between a design and one
-above it, say. `devpage check` and a page's problems bar read designs
-straight from disk instead, as they read pages. The routes are on
+above it, say. A page's problems bar asks the same store for the problems of
+each design the page reaches, so the design a page embeds is resolved once,
+for the page and its canvas alike. `devpage check`, and a publish on either
+side, make a store of their own for the one run and ask it the same: a
+design's problems, and every file it is made of — what a publish zips —
+which are the files resolving it read. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
 With each design's scene the store holds it as the engine's `design`, its

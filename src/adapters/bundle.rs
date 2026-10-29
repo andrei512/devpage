@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::check;
+use crate::designs::Designs;
 use crate::folder::Folder;
 
 /// A document zipped: the bytes, the document file's path inside the zip,
@@ -18,12 +19,13 @@ pub struct Bundle {
     pub files: Vec<String>,
 }
 
-/// Zips the folder's entry document: every file the check follows, at its
+/// Zips the folder's entry document: every file the check follows — each
+/// design's as `designs`, the folder's design store, read them — at its
 /// path from the deepest folder that holds them all — the document's own
 /// folder, unless it links to a file beside it.
-pub fn pack(folder: &Folder) -> Result<Bundle> {
+pub fn pack(folder: &Folder, designs: &Designs) -> Result<Bundle> {
     let document = folder.entry();
-    let files = check::files(folder);
+    let files = check::files(folder, designs);
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {
         file.strip_prefix(&root)
@@ -111,6 +113,12 @@ mod tests {
         dir.canonicalize().unwrap()
     }
 
+    /// `document` zipped, its designs read through a store of their own.
+    fn packed(document: Document) -> Bundle {
+        let designs = Designs::new(&document.served);
+        pack(&Folder::new(Arc::new(document)), &designs).unwrap()
+    }
+
     fn names(zip: &[u8]) -> Vec<String> {
         let archive = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
         let mut names: Vec<String> = archive.file_names().map(str::to_string).collect();
@@ -157,7 +165,7 @@ mod tests {
         write("docs/.env", b"SECRET=1\n");
         let document =
             Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap();
-        let bundle = pack(&Folder::new(Arc::new(document))).unwrap();
+        let bundle = packed(document);
         assert_eq!(bundle.entry, "devpage.yml");
         assert_eq!(
             names(&bundle.zip),
@@ -199,7 +207,7 @@ mod tests {
             &ServedFolder::new(&dir).unwrap(),
         )
         .unwrap();
-        let bundle = pack(&Folder::new(Arc::new(document))).unwrap();
+        let bundle = packed(document);
         assert_eq!(bundle.entry, "launch/talk.yml");
         assert_eq!(
             names(&bundle.zip),
@@ -216,7 +224,7 @@ mod tests {
         std::fs::write(dir.join("doc/img/p.png"), "png").unwrap();
         let document =
             Document::load(&dir.join("doc/notes.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
-        let bundle = pack(&Folder::new(Arc::new(document))).unwrap();
+        let bundle = packed(document);
         let out = folder("round-trip-out");
         unpack(&bundle.zip, &out).unwrap();
         assert_eq!(

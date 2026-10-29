@@ -95,8 +95,9 @@ async fn main() -> Result<()> {
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served()?,
         )?;
+        let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
-        let problems = check::document(&folder, Some(&http::external(None))).await;
+        let problems = check::document(&folder, &designs, Some(&http::external(None))).await;
         for problem in &problems {
             println!("{problem}");
         }

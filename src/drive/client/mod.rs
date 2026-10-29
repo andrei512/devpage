@@ -13,6 +13,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 
+use crate::designs::Designs;
 use crate::document::Document;
 use crate::drive::api_types::{Refusal, Thread};
 use crate::folder::{Folder, ServedFolder};
@@ -311,7 +312,10 @@ async fn publish(
 ) -> Result<Output> {
     let folder = Folder::new(Arc::new(Document::load(path, served)?));
     let document = folder.entry();
-    let problems = crate::check::document(&folder, Some(&crate::http::external(None))).await;
+    // One store for the check and the zip: each design is resolved once.
+    let designs = Designs::new(served);
+    let problems =
+        crate::check::document(&folder, &designs, Some(&crate::http::external(None))).await;
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
         let text = if as_json {
@@ -324,7 +328,7 @@ async fn publish(
         };
         return Ok(Output { text, code: 1 });
     }
-    let bundle = crate::adapters::bundle::pack(&folder)?;
+    let bundle = crate::adapters::bundle::pack(&folder, &designs)?;
     let (api, name) = connect(home, context)?;
     let file = document.path();
     let mut published: BTreeMap<PathBuf, String> = home.published(&name)?;

@@ -46,7 +46,8 @@ at its current address), a module that throws why it can't be had, or `404`,
 `400` or `500` with the reason — is the **[answer](../glossary/README.md#answer)**
 `Answers` (`core/src/answer.rs`) decides from the documents alone: the served
 folder (`Folder`) with its entry document and its document index, the widget
-modules, the problems each page lists and whether comments are on. The
+modules, the design store, the problems each page lists and whether comments
+are on. The
 widgets own how a module's address finds its file and whether it is current
 ([How widgets run](../widgets/how-widgets-run/README.md)). The HTTP server
 only turns an answer into a response — its headers, the file's bytes read,

@@ -123,6 +123,7 @@ mod tests {
     use std::sync::Mutex;
 
     use devpage_core::check::{Preview, Report, document};
+    use devpage_core::designs::Designs;
     use devpage_core::document::Document;
     use devpage_core::problem::Problem;
     use devpage_core::widgets::{Modules, Widgets};
@@ -201,6 +202,11 @@ mod tests {
         Widgets::of(document, &Modules::default())
     }
 
+    /// A design store of its own for `document`'s served folder.
+    fn designs_of(document: &Document) -> Designs {
+        Designs::new(&document.served)
+    }
+
     fn folder(name: &str, page: &str) -> Document {
         let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -265,7 +271,7 @@ mod tests {
     ) -> Vec<Problem> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
-            let found = preview.problems(doc, &widgets_of(doc), pages);
+            let found = preview.problems(doc, &widgets_of(doc), &designs_of(doc), pages);
             if done(&found) || tokio::time::Instant::now() > deadline {
                 return found;
             }
@@ -283,8 +289,9 @@ mod tests {
                 web.address
             ),
         );
+        let designs = designs_of(&doc);
         let opened = crate::folder::Folder::new(Arc::new(doc));
-        let found: Vec<String> = document(&opened, Some(&checker(300, 3000, 50)))
+        let found: Vec<String> = document(&opened, &designs, Some(&checker(300, 3000, 50)))
             .await
             .iter()
             .map(ToString::to_string)
@@ -307,7 +314,11 @@ mod tests {
         let pages = [doc.base.join("README.md")];
 
         // The first render holds nothing up: the answer isn't in yet.
-        assert!(preview.problems(&doc, &widgets_of(&doc), &pages).is_empty());
+        assert!(
+            preview
+                .problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages)
+                .is_empty()
+        );
         // A broken address, once answered, asks open pages to fetch again …
         let change = tokio::time::timeout(Duration::from_secs(5), heard.next())
             .await
@@ -321,7 +332,7 @@ mod tests {
         assert_eq!(found[0].line, Some(3));
         // Each address is asked once for as long as devpage runs — the good
         // one may still be on its way when the broken one's answer is in.
-        preview.problems(&doc, &widgets_of(&doc), &pages);
+        preview.problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while !web.hits.lock().unwrap().contains_key("/ok")
             && tokio::time::Instant::now() < deadline

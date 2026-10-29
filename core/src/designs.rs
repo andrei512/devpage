@@ -690,6 +690,38 @@ impl Designs {
         }
     }
 
+    /// The design at `path`'s problems — resolving it, or drawing its scene
+    /// in each theme it shows in: what `devpage check` and a page's problems
+    /// bar report. None when it resolves and draws.
+    pub fn problems(&self, path: &str) -> Vec<Problem> {
+        self.0.get(address(path)).problems.unwrap_or_default()
+    }
+
+    /// Every file the design at `path` is made of, as the store read them:
+    /// the design itself, its imports, images, themes and fonts — every
+    /// file a resolve of it has read since it was last resolved whole,
+    /// whether or not it resolves. Folders it lists are not files; the
+    /// fonts it then reads from them are. A file it asked for that isn't
+    /// there is none of them.
+    pub fn files(&self, path: &str) -> Vec<PathBuf> {
+        let served = &self.0.served;
+        self.0
+            .get(address(path))
+            .asked
+            .iter()
+            .filter(|key| !key.ends_with('/'))
+            .filter_map(|key| served.file(&served.path().join(key)))
+            .collect()
+    }
+
+    /// How many times the store resolved a design, for the tests.
+    #[cfg(test)]
+    pub(crate) fn resolutions(&self) -> usize {
+        self.0
+            .resolutions
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// Tells `listener` the address of each design whose scene or problems
     /// change from now on, as the engine names it — what
     /// [`Designs::resolve`] then answers anew. It is called on the thread
@@ -892,63 +924,6 @@ fn prepared<'a>(
     list(design, &mut lock(renderer)).ok_or(gone)
 }
 
-/// The design at `path`'s problems, read straight from disk: what
-/// `devpage check` and a page's problems bar report.
-pub fn problems(served: &ServedFolder, path: &str) -> Vec<Problem> {
-    struct Disk<'a>(&'a ServedFolder);
-    impl Files for Disk<'_> {
-        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-            let file = self.0.inside(&self.0.path().join(path))?;
-            std::fs::read(file).ok()
-        }
-        fn list(&self, path: &str) -> Option<Vec<String>> {
-            names(&self.0.folder(&self.0.path().join(path))?)
-        }
-    }
-    let path = address(path);
-    guarded(
-        path,
-        || devpage_design::resolve(&Disk(served), path),
-        |p| vec![p],
-    )
-    .and_then(|scene| drawable(&mut Renderer::new(), path, &scene))
-    .err()
-    .unwrap_or_default()
-}
-
-/// Every file the design at `path` is made of, read straight from disk: the
-/// design itself, its imports, images, themes and fonts — what resolving it
-/// reads, whether or not it resolves. Folders it lists are not files; the
-/// fonts it then reads from them are.
-pub fn files(served: &ServedFolder, path: &str) -> Vec<PathBuf> {
-    struct Recording<'a> {
-        served: &'a ServedFolder,
-        read: RefCell<Vec<PathBuf>>,
-    }
-    impl Files for Recording<'_> {
-        fn bytes(&self, path: &str) -> Option<Vec<u8>> {
-            let file = self.served.file(&self.served.path().join(path))?;
-            let bytes = std::fs::read(&file).ok();
-            self.read.borrow_mut().push(file);
-            bytes
-        }
-        fn list(&self, path: &str) -> Option<Vec<String>> {
-            names(&self.served.folder(&self.served.path().join(path))?)
-        }
-    }
-    let recording = Recording {
-        served,
-        read: RefCell::new(Vec::new()),
-    };
-    let path = address(path);
-    let _ = guarded(
-        path,
-        || devpage_design::resolve(&recording, path),
-        |p| vec![p],
-    );
-    recording.read.into_inner()
-}
-
 /// The themes a design shows in: both when it is themed, else the light one,
 /// which is the same as the dark.
 fn themes(scene: &Scene) -> &'static [Theme] {
@@ -957,27 +932,6 @@ fn themes(scene: &Scene) -> &'static [Theme] {
     } else {
         &[Theme::Light]
     }
-}
-
-/// Whether the design at `path` can be drawn at all — in each theme, when
-/// it is themed: images that don't fit the GPU's atlas are the design's
-/// problem everywhere — on its canvas, in its PNG and in `devpage check` —
-/// not only where a picture is asked for. What `devpage check` asks of a
-/// design read from disk; the store keeps the drawings it makes instead.
-fn drawable(renderer: &mut Renderer, path: &str, scene: &Scene) -> Result<(), Vec<Problem>> {
-    guarded(
-        path,
-        || {
-            themes(scene)
-                .iter()
-                .try_for_each(|&theme| renderer.drawing(scene, theme, None).map(|_| ()))
-        },
-        |p| Undrawable {
-            message: p.message,
-            at: None,
-        },
-    )
-    .map_err(|undrawable| problem(path, undrawable))
 }
 
 /// Why a design can't be drawn, as its problem: at the attribute that broke
@@ -1162,6 +1116,58 @@ mod tests {
     const BOX_RED: &str = r##"<Frame width={50} height={50} fill="#ff0000" />
 "##;
 
+    /// The store knows every file a design is made of — itself, what it
+    /// imports, its themes and the font files its text is set in — from the
+    /// one resolve that keeps it: no folder it listed, and no file it asked
+    /// for that isn't there, whether or not the design resolves.
+    #[test]
+    fn the_store_knows_every_file_a_design_is_made_of() {
+        let dir = served("files");
+        let regular = std::fs::read(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../design/fonts/Inter-Regular.ttf"),
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("app/fonts/Body")).unwrap();
+        std::fs::write(dir.join("app/fonts/Body/Body-Regular.ttf"), &regular).unwrap();
+        std::fs::write(
+            dir.join("app/themes.yml"),
+            "kind: themes\nfonts:\n  body: ./fonts/Body\nlight: {}\ndark: {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("app/set.design"),
+            "import Button from \"./button.design\"\n\n<Frame><Text font=\"body\">Hello</Text><Button label=\"Go\" /></Frame>\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("app/gone.design"),
+            "<Frame>\n  <Image src=\"./gone.png\" width={5} height={5} />\n</Frame>\n",
+        )
+        .unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let names = |path: &str| -> Vec<String> {
+            designs
+                .files(path)
+                .iter()
+                .map(|f| f.strip_prefix(&dir).unwrap().to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            names("/app/set.design"),
+            [
+                "app/button.design",
+                "app/fonts/Body/Body-Regular.ttf",
+                "app/set.design",
+                "app/themes.yml",
+            ]
+        );
+        assert!(designs.problems("app/set.design").is_empty());
+        assert_eq!(names("app/gone.design"), ["app/gone.design"]);
+        assert_eq!(designs.problems("app/gone.design").len(), 1);
+        assert!(names("app/nothing.design").is_empty());
+        assert_eq!(designs.resolutions(), 3, "each resolved once");
+    }
+
     /// A design too wide for a row of tiles in one band is banded in strips,
     /// painted and never cached: its PNG is right and the cache stays empty.
     #[test]
@@ -1191,7 +1197,7 @@ mod tests {
         let dir = served("huge");
         tall(&dir, None);
         let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
-        assert!(problems(&ServedFolder::new(&dir).unwrap(), "/app/huge.design").is_empty());
+        assert!(designs.problems("/app/huge.design").is_empty());
         let started = std::time::Instant::now();
         let png = designs.png("app/huge.design", Theme::Light).unwrap();
         let took = started.elapsed();
@@ -1478,7 +1484,9 @@ mod tests {
             .collect();
         let design = Sized(format!(r#"<Frame layout="row">{images}</Frame>"#));
         let scene = devpage_design::resolve(&design, "app/a.design").unwrap();
-        let found = drawable(&mut Renderer::new(), "app/a.design", &scene).unwrap_err();
+        let mut held = Design::new(scene);
+        let undrawable = held.draw(&mut Renderer::new(), Theme::Light).unwrap_err();
+        let found = problem("app/a.design", undrawable.clone());
         assert_eq!(found.len(), 1);
         assert!(
             found[0]
@@ -1539,11 +1547,11 @@ mod tests {
         .unwrap();
         let expected = "app/photo.design:2:10: src: ./broken.png is a PNG that doesn't decode";
         // What `devpage check` reports…
-        let found = problems(&ServedFolder::new(&dir).unwrap(), "app/photo.design");
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let found = designs.problems("app/photo.design");
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].to_string().starts_with(expected), "{found:?}");
         // …and the PNG, instead of a blank picture.
-        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let png = designs.png("app/photo.design", Theme::Light).unwrap_err();
         assert!(png.starts_with(expected), "{png}");
     }
@@ -1752,7 +1760,8 @@ mod tests {
         let problems = designs.resolve("app/set.design").unwrap_err();
         assert_eq!(problems[0].to_string(), expected);
         assert_eq!(
-            super::problems(&ServedFolder::new(&dir).unwrap(), "/app/set.design")[0].to_string(),
+            Designs::new(&ServedFolder::new(&dir).unwrap()).problems("/app/set.design")[0]
+                .to_string(),
             expected
         );
         // It goes again, and a font file itself is saved over as bold.
