@@ -12,11 +12,10 @@ use devpage_design::bands::Piece;
 use devpage_design::fonts::FontFile;
 use devpage_design::proto;
 use devpage_design::render::{Drawing, Undrawable};
-use devpage_design::resolve::ImageFile;
 use devpage_design::resolve::{Outcome, Resolution};
+use devpage_design::scene::{Applied, ImageFile};
 use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
-use devpage_design::wire::Applied;
-use devpage_design::{Files, Problem, Renderer, Scene, Theme};
+use devpage_design::{Files, Problem, Renderer, Scene, Theme, wire};
 
 use crate::served::ServedFolder;
 
@@ -397,9 +396,9 @@ impl Store {
                     self.draw(path, k, None).err()
                 };
             }
-            Ok(Done::Again(Outcome::Changed(patch, applied))) => {
+            Ok(Done::Again(Outcome::Changed(edits, applied))) => {
                 k.asked.extend(asked);
-                k.log.push_back((k.version, Arc::new(patch)));
+                k.log.push_back((k.version, Arc::new(wire::patch(&edits))));
                 if k.log.len() > LOG {
                     k.log.pop_front();
                 }
@@ -597,7 +596,7 @@ impl Designs {
             return Next::Problems(Vec::new());
         };
         let scene = res.scene();
-        let whole = || Next::Scene(k.version, Box::new(devpage_design::wire::scene(scene)));
+        let whole = || Next::Scene(k.version, Box::new(wire::scene(scene)));
         match sent {
             None => whole(),
             Some(v) if v == k.version => Next::Current(scene.themed),
@@ -1306,7 +1305,7 @@ mod tests {
                 let (w, h) = size.split_once('x')?;
                 let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
                 Some(Ok(Arc::new(ImageFile {
-                    id: devpage_design::resolve::ImageId::of(path.as_bytes()),
+                    id: devpage_design::scene::ImageId::of(path.as_bytes()),
                     bytes: Vec::new(),
                     width: w,
                     height: h,
@@ -1452,7 +1451,7 @@ mod tests {
         }));
         let width =
             |designs: &Designs| match designs.resolve("app/other.design").unwrap().root.width {
-                devpage_design::resolve::Size::Px(w) => w,
+                devpage_design::scene::Size::Px(w) => w,
                 other => panic!("{other:?}"),
             };
         assert_eq!(width(&designs), 20.0, "resolved from the saved file");
@@ -1654,7 +1653,7 @@ mod tests {
             panic!()
         };
         let mut browser = decode(&scene);
-        let mut uses = devpage_design::wire::Uses::of(&browser.root);
+        let mut uses = devpage_design::scene::Uses::of(&browser.root);
         let mut late = None;
         type Edit = Box<dyn Fn(&mut Vec<&'static str>) -> (&'static str, String)>;
         let edits: Vec<Edit> = vec![

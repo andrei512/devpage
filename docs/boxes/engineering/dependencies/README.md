@@ -155,9 +155,9 @@ Debug assertions and overflow checks stay on.
 | `peniko` | 0.6.1 | Apache-2.0 or MIT | The core's colours, gradients, images and font data, as the display list holds them; depended on directly like `kurbo`. | `design/src/` |
 | `rstar` | 0.12.2 | MIT or Apache-2.0 | The index: the R-tree over a drawing's chunks and the one inside each chunk over its commands, bulk-loaded for a new drawing and updated chunk by chunk. Not 0.13, which panics inserting into a tree it bulk-loaded and then removed from. | `design/src/display/` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend, an adapter of the paint port: an area of the display list into an RGBA buffer, for the server's tiles and PNG and for a canvas without WebGPU. Only `design/src/cpu/` names it; a test holds the core to that. | `design/src/cpu/` |
-| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/resolve.rs`, `design/src/bands/` |
-| `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/resolve.rs` |
-| `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire.rs` |
+| `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/scene/`, `design/src/bands/` |
+| `zune-jpeg` | 0.5.15 | MIT, Apache-2.0 or Zlib | Decoding JPEG images a design uses, while resolving, strictly, so a truncated file is a problem. | `design/src/scene/` |
+| `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire/` |
 | `tonic` (feature `codegen`; only with `server`) | 0.14.6 | MIT | What the generated `Designs` server is written against. | generated into `design/src/proto.rs` |
 | `tonic-prost` (only with `server`) | 0.14.6 | MIT | The protobuf codec the generated service encodes its messages with. | generated into `design/src/proto.rs` |
 | `protox` (build) | 0.10.0 | MIT or Apache-2.0 | Compiling `design/proto/design.proto` in Rust, so building needs no `protoc`. | `design/build.rs` |

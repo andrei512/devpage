@@ -3,12 +3,13 @@
 //! in devpage and compiled to WebAssembly in the browser.
 //!
 //! **The core** links no rasterizer: text → syntax tree ([`parse`]) → scene
-//! ([`resolve`], [`fonts`]) → layout, the painter's commands and a kept,
+//! ([`resolve`], [`fonts`]; what a scene is, and the edits from one to the
+//! next, are [`scene`]'s) → layout, the painter's commands and a kept,
 //! updatable drawing ([`render`]) → chunks under property trees with their
 //! index, the one paint entry point and hit testing ([`display`]) → tiles,
 //! their cache and the damage that makes them stale ([`tiles`]); with the
 //! shadows' sampling ([`shadow`]), the GPU atlas's model ([`atlas`]), the
-//! wire form of scenes and patches ([`wire`], [`proto`]) and the rule two
+//! wire form of scenes and their edits ([`wire`], [`proto`]) and the rule two
 //! drawings are compared by ([`compare`]). Its geometry and colours are
 //! kurbo's and peniko's, depended on directly.
 //!
@@ -27,6 +28,7 @@ pub mod parse;
 pub mod proto;
 pub mod render;
 pub mod resolve;
+pub mod scene;
 pub mod shadow;
 pub mod sums;
 pub mod tiles;
@@ -41,7 +43,8 @@ use std::fmt;
 
 pub use kurbo::Rect as KRect;
 pub use render::{Damage, Drawing, Renderer};
-pub use resolve::{Files, Scene, Theme, resolve};
+pub use resolve::resolve;
+pub use scene::{Files, Scene, Theme};
 
 /// Something wrong with a design, at a place in one of its files.
 #[derive(Debug, Clone, PartialEq)]

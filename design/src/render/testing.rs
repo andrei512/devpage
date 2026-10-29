@@ -9,11 +9,11 @@ use vello_cpu::Pixmap;
 
 use crate::Files;
 use crate::render::*;
-use crate::resolve::{self, Scene};
+use crate::scene::Scene;
 
 pub(crate) fn scene(source: &str) -> Scene {
     let files: HashMap<String, String> = [("a.design".to_string(), source.to_string())].into();
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 pub(crate) fn at(x: f32, y: f32, width: f32, height: f32) -> Frame {

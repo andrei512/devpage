@@ -5,7 +5,7 @@
 use kurbo::{BezPath, Rect as KRect, Shape, Vec2};
 use rstar::{AABB, RTree, RTreeObject};
 
-use crate::render::Draw;
+use super::Draw;
 
 use super::*;
 
@@ -110,7 +110,7 @@ impl<'a> Builder<'a> {
 /// What a glyph run can touch: its glyphs' origins widened by an em each
 /// way, which holds any glyph's outline — accents, descenders and italic
 /// overhang included — at that size.
-pub(super) fn glyph_bounds(size: f32, glyphs: &[crate::render::Glyph]) -> KRect {
+pub(super) fn glyph_bounds(size: f32, glyphs: &[super::Glyph]) -> KRect {
     let mut r: Option<KRect> = None;
     for g in glyphs {
         let p = KRect::new(g.x as f64, g.y as f64, g.x as f64, g.y as f64);

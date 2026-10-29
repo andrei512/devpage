@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::render::testing::*;
 use crate::render::*;
-use crate::resolve::{self, Theme};
+use crate::scene::{self, Theme};
 
 /// Each example design, painted natively in each theme, matches its
 /// reference PNG in `design/testdata/` — `<name>.png` in the light theme,
@@ -33,8 +33,8 @@ fn the_examples_paint_as_their_references() {
                 std::fs::write(&reference, &png).unwrap();
                 continue;
             }
-            let expected = resolve::decode(&std::fs::read(&reference).unwrap()).unwrap();
-            let painted = resolve::decode(&png).unwrap();
+            let expected = scene::decode(&std::fs::read(&reference).unwrap()).unwrap();
+            let painted = scene::decode(&png).unwrap();
             assert_eq!(
                 (painted.width, painted.height),
                 (expected.width, expected.height),
@@ -104,7 +104,7 @@ fn a_design_100000_pixels_tall_has_a_png() {
         format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
     )]
     .into();
-    let s = resolve::resolve(&files, "a.design").unwrap();
+    let s = crate::resolve(&files, "a.design").unwrap();
     let mut r = Renderer::new();
     let t = std::time::Instant::now();
     let drawing = r.drawing(&s, Theme::Light, None).unwrap();

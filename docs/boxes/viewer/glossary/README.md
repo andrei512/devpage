@@ -89,6 +89,10 @@ One element of a resolved design — a frame, text, rectangle, ellipse, vector o
 
 A design resolved into one tree of nodes, imports, props and theme colors substituted, every color with its light and its dark value, with the image files and font files its nodes use, ready to lay out and paint in either theme. A scene is **themed** when any `theme.` reference reached it.
 
+## edits
+
+How one scene becomes the next, each step naming its nodes by id: a node's own attributes changed, a subtree inserted after a sibling, a subtree removed or moved — with the image files and font files the scene before didn't have. Applying them is all or nothing. Resolving a design again makes them; on the wire they are a [patch](#patch). See [Resolving again](../design-engine/README.md#resolving-again).
+
 ## interaction
 
 What clicking a node does in a prototype: `navigate`, `back`, `overlay` or `close`.
@@ -171,7 +175,7 @@ A page's one gRPC-Web call, `Watch`, naming every design the page shows and carr
 
 ## patch
 
-An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files and font files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
+An update on the watch stream after a save: the [edits](#edits) since the scene last sent — nodes changed, inserted, removed and moved, each by its id — and the image files and font files that scene didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
 
 ## image file
 

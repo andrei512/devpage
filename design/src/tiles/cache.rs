@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use kurbo::Rect as KRect;
 
-use crate::resolve::Theme;
+use crate::scene::Theme;
 
 use super::*;
 

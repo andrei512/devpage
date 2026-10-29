@@ -25,8 +25,8 @@ use kurbo::{Affine, BezPath, Ellipse as KEllipse, Point, Rect, RoundedRect, Shap
 use peniko::{Blob, Color as PColor, Gradient, ImageAlphaType, ImageData, ImageFormat};
 
 use crate::display::{Blend, Builder};
-use crate::render::{Draw, Paint};
-use crate::resolve::Rgba;
+use crate::display::{Draw, Paint};
+use crate::scene::Rgba;
 
 /// How far a blur reaches, in samples: three standard deviations at two
 /// samples a standard deviation. Past it the Gaussian is under 0.15%, less
@@ -944,8 +944,8 @@ mod tests {
     use super::*;
     use crate::compare::compare;
     use crate::cpu::paint_area;
+    use crate::display::Frame;
     use crate::display::List;
-    use crate::render::Frame;
 
     /// The most a shadow in pieces may differ from the same shadow as one
     /// image, in any channel of 255, by how wide its blur is on the screen:

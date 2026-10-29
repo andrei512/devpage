@@ -213,6 +213,77 @@ mod tests {
         ));
     }
 
+    /// The bytes the watch stream sends for a move, an insert and a new
+    /// image file are fixed: the engine's edits and the wire's encoding of
+    /// them can be re-cut, but a browser holding a scene is sent the same
+    /// patch, byte for byte.
+    #[test]
+    fn a_patch_is_sent_as_the_same_bytes() {
+        let dir = served("golden");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/designs/checkout/logo.png"),
+            dir.join("app/logo.png"),
+        )
+        .unwrap();
+        let file = dir.join("app/list.design");
+        let list = |rows: &[&str]| {
+            let rows: String = rows
+                .iter()
+                .map(|r| {
+                    format!(
+                        "  <Frame key=\"{r}\" width={{80}} height={{20}}><Text>{r}</Text></Frame>\n"
+                    )
+                })
+                .collect();
+            format!("<Frame layout=\"column\">\n{rows}</Frame>\n")
+        };
+        std::fs::write(&file, list(&["a", "b", "c"])).unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let path = "app/list.design";
+        let mut sent = Sent::default();
+        assert!(matches!(
+            sent.next(designs.next(path, sent.version)),
+            Some(Body::Scene(_))
+        ));
+        let edits = [
+            // A move: the last row first, matched by its key.
+            list(&["c", "a", "b"]),
+            // An insert: a row after the first.
+            list(&["c", "new", "a", "b"]),
+            // A new image file: an image the scene didn't show.
+            list(&["c", "new", "a", "b"]).replace(
+                "</Frame>\n</Frame>",
+                "</Frame>\n  <Image src=\"./logo.png\" width={32} height={32} />\n</Frame>",
+            ),
+        ];
+        let sent: Vec<String> = edits
+            .iter()
+            .map(|text| {
+                save(&designs, &file, text);
+                let Some(body @ Body::Patch(_)) = sent.next(designs.next(path, sent.version))
+                else {
+                    panic!("a patch")
+                };
+                let bytes = Update {
+                    body: Some(body),
+                    path: path.to_string(),
+                }
+                .encode_to_vec();
+                bytes.iter().map(|b| format!("{b:02x}")).collect()
+            })
+            .collect();
+        assert_eq!(sent, GOLDEN);
+    }
+
+    /// The watch stream's bytes for the move, the insert and the new image
+    /// of [`a_patch_is_sent_as_the_same_bytes`], as they were sent before
+    /// the engine's edits were cut from the wire.
+    const GOLDEN: [&str; 3] = [
+        "120e2a0c220a0a030a010512030a0100220f6170702f6c6973742e64657369676e",
+        "12c4012ac10112be010a030a010012030a01051ab10112054672616d652d0000a042350000a0413d0000803f5d0000803f6210000000000000000000000000000000008a011000000000000000000000000000000000aa016808011204546578742d000080bf35000080bf3d0000803f5d0000803f6210000000000000000000000000000000008a011000000000000000000000000000000000a2011e0a036e65771500006041189003220a08ffd5dc7810ffd5dc782d3333b33fca01030a0108ca01030a0107220f6170702f6c6973742e64657369676e",
+        "12f70212e7010a201154445ac1df21048141ca9bd9b236d52586f15e103fd46d9294535fc5dbd49f12c20189504e470d0a1a0a0000000d4948445200000040000000400806000000aa6971de000000894944415478daedd9bb0dc0200c404196c9648ccf10c904147c5cd8b92779816b904d7bfa78ff3c0d000000000000000000000000000000000000000000e133ab34c06aa500762b01705a6a805ba504b85d2a80a800004800101d0000000000f00c02006019b20e3b883889398a3a8bfb18010000000000000000000000000000000000000000c0da7c2e0dd3e8f26e9da40000000049454e44ae4260822a8a011287010a030a010012030a01031a7b08051205496d6167652d0000004235000000423d0000803f5d0000803f6210000000000000000000000000000000008a011000000000000000000000000000000000c201300a0c6170702f6c6f676f2e706e6712201154445ac1df21048141ca9bd9b236d52586f15e103fd46d9294535fc5dbd49fca01030a0109220f6170702f6c6973742e64657369676e",
+    ];
+
     /// The id of the `i`th child of a scene's root, as the wire carries it.
     fn scene_root_child(
         root: &devpage_design::proto::Node,

@@ -6,6 +6,7 @@
 //! band and click goes through here.
 
 mod chunk;
+mod draw;
 mod hit;
 mod list;
 mod paint;
@@ -13,6 +14,7 @@ mod run;
 mod trees;
 
 pub use chunk::*;
+pub use draw::*;
 pub use list::*;
 pub use paint::*;
 pub use run::*;

@@ -73,13 +73,14 @@ module of the core names an adapter or a rasterizer.
 | `parse` | core | Text to a syntax tree. |
 | `ids` | core | Element ids kept across saves: a new parse matched against the last. |
 | `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, and children under their keys. |
-| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene, with the scene's index from node id to place. |
-| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
-| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `scene` | core | What a resolved design is: the scene, its nodes and their attributes, colours in both themes, image files, the scene's index from node id to place, and the `Files` port designs are read through. `edit`: how one scene becomes the next — an edit by id (a node changed, a subtree inserted, removed or moved), the edits between two scenes, edits with the files they bring, applied all or nothing, and what they did, for a drawing to follow. |
+| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene; `again`, a design kept resolved and a change resolved again only as far as it reaches, into the edits that bring its scene across. |
+| `render` | core | The renderer — its fonts and text shaping. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `draw`: the drawing commands and a node's box after layout. `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
-| `wire`, `proto` | core | Scenes as the watch stream's messages; `patch`: the patch between two scenes, as operations by id, and applying one, all or nothing. |
+| `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
 | `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
 
@@ -224,7 +225,8 @@ the change can reach is resolved again:
   with its subtree — for the design's own root, the design whole, as for
   any change to its own `props` defaults.
 
-What was resolved again is the patch: no scene is compared with another,
+What was resolved again is the edits that bring the scene across — what the
+watch stream sends as a patch: no scene is compared with another,
 with two exceptions that change the whole design and are resolved whole and
 compared: a change to the design's own `props` defaults, which every node
 may read, and its root element replaced. A third is a safety net, not a
@@ -238,8 +240,10 @@ any other. While a design has problems, what each save reached is kept, and
 the save that makes it valid again resolves all of it against the last scene
 sent; the problems themselves, every one, come from resolving the design
 whole, which a design with problems pays on each save. The engine resolves
-again in `design/src/resolve/again.rs` (`Resolution`); the store keeps one per
-design.
+again in `design/src/resolve/again.rs` (`Resolution`), which answers each
+change with the scene unchanged, its problems, or the edits and what they did
+(`Outcome::Changed`); the store keeps one per design, and encodes the edits
+as the patch its streams send.
 
 ### Themes
 
@@ -501,15 +505,15 @@ it, marked so, until it is painted again.
 
 ### Incremental updates
 
-A change to a file reaches a drawing as the
+A change to a file reaches a drawing as **edits** — in the browser, the
 [patch](#the-watch-stream) the server sends the canvases: nodes changed,
-inserted, removed and moved, each by its id. A drawing applies a patch by work
-proportional to it:
+inserted, removed and moved, each by its id. A drawing follows them by work
+proportional to them:
 
 1. a changed node is dirty; an inserted subtree is new, with order keys
    between its neighbours'; a removed one's chunks, boxes and property-tree
    nodes are freed; a moved one keeps them and takes a new order key;
-2. layout runs again only where the patch can reach: inside the
+2. layout runs again only where the edits can reach: inside the
    [boundary](#layout-boundaries-and-runs) around each dirty node, and past
    it only while a box's size changed — every frame with children is a run,
    along a line by the prefix sums, or free by its counted extent. The tree
@@ -532,10 +536,10 @@ proportional to it:
    again;
 5. the damage marks the tiles that overlap it stale.
 
-The server and the browser apply the same patch to the same kind of drawing,
-so both pay only for what changed. The canvas applies the patch to the scene
-it holds the same way: every replacement checked first, so a patch it can't
-use changes nothing, then only the replaced subtrees swapped in — what they
+The server and the browser apply the same edits to the same kind of drawing,
+so both pay only for what changed. Both apply them to the scene they hold the
+same way (`scene::apply`): every replacement checked first, so edits that
+can't be applied change nothing, then only the replaced subtrees swapped in — what they
 replaced is what the drawing is brought across by — and a file no node uses
 any more dropped by a count of the nodes using each file, never a walk of
 the scene.
@@ -655,8 +659,8 @@ straight from disk instead, as they read pages. The routes are on
 
 With each design's scene the store keeps its **drawing** in each theme it
 shows in — layout, chunks, property trees and index — and a design [resolved again](#resolving-again)
-updates them by the patch that resolving made, the very patch its watch
-streams send: only the dirty part is laid out, only dirty
+updates them by the edits that resolving made, the very edits its watch
+streams send as a patch: only the dirty part is laid out, only dirty
 chunks are made, only their index entries move, and only the tiles over the
 damage go stale. A changed component file touches only the designs made from
 it. The store's tiles, at 1× in each theme, share one cache capped at 64 MB of

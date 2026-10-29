@@ -5,7 +5,7 @@
 use kurbo::Rect as KRect;
 
 use crate::display::List;
-use crate::resolve::Theme;
+use crate::scene::Theme;
 
 mod cache;
 
