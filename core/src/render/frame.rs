@@ -65,6 +65,7 @@ pub fn page(
     comments: bool,
     found: &[Problem],
 ) -> String {
+    let _render = tracing::info_span!("render").entered();
     let current = document.url(file);
     let content = markdown_in(widgets, source);
     format!(

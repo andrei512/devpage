@@ -44,6 +44,7 @@ pub struct Topic {
 /// at its position (see [`Entry`]); the root's position is the top, so cycles
 /// end.
 pub fn tree(document: &Document) -> Vec<Group> {
+    let _nav = tracing::info_span!("nav").entered();
     let crate::document::Kind::Site { root } = &document.kind else {
         return Vec::new();
     };

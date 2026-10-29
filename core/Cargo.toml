@@ -25,6 +25,7 @@ tantivy = { version = "0.27", default-features = false, features = ["stemmer"] }
 # The diagram engine (`src/diagrams.rs`): QuickJS, built from its C source
 # by the crate, running the vendored pele bundle.
 rquickjs = "0.14.0"
+tracing = "0.1.44"
 
 [features]
 # Test helpers — in-memory comment store, fixtures — for devpage's own tests.

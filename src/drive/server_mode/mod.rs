@@ -9,6 +9,7 @@ mod comments;
 #[cfg(test)]
 mod comments_tests;
 mod config;
+pub mod metrics;
 mod pages;
 #[cfg(test)]
 mod pages_tests;

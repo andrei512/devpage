@@ -25,6 +25,7 @@ const OTHER_COMMANDS: &[&str] = &[
 const SERVER: &[&str] = &[
     "DEVPAGE_HOST",
     "DEVPAGE_PORT",
+    "DEVPAGE_METRICS_PORT",
     "DEVPAGE_BUCKET_URL",
     "DEVPAGE_DATA_DIR",
     "DEVPAGE_CACHE_MAX_BYTES",
@@ -42,6 +43,8 @@ const VOLUME_SHARE_PERCENT: u64 = 80;
 pub struct Config {
     pub host: IpAddr,
     pub port: u16,
+    /// The port `/metrics` is served on: `DEVPAGE_METRICS_PORT`, or 9030.
+    pub metrics_port: u16,
     pub data_dir: PathBuf,
     pub bucket_url: String,
     /// The cache's limit: `DEVPAGE_CACHE_MAX_BYTES`, or 80% of the volume.
@@ -101,6 +104,13 @@ impl Config {
                 .context("DEVPAGE_HOST is not an IP address")?,
             None => IpAddr::from([127, 0, 0, 1]),
         };
+        let metrics_port = match get("DEVPAGE_METRICS_PORT") {
+            Some(text) => text
+                .parse()
+                .ok()
+                .context("DEVPAGE_METRICS_PORT is not a port")?,
+            None => 9030,
+        };
         let port = match get("DEVPAGE_PORT") {
             Some(text) => text.parse().ok().context("DEVPAGE_PORT is not a port")?,
             None => 3030,
@@ -150,6 +160,7 @@ impl Config {
         Ok(Config {
             host,
             port,
+            metrics_port,
             data_dir,
             bucket_url,
             cache_max_bytes,
@@ -170,6 +181,7 @@ impl Config {
         Config {
             host: IpAddr::from([127, 0, 0, 1]),
             port: 0,
+            metrics_port: 0,
             data_dir: data_dir.to_path_buf(),
             bucket_url: format!("file://{}", bucket.display()),
             cache_max_bytes,

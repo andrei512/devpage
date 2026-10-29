@@ -532,6 +532,7 @@ impl Preview {
         widgets: &Widgets,
         pages: &[PathBuf],
     ) -> Vec<Problem> {
+        let _check = tracing::info_span!("check").entered();
         let mut external = Vec::new();
         let mut problems = widget_problems(document, widgets);
         problems.extend(crate::navbar::problems(document));

@@ -958,8 +958,21 @@ dependencies = [
  "tonic",
  "tonic-web",
  "tower",
+ "tracing",
  "url",
  "uuid",
+ "zip",
+]
+
+[[package]]
+name = "devpage-bench"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "futures",
+ "reqwest",
+ "serde_json",
+ "tokio",
  "zip",
 ]
 
@@ -984,6 +997,7 @@ dependencies = [
  "syntect",
  "tantivy",
  "tokio",
+ "tracing",
  "two-face",
 ]
 
