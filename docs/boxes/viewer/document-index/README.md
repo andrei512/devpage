@@ -29,14 +29,14 @@ A **document file** is a `.yml` or `.yaml` file whose top-level `kind` is
 A document file is loaded with `Document::load` and rendered as its kind: a
 site redirects to its root page; a doc renders all its chapters as one page
 with its outline; a deck renders its stage with every slide. One that can't be
-loaded — a missing chapter, an unknown field — gets `render::invalid`, a page
+loaded — a missing chapter, an unknown field — gets `page::invalid`, a page
 saying it is not a valid document and why.
 
 ## The nearest site
 
 A Markdown file is a page of the nearest site whose document file's folder
 holds it, shown in that site's frame with its sidebar. While that site's file
-can't be loaded, the page shows `render::invalid` for it instead. A Markdown
+can't be loaded, the page shows `page::invalid` for it instead. A Markdown
 file in no site's folder is shown as a doc of one chapter.
 
 With nested sites, the deepest folder wins:

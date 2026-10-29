@@ -18,14 +18,16 @@ pub mod diagrams;
 pub mod document;
 pub mod external;
 pub mod folder;
-pub mod highlight;
-pub(crate) mod html;
-pub mod icons;
-pub mod markup;
-pub mod nav;
-pub mod navbar;
+pub mod page;
 pub mod problem;
-pub mod render;
 pub mod search;
 pub mod watch;
 pub mod widgets;
+
+// The page's own parts, for the core alone: highlighting, icons, reading
+// Markdown, the navigation tree and HTML itself.
+pub(crate) mod highlight;
+pub(crate) mod html;
+pub(crate) mod icons;
+pub(crate) mod markup;
+pub(crate) mod nav;

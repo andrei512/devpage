@@ -7,9 +7,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
-use crate::check;
-use crate::designs::Designs;
-use crate::folder::Folder;
+use devpage_core::check;
+use devpage_core::designs::Designs;
+use devpage_core::folder::Folder;
 
 /// A document zipped: the bytes, the document file's path inside the zip,
 /// and every path the zip holds.
@@ -101,8 +101,8 @@ fn common_folder(files: &[PathBuf]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::document::Document;
-    use crate::folder::ServedFolder;
+    use devpage_core::document::Document;
+    use devpage_core::folder::ServedFolder;
     use std::sync::Arc;
 
     fn folder(name: &str) -> PathBuf {

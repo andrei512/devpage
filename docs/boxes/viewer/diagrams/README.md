@@ -128,7 +128,7 @@ devpage runs pele in QuickJS, a JavaScript engine compiled into the binary
 (the `rquickjs` crate — [Dependencies](../../engineering/dependencies/README.md#diagrams)).
 `core/src/diagrams.rs` holds it.
 
-- **Where the fences are drawn.** `render::markdown` renders a page's
+- **Where the fences are drawn.** `page::markdown` renders a page's
   Markdown; the highlighter leaves each `mermaid` fence as
   `<pre lang="mermaid">` ([Rendering a page](../rendering-a-page/README.md#highlighted-code)),
   and `diagrams::draw_fences` replaces each with its drawing or its error

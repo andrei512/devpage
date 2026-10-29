@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use devpage_core::designs::testing::*;
 
-use crate::comments::Identity;
-use crate::designs::Designs;
-use crate::document::Document;
-use crate::folder::{Folder, ServedFolder};
-use crate::server::{App, router};
+use crate::drive::server::{App, router};
+use devpage_core::comments::Identity;
+use devpage_core::designs::Designs;
+use devpage_core::document::Document;
+use devpage_core::folder::{Folder, ServedFolder};
 
 /// The served folder `dir`, opened on `entry` in it, as `devpage check`
 /// opens one.
@@ -22,16 +22,16 @@ fn opened(dir: &Path, entry: &str) -> Folder {
 
 /// What `devpage check` finds in the served folder `dir` opened on `entry`,
 /// its designs read through a store of their own.
-async fn checked(dir: &Path, entry: &str) -> Vec<crate::problem::Problem> {
+async fn checked(dir: &Path, entry: &str) -> Vec<devpage_core::problem::Problem> {
     let designs = Designs::new(&ServedFolder::new(dir).unwrap());
-    crate::check::document(&opened(dir, entry), &designs, None).await
+    devpage_core::check::document(&opened(dir, entry), &designs, None).await
 }
 
 pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let designs = Designs::new(&document.served);
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = router(
         App::testing(document, changes)
             .with_designs(designs.clone())

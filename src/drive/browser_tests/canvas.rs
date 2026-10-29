@@ -16,11 +16,11 @@ use futures::StreamExt;
 
 use devpage_design::compare::{self, Difference};
 
-use crate::chrome::testing::{self, eval, until};
-use crate::designs::Designs;
-use crate::document::Document;
-use crate::folder::ServedFolder;
-use crate::server;
+use crate::adapters::chrome::testing::{self, eval, until};
+use crate::drive::server;
+use devpage_core::designs::Designs;
+use devpage_core::document::Document;
+use devpage_core::folder::ServedFolder;
 
 /// A screen of two buttons — Pay navigates, Sheet opens an overlay — a next
 /// screen with a back button, and the overlay with a close button. Every box
@@ -75,10 +75,10 @@ fn folder(name: &str) -> PathBuf {
 async fn serve(dir: &Path, entry: &str) -> String {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     testing::serve(server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ))
     .await
 }
@@ -89,11 +89,11 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, Designs) {
     let document =
         Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let designs = Designs::new(&document.served);
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = server::router(
         server::App::testing(document, changes)
             .with_designs(designs.clone())
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     (testing::serve(router).await, designs)
 }
@@ -537,11 +537,11 @@ async fn a_doc_prints_its_embedded_design() {
     .unwrap();
     let document =
         Arc::new(Document::load(&dir.join("doc.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let with = crate::pdf::print(document).await.unwrap();
+    let with = crate::drive::pdf::print(document).await.unwrap();
     std::fs::write(dir.join("plain.md"), "# Doc\n\nNo design.\n").unwrap();
     let document =
         Arc::new(Document::load(&dir.join("plain.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let without = crate::pdf::print(document).await.unwrap();
+    let without = crate::drive::pdf::print(document).await.unwrap();
     // The painted canvas is an image in the PDF; the page without one has none.
     let images = |bytes: &[u8]| bytes.windows(13).filter(|w| w == b"/Subtype /Ima").count();
     assert!(images(&with) > 0, "no image in the printed doc");
@@ -967,7 +967,7 @@ async fn a_doc_with_eight_embeds_prints_as_fast_as_one_with_one() {
                 Document::load(&dir.join(name), &ServedFolder::new(&dir).unwrap()).unwrap(),
             );
             let started = std::time::Instant::now();
-            crate::pdf::print(document).await.unwrap();
+            crate::drive::pdf::print(document).await.unwrap();
             started.elapsed()
         }
     };
@@ -1394,7 +1394,7 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
     let document =
         Arc::new(Document::load(&dir.join("deck.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let started = std::time::Instant::now();
-    let bytes = crate::pdf::print(document).await.unwrap();
+    let bytes = crate::drive::pdf::print(document).await.unwrap();
     assert!(
         started.elapsed() < Duration::from_secs(15),
         "printing waited out its cap: {:?}",

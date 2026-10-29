@@ -181,17 +181,9 @@ fn a_doc_and_a_deck_are_searched_at_their_own_addresses() {
         &ServedFolder::new(&dir).unwrap(),
     )
     .unwrap();
-    let html = crate::render::doc(
-        &plan,
-        &crate::widgets::Widgets::of(&plan, &Default::default()),
-        &[dir.join("plan/why.md"), dir.join("plan/how.md")],
-        &Default::default(),
-        false,
-        true,
-        &[],
-    );
-    assert!(html.contains("id=\"how--context\""), "{html}");
-    assert!(html.contains("id=\"how\""), "{html}");
+    let ids = crate::page::ids(&plan.path(), &plan.served);
+    assert!(ids.contains("how--context"), "{ids:?}");
+    assert!(ids.contains("how"), "{ids:?}");
     // A slide's notes are searchable, and lead to its slide.
     let answer = find(&index, "pelican");
     assert_eq!(urls(&answer), ["/talk/talk.yml#2"]);
@@ -397,7 +389,7 @@ fn front_matter_is_read_and_never_shown() {
     assert_eq!(front.search, Some(true));
     assert_eq!(front.meta, "All about otters. river swim");
     assert_eq!(crate::markup::title(source, Path::new("x.md")), "Otters");
-    let html = crate::render::markdown(source);
+    let html = crate::page::markdown::markdown(source);
     assert!(!html.contains("search"), "{html}");
     assert!(html.contains("<h1"), "{html}");
     let dir = served("meta");
@@ -497,7 +489,7 @@ fn a_section_split_keeps_rendered_ids_and_sorts_text() {
     let source = "Intro text.\n\n# Comments\n\nx\n\n## Two `words`\n\ny\n\n## Two words\n\nBefore.\n```\ncode here\n```\n";
     let found = read(source).sections;
     let ids: Vec<_> = found.iter().map(|s| s.id.clone()).collect();
-    let html = crate::render::markdown(source);
+    let html = crate::page::markdown::markdown(source);
     for id in ids.iter().flatten() {
         assert!(html.contains(&format!("id=\"{id}\"")), "{id} in {html}");
     }

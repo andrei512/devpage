@@ -15,9 +15,9 @@ use axum::Router;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-use crate::chrome::{Open, Profile, Session, Tab};
-use crate::document::{Document, Kind};
-use crate::server;
+use crate::adapters::chrome::{Open, Profile, Session, Tab};
+use crate::drive::server;
+use devpage_core::document::{Document, Kind};
 use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
@@ -35,7 +35,7 @@ const CHUNK: usize = 4 << 20;
 
 /// The file `devpage video` writes when `-o` names none: the pdf rule, `.mp4`.
 pub fn default_output(title: &str) -> PathBuf {
-    crate::pdf::default_output(title).with_extension("mp4")
+    crate::drive::pdf::default_output(title).with_extension("mp4")
 }
 
 /// What the narrator is told, checked before anything slow: the session's
@@ -325,7 +325,7 @@ async fn flush(tab: &Tab, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
-    use crate::folder::ServedFolder;
+    use devpage_core::folder::ServedFolder;
 
     /// A folder holding `talk.yml`, a deck of `slides`, each `(file, text)`.
     pub(in crate::drive) fn deck(name: &str, slides: &[(&str, &str)]) -> (PathBuf, Arc<Document>) {

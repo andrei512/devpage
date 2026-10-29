@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 use tokio_stream::Stream;
 use tonic::{Request, Response, Status};
 
-use crate::designs::{self, Designs, Next};
+use devpage_core::designs::{self, Designs, Next};
 
 /// The watch stream: one per page, over every design the page shows. For
 /// each, the scene, then a patch after each change that altered it, or its
@@ -144,13 +144,13 @@ impl devpage_design::proto::designs_server::Designs for Watch {
 
 #[cfg(test)]
 mod tests {
-    use crate::folder::ServedFolder;
+    use devpage_core::folder::ServedFolder;
     use std::time::Duration;
 
     use prost::Message;
 
     use super::*;
-    use crate::server::design_tests::start;
+    use crate::drive::server::design_tests::start;
     use devpage_core::designs::testing::{BUTTON, OTHER, SCREEN, THEMES, save, served};
 
     /// A change that only makes a scene themed, or no longer themed, is

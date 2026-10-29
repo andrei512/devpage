@@ -34,7 +34,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/render/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
+| `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/page/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
 
@@ -70,7 +70,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/server.rs` |
 | `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/server.rs`, `core/src/render/frame.rs`, `core/src/render/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/server.rs`, `core/src/page/frame.rs`, `core/src/page/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
 
 ## Links and Chrome
 

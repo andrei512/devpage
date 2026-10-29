@@ -7,12 +7,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use crate::chrome::testing;
-use crate::document::Document;
-use crate::folder::ServedFolder;
-use crate::video::silence::RATE;
-use crate::video::tests::deck;
-use crate::video::{Heard, Voice, film, live, record, served, told};
+use crate::adapters::chrome::testing;
+use crate::drive::video::silence::RATE;
+use crate::drive::video::tests::deck;
+use crate::drive::video::{Heard, Voice, film, live, record, served, told};
+use devpage_core::document::Document;
+use devpage_core::folder::ServedFolder;
 
 /// A stand-in for GPT-Live: streams 20 ms of audio every 20 ms, as
 /// GPT-Live does, silence included, and answers each slide's notes with a tone.

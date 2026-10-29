@@ -10,10 +10,10 @@ use std::time::Duration;
 use chromiumoxide::Page;
 use futures::StreamExt;
 
-use crate::chrome::testing::{self, Answered, eval, until};
-use crate::document::{Document, Kind};
-use crate::folder::ServedFolder;
-use crate::server;
+use crate::adapters::chrome::testing::{self, Answered, eval, until};
+use crate::drive::server;
+use devpage_core::document::{Document, Kind};
+use devpage_core::folder::ServedFolder;
 
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
@@ -40,10 +40,10 @@ async fn widgets_mount_on_load_and_after_a_live_update() {
     .unwrap();
     let document =
         Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
     let mut browser = testing::launch().await;
@@ -100,10 +100,10 @@ async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
     };
     let last = format!("{0}#{0}", slides.len());
     let url = document.entry();
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
     let mut browser = testing::launch().await;
@@ -173,7 +173,7 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
         )
         .unwrap(),
     );
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = server::router(server::App::testing(document, changes));
     let address = testing::serve(router).await;
     let mut browser = testing::launch().await;
@@ -219,10 +219,10 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         .unwrap(),
     );
     let url = document.entry();
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let router = server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
     let mut browser = testing::launch().await;
@@ -282,10 +282,10 @@ pub(super) async fn open(dir: &Path, path: &str) -> (testing::Browser, Page) {
 async fn open_logged(dir: &Path, path: &str) -> (testing::Browser, Page, Answered) {
     let document =
         Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(dir).unwrap()).unwrap());
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let (router, answered) = testing::answering(server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ));
     let address = testing::serve(router).await;
     let browser = testing::launch().await;

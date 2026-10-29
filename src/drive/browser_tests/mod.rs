@@ -1,5 +1,5 @@
 //! Every test suite that drives Chrome, one module per suite, each on
-//! [`chrome::testing`](crate::chrome::testing): the browser launched as
+//! [`chrome::testing`](crate::adapters::chrome::testing): the browser launched as
 //! devpage launches it, a router served on loopback for it to load, and the
 //! waits a test needs on a page. They are `#[ignore]`d; run them with
 //! `cargo test -- --ignored`.

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
 // A site's sidebar: devpage's own chrome, not a widget for pages. The server
-// renders the same markup (src/render.rs `sidebar`) and the tree as JSON; the
+// renders the same markup (core/src/page/sidebar.rs) and the tree as JSON; the
 // page script has React take the sidebar over from that markup and keeps it
 // mounted across page swaps, giving it each fresh page's tree and address.
 //
@@ -296,7 +296,7 @@ export default function DevpageSidebar({ document = "", document_path = "", curr
           {title.label}
         </a>
       ) : null}
-      {/* Before anything is typed this is render::SEARCH_BOX, which the
+      {/* Before anything is typed this is the page's SEARCH_BOX, which the
           server draws: React takes it over unchanged. */}
       <div className="search">
         <input

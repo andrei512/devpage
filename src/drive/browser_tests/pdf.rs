@@ -7,9 +7,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::page_script::{open, text, widget_folder};
-use crate::document::{Document, Kind};
-use crate::folder::ServedFolder;
-use crate::pdf::{doc_params, print};
+use crate::drive::pdf::{doc_params, print};
+use devpage_core::document::{Document, Kind};
+use devpage_core::folder::ServedFolder;
 
 /// The pages of a PDF Chrome wrote: each one's width and height in points.
 fn pages(pdf: &[u8]) -> Vec<(f64, f64)> {

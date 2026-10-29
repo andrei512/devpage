@@ -69,7 +69,7 @@ pub(super) struct FrontMatter {
 
 impl FrontMatter {
     pub(super) fn read(source: &str) -> Self {
-        let Some(yaml) = crate::render::front_matter(source) else {
+        let Some(yaml) = crate::page::markdown::front_matter(source) else {
             return Self::default();
         };
         let Ok(serde_yaml::Value::Mapping(map)) = serde_yaml::from_str(yaml) else {
@@ -209,7 +209,7 @@ impl Walk<'_> {
                         self.document(&file);
                     }
                 }
-                for file in crate::navbar::reached(&document).0 {
+                for file in crate::page::navbar::reached(&document).0 {
                     if file.extension().is_some_and(|ext| ext == "md") {
                         if file.starts_with(&document.base) {
                             page(self, &file);
@@ -331,11 +331,11 @@ pub(super) fn slide_title(source: &str, read: &Read, number: &str) -> String {
 }
 
 /// A Markdown file split at its headings, each heading with the id the
-/// rendered page gives it (`render::markdown`), and its text sorted by kind:
+/// rendered page gives it (`page::markdown`), and its text sorted by kind:
 /// prose — with a diagram's labels and a widget's text — and code.
 pub(super) fn read(source: &str) -> Read {
     let arena = Arena::new();
-    let root = parse_document(&arena, source, &crate::render::options());
+    let root = parse_document(&arena, source, &crate::page::markdown::options());
     let lede = root
         .children()
         .find(|node| matches!(node.data().value, NodeValue::Paragraph))
@@ -348,7 +348,7 @@ pub(super) fn read(source: &str) -> Read {
         if let NodeValue::Heading(heading) = node.data().value {
             let text = node.collect_text();
             let mut id = anchorizer.anchorize(&text);
-            if crate::render::FRAME_IDS.contains(&id.as_str()) {
+            if crate::page::markdown::FRAME_IDS.contains(&id.as_str()) {
                 id.push_str("-heading");
             }
             sections.push(Section {

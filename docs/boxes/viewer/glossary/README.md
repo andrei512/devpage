@@ -203,7 +203,11 @@ A `.ttf` or `.otf` file of one font, at most 4 MB, in the served folder, that a 
 
 ## page
 
-A Markdown (`.md`) file in the served folder, rendered into a frame when requested. Any other file is served as it is.
+A Markdown (`.md`) file in the served folder, rendered into a frame when requested — its [content](#page-content) first, then its [frame](#page-frame) round it. Any other file is served as it is.
+
+## page content
+
+A page's Markdown as HTML, its widgets' tags expanded, with every link it holds by file and line — before the page frame is put round it, so no link of the frame's is among them. It is what the preview and `devpage check` judge; a page request renders it once, for both the preview and the frame. The code calls it `Rendered` (`page::content`). See [Two phases](../rendering-a-page/README.md#two-phases).
 
 ## root page
 
@@ -211,7 +215,7 @@ The page a site's `root` names: where the site opens, and the top of its sidebar
 
 ## page frame
 
-The HTML a page is wrapped in: the stylesheet, the scripts and the kind's own layout — a site's sidebar, a doc's outline, a deck's stage.
+The HTML a page's content is wrapped in: the stylesheet, the scripts, the problems found and the kind's own layout — a site's navbar and sidebar, a doc's outline, a deck's stage.
 
 ## outline
 

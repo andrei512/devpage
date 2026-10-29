@@ -280,7 +280,7 @@ tantivy allows; it is most of what search adds to devpage's memory.
 A site's sidebar ([`DevpageSidebar`](../widgets/system-widgets/README.md#devpagesidebar))
 opens with a search box, between the site's title and the tree; a site with
 `sidebar: false` has none, nor does a doc or a deck. The server draws it with
-the sidebar (`render::SEARCH_BOX`), empty, so React takes it over without a
+the sidebar (`page`'s `SEARCH_BOX`), empty, so React takes it over without a
 change ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar)).
 
 **As the reader types**, the box asks the endpoint for the text typed, once

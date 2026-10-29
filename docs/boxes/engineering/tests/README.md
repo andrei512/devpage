@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 541 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 544 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 155 in `devpage`, 221 in its
+`cargo test` runs every crate in the workspace: 155 in `devpage`, 224 in its
 core `devpage-core`, 153 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -219,7 +219,7 @@ On the network:
 
 ### `check`
 
-*17 tests.*
+*18 tests.*
 
 - `<Notes>` on a page that isn't a slide, a second one on a slide, and one without its `</Notes>`, as problems — in `devpage check`, however a slide is reached, and in the preview.
 - A site's navbar reported once and its links followed.
@@ -229,6 +229,7 @@ On the network:
 - A diagram that doesn't parse reported at its fence's line with pele's message, past front matter, in `devpage check` and in the preview; one in a `markdown` fence never.
 - A slide number the deck doesn't have.
 - A heading in a doc checked against the ids the doc renders.
+- A broken anchor into another page — a Markdown file and a doc — found alike by `devpage check` and the preview.
 - Topics checked against the page's own site, and a page in no site checked as a doc.
 - A broken linked document named by its address, not an absolute path.
 - The preview reporting each problem once to its reporter.
@@ -411,18 +412,6 @@ an ignored folder but reaches into none, watching none.
 
 - `<Notes>` found with its line, none in code or comments; its text kept without its indentation; its `delivery` kept; one whose attributes can't be read keeping its text and no delivery; an unclosed one running to the end of the page.
 
-### `navbar`
-
-*7 tests.*
-
-- Links, dropdowns, icons and icon-only links rendered in order.
-- The link holding the page shown highlighted, a dropdown holding it too.
-- Missing files and unknown icons as problems.
-- A target outside the served folder a problem, followed neither as a file nor as an address on the web.
-- No navbar rendering nothing, the comment-mode switch in the corner, and the theme selector off with `theme-selector: false` while the switch stays; with comments off, no switch.
-- A logo before the title and as the tab's icon, for a doc and a deck too.
-- A missing logo as a problem and the page shown without it.
-
 ### `nav`
 
 *4 tests.*
@@ -494,10 +483,12 @@ In Chrome:
 
 *No tests of its own:* a problem is tested where it is found.
 
-### `render`
+### `page`
 
-*26 tests.*
+*35 tests.*
 
+- A page's content holding its own links by file and line — a heading's anchor, a link, an address on the web, an embedded design — and none of the navbar the frame puts round it.
+- `ids` as a Markdown file and a doc render them: a file's own, one chapter's unprefixed, several chapters' each under its chapter's name with the chapter's own, none for a deck or a missing file; each one an id the doc's page renders.
 - The canvas page titled without `.design`, and carrying its mount.
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
@@ -515,6 +506,13 @@ In Chrome:
 - With comments off, every frame's page script carrying `data-no-comments` and no comment-mode switch; print mode staying print mode.
 - The load set in the head: a diagram page coming drawn and preloading nothing for it, its import map naming no pele; a plain page preloading React and its sidebar only, its page script deferred in the head; a widget page preloading its widgets, those they render and their helpers at their addresses, and no unused widget; a design page preloading the design script, the engine and its wasm.
 - The sidebar collapsed with the branch to the page shown open, the page's own children included, group headings in place, the empty search box between the title and the tree, no text between its elements, and the tree beside it as JSON with the document file's address; `DevpageSidebar` preloaded. A site with `sidebar: false` having none and preloading nothing.
+- The navbar's links, dropdowns, icons and icon-only links rendered in order.
+- The link holding the page shown highlighted, a dropdown holding it too.
+- Missing files and unknown icons as problems.
+- A target outside the served folder a problem, followed neither as a file nor as an address on the web.
+- No navbar rendering nothing, the comment-mode switch in the corner, and the theme selector off with `theme-selector: false` while the switch stays; with comments off, no switch.
+- A logo before the title and as the tab's icon, for a doc and a deck too.
+- A missing logo as a problem and the page shown without it.
 
 ### `search`
 
@@ -785,7 +783,7 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 <Callout kind="note" title="Not covered by any test">
 
-syntax highlighting except through the `render` tests; a canvas reopening
+syntax highlighting except through the `page` tests; a canvas reopening
 its stream after devpage restarts, closing streams in a hidden tab, and
 drag-to-pan and pinch on the canvas; chrome-headless-shell's and Chrome for
 Testing's first download (it needs an empty cache folder); GPT-Live on Azure;

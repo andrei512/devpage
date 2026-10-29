@@ -304,7 +304,11 @@ impl Comments {
         let site = version.owner(&file).and_then(|owner| owner.document.ok());
         let entry = version.entry();
         let widgets = Widgets::of(site.as_ref().unwrap_or(&entry), modules);
-        Some(crate::render::markdown_in(&widgets, &source))
+        Some(
+            crate::page::content(&widgets, &file, source)
+                .html()
+                .to_string(),
+        )
     }
 
     fn announce(&self, page: String) {

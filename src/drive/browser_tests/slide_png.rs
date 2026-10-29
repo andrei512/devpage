@@ -5,12 +5,12 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::changes::{Change, Changes};
-use crate::chrome::testing;
-use crate::document::Document;
-use crate::folder::ServedFolder;
-use crate::server;
-use crate::slide_png::Shots;
+use crate::adapters::changes::{Change, Changes};
+use crate::adapters::chrome::testing;
+use crate::drive::server;
+use crate::drive::slide_png::Shots;
+use devpage_core::document::Document;
+use devpage_core::folder::ServedFolder;
 
 /// A design that paints.
 const BOX: &str = "<Frame width={400} height={300} fill=\"#2563eb\" />";
@@ -30,7 +30,7 @@ async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
     let changes = Changes::default();
     let router = server::router(
         server::App::testing(document, changes.clone())
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     (testing::serve(router).await, changes)
 }
@@ -148,7 +148,7 @@ async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
             request = request.header("if-none-match", etag);
         }
         if inside {
-            request = request.header(crate::chrome::SHOT_HEADER, "1");
+            request = request.header(crate::adapters::chrome::SHOT_HEADER, "1");
         }
         request.send()
     };
@@ -235,7 +235,7 @@ async fn a_slide_is_served_as_a_1920_by_1080_png() {
     let changes = Changes::default();
     let address = testing::serve(server::router(
         server::App::testing(document, changes)
-            .with_comments_on_disk(crate::comments::Identity::Local("T".into())),
+            .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ))
     .await;
 

@@ -1,14 +1,29 @@
 use std::path::{Path, PathBuf};
 
+use super::frame::tab_title;
+use super::markdown::{FRAME_IDS, markdown};
 use super::*;
 use crate::addresses::{Owned, address};
 use crate::document::Document;
 use crate::folder::ServedFolder;
+use crate::markup::title;
 use crate::widgets::Widgets;
 
 /// `document`'s widget set, read through a cache of its own.
 fn widgets_of(document: &Document) -> Widgets {
     Widgets::of(document, &crate::widgets::Modules::default())
+}
+
+/// The content of each of `files`, as `document` shows it.
+fn rendered(document: &Document, files: &[PathBuf]) -> Vec<Rendered> {
+    let widgets = widgets_of(document);
+    files.iter().map(|file| read(&widgets, file)).collect()
+}
+
+/// The content of each of a deck's `slides`.
+fn rendered_slides(document: &Document, slides: &[crate::document::Slide]) -> Vec<Rendered> {
+    let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
+    rendered(document, &files)
 }
 
 #[test]
@@ -18,7 +33,7 @@ fn an_image_of_a_design_becomes_its_canvas() {
         html.contains(
             &format!(
                 "<span class=\"design-embed\"><canvas class=\"design\" src=\"app/checkout.design\" role=\"img\" aria-label=\"The checkout\"></canvas>{}</span>",
-                crate::navbar::design_theme_toggle()
+                super::navbar::design_theme_toggle()
             )
         ),
         "{html}"
@@ -198,7 +213,7 @@ fn a_doc_renders_its_chapters_in_order_with_an_outline() {
     let html = doc(
         &document,
         &widgets_of(&document),
-        chapters,
+        &rendered(&document, chapters),
         pdf,
         false,
         true,
@@ -217,7 +232,7 @@ fn a_doc_renders_its_chapters_in_order_with_an_outline() {
     let print = doc(
         &document,
         &widgets_of(&document),
-        chapters,
+        &rendered(&document, chapters),
         pdf,
         true,
         true,
@@ -242,7 +257,14 @@ fn a_deck_renders_one_section_per_slide_in_order() {
     let crate::document::Kind::Slides { slides: files, .. } = &document.kind else {
         panic!()
     };
-    let html = slides(&document, &widgets_of(&document), files, false, true, &[]);
+    let html = slides(
+        &document,
+        &widgets_of(&document),
+        &rendered_slides(&document, files),
+        false,
+        true,
+        &[],
+    );
     assert_eq!(html.matches("class=\"slide\"").count(), 2);
     assert!(html.find(">Two<").unwrap() < html.find(">One<").unwrap());
     assert!(html.contains("size: 1920px 1080px"));
@@ -272,7 +294,7 @@ fn chapters_and_slides_from_other_folders_keep_their_links() {
     let html = doc(
         &document,
         &widgets_of(&document),
-        chapters,
+        &rendered(&document, chapters),
         pdf,
         false,
         true,
@@ -312,7 +334,7 @@ fn a_one_file_doc_has_no_separate_title() {
     let html = doc(
         &document,
         &widgets_of(&document),
-        chapters,
+        &rendered(&document, chapters),
         pdf,
         false,
         true,
@@ -360,8 +382,11 @@ fn every_frame_carries_the_logo_as_its_tab_icon() {
     let html = page(
         &site,
         &widgets_of(&site),
-        &dir.join("page.md"),
-        "# Page\n",
+        &content(
+            &widgets_of(&site),
+            &dir.join("page.md"),
+            "# Page\n".to_string(),
+        ),
         true,
         &[],
     );
@@ -372,7 +397,15 @@ fn every_frame_carries_the_logo_as_its_tab_icon() {
     let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
         panic!()
     };
-    let html = doc(&plan, &widgets_of(&plan), chapters, pdf, false, true, &[]);
+    let html = doc(
+        &plan,
+        &widgets_of(&plan),
+        &rendered(&plan, chapters),
+        pdf,
+        false,
+        true,
+        &[],
+    );
     assert!(html.contains(icon), "{html}");
     assert!(html.contains(&format!("{img}Plan</a>")), "{html}");
 }
@@ -413,21 +446,31 @@ fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
             page(
                 &site,
                 &widgets_of(&site),
-                &dir.join("README.md"),
-                "# Home\n",
+                &content(
+                    &widgets_of(&site),
+                    &dir.join("README.md"),
+                    "# Home\n".to_string(),
+                ),
                 comments,
                 &[],
             ),
             doc(
                 &doc_file,
                 &widgets_of(&doc_file),
-                chapters,
+                &rendered(&doc_file, chapters),
                 pdf,
                 false,
                 comments,
                 &[],
             ),
-            slides(&deck, &widgets_of(&deck), files, false, comments, &[]),
+            slides(
+                &deck,
+                &widgets_of(&deck),
+                &rendered_slides(&deck, files),
+                false,
+                comments,
+                &[],
+            ),
         ]
     };
     let script = format!(
@@ -443,7 +486,14 @@ fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
         assert!(!html.contains("comment-mode"), "{html}");
     }
     // Print mode shows no controls either way, and stays print mode.
-    let print = slides(&deck, &widgets_of(&deck), files, true, false, &[]);
+    let print = slides(
+        &deck,
+        &widgets_of(&deck),
+        &rendered_slides(&deck, files),
+        true,
+        false,
+        &[],
+    );
     assert!(print.contains("data-print") && !print.contains("data-no-comments"));
 }
 
@@ -485,8 +535,11 @@ fn site_page(name: &str, readme: &str, files: &[(&str, &str)]) -> (PathBuf, Stri
     let html = page(
         &site,
         &widgets_of(&site),
-        &dir.join("README.md"),
-        readme,
+        &content(
+            &widgets_of(&site),
+            &dir.join("README.md"),
+            readme.to_string(),
+        ),
         true,
         &[],
     );
@@ -624,8 +677,11 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
     let html = page(
         &site,
         &widgets_of(&site),
-        &dir.join("deep.md"),
-        "# Deep\n",
+        &content(
+            &widgets_of(&site),
+            &dir.join("deep.md"),
+            "# Deep\n".to_string(),
+        ),
         true,
         &[],
     );
@@ -722,8 +778,11 @@ fn a_site_with_sidebar_false_has_no_sidebar_and_loads_nothing_for_it() {
     let html = page(
         &site,
         &widgets_of(&site),
-        &dir.join("README.md"),
-        "# Home\n",
+        &content(
+            &widgets_of(&site),
+            &dir.join("README.md"),
+            "# Home\n".to_string(),
+        ),
         true,
         &[],
     );
@@ -749,4 +808,104 @@ fn tab_title_names_the_site_once() {
     assert_eq!(tab_title("Tests", "devpage"), "Tests · devpage");
     // Case and surrounding space make no second name.
     assert_eq!(tab_title(" DevPage ", "devpage"), "devpage");
+}
+
+#[test]
+fn the_content_holds_its_own_links_by_line_and_none_of_the_frames() {
+    let (dir, _) = site_page(
+        "content-links",
+        "# Home\n\n[guide](guide.md#start)\n\n![Screen](app/screen.design)\n\n<a href=\"https://x.y\">web</a>\n",
+        &[("guide.md", "# Guide\n\n## Start\n")],
+    );
+    std::fs::write(
+        dir.join("devpage.yml"),
+        "kind: site\ntitle: S\nroot: README.md\nnavbar:\n  Away: away.md\n",
+    )
+    .unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
+    let rendered = read(&widgets_of(&site), &dir.join("README.md"));
+    let links: Vec<(&str, Option<usize>)> = rendered
+        .links()
+        .iter()
+        .map(|link| (link.target.as_str(), link.line))
+        .collect();
+    assert_eq!(
+        links,
+        [
+            // The heading's own anchor, which comrak gives it.
+            ("#home", None),
+            ("guide.md#start", Some(3)),
+            ("https://x.y", Some(7)),
+            ("app/screen.design", Some(5)),
+        ],
+        "{links:?}"
+    );
+    assert!(
+        rendered
+            .links()
+            .iter()
+            .all(|link| link.file == dir.join("README.md"))
+    );
+    // The frame puts the navbar round it; its links are the frame's.
+    let html = page(&site, &widgets_of(&site), &rendered, true, &[]);
+    assert!(html.contains("href=\"/away.md\""), "{html}");
+    assert!(!links.iter().any(|(target, _)| target.contains("away")));
+}
+
+#[test]
+fn ids_are_the_ids_a_file_or_a_doc_renders() {
+    let dir = std::env::temp_dir().join(format!("devpage-render-ids-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let dir = dir.canonicalize().unwrap();
+    std::fs::write(
+        dir.join("a.md"),
+        "# Context\n\n## Why\n\n<span id=\"raw\"></span>\n",
+    )
+    .unwrap();
+    std::fs::write(dir.join("b.md"), "# Rollout\n").unwrap();
+    std::fs::write(
+        dir.join("d.yml"),
+        "kind: doc\ntitle: Plan\nchapters: [a.md, b.md]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("one.yml"),
+        "kind: doc\ntitle: One\nchapters: [a.md]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("t.yml"),
+        "kind: slides\ntitle: T\nslides: [b.md]\n",
+    )
+    .unwrap();
+    let served = ServedFolder::new(&dir).unwrap();
+    let ids = |file: &str| -> Vec<String> { ids(&dir.join(file), &served).into_iter().collect() };
+    assert_eq!(ids("a.md"), ["context", "raw", "why"]);
+    // One chapter keeps its own ids; several each carry their chapter's name.
+    assert_eq!(ids("one.yml"), ["context", "raw", "why"]);
+    assert_eq!(
+        ids("d.yml"),
+        ["a", "a--context", "a--raw", "a--why", "b", "b--rollout"]
+    );
+    // A deck's slides are named by number, a missing file by nothing.
+    assert!(ids("t.yml").is_empty());
+    assert!(ids("gone.md").is_empty());
+    // Each is an id the doc's page renders.
+    let document = Document::load(&dir.join("d.yml"), &served).unwrap();
+    let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
+        panic!()
+    };
+    let html = doc(
+        &document,
+        &widgets_of(&document),
+        &rendered(&document, chapters),
+        pdf,
+        false,
+        true,
+        &[],
+    );
+    for id in ids("d.yml") {
+        assert!(html.contains(&format!("id=\"{id}\"")), "{id} in {html}");
+    }
 }

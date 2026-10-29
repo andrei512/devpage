@@ -12,7 +12,7 @@ use crate::check::Preview;
 use crate::designs::Designs;
 use crate::document::{self, Document, Kind};
 use crate::folder::{Folder, Owner};
-use crate::render;
+use crate::page;
 use crate::widgets::{self, Compiled, Modules, Widgets};
 
 /// What a request is answered with.
@@ -82,7 +82,7 @@ impl<'a> Answers<'a> {
     /// file is invalid, shows why.
     pub fn home(&self) -> Answer {
         match self.folder.entry_error() {
-            Some(error) => Answer::Html(render::invalid(
+            Some(error) => Answer::Html(page::invalid(
                 &self.folder.entry(),
                 self.folder.entry_file(),
                 &error,
@@ -145,7 +145,7 @@ impl<'a> Answers<'a> {
         if path.ends_with(".design") {
             // An address that names a theme shows it; any other `theme` is
             // passed over.
-            return Answer::Html(render::canvas(
+            return Answer::Html(page::canvas(
                 self.folder.served(),
                 path,
                 theme.and_then(Result::ok),
@@ -155,7 +155,7 @@ impl<'a> Answers<'a> {
         if document::kind_of(&file).is_some() {
             return match Document::load(&file, served) {
                 Ok(document) => self.show(&document, print),
-                Err(error) => Answer::Html(render::invalid(&entry, &file, &format!("{error:#}"))),
+                Err(error) => Answer::Html(page::invalid(&entry, &file, &format!("{error:#}"))),
             };
         }
         if file.extension().is_none_or(|ext| ext != "md") {
@@ -172,18 +172,19 @@ impl<'a> Answers<'a> {
             Some(Owner {
                 document: Ok(site), ..
             }) if !print => {
+                // Rendered once: the preview judges the content the page shows.
                 let widgets = Widgets::of(&site, self.modules);
+                let rendered = page::content(&widgets, &file, source);
                 let found = self.preview.problems(
                     &site,
                     &widgets,
                     self.designs,
-                    std::slice::from_ref(&file),
+                    std::slice::from_ref(&rendered),
                 );
-                Answer::Html(render::page(
+                Answer::Html(page::page(
                     &site,
                     &widgets,
-                    &file,
-                    &source,
+                    &rendered,
                     self.comments,
                     &found,
                 ))
@@ -191,7 +192,7 @@ impl<'a> Answers<'a> {
             Some(Owner {
                 file: site,
                 document: Err(error),
-            }) if !print => Answer::Html(render::invalid(&entry, &site, &format!("{error:#}"))),
+            }) if !print => Answer::Html(page::invalid(&entry, &site, &format!("{error:#}"))),
             owner => match Document::load(&file, served) {
                 Ok(mut doc) => {
                     // A page keeps its site's widgets when printed on its own.
@@ -256,9 +257,11 @@ impl<'a> Answers<'a> {
 
     /// A document as its kind: a site opens on its root page. Printed, a
     /// page lists no problems, so none are looked for.
+    /// Each page's content is rendered once, for the preview to judge and
+    /// the frame to show.
     fn show(&self, document: &Document, print: bool) -> Answer {
         let widgets = Widgets::of(document, self.modules);
-        let found = |pages: &[PathBuf]| {
+        let found = |pages: &[page::Rendered]| {
             if print {
                 Vec::new()
             } else {
@@ -268,24 +271,33 @@ impl<'a> Answers<'a> {
         };
         match &document.kind {
             Kind::Site { .. } | Kind::Design => self.redirect(document.entry()),
-            Kind::Doc { chapters, pdf } => Answer::Html(render::doc(
-                document,
-                &widgets,
-                chapters,
-                pdf,
-                print,
-                self.comments,
-                &found(chapters),
-            )),
-            Kind::Slides { slides, .. } => {
-                let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
-                Answer::Html(render::slides(
+            Kind::Doc { chapters, pdf } => {
+                let chapters: Vec<_> = chapters
+                    .iter()
+                    .map(|chapter| page::read(&widgets, chapter))
+                    .collect();
+                Answer::Html(page::doc(
                     document,
                     &widgets,
-                    slides,
+                    &chapters,
+                    pdf,
                     print,
                     self.comments,
-                    &found(&files),
+                    &found(&chapters),
+                ))
+            }
+            Kind::Slides { slides, .. } => {
+                let slides: Vec<_> = slides
+                    .iter()
+                    .map(|slide| page::read(&widgets, &slide.file))
+                    .collect();
+                Answer::Html(page::slides(
+                    document,
+                    &widgets,
+                    &slides,
+                    print,
+                    self.comments,
+                    &found(&slides),
                 ))
             }
         }
