@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 496 tests in the six crates; needs no network and no Chrome
+$ cargo test                  # 511 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 152 in `devpage`, 179 in its
+`cargo test` runs every crate in the workspace: 165 in `devpage`, 182 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, 2 in
 `devpage-design-module` and 13 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
