@@ -12,6 +12,7 @@ use crate::widgets::Widgets;
 
 use super::sidebar::sidebar;
 use super::{escape, markdown_in, title};
+use crate::html::Link;
 
 /// A site page's tab title: `<page> · <site>`, or just the site's name when
 /// the page is titled like it (trimmed, ignoring case).
@@ -255,21 +256,21 @@ fn scope_ids(
         rest = &rest[at + 7..];
         let end = rest.find('"').unwrap_or(rest.len());
         let href = &rest[..end];
-        let (path, fragment) = href.split_once('#').unwrap_or((href, ""));
-        let target = if path.is_empty() {
-            Some(own.clone())
-        } else if href.contains("://") {
-            None
-        } else {
-            let resolved = served.inside(&chapter.parent().unwrap_or(Path::new(".")).join(path));
-            names
-                .iter()
-                .find(|(file, _)| Some(file) == resolved.as_ref())
-                .map(|(_, name)| name.clone())
+        let target = match Link::classify(href) {
+            Link::File { path: "", fragment } => Some((own.clone(), fragment)),
+            Link::File { path, fragment } => {
+                let resolved =
+                    served.inside(&chapter.parent().unwrap_or(Path::new(".")).join(path));
+                names
+                    .iter()
+                    .find(|(file, _)| Some(file) == resolved.as_ref())
+                    .map(|(_, name)| (name.clone(), fragment))
+            }
+            Link::Web(_) | Link::Elsewhere => None,
         };
         match target {
-            Some(name) if fragment.is_empty() => out.push_str(&format!("#{name}")),
-            Some(name) => out.push_str(&format!("#{name}--{fragment}")),
+            Some((name, "")) => out.push_str(&format!("#{name}")),
+            Some((name, fragment)) => out.push_str(&format!("#{name}--{fragment}")),
             None => out.push_str(href),
         }
         rest = &rest[end..];
@@ -298,15 +299,16 @@ fn rebase(html: &str, file: &Path, document: &Document) -> String {
         rest = &rest[start..];
         let end = rest.find(close).unwrap_or(rest.len());
         let value = &rest[..end];
-        if value.is_empty() || value.starts_with(['#', '/']) || value.contains(':') {
-            out.push_str(value);
-        } else {
-            let (path, fragment) = match value.split_once('#') {
-                Some((path, fragment)) => (path, format!("#{fragment}")),
-                None => (value, String::new()),
-            };
-            out.push_str(&document.url(&normalize(&folder.join(path))));
-            out.push_str(&fragment);
+        match Link::classify(value) {
+            // A path from the top is an address already.
+            Link::File { path, fragment } if !path.is_empty() && !path.starts_with('/') => {
+                out.push_str(&document.url(&normalize(&folder.join(path))));
+                if value.contains('#') {
+                    out.push('#');
+                    out.push_str(fragment);
+                }
+            }
+            _ => out.push_str(value),
         }
         rest = &rest[end..];
     }

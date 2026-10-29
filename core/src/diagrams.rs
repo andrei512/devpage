@@ -18,6 +18,8 @@ use std::time::{Duration, Instant};
 
 use rquickjs::{Context, Ctx, Function, Runtime};
 
+use crate::html::{escape, unescape};
+
 /// The vendored bundle: one script that defines `pele`.
 const PELE: &str = include_str!("../assets/vendor/pele.js");
 
@@ -176,20 +178,6 @@ fn draw_fences_with(engine: &Engine, html: &str) -> String {
     }
     out.push_str(&html[from..]);
     out
-}
-
-/// The text of code the highlighter escaped.
-fn unescape(html: &str) -> String {
-    html.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&amp;", "&")
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
 }
 
 impl Engine {

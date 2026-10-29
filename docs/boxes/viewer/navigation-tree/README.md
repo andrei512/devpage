@@ -66,8 +66,10 @@ flowchart TD
 
 Any other outcome is `None`. In detail:
 
-1. An `href` containing `:` (another website, `mailto:`) or starting with `#`
-   is **`None`** — not an entry.
+1. An `href` with a scheme (another website, `mailto:`) or with no path
+   (`#fragment`) is **`None`** — not an entry. What an `href` names is read
+   the one way every link in devpage is: `html::Link::classify` in
+   `core/src/html.rs`.
 2. Otherwise any `#fragment` is cut off, the rest is joined to the **listing
    page's folder** and canonicalized. If that fails, or the file is outside
    the served folder or not a regular file, it is a **`Problem`**: `Topics

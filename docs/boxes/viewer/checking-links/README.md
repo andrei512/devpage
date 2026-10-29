@@ -33,7 +33,9 @@ how. devpage asks for each one as a browser asks for a page, accepting HTML,
 since some sites answer other requests with an error no reader sees. Each
 address is asked once per check, however many links point at it.
 
-`mailto:` and other schemes are not checked.
+`mailto:` and other schemes are not checked. A scheme is what comes before a
+`:` that precedes any `/`, `?` or `#`, so `notes/a:b.md` and `b.md#at:1` are
+files like any other.
 
 Links in a [widget](../widgets/README.md)'s content are checked like any other,
 since devpage renders that Markdown. Links a widget's own code builds in the

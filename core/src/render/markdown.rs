@@ -5,6 +5,7 @@ use comrak::options::Plugins;
 use comrak::{Options, markdown_to_html_with_plugins};
 
 use crate::highlight::Highlighter;
+use crate::html::{attributes, tag_end};
 use crate::markup::split_front_matter;
 use crate::widgets::Widgets;
 
@@ -122,78 +123,6 @@ fn embed_designs(html: &str) -> String {
     }
     out.push_str(&html[from..]);
     out
-}
-
-/// A tag's attributes, from just after its name up to its closing `>`: each
-/// name with its value — double-quoted, single-quoted, unquoted, or empty for
-/// a bare name — separated by any whitespace.
-fn attributes(tag: &str) -> Vec<(String, String)> {
-    let mut attributes = Vec::new();
-    let mut chars = tag.char_indices().peekable();
-    loop {
-        while chars
-            .next_if(|(_, c)| c.is_ascii_whitespace() || *c == '/')
-            .is_some()
-        {}
-        let Some(&(start, c)) = chars.peek() else {
-            break;
-        };
-        if c == '>' {
-            break;
-        }
-        let mut end = start;
-        while let Some((i, c)) =
-            chars.next_if(|(_, c)| !c.is_ascii_whitespace() && !matches!(c, '=' | '>' | '/'))
-        {
-            end = i + c.len_utf8();
-        }
-        let name = tag[start..end].to_string();
-        while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
-        let mut value = String::new();
-        if chars.next_if(|(_, c)| *c == '=').is_some() {
-            while chars.next_if(|(_, c)| c.is_ascii_whitespace()).is_some() {}
-            match chars.peek() {
-                Some(&(_, quote @ ('"' | '\''))) => {
-                    chars.next();
-                    for (_, c) in chars.by_ref() {
-                        if c == quote {
-                            break;
-                        }
-                        value.push(c);
-                    }
-                }
-                _ => {
-                    while let Some((_, c)) =
-                        chars.next_if(|(_, c)| !c.is_ascii_whitespace() && *c != '>')
-                    {
-                        value.push(c);
-                    }
-                }
-            }
-        }
-        if name.is_empty() {
-            // Not a name at all (a stray `=`): skip one character and go on.
-            chars.next();
-            continue;
-        }
-        attributes.push((name, value));
-    }
-    attributes
-}
-
-/// The length of the tag `html` starts with: up to and including its closing
-/// `>`, skipping any `>` inside a quoted attribute value.
-fn tag_end(html: &str) -> usize {
-    let mut quote = None;
-    for (i, c) in html.char_indices() {
-        match (quote, c) {
-            (None, '"' | '\'') => quote = Some(c),
-            (Some(q), c) if c == q => quote = None,
-            (None, '>') => return i + 1,
-            _ => {}
-        }
-    }
-    html.len()
 }
 
 /// The YAML of a page's front matter: what lies between a `---` on its first

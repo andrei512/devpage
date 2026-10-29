@@ -4,25 +4,30 @@
 use std::path::{Path, PathBuf};
 
 use crate::document::{Document, NavItem, NavLink};
+use crate::html::{Link, escape};
 use crate::problem::Problem;
 use crate::{icons, nav};
 
-/// Where a navbar link goes: an address on the web as written, or a file in
-/// the served folder by its address. `file` is set for the latter, whether or
-/// not it exists.
+/// Where a navbar link goes: an address on the web or with another scheme,
+/// as written, or a file in the served folder by its address. `file` is set
+/// for the latter, whether or not it exists; `web` for an address on the web.
 struct Target {
     href: String,
     file: Option<PathBuf>,
+    web: bool,
 }
 
 fn target(document: &Document, written: &str) -> Target {
-    if written.contains("://") || written.starts_with("mailto:") {
-        return Target {
-            href: written.to_string(),
-            file: None,
-        };
-    }
-    let (path, fragment) = written.split_once('#').unwrap_or((written, ""));
+    let (path, fragment) = match Link::classify(written) {
+        Link::File { path, fragment } => (path, fragment),
+        other => {
+            return Target {
+                href: written.to_string(),
+                file: None,
+                web: matches!(other, Link::Web(_)),
+            };
+        }
+    };
     let file = normalize(&document.base.join(path));
     let mut href = document.url(&file);
     if !fragment.is_empty() {
@@ -32,6 +37,7 @@ fn target(document: &Document, written: &str) -> Target {
     Target {
         href,
         file: Some(file),
+        web: false,
     }
 }
 
@@ -116,14 +122,11 @@ pub fn reached(document: &Document) -> (Vec<PathBuf>, Vec<String>) {
     let mut files = Vec::new();
     let mut web = Vec::new();
     for link in links(document) {
-        match target(document, &link.target).file {
-            Some(path) => {
-                if let Some(real) = document.served.file(&path) {
-                    files.push(real);
-                }
-            }
-            None if !link.target.starts_with("mailto:") => web.push(link.target.clone()),
-            None => {}
+        let to = target(document, &link.target);
+        if let Some(real) = to.file.and_then(|path| document.served.file(&path)) {
+            files.push(real);
+        } else if to.web {
+            web.push(to.href);
         }
     }
     (files, web)
@@ -162,13 +165,6 @@ fn active(document: &Document, current: &str) -> Option<String> {
         return None;
     }
     trail.into_iter().rev().find(|url| targets.contains(url))
-}
-
-fn escape(text: &str) -> String {
-    text.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
 }
 
 fn icon(name: &Option<String>) -> String {
@@ -478,6 +474,38 @@ mod tests {
             ],
             "{found:?}"
         );
+    }
+
+    #[test]
+    fn a_target_outside_the_served_folder_is_a_problem_and_never_followed() {
+        let dir = folder("outside");
+        let served = dir.join("served");
+        std::fs::create_dir_all(&served).unwrap();
+        std::fs::write(served.join("README.md"), "# Home\n").unwrap();
+        // The file is there, beside the served folder rather than in it.
+        std::fs::write(dir.join("outside.md"), "# Outside\n").unwrap();
+        std::fs::write(
+            served.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nnavbar:\n  Out: ../outside.md\n  Mail: mailto:a@b.c\n",
+        )
+        .unwrap();
+        let document = Document::load(&served.join("devpage.yml"), &served).unwrap();
+        let found: Vec<String> = problems(&document).iter().map(|p| p.to_string()).collect();
+        assert_eq!(
+            found,
+            ["devpage.yml: navbar: ../outside.md — no such file"],
+            "{found:?}"
+        );
+        // Not a file to check, and not an address on the web either.
+        let (files, web) = reached(&document);
+        assert!(files.is_empty(), "{files:?}");
+        assert!(web.is_empty(), "{web:?}");
+        let html = render(&document, "/README.md", true);
+        let out = html
+            .split("<a ")
+            .find(|link| link.contains("<span>Out</span>"))
+            .unwrap_or_else(|| panic!("{html}"));
+        assert!(!out.contains("rel=\"noopener\""), "{out}");
     }
 
     #[test]
