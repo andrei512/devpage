@@ -6,7 +6,7 @@ use std::sync::Arc;
 use anyhow::{Result, bail};
 
 use crate::adapters::chrome::{Open, PrintToPdfParams, Profile, Session};
-use crate::drive::server;
+use crate::drive::http;
 use devpage_core::document::{Document, Kind, Paper, Pdf};
 
 /// `document` printed, as a PDF's bytes.
@@ -28,7 +28,7 @@ pub async fn print(document: Arc<Document>) -> Result<Vec<u8>> {
         Kind::Design => bail!("pdf prints a doc or slides, not a design"),
     };
     let path = format!("{}?print", document.entry());
-    let router = server::router(server::App::printing(document));
+    let router = http::router(http::App::printing(document));
     let session = Session::start(Profile::Shot, router).await?;
     // The page is laid out as paper from the start, not only when Chrome
     // prints it: every slide of a deck is shown in print, so an embedded

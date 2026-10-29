@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use crate::adapters::chrome::testing::{self, eval, until};
 
-use crate::drive::server;
+use crate::drive::http;
 use devpage_core::comments::*;
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
@@ -32,10 +32,10 @@ async fn open_off(
 ) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
     let changes = crate::adapters::changes::Changes::default();
-    let app = server::App::testing(document, changes.clone())
+    let app = http::App::testing(document, changes.clone())
         .with_comments_on_disk(devpage_core::comments::Identity::Local("Ana".into()));
     let watcher = app.watch().unwrap();
-    let address = testing::serve(server::router(app)).await;
+    let address = testing::serve(http::router(app)).await;
     // Watching as long as the page is served: until the test ends.
     tokio::spawn(async move {
         let _watcher = watcher;

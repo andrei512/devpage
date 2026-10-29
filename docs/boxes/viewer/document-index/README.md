@@ -88,11 +88,11 @@ last valid version while its file is invalid.
 </Steps>
 
 `devpage` shares one folder between the server and the watcher
-(`server::App::local`), with the [search index](../search/README.md) of what the
+(`http::App::local`), with the [search index](../search/README.md) of what the
 entry document publishes (`Search::build`) beside it; a published version's
 router opens its folder once, with search, the same way (`App::published`).
 `devpage pdf`, a version's download and `devpage video` serve through
-`server::App::printing`, which opens its own folder, without search, and has
-no watcher; `server::App::testing`, which does the same, is what tests start
+`http::App::printing`, which opens its own folder, without search, and has
+no watcher; `http::App::testing`, which does the same, is what tests start
 from.
 `devpage check` opens one folder for the whole check.

@@ -1,6 +1,6 @@
 //! The network and the runtime behind the core's external-link checker:
 //! [`Http`] asks an address over HTTP, [`Tokio`] runs the preview's
-//! background asking on devpage's runtime, and [`external`] puts them
+//! background asking on devpage's runtime, and [`checker`] puts them
 //! together with the default waits; [`offline`] is the checker that asks
 //! nothing, for server mode's pages.
 
@@ -14,7 +14,7 @@ use crate::adapters::changes::Changes;
 
 /// The checker devpage uses: the network, the default waits, announcing on
 /// `changes`.
-pub fn external(changes: Option<Changes>) -> Arc<External> {
+pub fn checker(changes: Option<Changes>) -> Arc<External> {
     External::new(
         Arc::new(Http::new()),
         Arc::new(Tokio),

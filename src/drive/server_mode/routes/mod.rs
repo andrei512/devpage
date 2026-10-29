@@ -15,7 +15,7 @@ use axum::routing::{any, delete, get, post};
 
 use super::published::Published;
 use crate::drive::api_types::Refusal;
-use crate::drive::server;
+use crate::drive::http;
 
 /// Every route of `devpage server`, on `published`, taking uploads of up to
 /// `max_upload_bytes`.
@@ -50,7 +50,7 @@ pub fn router(published: Published, max_upload_bytes: u64) -> Router {
         .route("/d/{id}", get(versions::to_folder))
         .route("/d/{id}/", any(versions::latest_root))
         .route("/d/{id}/{*rest}", any(versions::in_document))
-        .route("/__devpage/{asset}", get(server::asset))
+        .route("/__devpage/{asset}", get(http::asset))
         .with_state(published)
 }
 
@@ -65,5 +65,5 @@ fn document_id(id: &str) -> Result<String, Refusal> {
 /// The author of a write: whoever the request's header names, as the
 /// server's identity reads it.
 fn author(published: &Published, headers: &HeaderMap) -> Result<String, Refusal> {
-    Ok(server::author(published.identity(), headers)?)
+    Ok(http::author(published.identity(), headers)?)
 }

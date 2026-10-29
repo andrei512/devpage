@@ -11,7 +11,7 @@ use chromiumoxide::Page;
 use futures::StreamExt;
 
 use crate::adapters::chrome::testing::{self, Answered, eval, until};
-use crate::drive::server;
+use crate::drive::http;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
 
@@ -41,8 +41,8 @@ async fn widgets_mount_on_load_and_after_a_live_update() {
     let document =
         Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let changes = crate::adapters::changes::Changes::default();
-    let router = server::router(
-        server::App::testing(document, changes)
+    let router = http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
@@ -101,8 +101,8 @@ async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
     let last = format!("{0}#{0}", slides.len());
     let url = document.entry();
     let changes = crate::adapters::changes::Changes::default();
-    let router = server::router(
-        server::App::testing(document, changes)
+    let router = http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
@@ -174,7 +174,7 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
         .unwrap(),
     );
     let changes = crate::adapters::changes::Changes::default();
-    let router = server::router(server::App::testing(document, changes));
+    let router = http::router(http::App::testing(document, changes));
     let address = testing::serve(router).await;
     let mut browser = testing::launch().await;
     let page = browser
@@ -220,8 +220,8 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
     );
     let url = document.entry();
     let changes = crate::adapters::changes::Changes::default();
-    let router = server::router(
-        server::App::testing(document, changes)
+    let router = http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     );
     let address = testing::serve(router).await;
@@ -283,8 +283,8 @@ async fn open_logged(dir: &Path, path: &str) -> (testing::Browser, Page, Answere
     let document =
         Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(dir).unwrap()).unwrap());
     let changes = crate::adapters::changes::Changes::default();
-    let (router, answered) = testing::answering(server::router(
-        server::App::testing(document, changes)
+    let (router, answered) = testing::answering(http::router(
+        http::App::testing(document, changes)
             .with_comments_on_disk(devpage_core::comments::Identity::Local("T".into())),
     ));
     let address = testing::serve(router).await;

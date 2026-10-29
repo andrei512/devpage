@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::adapters::chrome::testing;
 use crate::drive::video::silence::RATE;
 use crate::drive::video::tests::deck;
-use crate::drive::video::{Heard, Voice, film, live, record, served, told};
+use crate::drive::video::{Heard, Voice, film, narrator, record, served, told};
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
 
@@ -191,11 +191,11 @@ async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
 #[tokio::test]
 #[ignore]
 async fn a_deck_is_narrated_by_gpt_live() {
-    if std::env::var_os(live::OPENAI_API_KEY).is_none() {
-        eprintln!("skipped: {} is not set", live::OPENAI_API_KEY);
+    if std::env::var_os(narrator::OPENAI_API_KEY).is_none() {
+        eprintln!("skipped: {} is not set", narrator::OPENAI_API_KEY);
         return;
     }
-    let config = live::Config::from_env().unwrap();
+    let config = narrator::Config::from_env().unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let talk = Arc::new(
         Document::load(

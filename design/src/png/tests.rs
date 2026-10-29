@@ -21,7 +21,7 @@ fn bands_hold_one_row_of_tiles_at_a_time() {
     let (alive, most) = (Rc::new(Cell::new(0)), Cell::new(0));
     let (w, h) = (600u32, 1000u32);
     let mut png = Vec::new();
-    bands(w, h, &mut png, |piece| {
+    write_bands(w, h, &mut png, |piece| {
         let Piece::Tile { col, row } = piece else {
             panic!("a drawing 600 wide is banded in whole tiles: {piece:?}");
         };
@@ -43,7 +43,7 @@ fn bands_hold_one_row_of_tiles_at_a_time() {
     assert_eq!(at(256, 255), vec![1, 0]);
     assert_eq!(at(255, 256), vec![0, 1]);
     // A tile that can't be had stops the PNG there.
-    let stopped = bands(w, h, Vec::new(), |piece| {
+    let stopped = write_bands(w, h, Vec::new(), |piece| {
         if matches!(piece, Piece::Tile { row: 1, .. }) {
             Err("no tile")
         } else {
@@ -98,7 +98,7 @@ fn a_drawing_a_million_pixels_wide_has_its_png_within_a_band() {
     }
     let (alive, most) = (Cell::new(0usize), Cell::new(0usize));
     let mut png = Vec::new();
-    bands(1_000_000, 12, &mut png, |piece| {
+    write_bands(1_000_000, 12, &mut png, |piece| {
         let Piece::Strip { col, y, rows } = piece else {
             panic!("a drawing a million wide is banded in strips: {piece:?}");
         };

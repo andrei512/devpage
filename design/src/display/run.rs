@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use kurbo::{Rect as KRect, Vec2};
 
-use crate::sums::{Item, Summary, Sums};
+use crate::prefix_sums::{Item, Summary, Sums};
 use crate::tree::OrderKey;
 
 use super::*;

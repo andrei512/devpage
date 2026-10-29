@@ -113,7 +113,7 @@ fn a_design_100000_pixels_tall_has_a_png() {
     assert_eq!((list.area.width, list.area.height), (400.0, 100_000.0));
     let t = std::time::Instant::now();
     let mut png = Vec::new();
-    crate::bands::png(list, &mut png).unwrap();
+    crate::png::write(list, &mut png).unwrap();
     eprintln!(
         "built {built:?}, png {:?}, {} bytes",
         t.elapsed(),

@@ -1,4 +1,5 @@
-//! The HTTP server: pages rendered on request, the page assets, and a stream
+//! The HTTP layer both modes serve through — `devpage` and each version in
+//! `devpage server`: pages answered on request, the page assets, and a stream
 //! that tells open pages a watched file changed.
 
 #[cfg(test)]
@@ -149,7 +150,7 @@ impl App {
             Identity::Local(String::new()),
         );
         let preview = Arc::new(Preview::new(
-            crate::adapters::http::external(None),
+            crate::adapters::external::checker(None),
             Arc::new(crate::adapters::terminal::Terminal),
         ));
         let designs = Designs::new(&document.served);
@@ -168,7 +169,7 @@ impl App {
         comments: Option<Commenting>,
     ) -> Self {
         let preview = Arc::new(Preview::new(
-            crate::adapters::http::offline(),
+            crate::adapters::external::offline(),
             Arc::new(crate::adapters::terminal::Terminal),
         ));
         Self::of(document, designs, changes, preview, comments).searched()
