@@ -219,9 +219,7 @@ impl Reading<'_> {
                         .as_ref()
                         .and_then(|f| names(f))
                         .map(|names| names.join("\n").into_bytes()),
-                    canonical: found
-                        .as_ref()
-                        .map(|f| format!("{}/", self.store.relative(f))),
+                    canonical: found.as_ref().map(|f| format!("{}/", self.store.name(f))),
                     read: self.store.next_read(),
                     image: None,
                     font: None,
@@ -231,7 +229,7 @@ impl Reading<'_> {
                 let found = served.file(&served.path().join(key));
                 Source {
                     bytes: found.as_ref().and_then(|f| std::fs::read(f).ok()),
-                    canonical: found.as_ref().map(|f| self.store.relative(f)),
+                    canonical: found.as_ref().map(|f| self.store.name(f)),
                     read: self.store.next_read(),
                     image: None,
                     font: None,
@@ -327,12 +325,12 @@ impl Folder {
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
-    fn relative(&self, file: &Path) -> String {
+    /// The name of a file the served folder resolved, which lies inside it
+    /// by construction.
+    fn name(&self, file: &Path) -> String {
         self.served
-            .relative(file)
-            .unwrap_or(file)
-            .to_string_lossy()
-            .into_owned()
+            .name(file)
+            .unwrap_or_else(|| panic!("{} is outside the served folder", file.display()))
     }
 
     /// The design at `path` brought up to the files as they are now: the
@@ -735,7 +733,10 @@ impl Designs {
     /// either, and announce the designs whose scene or problems changed.
     pub fn changed(&self, file: &Path) {
         let store = &self.0;
-        let relative = store.relative(file);
+        // A path outside the served folder is no source of any design.
+        let Some(relative) = store.served.name(file) else {
+            return;
+        };
         let folder = match relative.rsplit_once('/') {
             Some((folder, _)) => format!("{folder}/"),
             None => "/".to_string(),
@@ -1788,6 +1789,31 @@ mod tests {
         std::fs::write(dir.join("../outside.design"), OTHER).unwrap();
         let designs = Designs::new(&ServedFolder::new(&dir.join("app")).unwrap());
         assert!(designs.resolve("../outside.design").is_err());
+    }
+
+    /// A path outside the served folder is named by nothing, so it changes
+    /// nothing: not even a file `/x` at the top of the disk stands in for
+    /// one at the top of the folder, whose listing stays kept.
+    #[test]
+    fn a_change_outside_the_served_folder_forgets_nothing() {
+        let dir = served("changed-outside");
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let reading = Reading {
+            store: &designs.0,
+            asked: RefCell::new(Vec::new()),
+            seen: RefCell::new(Vec::new()),
+        };
+        assert_eq!(
+            reading.list(""),
+            Some(Vec::new()),
+            "the top holds only app/"
+        );
+        assert!(lock(&designs.0.sources).contains_key("/"));
+        designs.changed(Path::new("/outside.design"));
+        assert!(
+            lock(&designs.0.sources).contains_key("/"),
+            "the top's listing is still kept"
+        );
     }
     /// Saves through the store — rows inserted at the front and the end,
     /// edited, removed, a component and a theme changed, a break and its fix

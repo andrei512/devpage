@@ -57,6 +57,8 @@ symbolic links followed and compared against the served folder's canonical
 path before it is read, and every such comparison is made by one owner, the
 served-folder value (`core/src/folder/served.rs`). Its `name` and `url` refuse
 a path outside — `None` — rather than stand its absolute path in for one, and
-each caller handles the refusal. A test asks for `/../<file>` and for a symbolic link
+each caller handles the refusal. They are the only way a path is named, and
+nothing falls back to the path it was given when it can't name one — not even
+where the path lies inside by construction. A test asks for `/../<file>` and for a symbolic link
 pointing outside, and gets `404` for both; a page linking out never carries the
 file's path; no code opens or searches for `.git`.

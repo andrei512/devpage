@@ -252,12 +252,11 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
     unparsable
         .into_iter()
         .map(|(file, error)| crate::problem::Problem {
+            // Read from the page's folder of threads, so inside by
+            // construction.
             file: document
-                .served
-                .relative(&file)
-                .unwrap_or(&file)
-                .display()
-                .to_string(),
+                .name(&file)
+                .unwrap_or_else(|| panic!("{} is outside the served folder", file.display())),
             line: None,
             message: format!("comment thread doesn't parse — {error}"),
             target: None,

@@ -259,13 +259,7 @@ impl Snapshot {
         hash.update(known.join("\0"));
         for (path, source) in self.closure(file) {
             hash.update([0]);
-            hash.update(
-                self.served
-                    .relative(&path)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .as_bytes(),
-            );
+            hash.update(self.name(&path).as_bytes());
             hash.update([0]);
             hash.update(source.as_bytes());
         }
@@ -279,15 +273,20 @@ impl Snapshot {
     /// snapshot reads and imports only modules inside it, so that is a
     /// mistake in devpage, not in a document.
     pub fn address(&self, file: &Path, known: &[String]) -> String {
-        let name = self
-            .served
-            .name(file)
-            .unwrap_or_else(|| panic!("{} is outside the served folder", file.display()));
+        let name = self.name(file);
         address(Owned::Module {
             mount: self.served.mount(),
             name: &name,
             hash: &self.hash(file, known),
         })
+    }
+
+    /// A module's name in the served folder. Panics on one outside it, as
+    /// [`Self::address`] does: a snapshot reads only modules inside.
+    fn name(&self, file: &Path) -> String {
+        self.served
+            .name(file)
+            .unwrap_or_else(|| panic!("{} is outside the served folder", file.display()))
     }
 
     /// A project widget or helper, compiled as its address serves it: each

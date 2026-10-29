@@ -68,10 +68,7 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
         .iter()
         .enumerate()
         .filter(|(_, slide)| slide.notes.as_deref().is_none_or(|n| n.trim().is_empty()))
-        .map(|(i, slide)| {
-            let file = document.served.relative(&slide.file).unwrap_or(&slide.file);
-            format!("{} ({})", i + 1, file.display())
-        })
+        .map(|(i, slide)| format!("{} ({})", i + 1, document.part_name(&slide.file)))
         .collect();
     if !missing.is_empty() {
         bail!(

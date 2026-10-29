@@ -29,7 +29,7 @@ pub fn pack(folder: &Folder, designs: &Designs) -> Result<Bundle> {
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {
         file.strip_prefix(&root)
-            .unwrap_or(file)
+            .expect("every file packed lies under the folder common to them all")
             .components()
             .map(|c| c.as_os_str().to_string_lossy())
             .collect::<Vec<_>>()
