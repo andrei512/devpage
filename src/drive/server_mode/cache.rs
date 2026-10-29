@@ -1,7 +1,9 @@
 //! The cache on the PVC: versions unpacked from their zips, each with the
 //! router that serves it and the downloads rendered from it, bounded by a limit past which the eviction policy
 //! chooses what goes. Everything in it is a copy of a version in the bucket,
-//! and a version never changes, so nothing in it is ever stale.
+//! and a version never changes, so nothing in it is ever stale. Memory is a
+//! cache of its own over it: at most so many versions hold a router, and past
+//! that the same policy chooses whose routers go, their files staying.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -13,6 +15,7 @@ use anyhow::{Context, Result};
 use axum::Router;
 use devpage_core::cache::{Entry, Eviction};
 
+use super::metrics::{self, Stage};
 use crate::adapters::bundle::unpack;
 
 /// A version: its document's id and its number.
@@ -21,6 +24,8 @@ pub type Key = (String, u64);
 pub struct Cache {
     dir: PathBuf,
     limit: u64,
+    /// How many versions may hold a router in memory.
+    memory_limit: usize,
     policy: Box<dyn Eviction>,
     state: Mutex<State>,
     /// One lock per version being made, so misses arriving together unpack
@@ -84,7 +89,12 @@ impl Cache {
     /// The cache in `dir`, which it creates: what an earlier run left there
     /// is kept, each version's recency seeded from when it was unpacked, and
     /// anything half-unpacked is deleted.
-    pub fn open(dir: &Path, limit: u64, policy: Box<dyn Eviction>) -> Result<Cache> {
+    pub fn open(
+        dir: &Path,
+        limit: u64,
+        policy: Box<dyn Eviction>,
+        memory_limit: usize,
+    ) -> Result<Cache> {
         std::fs::create_dir_all(dir).context("the cache's folder")?;
         let dir = dir.canonicalize()?;
         let mut entries = HashMap::new();
@@ -137,6 +147,7 @@ impl Cache {
         let cache = Cache {
             dir,
             limit,
+            memory_limit,
             policy,
             state: Mutex::new(State {
                 entries,
@@ -166,6 +177,15 @@ impl Cache {
     /// The bytes every version on disk takes.
     pub fn size(&self) -> u64 {
         self.state().entries.values().map(|e| e.bytes).sum()
+    }
+
+    /// How many versions have a router in memory, and how many routers they
+    /// have: one per mount each was read under.
+    pub fn in_memory(&self) -> (usize, usize) {
+        let state = self.state();
+        let versions: std::collections::HashSet<&Key> =
+            state.routers.keys().map(|(key, _)| key).collect();
+        (versions.len(), state.routers.len())
     }
 
     /// Whether version `key` is on disk.
@@ -217,6 +237,7 @@ impl Cache {
             entry.read = SystemTime::now();
         }
         *state.serving.entry(key.clone()).or_default() += 1;
+        metrics::count(metrics::Cache::Hit);
         Some(self.served(router, key))
     }
 
@@ -248,8 +269,10 @@ impl Cache {
         let on_disk = self.state().entries.contains_key(key) && folder.is_dir();
         if on_disk {
             eprintln!("cache: hit {} v{} on disk", key.0, key.1);
+            metrics::count(metrics::Cache::Hit);
         } else {
             eprintln!("cache: miss {} v{}", key.0, key.1);
+            metrics::count(metrics::Cache::Miss);
             let zip = fetch.await?;
             let partial = self.dir.join(&key.0).join(format!(
                 "{}.partial-{}",
@@ -257,7 +280,7 @@ impl Cache {
                 uuid::Uuid::new_v4().simple()
             ));
             std::fs::create_dir_all(&partial)?;
-            if let Err(error) = unpack(&zip, &partial) {
+            if let Err(error) = metrics::time(Stage::Unpack, || unpack(&zip, &partial)) {
                 let _ = std::fs::remove_dir_all(&partial);
                 return Err(error);
             }
@@ -306,6 +329,7 @@ impl Cache {
             *state.serving.entry(key.clone()).or_default() += 1;
         }
         self.evict();
+        self.evict_from_memory();
         Ok(self.served(router, key))
     }
 
@@ -321,6 +345,7 @@ impl Cache {
             state.routers.retain(|(routed, _), _| *routed != key);
             if let Some(entry) = state.entries.remove(&key) {
                 self.delete(&key);
+                metrics::count(metrics::Cache::Eviction);
                 eprintln!(
                     "cache: evicted {} v{} ({} bytes)",
                     key.0, key.1, entry.bytes
@@ -329,6 +354,37 @@ impl Cache {
         }
         let size: u64 = state.entries.values().map(|e| e.bytes).sum();
         eprintln!("cache: {size} of {} bytes", self.limit);
+    }
+
+    /// Past its limit in memory, the cache drops the routers of the versions
+    /// its policy chooses — each version an entry of one — skipping any
+    /// answering a request now. Their files stay on disk, so a version's next
+    /// read makes its router again from them.
+    fn evict_from_memory(&self) {
+        let mut state = self.state();
+        let held: std::collections::HashSet<Key> =
+            state.routers.keys().map(|(key, _)| key.clone()).collect();
+        if held.len() <= self.memory_limit {
+            return;
+        }
+        let entries: Vec<Entry> = held
+            .into_iter()
+            .map(|key| Entry {
+                read: state
+                    .entries
+                    .get(&key)
+                    .map_or(SystemTime::UNIX_EPOCH, |e| e.read),
+                document: key.0,
+                version: key.1,
+                bytes: 1,
+            })
+            .collect();
+        for key in self.policy.choose(&entries, self.memory_limit as u64) {
+            if state.serving.contains_key(&key) {
+                continue;
+            }
+            state.routers.retain(|(routed, _), _| *routed != key);
+        }
     }
 
     /// Forgets version `key` and deletes it from disk.
@@ -405,9 +461,11 @@ impl Cache {
         let key = &served.key;
         if let Ok(bytes) = std::fs::read(file) {
             eprintln!("cache: hit {} v{} download", key.0, key.1);
+            metrics::count(metrics::Cache::Hit);
             return Ok(bytes);
         }
         eprintln!("cache: miss {} v{} download", key.0, key.1);
+        metrics::count(metrics::Cache::Miss);
         let bytes = render(served.folder.clone()).await?;
         let mut partial = file.as_os_str().to_owned();
         partial.push(".partial");

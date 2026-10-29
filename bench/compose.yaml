@@ -1,0 +1,16 @@
+# The benchmark's changes to deploy/server/compose.yaml, laid over it:
+#
+#   docker compose -f deploy/server/compose.yaml -f bench/compose.yaml up --build --wait devpage-s3
+#
+# The server is held to the envelope's pod, 2 CPUs and 4 GB with no swap,
+# its cache sized as on the example's 10 GB PVC, and its metrics port is
+# published at 9031 for devpage-bench to scrape.
+services:
+  devpage-s3:
+    cpus: 2
+    mem_limit: 4g
+    memswap_limit: 4g
+    ports:
+      - "9031:9030"
+    environment:
+      DEVPAGE_CACHE_MAX_BYTES: 8GB

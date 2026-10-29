@@ -54,6 +54,9 @@ flowchart LR
 
 - [Storage](storage/README.md) — the store in SQLite and how Litestream keeps
   it, version zips in the bucket, and the bounded cache on the PVC.
+- [Measuring a server](measuring-a-server/README.md) — the envelope one server
+  holds and its targets, the metrics it reports on its own port, and the
+  benchmark that checks both.
 
 ### Reference
 
@@ -69,3 +72,11 @@ flowchart LR
   on it is the only copy, so losing it loses at most a second of the store.
 - [One replica](constraints/one-replica.md) — server mode runs as one process;
   nothing coordinates two.
+- [One server holds the envelope](constraints/one-server-holds-the-envelope.md)
+  — on 2 CPUs and 4 GB, 10,000 documents and thousands of readers at their
+  targets; the benchmark says whether it does.
+- [A version's work is done once](constraints/a-versions-work-is-done-once.md)
+  — what is worked out from a version's files, it works out once, never per
+  view.
+- [Metrics name no document](constraints/metrics-name-no-document.md) — every
+  label comes from a closed set, and metrics are served only on their own port.

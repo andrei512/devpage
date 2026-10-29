@@ -6,10 +6,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use anyhow::{Result, bail};
 use axum::Router;
+use devpage_core::check::Preview;
 use devpage_core::comments::{Comments, Identity};
 use devpage_core::designs;
 use devpage_core::document::{Document, Kind};
@@ -19,6 +20,8 @@ use sha2::{Digest, Sha256};
 
 use super::Config;
 use super::cache::{Cache, Served};
+use super::metrics::{self, Stage};
+use super::searches::{self, Searches};
 use crate::adapters::bucket::Bucket;
 use crate::adapters::bundle;
 use crate::adapters::changes::{Change, Changes};
@@ -103,6 +106,13 @@ struct Parts {
     /// comment written through the API reaches those pages as one written on
     /// them does. A deleted document's goes with it.
     buses: Mutex<HashMap<String, Changes>>,
+    /// The versions' search indexes, each built on its first search.
+    searches: Arc<Searches>,
+    /// Each version's problems, kept by its routers — one per address it is
+    /// served at — and gone with the last of them, so a page's problems are
+    /// found once while its version is in memory, whichever address it is
+    /// read at.
+    previews: Mutex<HashMap<(String, u64), Weak<Preview>>>,
 }
 
 impl Published {
@@ -115,12 +125,16 @@ impl Published {
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch)?;
         Ok(Published(Arc::new(Parts {
-            store: Arc::new(Sqlite::open(&config.data_dir.join("store.db"))?),
+            store: Arc::new(
+                Sqlite::open(&config.data_dir.join("store.db"))?
+                    .timed(|took| metrics::observe(Stage::Store, took)),
+            ),
             bucket,
             cache: Arc::new(Cache::open(
                 &config.data_dir.join("cache"),
                 config.cache_max_bytes,
                 config.cache_policy.eviction(),
+                config.memory_cache_versions,
             )?),
             scratch: scratch.canonicalize()?,
             identity: match &config.user_header {
@@ -130,7 +144,20 @@ impl Published {
             designs: designs::Store::new(),
             locks: Locks::default(),
             buses: Mutex::default(),
+            searches: Arc::new(Searches::new(searches::BUDGET)),
+            previews: Mutex::default(),
         })))
+    }
+
+    /// How many versions have a router in memory, and how many routers they
+    /// have: one per mount each was read under.
+    pub fn in_memory(&self) -> (usize, usize) {
+        self.0.cache.in_memory()
+    }
+
+    /// The bytes the cache holds on disk.
+    pub fn cache_bytes(&self) -> u64 {
+        self.0.cache.size()
     }
 
     /// Who writes.
@@ -165,9 +192,12 @@ impl Published {
         // unchanged. Kept until the publish is done: the carry reads the new
         // version's pages from it.
         let scratch = Scratch::new(&parts.scratch)?;
-        let (kind, title) = check(&parts.designs, &zip, entry, &scratch.0)
-            .await
-            .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
+        let (kind, title) = metrics::timed(
+            Stage::PublishCheck,
+            check(&parts.designs, &zip, entry, &scratch.0),
+        )
+        .await
+        .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
         let sha256 = format!("{:x}", Sha256::digest(&zip));
         let size = zip.len() as u64;
 
@@ -186,7 +216,7 @@ impl Published {
         })
         .await
         .map_err(anyhow::Error::from)??;
-        parts.bucket.put_version(id, version, zip).await?;
+        metrics::timed(Stage::Upload, parts.bucket.put_version(id, version, zip)).await?;
         let recorded = parts.store.record(
             id,
             version,
@@ -273,10 +303,11 @@ impl Published {
         let entry = parts.store.entry(id, number)?.ok_or(Refusal::NotFound)?;
         let key = (id.to_string(), number);
         let at = mount.path(id);
-        let fetch = parts.bucket.get_version(id, number);
+        let fetch = metrics::timed(Stage::Fetch, parts.bucket.get_version(id, number));
         let served = parts
             .cache
             .router(&key, &at, fetch, |dir: &Path| {
+                let _made = Made(std::time::Instant::now());
                 self.router(id, number, mount, dir, &entry)
             })
             .await?;
@@ -320,7 +351,11 @@ impl Published {
             .0
             .cache
             .download(&version.served, extension, |folder| async move {
-                render(&designs, &mount, &folder, &entry, extension).await
+                metrics::timed(
+                    Stage::Download,
+                    render(&designs, &mount, &folder, &entry, extension),
+                )
+                .await
             })
             .await?;
         let name = devpage_core::document::download_name(&row.title, extension)
@@ -358,6 +393,25 @@ impl Published {
         )
     }
 
+    /// Version `n`'s problems: the preview its routers already share, or a
+    /// new one when none is in memory. Its files never change, so each page
+    /// is checked on its first view only, and it asks no external address —
+    /// they are the CLI's to ask, before it uploads.
+    fn preview(&self, id: &str, n: u64) -> Arc<Preview> {
+        let mut previews = lock(&self.0.previews);
+        previews.retain(|_, preview| preview.strong_count() > 0);
+        let key = (id.to_string(), n);
+        if let Some(preview) = previews.get(&key).and_then(Weak::upgrade) {
+            return preview;
+        }
+        let preview = Arc::new(Preview::once(
+            crate::adapters::external::offline(),
+            Arc::new(crate::adapters::terminal::Terminal),
+        ));
+        previews.insert(key, Arc::downgrade(&preview));
+        preview
+    }
+
     /// Version `n`'s router under `mount`, from its files in `dir` and its
     /// document file `entry`. The latest's pages hear the document's
     /// publishes and its comments, and show and take them; a version's own
@@ -368,14 +422,35 @@ impl Published {
         let served = ServedFolder::new(dir)?.mounted(&mount.path(id));
         let document = Arc::new(Document::load(&served.path().join(entry), &served)?);
         let designs = self.0.designs.designs(&Mount::Pinned(n).path(id), &served);
+        // No search index until the version's first search asks for one;
+        // then one for the version, whichever address it is searched at.
+        let (searches, key, at, file) = (
+            self.0.searches.clone(),
+            (id.to_string(), n),
+            mount.path(id),
+            document.path(),
+        );
+        let search: http::OnDemand = Arc::new(move |folder: &Folder, query: &str| {
+            searches.answer(&key, &at, query, || {
+                devpage_core::search::Search::frozen(folder, &file)
+            })
+        });
+        let preview = self.preview(id, n);
         let app = if mount == Mount::Latest {
             let comments = Commenting::new(
                 self.comments_of(id, n, served.clone()),
                 self.0.identity.clone(),
             );
-            App::published(document, designs, self.bus(id), Some(comments))
+            App::published(
+                document,
+                designs,
+                self.bus(id),
+                Some(comments),
+                search,
+                preview,
+            )
         } else {
-            App::published(document, designs, Changes::default(), None)
+            App::published(document, designs, Changes::default(), None, search, preview)
         };
         Ok(http::router(app))
     }
@@ -495,6 +570,15 @@ impl Drop for Held<'_> {
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+/// Times a version's router as it is made, whichever way the making ends.
+struct Made(std::time::Instant);
+
+impl Drop for Made {
+    fn drop(&mut self) {
+        metrics::observe(Stage::Router, self.0.elapsed());
+    }
 }
 
 #[cfg(test)]

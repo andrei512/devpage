@@ -25,10 +25,12 @@ const OTHER_COMMANDS: &[&str] = &[
 const SERVER: &[&str] = &[
     "DEVPAGE_HOST",
     "DEVPAGE_PORT",
+    "DEVPAGE_METRICS_PORT",
     "DEVPAGE_BUCKET_URL",
     "DEVPAGE_DATA_DIR",
     "DEVPAGE_CACHE_MAX_BYTES",
     "DEVPAGE_CACHE_POLICY",
+    "DEVPAGE_MEMORY_CACHE_VERSIONS",
     "DEVPAGE_MAX_UPLOAD_BYTES",
     "DEVPAGE_USER_HEADER",
 ];
@@ -42,11 +44,16 @@ const VOLUME_SHARE_PERCENT: u64 = 80;
 pub struct Config {
     pub host: IpAddr,
     pub port: u16,
+    /// The port `/metrics` is served on: `DEVPAGE_METRICS_PORT`, or 9030.
+    pub metrics_port: u16,
     pub data_dir: PathBuf,
     pub bucket_url: String,
     /// The cache's limit: `DEVPAGE_CACHE_MAX_BYTES`, or 80% of the volume.
     pub cache_max_bytes: u64,
     pub cache_policy: Policy,
+    /// How many versions hold their router in memory:
+    /// `DEVPAGE_MEMORY_CACHE_VERSIONS`, or 2,000.
+    pub memory_cache_versions: usize,
     pub max_upload_bytes: u64,
     /// The header naming each write's author; none, and writes are
     /// `anonymous`.
@@ -101,6 +108,13 @@ impl Config {
                 .context("DEVPAGE_HOST is not an IP address")?,
             None => IpAddr::from([127, 0, 0, 1]),
         };
+        let metrics_port = match get("DEVPAGE_METRICS_PORT") {
+            Some(text) => text
+                .parse()
+                .ok()
+                .context("DEVPAGE_METRICS_PORT is not a port")?,
+            None => 9030,
+        };
         let port = match get("DEVPAGE_PORT") {
             Some(text) => text.parse().ok().context("DEVPAGE_PORT is not a port")?,
             None => 3030,
@@ -128,6 +142,14 @@ impl Config {
             None | Some("lru") => Policy::Lru,
             Some(_) => bail!("DEVPAGE_CACHE_POLICY is not a policy: lru is the only one"),
         };
+        let memory_cache_versions = match get("DEVPAGE_MEMORY_CACHE_VERSIONS") {
+            Some(text) => text
+                .parse()
+                .ok()
+                .filter(|&n| n > 0)
+                .context("DEVPAGE_MEMORY_CACHE_VERSIONS is not a number of versions")?,
+            None => 2000,
+        };
         let max_upload_bytes = match get("DEVPAGE_MAX_UPLOAD_BYTES") {
             Some(text) => bytes(text)
                 .ok()
@@ -147,10 +169,12 @@ impl Config {
         Ok(Config {
             host,
             port,
+            metrics_port,
             data_dir,
             bucket_url,
             cache_max_bytes,
             cache_policy,
+            memory_cache_versions,
             max_upload_bytes,
             user_header,
         })
@@ -167,10 +191,12 @@ impl Config {
         Config {
             host: IpAddr::from([127, 0, 0, 1]),
             port: 0,
+            metrics_port: 0,
             data_dir: data_dir.to_path_buf(),
             bucket_url: format!("file://{}", bucket.display()),
             cache_max_bytes,
             cache_policy: Policy::Lru,
+            memory_cache_versions: 2000,
             max_upload_bytes: 100 << 20,
             user_header: None,
         }
@@ -253,8 +279,10 @@ mod tests {
         let config = Config::from_vars(minimal(&[]), gigabytes(10)).unwrap();
         assert_eq!(config.host, IpAddr::from([127, 0, 0, 1]));
         assert_eq!(config.port, 3030);
+        assert_eq!(config.metrics_port, 9030);
         assert_eq!(config.cache_max_bytes, (10 << 30) / 100 * 80);
         assert_eq!(config.cache_policy, Policy::Lru);
+        assert_eq!(config.memory_cache_versions, 2000);
         assert_eq!(config.max_upload_bytes, 100 << 20);
         assert_eq!(config.user_header, None);
     }
@@ -265,8 +293,10 @@ mod tests {
             minimal(&[
                 ("DEVPAGE_HOST", "0.0.0.0"),
                 ("DEVPAGE_PORT", "8080"),
+                ("DEVPAGE_METRICS_PORT", "9100"),
                 ("DEVPAGE_CACHE_MAX_BYTES", "8GB"),
                 ("DEVPAGE_CACHE_POLICY", "lru"),
+                ("DEVPAGE_MEMORY_CACHE_VERSIONS", "500"),
                 ("DEVPAGE_MAX_UPLOAD_BYTES", "5MB"),
                 ("DEVPAGE_USER_HEADER", "X-Forwarded-Email"),
             ]),
@@ -275,7 +305,9 @@ mod tests {
         .unwrap();
         assert_eq!(config.host, IpAddr::from([0, 0, 0, 0]));
         assert_eq!(config.port, 8080);
+        assert_eq!(config.metrics_port, 9100);
         assert_eq!(config.cache_max_bytes, 8 << 30);
+        assert_eq!(config.memory_cache_versions, 500);
         assert_eq!(config.max_upload_bytes, 5 << 20);
         assert_eq!(config.user_header.as_deref(), Some("X-Forwarded-Email"));
     }
@@ -299,6 +331,10 @@ mod tests {
                 "DEVPAGE_PORT is not a port",
             ),
             (
+                minimal(&[("DEVPAGE_METRICS_PORT", secret)]),
+                "DEVPAGE_METRICS_PORT is not a port",
+            ),
+            (
                 minimal(&[("DEVPAGE_HOST", secret)]),
                 "DEVPAGE_HOST is not an IP address",
             ),
@@ -309,6 +345,14 @@ mod tests {
             (
                 minimal(&[("DEVPAGE_CACHE_MAX_BYTES", "0")]),
                 "DEVPAGE_CACHE_MAX_BYTES is not a size",
+            ),
+            (
+                minimal(&[("DEVPAGE_MEMORY_CACHE_VERSIONS", secret)]),
+                "DEVPAGE_MEMORY_CACHE_VERSIONS is not a number of versions",
+            ),
+            (
+                minimal(&[("DEVPAGE_MEMORY_CACHE_VERSIONS", "0")]),
+                "DEVPAGE_MEMORY_CACHE_VERSIONS is not a number of versions",
             ),
             (
                 minimal(&[("DEVPAGE_MAX_UPLOAD_BYTES", secret)]),

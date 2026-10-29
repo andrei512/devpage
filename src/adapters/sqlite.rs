@@ -1,14 +1,21 @@
 //! The store: documents, their versions and their comment threads in one
 //! SQLite file.
 
+use std::ops::{Deref, DerefMut};
 use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 use anyhow::{Result, bail};
 use devpage_core::comments::{self, Anchor, Carry, Listed, Message, Thread};
 use rusqlite::{Connection, OptionalExtension, params};
 
-pub struct Sqlite(Mutex<Connection>);
+pub struct Sqlite {
+    connection: Mutex<Connection>,
+    /// Told how long each use of the store took — waiting for its lock, and
+    /// the query — once it is done.
+    took: fn(Duration),
+}
 
 /// A document as the store records it.
 #[derive(Debug, Clone, PartialEq)]
@@ -96,13 +103,27 @@ impl Sqlite {
                FOREIGN KEY (document, thread) REFERENCES threads(document, id)
                  ON DELETE CASCADE);",
         )?;
-        Ok(Sqlite(Mutex::new(connection)))
+        Ok(Sqlite {
+            connection: Mutex::new(connection),
+            took: |_| {},
+        })
     }
 
-    fn connection(&self) -> MutexGuard<'_, Connection> {
-        self.0
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    /// The store, telling `took` how long each use of it took.
+    pub fn timed(self, took: fn(Duration)) -> Sqlite {
+        Sqlite { took, ..self }
+    }
+
+    fn connection(&self) -> Held<'_> {
+        let start = Instant::now();
+        Held {
+            connection: self
+                .connection
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            start,
+            took: self.took,
+        }
     }
 
     /// The number the document's next version takes: 1 for a new one.
@@ -441,6 +462,34 @@ fn add_message(connection: &Connection, document: &str, id: &str, message: &Mess
     Ok(())
 }
 
+/// The store's connection, held for one use of it: timed from asking for
+/// its lock until it is let go.
+struct Held<'a> {
+    connection: MutexGuard<'a, Connection>,
+    start: Instant,
+    took: fn(Duration),
+}
+
+impl Deref for Held<'_> {
+    type Target = Connection;
+
+    fn deref(&self) -> &Connection {
+        &self.connection
+    }
+}
+
+impl DerefMut for Held<'_> {
+    fn deref_mut(&mut self) -> &mut Connection {
+        &mut self.connection
+    }
+}
+
+impl Drop for Held<'_> {
+    fn drop(&mut self) {
+        (self.took)(self.start.elapsed());
+    }
+}
+
 /// One document's threads as a comment store: what the comments of a
 /// version write through. A thread started here is on `version`.
 pub struct DocumentThreads {
@@ -596,5 +645,54 @@ mod tests {
         assert_eq!(store.entry("e", 1).unwrap().as_deref(), Some("notes.md"));
         let listed: Vec<String> = store.list().unwrap().into_iter().map(|d| d.id).collect();
         assert_eq!(listed, ["e"]);
+    }
+
+    #[test]
+    fn every_use_of_the_store_is_timed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static USES: AtomicUsize = AtomicUsize::new(0);
+        let store = store("timed").timed(|_| {
+            USES.fetch_add(1, Ordering::SeqCst);
+        });
+        let used = |work: &dyn Fn()| {
+            let before = USES.load(Ordering::SeqCst);
+            work();
+            USES.load(Ordering::SeqCst) - before
+        };
+        // A publish: its number, then its record.
+        assert_eq!(used(&|| assert_eq!(store.next_number("t").unwrap(), 1)), 1);
+        assert_eq!(
+            used(&|| store
+                .record("t", 1, &publish("T"), &Carry::default())
+                .unwrap()),
+            1
+        );
+        // A comment, and what a page view and the API ask.
+        let message = Message {
+            author: "ana@example.com".into(),
+            at: "now".into(),
+            text: "Hi".into(),
+        };
+        let anchor = Anchor {
+            quote: "q".into(),
+            prefix: String::new(),
+            suffix: String::new(),
+        };
+        assert_eq!(
+            used(&|| {
+                store
+                    .create_thread("t", 1, "notes.md", &anchor, &message)
+                    .unwrap();
+            }),
+            1
+        );
+        assert_eq!(
+            used(&|| assert_eq!(store.threads("t").unwrap().len(), 1)),
+            1
+        );
+        assert_eq!(used(&|| assert_eq!(store.latest("t").unwrap(), Some(1))), 1);
+        assert_eq!(used(&|| assert!(store.entry("t", 1).unwrap().is_some())), 1);
+        assert_eq!(used(&|| assert_eq!(store.list().unwrap().len(), 1)), 1);
+        assert_eq!(used(&|| assert!(store.get("t").unwrap().is_some())), 1);
     }
 }

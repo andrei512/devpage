@@ -8,6 +8,7 @@ mod watch_stream;
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::Json;
@@ -48,6 +49,9 @@ struct AppState {
     /// The problems each page lists above itself; `None` for the Chrome
     /// that shoots slides, whose pages list none.
     preview: Option<Arc<Preview>>,
+    /// The search index built on the first search, when the server holds
+    /// none: a published version's.
+    search_on_demand: Option<OnDemand>,
 }
 
 impl AppState {
@@ -120,7 +124,14 @@ pub struct App {
     shots: Shots,
     /// The problems each page lists.
     preview: Arc<Preview>,
+    /// Where a search is answered from when `search` is `None`: the index
+    /// this gives, built on the first search — a published version's.
+    search_on_demand: Option<OnDemand>,
 }
+
+/// Answers a search from an index over the server's served folder, building
+/// it if it has to; it blocks, so it runs off the async threads.
+pub type OnDemand = Arc<dyn Fn(&Folder, &str) -> devpage_core::search::Answer + Send + Sync>;
 
 impl App {
     /// `devpage`: `document` with the search index of what it publishes, its
@@ -158,22 +169,24 @@ impl App {
         Self::of(document, designs, changes, preview, Some(comments))
     }
 
-    /// One published version, `document` in its unpacked folder: the search
-    /// index of what it publishes, its `designs` from the store every
-    /// version shares, announcing on `changes`, asking no external address —
-    /// they are the CLI's to ask, before it uploads — and `comments`, or none
-    /// for a version that never changes.
+    /// One published version, `document` in its unpacked folder: its
+    /// searches answered by `search`, from an index built on the version's
+    /// first search, its `designs` from the store every version shares,
+    /// announcing on `changes`, its problems from `preview` — the version's
+    /// own, shared by every address it is served at — and `comments`, or
+    /// none for a version that never changes.
     pub fn published(
         document: Arc<Document>,
         designs: Designs,
         changes: Changes,
         comments: Option<Commenting>,
+        search: OnDemand,
+        preview: Arc<Preview>,
     ) -> Self {
-        let preview = Arc::new(Preview::new(
-            crate::adapters::external::offline(),
-            Arc::new(crate::adapters::terminal::Terminal),
-        ));
-        Self::of(document, designs, changes, preview, comments).searched()
+        Self {
+            search_on_demand: Some(search),
+            ..Self::of(document, designs, changes, preview, comments)
+        }
     }
 
     /// `document` for a test: no search index, a design store of its own,
@@ -238,6 +251,7 @@ impl App {
             comments: comments.map(Arc::new),
             changes,
             preview,
+            search_on_demand: None,
         }
     }
 
@@ -288,6 +302,7 @@ pub fn router(app: App) -> Router {
         comments,
         shots,
         preview,
+        search_on_demand,
     } = app;
     routes(AppState {
         comments,
@@ -299,6 +314,7 @@ pub fn router(app: App) -> Router {
         changes,
         shots,
         preview: Some(preview),
+        search_on_demand,
     })
 }
 
@@ -363,9 +379,22 @@ fn answers(state: &AppState) -> Answers<'_> {
     )
 }
 
+/// What `answer` answers, worked out on a blocking thread: reading the file,
+/// checking the page and rendering it block, so a slow page waits its own
+/// turn and the async threads go on answering everything else.
+async fn resolved(
+    state: &AppState,
+    answer: impl FnOnce(Answers<'_>) -> Answer + Send + 'static,
+) -> Answer {
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || answer(answers(&state)))
+        .await
+        .unwrap_or_else(|error| Answer::Failed(error.to_string()))
+}
+
 /// `/`: whatever the entry document leads to now.
 async fn home(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let answer = answers(&state).home();
+    let answer = resolved(&state, |answers| answers.home()).await;
     respond(&state, &headers, answer).await
 }
 
@@ -376,7 +405,7 @@ async fn file(
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let answer = answers(&state).path(&path, query.as_deref());
+    let answer = resolved(&state, move |answers| answers.path(&path, query.as_deref())).await;
     respond(&state, &headers, answer).await
 }
 
@@ -590,12 +619,40 @@ async fn slide_png(
 async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    let heard = state.changes.subscribe();
-    let stream = futures::stream::unfold(heard, |mut heard| async move {
+    let heard = (state.changes.subscribe(), Listening::new());
+    let stream = futures::stream::unfold(heard, |(mut heard, listening)| async move {
         let change = heard.next().await?;
-        Some((Ok(Event::default().data(change.message())), heard))
+        Some((
+            Ok(Event::default().data(change.message())),
+            (heard, listening),
+        ))
     });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
+/// Pages listening on the live-update stream now, in every router of the
+/// process.
+static OPEN_PAGES: AtomicU64 = AtomicU64::new(0);
+
+/// How many pages are listening on the live-update stream now.
+pub fn open_pages() -> u64 {
+    OPEN_PAGES.load(Ordering::Relaxed)
+}
+
+/// One page listening, counted while its stream lives.
+struct Listening;
+
+impl Listening {
+    fn new() -> Self {
+        OPEN_PAGES.fetch_add(1, Ordering::Relaxed);
+        Listening
+    }
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        OPEN_PAGES.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// `Cache-Control` for what answers a current content address: it never
@@ -671,11 +728,20 @@ struct SearchQuery {
 /// Comments on or off; a server without a search index — printing's — finds
 /// nothing.
 async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
-    let answer = state
-        .search
-        .as_ref()
-        .map(|search| search.search(&query.q))
-        .unwrap_or_default();
+    let answer = match state.search_on_demand.clone() {
+        // Building the index, and searching it, block.
+        Some(on_demand) => {
+            let folder = state.folder.clone();
+            tokio::task::spawn_blocking(move || on_demand(&folder, &query.q))
+                .await
+                .unwrap_or_default()
+        }
+        None => state
+            .search
+            .as_ref()
+            .map(|search| search.search(&query.q))
+            .unwrap_or_default(),
+    };
     Json(answer).into_response()
 }
 
@@ -1067,6 +1133,79 @@ mod tests {
         let address = format!("http://{}", listener.local_addr().unwrap());
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         address
+    }
+
+    /// The server on one async thread of its own, so a page resolved on it
+    /// would hold up everything else; the requests come from the test's.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn slow_pages_hold_up_no_asset_and_no_cheap_page() {
+        let dir = std::env::temp_dir().join(format!("devpage-slow-pages-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        // Checking `slow.md` renders `long.md` once for each of its links to a
+        // heading of it.
+        let long: String = (0..300)
+            .map(|n| {
+                format!(
+                    "## Heading {n}\n\n{}\n\n",
+                    "Words of a long page. ".repeat(20)
+                )
+            })
+            .collect();
+        std::fs::write(dir.join("long.md"), format!("# Long\n\n{long}")).unwrap();
+        let links: String = (0..100)
+            .map(|n| format!("- [{n}](long.md#heading-{n})\n"))
+            .collect();
+        std::fs::write(dir.join("slow.md"), format!("# Slow\n\n{links}")).unwrap();
+        std::fs::write(dir.join("cheap.md"), "# Cheap\n\nA line.\n").unwrap();
+        let document = Arc::new(
+            Document::load(&dir.join("slow.md"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
+        let router = router(App::testing(document, Changes::default()));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async move {
+                    let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+                    axum::serve(listener, router).await.ok()
+                })
+        });
+        let timed = |path: &'static str| {
+            let url = format!("{address}/{path}");
+            async move {
+                let started = std::time::Instant::now();
+                let response = reqwest::get(url).await.unwrap();
+                assert_eq!(response.status(), 200, "{path}");
+                response.bytes().await.unwrap();
+                started.elapsed()
+            }
+        };
+        // The fastest of three, so a busy machine can't make it look slow.
+        let mut slow = timed("slow.md").await;
+        for _ in 0..2 {
+            slow = slow.min(timed("slow.md").await);
+        }
+
+        let held: Vec<_> = (0..8).map(|_| tokio::spawn(timed("slow.md"))).collect();
+        tokio::time::sleep(slow / 2).await;
+        let (asset, cheap) = tokio::join!(timed("__devpage/devpage.js"), timed("cheap.md"));
+        for slow in held {
+            slow.await.unwrap();
+        }
+        assert!(
+            asset < slow / 4,
+            "the asset took {asset:?}; one slow page {slow:?}"
+        );
+        assert!(
+            cheap < slow / 4,
+            "the cheap page took {cheap:?}; one slow page {slow:?}"
+        );
     }
 
     #[tokio::test]

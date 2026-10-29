@@ -70,6 +70,7 @@ pub fn page(
     comments: bool,
     found: &[Problem],
 ) -> Option<String> {
+    let _render = tracing::info_span!("render").entered();
     let current = document.url(rendered.file())?;
     let content = rendered.html();
     let tree = if document.sidebar || !document.navbar.is_empty() {
@@ -135,6 +136,7 @@ pub fn doc(
     comments: bool,
     found: &[Problem],
 ) -> String {
+    let _render = tracing::info_span!("render").entered();
     let mut content = String::new();
     let mut outline = String::new();
     let files: Vec<PathBuf> = chapters.iter().map(|c| c.file().to_path_buf()).collect();
@@ -399,6 +401,7 @@ pub fn slides(
     comments: bool,
     found: &[Problem],
 ) -> String {
+    let _render = tracing::info_span!("render").entered();
     let mut content = String::new();
     for (index, slide) in slides.iter().enumerate() {
         content.push_str(&format!(

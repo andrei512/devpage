@@ -2,7 +2,7 @@
 //! reach a file in the served folder — and a heading on it, when it names one —
 //! every external address must answer, and every diagram must draw.
 
-use std::collections::{BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -622,20 +622,40 @@ pub trait Report: Send + Sync {
 }
 
 /// The preview's checks: what each page shows above itself as it is served.
-/// One per devpage process, shared by every page.
+/// One per devpage process, shared by every page — or, in server mode, one
+/// per version.
 pub struct Preview {
     external: Arc<External>,
     report: Arc<dyn Report>,
     /// Every problem reported so far: each is reported once.
     reported: Mutex<HashSet<Problem>>,
+    /// The problems found for each document and its pages, when the files
+    /// checked never change: kept, so each is checked once.
+    kept: Option<Mutex<Kept>>,
 }
 
+/// A document's file and the pages checked, and the problems found on them.
+type Kept = HashMap<(PathBuf, Vec<PathBuf>), Vec<Problem>>;
+
 impl Preview {
+    /// A preview of files that change: every view checks its page again.
     pub fn new(external: Arc<External>, report: Arc<dyn Report>) -> Self {
         Preview {
             external,
             report,
             reported: Mutex::default(),
+            kept: None,
+        }
+    }
+
+    /// A preview of files that never change — a published version's: each
+    /// page is checked on its first view, and every later view gets the same
+    /// problems without checking. Its external addresses are best left
+    /// unasked: an answer arriving after a page's first view never shows.
+    pub fn once(external: Arc<External>, report: Arc<dyn Report>) -> Self {
+        Preview {
+            kept: Some(Mutex::default()),
+            ..Preview::new(external, report)
         }
     }
 
@@ -657,6 +677,33 @@ impl Preview {
         designs: &Designs,
         pages: &[Rendered],
     ) -> Vec<Problem> {
+        let Some(kept) = &self.kept else {
+            return self.check(folder, document, widgets, designs, pages);
+        };
+        let key = (
+            document.path(),
+            pages.iter().map(|page| page.file().to_path_buf()).collect(),
+        );
+        let lock = || kept.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(found) = lock().get(&key) {
+            return found.clone();
+        }
+        // Checked without the lock, so a slow page holds up no other; two
+        // first views at once both check, and find the same.
+        let found = self.check(folder, document, widgets, designs, pages);
+        lock().entry(key).or_insert(found).clone()
+    }
+
+    /// The problems on the given pages, checked now.
+    fn check(
+        &self,
+        folder: &Folder,
+        document: &Document,
+        widgets: &Widgets,
+        designs: &Designs,
+        pages: &[Rendered],
+    ) -> Vec<Problem> {
+        let _check = tracing::info_span!("check").entered();
         let mut external = Vec::new();
         let mut problems = widget_problems(document, widgets);
         problems.extend(page::navbar::problems(document));
@@ -1272,6 +1319,55 @@ mod external {
             *recorder.0.lock().unwrap(),
             ["README.md:3: broken link gone.md — no such file"]
         );
+    }
+
+    #[test]
+    fn a_preview_of_files_that_never_change_checks_each_page_once() {
+        let doc = folder(
+            "preview-once",
+            "# Home\n\n[gone](gone.md) and [heading](README.md#nope)\n",
+        );
+        let preview = Preview::once(offline(), Arc::new(Recorder::default()));
+        let problems = |files: &[PathBuf]| {
+            preview.problems(
+                &super::tests::opened(&doc),
+                &doc,
+                &widgets_of(&doc),
+                &designs_of(&doc),
+                &rendered(&doc, files),
+            )
+        };
+        let pages = [doc.base.join("README.md")];
+        let first = problems(&pages);
+        assert_eq!(first.len(), 2, "{first:#?}");
+        // Fixed on disk, which a version never is: the kept answer shows it
+        // was not checked again.
+        std::fs::write(doc.base.join("README.md"), "# Home\n").unwrap();
+        for _ in 0..9 {
+            assert_eq!(problems(&pages), first);
+        }
+        // Another page is checked on its own.
+        std::fs::write(doc.base.join("two.md"), "# Two\n\n[gone](gone.md)\n").unwrap();
+        assert_eq!(problems(&[doc.base.join("two.md")]).len(), 1);
+    }
+
+    #[test]
+    fn a_preview_of_files_that_change_checks_on_every_view() {
+        let doc = folder("preview-every", "# Home\n\n[gone](gone.md)\n");
+        let preview = Preview::new(offline(), Arc::new(Recorder::default()));
+        let problems = |files: &[PathBuf]| {
+            preview.problems(
+                &super::tests::opened(&doc),
+                &doc,
+                &widgets_of(&doc),
+                &designs_of(&doc),
+                &rendered(&doc, files),
+            )
+        };
+        let pages = [doc.base.join("README.md")];
+        assert_eq!(problems(&pages).len(), 1);
+        std::fs::write(doc.base.join("README.md"), "# Home\n").unwrap();
+        assert!(problems(&pages).is_empty());
     }
 
     #[tokio::test]

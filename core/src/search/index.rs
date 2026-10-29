@@ -155,16 +155,27 @@ impl Search {
         let search = Self {
             fields,
             reader,
-            indexer: Mutex::new(Indexer {
+            indexer: Mutex::new(Some(Indexer {
                 writer,
                 published: None,
-            }),
+            })),
             stemmed,
             plain,
             entry: entry.to_path_buf(),
             snapshot: RwLock::new(Arc::new(Snapshot::new(searcher, BTreeMap::new()))),
         };
         search.index(folder, &[]);
+        search
+    }
+
+    /// Indexes what `entry` publishes, commits it once and lets the writer
+    /// go, threads and all, with what it kept between saves: for files that
+    /// never change, such as a published version's.
+    pub fn frozen(folder: &Folder, entry: &Path) -> Self {
+        let search = Self::build(folder, entry);
+        if let Some(indexer) = lock(&search.indexer).take() {
+            let _ = indexer.writer.wait_merging_threads();
+        }
         search
     }
 
@@ -176,10 +187,13 @@ impl Search {
     /// read again. Otherwise what is published is as it was, and only the
     /// pages `paths` reach are read again. Every other page stays as it was
     /// indexed. All in one commit, then compacted, so the index answers as
-    /// one built fresh would.
+    /// one built fresh would. A frozen index has no writer, and stays as it
+    /// is.
     pub(super) fn index(&self, folder: &Folder, paths: &[PathBuf]) {
         let mut indexer = lock(&self.indexer);
-        let Indexer { writer, published } = &mut *indexer;
+        let Some(Indexer { writer, published }) = indexer.as_mut() else {
+            return;
+        };
         let read = |unit: &Unit| paths.iter().any(|path| unit.reached(path));
         let mut pages = self
             .snapshot
@@ -266,8 +280,8 @@ impl Search {
     #[cfg(test)]
     pub(super) fn units(&self) -> BTreeMap<String, Unit> {
         lock(&self.indexer)
-            .published
             .as_ref()
+            .and_then(|indexer| indexer.published.as_ref())
             .map(|published| published.units.clone())
             .unwrap_or_default()
     }

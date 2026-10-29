@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 569 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 607 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,11 +16,11 @@ $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 163 in `devpage`, one of
-them in `tests/`, 240 in its
+`cargo test` runs every crate in the workspace: 182 in `devpage`, three of
+them in `tests/`, 243 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
-`devpage-design-wasm`, whose tests run natively, and 2 in
-`devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
+`devpage-design-wasm`, whose tests run natively, 2 in
+`devpage-design-module` and 16 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
 `canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
@@ -40,7 +40,8 @@ test is kept for what only a browser does: layout, the page script, painting,
 input and live updates.
 Below, each suite's tests are listed under the module whose behaviour they
 pin. The `tests/`
-folder holds two, [the search's quality](#the-searchs-quality) and
+folder holds three, [the search's quality](#the-searchs-quality),
+[a server's threads](#a-servers-threads) and
 [the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
 a deck of three slides with notes that the live video test records, and
@@ -251,6 +252,7 @@ On the network:
 - A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
 - Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
 - Deleting a document deleting its versions and nothing else.
+- Every use of the store timed, once — a publish's number and its record, a comment, the lookups a view and the API make.
 
 ### `cache`
 
@@ -274,6 +276,7 @@ On the network:
 - Topics checked against the page's own site, and a page in no site checked as a doc.
 - A broken linked document named by its address, not an absolute path.
 - The preview reporting each problem once to its reporter.
+- A preview of files that never change checking each page once, the same problems on every later view; one of files that change checking on every view.
 - A design checked and its files followed through the design store the check is given, resolved there once; a page's problems naming an embedded design as the server's store holds it, a save the store is told of clearing them.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
 - What a deck is drawn from: its file, its slides, what they embed — a design's PNG by its design, an image not there yet, a path from the top, another deck's slide PNG and that deck in turn, once however they embed each other — and never a page a slide only links to or an address on the web.
@@ -561,6 +564,7 @@ In Chrome:
 - A diagram's labels as prose, its source not text; code found by its identifiers whole and by their parts, never in a snippet; a widget's text attributes as prose, its others not.
 - Front matter read, never shown, and its keywords searched.
 - An empty or blank query finding nothing; an odd one — an unclosed quote, a bare `-`, an emoji, a long one — never failing.
+- A frozen index answering as a live one does over the same files, with no writer left, its bytes known, and unchanged by any change it hears.
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn; and through random edits and bursts of them — text, titles, Topics, front matter, pages added and deleted, folders deleted, `.gitignore` rules, a doc's chapters — publishing the same pages as one built fresh and answering every query alike.
 - What is published kept between saves: a save of a page's text loading no document and reading no page's Topics, only the page saved — and nothing at all when nothing in it decides what is published, as in a slide; a page's Topics, a chapter's title and a page out of the nav given `search: true` finding it again. A rescan loading each document once however many pages it shows, and reading only the widgets of the document of the page read again.
@@ -579,6 +583,19 @@ and success@3 to their floors, `MRR_FLOOR` and `SUCCESS_AT_3_FLOOR` — at the
 ranking's result when they were set. A change to ranking that lowers either
 fails it; one that raises them raises the floor with it.
 
+### A server's threads
+
+`tests/server_threads.rs`, two tests, each alone in its process so what it
+counts is the server's. One starts the real `devpage server` on free ports,
+publishes 205 small sites and reads each, and finds the server's thread count
+no higher after the last 200 than after the first five — a version holds no
+search index until it is searched — and still none higher once one is
+searched. With every version building its index as its router is made, it
+counted 53 threads before and 1,252 after. The other starts it with
+`DEVPAGE_MEMORY_CACHE_VERSIONS=20`, publishes and reads 60 sites, and finds
+`devpage_versions_in_memory` on its metrics never above 20, and the first
+site, long let go, answering again.
+
 ### The restore of a deploy
 
 `tests/deploy_restore.rs`, two `--ignored` tests, one per kind of bucket:
@@ -588,6 +605,94 @@ two versions and starts a thread, deletes the server's volume, starts it on
 an empty one, and finds both versions, the thread, the latest at the link and
 version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
 on the example deploy. Without Litestream's restore it fails.
+
+### The server's benchmark
+
+Not a test `cargo test` runs: `.github/workflows/bench.yml`, started by hand,
+loads a server to the [envelope](../../viewer/server/measuring-a-server/README.md#the-envelope)
+and past it, and reports each target met or missed
+([one server holds the envelope](../../viewer/server/constraints/one-server-holds-the-envelope.md)).
+The code is `bench/` (`devpage-bench`), a workspace crate never published; the
+repository holds no corpus and no results.
+
+- **The stack** is `deploy/server/compose.yaml`'s, the image built from the
+  checkout and held to 2 CPUs and 4 GB, with RustFS for S3; the load runs on
+  the runner's other cores.
+- **A run takes about five minutes**, and the report prints how long it took.
+  What grows on a server grows with the work it does — the versions read, the
+  requests answered — not with the clock, so every scenario drives its work as
+  fast as it needs and none waits on a timer to see something grow.
+- **The corpus** is generated from a seed, the workflow's input, in memory:
+  1,000 documents — half docs, then sites, slides and a few designs, page
+  counts and sizes, links, `#heading` links, diagrams and code spread around a
+  median with a long tail — and their versions, one to nine a document, five
+  on average, 5,000 in all: two and a half times the versions memory holds,
+  so the run reads past every limit the server has. `--scale 10` generates
+  the whole envelope's 10,000 documents and 50,000 versions. A document's pages are the same in every
+  version; what they say changes. The same seed gives the same corpus.
+  devpage's own `docs/` is one more site. It is published through the API,
+  eight documents at a time, and that publishing is the first number:
+  publishes a second. Then every latest page is read once, so *views*
+  measures the served path and *misses* the versions no one has read.
+- **The load is open**: each request goes at its scheduled time whether or
+  not the last has answered, and its latency counts from that time, so a
+  server that stalls is charged for the requests it kept waiting rather
+  than sent fewer.
+- **The scenarios**, each a few seconds to a minute, each run three times, the
+  median reported:
+  - *views* — readers following a popularity curve over the documents, a few
+    read often and most rarely, at 50 a second, then a burst of 500 a second;
+    pages, search, a design's PNG and first downloads among them, each
+    reported on its own.
+  - *misses* — first views of versions no one has read, so each comes from
+    the bucket.
+  - *writes* — a publish and a comment a second, alongside the views.
+  - *herd* — 500 pages open on one document, and a publish to it; each page,
+    on hearing of it, fetches the page and the versions again, as a reader's
+    page does.
+  - *open pages* — 2,000 pages listening throughout the run.
+  - *churn* — every version read once, as fast as the server answers, with
+    the open pages listening: memory and threads stay flat past the memory
+    cache's limit — judged from the first sample holding the most versions
+    memory held, since before it memory fills and the blocking pool warms up —
+    and every open page is still open at the end. Run once.
+  - *knee* — views of each kind of document, from 50 a second and doubling,
+    until their p99 crosses 100 ms, a second a step.
+  - *soak*, only when asked for with `--soak <minutes>`: the whole envelope at
+    its rates for that long, for leaks the work-driven scenarios can't reach.
+- **The report** is the run's summary page: each number beside its target and
+  main's last run, and from `/metrics`, scraped before and after each
+  scenario, the stages that took the time. The numbers are the run's
+  artifact; a run downloads the last one from `main` to compare against. A
+  number has moved only by more than the spread of either run's three; a
+  target is missed only by more than it. A baseline at another scale or seed
+  is not compared.
+
+The workflow lays `bench/compose.yaml` over the example's compose file: the
+server held to 2 CPUs and 4 GB with no swap, its cache sized as on a 10 GB
+PVC, its metrics port at 9031. The same binary runs from a laptop against
+any server. `--scale` sets the corpus; above 1 it never stretches the time
+or raises the envelope's pages, and below 1 it shrinks those too, for a run of
+seconds — never the rates. Every pass schedules its load from one plan, and
+the run prints how much before it starts and how long it took at the end:
+
+<Terminal>
+
+```text
+$ docker compose -f deploy/server/compose.yaml -f bench/compose.yaml up --build --wait devpage-s3
+$ cargo run --release -p devpage-bench -- --server http://127.0.0.1:3031 \
+    --metrics http://127.0.0.1:9031/metrics --docs docs   # about five minutes
+```
+
+</Terminal>
+
+`devpage-bench`'s own tests pin the corpus — the same seed, the same
+zips; every kind; five versions on average; the same pages in every version;
+a zip holding its pages; a folder published whole — the load — a server that
+stalls is charged its stall, one that keeps up only its answer; a quantile —
+the scrape of `/metrics`, and the report: a target missed only past the
+spread, a number moved only past the noise, a run's JSON read back as the
+next one's baseline.
 
 ### `drive::http`
 
@@ -603,6 +708,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A server and the watcher its app starts announcing a comment write once.
 - A page's event stream carrying each change on its bus, in order.
 - A search answering pages as JSON whether comments are on or off.
+- Slow pages answered on blocking threads — the server on one async thread of its own — holding up no asset and no cheap page.
 - A page served with its Mermaid diagram drawn in its HTML.
 - A slide's PNG asked for inside a shot and not drawn yet refused with `508`, and `404` for a slide the deck doesn't have — past its last, before its first, or a page that isn't a deck — neither starting Chrome.
 - Deployed writes needing the header and stamped with it, over HTTP and in the identity rule alone — trimmed, and a blank one refused.
@@ -615,7 +721,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 *With its configuration's; in Chrome, in `drive::browser_tests::server_mode` and `::server_mode_pages`; its comments in Chrome are listed under [`comments`](#comments).*
 
-- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
+- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume, the metrics port 9030, 2,000 versions in memory — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
 - A publish naming its document file with `?entry=`, served from it, and an entry outside the zip refused; a broken link or a zip entry outside the document refusing the publish with `422`.
 - An upload over the limit refused with `413`, one over axum's own 2 MB default and under the limit accepted.
@@ -625,8 +731,11 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - A carry that fails publishing nothing: no version recorded, no zip left in the bucket, every thread where it was, and the next publish taking the same number.
 - A deleted document leaving no change bus and no lock behind; a mount's path, `/d/<id>` or `/d/<id>/v/<n>`.
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
-- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
+- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts. Past its limit in memory, the least recently read versions' routers let go and their files kept, the next read making a router again from disk; a version answering a request keeping its router; a version let go answering its next view as before, its problems with it.
 - A published page asking no external address.
+- A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own, and one version's found once whichever of its two addresses it is read at.
+- The metrics port reporting every stage, a publish and a view counted against the stages they went through, each request by its route and status, and every total; the pages' port answering `/metrics` with `404`; no label naming a document, a version or a page however many are read; a core span counted against its stage, and the text naming only stages.
+- A version's search answered from the index its first search builds, its results under the address it was asked at — the latest's and the version's own — and the second search answering the same; one index for the version at both its addresses; a version's index built once however many searches arrive, and past the 256 MB budget the least recently searched dropped and built again on its next search; an index bigger than the budget still answering.
 - A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.

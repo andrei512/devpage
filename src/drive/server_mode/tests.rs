@@ -601,9 +601,14 @@ async fn a_restarted_server_serves_what_its_cache_holds_without_the_bucket() {
 }
 
 pub(super) fn cache(name: &str, limit: u64) -> Arc<Cache> {
+    in_memory(name, limit, 2000)
+}
+
+/// A cache whose memory holds at most `versions` routers.
+fn in_memory(name: &str, limit: u64, versions: usize) -> Arc<Cache> {
     let dir = std::env::temp_dir().join(format!("devpage-cache-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    Arc::new(Cache::open(&dir, limit, Box::new(Lru)).unwrap())
+    Arc::new(Cache::open(&dir, limit, Box::new(Lru), versions).unwrap())
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -782,4 +787,154 @@ async fn an_evicted_version_is_made_again_under_both_its_mounts() {
         );
     }
     assert_eq!(makes.load(Ordering::SeqCst), 5, "both made again");
+}
+
+#[tokio::test]
+async fn a_versions_search_answers_from_the_index_its_first_search_builds() {
+    let config = config("search-on-demand");
+    let app = router(&config).unwrap();
+    let id = create(&app, site("Field notes", "A walrus on the ice.")).await;
+    let (status, _) = ask(&app, get(&format!("/d/{id}/README.md"))).await;
+    assert_eq!(status, StatusCode::OK);
+    for mount in [format!("/d/{id}"), format!("/d/{id}/v/1")] {
+        let (status, found) = ask(&app, get(&format!("{mount}/__devpage/search?q=walrus"))).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            found["pages"][0]["url"],
+            format!("{mount}/README.md"),
+            "found, under the mount it was asked under: {found}"
+        );
+        let (_, again) = ask(&app, get(&format!("{mount}/__devpage/search?q=walrus"))).await;
+        assert_eq!(again, found, "the second search answers the same");
+        let (_, none) = ask(&app, get(&format!("{mount}/__devpage/search?q=narwhal"))).await;
+        assert_eq!(none, serde_json::json!({ "pages": [] }));
+    }
+}
+
+/// Past its limit in memory, the least recently read versions' routers go
+/// and their files stay: the next read of one makes its router again from
+/// disk, fetching nothing.
+#[tokio::test]
+async fn past_its_memory_limit_the_least_recently_read_routers_go_and_their_files_stay() {
+    let cache = in_memory("memory", 1 << 20, 10);
+    let makes = Arc::new(AtomicUsize::new(0));
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let read = |n: u64| {
+        let (cache, makes, fetches) = (cache.clone(), makes.clone(), fetches.clone());
+        async move {
+            let key = (format!("d{n}"), 1);
+            let fetch = async move {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                Ok(site("Kept", "words"))
+            };
+            let made = move |_: &Path| {
+                makes.fetch_add(1, Ordering::SeqCst);
+                Ok(Router::new())
+            };
+            drop(cache.router(&key, "/d/x", fetch, made).await.unwrap());
+        }
+    };
+    for n in 0..12 {
+        read(n).await;
+        // Reads land in order, a little apart, so recency is the read order.
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
+    let (versions, routers) = cache.in_memory();
+    assert!(
+        versions <= 10 && routers <= 10,
+        "{versions} versions, {routers} routers"
+    );
+    for n in 0..12 {
+        assert!(cache.holds(&(format!("d{n}"), 1)), "d{n} still on disk");
+    }
+    assert_eq!(makes.load(Ordering::SeqCst), 12);
+    // The most recent is still in memory; the oldest is made again, from disk.
+    read(11).await;
+    assert_eq!(makes.load(Ordering::SeqCst), 12, "d11 kept");
+    read(0).await;
+    assert_eq!(makes.load(Ordering::SeqCst), 13, "d0 made again");
+    assert_eq!(
+        fetches.load(Ordering::SeqCst),
+        12,
+        "from disk, not the bucket"
+    );
+}
+
+/// A version answering a request keeps its router however many versions are
+/// read meanwhile.
+#[tokio::test]
+async fn a_version_answering_a_request_keeps_its_router_in_memory() {
+    let cache = in_memory("memory-serving", 1 << 20, 3);
+    let makes = Arc::new(AtomicUsize::new(0));
+    let made = |makes: Arc<AtomicUsize>| {
+        move |_: &Path| {
+            makes.fetch_add(1, Ordering::SeqCst);
+            Ok(Router::new())
+        }
+    };
+    let zip = || async { Ok(site("Held", "words")) };
+    let a = ("a".to_string(), 1);
+    let holding_a = cache
+        .router(&a, "/d/a", zip(), made(makes.clone()))
+        .await
+        .unwrap();
+    for n in 0..10 {
+        let key = (format!("b{n}"), 1);
+        drop(
+            cache
+                .router(&key, "/d/b", zip(), made(makes.clone()))
+                .await
+                .unwrap(),
+        );
+    }
+    drop(holding_a);
+    let before = makes.load(Ordering::SeqCst);
+    drop(
+        cache
+            .router(&a, "/d/a", zip(), made(makes.clone()))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(makes.load(Ordering::SeqCst), before, "a's router was kept");
+}
+
+/// A version whose router memory let go answers its next view as before,
+/// with the same problems.
+#[tokio::test]
+async fn a_version_let_go_from_memory_answers_its_next_view_as_before() {
+    let mut config = config("memory-again");
+    config.memory_cache_versions = 1;
+    let app = router(&config).unwrap();
+    let doc = |title: &str| {
+        zip_of(&[
+            (
+                "devpage.yml",
+                &format!("kind: doc\ntitle: {title}\nchapters:\n  - README.md\n"),
+            ),
+            ("README.md", &format!("# {title}\n\nThe words.\n")),
+            ("stray.md", "# Stray\n\n[gone](gone.md)\n"),
+        ])
+    };
+    let first = create(&app, doc("First")).await;
+    let second = create(&app, doc("Second")).await;
+    let page = |id: &str| format!("/d/{id}/stray.md");
+    let (status, before) = ask(&app, get(&page(&first))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        before.as_str().unwrap().contains("broken link gone.md"),
+        "{before}"
+    );
+    // Reading the second lets the first's router go.
+    ask(&app, get(&page(&second))).await;
+    let (status, after) = ask(&app, get(&page(&first))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        after.as_str().unwrap().contains("broken link gone.md"),
+        "{after}"
+    );
+    let (_, chapter) = ask(&app, get(&format!("/d/{first}/README.md"))).await;
+    assert!(
+        chapter.as_str().unwrap().contains("The words."),
+        "{chapter}"
+    );
 }

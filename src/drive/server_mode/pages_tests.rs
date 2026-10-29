@@ -192,7 +192,7 @@ async fn a_download_counts_with_its_version_and_goes_with_it() {
 
     let dir = std::env::temp_dir().join(format!("devpage-cache-downloads-{}", std::process::id()));
     let reopened =
-        super::cache::Cache::open(&dir, 1 << 20, Box::new(devpage_core::cache::Lru)).unwrap();
+        super::cache::Cache::open(&dir, 1 << 20, Box::new(devpage_core::cache::Lru), 2000).unwrap();
     assert_eq!(reopened.size(), unpacked + 1000, "seeded with its download");
     reopened.remove(&key);
     assert!(!dir.join("d/1.download.pdf").exists());
@@ -302,6 +302,87 @@ async fn a_design_resolves_under_its_documents_mount() {
         assert_eq!(status, StatusCode::OK, "{path}");
         let page = page.as_str().unwrap();
         assert!(!page.contains("broken design"), "{path}: {page}");
+    }
+}
+
+#[tokio::test]
+async fn a_versions_problems_are_found_once_whichever_address_it_is_read_at() {
+    let config = config("problems-both-mounts");
+    let app = router(&config).unwrap();
+    let doc = zip_of(&[
+        (
+            "devpage.yml",
+            "kind: doc\ntitle: T\nchapters:\n  - README.md\n",
+        ),
+        ("README.md", "# T\n"),
+        ("stray.md", "# Stray\n\n[gone](gone.md)\n"),
+    ]);
+    let id = create(&app, doc).await;
+    let first = ask(&app, get(&format!("/d/{id}/stray.md"))).await.1;
+    assert!(
+        first.as_str().unwrap().contains("broken link gone.md"),
+        "{first}"
+    );
+    // Fixed in the cache behind the server's back: the version's own address
+    // shows what the latest's view found, so it checked nothing again.
+    let cached = config.data_dir.join("cache").join(&id).join("1");
+    std::fs::write(cached.join("stray.md"), "# Stray\n").unwrap();
+    let pinned = ask(&app, get(&format!("/d/{id}/v/1/stray.md"))).await.1;
+    assert!(
+        pinned.as_str().unwrap().contains("broken link gone.md"),
+        "{pinned}"
+    );
+}
+
+#[tokio::test]
+async fn a_pages_problems_are_found_on_its_first_view_and_kept_with_its_version() {
+    let config = config("problems-once");
+    let app = router(&config).unwrap();
+    // A page the document doesn't reach, so the publish doesn't check it.
+    let stray = "# Stray\n\n[gone](gone.md) and [heading](README.md#nope)\n";
+    let doc = |stray: &str| {
+        zip_of(&[
+            (
+                "devpage.yml",
+                "kind: doc\ntitle: T\nchapters:\n  - README.md\n",
+            ),
+            ("README.md", "# T\n"),
+            ("stray.md", stray),
+        ])
+    };
+    let id = create(&app, doc(stray)).await;
+    let (status, _) = ask(
+        &app,
+        post(&format!("/api/documents/{id}/versions"), doc("# Stray\n")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let shown = |page: &serde_json::Value| {
+        let page = page.as_str().unwrap();
+        (
+            page.contains("broken link gone.md"),
+            page.contains("no heading #nope"),
+        )
+    };
+    let first = ask(&app, get(&format!("/d/{id}/v/1/stray.md"))).await.1;
+    assert_eq!(shown(&first), (true, true), "{first}");
+    // Fixed in the cache behind the server's back, which a version never is:
+    // every later view shows what the first found, so none checked again.
+    let cached = config
+        .data_dir
+        .join("cache")
+        .join(&id)
+        .join("1")
+        .join("stray.md");
+    std::fs::write(&cached, "# Stray\n").unwrap();
+    for _ in 0..9 {
+        let (_, page) = ask(&app, get(&format!("/d/{id}/v/1/stray.md"))).await;
+        assert_eq!(shown(&page), (true, true), "{page}");
+    }
+    // Version 2, the latest, keeps its own: the link it fixed shows nowhere.
+    for path in [format!("/d/{id}/v/2/stray.md"), format!("/d/{id}/stray.md")] {
+        let (_, page) = ask(&app, get(&path)).await;
+        assert_eq!(shown(&page), (false, false), "{path}: {page}");
     }
 }
 

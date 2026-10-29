@@ -1211,3 +1211,28 @@ fn an_index_kept_current_through_random_edits_is_one_built_fresh() {
         }
     }
 }
+
+#[test]
+fn a_frozen_index_answers_as_a_live_one_does_and_keeps_no_writer() {
+    let dir = served("frozen");
+    let live = index(&dir);
+    let frozen = Search::frozen(&live.folder, &dir.join("docs/devpage.yml"));
+    for query in [
+        "sidebar",
+        "walrus",
+        "quokka",
+        "pelican",
+        "context",
+        "nothing-here",
+    ] {
+        assert_eq!(frozen.search(query), find(&live, query), "{query}");
+    }
+    assert!(!frozen.is_live(), "no writer left open");
+    assert!(live.search.is_live());
+    assert!(frozen.bytes() > 0, "it knows what it holds");
+    // A frozen index never changes, whatever it hears.
+    std::fs::write(dir.join("docs/guide/layout.md"), "# Layout\n\nA narwhal.\n").unwrap();
+    frozen.changed(&live.folder, &[dir.join("docs/guide/layout.md")]);
+    assert!(frozen.search("narwhal").pages.is_empty());
+    assert_eq!(urls(&frozen.search("sidebar")).len(), 1);
+}

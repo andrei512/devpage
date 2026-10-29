@@ -93,6 +93,8 @@ mount for the version menu, the banner and the download button.
 | `DEVPAGE_CACHE_POLICY` | `lru` | Which entries go when the cache is past its limit ([the eviction policy](../storage/README.md#the-eviction-policy)). |
 | `DEVPAGE_MAX_UPLOAD_BYTES` | `100MB` | The largest zip a publish may send. |
 | `DEVPAGE_USER_HEADER` | none | The header naming each write's author; unset, writes are `anonymous`. |
+| `DEVPAGE_MEMORY_CACHE_VERSIONS` | `2000` | How many versions hold their router in memory; past it the eviction policy drops the least recently read ([what a version holds in memory](../storage/README.md#what-a-version-holds-in-memory)). |
+| `DEVPAGE_METRICS_PORT` | `9030` | The port `/metrics` is served on, in the Prometheus text format, on `DEVPAGE_HOST`: the server's time per stage, its requests and its totals ([metrics](../measuring-a-server/README.md#metrics)). Never routed by the Service; `DEVPAGE_PORT` has no `/metrics`. |
 | `DEVPAGE_CHROME_SANDBOX` | `on` | `off` in a container, for the PDF downloads: [the configuration reference](../../configuration-reference/README.md#environment-variables). The example image sets it. |
 | `AWS_*`, `AZURE_*` | — | The bucket's credentials, read by the SDKs' own chains — so workload identity needs none set. |
 

@@ -134,8 +134,13 @@ kubectl apply -f deploy/server/kubernetes.yaml
 - **The Secret** holds `DEVPAGE_BUCKET_URL` and, without workload identity,
   the bucket's keys. With IRSA, EKS Pod Identity or Azure Workload Identity,
   leave the keys out and annotate the pod's service account instead.
+- **The pod asks for 2 CPUs and 4 GB, and is held to them** — the
+  [envelope](../measuring-a-server/README.md#the-envelope) one server is
+  measured to hold.
 - **The Service** is for your proxy or ingress; keep devpage itself off the
-  internet.
+  internet. It routes `DEVPAGE_PORT` only: the metrics port,
+  `DEVPAGE_METRICS_PORT`, is for your Prometheus to scrape from inside the
+  cluster ([metrics](../measuring-a-server/README.md#metrics)).
 
 ## Your proxy
 

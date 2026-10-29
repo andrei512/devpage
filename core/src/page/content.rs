@@ -93,6 +93,7 @@ impl Rendered {
 
 /// `file`'s content from `source`, the tags of `widgets` expanded first.
 pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
+    let _render = tracing::info_span!("render").entered();
     let mut tags = Vec::new();
     let expanded = crate::widgets::expand(&source, widgets.names(), &mut tags);
     let html = markdown(&expanded);

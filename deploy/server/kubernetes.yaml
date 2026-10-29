@@ -61,6 +61,18 @@ spec:
           ports:
             - name: http
               containerPort: 3030
+            # For your Prometheus to scrape from inside the cluster; the
+            # Service never routes to it.
+            - name: metrics
+              containerPort: 9030
+          # The envelope one server is measured to hold: 2 CPUs and 4 GB.
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
           envFrom:
             - secretRef:
                 name: devpage

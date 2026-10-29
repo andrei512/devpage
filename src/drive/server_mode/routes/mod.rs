@@ -51,6 +51,7 @@ pub fn router(published: Published, max_upload_bytes: u64) -> Router {
         .route("/d/{id}/", any(versions::latest_root))
         .route("/d/{id}/{*rest}", any(versions::in_document))
         .route("/__devpage/{asset}", get(http::asset))
+        .route_layer(axum::middleware::from_fn(super::metrics::requests))
         .with_state(published)
 }
 

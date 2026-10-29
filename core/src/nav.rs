@@ -78,6 +78,7 @@ pub fn tree(document: &Document) -> Vec<Group> {
 /// root and the pages it lists, directly or not — by page; none for a page
 /// that can't be read, which the tree takes as listing none.
 pub fn tree_and_topics(document: &Document) -> (Vec<Group>, HashMap<PathBuf, Vec<Topic>>) {
+    let _nav = tracing::info_span!("nav").entered();
     let crate::document::Kind::Site { root } = &document.kind else {
         return (Vec::new(), HashMap::new());
     };
