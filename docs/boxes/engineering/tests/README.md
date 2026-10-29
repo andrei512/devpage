@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 511 tests in the six crates; needs no network and no Chrome
+$ cargo test                  # 515 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 165 in `devpage`, 182 in its
+`cargo test` runs every crate in the workspace: 169 in `devpage`, 182 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, 2 in
 `devpage-design-module` and 13 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
@@ -480,13 +480,16 @@ fails it; one that raises them raises the floor with it.
 
 ### A server's threads
 
-`tests/server_threads.rs`, one test, alone in its process so the threads it
-counts are the server's: it starts the real `devpage server` on free ports,
+`tests/server_threads.rs`, two tests, each alone in its process so what it
+counts is the server's. One starts the real `devpage server` on free ports,
 publishes 205 small sites and reads each, and finds the server's thread count
 no higher after the last 200 than after the first five — a version holds no
 search index until it is searched — and still none higher once one is
 searched. With every version building its index as its router is made, it
-counted 53 threads before and 1,252 after.
+counted 53 threads before and 1,252 after. The other starts it with
+`DEVPAGE_MEMORY_CACHE_VERSIONS=20`, publishes and reads 60 sites, and finds
+`devpage_versions_in_memory` on its metrics never above 20, and the first
+site, long let go, answering again.
 
 ### The restore of a deploy
 
@@ -596,9 +599,9 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*39 tests, and 5 of its configuration; 4 in Chrome.*
+*42 tests, and 5 of its configuration; 4 in Chrome.*
 
-- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume, the metrics port 9030 — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
+- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume, the metrics port 9030, 2,000 versions in memory — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
 - A publish naming its document file with `?entry=`, served from it, and an entry outside the zip refused; a broken link or a zip entry outside the document refusing the publish with `422`.
 - An upload over the limit refused with `413`, one over axum's own 2 MB default and under the limit accepted.
@@ -606,7 +609,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - Documents listed and read with their versions; a document deleted from the store, the bucket and the cache; deleting the latest version making the one before it latest; an id that is no UUID naming no document.
 - Concurrent publishes to one document taking one number each.
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
-- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
+- Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts. Past its limit in memory, the least recently read versions' routers let go and their files kept, the next read making a router again from disk; a version answering a request keeping its router; a version let go answering its next view as before, its problems with it.
 - A published page asking no external address.
 - A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own.
 - The metrics port reporting every stage, a publish and a view counted against the stages they went through, each request by its route and status, and every total; the pages' port answering `/metrics` with `404`; no label naming a document, a version or a page however many are read; a core span counted against its stage, and the text naming only stages.
