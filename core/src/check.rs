@@ -80,11 +80,12 @@ pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
 
 /// Every file a slide of the deck at `deck` is drawn from, in path order:
 /// the deck's file, its slides, what each slide embeds — an image, a design
-/// and every file `designs` resolved it from, another deck's slide PNG and
-/// that deck's files in turn — and the deck's widgets folder with every
-/// widget in it and every module they import. The folder itself is among
-/// them: a widget added, renamed or removed changes which tags on a slide
-/// are widgets. An embedded file that isn't there yet is named as it would
+/// and everything `designs` resolved it from, a font folder it listed among
+/// them, another deck's slide PNG and that deck's files in turn — and the
+/// deck's widgets folder with every widget in it and every module they
+/// import. Each folder itself is among them: a font added to a design's
+/// font folder changes the design, and a widget added, renamed or removed
+/// changes which tags on a slide are widgets. An embedded file that isn't there yet is named as it would
 /// be, so its arrival reaches the deck. A link a slide only points at is not
 /// what it is drawn from. A deck that can't be loaded is drawn from its file.
 pub fn drawn_from(
@@ -151,7 +152,7 @@ fn deck_drawn_from(
                 if real.extension().is_some_and(|ext| ext == "design")
                     && let Some(address) = document.name(&real)
                 {
-                    files.extend(designs.files(&address));
+                    files.extend(designs.made_of(&address));
                 }
                 files.insert(real);
                 continue;
@@ -165,7 +166,7 @@ fn deck_drawn_from(
                 .and_then(|design| served.file(Path::new(design)))
             {
                 if let Some(address) = document.name(&design) {
-                    files.extend(designs.files(&address));
+                    files.extend(designs.made_of(&address));
                 }
                 files.insert(design);
                 continue;
@@ -187,7 +188,7 @@ fn deck_drawn_from(
 
 /// A file the walk followed, kept when the caller asked for them: only
 /// regular files inside the served folder, and every file a design is made
-/// of, as `designs` read them.
+/// of, as `designs` read them — not a folder it listed.
 fn follow(
     document: &Document,
     designs: &Designs,
@@ -202,10 +203,11 @@ fn follow(
         && real.extension().is_some_and(|ext| ext == "design")
         && let Some(address) = document.name(&real)
     {
-        // A file a design asked for that isn't there is nothing to follow.
+        // A folder a design listed, or a file it asked for that isn't
+        // there, is nothing to follow.
         files.extend(
             designs
-                .files(&address)
+                .made_of(&address)
                 .into_iter()
                 .filter_map(|file| document.served.file(&file)),
         );

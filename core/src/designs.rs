@@ -735,21 +735,27 @@ impl Designs {
         self.0.get(address(path)).problems.unwrap_or_default()
     }
 
-    /// Every file the design at `path` is made of, as the store read them:
+    /// Everything the design at `path` is made of, as the store read it:
     /// the design itself, its imports, images, themes and fonts — every
     /// file a resolve of it has read since it was last resolved whole,
-    /// whether or not it resolves. Folders it lists are not files; the
-    /// fonts it then reads from them are. A file it asked for that isn't
-    /// there is one of them too, named as it would be: adding it changes
-    /// the design.
-    pub fn files(&self, path: &str) -> Vec<PathBuf> {
+    /// whether or not it resolves — and every folder it listed, a font
+    /// folder, with the fonts it then read from it. A file or folder it
+    /// asked for that isn't there is among them, named as it would be. A
+    /// change to any of them — a file in a listed folder added or removed
+    /// among them — is a change to the design.
+    pub fn made_of(&self, path: &str) -> Vec<PathBuf> {
         let served = &self.0.served;
         self.0
             .get(address(path))
             .asked
             .iter()
-            .filter(|key| !key.ends_with('/'))
-            .filter_map(|key| served.named(&served.path().join(key)))
+            .filter_map(|key| match key.strip_suffix('/') {
+                Some(folder) => {
+                    let folder = served.path().join(folder);
+                    served.folder(&folder).or_else(|| served.named(&folder))
+                }
+                None => served.named(&served.path().join(key)),
+            })
             .collect()
     }
 
@@ -1158,13 +1164,13 @@ mod tests {
     const BOX_RED: &str = r##"<Frame width={50} height={50} fill="#ff0000" />
 "##;
 
-    /// The store knows every file a design is made of — itself, what it
-    /// imports, its themes and the font files its text is set in — from the
-    /// one resolve that keeps it, whether or not the design resolves: a file
-    /// it asked for that isn't there too, named as it would be — a
-    /// `themes.yml` above it, an image to come — and no folder it listed.
+    /// The store knows everything a design is made of — itself, what it
+    /// imports, its themes, the font folder it listed and the font files its
+    /// text is set in — from the one resolve that keeps it, whether or not
+    /// the design resolves: a file it asked for that isn't there too, named
+    /// as it would be — a `themes.yml` above it, an image to come.
     #[test]
-    fn the_store_knows_every_file_a_design_is_made_of() {
+    fn the_store_knows_everything_a_design_is_made_of() {
         let dir = served("files");
         let regular = std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../design/fonts/Inter-Regular.ttf"),
@@ -1190,7 +1196,7 @@ mod tests {
         let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let names = |path: &str| -> Vec<String> {
             designs
-                .files(path)
+                .made_of(path)
                 .iter()
                 .map(|f| f.strip_prefix(&dir).unwrap().to_string_lossy().into_owned())
                 .collect()
@@ -1199,6 +1205,7 @@ mod tests {
             names("/app/set.design"),
             [
                 "app/button.design",
+                "app/fonts/Body",
                 "app/fonts/Body/Body-Regular.ttf",
                 "app/set.design",
                 "app/themes.yml",
@@ -1758,10 +1765,10 @@ mod tests {
         assert!(designs.png("app/later.design", Theme::Light).is_err());
         assert!(
             designs
-                .files("app/later.design")
+                .made_of("app/later.design")
                 .contains(&dir.join("app/later.png")),
             "{:?}",
-            designs.files("app/later.design")
+            designs.made_of("app/later.design")
         );
         std::fs::write(dir.join("app/later.png"), png_file(8, 8, "#00c800")).unwrap();
         designs.changed(&dir.join("app/later.png"));
@@ -1770,6 +1777,53 @@ mod tests {
         let (pixels, w, h) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!((w, h), (8, 8));
         assert_eq!(&pixels[..3], &[0x00, 0xc8, 0x00]);
+    }
+
+    /// A font folder a design's themes name is part of what the design is
+    /// made of: a font added to it is a change to the design, which is
+    /// announced and draws with it; one removed takes it away again.
+    #[test]
+    fn a_font_added_to_a_listed_folder_redraws_the_design_with_it() {
+        let dir = served("listed-folder");
+        let fonts = Path::new(env!("CARGO_MANIFEST_DIR")).join("../design/fonts");
+        std::fs::create_dir_all(dir.join("app/fonts/Body")).unwrap();
+        std::fs::copy(
+            fonts.join("Inter-Regular.ttf"),
+            dir.join("app/fonts/Body/Body-Regular.ttf"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("app/themes.yml"),
+            "kind: themes\nfonts:\n  body: ./fonts/Body\nlight: {}\ndark: {}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("app/bold.design"),
+            "<Frame><Text font=\"body\" weight={700}>Hello</Text></Frame>\n",
+        )
+        .unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        let updates = announced(&designs);
+        let problems = designs.resolve("app/bold.design").unwrap_err();
+        assert!(problems[0].message.contains("has no 700"), "{problems:?}");
+        assert!(
+            designs
+                .made_of("app/bold.design")
+                .contains(&dir.join("app/fonts/Body")),
+            "{:?}",
+            designs.made_of("app/bold.design")
+        );
+        let bold = dir.join("app/fonts/Body/Body-Bold.ttf");
+        std::fs::copy(fonts.join("Inter-Bold.ttf"), &bold).unwrap();
+        designs.changed(&bold);
+        assert_eq!(updates.try_recv().unwrap(), "app/bold.design");
+        assert!(designs.problems("app/bold.design").is_empty());
+        assert!(designs.png("app/bold.design", Theme::Light).is_ok());
+        assert!(designs.made_of("app/bold.design").contains(&bold));
+        std::fs::remove_file(&bold).unwrap();
+        designs.changed(&bold);
+        assert_eq!(updates.try_recv().unwrap(), "app/bold.design");
+        assert!(!designs.problems("app/bold.design").is_empty());
     }
 
     #[test]

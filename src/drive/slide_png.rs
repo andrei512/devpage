@@ -364,7 +364,8 @@ mod tests {
     }
 
     /// A served folder of two decks: `a.yml`, whose slide embeds an image
-    /// and a design that shows another image, and widgets from `widgets/`;
+    /// and a design that shows another image and sets text in a font from
+    /// the folder `fonts/Body/`, and widgets from `widgets/`;
     /// and `b.yml`, a slide of its own. The watcher's listeners on it, telling
     /// `shots`, and its slides kept as drawn — every file but those in
     /// `without`, which aren't there yet.
@@ -388,9 +389,19 @@ mod tests {
         );
         write("logo.png", "png");
         write("photo.png", "png");
+        std::fs::create_dir_all(dir.join("fonts/Body")).unwrap();
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Regular.ttf"),
+            dir.join("fonts/Body/Body-Regular.ttf"),
+        )
+        .unwrap();
+        write(
+            "themes.yml",
+            "kind: themes\nfonts:\n  body: ./fonts/Body\nlight: {}\ndark: {}\n",
+        );
         write(
             "screen.design",
-            "<Frame width={10} height={10}><Image src=\"photo.png\" width={10} height={10} /></Frame>\n",
+            "<Frame width={10} height={10}><Image src=\"photo.png\" width={10} height={10} /><Text font=\"body\">Hi</Text></Frame>\n",
         );
         write(
             "widgets/Badge.tsx",
@@ -460,6 +471,23 @@ mod tests {
         let (dir, listeners) = two_decks_without("design-lacks", &shots, &["photo.png"]);
         std::fs::write(dir.join("photo.png"), "png").unwrap();
         listeners.changed(&[dir.join("photo.png")]);
+        assert!(shots.cached("/a.yml", 1).is_none());
+        assert!(shots.cached("/b.yml", 1).is_some());
+    }
+
+    /// A font added to the folder an embedded design's font is read from
+    /// forgets that deck's slides, and no other deck's.
+    #[test]
+    fn a_font_added_to_an_embedded_designs_font_folder_forgets_its_slides() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks("font-folder", &shots);
+        let bold = dir.join("fonts/Body/Body-Bold.ttf");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Bold.ttf"),
+            &bold,
+        )
+        .unwrap();
+        listeners.changed(&[bold]);
         assert!(shots.cached("/a.yml", 1).is_none());
         assert!(shots.cached("/b.yml", 1).is_some());
     }
