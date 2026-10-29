@@ -8,16 +8,16 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 554 tests in the five crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 117 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                  # 566 tests in the five crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 161 in `devpage`, one of
-them in `tests/`, 227 in its
+`cargo test` runs every crate in the workspace: 163 in `devpage`, one of
+them in `tests/`, 237 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -51,7 +51,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 117 tests marked `#[ignore]`, 108 drive Chrome, and one of them also
+Of the 118 tests marked `#[ignore]`, 109 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
