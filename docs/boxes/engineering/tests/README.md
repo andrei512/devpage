@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 517 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 520 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 161 in `devpage`, 202 in its
+`cargo test` runs every crate in the workspace: 158 in `devpage`, 208 in its
 core `devpage-core`, 143 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -655,7 +655,7 @@ In Chrome:
 
 ### `adapters::watch`
 
-*22 tests.*
+*20 tests.*
 
 Counting the paths the platform's watcher hands the handler, before sifting,
 on real folders:
@@ -681,18 +681,29 @@ Through the listeners:
 
 - A saved page refreshing open pages.
 - Ignored files and files outside `watch` not refreshing.
-- A comment thread always reaching its page; one the server wrote through the store announced once, by the server, and a hand edit of it once, by the watcher; with comments off, none announced.
+- A comment thread always reaching its page; one the server wrote through the store announced once, by the server, and a hand edit of it once, by the watcher.
 - The `watch` list following the entry file.
 - A site's `watch` narrowing only its own folder, whichever document devpage was started with.
 - Widget files refreshing whatever `watch` says.
-- A changed file reaching the design store, and none under `.devpage/`, handed over directly, without waiting on file-system events.
 
 Without waiting on file-system events, fed made-up `notify` events:
 
 - Paths under `target/`, `.git/`, a `.gitignore`d folder and `.devpage/` dropped before any listener hears of them or any is canonicalized.
-- A comment thread and a `.gitignore`d file a site's `watch` names still arriving.
+- A comment thread and a `.gitignore`d file a site's `watch` names still arriving, and open pages hearing the thread's page, then a refresh.
 - A new `.gitignore` rule taking effect without a restart.
 - A burst of saves to one file sending one `change`.
+
+### `watch`
+
+*6 tests, on real folders, without a platform watcher.*
+
+Local mode's response to a burst of saved paths, `Listeners::changed`, ported from the watcher so its order is pinned on every platform:
+
+- A saved page refreshing open pages before the search index reads it, the design store having forgotten the design saved in the same burst by then.
+- A changed file reaching the design store, and none under `.devpage/`.
+- A comment thread heard before the refresh it shares a burst with; with comments off, none announced.
+- A new `.gitignore` rule taking effect without a restart, and saying the folders to watch may differ.
+- The search index hearing of saved and deleted pages.
 
 ### `widgets`
 

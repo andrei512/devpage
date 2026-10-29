@@ -1,9 +1,8 @@
-//! Watches the served folder: tells the folder what changed and publishes
-//! what it says open pages should hear, tells them a comment thread changed,
-//! and tells the design store, the widget modules and the search index every
-//! file that changed and isn't out of sight. Only the folders the folder says
-//! to watch are watched, through the platform's watcher: `macos.rs`,
-//! `inotify.rs`, or `recursive.rs` elsewhere.
+//! Watches the served folder: the platform's file events, sifted as they
+//! arrive and gathered into bursts, each handed to the core's
+//! [`Listeners`], which decide everything that follows from it. Only the
+//! folders the folder says to watch are watched, through the platform's
+//! watcher: `macos.rs`, `inotify.rs`, or `recursive.rs` elsewhere.
 
 #[cfg(target_os = "linux")]
 mod inotify;
@@ -21,20 +20,16 @@ use recursive::Platform;
 
 use std::collections::HashSet;
 use std::hash::Hash;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use devpage_core::watch::Listeners;
 use notify::event::{CreateKind, EventKind, RemoveKind};
 
-use crate::changes::{Change, Changes};
-use crate::comments::Comments;
-use crate::designs::Designs;
 use crate::folder::{Folder, WatchSet};
-use crate::search::Search;
-use crate::widgets::Modules;
-use std::path::{Path, PathBuf};
 
 /// How long a burst of file events is collected before it is handled: each
 /// path once, and at most one `change` for the whole burst.
@@ -49,34 +44,13 @@ pub struct Watch {
     _platform: Arc<Mutex<Platform>>,
 }
 
-/// Starts watching. A change to a watched file publishes a refresh on the
-/// change bus; a change to a comment thread publishes what `threads`, the
-/// comments the server writes through, heard of it, whatever the site's
-/// `watch` says — nothing for a write of its own, which was announced as it
-/// landed, and nothing at all with comments off (`threads` is `None`).
-/// A path that can't matter — under `.git`, or excluded by a `.gitignore` and
-/// not named by its site's `watch` — is dropped as it arrives, before any
-/// listener hears of it. Every other changed file outside `.devpage/` also
-/// goes to the design store, the widget modules and the search index,
-/// whatever `watch` says, since any file may be part of a design.
-pub fn start(
-    folder: Arc<Folder>,
-    modules: Modules,
-    search: Option<Arc<Search>>,
-    designs: Designs,
-    changes: Changes,
-    threads: Option<Comments>,
-) -> Result<Watch> {
-    let root = folder.served().path().to_path_buf();
-    let set = folder.watched();
-    let listeners = Listeners {
-        folder,
-        modules,
-        search,
-        designs,
-        changes,
-        threads,
-    };
+/// Starts watching the folders `listeners`' folder says to watch, and hands
+/// them every burst of changed paths. A path that can't matter — under
+/// `.git`, or excluded by a `.gitignore` and not named by its site's
+/// `watch` — is dropped as it arrives, before the listeners hear of it.
+pub fn start(listeners: Listeners) -> Result<Watch> {
+    let root = listeners.folder().served().path().to_path_buf();
+    let set = listeners.folder().watched();
     let watching = Arc::new(OnceLock::new());
     let mut platform = Platform::new(&root, intake(listeners, watching.clone()))?;
     platform.apply(set);
@@ -101,9 +75,9 @@ enum Arrival {
 }
 
 /// The handler for the platform's watcher: it sifts each event's paths as
-/// they arrive and passes the survivors to a thread that handles them in
-/// bursts, re-planning the watch set when a burst changes it. The thread
-/// ends when the handler is dropped.
+/// they arrive and passes the survivors to a thread that hands them to
+/// `listeners` in bursts, re-planning the watch set when a burst changes
+/// it. The thread ends when the handler is dropped.
 fn intake(listeners: Listeners, watching: Watching) -> Handler {
     let listeners = Arc::new(listeners);
     let (arrivals, arriving) = mpsc::channel::<Arrival>();
@@ -112,12 +86,13 @@ fn intake(listeners: Listeners, watching: Watching) -> Handler {
         Arc::new(move |event: notify::Result<notify::Event>| {
             #[cfg(test)]
             tests::record(&event);
+            let folder = listeners.folder();
             if let Ok(event) = &event {
-                for folder in listeners.hidden(event) {
-                    let _ = arrivals.send(Arrival::Hidden(folder));
+                for hidden in hidden(folder, event) {
+                    let _ = arrivals.send(Arrival::Hidden(hidden));
                 }
             }
-            for path in listeners.sift(event) {
+            for path in sift(folder, event) {
                 let _ = arrivals.send(Arrival::Changed(path));
             }
         })
@@ -135,11 +110,11 @@ fn intake(listeners: Listeners, watching: Watching) -> Handler {
                     }
                 })
                 .collect();
-            let reshaped = listeners.changed(&paths);
+            let reshaped = changed(&listeners, &paths);
             if let Some(platform) = watching.get().and_then(Weak::upgrade) {
                 let mut platform = platform.lock().unwrap_or_else(|p| p.into_inner());
                 if hidden || reshaped || reaches_past(&platform, &paths) {
-                    listeners.replan(&mut platform);
+                    replan(&listeners, &mut platform);
                 }
             }
         }
@@ -163,125 +138,67 @@ fn next_burst<T: Clone + Eq + Hash>(arriving: &mpsc::Receiver<T>) -> Option<Vec<
     Some(burst)
 }
 
-/// Who hears about files that change: the served folder, which follows
-/// them and says what open pages should hear; the caches that forget what
-/// changed — the widget modules, the design store and the search index —
-/// and, through the change bus, open pages.
-struct Listeners {
-    folder: Arc<Folder>,
-    modules: Modules,
-    /// The search index, when this server answers searches.
-    search: Option<Arc<Search>>,
-    designs: Designs,
-    changes: Changes,
-    /// The comments the server writes through, which know the thread files
-    /// they wrote — and announced — themselves; `None` with comments off.
-    threads: Option<Comments>,
+/// The paths of `event` that can matter, as `folder` judges them from the
+/// path alone. Accesses and errors carry none.
+fn sift(folder: &Folder, event: notify::Result<notify::Event>) -> Vec<PathBuf> {
+    let Ok(event) = event else {
+        return Vec::new();
+    };
+    if event.kind.is_access() {
+        return Vec::new();
+    }
+    let is_dir = matches!(
+        event.kind,
+        EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
+    );
+    event
+        .paths
+        .into_iter()
+        .filter(|path| folder.matters(path, is_dir))
+        .collect()
 }
 
-impl Listeners {
-    /// The paths of `event` that can matter to a listener, as the folder
-    /// judges them from the path alone. Accesses and errors carry none.
-    fn sift(&self, event: notify::Result<notify::Event>) -> Vec<PathBuf> {
-        let Ok(event) = event else {
-            return Vec::new();
-        };
-        if event.kind.is_access() {
-            return Vec::new();
-        }
-        let is_dir = matches!(
-            event.kind,
-            EventKind::Create(CreateKind::Folder) | EventKind::Remove(RemoveKind::Folder)
-        );
-        event
-            .paths
-            .into_iter()
-            .filter(|path| self.folder.matters(path, is_dir))
-            .collect()
+/// The folders `event` says were created out of sight directly in a folder
+/// in sight — a build's first `target/` — judged from the path alone, as
+/// sifting is.
+fn hidden(folder: &Folder, event: &notify::Event) -> Vec<PathBuf> {
+    if event.kind != EventKind::Create(CreateKind::Folder) {
+        return Vec::new();
     }
+    let served = folder.served();
+    event
+        .paths
+        .iter()
+        .filter(|path| {
+            !folder.matters(path, true)
+                && path
+                    .parent()
+                    .is_some_and(|parent| served.contains(parent) && folder.matters(parent, true))
+        })
+        .cloned()
+        .collect()
+}
 
-    /// The folders `event` says were created out of sight directly in a
-    /// folder in sight — a build's first `target/` — judged from the path
-    /// alone, as sifting is.
-    fn hidden(&self, event: &notify::Event) -> Vec<PathBuf> {
-        if event.kind != EventKind::Create(CreateKind::Folder) {
-            return Vec::new();
-        }
-        let served = self.folder.served();
-        event
-            .paths
-            .iter()
-            .filter(|path| {
-                !self.folder.matters(path, true)
-                    && path.parent().is_some_and(|parent| {
-                        served.contains(parent) && self.folder.matters(parent, true)
-                    })
-            })
-            .cloned()
-            .collect()
+/// Has the platform watch the folders to watch, as the folder plans them
+/// now. What is already in a folder the platform didn't report on before
+/// is handled as changed — a thread written into a new comment folder
+/// before its watch started still reaches its page.
+fn replan(listeners: &Listeners, platform: &mut Platform) {
+    let folder = listeners.folder();
+    let mut found = Vec::new();
+    for (watched, deep) in platform.apply(folder.watched()) {
+        within(&watched, deep, &mut found);
+        found.push(watched);
     }
+    found.retain(|path| folder.matters(path, path.is_dir()));
+    changed(listeners, &found);
+}
 
-    /// Has the platform watch the folders to watch, as the folder plans them
-    /// now. What is already in a folder the platform didn't report on before
-    /// is handled as changed — a thread written into a new comment folder
-    /// before its watch started still reaches its page.
-    fn replan(&self, platform: &mut Platform) {
-        let mut found = Vec::new();
-        for (folder, deep) in platform.apply(self.folder.watched()) {
-            within(&folder, deep, &mut found);
-            found.push(folder);
-        }
-        found.retain(|path| self.folder.matters(path, path.is_dir()));
-        self.changed(&found);
-    }
-
-    /// `paths` changed, were created or were deleted: every cache forgets
-    /// what it read of them, open pages hear what they should show — at most
-    /// one refresh — and then the search index reads them again. Says whether
-    /// the folders to watch may differ now.
-    fn changed(&self, paths: &[PathBuf]) -> bool {
-        let (heard, searched, reshaped) = self.forget(paths);
-        for change in heard {
-            self.changes.publish(change);
-        }
-        // After the pages hear, so indexing text never holds up a refresh.
-        if let Some(search) = &self.search {
-            search.changed(&self.folder, &searched);
-        }
-        reshaped
-    }
-
-    /// The caches forget what they read of `paths`, and the folder follows
-    /// them; the changes open pages should hear come back — a page's
-    /// comments as each thread changes, then what the folder says — with the
-    /// paths the search index should read again, and whether the folders to
-    /// watch may differ. Nothing is published.
-    fn forget(&self, paths: &[PathBuf]) -> (Vec<Change>, Vec<PathBuf>, bool) {
-        let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
-        // A thread changed: the pages showing its page fetch comments —
-        // unless the store's own write was announced already.
-        let mut heard = self
-            .threads
-            .as_ref()
-            .map(|threads| threads.heard(&paths))
-            .unwrap_or_default();
-        let mut searched = Vec::new();
-        let served = self.folder.served();
-        for path in paths {
-            let Some(relative) = served.relative(&path) else {
-                continue;
-            };
-            if relative.starts_with(".devpage") {
-                continue;
-            }
-            self.designs.changed(&path);
-            self.modules.forget(&path);
-            searched.push(path);
-        }
-        let folder = self.folder.changed(&searched);
-        heard.extend(folder.changes);
-        (heard, searched, folder.reshaped)
-    }
+/// Hands `listeners` a burst of sifted `paths`, canonical, and says
+/// whether the folders to watch may differ now.
+fn changed(listeners: &Listeners, paths: &[PathBuf]) -> bool {
+    let paths: Vec<PathBuf> = paths.iter().map(|path| canonical(path)).collect();
+    listeners.changed(&paths)
 }
 
 /// Whether the burst of `paths` reaches past what the platform watches: a
@@ -320,8 +237,12 @@ fn canonical(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::changes::{Change, Changes};
+    use crate::comments::Comments;
+    use crate::designs::Designs;
     use crate::document::Document;
     use crate::folder::ServedFolder;
+    use crate::widgets::Modules;
     use notify::event::{DataChange, ModifyKind};
 
     thread_local! {
@@ -351,16 +272,7 @@ mod tests {
     /// Starts watching the served folder `dir`, started on `docs/`, and
     /// lets the platform's watcher settle.
     async fn watching(dir: &Path) -> Watch {
-        let folder = opened(dir);
-        let watch = start(
-            folder.clone(),
-            Modules::default(),
-            None,
-            Designs::new(folder.served()),
-            Changes::default(),
-            Some(comments(folder.served(), &Changes::default())),
-        )
-        .unwrap();
+        let watch = start(listeners(dir, &Changes::default()).0).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
         watch
     }
@@ -557,17 +469,22 @@ mod tests {
         Arc::new(Folder::new(document))
     }
 
-    /// The listeners of the served folder `dir`, started on `docs/`.
-    fn listeners(dir: &Path, changes: Changes) -> Listeners {
+    /// The listeners of the served folder `dir`, opened on `docs/`,
+    /// publishing on `changes` with no search index — with the design store
+    /// and the comments they hold, as a server would share them.
+    fn listeners(dir: &Path, changes: &Changes) -> (Listeners, Designs, Comments) {
         let folder = opened(dir);
-        Listeners {
-            designs: Designs::new(folder.served()),
-            threads: Some(comments(folder.served(), &changes)),
+        let designs = Designs::new(folder.served());
+        let threads = comments(folder.served(), changes);
+        let listeners = Listeners::new(
             folder,
-            modules: Modules::default(),
-            search: None,
-            changes,
-        }
+            designs.clone(),
+            Modules::default(),
+            Some(threads.clone()),
+            Arc::new(changes.clone()),
+            None,
+        );
+        (listeners, designs, threads)
     }
 
     /// The event a platform watcher reports when `paths` were written.
@@ -589,13 +506,10 @@ mod tests {
             "<Frame width={10} height={10} />\n",
         )
         .unwrap();
-        let listeners = listeners(&dir, Changes::default());
-        assert!(
-            listeners
-                .designs
-                .resolve("docs/build/screen.design")
-                .is_ok()
-        );
+        let changes = Changes::default();
+        let mut received = changes.subscribe();
+        let (listeners, designs, _) = listeners(&dir, &changes);
+        assert!(designs.resolve("docs/build/screen.design").is_ok());
         std::fs::write(
             dir.join("docs/build/screen.design"),
             "<Frame width={10} height={10} lable=\"x\" />\n",
@@ -611,21 +525,17 @@ mod tests {
             dir.join("docs/build/screen.design"),
             dir.join(".devpage/screen.design"),
         ];
-        assert_eq!(listeners.sift(written(&noise)), Vec::<PathBuf>::new());
-        let mut folder = notify::Event::new(EventKind::Create(CreateKind::Folder));
-        folder.paths = vec![dir.join("docs/build")];
-        assert_eq!(listeners.sift(Ok(folder)), Vec::<PathBuf>::new());
+        let folder = listeners.folder();
+        assert_eq!(sift(folder, written(&noise)), Vec::<PathBuf>::new());
+        let mut created = notify::Event::new(EventKind::Create(CreateKind::Folder));
+        created.paths = vec![dir.join("docs/build")];
+        assert_eq!(sift(folder, Ok(created)), Vec::<PathBuf>::new());
 
         let before = CANONICALIZED.with(|count| count.get());
-        let (heard, _, _) = listeners.forget(&listeners.sift(written(&noise)));
+        changed(&listeners, &sift(folder, written(&noise)));
         assert_eq!(CANONICALIZED.with(|count| count.get()), before);
-        assert_eq!(heard, []);
-        assert!(
-            listeners
-                .designs
-                .resolve("docs/build/screen.design")
-                .is_ok()
-        );
+        assert_eq!(received.drain(), []);
+        assert!(designs.resolve("docs/build/screen.design").is_ok());
     }
 
     #[test]
@@ -634,93 +544,41 @@ mod tests {
             "named",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\", \"build/*.svg\"]\n",
         );
-        let listeners = listeners(&dir, Changes::default());
+        let changes = Changes::default();
+        let mut received = changes.subscribe();
+        let (listeners, _, _) = listeners(&dir, &changes);
         let thread = dir.join(".devpage/comments/docs/README.md/20261025T000000Z-abcd.yml");
         let named = dir.join("docs/build/chart.svg");
         let unnamed = dir.join("docs/build/chart.png");
         let page = dir.join("docs/README.md");
-        let arrived = listeners.sift(written(&[
-            thread.clone(),
-            named.clone(),
-            unnamed,
-            page.clone(),
-        ]));
+        let arrived = sift(
+            listeners.folder(),
+            written(&[thread.clone(), named.clone(), unnamed, page.clone()]),
+        );
         assert_eq!(arrived, vec![thread, named, page]);
-        let (heard, _, _) = listeners.forget(&arrived);
+        changed(&listeners, &arrived);
         assert_eq!(
-            heard,
+            received.drain(),
             [Change::Comments("/docs/README.md".into()), Change::Refresh]
         );
-    }
-
-    #[test]
-    fn with_comments_off_a_thread_file_announces_nothing() {
-        let dir = served("off", "kind: site\ntitle: T\nroot: README.md\n");
-        let listeners = Listeners {
-            threads: None,
-            ..listeners(&dir, Changes::default())
-        };
-        let thread = dir.join(".devpage/comments/docs/README.md/20261025T000000Z-abcd.yml");
-        let arrived = listeners.sift(written(std::slice::from_ref(&thread)));
-        assert_eq!(arrived, vec![thread]);
-        let (heard, _, _) = listeners.forget(&arrived);
-        assert_eq!(heard, []);
     }
 
     #[test]
     fn a_new_gitignore_rule_takes_effect_without_a_restart() {
         let dir = served("rule", "kind: site\ntitle: T\nroot: README.md\n");
         std::fs::create_dir_all(dir.join("docs/drafts")).unwrap();
-        let listeners = listeners(&dir, Changes::default());
+        let (listeners, _, _) = listeners(&dir, &Changes::default());
+        let folder = listeners.folder();
         let draft = dir.join("docs/drafts/idea.md");
         assert_eq!(
-            listeners.sift(written(std::slice::from_ref(&draft))),
+            sift(folder, written(std::slice::from_ref(&draft))),
             vec![draft.clone()]
         );
 
         std::fs::write(dir.join("docs/.gitignore"), "build/\ndrafts/\n").unwrap();
         let rule = dir.join("docs/.gitignore");
-        listeners.changed(&listeners.sift(written(&[rule])));
-        assert_eq!(listeners.sift(written(&[draft])), Vec::<PathBuf>::new());
-    }
-
-    #[test]
-    fn the_search_index_hears_of_saved_and_deleted_pages() {
-        let dir = served("search", "kind: site\ntitle: T\nroot: README.md\n");
-        std::fs::write(
-            dir.join("docs/README.md"),
-            "# Home\n\n## Topics\n\n- [Guide](guide.md)\n",
-        )
-        .unwrap();
-        let page = dir.join("docs/guide.md");
-        std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
-        let mut listeners = listeners(&dir, Changes::default());
-        listeners.search = Some(Arc::new(Search::build(
-            &listeners.folder,
-            &dir.join("docs/devpage.yml"),
-        )));
-        let found = |word: &str| {
-            let search = listeners.search.as_ref().unwrap();
-            search
-                .search(word)
-                .pages
-                .into_iter()
-                .flat_map(|page| page.sections)
-                .map(|section| section.url)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(found("otter"), ["/docs/guide.md#guide"]);
-
-        std::fs::write(&page, "# Guide\n\nA beaver builds.\n").unwrap();
-        listeners.changed(&listeners.sift(written(std::slice::from_ref(&page))));
-        assert_eq!(found("beaver"), ["/docs/guide.md#guide"]);
-        assert!(found("otter").is_empty());
-
-        std::fs::remove_file(&page).unwrap();
-        let mut removed = notify::Event::new(EventKind::Remove(RemoveKind::File));
-        removed.paths = vec![page];
-        listeners.changed(&listeners.sift(Ok(removed)));
-        assert!(found("beaver").is_empty());
+        changed(&listeners, &sift(folder, written(&[rule])));
+        assert_eq!(sift(folder, written(&[draft])), Vec::<PathBuf>::new());
     }
 
     #[test]
@@ -728,7 +586,7 @@ mod tests {
         let dir = served("burst", "kind: site\ntitle: T\nroot: README.md\n");
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let handler = intake(listeners(&dir, changes), Arc::default());
+        let handler = intake(listeners(&dir, &changes).0, Arc::default());
         // Saves trickling in, as an editor or a build writes, within one burst.
         for _ in 0..5 {
             handler(written(&[dir.join("docs/README.md")]));
@@ -774,20 +632,10 @@ mod tests {
         within: Duration,
         want: Option<&str>,
     ) -> Vec<String> {
-        let folder = opened(dir);
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(folder.served());
-        let threads = comments(folder.served(), &changes);
-        let _watcher = start(
-            folder,
-            Modules::default(),
-            None,
-            designs,
-            changes.clone(),
-            Some(threads.clone()),
-        )
-        .unwrap();
+        let (listeners, _, threads) = listeners(dir, &changes);
+        let _watcher = start(listeners).unwrap();
         // Let the platform's watcher settle before changing anything.
         tokio::time::sleep(Duration::from_millis(300)).await;
         touch(&threads);
@@ -812,35 +660,6 @@ mod tests {
             }
         }
         messages
-    }
-
-    /// The hand-off itself, without waiting on the platform's file events: a
-    /// changed file reaches the design store, which forgets what it read and
-    /// resolves the design again; a file under `.devpage/` never does.
-    #[test]
-    fn a_changed_file_reaches_the_design_store() {
-        let dir = served("designs", "kind: site\ntitle: T\nroot: README.md\n");
-        std::fs::create_dir_all(dir.join(".devpage")).unwrap();
-        let valid = "<Frame width={10} height={10} />\n";
-        let broken = "<Frame width={10} height={10} lable=\"x\" />\n";
-        std::fs::write(dir.join("docs/screen.design"), valid).unwrap();
-        std::fs::write(dir.join(".devpage/screen.design"), valid).unwrap();
-        let listeners = listeners(&dir, Changes::default());
-        let designs = listeners.designs.clone();
-        assert!(designs.resolve("docs/screen.design").is_ok());
-        assert!(designs.resolve(".devpage/screen.design").is_ok());
-
-        // Saved broken: the store answers from memory until it is told.
-        std::fs::write(dir.join("docs/screen.design"), broken).unwrap();
-        std::fs::write(dir.join(".devpage/screen.design"), broken).unwrap();
-        assert!(designs.resolve("docs/screen.design").is_ok());
-
-        listeners.forget(&[
-            dir.join("docs/screen.design"),
-            dir.join(".devpage/screen.design"),
-        ]);
-        assert!(designs.resolve("docs/screen.design").is_err());
-        assert!(designs.resolve(".devpage/screen.design").is_ok());
     }
 
     #[tokio::test]
@@ -923,20 +742,9 @@ mod tests {
             "relist",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
         );
-        let folder = opened(&dir);
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(folder.served());
-        let threads = comments(folder.served(), &changes);
-        let _watcher = start(
-            folder,
-            Modules::default(),
-            None,
-            designs,
-            changes,
-            Some(threads),
-        )
-        .unwrap();
+        let _watcher = start(listeners(&dir, &changes).0).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;
 
         // Its own file changing refreshes pages, though `watch` names only Markdown.

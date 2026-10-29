@@ -27,7 +27,7 @@ Each part of the diagram opens the page that explains it.
 flowchart LR
   main["main.rs<br/>commands, startup"] --> drive["Driving: src/drive/<br/>server.rs, pdf.rs, slide_png.rs, video.rs"]
   main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, http.rs, terminal.rs, chrome.rs, git.rs"]
-  drive --> core["The core: core/src/<br/>document.rs, folder/, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/"]
+  drive --> core["The core: core/src/<br/>document.rs, folder/, resolve.rs, render/,<br/>check.rs, comments/, designs.rs, widgets/, watch/"]
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
   click main href "#how-main-wires-it-together" "How main wires it together"
@@ -45,7 +45,8 @@ flowchart LR
 | `core/src/document.rs` | `Document`: loads a document file of any kind, or a Markdown file as a one-chapter doc, every part resolved through the served folder; a site's `watch` patterns. |
 | `core/src/folder/` | `Folder`: the served folder opened on its entry document. `index.rs`, its document index — every document file by kind, and what `.gitignore` files exclude; the entry document, re-read when its file changes, keeping the last valid one while the file is invalid; `owner`, a page's nearest site loaded as its file says now, and `widgets_owner`, the document naming a widgets folder. `sight.rs`: what a changed path means — whether it can matter at all (`matters`), whether it refreshes open pages by its site's `watch` list, and the folders to watch (`watched`, the watch set, walking only what is in sight); `changed` follows a burst of paths and answers the changes and whether the watch set may differ. It keeps no document but the entry. `served.rs`: `ServedFolder`, the boundary around it — resolving a path, link or URL inside it with symbolic links followed, refusing what lands outside, a file's address under the folder's **mount** and its name without it. Made once where serving starts — from `--root` on the command line, from a version's folder in server mode — and passed as `&ServedFolder` to everything loaded from it, so the mount reaches all of it. Every check that a path lies inside the served folder goes through it. |
 | `core/src/search/` | The search index: the sections of everything the served document publishes, in tantivy, in memory, kept current as paths change; a query's pages, best first, each with its best sections and their snippets. `mod.rs` holds `Search` — `build`, `changed`, `search` — and the answer's types; `gather.rs` reads what is published into sections; `index.rs` is the schema and the indexing; `query.rs` turns a query into words and tantivy queries; `rank.rs` ranks sections and makes snippets. |
-| `src/adapters/watch.rs` | Watches the folders the served folder says to watch, drops what it says can't matter, and hands each burst to it (`Folder::changed`), publishing the changes it answers and a page's comments on the change bus — the pages whose thread files the server's comments heard changed by another hand (`Comments::heard`), never the server's own write — re-planning the watch when the folder says to or the platform needs it; has the design store and the module cache forget every changed path and the search index read them again, as its own listener rather than through the bus. |
+| `src/adapters/watch.rs` | The watcher's OS half: watches the folders the served folder says to watch, drops each path it says can't matter as it arrives (`sift`), gathers the rest into 50 ms bursts, canonicalized, and hands each to the core's `Listeners`, re-planning the watch when they say the watch set may differ or the platform needs it. It decides nothing a burst means. |
+| `core/src/watch/` | The watcher's core half, local mode's one ordered response to saved files: `Listeners::changed` hears a burst of paths — the comments' threads another hand changed (`Comments::heard`), then the served folder (`Folder::changed`), then the design store and the module cache forget every path in the served folder outside `.devpage/`, then the page comments and the folder's refresh are published on the change bus, then the search index reads the paths again — and says whether the watch set may differ. Server mode builds none. |
 | `core/src/lib.rs` | The core crate's modules, and what it may not depend on. |
 | `core/src/changes.rs` | Typed changes (`Refresh`, `Comments` of a page) and the `Publish` port a producer publishes them through, `publish(change)`: a bus serves one set of documents, so a change names no audience. |
 | `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches every subscriber — a page's event stream, the slide-PNG cache, which a refresh clears and a page's comments don't. Server mode keeps one per published document. |
@@ -145,9 +146,10 @@ with an error before anything is served.
    The watcher and the server share all four.
 
 4. Start the watcher
-   `App::watch`, on the watch set of the served folder, with the same
-   folder, module cache, search index, design store, bus and comments as the
-   server, so a thread the
+   `App::watch`, on the watch set of the served folder: the watcher hands
+   its bursts to the core's `Listeners`, built with the same folder, design
+   store, module cache, comments, bus and search index as the server, so a
+   thread the
    server wrote is announced once
    ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.

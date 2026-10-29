@@ -181,7 +181,8 @@ The search index sits beside the served folder's
 [document index](../document-index/README.md#the-index), and reads it:
 `devpage` builds it at start (`Search::build`, given the folder and the entry
 document's file), after the document files are found, and the
-[watcher](../live-updates/README.md#the-watcher) hands it each burst's paths
+[watcher](../live-updates/README.md#the-watcher)'s listeners
+(`core/src/watch/`) hand it each burst's paths
 after the folder has heard of them and after the open pages have been told —
 so indexing never holds up a refresh (`Search::changed`). `devpage check`,
 `pdf` and `video` build none.
