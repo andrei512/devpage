@@ -18,7 +18,7 @@ use base64::engine::general_purpose::STANDARD;
 use crate::adapters::chrome::{Open, Profile, Session, Tab};
 use crate::drive::http;
 use devpage_core::document::{Document, Kind};
-use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
+use silence::{RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
 const RECORDER: &str = include_str!("../../assets/video.js");
@@ -32,6 +32,27 @@ const VOICE_STARTS_WITHIN: Duration = Duration::from_secs(60);
 /// The recording comes back in pieces this big, so a long talk doesn't have
 /// to fit in one DevTools message.
 const CHUNK: usize = 4 << 20;
+
+/// How each slide waits on its voice, which streams in as it is spoken: the
+/// two waits a recording spends on every slide beyond its speech. The
+/// default is GPT-Live's, which `devpage video` records with.
+#[derive(Clone, Copy, Debug)]
+pub struct Pacing {
+    /// Voice buffered before a slide starts playing, covering network stalls.
+    pub prebuffer: Duration,
+    /// Quiet after which the voice is done with a slide — there is no
+    /// end-of-speech event — so longer than any pause inside one.
+    pub done_after: Duration,
+}
+
+impl Default for Pacing {
+    fn default() -> Self {
+        Pacing {
+            prebuffer: Duration::from_secs(2),
+            done_after: Duration::from_millis(1500),
+        }
+    }
+}
 
 /// What the narrator is told, checked before anything slow: the session's
 /// instructions and one request per slide. A document that isn't a deck, a
@@ -102,6 +123,7 @@ pub async fn record(
         &deck,
         output,
         requests,
+        Pacing::default(),
         heard.clone(),
         async |heard| narrator::Live::start(config, &instructions, heard).await,
     )
@@ -162,19 +184,20 @@ pub(super) fn served(document: Arc<Document>) -> (Router, String) {
 
 /// Serves the deck from `router`, opens it at `deck` in a recording
 /// session, starts the voice once the recorder is armed, and records every
-/// slide. Chrome is killed however this ends.
+/// slide, paced by `pacing`. Chrome is killed however this ends.
 pub(super) async fn film<V: Voice>(
     router: Router,
     deck: &str,
     output: &Path,
     notes: Vec<String>,
+    pacing: Pacing,
     heard: Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<()> {
     let session = Session::start(Profile::Recording, router).await?;
     let result = async {
         let tab = session.open(deck, Open::default()).await?;
-        let bytes = narrate(&tab, &notes, &heard, voice).await?;
+        let bytes = narrate(&tab, &notes, pacing, &heard, voice).await?;
         std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))
     }
     .await;
@@ -185,6 +208,7 @@ pub(super) async fn film<V: Voice>(
 async fn narrate<V: Voice>(
     tab: &Tab,
     notes: &[String],
+    pacing: Pacing,
     heard: &Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<Vec<u8>> {
@@ -207,7 +231,8 @@ async fn narrate<V: Voice>(
                 let heard = heard.lock().unwrap();
                 heard.check()?;
                 heard.last_loud.is_some_and(|at| at > asked)
-                    && heard.trimmer.buffered() as f64 >= PREBUFFER_SECONDS * RATE as f64
+                    && heard.trimmer.buffered() as f64
+                        >= pacing.prebuffer.as_secs_f64() * RATE as f64
             };
             if ready {
                 break;
@@ -229,7 +254,7 @@ async fn narrate<V: Voice>(
                 heard.check()?;
                 heard.last_loud.map_or(Duration::ZERO, |at| at.elapsed())
             };
-            if quiet.as_secs_f64() >= DONE_AFTER_SECONDS {
+            if quiet >= pacing.done_after {
                 break;
             }
             tokio::time::sleep(PUSH_EVERY).await;

@@ -313,6 +313,9 @@ export class Host {
     const oy = Math.round(y * ratio);
     this.shown = { k, ox, oy };
     this.canvas.dataset.view = `${k / ratio},${ox / ratio},${oy / ratio}`;
+    // For the tests: the view's own zoom, which a wheel multiplies — it is
+    // shown at its level, `view`'s first number, which differs from it.
+    this.canvas.dataset.zoom = String(zoom);
     this.canvas.dataset.size = this.design.size().join(",");
     // The compositor carries out a frame of the plan: it places the view's
     // held tiles every frame; tiles still to paint at this scale are painted
