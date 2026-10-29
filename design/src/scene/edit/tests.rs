@@ -1,5 +1,6 @@
 use super::*;
-use crate::ids::testing::Saves;
+use crate::ids::Remembering;
+use std::collections::HashMap;
 
 fn rows(labels: &[String]) -> String {
     let rows: String = labels
@@ -34,13 +35,13 @@ fn kinds(edits: &Edits) -> Vec<&'static str> {
 #[test]
 fn an_insert_before_the_first_of_a_hundred_thousand_is_one_insert() {
     let labels: Vec<String> = (0..100_000).map(|i| format!("r{i}")).collect();
-    let mut saves = Saves::default();
-    saves.save("a.design", rows(&labels));
-    let old = saves.resolve("a.design");
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves.files.insert("a.design".into(), rows(&labels));
+    let old = crate::resolve(&saves, "a.design").unwrap();
     let mut more = vec!["new".to_string()];
     more.extend(labels);
-    saves.save("a.design", rows(&more));
-    let new = saves.resolve("a.design");
+    saves.files.insert("a.design".into(), rows(&more));
+    let new = crate::resolve(&saves, "a.design").unwrap();
     let edits = Edits::between(&old, &new);
     assert_eq!(kinds(&edits), ["insert"]);
     let mut s = old.clone();
@@ -51,20 +52,18 @@ fn an_insert_before_the_first_of_a_hundred_thousand_is_one_insert() {
 
 #[test]
 fn moves_removes_and_changes_are_found_by_id() {
-    let mut saves = Saves::default();
-    saves.save(
-        "a.design",
-        r#"<Frame><Rect key="a" /><Rect key="b" /><Frame key="c"><Rect key="d" /></Frame><Rect key="e" /></Frame>"#,
-    );
-    let old = saves.resolve("a.design");
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves.files.insert("a.design".into(), r#"<Frame><Rect key="a" /><Rect key="b" /><Frame key="c"><Rect key="d" /></Frame><Rect key="e" /></Frame>"#.into());
+    let old = crate::resolve(&saves, "a.design").unwrap();
     // `e` to the front, `b` gone, `a` changed, and `d` out of `c` to the
     // end: a list is matched within its parent, so `d` is a new element and
     // the old one goes.
-    saves.save(
-        "a.design",
-        r#"<Frame><Rect key="e" /><Rect key="a" x={3} /><Frame key="c" /><Rect key="d" /></Frame>"#,
+    saves.files.insert(
+        "a.design".into(),
+        r#"<Frame><Rect key="e" /><Rect key="a" x={3} /><Frame key="c" /><Rect key="d" /></Frame>"#
+            .into(),
     );
-    let new = saves.resolve("a.design");
+    let new = crate::resolve(&saves, "a.design").unwrap();
     let edits = Edits::between(&old, &new);
     let mut k = kinds(&edits);
     k.sort();
@@ -76,9 +75,11 @@ fn moves_removes_and_changes_are_found_by_id() {
 
 #[test]
 fn a_new_root_replaces_the_scene() {
-    let mut saves = Saves::default();
-    saves.save("a.design", "<Frame><Rect /></Frame>");
-    let old = saves.resolve("a.design");
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves
+        .files
+        .insert("a.design".into(), "<Frame><Rect /></Frame>".into());
+    let old = crate::resolve(&saves, "a.design").unwrap();
     let mut new = old.clone();
     new.root.id = NodeId(vec![99]);
     new.ids = Ids::of(&new.root);
@@ -95,12 +96,12 @@ fn a_new_root_replaces_the_scene() {
 /// nothing, even after the edits before them did.
 #[test]
 fn edits_that_cant_be_applied_change_nothing() {
-    let mut saves = Saves::default();
-    saves.save(
-        "a.design",
-        r#"<Frame><Frame><Rect /></Frame><Rect /></Frame>"#,
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves.files.insert(
+        "a.design".into(),
+        r#"<Frame><Frame><Rect /></Frame><Rect /></Frame>"#.into(),
     );
-    let s0 = saves.resolve("a.design");
+    let s0 = crate::resolve(&saves, "a.design").unwrap();
     let root = &s0.root;
     let inner = &root.children[0];
     let leaf = &inner.children[0];

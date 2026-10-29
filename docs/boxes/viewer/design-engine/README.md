@@ -71,7 +71,7 @@ module of the core names an adapter or a rasterizer.
 | Module | Role | Does |
 | --- | --- | --- |
 | `parse` | core | Text to a syntax tree. |
-| `ids` | core | Element ids kept across saves: a new parse matched against the last. |
+| `ids` | core | Element ids kept across saves: a new parse matched against the last. `Remembering`: files read with each design file's last parse kept, so the next is matched against it — what the store reads through. |
 | `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, and children under their keys. |
 | `scene` | core | What a resolved design is: the scene, its nodes and their attributes, colours in both themes, image files, the scene's index from node id to place, and the `Files` port designs are read through. `edit`: how one scene becomes the next — an edit by id (a node changed, a subtree inserted, removed or moved), the edits between two scenes, edits with the files they bring, applied all or nothing, and what they did, for a drawing to follow. |
 | `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene; `again`, a design kept resolved and a change resolved again only as far as it reaches, into the edits that bring its scene across. |
@@ -79,14 +79,15 @@ module of the core names an adapter or a rasterizer.
 | `display` | core | `draw`: the drawing commands and a node's box after layout. `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
 | `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
 | `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
+| `design` | core | A design as it is held while it is shown — its scene, how many nodes use each file, and its drawing in each theme its holder asks for — each drawing brought along by every edit, the damage to its tiles kept until taken; its size, the interaction at a point, a view's tiles and an area to paint, rounded first; and [one rule for a scene that can't be drawn](#a-design-that-cant-be-drawn). The store and every canvas hold their designs as one. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
 | `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
 | `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
 
-In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — its
-scene, a drawing per theme, the damage since the last frame, a tile on the
-CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
+In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — the
+engine's `design`, bound for the page: a stream message applied to it, the
+damage since the last frame, a tile on the CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
 backend; `gpu/` the compositor on WebGPU — `mod.rs` a frame (damage, the
 view's missing tiles, the budget), `paint.rs` painting a tile into its
 texture, `pass.rs` the composite pass. The page's part is the design script
@@ -527,8 +528,8 @@ proportional to them:
    the sums. A child of a run the sums moved by a fraction of a pixel rounds
    differently where it now falls, and so may everything in it; the update
    doesn't round it — the damage already covers it — and before an area is
-   painted, hit or read (`Drawing::prepare`, in the server and the canvas
-   alike), the children of runs there that no longer round as their boxes
+   painted, hit or read (by the held [`design`](#how-the-engine-is-built),
+   in the server and the canvas alike), the children of runs there that no longer round as their boxes
    were made are rounded anew, their boxes and any chunk whose box changed
    made again. So an edit costs what it changed, the rounding costs what is
    read, and what is read is a fresh drawing's, box for box;
@@ -633,6 +634,22 @@ the same image files and the same shadow pixels in the same order, paints that
 drawing's blobs: a save that changes only text or layout keeps the atlas and
 uploads no image again.
 
+### A design that can't be drawn
+
+A scene can stop being drawable mid-session — a save that adds an image, or
+an image file that grows, past what the atlas holds. The held design
+(`design/src/design/`) has one rule for it, in the store and on the canvas
+alike: the drawing in that theme is kept and follows the scene, so the next
+change updates it, but nothing is painted from it and no damage reaches its
+tiles — the tiles painted from the last drawing that could be drawn stay
+what is shown, a view needs no new ones, and a PNG answers with the problem
+instead. Why is the design's problem, where a design's problems already
+show: the problems bar over the canvas, the PNG route and `devpage check`.
+The change that makes the scene drawable again makes every tile of that
+theme stale, and what is painted then is a fresh drawing's. A whole scene
+that can't be drawn has no last drawing to keep; it is tried again only once
+the scene changes.
+
 ## In the server
 
 The server keeps every design it has been asked for **resolved in memory** —
@@ -657,8 +674,9 @@ above it, say. `devpage check` and a page's problems bar read designs
 straight from disk instead, as they read pages. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
-With each design's scene the store keeps its **drawing** in each theme it
-shows in — layout, chunks, property trees and index — and a design [resolved again](#resolving-again)
+With each design's scene the store holds it as the engine's `design`, its
+**drawing** made in each theme the scene shows in — layout, chunks, property
+trees and index — and a design [resolved again](#resolving-again)
 updates them by the edits that resolving made, the very edits its watch
 streams send as a patch: only the dirty part is laid out, only dirty
 chunks are made, only their index entries move, and only the tiles over the

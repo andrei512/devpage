@@ -57,13 +57,13 @@ pub struct Drawing {
     /// Each node's order, by its id: where a patch's nodes are in it.
     pub(super) orders: HashMap<SceneId, Order>,
     /// The display list: chunks under property trees, and their index.
-    pub list: List,
+    pub(crate) list: List,
     /// The blob each image file is painted from in this drawing.
     pub(super) blobs: HashMap<ImageId, ImageData>,
     /// Every image the list paints, each under a blob of its own, in the
     /// order the list first paints it: what the GPU's atlas holds for this
     /// drawing, placed as [`crate::atlas::place`] places them.
-    pub images: Vec<ImageData>,
+    pub(crate) images: Vec<ImageData>,
     /// What each of `images` shows.
     pub(super) shows: Vec<Painted>,
     /// The nodes whose own commands paint an image, in paint order.
@@ -74,14 +74,21 @@ pub struct Drawing {
     pub(super) visited: usize,
 }
 
-/// What an update to a drawing touched, in the design's coordinates: each
-/// chunk it changed, where it was and where it is — and the strips the
-/// drawing's area gained or lost. `all` when the area's top-left moved, which
-/// moves every tile.
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Damage {
-    pub rects: Vec<KRect>,
-    pub all: bool,
+/// What an update did to a drawing's tiles: every one, or those over the
+/// rects it touched.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Damage {
+    /// Every tile: a new scene, or the drawing's top-left moved, which moves
+    /// every tile.
+    All,
+    /// The tiles over `rects`, in the design's coordinates — each chunk the
+    /// update changed, where it was and where it is, and the strips the
+    /// drawing's area gained or lost — of a drawing whose top-left is now
+    /// `origin`.
+    Rects {
+        origin: (f64, f64),
+        rects: Vec<KRect>,
+    },
 }
 
 /// The property-tree nodes a scene node made — its transform, its opacity's
@@ -123,19 +130,6 @@ impl Drawing {
         self.theme
     }
 
-    /// The tiles `view` needs at its own zoom's level, nearest its middle
-    /// first: what a compositor asks to be painted.
-    pub fn view_tiles(&self, view: &crate::tiles::View) -> Vec<(u32, u32)> {
-        let a = self.area();
-        let area = KRect::new(
-            a.x as f64,
-            a.y as f64,
-            (a.x + a.width) as f64,
-            (a.y + a.height) as f64,
-        );
-        view.tiles(area, crate::tiles::Level::of(view.zoom))
-    }
-
     /// The interaction of the topmost node at `(x, y)` — in the design's
     /// coordinates — that has one, where its clipping frames show it.
     pub fn action_at(&self, x: f32, y: f32) -> Option<&str> {
@@ -150,7 +144,7 @@ impl Drawing {
     /// returns is what changed; or why `new` can't be painted — its images
     /// too many for the GPU's atlas — in which case the drawing is `new`'s
     /// all the same.
-    pub fn update(
+    pub(crate) fn update(
         &mut self,
         renderer: &mut Renderer,
         new: &Scene,
@@ -165,7 +159,7 @@ impl Drawing {
     /// their boxes and chunks as they were, so an edit costs what it changed
     /// and the rounding costs what is read. `scene` is the scene the drawing
     /// shows. After it, the drawing there is a fresh one's, box for box.
-    pub fn prepare(&mut self, renderer: &mut Renderer, scene: &Scene, area: KRect) {
+    pub(crate) fn prepare(&mut self, renderer: &mut Renderer, scene: &Scene, area: KRect) {
         let mut rounded = false;
         loop {
             let stale = self.list.unrounded(area);
@@ -184,7 +178,8 @@ impl Drawing {
     }
 
     /// [`Drawing::prepare`] over the whole drawing.
-    pub fn prepare_all(&mut self, renderer: &mut Renderer, scene: &Scene) {
+    #[cfg(test)]
+    pub(crate) fn prepare_all(&mut self, renderer: &mut Renderer, scene: &Scene) {
         let everything = KRect::new(-1e12, -1e12, 1e12, 1e12);
         self.prepare(renderer, scene, everything);
     }
@@ -498,11 +493,11 @@ impl Renderer {
                 let moved = c.origin != origin || c.cut != cut;
                 let at = d.list.space_at(space);
                 if moved && let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds.map(|b| b + at));
+                    damage.extend(c.bounds.map(|b| b + at));
                 }
                 let c = c.moved(origin, cut);
                 if moved && let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds.map(|b| b + space_at));
+                    damage.extend(c.bounds.map(|b| b + space_at));
                 }
                 (c, old.expect("kept").painted)
             }
@@ -510,7 +505,7 @@ impl Renderer {
                 if let Some(c) = &was {
                     if let Some(damage) = w.damage.as_deref_mut() {
                         let at = d.list.space_at(&c.space);
-                        damage.rects.extend(c.bounds.map(|b| b + at));
+                        damage.extend(c.bounds.map(|b| b + at));
                     }
                     d.list.free(&c.made);
                 }
@@ -550,7 +545,7 @@ impl Renderer {
                     .map(|a| (a, KRect::new(0.0, 0.0, f.width as f64, f.height as f64)));
                 let c = Chunk::new(transform, space.clone(), origin, built, covers, action, cut);
                 if let Some(damage) = w.damage.as_deref_mut() {
-                    damage.rects.extend(c.bounds.map(|b| b + space_at));
+                    damage.extend(c.bounds.map(|b| b + space_at));
                 }
                 if !painted.is_empty() || old.as_ref().is_some_and(|r| !r.painted.is_empty()) {
                     w.images = true;
@@ -867,7 +862,7 @@ impl Renderer {
                     KRect::new(both.x0, start.max(both.y0), both.x1, both.y1)
                 };
                 if r.width() > 0.0 && r.height() > 0.0 {
-                    damage.rects.push(r);
+                    damage.push(r);
                 }
             }
         }
@@ -1145,7 +1140,7 @@ pub(super) struct Walk<'a> {
     /// For an update, the children of each node on a changed node's path
     /// that lead to one; `None` walks every node.
     pub(super) path: Option<&'a HashMap<Order, BTreeSet<OrderKey>>>,
-    pub(super) damage: Option<&'a mut Damage>,
+    pub(super) damage: Option<&'a mut Vec<KRect>>,
     /// For a new drawing, the chunks made, to bulk-load the index with.
     pub(super) fresh: Option<&'a mut Vec<(Order, Chunk)>>,
     /// Whether a chunk made again paints an image, or painted one.

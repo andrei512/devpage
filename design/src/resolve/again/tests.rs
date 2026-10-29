@@ -1,6 +1,7 @@
 use super::*;
-use crate::ids::testing::Saves;
+use crate::ids::Remembering;
 use crate::wire;
+use std::collections::HashMap;
 
 /// A design and the files it reads, as a test edits them.
 #[derive(Clone)]
@@ -150,10 +151,10 @@ fn edit(m: &mut Model, rng: &mut Rng) -> &'static str {
     "screen.design"
 }
 
-fn save(saves: &mut Saves, m: &Model) {
-    saves.save("screen.design", m.screen());
-    saves.save("card.design", m.card());
-    saves.save("themes.yml", m.themes());
+fn save(saves: &mut Remembering<HashMap<String, String>>, m: &Model) {
+    saves.files.insert("screen.design".into(), m.screen());
+    saves.files.insert("card.design".into(), m.card());
+    saves.files.insert("themes.yml".into(), m.themes());
 }
 
 /// The same scene, node for node, as the wire carries it and as the store
@@ -177,7 +178,7 @@ fn every_save_resolved_again_is_a_fresh_resolve() {
     for seed in 1..=12u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15));
         let mut m = Model::new(6 + seed as u32);
-        let mut saves = Saves::default();
+        let mut saves = Remembering::new(HashMap::<String, String>::new());
         save(&mut saves, &m);
         let mut res = Resolution::new(&saves, "screen.design").unwrap_or_else(|p| panic!("{p:?}"));
         let mut browser = wire::decode_scene(
@@ -243,16 +244,20 @@ fn list(n: usize, edited: Option<usize>, front: bool) -> String {
 fn an_edit_resolves_again_only_what_it_reaches() {
     let mut cost = Vec::new();
     for n in [1_000usize, 100_000] {
-        let mut saves = Saves::default();
-        saves.save("a.design", list(n, None, false));
+        let mut saves = Remembering::new(HashMap::<String, String>::new());
+        saves.files.insert("a.design".into(), list(n, None, false));
         let mut res = Resolution::new(&saves, "a.design").unwrap();
-        saves.save("a.design", list(n, Some(n / 2), false));
+        saves
+            .files
+            .insert("a.design".into(), list(n, Some(n / 2), false));
         let outcome = res.update(&saves, &["a.design".to_string()]);
         let Outcome::Changed(edits, _) = outcome else {
             panic!("{outcome:?}")
         };
         assert_eq!(edits.list.len(), 1, "{n}");
-        saves.save("a.design", list(n, Some(n / 2), true));
+        saves
+            .files
+            .insert("a.design".into(), list(n, Some(n / 2), true));
         let Outcome::Changed(edits, applied) = res.update(&saves, &["a.design".to_string()]) else {
             panic!()
         };
@@ -261,7 +266,9 @@ fn an_edit_resolves_again_only_what_it_reaches() {
         same(res.scene(), &crate::resolve(&saves, "a.design").unwrap());
         // What resolving again costs beyond reading the file: the update,
         // less a parse and match of the same text.
-        saves.save("a.design", list(n, Some(n / 3), true));
+        saves
+            .files
+            .insert("a.design".into(), list(n, Some(n / 3), true));
         let t = std::time::Instant::now();
         let outcome = res.update(&saves, &["a.design".to_string()]);
         let update = t.elapsed();
@@ -287,7 +294,7 @@ fn an_edit_resolves_again_only_what_it_reaches() {
 #[test]
 fn a_component_or_a_theme_reaches_only_what_uses_it() {
     let mut m = Model::new(10);
-    let mut saves = Saves::default();
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
     save(&mut saves, &m);
     let mut res = Resolution::new(&saves, "screen.design").unwrap();
     m.card_fill = "#dddddd";
@@ -320,18 +327,21 @@ fn a_component_or_a_theme_reaches_only_what_uses_it() {
 #[test]
 fn saves_while_a_design_has_problems_arrive_with_its_fix() {
     let mut m = Model::new(5);
-    let mut saves = Saves::default();
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
     save(&mut saves, &m);
     let mut res = Resolution::new(&saves, "screen.design").unwrap();
     let before = res.scene().clone();
-    saves.save("card.design", "<Frame fill={theme.nothing} />");
+    saves.files.insert(
+        "card.design".into(),
+        "<Frame fill={theme.nothing} />".into(),
+    );
     assert!(matches!(
         res.update(&saves, &["card.design".to_string()]),
         Outcome::Problems(_)
     ));
     m.rows[0].2 = "While broken".into();
     m.rows.push((99, false, "Added while broken".into(), false));
-    saves.save("screen.design", m.screen());
+    saves.files.insert("screen.design".into(), m.screen());
     assert!(matches!(
         res.update(&saves, &["screen.design".to_string()]),
         Outcome::Problems(_)
@@ -343,7 +353,7 @@ fn saves_while_a_design_has_problems_arrive_with_its_fix() {
     )
     .unwrap();
     let mut uses = Uses::of(&browser.root);
-    saves.save("card.design", m.card());
+    saves.files.insert("card.design".into(), m.card());
     let Outcome::Changed(edits, _) = res.update(&saves, &["card.design".to_string()]) else {
         panic!()
     };

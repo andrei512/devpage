@@ -16,10 +16,18 @@
 //! in order splits the list into gaps, and each gap is matched again the same
 //! way. That is near-linear however many edits there are, and never pairs
 //! the list by position.
+//!
+//! A store that keeps designs between saves reads its files through
+//! [`Remembering`], which keeps each design file's last parse and matches
+//! the next against it.
 
 use std::collections::HashMap;
 
 use crate::parse::{Attr, Child, Element, File, Value};
+
+mod remembering;
+
+pub use remembering::{Parses, Remembering};
 
 /// The longest edit script searched for between two lists of siblings.
 pub const MAX_EDITS: usize = 256;
@@ -462,6 +470,3 @@ pub(crate) fn same_value(a: &Value, b: &Value) -> bool {
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-pub(crate) mod testing;
