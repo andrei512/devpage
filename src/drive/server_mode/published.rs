@@ -6,10 +6,11 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use anyhow::{Result, bail};
 use axum::Router;
+use devpage_core::check::Preview;
 use devpage_core::comments::{Comments, Identity};
 use devpage_core::designs;
 use devpage_core::document::{Document, Kind};
@@ -107,6 +108,11 @@ struct Parts {
     buses: Mutex<HashMap<String, Changes>>,
     /// The versions' search indexes, each built on its first search.
     searches: Arc<Searches>,
+    /// Each version's problems, kept by its routers — one per address it is
+    /// served at — and gone with the last of them, so a page's problems are
+    /// found once while its version is in memory, whichever address it is
+    /// read at.
+    previews: Mutex<HashMap<(String, u64), Weak<Preview>>>,
 }
 
 impl Published {
@@ -119,7 +125,10 @@ impl Published {
         let _ = std::fs::remove_dir_all(&scratch);
         std::fs::create_dir_all(&scratch)?;
         Ok(Published(Arc::new(Parts {
-            store: Arc::new(Sqlite::open(&config.data_dir.join("store.db"))?),
+            store: Arc::new(
+                Sqlite::open(&config.data_dir.join("store.db"))?
+                    .timed(|took| metrics::observe(Stage::Store, took)),
+            ),
             bucket,
             cache: Arc::new(Cache::open(
                 &config.data_dir.join("cache"),
@@ -136,6 +145,7 @@ impl Published {
             locks: Locks::default(),
             buses: Mutex::default(),
             searches: Arc::new(Searches::new(searches::BUDGET)),
+            previews: Mutex::default(),
         })))
     }
 
@@ -287,13 +297,10 @@ impl Published {
     pub async fn version(&self, id: &str, mount: Mount) -> Result<Version, Refusal> {
         let parts = &self.0;
         let number = match mount {
-            Mount::Latest => {
-                metrics::time(Stage::Store, || parts.store.latest(id))?.ok_or(Refusal::NotFound)?
-            }
+            Mount::Latest => parts.store.latest(id)?.ok_or(Refusal::NotFound)?,
             Mount::Pinned(n) => n,
         };
-        let entry = metrics::time(Stage::Store, || parts.store.entry(id, number))?
-            .ok_or(Refusal::NotFound)?;
+        let entry = parts.store.entry(id, number)?.ok_or(Refusal::NotFound)?;
         let key = (id.to_string(), number);
         let at = mount.path(id);
         let fetch = metrics::timed(Stage::Fetch, parts.bucket.get_version(id, number));
@@ -386,6 +393,25 @@ impl Published {
         )
     }
 
+    /// Version `n`'s problems: the preview its routers already share, or a
+    /// new one when none is in memory. Its files never change, so each page
+    /// is checked on its first view only, and it asks no external address —
+    /// they are the CLI's to ask, before it uploads.
+    fn preview(&self, id: &str, n: u64) -> Arc<Preview> {
+        let mut previews = lock(&self.0.previews);
+        previews.retain(|_, preview| preview.strong_count() > 0);
+        let key = (id.to_string(), n);
+        if let Some(preview) = previews.get(&key).and_then(Weak::upgrade) {
+            return preview;
+        }
+        let preview = Arc::new(Preview::once(
+            crate::adapters::external::offline(),
+            Arc::new(crate::adapters::terminal::Terminal),
+        ));
+        previews.insert(key, Arc::downgrade(&preview));
+        preview
+    }
+
     /// Version `n`'s router under `mount`, from its files in `dir` and its
     /// document file `entry`. The latest's pages hear the document's
     /// publishes and its comments, and show and take them; a version's own
@@ -396,23 +422,35 @@ impl Published {
         let served = ServedFolder::new(dir)?.mounted(&mount.path(id));
         let document = Arc::new(Document::load(&served.path().join(entry), &served)?);
         let designs = self.0.designs.designs(&Mount::Pinned(n).path(id), &served);
-        // No search index until the version's first search asks for one.
-        let (searches, key, file) = (
+        // No search index until the version's first search asks for one;
+        // then one for the version, whichever address it is searched at.
+        let (searches, key, at, file) = (
             self.0.searches.clone(),
-            (id.to_string(), n, mount.path(id)),
+            (id.to_string(), n),
+            mount.path(id),
             document.path(),
         );
-        let search: http::OnDemand = Arc::new(move |folder: &Folder| {
-            searches.get(&key, || devpage_core::search::Search::frozen(folder, &file))
+        let search: http::OnDemand = Arc::new(move |folder: &Folder, query: &str| {
+            searches.answer(&key, &at, query, || {
+                devpage_core::search::Search::frozen(folder, &file)
+            })
         });
+        let preview = self.preview(id, n);
         let app = if mount == Mount::Latest {
             let comments = Commenting::new(
                 self.comments_of(id, n, served.clone()),
                 self.0.identity.clone(),
             );
-            App::published(document, designs, self.bus(id), Some(comments), search)
+            App::published(
+                document,
+                designs,
+                self.bus(id),
+                Some(comments),
+                search,
+                preview,
+            )
         } else {
-            App::published(document, designs, Changes::default(), None, search)
+            App::published(document, designs, Changes::default(), None, search, preview)
         };
         Ok(http::router(app))
     }

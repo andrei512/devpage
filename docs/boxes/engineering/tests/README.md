@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 604 tests in the six crates; needs no network and no Chrome
+$ cargo test                  # 607 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 179 in `devpage`, three of
+`cargo test` runs every crate in the workspace: 182 in `devpage`, three of
 them in `tests/`, 243 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, 2 in
@@ -252,6 +252,7 @@ On the network:
 - A version number given once: a second publish that read the same next number refused, and a deleted version's number never given again.
 - Deleting the latest version making the one before it latest, and deleting the only one deleting the document.
 - Deleting a document deleting its versions and nothing else.
+- Every use of the store timed, once — a publish's number and its record, a comment, the lookups a view and the API make.
 
 ### `cache`
 
@@ -732,9 +733,9 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With the cache deleted, every version rendering again from the bucket; a restarted server serving what its cache holds without the bucket, and deleting what a run left half-unpacked; no scratch left after a publish.
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts. Past its limit in memory, the least recently read versions' routers let go and their files kept, the next read making a router again from disk; a version answering a request keeping its router; a version let go answering its next view as before, its problems with it.
 - A published page asking no external address.
-- A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own.
+- A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own, and one version's found once whichever of its two addresses it is read at.
 - The metrics port reporting every stage, a publish and a view counted against the stages they went through, each request by its route and status, and every total; the pages' port answering `/metrics` with `404`; no label naming a document, a version or a page however many are read; a core span counted against its stage, and the text naming only stages.
-- A version's search answered from the index its first search builds, under the mount it was asked under — the latest's and the version's own — and the second search answering the same; a version's index built once however many searches arrive, and past the 256 MB budget the least recently searched dropped and built again on its next search; an index bigger than the budget still answering.
+- A version's search answered from the index its first search builds, its results under the address it was asked at — the latest's and the version's own — and the second search answering the same; one index for the version at both its addresses; a version's index built once however many searches arrive, and past the 256 MB budget the least recently searched dropped and built again on its next search; an index bigger than the budget still answering.
 - A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.

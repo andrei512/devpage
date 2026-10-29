@@ -60,7 +60,7 @@ names a document or a version
 | `store` | waiting for the store's lock, and the query |
 | `fetch` | a version's zip from the bucket, on a cache miss |
 | `unpack` | the zip into the cache |
-| `router` | a version's router made: its document loaded, its index built |
+| `router` | a version's router made: its document loaded — its search index is built on its first search, in that search's request time |
 | `check` | the page's problems: its links, and the pages they reach |
 | `nav` | the site's navigation, around the page |
 | `render` | the page's Markdown to HTML, in its frame |

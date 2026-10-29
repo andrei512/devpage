@@ -99,10 +99,11 @@ everything worked out from its files is worked out once
 ([a version's work is done once](../constraints/a-versions-work-is-done-once.md)):
 
 - **Each page's problems**, found on the page's first view and kept with the
-  router — the version's files never change, so neither do they. Every later
+  version, shared by its routers at both its addresses — the version's files
+  never change, so neither do they. Every later
   view of the page shows them without checking anything.
-- **Its search index**, built on the version's first search rather than with
-  its router, committed once, with no writer left open and no indexing
+- **Its search index**, one for both its addresses, built on the version's
+  first search rather than with its router, committed once, with no writer left open and no indexing
   threads. The indexes of the most recently searched versions are kept, up to
   256 MB in all; past that the least recently searched is dropped, and its
   next search builds it again.

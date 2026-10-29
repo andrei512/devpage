@@ -129,9 +129,9 @@ pub struct App {
     search_on_demand: Option<OnDemand>,
 }
 
-/// Gives the search index to answer from, building it over the server's
-/// served folder if it has to; it blocks, so it runs off the async threads.
-pub type OnDemand = Arc<dyn Fn(&Folder) -> Arc<Search> + Send + Sync>;
+/// Answers a search from an index over the server's served folder, building
+/// it if it has to; it blocks, so it runs off the async threads.
+pub type OnDemand = Arc<dyn Fn(&Folder, &str) -> devpage_core::search::Answer + Send + Sync>;
 
 impl App {
     /// `devpage`: `document` with the search index of what it publishes, its
@@ -169,24 +169,20 @@ impl App {
         Self::of(document, designs, changes, preview, Some(comments))
     }
 
-    /// One published version, `document` in its unpacked folder: its search
-    /// index from `search`, built on the version's first search, its
-    /// `designs` from the store every version shares, announcing on
-    /// `changes`, asking no external address — they are the CLI's to ask,
-    /// before it uploads — and `comments`, or none for a version that never
-    /// changes. Its files never change, so each page's problems are found on
-    /// its first view only.
+    /// One published version, `document` in its unpacked folder: its
+    /// searches answered by `search`, from an index built on the version's
+    /// first search, its `designs` from the store every version shares,
+    /// announcing on `changes`, its problems from `preview` — the version's
+    /// own, shared by every address it is served at — and `comments`, or
+    /// none for a version that never changes.
     pub fn published(
         document: Arc<Document>,
         designs: Designs,
         changes: Changes,
         comments: Option<Commenting>,
         search: OnDemand,
+        preview: Arc<Preview>,
     ) -> Self {
-        let preview = Arc::new(Preview::once(
-            crate::adapters::external::offline(),
-            Arc::new(crate::adapters::terminal::Terminal),
-        ));
         Self {
             search_on_demand: Some(search),
             ..Self::of(document, designs, changes, preview, comments)
@@ -736,7 +732,7 @@ async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>)
         // Building the index, and searching it, block.
         Some(on_demand) => {
             let folder = state.folder.clone();
-            tokio::task::spawn_blocking(move || on_demand(&folder).search(&query.q))
+            tokio::task::spawn_blocking(move || on_demand(&folder, &query.q))
                 .await
                 .unwrap_or_default()
         }

@@ -27,7 +27,8 @@ pub enum Stage {
     Fetch,
     /// The zip into the cache.
     Unpack,
-    /// A version's router made: its document loaded, its index built.
+    /// A version's router made: its document loaded — its search index waits
+    /// for its first search.
     Router,
     /// The page's problems: its links, and the pages they reach.
     Check,
