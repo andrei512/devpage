@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::document::Document;
+use crate::served::ServedFolder;
 
 /// A served folder: a site whose Topics list a guide, a doc of two
 /// chapters and a deck with notes; a doc of one chapter whose chapter
@@ -66,7 +67,7 @@ pub(crate) fn served(name: &str) -> PathBuf {
 }
 
 fn index(dir: &Path) -> Index {
-    Index::build(dir).with_search(&dir.join("docs/devpage.yml"))
+    Index::build(&ServedFolder::new(dir).unwrap()).with_search(&dir.join("docs/devpage.yml"))
 }
 
 fn find(index: &Index, query: &str) -> Answer {
@@ -165,7 +166,11 @@ fn a_doc_and_a_deck_are_searched_at_their_own_addresses() {
     assert_eq!(page.kind, PageKind::Chapter);
     assert_eq!(page.trail, ["How"]);
     assert_eq!(page.document.path, "/plan/plan.yml");
-    let plan = Document::load(&dir.join("plan/plan.yml"), &dir).unwrap();
+    let plan = Document::load(
+        &dir.join("plan/plan.yml"),
+        &ServedFolder::new(&dir).unwrap(),
+    )
+    .unwrap();
     let html = crate::render::doc(
         &plan,
         &crate::widgets::Widgets::of(&plan, &Default::default()),

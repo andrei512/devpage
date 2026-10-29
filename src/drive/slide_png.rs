@@ -309,6 +309,7 @@ mod tests {
     use super::*;
     use crate::changes::Change;
     use crate::document::Document;
+    use crate::served::ServedFolder;
     use crate::server;
 
     /// A design that paints.
@@ -324,7 +325,9 @@ mod tests {
             std::fs::write(dir.join(file), text).unwrap();
         }
         let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
@@ -471,7 +474,9 @@ mod tests {
         )
         .unwrap();
         let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         let serve = || server::router(server::Options::printing(document.clone(), changes.clone()));
         shots.png("/talk.yml", 1, serve).await.unwrap();
         assert!(shots.running().await);
@@ -498,7 +503,9 @@ mod tests {
         )
         .unwrap();
         let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();

@@ -757,6 +757,7 @@ async fn resolve_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
     use serde_json::{Value, json};
 
     /// A served folder holding one page, served by the real router on a free
@@ -783,7 +784,9 @@ mod tests {
             "# A\n\nThe client retries every write.\n",
         )
         .unwrap();
-        let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
+        let document = Arc::new(
+            Document::load(&root.join("a.md"), &ServedFolder::new(&root).unwrap()).unwrap(),
+        );
         let changes = crate::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
@@ -866,7 +869,8 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let dir = dir.canonicalize().unwrap();
         std::fs::write(dir.join("a.md"), "# A\n\nThe client retries every write.\n").unwrap();
-        let document = Arc::new(Document::load(&dir.join("a.md"), &dir).unwrap());
+        let document =
+            Arc::new(Document::load(&dir.join("a.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
         let options = Options {
             preview: crate::check::testing::preview(),
@@ -1054,7 +1058,8 @@ mod tests {
     /// Serves `dir` as the served folder, with `entry` as the entry document,
     /// and returns the server's address.
     async fn serve(dir: &std::path::Path, entry: &str) -> String {
-        let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
+        let document =
+            Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
         let router = router(Options {
             comments: Some(Identity::Local("T".into())),
@@ -1083,10 +1088,10 @@ mod tests {
             "# Retries\n\n## The outbox\n\nThe client retries every write & read from its outbox.\n",
         )
         .unwrap();
-        let document = Arc::new(Document::load(&dir, &dir).unwrap());
+        let document = Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
         let changes = crate::changes::Changes::default();
         let router = router(Options {
-            index: Arc::new(Index::build(&dir).with_search(&dir.join("devpage.yml"))),
+            index: Arc::new(Index::build(&document.served).with_search(&dir.join("devpage.yml"))),
             comments: None,
             preview: crate::check::testing::preview(),
             ..Options::new(document, changes)
@@ -1216,11 +1221,11 @@ mod tests {
         let site = dir.join("devpage.yml");
         std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
 
-        let document = Arc::new(Document::load(&site, &dir).unwrap());
-        let index = Arc::new(Index::build(&dir));
+        let document = Arc::new(Document::load(&site, &ServedFolder::new(&dir).unwrap()).unwrap());
+        let index = Arc::new(Index::build(&document.served));
         let entry = Arc::new(Entry::new(document.clone()));
         let changes = crate::changes::Changes::default();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&document.served);
         let options = Options {
             entry,
             index,
@@ -1317,14 +1322,16 @@ mod tests {
             .unwrap()
             .to_string();
         let served = dir.canonicalize().unwrap();
-        let docs = Document::load(&served.join("docs"), &served).unwrap();
+        let docs =
+            Document::load(&served.join("docs"), &ServedFolder::new(&served).unwrap()).unwrap();
         let known: Vec<String> = crate::widgets::Widgets::of(&docs, &Default::default())
             .modules
             .into_keys()
             .collect();
         let address = |file: &str| {
             crate::addresses::address(crate::addresses::Owned::Module {
-                snapshot: &crate::widgets::Modules::default().snapshot(&served, &served.join(file)),
+                snapshot: &crate::widgets::Modules::default()
+                    .snapshot(&ServedFolder::new(&served).unwrap(), &served.join(file)),
                 file: &served.join(file),
                 known: &known,
             })
@@ -1562,7 +1569,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(root.join("a.md"), "# A\n").unwrap();
-        let document = Arc::new(Document::load(&root.join("a.md"), &root).unwrap());
+        let document = Arc::new(
+            Document::load(&root.join("a.md"), &ServedFolder::new(&root).unwrap()).unwrap(),
+        );
         let changes = Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());

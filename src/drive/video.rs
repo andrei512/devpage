@@ -412,6 +412,7 @@ async fn run<T: DeserializeOwned>(page: &Page, expression: &str) -> Result<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     /// A folder holding `talk.yml`, a deck of `slides`, each `(file, text)`.
@@ -432,7 +433,9 @@ mod tests {
             ),
         )
         .unwrap();
-        let document = Arc::new(Document::load(&dir.join("talk.yml"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         (dir, document)
     }
 
@@ -459,7 +462,8 @@ mod tests {
         );
         std::fs::write(dir.join("two.md"), "# Two\n\n<Notes>Two.</Notes>\n").unwrap();
         std::fs::write(dir.join("three.md"), "# Three\n\n<Notes>Three.</Notes>\n").unwrap();
-        let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
+        let talk =
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
         let (instructions, requests) = told(&talk).unwrap();
         assert!(instructions.contains("Audience: Testers.\nGoal: They hear it.\n"));
         assert_eq!(requests.len(), 3);
@@ -479,7 +483,8 @@ mod tests {
             "kind: slides\ntitle: Talk\nslides: [one.md]\n",
         )
         .unwrap();
-        let talk = Document::load(&dir.join("talk.yml"), &dir).unwrap();
+        let talk =
+            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
         assert_eq!(
             told(&talk).unwrap_err().to_string(),
             "the narrator needs to know who the talk is for and what it should achieve; set audience and goal in talk.yml"
@@ -498,7 +503,8 @@ mod tests {
             ("kind: doc\ntitle: H\nchapters: [README.md]\n", "a doc"),
         ] {
             std::fs::write(dir.join("devpage.yml"), yml).unwrap();
-            let document = Arc::new(Document::load(&dir, &dir).unwrap());
+            let document =
+                Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
             let config = live::Config {
                 provider: live::Provider::OpenAi {
                     key: "never".into(),
@@ -662,8 +668,13 @@ mod tests {
         }
         let config = live::Config::from_env().unwrap();
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let talk =
-            Arc::new(Document::load(&root.join("tests/fixtures/narrated-talk"), root).unwrap());
+        let talk = Arc::new(
+            Document::load(
+                &root.join("tests/fixtures/narrated-talk"),
+                &ServedFolder::new(root).unwrap(),
+            )
+            .unwrap(),
+        );
         let dir = std::env::temp_dir().join(format!("devpage-video-live-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("Narrated talk.mp4");

@@ -6,7 +6,7 @@ use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
 
-use crate::served::{Served, ServedFolder};
+use crate::served::ServedFolder;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
@@ -269,8 +269,7 @@ pub struct Document {
 impl Document {
     /// Loads a document file, `devpage.yml` in a folder, a Markdown file or a
     /// design, which must lie inside the served folder `served`.
-    pub fn load(path: &Path, served: impl Served) -> Result<Self> {
-        let served = served.served();
+    pub fn load(path: &Path, served: &ServedFolder) -> Result<Self> {
         let file = if path.is_dir() {
             path.join("devpage.yml")
         } else {
@@ -298,7 +297,7 @@ impl Document {
             .into_owned();
         if file.extension().is_some_and(|ext| ext == "design") {
             return Ok(Self {
-                served,
+                served: served.clone(),
                 title: file
                     .file_stem()
                     .unwrap_or_default()
@@ -318,7 +317,7 @@ impl Document {
         }
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
-                served,
+                served: served.clone(),
                 title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
                     chapters: vec![base.join(&file_name)],
@@ -335,7 +334,7 @@ impl Document {
                 logo: None,
             });
         }
-        Self::parse(&text, base, file_name, served)
+        Self::parse(&text, base, file_name, served.clone())
             .with_context(|| format!("in {}", file.display()))
     }
 
@@ -715,7 +714,11 @@ mod tests {
     #[test]
     fn a_markdown_file_is_a_doc_of_one_chapter() {
         let dir = folder("md");
-        let doc = Document::load(&dir.join("guides/start.md"), &dir).unwrap();
+        let doc = Document::load(
+            &dir.join("guides/start.md"),
+            &ServedFolder::new(&dir).unwrap(),
+        )
+        .unwrap();
         assert_eq!(doc.title, "Start");
         assert!(matches!(&doc.kind, Kind::Doc { chapters, .. } if chapters.len() == 1));
     }
@@ -729,7 +732,8 @@ mod tests {
             "kind: site\ntitle: G\nroot: start.md\n",
         )
         .unwrap();
-        let doc = Document::load(&served.join("guides"), &served).unwrap();
+        let doc =
+            Document::load(&served.join("guides"), &ServedFolder::new(&served).unwrap()).unwrap();
         assert_eq!(doc.served.path(), served);
         assert_eq!(doc.entry(), "/guides/start.md");
         assert!(
@@ -740,7 +744,7 @@ mod tests {
 
         // --root moves the boundary: served from guides/, README.md is outside.
         let guides = served.join("guides");
-        let narrow = Document::load(&guides, &guides).unwrap();
+        let narrow = Document::load(&guides, &ServedFolder::new(&guides).unwrap()).unwrap();
         assert_eq!(narrow.entry(), "/start.md");
         assert!(narrow.file("/../README.md").is_none());
     }
@@ -748,9 +752,12 @@ mod tests {
     #[test]
     fn a_document_outside_the_served_folder_is_refused() {
         let served = folder("outside");
-        let error = Document::load(&served.join("README.md"), served.join("guides"))
-            .unwrap_err()
-            .to_string();
+        let error = Document::load(
+            &served.join("README.md"),
+            &ServedFolder::new(&served.join("guides")).unwrap(),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("is outside the served folder"), "{error}");
     }
 

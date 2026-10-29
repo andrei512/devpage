@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use super::*;
 use crate::addresses::{Owned, address};
 use crate::document::Document;
+use crate::served::ServedFolder;
 use crate::widgets::Widgets;
 
 /// `document`'s widget set, read through a cache of its own.
@@ -190,7 +191,7 @@ fn a_doc_renders_its_chapters_in_order_with_an_outline() {
         "kind: doc\ntitle: Plan\nchapters: [a.md, b.md]\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("d.yml"), &dir).unwrap();
+    let document = Document::load(&dir.join("d.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
         panic!()
     };
@@ -237,7 +238,7 @@ fn a_deck_renders_one_section_per_slide_in_order() {
         "kind: slides\ntitle: Talk\nslides: [two.md, one.md]\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("d.yml"), &dir).unwrap();
+    let document = Document::load(&dir.join("d.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let crate::document::Kind::Slides { slides: files, .. } = &document.kind else {
         panic!()
     };
@@ -263,7 +264,8 @@ fn chapters_and_slides_from_other_folders_keep_their_links() {
         "kind: doc\ntitle: Plan\nchapters: [../shared/glossary.md]\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("doc/d.yml"), &dir).unwrap();
+    let document =
+        Document::load(&dir.join("doc/d.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
         panic!()
     };
@@ -302,7 +304,8 @@ fn a_one_file_doc_has_no_separate_title() {
     let dir = std::env::temp_dir().join(format!("devpage-render-one-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("design.md"), "# Design\n\nText.\n").unwrap();
-    let document = Document::load(&dir.join("design.md"), &dir).unwrap();
+    let document =
+        Document::load(&dir.join("design.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let crate::document::Kind::Doc { chapters, pdf } = &document.kind else {
         panic!()
     };
@@ -353,7 +356,7 @@ fn every_frame_carries_the_logo_as_its_tab_icon() {
     let icon = "<link rel=\"icon\" href=\"/art/logo.svg\">";
     let img = "<img class=\"logo\" src=\"/art/logo.svg\" alt=\"\">";
     // A site with no navbar: the logo heads the sidebar, on every page.
-    let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let html = page(
         &site,
         &widgets_of(&site),
@@ -365,7 +368,7 @@ fn every_frame_carries_the_logo_as_its_tab_icon() {
     assert!(html.contains(icon), "{html}");
     assert!(html.contains(&format!("{img}Garden</a>")), "{html}");
     // A doc: before its title in the outline.
-    let plan = Document::load(&dir.join("doc.yml"), &dir).unwrap();
+    let plan = Document::load(&dir.join("doc.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let crate::document::Kind::Doc { chapters, pdf } = &plan.kind else {
         panic!()
     };
@@ -395,9 +398,9 @@ fn with_comments_off_every_frame_carries_the_setting_and_no_switch() {
         "kind: slides\ntitle: T\nslides: [README.md]\n",
     )
     .unwrap();
-    let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
-    let doc_file = Document::load(&dir.join("d.yml"), &dir).unwrap();
-    let deck = Document::load(&dir.join("s.yml"), &dir).unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
+    let doc_file = Document::load(&dir.join("d.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
+    let deck = Document::load(&dir.join("s.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let (
         crate::document::Kind::Doc { chapters, pdf },
         crate::document::Kind::Slides { slides: files, .. },
@@ -478,7 +481,7 @@ fn site_page(name: &str, readme: &str, files: &[(&str, &str)]) -> (PathBuf, Stri
     for (file, text) in files {
         std::fs::write(dir.join(file), text).unwrap();
     }
-    let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let html = page(
         &site,
         &widgets_of(&site),
@@ -554,13 +557,16 @@ fn a_widget_page_preloads_its_widgets_what_they_render_and_their_helpers() {
         ],
     );
     let modules = linked(&html, "modulepreload");
-    let known: Vec<String> = widgets_of(&Document::load(&dir.join("devpage.yml"), &dir).unwrap())
-        .modules
-        .into_keys()
-        .collect();
+    let known: Vec<String> = widgets_of(
+        &Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+    )
+    .modules
+    .into_keys()
+    .collect();
     let module = |file: &str| {
         address(Owned::Module {
-            snapshot: &crate::widgets::Modules::default().snapshot(&dir, &dir.join(file)),
+            snapshot: &crate::widgets::Modules::default()
+                .snapshot(&ServedFolder::new(&dir).unwrap(), &dir.join(file)),
             file: &dir.join(file),
             known: &known,
         })
@@ -632,7 +638,7 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
             ("field.md", "# Field\n"),
         ],
     );
-    let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let html = page(
         &site,
         &widgets_of(&site),
@@ -733,7 +739,7 @@ fn a_site_with_sidebar_false_has_no_sidebar_and_loads_nothing_for_it() {
     )
     .unwrap();
     std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
-    let site = Document::load(&dir.join("devpage.yml"), &dir).unwrap();
+    let site = Document::load(&dir.join("devpage.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let html = page(
         &site,
         &widgets_of(&site),

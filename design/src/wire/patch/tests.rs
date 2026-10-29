@@ -88,7 +88,7 @@ fn a_new_root_replaces_the_scene() {
     let old = saves.resolve("a.design");
     let mut new = old.clone();
     new.root.id = NodeId(vec![99]);
-    new.ids = crate::tree::Ids::of(&new.root);
+    new.ids = crate::resolve::Ids::of(&new.root);
     let p = patch(&old, &new);
     assert_eq!(kinds(&p), ["insert"]);
     let mut s = held(&old);

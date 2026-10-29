@@ -1,6 +1,6 @@
 //! A scene's tree as a tree: each node's identity, its place among its
-//! siblings, and the index that finds a node by its identity. Nothing here
-//! knows what a node draws.
+//! siblings, and its children under their keys. Nothing here knows what a
+//! node draws.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -249,59 +249,6 @@ impl<T> FromIterator<T> for Children<T> {
 /// root's is empty. Sorted, these are the nodes in tree order: a node before
 /// its children, children in order.
 pub type Order = Vec<OrderKey>;
-
-/// A node of a tree, as far as its shape goes.
-pub trait Node: Sized {
-    fn id(&self) -> &NodeId;
-    fn children(&self) -> &Children<Self>;
-}
-
-/// Where each node of a tree is, by its id.
-#[derive(Clone, Debug, Default)]
-pub struct Ids(std::collections::HashMap<NodeId, Order>);
-
-impl Ids {
-    /// Every node of the tree under `root`.
-    pub fn of<N: Node>(root: &N) -> Ids {
-        let mut ids = Ids::default();
-        ids.add(root, Vec::new());
-        ids
-    }
-
-    /// `n` and the nodes under it, `n` at `order`.
-    pub fn add<N: Node>(&mut self, n: &N, order: Order) {
-        for (k, c) in n.children().entries() {
-            let mut o = order.clone();
-            o.push(k.clone());
-            self.add(c, o);
-        }
-        self.0.insert(n.id().clone(), order);
-    }
-
-    /// Forgets `n` and the nodes under it.
-    pub fn remove<N: Node>(&mut self, n: &N) {
-        self.0.remove(n.id());
-        for c in n.children() {
-            self.remove(c);
-        }
-    }
-
-    pub fn get(&self, id: &NodeId) -> Option<&Order> {
-        self.0.get(id)
-    }
-
-    pub fn contains(&self, id: &NodeId) -> bool {
-        self.0.contains_key(id)
-    }
-
-    pub fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-}
 
 #[cfg(test)]
 mod tests;

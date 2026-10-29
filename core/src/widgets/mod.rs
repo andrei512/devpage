@@ -315,7 +315,7 @@ mod tests {
         )
         .unwrap();
         let dir = dir.canonicalize().unwrap();
-        let document = Document::load(&dir, &dir).unwrap();
+        let document = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
         let widgets = Widgets::of(&document, &Modules::default());
         assert!(widgets.modules.contains_key("Card"));
         assert!(!widgets.modules.contains_key("cards"));
@@ -328,7 +328,10 @@ mod tests {
         assert_eq!(
             widgets.modules["Card"],
             address(Owned::Module {
-                snapshot: &Modules::default().snapshot(&dir, &dir.join("widgets/Card.tsx")),
+                snapshot: &Modules::default().snapshot(
+                    &ServedFolder::new(&dir).unwrap(),
+                    &dir.join("widgets/Card.tsx")
+                ),
                 file: &dir.join("widgets/Card.tsx"),
                 known: &known
             })
@@ -354,7 +357,10 @@ mod tests {
             .unwrap();
         }
         let dir = dir.canonicalize().unwrap();
-        let widgets = Widgets::of(&Document::load(&dir, &dir).unwrap(), &Modules::default());
+        let widgets = Widgets::of(
+            &Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap(),
+            &Modules::default(),
+        );
         assert_eq!(
             widgets.problems,
             vec![
@@ -378,7 +384,10 @@ mod tests {
         std::fs::write(dir.join("README.md"), "# T\n").unwrap();
         std::fs::write(dir.join("widgets/Notes.tsx"), "export default () => null;").unwrap();
         let dir = dir.canonicalize().unwrap();
-        let widgets = Widgets::of(&Document::load(&dir, &dir).unwrap(), &Modules::default());
+        let widgets = Widgets::of(
+            &Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap(),
+            &Modules::default(),
+        );
         assert!(!widgets.modules.contains_key("Notes"));
         assert_eq!(
             widgets.problems,

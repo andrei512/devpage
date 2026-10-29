@@ -71,6 +71,7 @@ fn common_folder(files: &[PathBuf]) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
 
     fn folder(name: &str) -> PathBuf {
         let dir =
@@ -124,7 +125,8 @@ mod tests {
         );
         write("docs/draft.md", b"# Draft\n");
         write("docs/.env", b"SECRET=1\n");
-        let document = Document::load(&dir.join("docs"), &dir).unwrap();
+        let document =
+            Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap();
         let bundle = bundle(&document).unwrap();
         assert_eq!(bundle.entry, "devpage.yml");
         assert_eq!(
@@ -162,7 +164,11 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("shared/d.png"), "png").unwrap();
         std::fs::write(dir.join("shared/other.png"), "png").unwrap();
-        let document = Document::load(&dir.join("launch/talk.yml"), &dir).unwrap();
+        let document = Document::load(
+            &dir.join("launch/talk.yml"),
+            &ServedFolder::new(&dir).unwrap(),
+        )
+        .unwrap();
         let bundle = bundle(&document).unwrap();
         assert_eq!(bundle.entry, "launch/talk.yml");
         assert_eq!(

@@ -10,7 +10,7 @@ use peniko::{Blob, ImageAlphaType, ImageData, ImageFormat};
 use crate::Problem;
 use crate::fonts::{self, Family, FontFile, FontFiles, FontId};
 use crate::parse::{self, Child, Element, Pos, TextPart, Value};
-use crate::tree::{Children, Ids, NodeId, OrderKey};
+use crate::tree::{Children, NodeId, Order, OrderKey};
 
 /// One color's value: straight-alpha RGBA.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -631,12 +631,51 @@ impl Scene {
     }
 }
 
-impl crate::tree::Node for Node {
-    fn id(&self) -> &NodeId {
-        &self.id
+/// Where each node of a scene is, by its id: what a patch finds its nodes
+/// by.
+#[derive(Clone, Debug, Default)]
+pub struct Ids(HashMap<NodeId, Order>);
+
+impl Ids {
+    /// Every node of the tree under `root`.
+    pub fn of(root: &Node) -> Ids {
+        let mut ids = Ids::default();
+        ids.add(root, Vec::new());
+        ids
     }
-    fn children(&self) -> &Children<Node> {
-        &self.children
+
+    /// `n` and the nodes under it, `n` at `order`.
+    pub fn add(&mut self, n: &Node, order: Order) {
+        for (k, c) in n.children.entries() {
+            let mut o = order.clone();
+            o.push(k.clone());
+            self.add(c, o);
+        }
+        self.0.insert(n.id.clone(), order);
+    }
+
+    /// Forgets `n` and the nodes under it.
+    pub fn remove(&mut self, n: &Node) {
+        self.0.remove(&n.id);
+        for c in &n.children {
+            self.remove(c);
+        }
+    }
+
+    pub fn get(&self, id: &NodeId) -> Option<&Order> {
+        self.0.get(id)
+    }
+
+    pub fn contains(&self, id: &NodeId) -> bool {
+        self.0.contains_key(id)
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 }
 

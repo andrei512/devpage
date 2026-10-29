@@ -15,7 +15,7 @@ use sha2::{Digest, Sha256};
 use super::compile::{compile, relative_imports};
 use super::{SYSTEM, system};
 use crate::addresses::{Owned, address};
-use crate::served::{Served, ServedFolder};
+use crate::served::ServedFolder;
 
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]
@@ -59,8 +59,7 @@ impl Modules {
     /// Reads `file` and every module its relative imports reach inside the
     /// served folder `served`, each once. A file that resolves outside the
     /// folder — through `..` or a symbolic link — is never read.
-    pub fn snapshot(&self, served: impl Served, file: &Path) -> Snapshot {
-        let served = served.served();
+    pub fn snapshot(&self, served: &ServedFolder, file: &Path) -> Snapshot {
         let mut reads = BTreeMap::new();
         let mut queue = vec![file.to_path_buf()];
         while let Some(next) = queue.pop() {
@@ -74,7 +73,7 @@ impl Modules {
             reads.insert(next, read);
         }
         Snapshot {
-            served,
+            served: served.clone(),
             reads,
             modules: self.clone(),
         }
@@ -306,7 +305,9 @@ mod tests {
 
     /// [`Snapshot::hash`] of `file`, read now.
     fn module_hash(modules: &Modules, served: &Path, file: &Path, known: &[String]) -> String {
-        modules.snapshot(served, file).hash(file, known)
+        modules
+            .snapshot(&ServedFolder::new(served).unwrap(), file)
+            .hash(file, known)
     }
 
     #[test]
@@ -372,11 +373,11 @@ mod tests {
         assert_ne!(before[3], after[3], "the helper itself");
         // The importer names the helper by the helper's own address.
         let card = modules
-            .snapshot(&dir, &w.join("Card.tsx"))
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("Card.tsx"))
             .compile(&w.join("Card.tsx"), &known)
             .unwrap();
         let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&dir, &w.join("label.ts")),
+            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
             file: &w.join("label.ts"),
             known: &known,
         });
@@ -414,12 +415,12 @@ mod tests {
         let created = module_hash(&modules, &dir, &other, &known);
         assert_ne!(missing, created, "creating the helper");
         let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&dir, &w.join("label.ts")),
+            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
             file: &w.join("label.ts"),
             known: &known,
         });
         let compiled = modules
-            .snapshot(&dir, &other)
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &other)
             .compile(&other, &known)
             .unwrap();
         assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
@@ -457,7 +458,7 @@ mod tests {
         .unwrap();
         std::fs::write(w.join("label.ts"), "export const label = 1;").unwrap();
         let known = vec!["Card".to_string()];
-        let snapshot = modules.snapshot(&dir, &card);
+        let snapshot = modules.snapshot(&ServedFolder::new(&dir).unwrap(), &card);
         let hash = snapshot.hash(&card, &known);
         // Saves land between hashing and compiling.
         std::fs::write(
@@ -485,7 +486,7 @@ mod tests {
         assert_ne!(
             label,
             address(Owned::Module {
-                snapshot: &modules.snapshot(&dir, &w.join("label.ts")),
+                snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
                 file: &w.join("label.ts"),
                 known: &known,
             })
@@ -519,7 +520,7 @@ mod tests {
         )
         .unwrap();
         let modules = Modules::default();
-        let card = modules.snapshot(&served, &w.join("Card.tsx"));
+        let card = modules.snapshot(&ServedFolder::new(&served).unwrap(), &w.join("Card.tsx"));
         let closure: Vec<PathBuf> = card
             .closure(&w.join("Card.tsx"))
             .into_iter()
@@ -528,7 +529,7 @@ mod tests {
         assert_eq!(closure, vec![w.join("Card.tsx")]);
         let compiled = card.compile(&w.join("Card.tsx"), &[]).unwrap();
         assert!(!compiled.contains("SECRET"), "{compiled}");
-        let evil = modules.snapshot(&served, &w.join("Evil.tsx"));
+        let evil = modules.snapshot(&ServedFolder::new(&served).unwrap(), &w.join("Evil.tsx"));
         assert!(evil.closure(&w.join("Evil.tsx")).is_empty());
         assert!(evil.compile(&w.join("Evil.tsx"), &[]).is_err());
     }

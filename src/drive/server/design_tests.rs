@@ -10,12 +10,14 @@ use devpage_core::designs::testing::*;
 use crate::designs::Designs;
 use crate::document::Document;
 use crate::index::Index;
+use crate::served::ServedFolder;
 use crate::server::{Identity, Options, router};
 
 pub(crate) async fn start(dir: &Path, entry: &str) -> (String, Designs) {
-    let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
-    let index = Arc::new(Index::build(dir));
-    let designs = Designs::new(dir.to_path_buf());
+    let document =
+        Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
+    let index = Arc::new(Index::build(&document.served));
+    let designs = Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
     let router = router(Options {
         index,
@@ -177,7 +179,7 @@ async fn a_designs_png_is_a_link_check_accepts() {
         "# Page\n\n![Screen](app/screen.design.png)\n\n![Broken](app/broken.design.png)\n\n![Nothing](app/nothing.design.png)\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("page.md"), &dir).unwrap();
+    let document = Document::load(&dir.join("page.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let problems: Vec<String> = crate::check::document(&document, None)
         .await
         .iter()
@@ -228,7 +230,7 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
         "# Page\n\n![Screen](app/screen.design)\n\nEmbed with `![Name](name.design)`:\n\n```markdown\n![Gone](gone.design)\n```\n",
     )
     .unwrap();
-    let document = Document::load(&dir.join("page.md"), &dir).unwrap();
+    let document = Document::load(&dir.join("page.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
     let problems = crate::check::document(&document, None).await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     let shown = problems[0].to_string();
@@ -238,7 +240,11 @@ async fn check_reports_a_broken_embedded_design_where_it_is_wrong() {
     );
     assert!(shown.contains("lable"), "{shown}");
 
-    let design = Document::load(&dir.join("app/screen.design"), &dir).unwrap();
+    let design = Document::load(
+        &dir.join("app/screen.design"),
+        &ServedFolder::new(&dir).unwrap(),
+    )
+    .unwrap();
     let problems = crate::check::document(&design, None).await;
     assert_eq!(problems.len(), 1, "{problems:?}");
     assert!(

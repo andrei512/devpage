@@ -14,6 +14,7 @@ use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::document::Document;
+use crate::served::ServedFolder;
 use api::{Api, Thread};
 use contexts::{Context, Home};
 
@@ -149,7 +150,7 @@ impl Output {
 pub async fn run(
     command: Command,
     home: &Home,
-    served: &Path,
+    served: &ServedFolder,
     context: Option<String>,
 ) -> Result<Output> {
     let chosen = |remote: &Remote| remote.context.clone().or_else(|| context.clone());
@@ -300,7 +301,7 @@ fn contexts_command(action: ContextAction, home: &Home) -> Result<Output> {
 /// file on this context, or to `id`, or to a new one.
 async fn publish(
     home: &Home,
-    served: &Path,
+    served: &ServedFolder,
     path: &Path,
     id: Option<String>,
     new: bool,

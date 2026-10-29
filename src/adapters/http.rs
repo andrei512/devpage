@@ -129,6 +129,7 @@ mod tests {
 
     use super::*;
     use crate::changes::{Change, Subscription};
+    use crate::served::ServedFolder;
 
     /// A local web server for external-link tests, so the suite needs no
     /// network: `/ok` answers 200, anything else 404, and it counts the requests
@@ -209,7 +210,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        Document::load(&dir, &dir).unwrap()
+        Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap()
     }
 
     /// A reporter that keeps what it is told.

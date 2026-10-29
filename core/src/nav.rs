@@ -214,6 +214,7 @@ fn text<'a>(node: &'a AstNode<'a>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
 
     #[test]
     fn reads_links_and_groups_from_the_topics_section_only() {
@@ -265,7 +266,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("first.md"), "# First\n").unwrap();
-        let document = Document::load(&dir, &dir).unwrap();
+        let document = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
 
         let tree = tree(&document);
         let [system, start] = &tree[0].entries[..] else {
@@ -304,7 +305,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("guide/step.md"), "# Step\n").unwrap();
-        let document = Document::load(&dir, &dir).unwrap();
+        let document = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
 
         let tree = tree(&document);
         assert_eq!(tree.len(), 1);
@@ -337,7 +338,8 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        let document = Document::load(&dir.join("site"), &dir).unwrap();
+        let document =
+            Document::load(&dir.join("site"), &ServedFolder::new(&dir).unwrap()).unwrap();
         let page = dir.join("site/README.md");
         assert!(matches!(
             resolve(&document, &page, "../outside.md"),

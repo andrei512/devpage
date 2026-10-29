@@ -10,6 +10,7 @@ use axum::extract::{Path as UrlPath, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use devpage_core::document::{Document, Kind};
+use devpage_core::served::ServedFolder;
 use sha2::{Digest, Sha256};
 
 use super::ServerMode;
@@ -199,8 +200,8 @@ impl Drop for Scratch {
 /// publish never waits on the internet.
 async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str, String)> {
     unpack(zip, scratch)?;
-    let scratch = scratch.canonicalize()?;
-    let file = scratch.join(entry);
+    let scratch = ServedFolder::new(scratch)?;
+    let file = scratch.path().join(entry);
     if !file.is_file() {
         bail!("{entry}: no such file in the zip");
     }
