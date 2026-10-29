@@ -157,18 +157,22 @@ for a minute, and when devpage stops; the next PNG starts it again.
 **Kept until a file changes.** A slide drawn once is kept, and asking again
 answers at once; the PNG carries an `ETag`, so a request already holding it
 gets `304 Not Modified`. Any change to a watched file forgets every kept
-slide. At most 64 MB of PNGs are kept; the oldest go first.
+slide. A slide is shot without its comments — the deck is served to that
+Chrome with comments off — so starting, replying to or resolving a thread
+forgets none. At most 64 MB of PNGs are kept; the oldest go first.
 
 **A slide showing a slide's PNG.** The tab Chrome shoots a slide in marks its
 requests with `X-Devpage-Shot: 1`, and a slide's PNG asked for that way is
 never drawn — it is the kept picture, or `508 Loop Detected` — so a slide
 showing its own PNG, or one of another deck's, can't start shots without end.
-`devpage pdf` marks its requests the same way.
+`devpage pdf` marks its requests the same way. [`devpage video`](../making-a-video/README.md)
+doesn't — its tab is recorded, not shot — so a slide's PNG on a recorded
+slide is drawn for it.
 
 ## Comments and problems
 
 Comments attach to the slide's file and show in a panel beside the stage when
 you press <Keys>C</Keys> ([Comments](../comments/README.md)); they never appear in
-fullscreen unless toggled, and never in a PDF. A missing slide file, or a
+fullscreen unless toggled, and never in a PDF or a slide's PNG. A missing slide file, or a
 broken link on a slide, is listed above the stage while you write
 ([Checking links](../checking-links/README.md)).

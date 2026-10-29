@@ -11,7 +11,7 @@ mod adapters;
 mod drive;
 
 // The core's modules and the binary's, each by its own name.
-use adapters::{changes, http, terminal, watch};
+use adapters::{changes, chrome, http, terminal, watch};
 use devpage_core::{
     addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
     resolve, served, widgets,
@@ -105,7 +105,9 @@ async fn main() -> Result<()> {
         Some(Command::Pdf { path, output }) => {
             let document = Arc::new(Document::load(&path, &served()?)?);
             let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
-            pdf::print(document, &output).await?;
+            let bytes = pdf::print(document).await?;
+            std::fs::write(&output, bytes)
+                .with_context(|| format!("writing {}", output.display()))?;
             println!("{}", output.display());
             return Ok(());
         }

@@ -387,12 +387,13 @@ async fn design_png(
     }
 }
 
-/// Slide `n` of the deck whose page is at `page`, drawn by Chrome. A slide
-/// drawn since the last change comes from the cache, and is a 304 for a
+/// Slide `n` of the deck whose page is at `page`, drawn by Chrome from these
+/// routes with comments off, so a slide is shot without them. A slide drawn
+/// since the last file change comes from the cache, and is a 304 for a
 /// request that already holds it. Asked for by a page devpage's own Chrome
 /// is shooting, it is never drawn: the cache's copy, or 508.
 async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) -> Response {
-    let shot = if headers.contains_key(crate::pdf::SHOT_HEADER) {
+    let shot = if headers.contains_key(crate::chrome::SHOT_HEADER) {
         match state.shots.cached(page, n) {
             Some(shot) => shot,
             None => {
@@ -404,8 +405,11 @@ async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) 
             }
         }
     } else {
-        let serving = state.clone();
-        match state.shots.png(page, n, move || routes(serving)).await {
+        let shooting = AppState {
+            comments: None,
+            ..state.clone()
+        };
+        match state.shots.png(page, n, move || routes(shooting)).await {
             Ok(shot) => shot,
             Err(error) => {
                 return (StatusCode::INTERNAL_SERVER_ERROR, format!("{error:#}")).into_response();

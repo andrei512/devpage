@@ -6,12 +6,10 @@
 use std::time::Duration;
 
 use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
-use futures::StreamExt;
 use serde_json::{Value, json};
 
 use super::server_mode::{Config, router};
-use crate::pdf::Profile;
+use crate::chrome::testing;
 
 fn site(text: &str) -> Vec<u8> {
     use std::io::Write;
@@ -90,10 +88,7 @@ async fn a_published_documents_threads_are_its_own_across_the_page_the_api_and_a
         .unwrap();
     let id = published["id"].as_str().unwrap().to_string();
 
-    let profile = Profile::new();
-    let config = profile.chrome().await.unwrap().build().unwrap();
-    let (browser, mut handler) = Browser::launch(config).await.unwrap();
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+    let browser = testing::launch().await;
     let page = browser
         .new_page(format!("{base}/d/{id}/README.md").as_str())
         .await
@@ -200,5 +195,4 @@ async fn a_published_documents_threads_are_its_own_across_the_page_the_api_and_a
     .await;
 
     drop(browser);
-    events.abort();
 }

@@ -337,6 +337,10 @@ pele running in QuickJS on a thread of its own in the server, with a cache of wh
 
 A page rendered for Chrome to print: no live updates, no comments, no navigation chrome. What `devpage pdf` captures.
 
+## Chrome session
+
+One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/README.md#the-chrome-it-drives).
+
 ## built-in asset
 
 One of the files compiled into the binary and served under `/__devpage/`.

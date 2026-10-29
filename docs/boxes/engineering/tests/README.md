@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 152 in `devpage`, 179 in its
+`cargo test` runs every crate in the workspace: 154 in `devpage`, 179 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -34,7 +34,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and the HTTP adapter's point it at a local web server, so the suite needs no
 network.
 
-Of the 107 tests marked `#[ignore]`, 98 drive Chrome, and one of them also
+Of the 110 tests marked `#[ignore]`, 101 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
@@ -44,8 +44,8 @@ siblings, one update and its undo over and over for a profiler, and matching
 rewritten lists; the last asks
 Google's server for the pinned Chrome's zips, all at once, so it needs the
 network.
-All but the two `video` tests drive chrome-headless-shell through
-chromiumoxide — the copy
+All but the three `video` tests drive chrome-headless-shell through
+chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
@@ -53,12 +53,12 @@ They run in parallel, so the longest bounds the run: the `video` test that
 records a deck, which takes as long as its slides play. Run them with
 `--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
-`devpage pdf` or a slide's PNG. The two `video` tests drive Chrome for
+`devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
 Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
 fetched the same way; run them after changing `devpage video` or its
 recorder, `assets/video.js`. The live one records
 `tests/fixtures/narrated-talk` with GPT-Live, which bills per minute, and
-passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The canvas tests and a slide's PNG start it
+passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The shot profile starts the shell
 with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
@@ -130,8 +130,25 @@ the suite green.
 
 - Every subscriber hearing every change, in order.
 - One that falls behind hearing a refresh rather than losing an update.
-- `heard` reporting any change since the last look, without waiting.
+- `refreshed` reporting a refresh since the last look, without waiting — a page's comments not counting, falling behind counting.
 - `next` waiting for a change and ending when the bus is gone.
+
+### `adapters::chrome`
+
+*4 tests, 1 in Chrome, 1 on the network.*
+
+- Chrome's sandbox on unless `DEVPAGE_CHROME_SANDBOX` is `off`, in either profile, and any other setting refused.
+- The shot profile drawing with the GPU, and the recording one capturing its own tab, playing audio without a gesture and hiding scrollbars.
+- The pinned Chrome and Chrome for Testing already in a cache folder used as they are, with no network call.
+- A failed download naming the browser, its version, the platform and the address.
+
+In Chrome:
+
+- A tab opened once its page is ready, sending the shot header only when opened to be shot, and evaluated in, a promise awaited.
+
+On the network:
+
+- Both browsers' zips at the pinned version answering `200` for every platform.
 
 ### `adapters::http`
 
@@ -357,16 +374,10 @@ In Chrome:
 
 ### `drive::pdf`
 
-*4 tests, 35 in Chrome, 1 on the network.*
+*2 tests, 35 in Chrome.*
 
 - The default file name made safe.
 - A site refused.
-- The pinned Chrome and Chrome for Testing already in a cache folder used as they are, with no network call.
-- A failed download naming the browser, its version, the platform and the address.
-
-On the network:
-
-- Both browsers' zips at the pinned version answering `200` for every platform.
 
 In Chrome:
 
@@ -532,13 +543,18 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::slide_png`
 
-*5 tests in Chrome.*
+*1 test, 6 in Chrome.*
+
+- A refresh forgetting every kept slide, and a page's comments forgetting none.
+
+In Chrome:
 
 - A slide served as a 1920 × 1080 PNG, each slide a different picture, and `404` for a slide the deck doesn't have.
 - A slide beside one with a design drawn in under 3 seconds, without waiting for the design; the design's own slide drawn with it painted.
 - A slide showing its own PNG answered promptly.
 - A repeat request answered from the cache — `304` for a holder of its ETag, the cached picture inside another shot, `508` there for one not drawn — until a change, after which the slide is drawn again.
 - Chrome closed when told, and started again for the next shot.
+- A slide shot without its comments: drawn again after a thread is started on it, the same picture.
 
 ### `drive::validators`
 
@@ -549,7 +565,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::video`
 
-*19 tests, 2 in Chrome.*
+*19 tests, 3 in Chrome.*
 
 - The silence rules: a pause inside a slide capped at a second and one under
   it kept whole; silence held until what follows is known; a slide's end
@@ -574,6 +590,8 @@ In Chrome:
 - A two-slide deck recorded in Chrome for Testing with a synthetic voice fed
   through the same player — no GPT-Live — to an mp4 with a 1920 × 1080 video
   track and a sound track, the deck moving to slide 2 on the way.
+- A recorded slide showing a slide's PNG getting it drawn, never refused as
+  if asked for inside a shot.
 - `tests/fixtures/narrated-talk` recorded end to end with GPT-Live on OpenAI,
   when `DEVPAGE_OPENAI_API_KEY` is set. The Azure path has no live test.
 

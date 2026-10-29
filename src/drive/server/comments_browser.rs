@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chromiumoxide::browser::{Browser, BrowserConfig};
-use futures::StreamExt;
+use crate::chrome::testing;
 
 use crate::comments::*;
 use crate::document::Document;
@@ -16,13 +15,8 @@ use crate::server;
 /// Serves `entry` from `root`, opens `path` in a headless Chrome with a
 /// profile of its own and turns comment mode on, as a reader starting a
 /// comment does.
-async fn open(
-    name: &str,
-    root: &Path,
-    entry: &Path,
-    path: &str,
-) -> (Browser, chromiumoxide::Page, tokio::task::JoinHandle<()>) {
-    let opened = open_off(name, root, entry, path).await;
+async fn open(root: &Path, entry: &Path, path: &str) -> (testing::Browser, chromiumoxide::Page) {
+    let opened = open_off(root, entry, path).await;
     eval::<bool>(
         &opened.1,
         "(document.querySelector('.comment-mode').click(), true)",
@@ -33,11 +27,10 @@ async fn open(
 
 /// The same, with comment mode as a first visit finds it: off.
 async fn open_off(
-    name: &str,
     root: &Path,
     entry: &Path,
     path: &str,
-) -> (Browser, chromiumoxide::Page, tokio::task::JoinHandle<()>) {
+) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
@@ -60,28 +53,13 @@ async fn open_off(
         let _watcher = _watcher;
         axum::serve(listener, router).await.ok();
     });
-    let profile = std::env::temp_dir().join(format!(
-        "devpage-chrome-comments-{name}-{}",
-        std::process::id()
-    ));
-    let config = BrowserConfig::builder()
-        .chrome_executable(crate::pdf::headless_shell().await.unwrap())
-        .user_data_dir(profile)
-        .viewport(chromiumoxide::handler::viewport::Viewport {
-            width: 1400,
-            height: 900,
-            ..Default::default()
-        })
-        .build()
-        .unwrap();
-    let (browser, mut handler) = Browser::launch(config).await.unwrap();
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+    let browser = testing::launch_on(1400, 900).await;
     let page = browser
         .new_page(format!("http://{address}{path}").as_str())
         .await
         .unwrap();
     loaded(&page).await;
-    (browser, page, events)
+    (browser, page)
 }
 
 /// Waits until `page` has loaded and its script has finished starting —
@@ -133,7 +111,7 @@ fn folder(name: &str) -> PathBuf {
 async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload() {
     let root = folder("mode");
     std::fs::write(root.join("a.md"), "# A\n\nA paragraph to comment on.\n").unwrap();
-    let (mut browser, page, events) = open_off("mode", &root, &root.join("a.md"), "/a.md").await;
+    let (mut browser, page) = open_off(&root, &root.join("a.md"), "/a.md").await;
     let hover = "(document.querySelector('article p').dispatchEvent(new MouseEvent('mouseover', { bubbles: true })), true)";
     let pressed = "document.querySelector('.comment-mode').getAttribute('aria-pressed')";
 
@@ -196,7 +174,6 @@ async fn commenting_is_off_until_comment_mode_is_on_and_stays_on_after_a_reload(
     );
 
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -208,7 +185,7 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
         "# A\n\nThe client retries every write until the server acknowledges it.\n",
     )
     .unwrap();
-    let (mut browser, page, events) = open("select", &root, &root.join("a.md"), "/a.md").await;
+    let (mut browser, page) = open(&root, &root.join("a.md"), "/a.md").await;
 
     // Select "retries every write" and release the mouse.
     eval::<bool>(
@@ -281,7 +258,6 @@ async fn selected_text_becomes_a_thread_in_the_margin_and_in_the_store() {
         .await
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -294,7 +270,7 @@ async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
         "# A\n\nA paragraph long enough to reach the right edge of a narrow window, and then some more words.\n\n| a | b | c | d | e |\n| --- | --- | --- | --- | --- |\n| a_rather_long_cell_value | another_rather_long_cell | a_third_long_cell_value | yet_another_long_cell | the_last_long_cell_value |\n",
     )
     .unwrap();
-    let (mut browser, page, events) = open("narrow", &root, &root.join("a.md"), "/a.md").await;
+    let (mut browser, page) = open(&root, &root.join("a.md"), "/a.md").await;
     for width in [390, 820] {
         page.execute(SetDeviceMetricsOverrideParams::new(width, 800, 1.0, false))
             .await
@@ -323,7 +299,6 @@ async fn the_paragraph_comment_icon_stays_inside_narrow_windows() {
         );
     }
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -335,7 +310,7 @@ async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload(
         "# A\n\n- Writes\n  - retried   until acknowledged\n  - dropped after a day\n- Reads\n",
     )
     .unwrap();
-    let (mut browser, page, events) = open("paragraph", &root, &root.join("a.md"), "/a.md").await;
+    let (mut browser, page) = open(&root, &root.join("a.md"), "/a.md").await;
 
     eval::<bool>(
         &page,
@@ -383,7 +358,6 @@ async fn a_paragraph_comment_on_a_nested_list_item_anchors_again_after_a_reload(
         .await
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -405,8 +379,7 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
     yaml::Yaml::new(&root)
         .create("/one.md", anchor, "Bo", "Sharper?")
         .unwrap();
-    let (mut browser, page, events) =
-        open("deck", &root, &root.join("devpage.yml"), "/devpage.yml").await;
+    let (mut browser, page) = open(&root, &root.join("devpage.yml"), "/devpage.yml").await;
 
     let shown = "getComputedStyle(document.getElementById('devpage-comments')).display !== 'none'";
     assert!(until(&page, "!!document.querySelector('mark.comment')").await);
@@ -430,7 +403,6 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
     .await;
     assert!(until(&page, &format!("!({shown})")).await);
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -438,7 +410,7 @@ async fn on_a_deck_c_toggles_the_comments_panel() {
 async fn a_live_update_with_the_comments_shown_swaps_the_page_in_place() {
     let root = folder("shown");
     std::fs::write(root.join("a.md"), "# A\n\nThe first draft.\n").unwrap();
-    let (mut browser, page, events) = open("shown", &root, &root.join("a.md"), "/a.md").await;
+    let (mut browser, page) = open(&root, &root.join("a.md"), "/a.md").await;
 
     // Showing the comments marks the body; a fetched page never carries
     // that mark, and it must not make the update a full reload.
@@ -464,5 +436,4 @@ async fn a_live_update_with_the_comments_shown_swaps_the_page_in_place() {
         "the comments stay shown"
     );
     browser.close().await.ok();
-    events.abort();
 }

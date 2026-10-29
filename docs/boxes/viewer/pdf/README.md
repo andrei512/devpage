@@ -68,12 +68,16 @@ Every request the page makes carries `X-Devpage-Shot: 1`, so a slide's PNG
 it shows is never drawn by another Chrome inside the print — see
 [A slide as an image](../making-slides/README.md#a-slide-as-an-image).
 
-Each run gives Chrome a profile folder of its own in the system's temporary
-folder, so several prints can run at once, and deletes it when the run ends.
+Each run starts its own Chrome in the **shot profile** — the one a
+[slide's PNG](../making-slides/README.md#a-slide-as-an-image) is drawn in, with
+the shell's GPU on — with a profile folder of its own in the system's
+temporary folder, so several prints can run at once, and deletes it when the
+run ends. The PDF comes back from Chrome as bytes; nothing is written but the
+output file.
 
 The Chrome is always **chrome-headless-shell**, never a Chrome installed on
 the machine, and always one version, pinned in devpage — 156.0.8078.47,
-`CHROME_VERSION` in `src/drive/pdf.rs`. devpage downloads it the first time it
+`CHROME_VERSION` in `src/adapters/chrome.rs`. devpage downloads it the first time it
 needs one — into `~/Library/Caches/devpage/chrome-headless-shell` on macOS,
 `~/.cache/devpage/chrome-headless-shell` elsewhere, in a folder named for the
 platform and version, such as `mac_arm-156.0.8078.47` — and uses that copy

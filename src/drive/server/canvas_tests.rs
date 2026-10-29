@@ -17,8 +17,8 @@ use futures::StreamExt;
 
 use devpage_design::compare::{self, Difference};
 
+use crate::chrome::testing;
 use crate::document::Document;
-use crate::pdf::Profile;
 use crate::served::ServedFolder;
 use crate::server;
 
@@ -103,24 +103,6 @@ async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, router).await.ok() });
     (format!("http://{address}"), designs)
-}
-
-/// A headless Chrome with WebGPU. chrome-headless-shell keeps its GPU
-/// process off unless `enable-gpu` is passed; with it, WebGPU gets the real
-/// adapter and screenshots include the WebGPU canvas as the reader sees it,
-/// composited — without it they hold black where the canvas is. chromiumoxide
-/// adds the `--` itself.
-async fn chrome() -> (Browser, tokio::task::JoinHandle<()>, Profile) {
-    let profile = Profile::new();
-    let config = profile
-        .chrome()
-        .await
-        .unwrap()
-        .arg("enable-unsafe-webgpu")
-        .arg("enable-gpu");
-    let (browser, mut handler) = Browser::launch(config.build().unwrap()).await.unwrap();
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
-    (browser, events, profile)
 }
 
 async fn eval<T: serde::de::DeserializeOwned>(page: &Page, js: &str) -> T {
@@ -288,7 +270,7 @@ async fn the_examples_match_their_pngs(webgpu: bool) {
 /// Each design at `paths` on the canvas page, in each theme, on the GPU or
 /// the CPU, matches the server's PNG of it within the engine's tolerance.
 async fn canvases_match_their_pngs(address: &str, paths: &[String], webgpu: bool) {
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let mut failures = Vec::new();
     for (theme, path) in ["light", "dark"]
         .into_iter()
@@ -348,7 +330,6 @@ async fn canvases_match_their_pngs(address: &str, paths: &[String], webgpu: bool
     }
     assert!(failures.is_empty(), "{failures:#?}");
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design that mixes families — a variable font at weights from 300 to
@@ -420,7 +401,7 @@ async fn the_canvas_on_the_cpu_matches_the_png() {
 async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
     let dir = folder("click");
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -464,7 +445,6 @@ async fn a_click_navigates_back_returns_and_an_overlay_opens_and_closes() {
         "/screen.design"
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -493,7 +473,7 @@ async fn an_interaction_inside_an_instance_from_another_folder_opens_its_own_tar
         std::fs::write(path, source).unwrap();
     }
     let address = serve(&dir, "app/home.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/app/home.design").as_str())
         .await
@@ -507,7 +487,6 @@ async fn an_interaction_inside_an_instance_from_another_folder_opens_its_own_tar
     until(&page, "location.pathname === '/lib/far.design'").await;
     until(&page, painted).await;
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -520,7 +499,7 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -573,7 +552,6 @@ async fn an_embedded_design_draws_and_survives_a_page_edit() {
         .await
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -587,18 +565,13 @@ async fn a_doc_prints_its_embedded_design() {
     .unwrap();
     let document =
         Arc::new(Document::load(&dir.join("doc.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let with = dir.join("with.pdf");
-    crate::pdf::print(document, &with).await.unwrap();
+    let with = crate::pdf::print(document).await.unwrap();
     std::fs::write(dir.join("plain.md"), "# Doc\n\nNo design.\n").unwrap();
     let document =
         Arc::new(Document::load(&dir.join("plain.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let without = dir.join("without.pdf");
-    crate::pdf::print(document, &without).await.unwrap();
+    let without = crate::pdf::print(document).await.unwrap();
     // The painted canvas is an image in the PDF; the page without one has none.
-    let images = |path: &Path| {
-        let bytes = std::fs::read(path).unwrap();
-        bytes.windows(13).filter(|w| w == b"/Subtype /Ima").count()
-    };
+    let images = |bytes: &[u8]| bytes.windows(13).filter(|w| w == b"/Subtype /Ima").count();
     assert!(images(&with) > 0, "no image in the printed doc");
     assert_eq!(images(&without), 0);
 }
@@ -608,7 +581,7 @@ async fn a_doc_prints_its_embedded_design() {
 async fn the_wheel_zooms_about_the_pointer_and_pans() {
     let dir = folder("zoom");
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -665,7 +638,6 @@ async fn the_wheel_zooms_about_the_pointer_and_pans() {
     let panned = on_screen(&page, "canvas.design", 100.0, 100.0).await;
     assert!((panned.x - (after.x - 40.0)).abs() < 0.5);
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -673,7 +645,7 @@ async fn the_wheel_zooms_about_the_pointer_and_pans() {
 async fn an_undone_typo_clears_the_problems() {
     let dir = folder("undo");
     let (address, designs) = serve_designs(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/screen.design").as_str())
         .await
@@ -693,7 +665,6 @@ async fn an_undone_typo_clears_the_problems() {
     designs.changed(&file);
     until(&page, "!document.querySelector('.design-problems')").await;
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -719,7 +690,7 @@ async fn a_deleted_design_comes_back_on(at: &str) {
     )
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     // Count the watch calls the page makes.
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
@@ -755,7 +726,6 @@ async fn a_deleted_design_comes_back_on(at: &str) {
     until(&page, "!document.querySelector('.design-problems')").await;
     page.close().await.ok();
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -763,7 +733,7 @@ async fn a_deleted_design_comes_back_on(at: &str) {
 async fn a_canvas_says_so_when_the_engine_does_not_load() {
     let dir = folder("no-engine");
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     // A browser that can't compile the module.
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(
@@ -782,7 +752,6 @@ async fn a_canvas_says_so_when_the_engine_does_not_load() {
     assert!(text.contains("design engine didn't load"), "{text}");
     assert!(text.contains("no WebAssembly here"), "{text}");
     browser.close().await.ok();
-    events.abort();
 }
 
 /// The canvas's CSS size and its gaps to the backdrop's content box, left and
@@ -828,7 +797,7 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
 
     // A wide window: 400 × 300, as the design is, centred on its backdrop.
     let page = embedded(&mut browser, &address, "/page.md", 1280, 1000).await;
@@ -875,7 +844,6 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
     assert_eq!(w, 390.0);
     assert!((left - right).abs() <= 1.0, "{left} vs {right}");
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -889,7 +857,7 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     )
     .unwrap();
     let address = serve(&dir, "notes/page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = embedded(&mut browser, &address, "/notes/page.md", 1280, 1000).await;
     let link = "document.querySelector('.design-embed a.design-open')";
     let theme: String = eval(&page, "document.documentElement.dataset.theme").await;
@@ -913,7 +881,6 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
     )
     .await;
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -921,7 +888,7 @@ async fn the_backdrops_link_opens_the_design_it_shows_on_its_canvas_page() {
 async fn a_small_design_is_not_enlarged_on_its_canvas_page() {
     let dir = folder("small");
     let address = serve(&dir, "button.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = embedded(&mut browser, &address, "/button.design", 1280, 1000).await;
     let view: String = eval(
         &page,
@@ -944,7 +911,6 @@ async fn a_small_design_is_not_enlarged_on_its_canvas_page() {
         ]
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 /// Counts the page's watch calls, and how many are still open: each call's
@@ -973,7 +939,7 @@ async fn eight_embedded_designs_paint_through_one_stream_and_the_page_still_load
     let dir = folder("eight");
     eight(&dir, "page.md");
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -1010,7 +976,6 @@ async fn eight_embedded_designs_paint_through_one_stream_and_the_page_still_load
     // The same designs: the stream wasn't reopened.
     assert_eq!(eval::<u32>(&page, "window.watches.length").await, 1);
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1030,9 +995,7 @@ async fn a_doc_with_eight_embeds_prints_as_fast_as_one_with_one() {
                 Document::load(&dir.join(name), &ServedFolder::new(&dir).unwrap()).unwrap(),
             );
             let started = std::time::Instant::now();
-            crate::pdf::print(document, &dir.join(format!("{name}.pdf")))
-                .await
-                .unwrap();
+            crate::pdf::print(document).await.unwrap();
             started.elapsed()
         }
     };
@@ -1057,7 +1020,7 @@ async fn leaving_the_last_design_in_place_closes_the_stream() {
     .unwrap();
     std::fs::write(dir.join("plain.md"), "# Plain\n\nNo design.\n").unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -1082,7 +1045,6 @@ async fn leaving_the_last_design_in_place_closes_the_stream() {
     assert!(eval::<bool>(&page, "document.body.marked === true").await);
     until(&page, &format!("{OPEN_WATCHES} === 0")).await;
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1095,7 +1057,7 @@ async fn an_embed_with_problems_survives_a_page_refetch() {
     )
     .unwrap();
     let (address, designs) = serve_designs(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1129,7 +1091,6 @@ async fn an_embed_with_problems_survives_a_page_refetch() {
     )
     .await;
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design that paints nothing over its 120 × 80 box, so the screen shows
@@ -1157,7 +1118,7 @@ async fn the_canvas_page_switches_theme_and_paints_behind_the_design_in_it() {
     let dir = folder("theme-page");
     std::fs::write(dir.join("glass.design"), GLASS).unwrap();
     let address = serve(&dir, "glass.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/glass.design").as_str())
         .await
@@ -1195,7 +1156,6 @@ async fn the_canvas_page_switches_theme_and_paints_behind_the_design_in_it() {
         after
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design in red in its light theme and in blue in its dark one.
@@ -1244,7 +1204,7 @@ async fn an_embed_follows_its_page_and_its_own_switch_turns_only_it() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = tab_in(&mut browser, "dark").await;
     page.goto(format!("{address}/page.md")).await.unwrap();
     until(
@@ -1315,7 +1275,6 @@ async fn an_embed_follows_its_page_and_its_own_switch_turns_only_it() {
         assert_eq!(pixel(&page, one).await, RED, "after the page went {theme}");
     }
     browser.close().await.ok();
-    events.abort();
 }
 
 /// `?theme=` on the canvas page's address shows that theme for the view and
@@ -1326,7 +1285,7 @@ async fn the_canvas_page_shows_the_theme_its_address_names() {
     let dir = folder("theme-address");
     themed(&dir);
     let address = serve(&dir, "tile.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = tab_in(&mut browser, "light").await;
     page.goto(format!("{address}/tile.design?theme=dark"))
         .await
@@ -1360,7 +1319,6 @@ async fn the_canvas_page_shows_the_theme_its_address_names() {
         "light"
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1370,7 +1328,7 @@ async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
     std::fs::write(dir.join("glass.design"), GLASS).unwrap();
     std::fs::write(dir.join("page.md"), "# Page\n\n![Glass](glass.design)\n").unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1397,7 +1355,6 @@ async fn an_embedded_design_paints_again_when_the_page_switches_theme() {
     let second = until_same(&page, inside, outside).await;
     assert_ne!(first, second, "the backdrop didn't change with the theme");
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1432,7 +1389,7 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
     // A design on a slide that isn't shown waits; shown, it fits the room
     // the slide leaves it, inside the slide's 1080 pixels.
     let address = serve(&dir, "deck.yml").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/deck.yml#1").as_str())
         .await
@@ -1461,19 +1418,17 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
         "the design runs past the slide: {bottom} > {slide}"
     );
     browser.close().await.ok();
-    events.abort();
     // On paper: printed promptly, the design painted in it.
     let document =
         Arc::new(Document::load(&dir.join("deck.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
-    let pdf = dir.join("deck.pdf");
     let started = std::time::Instant::now();
-    crate::pdf::print(document, &pdf).await.unwrap();
+    let bytes = crate::pdf::print(document).await.unwrap();
     assert!(
         started.elapsed() < Duration::from_secs(15),
         "printing waited out its cap: {:?}",
         started.elapsed()
     );
-    let bytes = std::fs::read(&pdf).unwrap();
+
     assert!(
         bytes.windows(13).any(|w| w == b"/Subtype /Ima"),
         "no image in the printed deck"
@@ -1500,7 +1455,7 @@ async fn an_embed_in_a_widget_keeps_where_it_navigated_across_a_page_refetch() {
     )
     .unwrap();
     let address = serve(&dir, "doc.yml").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/doc.yml").as_str())
         .await
@@ -1539,7 +1494,6 @@ async fn an_embed_in_a_widget_keeps_where_it_navigated_across_a_page_refetch() {
     page.click(back).await.unwrap();
     until_pixel(&page, corner, [0xf8, 0xfa, 0xfc]).await;
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1552,7 +1506,7 @@ async fn the_canvas_pages_switch_leaves_the_problems_bar_whole() {
     )
     .unwrap();
     let address = serve(&dir, "broken.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/broken.design").as_str())
         .await
@@ -1574,7 +1528,6 @@ async fn the_canvas_pages_switch_leaves_the_problems_bar_whole() {
         assert!(!overlap, "the switch covers the problems bar in {theme}");
     }
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1602,7 +1555,7 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
     )
     .unwrap();
     let address = serve(&dir, "devpage.yml").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/sub/page.md").as_str())
         .await
@@ -1633,7 +1586,6 @@ async fn an_embed_inside_a_widget_on_a_page_in_a_subfolder_finds_its_design() {
         "no embed reports a problem"
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design that appears after the page has loaded — in a tab other than the
@@ -1651,7 +1603,7 @@ async fn a_design_in_a_tab_opened_later_draws_when_it_appears() {
     )
     .unwrap();
     let address = serve(&dir, "page.md").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser
         .new_page(format!("{address}/page.md").as_str())
         .await
@@ -1679,7 +1631,6 @@ async fn a_design_in_a_tab_opened_later_draws_when_it_appears() {
     )
     .await;
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design on a slide, in a window smaller than the 1920 × 1080 stage the
@@ -1720,7 +1671,7 @@ async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
     )
     .unwrap();
     let address = serve(&dir, "deck.yml").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     for (width, height) in [(1280, 720), (1600, 900)] {
         let page = browser.new_page("about:blank").await.unwrap();
         page.execute(SetDeviceMetricsOverrideParams::new(
@@ -1770,7 +1721,6 @@ async fn a_design_on_a_scaled_slide_is_painted_whole(webgpu: bool) {
         page.close().await.ok();
     }
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -1850,7 +1800,7 @@ async fn gpu_against_png_within(
 /// it with its PNG.
 async fn the_gpu_matches_the_png(dir: &Path, names: &[&str]) {
     let address = serve(dir, &format!("{}.design", names[0])).await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let mut failures = Vec::new();
     for name in names {
         let page = browser.new_page("about:blank").await.unwrap();
@@ -1865,7 +1815,6 @@ async fn the_gpu_matches_the_png(dir: &Path, names: &[&str]) {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     browser.close().await.ok();
-    events.abort();
 }
 
 /// Images past what the GPU's atlas holds draw on the GPU as in the PNG: a
@@ -1926,7 +1875,7 @@ async fn images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png() {
     // A save that swaps six of them for six new ones: drawn with an atlas
     // of its own, the new drawing's images don't compete with the last's.
     let (address, designs) = serve_designs(&dir, "many.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(SetDeviceMetricsOverrideParams::new(1280, 1000, 1.0, false))
         .await
@@ -1960,7 +1909,6 @@ async fn images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png() {
     designs.changed(&dir.join("many.design"));
     gpu_against_png(&page, &address, "many").await.unwrap();
     browser.close().await.ok();
-    events.abort();
 }
 
 /// Shadows drawn in pieces — a box far larger than its blur, round corners
@@ -2024,7 +1972,7 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     .unwrap();
     std::fs::write(dir.join("page.md"), "# Page\n\n![A](a.design)\n").unwrap();
     let address = serve(&dir, "a.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let mut failures = Vec::new();
     for (start, margin) in ["a.design", "page.md"].into_iter().zip([24, 0]) {
         let page = browser.new_page("about:blank").await.unwrap();
@@ -2054,7 +2002,6 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -2076,7 +2023,7 @@ async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_wid
     )
     .unwrap();
     let address = serve(&dir, "doc.yml").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = browser.new_page("about:blank").await.unwrap();
     page.execute(AddScriptToEvaluateOnNewDocumentParams::new(WATCH_COUNTER))
         .await
@@ -2118,7 +2065,6 @@ async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_wid
         .await
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 /// A design 100,000 pixels tall: a thousand rows of 400 × 100, each with a
@@ -2229,7 +2175,7 @@ async fn the_cpu_paints_the_middle_first_a_few_at_a_time() {
     let dir = folder("huge-order-cpu");
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = canvas_page(&mut browser, false, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2260,7 +2206,6 @@ async fn the_cpu_paints_the_middle_first_a_few_at_a_time() {
     let inflight = number(&page, "inflight").await;
     assert!(inflight <= 6.0, "{inflight} tiles asked for at once");
     browser.close().await.ok();
-    events.abort();
 }
 
 /// On a design 100,000 pixels tall, shown at 100%, the canvas paints the
@@ -2274,7 +2219,7 @@ async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
     });
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2287,7 +2232,6 @@ async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
     assert!(fitted <= 4.0, "{fitted}");
     assert!(tiles - fitted <= 10.0, "{tiles}");
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -2345,7 +2289,7 @@ async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(webgpu: bool) {
     let dir = folder(if webgpu { "pan-gpu" } else { "pan-cpu" });
     huge(&dir, None);
     let address = serve(&dir, "huge.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let mut medians = Vec::new();
     for name in ["screen", "huge"] {
         let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
@@ -2372,7 +2316,6 @@ async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one(webgpu: bool) {
         medians[0]
     );
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -2473,7 +2416,7 @@ async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> 
 async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let address = serve(root, "docs/designs/checkout/checkout.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let mut shots = Vec::new();
     for webgpu in [true, false] {
         let page = canvas_page(&mut browser, webgpu, 800, 600).await;
@@ -2491,7 +2434,6 @@ async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
     let d = compare::compare(&shots[0], &shots[1], 800).unwrap();
     assert!(d.within_tolerance(), "the GPU and the CPU: {d:?}");
     browser.close().await.ok();
-    events.abort();
 }
 
 /// An edit to one row of the 100,000-pixel design, shown at 100%, repaints
@@ -2501,7 +2443,7 @@ async fn an_edit_repaints_only_the_tiles_around_it(webgpu: bool) {
     let dir = folder(if webgpu { "edit-gpu" } else { "edit-cpu" });
     huge(&dir, None);
     let (address, designs) = serve_designs(&dir, "huge.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
     page.goto(format!("{address}/huge.design")).await.unwrap();
     until(&page, PAINTED).await;
@@ -2538,7 +2480,6 @@ async fn an_edit_repaints_only_the_tiles_around_it(webgpu: bool) {
     // Row 1 changed back and row 900 is out of view: one tile again.
     assert_eq!(last - after, 1.0);
     browser.close().await.ok();
-    events.abort();
 }
 
 #[tokio::test]
@@ -2566,7 +2507,7 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
     use chromiumoxide::cdp::browser_protocol::network::SetCacheDisabledParams;
     let dir = folder("worker-late");
     let address = serve(&dir, "screen.design").await;
-    let (mut browser, events, _profile) = chrome().await;
+    let mut browser = testing::launch().await;
     let page = canvas_page(&mut browser, false, 800, 600).await;
     page.execute(SetCacheDisabledParams::new(true))
         .await
@@ -2624,5 +2565,4 @@ async fn a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded
     assert_eq!(pixel(&page, at).await, [0xf8, 0xfa, 0xfc]);
     holder.abort();
     browser.close().await.ok();
-    events.abort();
 }

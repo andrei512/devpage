@@ -2,28 +2,21 @@
 //! browser devpage drives shows it on a 1920 × 1080 screen — so an agent
 //! writing a slide's notes can look at the slide.
 //!
-//! One Chrome draws every slide for a server: started on the first shot,
-//! a tab per shot, two shots at a time, closed once idle. What it drew is
-//! kept until a watched file changes.
+//! One Chrome session draws every slide for a server: started on the first
+//! shot, a tab per shot, two shots at a time, closed once idle. A slide is
+//! shot without comments, so what it drew is kept until a watched file
+//! changes, whatever is commented meanwhile.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::Router;
-use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
-use futures::StreamExt;
 use tokio::sync::Semaphore;
 
 use crate::changes::{Changes, Subscription};
-use tokio::task::JoinHandle;
-
-use crate::pdf::{Profile, shot, wait_ready};
+use crate::chrome::{Open, Profile, Session};
 
 /// devpage's own controls, which are not part of the slide.
 const HIDE_CONTROLS: &str = "document.head.insertAdjacentHTML('beforeend', \
@@ -46,27 +39,18 @@ pub struct Shot {
     pub ready: bool,
 }
 
-/// A server's slide PNGs: its Chrome and the shots it drew. Cheap to clone.
+/// A server's slide PNGs: its Chrome session and the shots it drew. Cheap to
+/// clone.
 #[derive(Clone)]
 pub struct Shots(Arc<Inner>);
 
 struct Inner {
-    chrome: tokio::sync::Mutex<Option<Chrome>>,
+    session: tokio::sync::Mutex<Option<Arc<Session>>>,
     turns: Semaphore,
     cache: Mutex<Cache>,
-    /// The server's changes, read on each use: any clears the cache.
+    /// The server's changes, read on each use: a refresh clears the cache.
     changes: Mutex<Subscription>,
     used: Mutex<Instant>,
-}
-
-/// The running Chrome and the server its tabs load the deck from. Its
-/// profile lives as long as it does.
-struct Chrome {
-    browser: Arc<Browser>,
-    events: JoinHandle<()>,
-    server: JoinHandle<()>,
-    address: SocketAddr,
-    _profile: Profile,
 }
 
 #[derive(Default)]
@@ -79,10 +63,11 @@ struct Cache {
 }
 
 impl Shots {
-    /// No Chrome yet and nothing drawn; `changes` clears what will be.
+    /// No Chrome yet and nothing drawn; a refresh on `changes` clears what
+    /// will be.
     pub fn new(changes: &Changes) -> Self {
         Self(Arc::new(Inner {
-            chrome: tokio::sync::Mutex::new(None),
+            session: tokio::sync::Mutex::new(None),
             turns: Semaphore::new(AT_ONCE as usize),
             cache: Mutex::new(Cache::default()),
             changes: Mutex::new(changes.subscribe()),
@@ -99,17 +84,17 @@ impl Shots {
     }
 
     /// Slide `n` (1-based) of the deck served at `deck`, as a 1920 × 1080
-    /// PNG: from the cache, or drawn by Chrome loading the deck from a server
-    /// `serve` makes — started, like Chrome, on the first shot.
+    /// PNG: from the cache, or drawn by Chrome loading the deck from the
+    /// router `serve` makes — started, like Chrome, on the first shot. That
+    /// router serves the deck with comments off.
     pub async fn png(&self, deck: &str, n: usize, serve: impl FnOnce() -> Router) -> Result<Shot> {
         if let Some(shot) = self.cached(deck, n) {
             return Ok(shot);
         }
         let _turn = self.0.turns.acquire().await?;
         let generation = self.0.generation();
-        let (browser, address) = self.chrome(serve).await?;
-        let url = format!("http://{address}{deck}#{n}");
-        let drawn = capture(&browser, &url).await;
+        let session = self.session(serve).await?;
+        let drawn = capture(&session, &format!("{deck}#{n}")).await;
         *self.0.used.lock().unwrap() = Instant::now();
         let (png, ready) = drawn?;
         let shot = Shot {
@@ -129,53 +114,23 @@ impl Shots {
         Ok(shot)
     }
 
-    /// The running Chrome, started — with its server — if there is none or
-    /// it has stopped.
-    async fn chrome(&self, serve: impl FnOnce() -> Router) -> Result<(Arc<Browser>, SocketAddr)> {
-        let mut chrome = self.0.chrome.lock().await;
-        if let Some(running) = chrome.as_ref()
-            && !running.events.is_finished()
+    /// The running session, started — Chrome with the router `serve` makes —
+    /// if there is none or its Chrome has stopped.
+    async fn session(&self, serve: impl FnOnce() -> Router) -> Result<Arc<Session>> {
+        let mut session = self.0.session.lock().await;
+        if let Some(running) = session.as_ref()
+            && running.running()
         {
-            return Ok((running.browser.clone(), running.address));
+            return Ok(running.clone());
         }
-        if let Some(stopped) = chrome.take() {
-            stopped.close().await;
+        if let Some(stopped) = session.take() {
+            close(stopped).await;
         }
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let address = listener.local_addr()?;
-        let router = serve();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.ok();
-        });
-        let profile = Profile::new();
-        // With the GPU on, a screenshot holds an embedded design's WebGPU
-        // canvas as the reader sees it, rather than black.
-        let config = profile
-            .chrome()
-            .await?
-            .arg("enable-unsafe-webgpu")
-            .arg("enable-gpu")
-            .build()
-            .map_err(anyhow::Error::msg)?;
-        let (browser, mut handler) = match Browser::launch(config).await {
-            Ok(launched) => launched,
-            Err(error) => {
-                server.abort();
-                return Err(error).context("starting Chrome");
-            }
-        };
-        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
-        let browser = Arc::new(browser);
-        *chrome = Some(Chrome {
-            browser: browser.clone(),
-            events,
-            server,
-            address,
-            _profile: profile,
-        });
+        let started = Arc::new(Session::start(Profile::Shot, serve()).await?);
+        *session = Some(started.clone());
         *self.0.used.lock().unwrap() = Instant::now();
         tokio::spawn(close_when_idle(Arc::downgrade(&self.0)));
-        Ok((browser, address))
+        Ok(started)
     }
 
     /// Closes Chrome, once the shots it is drawing are done.
@@ -186,17 +141,18 @@ impl Shots {
     /// Whether Chrome is running: for the tests.
     #[cfg(test)]
     async fn running(&self) -> bool {
-        self.0.chrome.lock().await.is_some()
+        self.0.session.lock().await.is_some()
     }
 }
 
 impl Inner {
-    /// The cache's generation, after clearing it if a change arrived since
-    /// the last look.
+    /// The cache's generation, after clearing it if a refresh arrived since
+    /// the last look. A comment change doesn't clear it: no slide is shot
+    /// with its comments.
     fn generation(&self) -> u64 {
-        let changed = self.changes.lock().unwrap().heard();
+        let refreshed = self.changes.lock().unwrap().refreshed();
         let mut cache = self.cache.lock().unwrap();
-        if changed {
+        if refreshed {
             *cache = Cache {
                 generation: cache.generation + 1,
                 ..Cache::default()
@@ -215,21 +171,17 @@ impl Inner {
         if idle && self.used.lock().unwrap().elapsed() < IDLE {
             return;
         }
-        if let Some(running) = self.chrome.lock().await.take() {
-            running.close().await;
+        if let Some(running) = self.session.lock().await.take() {
+            close(running).await;
         }
     }
 }
 
-impl Chrome {
-    async fn close(self) {
-        if let Ok(mut browser) = Arc::try_unwrap(self.browser) {
-            browser.close().await.ok();
-            browser.wait().await.ok();
-        }
-        // Otherwise a dropped Browser kills its process.
-        self.events.abort();
-        self.server.abort();
+/// Closes `session` if no shot holds it still; otherwise the last shot to
+/// let it go drops it, which kills its Chrome.
+async fn close(session: Arc<Session>) {
+    if let Ok(session) = Arc::try_unwrap(session) {
+        session.close().await;
     }
 }
 
@@ -258,7 +210,7 @@ async fn close_when_idle(inner: Weak<Inner>) {
     loop {
         let left = {
             let Some(inner) = inner.upgrade() else { return };
-            if inner.chrome.lock().await.is_none() {
+            if inner.session.lock().await.is_none() {
                 return;
             }
             let idle = inner.used.lock().unwrap().elapsed();
@@ -281,26 +233,26 @@ fn etag(png: &[u8]) -> String {
     format!("\"{:016x}\"", hasher.finish())
 }
 
-/// Opens `url` in a new tab on a 1920 × 1080 screen, waits until the page is
+/// Opens `path` in a new tab, shot, on a 1920 × 1080 screen, once the page is
 /// ready, and screenshots it without devpage's controls; the tab is closed
 /// after. False beside the picture when the page was never ready.
-async fn capture(browser: &Browser, url: &str) -> Result<(Vec<u8>, bool)> {
-    let page: Page = browser.new_page("about:blank").await?;
+async fn capture(session: &Session, path: &str) -> Result<(Vec<u8>, bool)> {
+    let tab = session
+        .open(
+            path,
+            Open {
+                shot: true,
+                screen: Some((1920, 1080)),
+                ..Open::default()
+            },
+        )
+        .await?;
     let shot = async {
-        shot(&page).await?;
-        page.execute(SetDeviceMetricsOverrideParams::new(1920, 1080, 1.0, false))
-            .await?;
-        page.goto(url).await?;
-        let ready = wait_ready(&page, url).await?;
-        page.evaluate(HIDE_CONTROLS).await?;
-        let png = page
-            .screenshot(CaptureScreenshotParams::builder().build())
-            .await
-            .context("taking the screenshot")?;
-        anyhow::Ok((png, ready))
+        tab.eval::<()>(HIDE_CONTROLS).await?;
+        anyhow::Ok((tab.screenshot().await?, tab.ready()))
     }
     .await;
-    page.close().await.ok();
+    tab.close().await;
     shot
 }
 
@@ -337,6 +289,59 @@ mod tests {
         });
         tokio::spawn(async move { axum::serve(listener, router).await.ok() });
         (format!("http://{address}"), changes)
+    }
+
+    #[test]
+    fn a_refresh_clears_the_kept_slides_and_a_comment_does_not() {
+        let changes = Changes::default();
+        let shots = Shots::new(&changes);
+        let drawn = Shot {
+            png: axum::body::Bytes::from_static(b"png"),
+            etag: etag(b"png"),
+            ready: true,
+        };
+        shots
+            .0
+            .cache
+            .lock()
+            .unwrap()
+            .insert(("/talk.yml".into(), 1), drawn);
+        changes.publish(Change::Comments("/one.md".into()));
+        assert!(shots.cached("/talk.yml", 1).is_some());
+        changes.publish(Change::Refresh);
+        assert!(shots.cached("/talk.yml", 1).is_none());
+    }
+
+    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn a_slide_is_shot_without_its_comments() {
+        let (address, changes) = deck(
+            "comments",
+            &[
+                ("one.md", "# One\n\nThe client retries every write.\n"),
+                ("talk.yml", "kind: slides\ntitle: Talk\nslides: [one.md]\n"),
+            ],
+        )
+        .await;
+        let url = format!("{address}/talk.yml/1.png");
+        let before = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
+        let client = reqwest::Client::new();
+        let made = client
+            .post(format!("{address}/__devpage/comments"))
+            .json(&serde_json::json!({
+                "page": "/one.md",
+                "anchor": { "quote": "retries", "prefix": "The client ", "suffix": " every write." },
+                "text": "Bounded?",
+            }))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(made.status(), 200);
+        // Drawn again, as it is now: the thread is not on it.
+        changes.publish(Change::Refresh);
+        let after = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
+        assert!(after == before, "the comment shows in the slide's PNG");
     }
 
     /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
@@ -420,7 +425,7 @@ mod tests {
                 request = request.header("if-none-match", etag);
             }
             if inside {
-                request = request.header(crate::pdf::SHOT_HEADER, "1");
+                request = request.header(crate::chrome::SHOT_HEADER, "1");
             }
             request.send()
         };
