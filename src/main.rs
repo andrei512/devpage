@@ -125,16 +125,13 @@ async fn main() -> Result<()> {
         Some(Command::Server) => {
             let config = drive::server_mode::Config::from_env()?;
             let address = SocketAddr::new(config.host, config.port);
-            let app = drive::server_mode::router(&config)?;
+            let (app, metrics_router) = drive::server_mode::routers(&config)?;
             let listener = TcpListener::bind(address).await?;
             let metrics =
                 TcpListener::bind(SocketAddr::new(config.host, config.metrics_port)).await?;
-            tracing::subscriber::set_global_default(drive::server_mode::metrics::Stages::default())?;
             println!("devpage server on http://{}", listener.local_addr()?);
             println!("metrics on http://{}/metrics", metrics.local_addr()?);
-            tokio::spawn(async move {
-                axum::serve(metrics, drive::server_mode::metrics::router()).await
-            });
+            tokio::spawn(async move { axum::serve(metrics, metrics_router).await });
             axum::serve(listener, app).await?;
             return Ok(());
         }

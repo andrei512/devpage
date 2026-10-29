@@ -77,9 +77,17 @@ is rendered, so a doc's chapter is counted as a site's page is.
 in memory and their routers, threads, open live pages, the cache's bytes,
 hits, misses and evictions, resident memory.
 
-The stages inside the core — `check`, `nav`, `render`, `router` — are
-`tracing` spans, which cost nothing with no listener; server mode listens and
-turns each span into its histogram. A local `devpage` has no metrics port.
+| Series | Labels |
+| --- | --- |
+| `devpage_stage_seconds` (histogram) | `stage` |
+| `devpage_request_seconds` (histogram) | `route`, `status` |
+| `devpage_versions_in_memory`, `devpage_routers`, `devpage_threads`, `devpage_open_pages`, `devpage_cache_bytes`, `devpage_resident_bytes` | — |
+| `devpage_cache_hits_total`, `devpage_cache_misses_total`, `devpage_cache_evictions_total` | — |
+
+The stages inside the core — `check`, `nav`, `render` — are `tracing` spans,
+which cost nothing with no listener; server mode listens and turns each span
+into its histogram, and times the rest where it does them. A local `devpage`
+has no metrics port.
 
 ## The benchmark
 

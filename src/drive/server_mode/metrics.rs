@@ -1,14 +1,19 @@
 //! The server's metrics: how long each stage of its work took, as
-//! histograms, served in the Prometheus text format on the metrics port.
-//! Every label is a stage from the closed set below — never a document, a
-//! version or a path asked for.
+//! histograms, each request by its route and status, and what the server
+//! holds, served in the Prometheus text format on the metrics port. Every
+//! label is a stage from the closed set below, a route as the router declares
+//! it, or a status — never a document, a version or a path asked for.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write;
+use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use axum::extract::{MatchedPath, Request};
+use axum::middleware::Next;
+use axum::response::Response;
 use tracing::span::{Attributes, Id, Record};
 use tracing::subscriber::Interest;
 use tracing::{Event, Metadata, Subscriber};
@@ -18,6 +23,10 @@ use tracing::{Event, Metadata, Subscriber};
 pub enum Stage {
     /// Waiting for the store's lock, and the query.
     Store,
+    /// A version's zip from the bucket, on a cache miss.
+    Fetch,
+    /// The zip into the cache.
+    Unpack,
     /// A version's router made: its document loaded, its index built.
     Router,
     /// The page's problems: its links, and the pages they reach.
@@ -26,32 +35,49 @@ pub enum Stage {
     Nav,
     /// The page in its frame — its navigation among it.
     Render,
+    /// A publish checked before it is accepted.
+    PublishCheck,
+    /// A publish's zip into the bucket.
+    Upload,
+    /// A version's PDF or PNG drawn, on its first request.
+    Download,
 }
 
-const STAGES: [Stage; 5] = [
+const STAGES: [Stage; 10] = [
     Stage::Store,
+    Stage::Fetch,
+    Stage::Unpack,
     Stage::Router,
     Stage::Check,
     Stage::Nav,
     Stage::Render,
+    Stage::PublishCheck,
+    Stage::Upload,
+    Stage::Download,
 ];
 
 impl Stage {
     fn name(self) -> &'static str {
         match self {
             Stage::Store => "store",
+            Stage::Fetch => "fetch",
+            Stage::Unpack => "unpack",
             Stage::Router => "router",
             Stage::Check => "check",
             Stage::Nav => "nav",
             Stage::Render => "render",
+            Stage::PublishCheck => "publish-check",
+            Stage::Upload => "upload",
+            Stage::Download => "download",
         }
     }
 
-    /// The stage a core span of this name times, if it times one.
+    /// The stage a core span of this name times, if it times one: the core
+    /// times `check`, `nav` and `render`, and server mode the rest.
     fn of_span(name: &str) -> Option<Stage> {
-        STAGES
+        [Stage::Check, Stage::Nav, Stage::Render]
             .into_iter()
-            .find(|stage| stage.name() == name && *stage != Stage::Store)
+            .find(|stage| stage.name() == name)
     }
 }
 
@@ -101,39 +127,196 @@ pub fn time<T>(stage: Stage, work: impl FnOnce() -> T) -> T {
     done
 }
 
-/// Every histogram, in the Prometheus text format.
-pub fn text() -> String {
+/// Times `work` as `stage`, from its first poll to its answer: a future
+/// never awaited is never counted.
+pub async fn timed<T>(stage: Stage, work: impl Future<Output = T>) -> T {
+    let started = Instant::now();
+    let done = work.await;
+    observe(stage, started.elapsed());
+    done
+}
+
+/// What the cache did, counted since the server started.
+#[derive(Clone, Copy)]
+pub enum Cache {
+    Hit,
+    Miss,
+    Eviction,
+}
+
+static COUNTS: [AtomicU64; 3] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
+
+/// Counts one `count`.
+pub fn count(count: Cache) {
+    COUNTS[count as usize].fetch_add(1, Ordering::Relaxed);
+}
+
+/// Each request's time, by the route the router matched — as it declares
+/// it, never the path asked for — and the status it answered.
+static REQUESTS: LazyLock<Mutex<BTreeMap<(String, u16), Histogram>>> =
+    LazyLock::new(Mutex::default);
+
+/// The middleware that times every request by its route and status.
+pub async fn requests(request: Request, next: Next) -> Response {
+    let route = request
+        .extensions()
+        .get::<MatchedPath>()
+        .map_or("unmatched", MatchedPath::as_str)
+        .to_string();
+    let started = Instant::now();
+    let response = next.run(request).await;
+    REQUESTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .entry((route, response.status().as_u16()))
+        .or_default()
+        .observe(started.elapsed());
+    response
+}
+
+/// What the server holds now, asked as `/metrics` is.
+pub struct Totals {
+    /// Versions with a router in memory.
+    pub versions: usize,
+    /// Their routers: a version has one per mount it was read under.
+    pub routers: usize,
+    /// Pages listening for their document's next version.
+    pub open_pages: u64,
+    /// The cache's bytes on the PVC.
+    pub cache_bytes: u64,
+}
+
+/// Every histogram, count and total, in the Prometheus text format.
+pub fn text(totals: &Totals) -> String {
     let mut out = String::from(
         "# HELP devpage_stage_seconds Time spent in each stage of the server's work.\n\
          # TYPE devpage_stage_seconds histogram\n",
     );
     for stage in STAGES {
-        let histogram = histogram(stage);
-        let name = stage.name();
-        let mut cumulative = 0;
-        for (bound, bucket) in BOUNDS.iter().zip(&histogram.buckets) {
-            cumulative += bucket.load(Ordering::Relaxed);
-            let _ = writeln!(
-                out,
-                "devpage_stage_seconds_bucket{{stage=\"{name}\",le=\"{bound}\"}} {cumulative}"
-            );
-        }
-        let count = histogram.count.load(Ordering::Relaxed);
-        let seconds = histogram.micros.load(Ordering::Relaxed) as f64 / 1e6;
+        let labels = format!("stage=\"{}\"", stage.name());
+        write_histogram(&mut out, "devpage_stage_seconds", &labels, histogram(stage));
+    }
+    out.push_str(
+        "# HELP devpage_request_seconds Each request's time, by route and status.\n\
+         # TYPE devpage_request_seconds histogram\n",
+    );
+    for ((route, status), histogram) in REQUESTS.lock().unwrap_or_else(|p| p.into_inner()).iter() {
+        let labels = format!("route=\"{route}\",status=\"{status}\"");
+        write_histogram(&mut out, "devpage_request_seconds", &labels, histogram);
+    }
+    let (threads, resident) = process();
+    let counts = |count: Cache| COUNTS[count as usize].load(Ordering::Relaxed);
+    for (name, kind, help, value) in [
+        (
+            "devpage_versions_in_memory",
+            "gauge",
+            "Versions with a router in memory.",
+            totals.versions as u64,
+        ),
+        (
+            "devpage_routers",
+            "gauge",
+            "Version routers in memory, one per mount read.",
+            totals.routers as u64,
+        ),
+        ("devpage_threads", "gauge", "The server's threads.", threads),
+        (
+            "devpage_open_pages",
+            "gauge",
+            "Pages listening for their document's next version.",
+            totals.open_pages,
+        ),
+        (
+            "devpage_cache_bytes",
+            "gauge",
+            "The cache's bytes on the PVC.",
+            totals.cache_bytes,
+        ),
+        (
+            "devpage_cache_hits_total",
+            "counter",
+            "Versions and downloads read from the cache.",
+            counts(Cache::Hit),
+        ),
+        (
+            "devpage_cache_misses_total",
+            "counter",
+            "Versions and downloads not in the cache.",
+            counts(Cache::Miss),
+        ),
+        (
+            "devpage_cache_evictions_total",
+            "counter",
+            "Versions evicted from the cache.",
+            counts(Cache::Eviction),
+        ),
+        (
+            "devpage_resident_bytes",
+            "gauge",
+            "The server's resident memory.",
+            resident,
+        ),
+    ] {
         let _ = writeln!(
             out,
-            "devpage_stage_seconds_bucket{{stage=\"{name}\",le=\"+Inf\"}} {count}"
-        );
-        let _ = writeln!(
-            out,
-            "devpage_stage_seconds_sum{{stage=\"{name}\"}} {seconds}"
-        );
-        let _ = writeln!(
-            out,
-            "devpage_stage_seconds_count{{stage=\"{name}\"}} {count}"
+            "# HELP {name} {help}\n# TYPE {name} {kind}\n{name} {value}"
         );
     }
     out
+}
+
+fn write_histogram(out: &mut String, name: &str, labels: &str, histogram: &Histogram) {
+    let mut cumulative = 0;
+    for (bound, bucket) in BOUNDS.iter().zip(&histogram.buckets) {
+        cumulative += bucket.load(Ordering::Relaxed);
+        let _ = writeln!(out, "{name}_bucket{{{labels},le=\"{bound}\"}} {cumulative}");
+    }
+    let count = histogram.count.load(Ordering::Relaxed);
+    let seconds = histogram.micros.load(Ordering::Relaxed) as f64 / 1e6;
+    let _ = writeln!(out, "{name}_bucket{{{labels},le=\"+Inf\"}} {count}");
+    let _ = writeln!(out, "{name}_sum{{{labels}}} {seconds}");
+    let _ = writeln!(out, "{name}_count{{{labels}}} {count}");
+}
+
+/// The process's threads and resident bytes, as the kernel counts them.
+#[cfg(target_os = "linux")]
+fn process() -> (u64, u64) {
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find_map(|line| line.strip_prefix(name))
+            .and_then(|rest| rest.split_whitespace().next()?.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    (field("Threads:"), field("VmRSS:") * 1024)
+}
+
+/// The process's threads and resident bytes, as the kernel counts them.
+#[cfg(target_os = "macos")]
+fn process() -> (u64, u64) {
+    let mut info: libc::proc_taskinfo = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+    // SAFETY: `info` is a proc_taskinfo of `size` bytes for the kernel to fill.
+    let filled = unsafe {
+        libc::proc_pidinfo(
+            std::process::id() as libc::c_int,
+            libc::PROC_PIDTASKINFO,
+            0,
+            (&raw mut info).cast(),
+            size,
+        )
+    };
+    if filled != size {
+        return (0, 0);
+    }
+    (info.pti_threadnum as u64, info.pti_resident_size)
+}
+
+/// Elsewhere the kernel isn't asked: both read 0.
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn process() -> (u64, u64) {
+    (0, 0)
 }
 
 /// The listener that turns the core's stage spans into histograms: a span is
@@ -192,17 +375,27 @@ impl Subscriber for Stages {
     }
 }
 
-/// The metrics port's router: `/metrics`, and nothing else.
-pub fn router() -> axum::Router {
+/// Makes [`Stages`] the process's listener, once: from then on the core's
+/// stage spans are timed, on every thread.
+pub fn listen() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = tracing::subscriber::set_global_default(Stages::default());
+    });
+}
+
+/// The metrics port's router: `/metrics`, and nothing else; `totals` says
+/// what the server holds as each scrape asks.
+pub fn router(totals: impl Fn() -> Totals + Clone + Send + Sync + 'static) -> axum::Router {
     axum::Router::new().route(
         "/metrics",
-        axum::routing::get(|| async {
+        axum::routing::get(move || async move {
             (
                 [(
                     axum::http::header::CONTENT_TYPE,
                     "text/plain; version=0.0.4",
                 )],
-                text(),
+                text(&totals()),
             )
         }),
     )
@@ -227,10 +420,18 @@ mod tests {
 
     #[test]
     fn the_text_names_only_stages() {
-        observe(Stage::Check, Duration::from_millis(3));
-        let text = text();
-        assert!(text.contains("devpage_stage_seconds_bucket{stage=\"check\",le=\"0.005\"}"));
-        for line in text.lines().filter(|l| !l.starts_with('#')) {
+        observe(Stage::Download, Duration::from_millis(3));
+        let text = text(&Totals {
+            versions: 0,
+            routers: 0,
+            open_pages: 0,
+            cache_bytes: 0,
+        });
+        assert!(text.contains("devpage_stage_seconds_bucket{stage=\"download\",le=\"0.005\"}"));
+        for line in text
+            .lines()
+            .filter(|l| l.starts_with("devpage_stage_seconds"))
+        {
             let labels = &line[line.find('{').unwrap()..line.find('}').unwrap()];
             let stage = labels.split('"').nth(1).unwrap();
             assert!(STAGES.iter().any(|s| s.name() == stage), "{line}");

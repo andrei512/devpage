@@ -130,7 +130,7 @@ pub(super) async fn version_router(
     entry: &str,
 ) -> Result<Served> {
     let key = (id.to_string(), n);
-    let fetch = state.bucket.get_version(id, n);
+    let fetch = metrics::timed(Stage::Fetch, state.bucket.get_version(id, n));
     // The latest version's pages hear the document's publishes and its
     // comments, and show and take them; a version's own pages, behind their
     // banner, never change and are read as they were.

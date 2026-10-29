@@ -15,6 +15,7 @@ use devpage_core::served::ServedFolder;
 use devpage_design::Theme;
 
 use super::ServerMode;
+use super::metrics::{self, Stage};
 use super::versions::version_router;
 
 /// `/`: that this is a devpage server, and how to connect to it. It lists no
@@ -175,7 +176,11 @@ async fn rendered(
     let bytes = state
         .cache
         .download(&served, extension, |folder| async move {
-            render(&folder, &entry, extension, &scratch).await
+            metrics::timed(
+                Stage::Download,
+                render(&folder, &entry, extension, &scratch),
+            )
+            .await
         })
         .await?;
     let stem = crate::pdf::default_output(&version.title);

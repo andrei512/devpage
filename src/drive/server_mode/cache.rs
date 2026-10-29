@@ -14,6 +14,7 @@ use axum::Router;
 use devpage_core::cache::{Entry, Eviction};
 
 use super::api::unpack;
+use super::metrics::{self, Stage};
 
 /// A version: its document's id and its number.
 pub type Key = (String, u64);
@@ -168,6 +169,15 @@ impl Cache {
         self.state().entries.values().map(|e| e.bytes).sum()
     }
 
+    /// How many versions have a router in memory, and how many routers they
+    /// have: one per mount each was read under.
+    pub fn in_memory(&self) -> (usize, usize) {
+        let state = self.state();
+        let versions: std::collections::HashSet<&Key> =
+            state.routers.keys().map(|(key, _)| key).collect();
+        (versions.len(), state.routers.len())
+    }
+
     /// Whether version `key` is on disk.
     #[cfg(test)]
     pub fn holds(&self, key: &Key) -> bool {
@@ -217,6 +227,7 @@ impl Cache {
             entry.read = SystemTime::now();
         }
         *state.serving.entry(key.clone()).or_default() += 1;
+        metrics::count(metrics::Cache::Hit);
         Some(self.served(router, key))
     }
 
@@ -248,8 +259,10 @@ impl Cache {
         let on_disk = self.state().entries.contains_key(key) && folder.is_dir();
         if on_disk {
             eprintln!("cache: hit {} v{} on disk", key.0, key.1);
+            metrics::count(metrics::Cache::Hit);
         } else {
             eprintln!("cache: miss {} v{}", key.0, key.1);
+            metrics::count(metrics::Cache::Miss);
             let zip = fetch.await?;
             let partial = self.dir.join(&key.0).join(format!(
                 "{}.partial-{}",
@@ -257,7 +270,7 @@ impl Cache {
                 uuid::Uuid::new_v4().simple()
             ));
             std::fs::create_dir_all(&partial)?;
-            if let Err(error) = unpack(&zip, &partial) {
+            if let Err(error) = metrics::time(Stage::Unpack, || unpack(&zip, &partial)) {
                 let _ = std::fs::remove_dir_all(&partial);
                 return Err(error);
             }
@@ -321,6 +334,7 @@ impl Cache {
             state.routers.retain(|(routed, _), _| *routed != key);
             if let Some(entry) = state.entries.remove(&key) {
                 self.delete(&key);
+                metrics::count(metrics::Cache::Eviction);
                 eprintln!(
                     "cache: evicted {} v{} ({} bytes)",
                     key.0, key.1, entry.bytes
@@ -405,9 +419,11 @@ impl Cache {
         let key = &served.key;
         if let Ok(bytes) = std::fs::read(file) {
             eprintln!("cache: hit {} v{} download", key.0, key.1);
+            metrics::count(metrics::Cache::Hit);
             return Ok(bytes);
         }
         eprintln!("cache: miss {} v{} download", key.0, key.1);
+        metrics::count(metrics::Cache::Miss);
         let bytes = render(served.folder.clone()).await?;
         let mut partial = file.as_os_str().to_owned();
         partial.push(".partial");
