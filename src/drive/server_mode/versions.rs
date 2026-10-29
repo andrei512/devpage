@@ -162,8 +162,9 @@ pub(super) async fn version_router(
                 });
             }
             // External addresses are the CLI's to ask, before it uploads: a
-            // published page never waits on the internet.
-            options.preview = Arc::new(Preview::new(
+            // published page never waits on the internet. A version never
+            // changes, so each page is checked on its first view only.
+            options.preview = Arc::new(Preview::once(
                 crate::http::offline(),
                 Arc::new(crate::terminal::Terminal),
             ));
