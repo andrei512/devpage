@@ -85,10 +85,10 @@ turns each span into its histogram. A local `devpage` has no metrics port.
 
 A GitHub Action, `.github/workflows/bench.yml`, run by hand. It brings up the
 [example stack](../running-a-server/README.md#trying-it-locally) — the image
-built from the checkout, held to the pod's 2 CPUs and 4 GB, with the S3 and
-Azure emulators — generates the envelope's documents from a seed, publishes
+built from the checkout, held to the pod's 2 CPUs and 4 GB, against RustFS,
+the S3 emulator — generates the envelope's documents from a seed, publishes
 them through the API, and runs each scenario against the server, scraping
-`/metrics` after each. What it runs, and how, is on
+`/metrics` before and after each. What it runs, and how, is on
 [the server's benchmark](../../../engineering/tests/README.md#the-servers-benchmark).
 
 ## The report
