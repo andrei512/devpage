@@ -105,6 +105,7 @@ RUN apt-get update \
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=build /devpage-src/docs /srv/docs
 COPY --from=build /devpage-src/LICENSE /srv/LICENSE
+COPY --from=build /devpage-src/CHANGELOG.md /srv/CHANGELOG.md
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
@@ -112,7 +113,7 @@ CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
 
 Build it with `docker build deploy/bundled`; it reads nothing from the build context.
 `DEVPAGE_VERSION` picks the release (`--build-arg DEVPAGE_VERSION=…`). The
-docs and the licence they link to come from that release's own source, which
+docs and the licence and changelog they link to come from that release's own source, which
 `cargo install` has just downloaded, so the docs always describe the binary
 beside them: a docs change reaches the image with the next release.
 
@@ -131,6 +132,7 @@ is `/srv` and the comment store is `/srv/.devpage/comments`:
 - /srv/ — the served folder
   - docs/ — devpage's docs, baked in
   - LICENSE
+  - CHANGELOG.md
   - .devpage/ — a volume, so comments survive a new image
     - comments/
 
