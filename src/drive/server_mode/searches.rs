@@ -125,8 +125,8 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use devpage_core::index::Index;
-    use devpage_core::served::ServedFolder;
+    use devpage_core::document::Document;
+    use devpage_core::folder::{Folder, ServedFolder};
 
     use super::*;
 
@@ -145,8 +145,9 @@ mod tests {
     }
 
     fn frozen(dir: &Path) -> Search {
-        let index = Index::build(&ServedFolder::new(dir).unwrap());
-        Search::frozen(&index, &dir.join("devpage.yml"))
+        let entry = dir.join("devpage.yml");
+        let document = Document::load(&entry, &ServedFolder::new(dir).unwrap()).unwrap();
+        Search::frozen(&Folder::new(Arc::new(document)), &entry)
     }
 
     fn key(n: u64) -> Key {

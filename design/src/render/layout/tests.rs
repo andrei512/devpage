@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::render::testing::*;
-use crate::resolve::{self, Scene, Theme};
+use crate::scene::{self, Scene, Theme};
 
 use super::*;
 
@@ -55,7 +55,7 @@ impl crate::Files for Fonts {
         self.0.get(path).cloned()
     }
     fn list(&self, path: &str) -> Option<Vec<String>> {
-        resolve::listed(self.0.keys(), path)
+        scene::listed(self.0.keys(), path)
     }
 }
 
@@ -83,7 +83,7 @@ fn with_fonts(source: &str) -> Scene {
         ]
         .into(),
     );
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 /// A text is measured in its font, and a variable font at its weight:
@@ -452,7 +452,7 @@ fn random_fractional_trees_round_as_a_tree_rounded_whole() {
     for case in 0..300 {
         let source = frame(&mut rng, 4, false);
         let files: HashMap<String, String> = [("a.design".to_string(), source.clone())].into();
-        let Ok(s) = resolve::resolve(&files, "a.design") else {
+        let Ok(s) = crate::resolve(&files, "a.design") else {
             continue;
         };
         let whole = rounded_whole(&s);
@@ -549,7 +549,7 @@ fn random_runs_lay_out_as_taffy_does() {
     for case in 0..400 {
         let source = node(&mut rng, 4, "row");
         let files: HashMap<String, String> = [("a.design".to_string(), source.clone())].into();
-        let Ok(s) = resolve::resolve(&files, "a.design") else {
+        let Ok(s) = crate::resolve(&files, "a.design") else {
             continue;
         };
         if let Err(e) = agrees(&r.layout(&s), &s) {

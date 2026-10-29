@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use crate::render::testing::*;
 use crate::render::*;
-use crate::resolve::{self, Theme};
+use crate::scene::{self, Theme};
 
 /// Each example design, painted natively in each theme, matches its
 /// reference PNG in `design/testdata/` — `<name>.png` in the light theme,
@@ -26,15 +26,15 @@ fn the_examples_paint_as_their_references() {
             let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap_or_else(|p| panic!("{p:?}"));
             assert!(scene.themed, "{name}");
-            let png = crate::png(&mut renderer, &scene, theme).unwrap();
+            let png = crate::png::fresh(&mut renderer, &scene, theme).unwrap();
             let name = format!("{name}{suffix}");
             let reference = dir.join(format!("{name}.png"));
             if update {
                 std::fs::write(&reference, &png).unwrap();
                 continue;
             }
-            let expected = resolve::decode(&std::fs::read(&reference).unwrap()).unwrap();
-            let painted = resolve::decode(&png).unwrap();
+            let expected = scene::decode(&std::fs::read(&reference).unwrap()).unwrap();
+            let painted = scene::decode(&png).unwrap();
             assert_eq!(
                 (painted.width, painted.height),
                 (expected.width, expected.height),
@@ -62,7 +62,7 @@ fn tiles_paint_the_examples_as_the_whole_drawing() {
         for name in ["button", "checkout", "confirmation", "details"] {
             let path = format!("docs/designs/checkout/{name}.design");
             let scene = crate::resolve(&repo(), &path).unwrap();
-            let tiled = crate::png(&mut renderer, &scene, theme).unwrap();
+            let tiled = crate::png::fresh(&mut renderer, &scene, theme).unwrap();
             let whole = std::fs::read(dir.join(format!("{name}{suffix}.png"))).unwrap();
             let (a, w, h) = pixels(&whole).unwrap();
             let (b, tw, th) = pixels(&tiled).unwrap();
@@ -104,7 +104,7 @@ fn a_design_100000_pixels_tall_has_a_png() {
         format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
     )]
     .into();
-    let s = resolve::resolve(&files, "a.design").unwrap();
+    let s = crate::resolve(&files, "a.design").unwrap();
     let mut r = Renderer::new();
     let t = std::time::Instant::now();
     let drawing = r.drawing(&s, Theme::Light, None).unwrap();
@@ -113,7 +113,7 @@ fn a_design_100000_pixels_tall_has_a_png() {
     assert_eq!((list.area.width, list.area.height), (400.0, 100_000.0));
     let t = std::time::Instant::now();
     let mut png = Vec::new();
-    crate::bands::png(list, &mut png).unwrap();
+    crate::png::write(list, &mut png).unwrap();
     eprintln!(
         "built {built:?}, png {:?}, {} bytes",
         t.elapsed(),

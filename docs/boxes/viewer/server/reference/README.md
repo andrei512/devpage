@@ -43,8 +43,8 @@ already on the server.
 | `DELETE /api/documents/<id>` | Deletes it, its versions and its comments: `204`. |
 | `DELETE /api/documents/<id>/versions/<n>` | Deletes one version: `204`. |
 | `GET /api/documents/<id>/comments` | Its threads, oldest first: `[{id, page, version, detached, detached_in, anchor, thread}]`. |
-| `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version: `201 {id, version}`. |
-| `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies: `201`. |
+| `POST /api/documents/<id>/comments` with `{page, anchor, text}` | Starts a thread on the latest version: `201 {id, version}`. The page must be a file in that version, or `422`. |
+| `POST /api/documents/<id>/comments/<thread>/replies` with `{text}` | Replies, detached or not: `201`; `404` for no such thread. |
 | `DELETE /api/documents/<id>/comments/<thread>` | Resolves it: `204`. |
 
 `entry` names the document file inside the zip — `devpage.yml`, a deck's
@@ -65,7 +65,7 @@ requests.
 An upload whose check fails gets `422` with its problems; one over
 `DEVPAGE_MAX_UPLOAD_BYTES` gets `413`; a zip entry with `..`, an absolute path
 or a symbolic link refuses the publish. With `DEVPAGE_USER_HEADER` set, a write
-without that header gets `401`.
+without that header, or with it blank, gets `401`.
 
 | Page | Shows |
 | --- | --- |

@@ -16,8 +16,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::resolve::{Align, Layout, Node};
-use crate::sums::{Item, Summary, Sums};
+use crate::prefix_sums::{Item, Summary, Sums};
+use crate::scene::{Align, Layout, Node};
 use crate::tree::{Order, OrderKey};
 
 use super::*;

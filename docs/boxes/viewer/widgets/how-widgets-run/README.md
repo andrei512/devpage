@@ -58,7 +58,9 @@ page preloading its helper name the same address. A module asked for at its
 current version is served `immutable`, and the browser never asks for it
 again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
-comes from one function, `address` in `core/src/addresses.rs`. A module's version
+comes from one function, `address` in `core/src/addresses.rs`, given the
+version the widgets compute: a system widget's from `system_hash`, a project
+module's from its `Snapshot`. A module's version
 and its compiled bytes come from one reading of the files they are made from
 (a `Snapshot`), so a save landing while a request is answered can't send the
 new bytes as `immutable` under the old version. The files a version
@@ -70,17 +72,22 @@ new address. Compiled modules are remembered
 too, keyed by the file, its source, the names it can use and the addresses
 its imports are rewritten to, so a widget compiles once per change, not once
 per request. Both memories are one **module cache** (`Modules`, in
-`core/src/widgets/modules.rs`), owned by the served folder's
-[index](../../document-index/README.md#the-index): every widget set, page and
-widget request built from that index reads and compiles through it, and the
-index forgets a file when the watcher reports it (`Index::changed`). A widget
+`core/src/widgets/modules.rs`), one per served folder, held beside it by the
+server: every widget set, page and widget request the server makes reads and
+compiles through it, and it forgets a file when the watcher reports it
+(`Modules::forget`). `devpage check` reads through one of its own. A widget
 or helper that resolves outside the served folder — a symbolic link pointing
 out — is never read, as nothing outside it is
 ([the served folder is the boundary](../../constraints/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
 a module that throws the compiler's message, and so is a widget whose relative
 imports reach a helper that doesn't compile — with the helper's message — so
 the page shows why in the widget's place rather than only that its import
-failed.
+failed. Which file a module address names, the document whose names it can
+render, whether it was asked for at its current version and why it can't be
+had are all decided in `core/src/widgets/request.rs`, the one place the
+extensions an import is tried with are written; the request's
+[answer](../../glossary/README.md#answer) is a module or a module that
+throws, and the server only adds its headers.
 
 | Address | What it serves |
 | --- | --- |

@@ -2,13 +2,19 @@
 //! or a lone Markdown file, which is a doc of one chapter.
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
 
 use anyhow::{Context, Result, bail};
 
-use crate::served::ServedFolder;
+use crate::folder::ServedFolder;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use serde::Deserialize;
+
+#[cfg(test)]
+thread_local! {
+    /// Every document file loaded on this thread, for the tests: how often a
+    /// pass loads each.
+    pub(crate) static LOADED: std::cell::RefCell<Vec<PathBuf>> = Default::default();
+}
 
 /// The YAML as written, tagged by `kind`. Paths are relative to its folder.
 #[derive(Debug, Deserialize)]
@@ -275,6 +281,8 @@ impl Document {
         } else {
             path.to_path_buf()
         };
+        #[cfg(test)]
+        LOADED.with_borrow_mut(|loaded| loaded.push(file.clone()));
         let text = std::fs::read_to_string(&file)
             .with_context(|| format!("reading {}", file.display()))?;
         std::fs::metadata(served.path())
@@ -464,9 +472,36 @@ impl Document {
     /// Where `/` leads: a site's root page, or the document file itself.
     pub fn entry(&self) -> String {
         match &self.kind {
-            Kind::Site { root } => self.url(&self.base.join(root)),
-            _ => self.url(&self.path()),
+            Kind::Site { root } => self.part_url(&self.base.join(root)),
+            _ => self.part_url(&self.path()),
         }
+    }
+
+    /// The address of one of the document's parts — its file, a site's
+    /// root, a chapter or a slide.
+    ///
+    /// Panics on any other file outside the served folder: [`Document::load`]
+    /// refuses a document whose part lies outside it, so a part always has
+    /// an address. Any other file's is [`Document::url`].
+    pub fn part_url(&self, part: &Path) -> String {
+        self.part(part, self.url(part))
+    }
+
+    /// The name of one of the document's parts, as its problems show it;
+    /// panics as [`Document::part_url`] does.
+    pub fn part_name(&self, part: &Path) -> String {
+        self.part(part, self.name(part))
+    }
+
+    fn part(&self, part: &Path, named: Option<String>) -> String {
+        named.unwrap_or_else(|| {
+            panic!(
+                "{} is no part of {}: it lies outside the served folder {}",
+                part.display(),
+                self.path().display(),
+                self.served.path().display()
+            )
+        })
     }
 
     /// The document file itself.
@@ -480,16 +515,18 @@ impl Document {
     pub fn logo_url(&self) -> Option<String> {
         let written = self.logo.as_ref()?;
         let file = self.served.file(&self.base.join(written))?;
-        Some(self.url(&file))
+        self.url(&file)
     }
 
-    /// A file's address: its path from the top of the served folder.
-    pub fn url(&self, file: &Path) -> String {
+    /// A file's address: its path from the top of the served folder;
+    /// `None` for a file outside it, which has none.
+    pub fn url(&self, file: &Path) -> Option<String> {
         self.served.url(file)
     }
 
-    /// A file's name from the top of the served folder, for labels.
-    pub fn name(&self, file: &Path) -> String {
+    /// A file's name from the top of the served folder, for labels; `None`
+    /// for a file outside it, which is never named.
+    pub fn name(&self, file: &Path) -> Option<String> {
         self.served.name(file)
     }
 
@@ -535,50 +572,6 @@ fn literal_prefix(pattern: &str) -> PathBuf {
         .collect()
 }
 
-/// The document devpage was started with, re-read whenever its file changes,
-/// so `/` and the watcher follow the file without a restart. While the file
-/// is invalid, the last valid document stays in use and the error is kept to
-/// show in its place.
-pub struct Entry {
-    /// The entry's file: a document file, or a Markdown file served as a doc.
-    file: PathBuf,
-    state: RwLock<(Arc<Document>, Option<String>)>,
-}
-
-impl Entry {
-    pub fn new(document: Arc<Document>) -> Self {
-        Self {
-            file: document.path(),
-            state: RwLock::new((document, None)),
-        }
-    }
-
-    /// The entry document as last read without error.
-    pub fn document(&self) -> Arc<Document> {
-        self.state.read().unwrap().0.clone()
-    }
-
-    /// Why the entry's file can't be read as a document, if it can't now.
-    pub fn error(&self) -> Option<String> {
-        self.state.read().unwrap().1.clone()
-    }
-
-    pub fn file(&self) -> &Path {
-        &self.file
-    }
-
-    /// Reads the entry's file again: a valid file replaces the document, an
-    /// invalid one keeps it and records the error.
-    pub fn reload(&self) {
-        let served = self.document().served.clone();
-        let mut state = self.state.write().unwrap();
-        match Document::load(&self.file, &served) {
-            Ok(document) => *state = (Arc::new(document), None),
-            Err(error) => state.1 = Some(format!("{error:#}")),
-        }
-    }
-}
-
 /// The kind a YAML file names in its top-level `kind`, when it is one of
 /// devpage's three; any other file is not a document file.
 pub fn kind_of(file: &Path) -> Option<KindName> {
@@ -598,9 +591,65 @@ pub fn kind_of(file: &Path) -> Option<KindName> {
     }
 }
 
+/// What a published document of `kind` downloads as — a doc or slides
+/// printed as a PDF, a design painted as its PNG — as its extension and
+/// media type; `None` for a kind that has no download, a site. The one rule
+/// for it, the server's and `devpage download`'s.
+pub fn downloads_as(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "doc" | "slides" => Some(("pdf", "application/pdf")),
+        "design" => Some(("png", "image/png")),
+        _ => None,
+    }
+}
+
+/// The file a document is saved as when nothing names one — what `devpage
+/// pdf` and `devpage video` write and what a version downloads as: its
+/// `title`, with the characters a file name can't hold replaced by `-`, and
+/// `extension`.
+pub fn download_name(title: &str, extension: &str) -> PathBuf {
+    let name: String = title
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '-',
+            c if c.is_control() => '-',
+            c => c,
+        })
+        .collect();
+    let name = name.trim().trim_start_matches('.');
+    let name = if name.is_empty() { "document" } else { name };
+    PathBuf::from(format!("{name}.{extension}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn docs_and_slides_download_as_a_pdf_a_design_as_a_png_and_a_site_not() {
+        assert_eq!(downloads_as("doc"), Some(("pdf", "application/pdf")));
+        assert_eq!(downloads_as("slides"), Some(("pdf", "application/pdf")));
+        assert_eq!(downloads_as("design"), Some(("png", "image/png")));
+        assert_eq!(downloads_as("site"), None);
+    }
+
+    #[test]
+    fn the_download_name_is_the_title_made_safe() {
+        assert_eq!(
+            download_name("Offline sync", "pdf"),
+            Path::new("Offline sync.pdf")
+        );
+        assert_eq!(
+            download_name("A/B: why?", "pdf"),
+            Path::new("A-B- why-.pdf")
+        );
+        assert_eq!(download_name("...", "pdf"), Path::new("document.pdf"));
+        assert_eq!(
+            download_name("A/B: v1.2", "mp4"),
+            Path::new("A-B- v1.2.mp4")
+        );
+        assert_eq!(download_name("Screen", "png"), Path::new("Screen.png"));
+    }
 
     fn folder(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("devpage-doc-{name}-{}", std::process::id()));

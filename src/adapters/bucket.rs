@@ -88,3 +88,27 @@ impl Bucket {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A URL that names no bucket stops the server by the variable's name,
+    /// never echoing its value, which may be a secret pasted into the wrong
+    /// one.
+    #[test]
+    fn a_url_that_names_no_bucket_is_refused_by_name() {
+        let secret = "s3cr3t-value";
+        for (url, expected) in [
+            (secret.to_string(), "DEVPAGE_BUCKET_URL is not a URL"),
+            (
+                format!("ftp://{secret}/p"),
+                "DEVPAGE_BUCKET_URL is not an s3://, az:// or file:// URL",
+            ),
+        ] {
+            let error = format!("{:#}", Bucket::open(&url).err().unwrap());
+            assert_eq!(error, expected);
+            assert!(!error.contains(secret));
+        }
+    }
+}

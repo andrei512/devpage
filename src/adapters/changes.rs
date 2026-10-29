@@ -57,18 +57,6 @@ impl Subscription {
         }
     }
 
-    /// Whether this subscriber heard anything since it last asked, without
-    /// waiting — for a cache that any change clears.
-    pub fn heard(&mut self) -> bool {
-        let mut heard = false;
-        loop {
-            match self.0.try_recv() {
-                Ok(_) | Err(broadcast::error::TryRecvError::Lagged(_)) => heard = true,
-                Err(_) => return heard,
-            }
-        }
-    }
-
     /// Every change this subscriber has already heard, in order — for tests.
     #[cfg(test)]
     pub fn drain(&mut self) -> Vec<Change> {
@@ -114,15 +102,5 @@ mod tests {
             changes.publish(Change::Comments(format!("/{n}.md")));
         }
         assert_eq!(heard.next().await, Some(Change::Refresh));
-    }
-
-    #[test]
-    fn heard_is_any_change_since_the_last_look() {
-        let changes = Changes::default();
-        let mut heard = changes.subscribe();
-        assert!(!heard.heard());
-        changes.publish(Change::Comments("/c.md".into()));
-        assert!(heard.heard());
-        assert!(!heard.heard());
     }
 }

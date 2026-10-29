@@ -2,7 +2,7 @@ use crate::compare::*;
 use std::collections::HashMap;
 
 use crate::render::testing::*;
-use crate::resolve::{self, Theme};
+use crate::scene::{self, Theme};
 
 use super::*;
 
@@ -60,7 +60,7 @@ fn the_drawing_is_the_root_plus_what_is_painted_outside_it() {
 fn a_drawing_of_any_size_is_a_picture() {
     let mut r = Renderer::new();
     let s = scene(r##"<Frame width={70000} height={10} fill="#000000" />"##);
-    let (px, w, h) = pixels(&crate::png(&mut r, &s, Theme::Light).unwrap()).unwrap();
+    let (px, w, h) = pixels(&crate::png::fresh(&mut r, &s, Theme::Light).unwrap()).unwrap();
     assert_eq!((w, h), (70000, 10));
     assert_eq!(&px[px.len() - 4..], &[0, 0, 0, 255]);
 }
@@ -76,13 +76,13 @@ impl crate::Files for Sized {
     fn list(&self, path: &str) -> Option<Vec<String>> {
         self.0.list(path)
     }
-    fn image(&self, path: &str) -> Option<Result<std::sync::Arc<resolve::ImageFile>, String>> {
+    fn image(&self, path: &str) -> Option<Result<std::sync::Arc<scene::ImageFile>, String>> {
         let name = path.strip_suffix(".png")?;
         let (size, n) = name.split_once('-')?;
         let (w, h) = size.split_once('x')?;
         let (w, h): (u32, u32) = (w.parse().ok()?, h.parse().ok()?);
-        Some(Ok(std::sync::Arc::new(resolve::ImageFile {
-            id: resolve::ImageId::of(path.as_bytes()),
+        Some(Ok(std::sync::Arc::new(scene::ImageFile {
+            id: scene::ImageId::of(path.as_bytes()),
             bytes: n.as_bytes().to_vec(),
             width: w,
             height: h,
@@ -120,7 +120,7 @@ fn images_that_do_not_fit_the_atlas_are_a_problem_where_written() {
         "4096x4096-c.png",
         "4096x4096-d.png",
     ]);
-    let scene = resolve::resolve(&four, "a.design").unwrap();
+    let scene = crate::resolve(&four, "a.design").unwrap();
     assert!(r.drawing(&scene, Theme::Light, None).is_ok());
     // The same four again, and again: still four images.
     let again = design(&[
@@ -131,7 +131,7 @@ fn images_that_do_not_fit_the_atlas_are_a_problem_where_written() {
         "4096x4096-d.png",
         "4096x4096-b.png",
     ]);
-    let scene = resolve::resolve(&again, "a.design").unwrap();
+    let scene = crate::resolve(&again, "a.design").unwrap();
     assert!(r.drawing(&scene, Theme::Light, None).is_ok());
     let six = design(&[
         "4096x4096-a.png",
@@ -141,7 +141,7 @@ fn images_that_do_not_fit_the_atlas_are_a_problem_where_written() {
         "4096x4096-e.png",
         "4096x4096-f.png",
     ]);
-    let scene = resolve::resolve(&six, "a.design").unwrap();
+    let scene = crate::resolve(&six, "a.design").unwrap();
     let Err(e) = r.drawing(&scene, Theme::Light, None) else {
         panic!("six 4096-pixel squares fit")
     };
@@ -175,7 +175,7 @@ fn a_drawing_with_the_last_ones_images_paints_them_under_the_same_blobs() {
   <Rect width={{40}} height={{40}} shadow={{{{ blur: {blur}, color: "#000000" }}}} />
 </Frame>"##
         );
-        resolve::resolve(
+        crate::resolve(
             &Sized([("a.design".to_string(), source)].into()),
             "a.design",
         )
@@ -307,7 +307,7 @@ fn no_input_makes_the_engine_panic() {
                 );
                 let files: HashMap<String, String> =
                     [("a.design".to_string(), source.clone())].into();
-                if let Ok(s) = resolve::resolve(&files, "a.design") {
+                if let Ok(s) = crate::resolve(&files, "a.design") {
                     // Laid out, made into a display list and its first
                     // tile painted: a drawing a million pixels a side is
                     // drawable, and painting all of it is not the point.
@@ -330,7 +330,7 @@ fn no_input_makes_the_engine_panic() {
             ("b.design".to_string(), "<Frame />".to_string()),
         ]
         .into();
-        let _ = resolve::resolve(&files, "a.design");
+        let _ = crate::resolve(&files, "a.design");
     }
 }
 
@@ -352,7 +352,7 @@ fn a_click_is_answered_from_the_index() {
         "a.design".to_string(),
         format!("<Frame layout=\"column\">{rows}</Frame>"),
     );
-    let s = resolve::resolve(&files, "a.design").unwrap();
+    let s = crate::resolve(&files, "a.design").unwrap();
     let mut r = Renderer::new();
     let d = r.drawing(&s, Theme::Light, None).unwrap();
     assert_eq!(d.action_at(200.0, 99_950.0), Some("navigate r999.design"));

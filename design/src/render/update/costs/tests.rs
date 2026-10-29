@@ -4,9 +4,12 @@
 //! child of a `"space-between"` frame resized — each at 1,000, 10,000 and
 //! 100,000 siblings, the save resolved again and the drawing brought across.
 
+use crate::ids::Remembering;
+use std::collections::HashMap;
+
 use crate::render::Drawing;
-use crate::resolve::Theme;
 use crate::resolve::{Outcome, Resolution};
+use crate::scene::{Bare, Theme};
 
 use super::super::*;
 
@@ -118,21 +121,25 @@ pub(super) fn edit(
     Drawing,
     Renderer,
 ) {
-    let mut saves = crate::ids::testing::Saves::default();
-    saves.save("a.design", source(kind, n, false));
-    let mut res = Resolution::new(&saves, "a.design").unwrap();
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves
+        .files
+        .insert("a.design".into(), source(kind, n, false));
+    let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+    let mut held = Bare::new(scene);
     let mut r = Renderer::new();
-    let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
-    saves.save("a.design", source(kind, n, true));
+    let mut d = r.drawing(&held.scene, Theme::Light, None).unwrap();
+    saves.files.insert("a.design".into(), source(kind, n, true));
     let t = std::time::Instant::now();
-    let Outcome::Changed(_, applied) = res.update(&saves, &["a.design".to_string()]) else {
+    let Outcome::Changed(_, applied) = res.update(&mut held, &saves, &["a.design".to_string()])
+    else {
         panic!("{kind:?}: the edit changed nothing");
     };
     let resolved = t.elapsed();
     let t = std::time::Instant::now();
-    d.update(&mut r, res.scene(), &applied).unwrap();
+    d.update(&mut r, &held.scene, &applied).unwrap();
     let updated = t.elapsed();
-    let fresh = r.drawing(res.scene(), Theme::Light, None).unwrap();
+    let fresh = r.drawing(&held.scene, Theme::Light, None).unwrap();
     (resolved, updated, d.visited, d, fresh, r)
 }
 
@@ -170,11 +177,13 @@ fn an_edit_costs_what_it_changed_in_every_kind_of_frame() {
             }
             seen = Some(visited);
             let scene = {
-                let mut saves = crate::ids::testing::Saves::default();
-                saves.save("a.design", source(kind, n, false));
-                let _ = saves.resolve("a.design");
-                saves.save("a.design", source(kind, n, true));
-                saves.resolve("a.design")
+                let mut saves = Remembering::new(HashMap::<String, String>::new());
+                saves
+                    .files
+                    .insert("a.design".into(), source(kind, n, false));
+                let _ = crate::resolve(&saves, "a.design").unwrap();
+                saves.files.insert("a.design".into(), source(kind, n, true));
+                crate::resolve(&saves, "a.design").unwrap()
             };
             d.prepare_all(&mut r, &scene);
             assert_eq!(d.area(), fresh.area(), "{kind:?} at {n}");
@@ -201,18 +210,20 @@ fn a_frame_that_grows_lays_out_again_what_its_box_reaches() {
             "<Frame layout=\"column\"><Frame><Rect x={{0}} y={{0}} width={{{w}}} height={{10}} /><Frame x={{0}} y={{20}} layout=\"column\"><Text width=\"fill\">a few words that wrap at the frame</Text></Frame></Frame></Frame>"
         )
     };
-    let mut saves = crate::ids::testing::Saves::default();
-    saves.save("a.design", design(60));
-    let mut res = Resolution::new(&saves, "a.design").unwrap();
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves.files.insert("a.design".into(), design(60));
+    let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+    let mut held = Bare::new(scene);
     let mut r = Renderer::new();
-    let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
-    saves.save("a.design", design(300));
-    let Outcome::Changed(_, applied) = res.update(&saves, &["a.design".to_string()]) else {
+    let mut d = r.drawing(&held.scene, Theme::Light, None).unwrap();
+    saves.files.insert("a.design".into(), design(300));
+    let Outcome::Changed(_, applied) = res.update(&mut held, &saves, &["a.design".to_string()])
+    else {
         panic!("the edit changed nothing");
     };
-    d.update(&mut r, res.scene(), &applied).unwrap();
-    d.prepare_all(&mut r, res.scene());
-    let fresh = r.drawing(res.scene(), Theme::Light, None).unwrap();
+    d.update(&mut r, &held.scene, &applied).unwrap();
+    d.prepare_all(&mut r, &held.scene);
+    let fresh = r.drawing(&held.scene, Theme::Light, None).unwrap();
     assert_eq!(d.frames(), fresh.frames());
 }
 
@@ -225,11 +236,15 @@ fn a_new_align_places_every_row_again_and_nothing_in_them() {
         let (_, _, visited, mut d, fresh, mut r) = edit(Kind::Align, n);
         assert!(visited <= n + 3, "at {n}: {visited} visited");
         let scene = {
-            let mut saves = crate::ids::testing::Saves::default();
-            saves.save("a.design", source(Kind::Align, n, false));
-            let _ = saves.resolve("a.design");
-            saves.save("a.design", source(Kind::Align, n, true));
-            saves.resolve("a.design")
+            let mut saves = Remembering::new(HashMap::<String, String>::new());
+            saves
+                .files
+                .insert("a.design".into(), source(Kind::Align, n, false));
+            let _ = crate::resolve(&saves, "a.design").unwrap();
+            saves
+                .files
+                .insert("a.design".into(), source(Kind::Align, n, true));
+            crate::resolve(&saves, "a.design").unwrap()
         };
         d.prepare_all(&mut r, &scene);
         assert_eq!(d.area(), fresh.area(), "at {n}");
@@ -282,19 +297,23 @@ fn every_attribute_that_places_a_lists_children_redraws_as_a_fresh_drawing() {
                 } else {
                     (*a, *b, (" layout=\"column\"", " layout=\"column\""))
                 };
-                let mut saves = crate::ids::testing::Saves::default();
-                saves.save("a.design", design(from, layout.0));
-                let mut res = Resolution::new(&saves, "a.design").unwrap();
+                let mut saves = Remembering::new(HashMap::<String, String>::new());
+                saves
+                    .files
+                    .insert("a.design".into(), design(from, layout.0));
+                let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+                let mut held = Bare::new(scene);
                 let mut r = Renderer::new();
-                let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
-                saves.save("a.design", design(to, layout.1));
-                let Outcome::Changed(_, applied) = res.update(&saves, &["a.design".to_string()])
+                let mut d = r.drawing(&held.scene, Theme::Light, None).unwrap();
+                saves.files.insert("a.design".into(), design(to, layout.1));
+                let Outcome::Changed(_, applied) =
+                    res.update(&mut held, &saves, &["a.design".to_string()])
                 else {
                     panic!("{a} → {b}: nothing changed");
                 };
-                d.update(&mut r, res.scene(), &applied).unwrap();
-                d.prepare_all(&mut r, res.scene());
-                let fresh = r.drawing(res.scene(), Theme::Light, None).unwrap();
+                d.update(&mut r, &held.scene, &applied).unwrap();
+                d.prepare_all(&mut r, &held.scene);
+                let fresh = r.drawing(&held.scene, Theme::Light, None).unwrap();
                 assert_eq!(d.frames(), fresh.frames(), "{a} → {b}");
                 for (col, row) in [(0, 0), (0, 2), (1, 1), (3, 3)] {
                     assert!(
@@ -378,11 +397,12 @@ fn edit_scaling() {
             &[10_000, 100_000, 200_000]
         };
         for &n in lengths {
-            let mut saves = crate::ids::testing::Saves::default();
-            saves.save("a.design", src(n, false));
-            let mut res = Resolution::new(&saves, "a.design").unwrap();
+            let mut saves = Remembering::new(HashMap::<String, String>::new());
+            saves.files.insert("a.design".into(), src(n, false));
+            let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+            let mut held = Bare::new(scene);
             let mut r = Renderer::new();
-            let mut d = r.drawing(res.scene(), Theme::Light, None).unwrap();
+            let mut d = r.drawing(&held.scene, Theme::Light, None).unwrap();
             let rounds = if n == *lengths.last().expect("a length") {
                 20 + repeat
             } else {
@@ -390,13 +410,14 @@ fn edit_scaling() {
             };
             let mut times = vec![];
             for i in 0..rounds {
-                saves.save("a.design", src(n, i % 2 == 0));
-                let Outcome::Changed(_, applied) = res.update(&saves, &["a.design".to_string()])
+                saves.files.insert("a.design".into(), src(n, i % 2 == 0));
+                let Outcome::Changed(_, applied) =
+                    res.update(&mut held, &saves, &["a.design".to_string()])
                 else {
                     panic!("{name}: nothing changed")
                 };
                 let t = std::time::Instant::now();
-                d.update(&mut r, res.scene(), &applied).unwrap();
+                d.update(&mut r, &held.scene, &applied).unwrap();
                 times.push(t.elapsed());
             }
             times.sort();
@@ -429,20 +450,22 @@ fn profile_update() {
             .collect();
         format!("<Frame layout=\"column\">{rows}</Frame>")
     };
-    let mut saves = crate::ids::testing::Saves::default();
-    saves.save("a.design", src(false));
-    let mut res = Resolution::new(&saves, "a.design").unwrap();
-    let a = res.scene().clone();
-    saves.save("a.design", src(true));
-    let Outcome::Changed(_, there) = res.update(&saves, &["a.design".to_string()]) else {
+    let mut saves = Remembering::new(HashMap::<String, String>::new());
+    saves.files.insert("a.design".into(), src(false));
+    let (mut res, scene) = Resolution::new(&saves, "a.design").unwrap();
+    let mut held = Bare::new(scene);
+    let a = held.scene.clone();
+    saves.files.insert("a.design".into(), src(true));
+    let Outcome::Changed(_, there) = res.update(&mut held, &saves, &["a.design".to_string()])
+    else {
         panic!()
     };
-    let b = res.scene().clone();
-    saves.save("a.design", src(false));
-    let Outcome::Changed(_, back) = res.update(&saves, &["a.design".to_string()]) else {
+    let b = held.scene.clone();
+    saves.files.insert("a.design".into(), src(false));
+    let Outcome::Changed(_, back) = res.update(&mut held, &saves, &["a.design".to_string()]) else {
         panic!()
     };
-    let a2 = res.scene().clone();
+    let a2 = held.scene.clone();
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
     let rounds: usize = std::env::var("DEVPAGE_LOOP")

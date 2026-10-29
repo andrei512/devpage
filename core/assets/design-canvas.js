@@ -1,21 +1,20 @@
 // A design's canvas: `<canvas class="design" src="…">`, the view it shows
 // — fitted, zoomed and panned — the pointer and the interactions it runs,
 // its overlays, and on an embed the backdrop's corner and theme switch. It
-// draws through the compositor: the module's on the GPU, `Tiles` on the CPU.
+// draws through the compositor, which carries out the frame plan the
+// module's design holds: the module's on the GPU, `Tiles` on the CPU.
 
 import { reopen, rewatch } from "/__devpage/design-stream.js";
 import { Tiles } from "/__devpage/design-tiles.js";
 
 // How long a zoom is still before its tiles are painted at its resolution.
 const SETTLE = 150;
-// How many tiles the GPU paints in one frame.
-const TILES_PER_FRAME = 6;
 
-// What the page gives every canvas: the engine's `Design` and `Applied`, the
-// GPU or `null`, print mode, and the document's mount.
-let Design, Applied, gpu, print, mount;
+// What the page gives every canvas: the engine's `Design`, `Applied` and
+// `level`, the GPU or `null`, print mode, and the document's mount.
+let Design, Applied, level, gpu, print, mount;
 export function configure(options) {
-  ({ Design, Applied, gpu, print, mount } = options);
+  ({ Design, Applied, level, gpu, print, mount } = options);
 }
 
 // Every canvas started and not yet closed.
@@ -150,7 +149,7 @@ export class Host {
   open(path) {
     this.design?.free();
     this.design = new Design();
-    this.tiles?.open();
+    this.tiles?.open(this.design);
     this.path = path;
     this.view.fitted = true;
     this.showLink();
@@ -164,9 +163,9 @@ export class Host {
   // is its `no such file` problem; it stays watched, so writing it again
   // brings it back.
   receive(message) {
+    // What it damaged reaches the frame plan inside the module.
     const applied = this.design.apply(message);
-    // On the GPU the compositor takes the damage itself.
-    this.tiles?.apply(message, this.design.take_damage());
+    this.tiles?.apply(message);
     if (applied === Applied.Changed) {
       if (this.toggle) this.toggle.hidden = !this.design.themed();
       this.showProblems([]);
@@ -305,28 +304,32 @@ export class Host {
     if (this.canvas.width !== width) this.canvas.width = width;
     if (this.canvas.height !== height) this.canvas.height = height;
     // What is shown: the scale tiles are painted at — the view's in device
-    // pixels, to a 1/1024th — and the drawing's top-left on a whole device
-    // pixel, so a tile at the view's own scale lands pixel for pixel. Clicks
-    // are taken back through the same.
+    // pixels, at the engine's level for it — and the drawing's top-left on a
+    // whole device pixel, so a tile at the view's own scale lands pixel for
+    // pixel. Clicks are taken back through the same.
     const { zoom, x, y } = this.view;
-    const k = Math.max(1, Math.round(zoom * ratio * 1024)) / 1024;
+    const k = level(zoom * ratio);
     const ox = Math.round(x * ratio);
     const oy = Math.round(y * ratio);
     this.shown = { k, ox, oy };
     this.canvas.dataset.view = `${k / ratio},${ox / ratio},${oy / ratio}`;
+    // For the tests: the view's own zoom, which a wheel multiplies — it is
+    // shown at its level, `view`'s first number, which differs from it.
+    this.canvas.dataset.zoom = String(zoom);
     this.canvas.dataset.size = this.design.size().join(",");
-    // The compositor places the view's cached tiles every frame; tiles still
-    // to paint at this scale are painted once a zoom settles, and the canvas
-    // is painted when none are left.
+    // The compositor carries out a frame of the plan: it places the view's
+    // held tiles every frame; tiles still to paint at this scale are painted
+    // once a zoom settles, and the canvas is painted when none are left.
     const settled = performance.now() - (this.zoomed ?? 0) > SETTLE;
     const started = performance.now();
     let left;
     if (this.target) {
       const behind = background(this.canvas.parentElement);
-      left = gpu.draw(this.target, this.design, width, height, k, ox, oy, behind, settled, TILES_PER_FRAME);
+      left = gpu.draw(this.target, this.design, width, height, k, ox, oy, behind, settled);
     } else {
-      const needed = this.design.view_tiles(width, height, k, ox, oy);
-      left = this.tiles.draw({ needed, k, ox, oy, theme: this.theme(), width, height, settled, budget: TILES_PER_FRAME });
+      const work = this.design.frame(width, height, k, ox, oy, settled);
+      left = work ? this.tiles.draw(work, width, height) : -1;
+      work?.free();
     }
     // For the tests: how long the frame took, and how many tiles the canvas
     // has painted.

@@ -7,7 +7,7 @@
 
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use devpage_core::comments::{Anchor, Message};
+use devpage_core::comments::{Anchor, Message, Refused};
 use serde::{Deserialize, Serialize};
 
 /// What a publish answers: `POST /api/documents` and
@@ -165,6 +165,20 @@ impl From<anyhow::Error> for Refusal {
         Refusal::Failed {
             status: 500,
             text: format!("{error:#}"),
+        }
+    }
+}
+
+/// A refused comment request: `401` with no author, `422` for a page that
+/// isn't a file in the version, `404` for no such thread, `500` when the
+/// store failed.
+impl From<Refused> for Refusal {
+    fn from(refused: Refused) -> Refusal {
+        match refused {
+            Refused::Unidentified(_) => Refusal::Unauthorized(refused.to_string()),
+            Refused::NotAPage(_) => Refusal::Unprocessable(refused.to_string()),
+            Refused::NoThread(_) => Refusal::NotFound,
+            Refused::Failed(error) => error.into(),
         }
     }
 }

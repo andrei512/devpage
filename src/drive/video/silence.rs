@@ -19,11 +19,6 @@ pub const SLIDE_LEAD_SECONDS: f64 = 0.4;
 pub const RATE: usize = 24_000;
 /// A 10 ms window whose peak is above this is speech.
 pub const LOUD: i32 = 500;
-/// The voice is done with a slide after this much quiet: there is no
-/// end-of-speech event.
-pub const DONE_AFTER_SECONDS: f64 = 1.5;
-/// Audio held before a slide starts playing, covering network stalls.
-pub const PREBUFFER_SECONDS: f64 = 2.0;
 
 /// 10 ms.
 const WINDOW: usize = RATE / 100;

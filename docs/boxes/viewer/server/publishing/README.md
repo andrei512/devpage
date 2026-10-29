@@ -56,7 +56,10 @@ docs carries them too. Drafts or secrets lying in the same folder that nothing
 links to are never sent.
 
 If a link is broken, the publish stops before uploading anything and lists the
-problems. The server runs the same check again on the files it received, so a
+problems. A publish lands whole or not at all: the new version and its
+comments [carried onto it](../reading-a-published-document/README.md#comments)
+are recorded together, so one that fails leaves the document as it was, and
+publishing again takes the same version number. The server runs the same check again on the files it received, so a
 hand-made zip can't publish one either — every check but external addresses,
 which the CLI asks before uploading, so that a publish never waits on the
 internet from inside the cluster.

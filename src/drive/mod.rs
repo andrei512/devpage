@@ -4,16 +4,12 @@
 
 pub mod api_types;
 pub mod client;
+pub mod http;
 pub mod pdf;
-pub mod server;
 pub mod server_mode;
 pub mod slide_png;
 pub mod validators;
 pub mod video;
 
 #[cfg(test)]
-mod server_mode_browser;
-#[cfg(test)]
-mod server_mode_comments_browser;
-#[cfg(test)]
-mod server_mode_pages_browser;
+mod browser_tests;

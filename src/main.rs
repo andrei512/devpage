@@ -10,14 +10,6 @@ mod adapters;
 /// Driving adapters: what drives the core — the HTTP server, Chrome.
 mod drive;
 
-// The core's modules and the binary's, each by its own name.
-use adapters::{changes, http, terminal, watch};
-use devpage_core::{
-    addresses, check, comments, designs, diagrams, document, index, navbar, problem, render,
-    resolve, served, widgets,
-};
-use drive::{pdf, server, slide_png, validators, video};
-
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,9 +17,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
-
-use crate::document::{Document, Entry};
-use crate::index::Index;
 
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
@@ -84,18 +73,27 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The composition root's own names, kept to it: every other module names
+    // the core's and the binary's modules by their paths.
+    use adapters::{changes, external, git, terminal};
+    use devpage_core::document::{Document, download_name};
+    use devpage_core::folder::{self, Folder};
+    use devpage_core::{check, comments, designs, diagrams};
+    use drive::{http, pdf, video};
     let mut cli = Cli::parse();
     diagrams::start();
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
     // The served folder, made where a command that reads it starts.
     let served =
-        || served::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
+        || folder::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
     if let Some(Command::Check { path }) = &cli.command {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &served()?,
         )?;
-        let problems = check::document(&document, Some(&http::external(None))).await;
+        let designs = designs::Designs::new(&document.served);
+        let folder = Folder::new(Arc::new(document));
+        let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
         for problem in &problems {
             println!("{problem}");
         }
@@ -104,15 +102,17 @@ async fn main() -> Result<()> {
     match cli.command.take() {
         Some(Command::Pdf { path, output }) => {
             let document = Arc::new(Document::load(&path, &served()?)?);
-            let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
-            pdf::print(document, &output).await?;
+            let output = output.unwrap_or_else(|| download_name(&document.title, "pdf"));
+            let bytes = pdf::print(document).await?;
+            std::fs::write(&output, bytes)
+                .with_context(|| format!("writing {}", output.display()))?;
             println!("{}", output.display());
             return Ok(());
         }
         Some(Command::Video { path, output }) => {
-            let config = video::live::Config::from_env()?;
+            let config = video::narrator::Config::from_env()?;
             let document = Arc::new(Document::load(&path, &served()?)?);
-            let output = output.unwrap_or_else(|| video::default_output(&document.title));
+            let output = output.unwrap_or_else(|| download_name(&document.title, "mp4"));
             // However the run ends — done, failed or interrupted — the
             // recording future is dropped, and its Chrome with it.
             tokio::select! {
@@ -146,42 +146,36 @@ async fn main() -> Result<()> {
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &served()?)?);
-    let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
-    let entry = Arc::new(Entry::new(document.clone()));
 
-    let designs = designs::Designs::new(&document.served);
-
+    // The process-wide parts: the change bus, the link checker on the
+    // network reporting to the terminal, and who writes a comment — the
+    // local git name on a loopback address, the user header otherwise — or
+    // no one: comments are off.
     let changes = changes::Changes::default();
     let preview = Arc::new(check::Preview::new(
-        http::external(Some(changes.clone())),
+        external::checker(Some(changes.clone())),
         Arc::new(terminal::Terminal),
     ));
-    // Who writes a comment — or no one: comments are off.
-    let comments = if cli.no_comments {
+    let identity = if cli.no_comments {
         None
     } else if cli.host.is_loopback() {
-        Some(server::Identity::Local(comments::local_author(
+        Some(comments::Identity::Local(git::user_name(
             document.served.path(),
         )))
     } else {
-        Some(server::Identity::Header(cli.user_header))
+        Some(comments::Identity::Header(cli.user_header))
     };
-    let shots = slide_png::Shots::new(&changes);
-    let threads = Arc::new(comments::yaml::Yaml::new(&document.served));
-    let options = server::Options {
-        entry,
-        index,
-        designs,
-        changes,
-        comments,
-        store: threads.clone(),
-        threads,
-        shots: shots.clone(),
-        preview,
-        log: true,
-        search_on_demand: None,
-    };
-    let _watcher = options.watch()?;
+    let comments = identity.map(|identity| {
+        let threads = comments::Comments::new(
+            Arc::new(comments::yaml::Yaml::new(&document.served)),
+            Arc::new(changes.clone()),
+            document.served.clone(),
+        );
+        http::Commenting::new(threads, identity)
+    });
+    let app = http::App::local(document.clone(), changes, preview, comments);
+    let _watcher = app.watch()?;
+    let shots = app.shots();
 
     let listener = match cli.port {
         Some(port) => TcpListener::bind(SocketAddr::from((cli.host, port)))
@@ -196,7 +190,7 @@ async fn main() -> Result<()> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
-    let router = server::router(options);
+    let router = http::logged(http::router(app));
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
         served = axum::serve(listener, router) => served?,

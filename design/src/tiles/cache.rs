@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use kurbo::Rect as KRect;
 
-use crate::resolve::Theme;
+use crate::scene::Theme;
 
 use super::*;
 
@@ -116,14 +116,7 @@ impl<T, K: Tiled> Cache<T, K> {
         rects: &[KRect],
     ) {
         for (k, e) in &mut self.entries {
-            if e.stale || !which(k) {
-                continue;
-            }
-            let r = k.key().rect(origin);
-            if rects
-                .iter()
-                .any(|d| d.x0 < r.x1 && d.x1 > r.x0 && d.y0 < r.y1 && d.y1 > r.y0)
-            {
+            if !e.stale && which(k) && k.key().overlaps(origin, rects) {
                 e.stale = true;
             }
         }

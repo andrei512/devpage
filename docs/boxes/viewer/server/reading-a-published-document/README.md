@@ -30,7 +30,7 @@ they are shown and taken on `/d/<id>/`, while an earlier version is shown as
 it was.
 
 - **On each publish**, every open thread re-anchors on the new version by its
-  quote and the text around it.
+  quote and the text around it, in the page's text as the page shows it.
 - **When the quote is gone**, the thread becomes a
   [detached comment](../../glossary/README.md#detached-comment), listed at the
   top of the page until someone resolves it.

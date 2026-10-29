@@ -6,13 +6,15 @@ use std::collections::{BTreeSet, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::document::{Document, Kind};
-use crate::render;
+use crate::designs::Designs;
+use crate::document::{Document, Kind, KindName};
+use crate::folder::{Folder, ServedFolder};
+use crate::page::{self, Rendered};
 
 use crate::external::{External, Link};
 use crate::html;
 use crate::problem::Problem;
-use crate::widgets::Widgets;
+use crate::widgets::{Modules, Widgets};
 
 /// The pages a document is made of.
 fn pages(document: &Document) -> Vec<PathBuf> {
@@ -24,16 +26,23 @@ fn pages(document: &Document) -> Vec<PathBuf> {
     }
 }
 
-/// Checks the document and every page and document reachable from it by
-/// links inside the served folder.
+/// Checks the folder's entry document and every page and document reachable
+/// from it by links inside the served folder, each design it reaches as
+/// `designs` — the folder's design store — holds it.
 /// External links are checked when `checker` is given.
-pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Problem> {
+pub async fn document(
+    folder: &Folder,
+    designs: &Designs,
+    checker: Option<&External>,
+) -> Vec<Problem> {
+    let document = &*folder.entry();
     let mut external = Vec::new();
-    let mut problems = internal(document, &mut external, None);
+    let mut problems = internal(folder, designs, document, &mut external, None);
     if let Kind::Design = document.kind {
-        let address = document.name(&document.path());
+        let address = document.part_name(&document.path());
         problems.extend(
-            crate::designs::problems(&document.served, &address)
+            designs
+                .problems(&address)
                 .into_iter()
                 // A design names its place by line and column.
                 .map(|problem| Problem {
@@ -50,39 +59,169 @@ pub async fn document(document: &Document, checker: Option<&External>) -> Vec<Pr
     problems
 }
 
-/// Every file the check follows from `document`, each once and in path
-/// order: the document file, its pages, chapters or slides and every page
+/// Every file the check follows from the folder's entry document, each once
+/// and in path order: the document file, its pages, chapters or slides and every page
 /// and document they reach, the images and files their links name, a design's
 /// imports, images, themes and fonts, the logo, and the project widgets with
 /// every module they import — what the document is made of, and nothing else
-/// beside it. External addresses are not followed.
-pub fn files(document: &Document) -> Vec<PathBuf> {
+/// beside it. External addresses are not followed. A design's files are the
+/// ones `designs`, the folder's design store, resolved it from.
+pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
     let mut files = BTreeSet::new();
-    internal(document, &mut Vec::new(), Some(&mut files));
+    internal(
+        folder,
+        designs,
+        &folder.entry(),
+        &mut Vec::new(),
+        Some(&mut files),
+    );
     files.into_iter().collect()
 }
 
+/// Every file a slide of the deck at `deck` is drawn from, in path order:
+/// the deck's file, its slides, what each slide embeds — an image, a design
+/// and everything `designs` resolved it from, a font folder it listed among
+/// them, another deck's slide PNG and that deck's files in turn — and the
+/// deck's widgets folder with every widget in it and every module they
+/// import. Each folder itself is among them: a font added to a design's
+/// font folder changes the design, and a widget added, renamed or removed
+/// changes which tags on a slide are widgets. An embedded file that isn't there yet is named as it would
+/// be, so its arrival reaches the deck. A link a slide only points at is not
+/// what it is drawn from. A deck that can't be loaded is drawn from its file.
+pub fn drawn_from(
+    deck: &Path,
+    served: &ServedFolder,
+    designs: &Designs,
+    modules: &Modules,
+) -> Vec<PathBuf> {
+    let mut files = BTreeSet::new();
+    deck_drawn_from(deck, served, designs, modules, &mut files);
+    files.into_iter().collect()
+}
+
+fn deck_drawn_from(
+    deck: &Path,
+    served: &ServedFolder,
+    designs: &Designs,
+    modules: &Modules,
+    files: &mut BTreeSet<PathBuf>,
+) {
+    // A deck reached again — a slide showing its own deck's PNG — adds
+    // nothing.
+    if !files.insert(deck.to_path_buf()) {
+        return;
+    }
+    let Ok(document) = Document::load(deck, served) else {
+        return;
+    };
+    let Kind::Slides { slides, .. } = &document.kind else {
+        return;
+    };
+    let widgets = Widgets::of(&document, modules);
+    if let Some(folder) = &document.widgets {
+        files.insert(folder.clone());
+        for widget in widget_files(folder) {
+            let snapshot = modules.snapshot(served, &widget);
+            files.extend(
+                snapshot
+                    .closure(&widget)
+                    .into_iter()
+                    .map(|(module, _)| module),
+            );
+        }
+    }
+    for slide in slides {
+        files.insert(slide.file.clone());
+        let rendered = page::read(&widgets, &slide.file);
+        let folder = slide.file.parent().unwrap_or(Path::new("."));
+        for target in rendered.embeds() {
+            let html::Link::File { path, .. } = html::Link::classify(target) else {
+                continue;
+            };
+            // A query — a design PNG's theme — names no other file.
+            let path = path.split('?').next().unwrap_or_default();
+            if path.is_empty() {
+                continue;
+            }
+            // A path from the top is from the top of the served folder.
+            let named = match path.strip_prefix('/') {
+                Some(top) => served.path().join(top),
+                None => folder.join(path),
+            };
+            if let Some(real) = served.file(&named) {
+                if real.extension().is_some_and(|ext| ext == "design")
+                    && let Some(address) = document.name(&real)
+                {
+                    files.extend(designs.made_of(&address));
+                }
+                files.insert(real);
+                continue;
+            }
+            // A design's PNG address, with no real file of that name: the
+            // design drawn.
+            if let Some(design) = named
+                .to_str()
+                .and_then(|named| named.strip_suffix(".png"))
+                .filter(|p| p.ends_with(".design"))
+                .and_then(|design| served.file(Path::new(design)))
+            {
+                if let Some(address) = document.name(&design) {
+                    files.extend(designs.made_of(&address));
+                }
+                files.insert(design);
+                continue;
+            }
+            // A slide's PNG: `<deck>/<n>.png` is drawn from that deck.
+            if let Some(other) = named
+                .parent()
+                .filter(|_| named.extension().is_some_and(|ext| ext == "png"))
+                .and_then(|parent| served.file(parent))
+                .filter(|parent| crate::document::kind_of(parent) == Some(KindName::Slides))
+            {
+                deck_drawn_from(&other, served, designs, modules, files);
+                continue;
+            }
+            files.extend(served.named(&named));
+        }
+    }
+}
+
 /// A file the walk followed, kept when the caller asked for them: only
-/// regular files inside the served folder.
-fn follow(document: &Document, files: &mut Option<&mut BTreeSet<PathBuf>>, file: &Path) {
+/// regular files inside the served folder, and every file a design is made
+/// of, as `designs` read them — not a folder it listed.
+fn follow(
+    document: &Document,
+    designs: &Designs,
+    files: &mut Option<&mut BTreeSet<PathBuf>>,
+    file: &Path,
+) {
     let Some(files) = files.as_deref_mut() else {
         return;
     };
     if let Some(real) = document.served.file(file)
         && files.insert(real.clone())
         && real.extension().is_some_and(|ext| ext == "design")
+        && let Some(address) = document.name(&real)
     {
-        let address = document.name(&real);
-        files.extend(crate::designs::files(&document.served, &address));
+        // A folder a design listed, or a file it asked for that isn't
+        // there, is nothing to follow.
+        files.extend(
+            designs
+                .made_of(&address)
+                .into_iter()
+                .filter_map(|file| document.served.file(&file)),
+        );
     }
 }
 
 fn internal(
+    folder: &Folder,
+    designs: &Designs,
     document: &Document,
     external: &mut Vec<Link>,
     mut files: Option<&mut BTreeSet<PathBuf>>,
 ) -> Vec<Problem> {
-    follow(document, &mut files, &document.path());
+    follow(document, designs, &mut files, &document.path());
     let mut problems = Vec::new();
     let mut seen = HashSet::new();
     let mut checked = Vec::new();
@@ -98,8 +237,9 @@ fn internal(
     };
     let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides).into();
     // A page is checked as its nearest site's page, whichever document the
-    // check started from — as the preview shows it.
-    let index = crate::index::Index::build(&document.served);
+    // check started from — as the preview shows it. Widgets are read and
+    // compiled once per check.
+    let modules = Modules::default();
     let mut widget_folders = HashSet::new();
     let mut navbars = HashSet::new();
     let mut logos = HashSet::new();
@@ -107,10 +247,9 @@ fn internal(
         if !seen.insert(page.clone()) {
             continue;
         }
-        checked.push(page.clone());
-        follow(document, &mut files, &page);
-        let owner = match index.site_for(&page) {
-            Some(site) => Document::load(&site, &document.served).ok(),
+        follow(document, designs, &mut files, &page);
+        let owner = match folder.owner(&page) {
+            Some(owner) => owner.document.ok(),
             // In no site, a page is shown as a doc of one chapter — unless it
             // is one of the doc's or deck's own files the check started from.
             None if matches!(document.kind, Kind::Site { .. }) => {
@@ -119,38 +258,38 @@ fn internal(
             None => None,
         };
         let owner = owner.as_ref().unwrap_or(document);
-        follow(document, &mut files, &owner.path());
-        let widgets = Widgets::of(owner, index.modules());
+        follow(document, designs, &mut files, &owner.path());
+        let widgets = Widgets::of(owner, &modules);
         if let Some(folder) = &owner.widgets
             && widget_folders.insert(folder.clone())
         {
             problems.extend(widget_problems(owner, &widgets));
             if files.is_some() {
                 for widget in widget_files(folder) {
-                    let snapshot = index.modules().snapshot(&document.served, &widget);
+                    let snapshot = modules.snapshot(&document.served, &widget);
                     for (module, _) in snapshot.closure(&widget) {
-                        follow(document, &mut files, &module);
+                        follow(document, designs, &mut files, &module);
                     }
                 }
             }
         }
         if let Some(logo) = &owner.logo {
-            follow(document, &mut files, &owner.base.join(logo));
+            follow(document, designs, &mut files, &owner.base.join(logo));
         }
         // A document's logo is checked once.
         if logos.insert(owner.path())
-            && let Some(problem) = crate::navbar::logo_problem(owner)
+            && let Some(problem) = page::navbar::logo_problem(owner)
         {
             problems.push(problem);
         }
         // A site's navbar is checked once, and what it links to is checked too.
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
-            problems.extend(crate::navbar::problems(owner));
-            let (reached_files, web) = crate::navbar::reached(owner);
-            let file = owner.name(&owner.path());
+            problems.extend(page::navbar::problems(owner));
+            let (reached_files, web) = page::navbar::reached(owner);
+            let file = owner.part_name(&owner.path());
             external.extend(web.into_iter().map(|address| (file.clone(), None, address)));
             for target in reached_files {
-                follow(document, &mut files, &target);
+                follow(document, designs, &mut files, &target);
                 if target.extension().is_some_and(|ext| ext == "md") {
                     queue.push_back(target);
                 } else if let Ok(linked) = Document::load(&target, &document.served) {
@@ -158,10 +297,13 @@ fn internal(
                 }
             }
         }
-        let (found, reached) = page_links_with(owner, &widgets, &page, external);
+        let rendered = page::read(&widgets, &page);
+        let (found, reached) =
+            page_links_with(folder, owner, &modules, designs, &rendered, external);
         problems.extend(found);
+        checked.push(rendered);
         for target in reached {
-            follow(document, &mut files, &target);
+            follow(document, designs, &mut files, &target);
             if target.extension().is_some_and(|ext| ext == "md") {
                 queue.push_back(target);
             } else if target
@@ -175,19 +317,26 @@ fn internal(
             }
         }
     }
-    for page in &checked {
-        problems.extend(notes_problems(document, page, slides.contains(page)));
+    for rendered in &checked {
+        problems.extend(notes_problems(
+            document,
+            rendered,
+            slides.contains(rendered.file()),
+        ));
     }
     problems
 }
 
 /// A page's `<Notes>` that are out of place: any on a page that isn't a
 /// slide, and every one after the first on a slide.
-fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem> {
-    let source = std::fs::read_to_string(page).unwrap_or_default();
-    let file = document.name(page);
+fn notes_problems(document: &Document, rendered: &Rendered, slide: bool) -> Vec<Problem> {
+    // A page outside the served folder is no page of the check: the link to
+    // it is the problem.
+    let Some(file) = document.name(rendered.file()) else {
+        return Vec::new();
+    };
     // A slide's first `<Notes>` is its notes; a page has none.
-    crate::markup::notes(&source)
+    crate::markup::notes(rendered.source())
         .iter()
         .skip(usize::from(slide))
         .map(|note| Problem {
@@ -203,25 +352,28 @@ fn notes_problems(document: &Document, page: &Path, slide: bool) -> Vec<Problem>
         .collect()
 }
 
-/// One page's problems and reached files; its external links are collected
-/// in `external` as (file, line, address).
+/// One page's problems and reached files, judged from its `rendered`
+/// content — the content its page shows; its external links are collected
+/// in `external` as (file, line, address). A heading another page holds is
+/// one that page's content shows, its widgets read through `modules`.
 fn page_links_with(
+    folder: &Folder,
     document: &Document,
-    widgets: &Widgets,
-    page: &Path,
+    modules: &Modules,
+    designs: &Designs,
+    rendered: &Rendered,
     external: &mut Vec<Link>,
 ) -> (Vec<Problem>, Vec<PathBuf>) {
-    let source = std::fs::read_to_string(page).unwrap_or_default();
-    let mut unknown = Vec::new();
-    let rendered = render::markdown(&crate::widgets::expand(
-        &source,
-        widgets.names(),
-        &mut unknown,
-    ));
-    let file = document.name(page);
+    let page = rendered.file();
+    let source = rendered.source();
+    // A page outside the served folder is no page of the check: the link to
+    // it is the problem.
+    let Some(file) = document.name(page) else {
+        return (Vec::new(), Vec::new());
+    };
     let mut problems = Vec::new();
-    for found in unknown {
-        let (line, message) = found.split_once(": ").unwrap_or(("", &found));
+    for found in rendered.tag_problems() {
+        let (line, message) = found.split_once(": ").unwrap_or(("", found));
         problems.push(Problem {
             file: file.clone(),
             line: line.parse().ok(),
@@ -230,22 +382,11 @@ fn page_links_with(
         });
     }
     let mut reached = Vec::new();
-    let mut targets = html::values(&rendered, "href");
-    targets.extend(html::values(&rendered, "src"));
-    // A design embedded with `![…](x.design)`, read from the Markdown itself,
-    // whatever HTML the page renders it as.
-    for target in embedded_designs(&source) {
-        if !targets.contains(&target) {
-            targets.push(target);
-        }
-    }
     // A diagram's `click … href "…"` lines are links in its drawing, found
     // with the rest; one that doesn't draw is a problem of its own.
-    problems.extend(diagram_problems(&source, &file));
-    for target in targets {
-        let line = source
-            .find(&target)
-            .map(|at| source[..at].lines().count().max(1));
+    problems.extend(diagram_problems(source, &file));
+    for link in rendered.links() {
+        let (target, line) = (link.target.clone(), link.line);
         let (path, fragment) = match html::Link::classify(&target) {
             html::Link::File { path, fragment } => (path, fragment),
             html::Link::Web(_) => {
@@ -280,24 +421,30 @@ fn page_links_with(
             });
             continue;
         };
+        // A heading is named by an id its page's content renders, widgets
+        // expanded: this page's own, or the linked page's as shown.
+        let no_heading = || Problem {
+            file: file.clone(),
+            line,
+            message: format!("broken link {target} — no heading #{fragment}"),
+            target: Some(target.clone()),
+        };
         if !fragment.is_empty()
             && resolved.extension().is_some_and(|ext| ext == "md")
             && fragment.parse::<usize>().is_err()
-        {
-            let target_html =
-                render::markdown(&std::fs::read_to_string(&resolved).unwrap_or_default());
-            if !target_html.contains(&format!("id=\"{fragment}\"")) {
-                problems.push(Problem {
-                    file: file.clone(),
-                    line,
-                    message: format!("broken link {target} — no heading #{fragment}"),
-                    target: Some(target.clone()),
-                });
+            && !if path.is_empty() {
+                rendered.ids()
+            } else {
+                page::ids(&resolved, folder, modules)
             }
+            .contains(fragment)
+        {
+            problems.push(no_heading());
         }
-        if resolved.extension().is_some_and(|ext| ext == "design") {
-            let address = document.name(&resolved);
-            for problem in crate::designs::problems(&document.served, &address) {
+        if resolved.extension().is_some_and(|ext| ext == "design")
+            && let Some(address) = document.name(&resolved)
+        {
+            for problem in designs.problems(&address) {
                 problems.push(Problem {
                     file: file.clone(),
                     line,
@@ -341,26 +488,13 @@ fn page_links_with(
                     });
                 }
                 // A heading in a doc is named by the id the doc renders it with.
-                Ok(
-                    linked @ Document {
-                        kind: Kind::Doc { .. },
-                        ..
-                    },
-                ) if !fragment.is_empty() => {
-                    let Kind::Doc { chapters, pdf } = &linked.kind else {
-                        unreachable!()
-                    };
-                    let linked_widgets = Widgets::of(&linked, widgets.cache());
-                    let rendered =
-                        render::doc(&linked, &linked_widgets, chapters, pdf, true, true, &[]);
-                    if !rendered.contains(&format!("id=\"{fragment}\"")) {
-                        problems.push(Problem {
-                            file: file.clone(),
-                            line,
-                            message: format!("broken link {target} — no heading #{fragment}"),
-                            target: Some(target.clone()),
-                        });
-                    }
+                Ok(Document {
+                    kind: Kind::Doc { .. },
+                    ..
+                }) if !fragment.is_empty()
+                    && !page::ids(&resolved, folder, modules).contains(fragment) =>
+                {
+                    problems.push(no_heading());
                 }
                 Ok(_) => {}
             }
@@ -369,7 +503,7 @@ fn page_links_with(
     }
     // In a site, a Topics entry outside the site's folder is left out of the sidebar.
     if matches!(document.kind, Kind::Site { .. }) {
-        for topic in crate::nav::topics(&source) {
+        for topic in crate::nav::topics(source) {
             if let crate::nav::Target::Problem(message) =
                 crate::nav::resolve(document, page, &topic.href)
                 && message.ends_with("outside the site's folder")
@@ -394,7 +528,7 @@ fn page_links_with(
 fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
     use comrak::nodes::NodeValue;
     let arena = comrak::Arena::new();
-    let root = comrak::parse_document(&arena, source, &render::options());
+    let root = comrak::parse_document(&arena, source, &page::markdown::options());
     let fences: Vec<(usize, String)> = root
         .descendants()
         .filter_map(|node| {
@@ -421,25 +555,6 @@ fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
                 message: format!("broken diagram — {why}"),
                 target: None,
             })
-        })
-        .collect()
-}
-
-/// The `.design` files a page's Markdown embeds or links to, read from its
-/// syntax tree — never from code, where `![…](x.design)` is only an example.
-fn embedded_designs(source: &str) -> Vec<String> {
-    use comrak::nodes::NodeValue;
-    let arena = comrak::Arena::new();
-    let root = comrak::parse_document(&arena, source, &comrak::Options::default());
-    root.descendants()
-        .filter_map(|node| match &node.data.borrow().value {
-            NodeValue::Image(link) | NodeValue::Link(link) => Some(link.url.clone()),
-            _ => None,
-        })
-        .filter(|url| {
-            url.split('#')
-                .next()
-                .is_some_and(|path| path.ends_with(".design"))
         })
         .collect()
 }
@@ -478,9 +593,13 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
         return problems;
     };
     for file in widget_files(folder) {
+        // A widget file outside the served folder is never read.
+        let Some(name) = document.name(&file) else {
+            continue;
+        };
         if let Err(error) = widgets.compile(&file) {
             problems.push(Problem {
-                file: document.name(&file),
+                file: name,
                 line: None,
                 message: format!("does not compile: {error}"),
                 target: None,
@@ -540,44 +659,66 @@ impl Preview {
         }
     }
 
-    /// The problems on the given pages: each is reported the first time it is
-    /// found, and returned for the page to list. External
+    /// The problems on the given pages of `document` — each page's content
+    /// as its page shows it, rendered once for both — each design they reach
+    /// as `designs` — the served folder's design store — holds it, and each
+    /// page of `folder` they link into as its own content shows it: each is
+    /// reported the
+    /// first time it is found, and returned for the page to list. External
     /// addresses are checked in the background: a definite error shows from
     /// the next render, which its answer triggers; an address that can't be
     /// reached is retried, and shows only after three failures in a row,
     /// until it answers again.
     pub fn problems(
         &self,
+        folder: &Folder,
         document: &Document,
         widgets: &Widgets,
-        pages: &[PathBuf],
+        designs: &Designs,
+        pages: &[Rendered],
     ) -> Vec<Problem> {
         let Some(kept) = &self.kept else {
-            return self.check(document, widgets, pages);
+            return self.check(folder, document, widgets, designs, pages);
         };
-        let key = (document.path(), pages.to_vec());
+        let key = (
+            document.path(),
+            pages.iter().map(|page| page.file().to_path_buf()).collect(),
+        );
         let lock = || kept.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         if let Some(found) = lock().get(&key) {
             return found.clone();
         }
         // Checked without the lock, so a slow page holds up no other; two
         // first views at once both check, and find the same.
-        let found = self.check(document, widgets, pages);
+        let found = self.check(folder, document, widgets, designs, pages);
         lock().entry(key).or_insert(found).clone()
     }
 
     /// The problems on the given pages, checked now.
-    fn check(&self, document: &Document, widgets: &Widgets, pages: &[PathBuf]) -> Vec<Problem> {
+    fn check(
+        &self,
+        folder: &Folder,
+        document: &Document,
+        widgets: &Widgets,
+        designs: &Designs,
+        pages: &[Rendered],
+    ) -> Vec<Problem> {
         let _check = tracing::info_span!("check").entered();
         let mut external = Vec::new();
         let mut problems = widget_problems(document, widgets);
-        problems.extend(crate::navbar::problems(document));
-        problems.extend(crate::navbar::logo_problem(document));
-        problems.extend(
-            pages
-                .iter()
-                .flat_map(|page| page_links_with(document, widgets, page, &mut external).0),
-        );
+        problems.extend(page::navbar::problems(document));
+        problems.extend(page::navbar::logo_problem(document));
+        problems.extend(pages.iter().flat_map(|page| {
+            page_links_with(
+                folder,
+                document,
+                widgets.cache(),
+                designs,
+                page,
+                &mut external,
+            )
+            .0
+        }));
         // The pages of a deck are its slides; any other page is not one.
         let slide = matches!(document.kind, Kind::Slides { .. });
         problems.extend(
@@ -623,11 +764,34 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
+
+    /// A folder opened on `document`, as `devpage check` opens one.
+    pub(super) fn opened(document: &Document) -> Folder {
+        Folder::new(Arc::new(
+            Document::load(&document.path(), &document.served).unwrap(),
+        ))
+    }
 
     /// `document`'s widget set, read through a cache of its own.
     fn widgets_of(document: &Document) -> Widgets {
         Widgets::of(document, &crate::widgets::Modules::default())
+    }
+
+    /// The content of each of `files`, as `document` shows it: what the
+    /// preview is given.
+    pub(super) fn rendered(document: &Document, files: &[PathBuf]) -> Vec<Rendered> {
+        let widgets = widgets_of(document);
+        files
+            .iter()
+            .map(|file| page::read(&widgets, file))
+            .collect()
+    }
+
+    /// A design store of its own for `document`'s served folder, as
+    /// `devpage check` makes one.
+    pub(super) fn designs_of(document: &Document) -> Designs {
+        Designs::new(&document.served)
     }
 
     #[test]
@@ -646,10 +810,16 @@ mod tests {
         )
         .unwrap();
         let doc = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
-        let found: Vec<String> = internal(&doc, &mut Vec::new(), None)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        let found: Vec<String> = internal(
+            &opened(&doc),
+            &designs_of(&doc),
+            &doc,
+            &mut Vec::new(),
+            None,
+        )
+        .iter()
+        .map(ToString::to_string)
+        .collect();
         assert_eq!(found.len(), 5, "{found:#?}");
         assert!(
             found.contains(&"README.md:3: broken link nope.md — no such file".to_string()),
@@ -682,8 +852,20 @@ mod tests {
         let expected = "README.md:17: broken diagram — Parse error on line 2:\n  A->>B: one; two\n";
         // In `devpage check`, and in the page's problems.
         for found in [
-            internal(&doc, &mut Vec::new(), None),
-            testing::preview().problems(&doc, &widgets_of(&doc), &[doc.base.join("README.md")]),
+            internal(
+                &opened(&doc),
+                &designs_of(&doc),
+                &doc,
+                &mut Vec::new(),
+                None,
+            ),
+            testing::preview().problems(
+                &opened(&doc),
+                &doc,
+                &widgets_of(&doc),
+                &designs_of(&doc),
+                &rendered(&doc, &[doc.base.join("README.md")]),
+            ),
         ] {
             let found: Vec<String> = found.iter().map(ToString::to_string).collect();
             assert_eq!(found.len(), 1, "{found:#?}");
@@ -691,12 +873,65 @@ mod tests {
             assert!(found[0].contains("got 'NEWLINE'"), "{found:#?}");
         }
     }
+
+    /// A design's problems and files come from the store the check is
+    /// given: a design document checked and then zipped is resolved once,
+    /// there.
+    #[tokio::test]
+    async fn a_design_is_checked_and_followed_through_the_store() {
+        let dir = crate::designs::testing::served("check-store");
+        let served = ServedFolder::new(&dir).unwrap();
+        let folder = Folder::new(Arc::new(
+            Document::load(&dir.join("app/screen.design"), &served).unwrap(),
+        ));
+        let designs = Designs::new(&served);
+        assert!(document(&folder, &designs, None).await.is_empty());
+        assert_eq!(
+            files(&folder, &designs),
+            [dir.join("app/button.design"), dir.join("app/screen.design")]
+        );
+        assert_eq!(designs.resolutions(), 1, "resolved once, in the store");
+    }
+
+    /// A page's problems name a design it embeds as the server's store holds
+    /// it: checking the page keeps the design there, and a save the store is
+    /// told of shows on the page.
+    #[test]
+    fn a_page_shows_an_embedded_designs_problems_as_the_store_holds_them() {
+        let dir = crate::designs::testing::served("preview-store");
+        let screen = dir.join("app/screen.design");
+        let broken = crate::designs::testing::SCREEN.replace("<Button label", "<Button lable");
+        std::fs::write(&screen, &broken).unwrap();
+        std::fs::write(
+            dir.join("page.md"),
+            "# Page\n\n![Screen](app/screen.design)\n",
+        )
+        .unwrap();
+        let doc = Document::load(&dir.join("page.md"), &ServedFolder::new(&dir).unwrap()).unwrap();
+        let designs = Designs::new(&doc.served);
+        let preview = testing::preview();
+        let pages = rendered(&doc, &[dir.join("page.md")]);
+        let found = preview.problems(&opened(&doc), &doc, &widgets_of(&doc), &designs, &pages);
+        assert_eq!(found.len(), 1, "{found:#?}");
+        assert!(
+            found[0]
+                .to_string()
+                .starts_with("page.md:3: broken design app/screen.design — app/screen.design:5:"),
+            "{found:#?}"
+        );
+        assert!(designs.resolve("app/screen.design").is_err());
+        assert_eq!(designs.resolutions(), 1, "the page's check kept it");
+        crate::designs::testing::save(&designs, &screen, crate::designs::testing::SCREEN);
+        let found = preview.problems(&opened(&doc), &doc, &widgets_of(&doc), &designs, &pages);
+        assert!(found.is_empty(), "{found:#?}");
+    }
 }
 
 #[cfg(test)]
 mod external {
+    use super::tests::{designs_of, opened, rendered};
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
     use crate::widgets::Modules;
 
     /// `document`'s widget set, read through a cache of its own.
@@ -735,7 +970,7 @@ mod external {
         .unwrap();
         std::fs::write(top.join("CONTRIBUTING.md"), "# Contributing").unwrap();
         let site = Document::load(&docs, &ServedFolder::new(&top).unwrap()).unwrap();
-        let found: Vec<String> = document(&site, None)
+        let found: Vec<String> = document(&opened(&site), &designs_of(&site), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -760,7 +995,7 @@ mod external {
             "# O\n\n## Topics\n\n- [P](x/p.md) — inside.\n- [Out](../outside.md) — not.\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -787,7 +1022,7 @@ mod external {
             "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -800,6 +1035,97 @@ mod external {
             ],
             "{found:#?}"
         );
+    }
+
+    /// A link into another page — a Markdown file or a doc — must land on an
+    /// id that page renders: `devpage check` and the preview say so alike.
+    #[tokio::test]
+    async fn a_broken_cross_page_anchor_is_a_problem_in_check_and_the_preview() {
+        let doc = folder(
+            "cross-anchor",
+            "# Home\n\n[ok](other.md#there) [gone](other.md#nowhere)\n\n[ok](d/doc.yml#c1--real) [gone](d/doc.yml#nowhere)\n",
+        );
+        std::fs::write(doc.base.join("other.md"), "# Other\n\n## There\n").unwrap();
+        let d = doc.base.join("d");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("c1.md"), "# One\n\n## Real\n").unwrap();
+        std::fs::write(d.join("c2.md"), "# Two\n").unwrap();
+        std::fs::write(
+            d.join("doc.yml"),
+            "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
+        )
+        .unwrap();
+        let expected = [
+            "README.md:3: broken link other.md#nowhere — no heading #nowhere",
+            "README.md:5: broken link d/doc.yml#nowhere — no heading #nowhere",
+        ];
+        let checked: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(checked, expected, "{checked:#?}");
+        let previewed: Vec<String> = preview(&doc, &[doc.base.join("README.md")])
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(previewed, expected, "{previewed:#?}");
+    }
+
+    /// A heading is one the linked page shows: its widgets' tags expanded —
+    /// a system widget's and its own site's — and an unknown tag's content
+    /// not shown.
+    #[tokio::test]
+    async fn a_link_lands_on_a_heading_as_its_page_shows_it_widgets_expanded() {
+        let doc = folder(
+            "widget-anchor",
+            "# Home\n\n[a](other.md#one) [b](other.md#two) [c](other.md#boxed) \
+             [d](other.md#hidden) [e](d/doc.yml#c1--inside) [f](#here)\n\n\
+             <Steps>\n## Here\n</Steps>\n",
+        );
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(doc.base.join("widgets")).unwrap();
+        std::fs::write(
+            doc.base.join("widgets/Box.tsx"),
+            "export default function Box({ children }) { return children; }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("other.md"),
+            "# Other\n\n<Steps>\n## One\n## Two\n</Steps>\n\n<Box>\n## Boxed\n</Box>\n\n\
+             <Nope>\n## Hidden\n</Nope>\n",
+        )
+        .unwrap();
+        let d = doc.base.join("d");
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("c1.md"), "# One\n\n<Steps>\n## Inside\n</Steps>\n").unwrap();
+        std::fs::write(d.join("c2.md"), "# Two\n").unwrap();
+        std::fs::write(
+            d.join("doc.yml"),
+            "kind: doc\ntitle: D\nchapters: [c1.md, c2.md]\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.path(), &doc.served).unwrap();
+        let broken = "README.md:3: broken link other.md#hidden — no heading #hidden";
+        let checked: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            checked,
+            [broken, "other.md:12: <Nope> is not a widget"],
+            "{checked:#?}"
+        );
+        let previewed: Vec<String> = preview(&doc, &[doc.base.join("README.md")])
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(previewed, [broken], "{previewed:#?}");
     }
 
     #[tokio::test]
@@ -816,7 +1142,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md, b.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -851,7 +1177,7 @@ mod external {
         )
         .unwrap();
         std::fs::write(doc.base.join("page.md"), "# Page\n\n<Notes>lost</Notes>\n").unwrap();
-        let mut found: Vec<String> = document(&doc, None)
+        let mut found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -897,7 +1223,7 @@ mod external {
             "kind: slides\ntitle: D\nslides: [a.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -925,7 +1251,7 @@ mod external {
             "kind: doc\ntitle: P\nchapters: [missing.md]\n",
         )
         .unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -941,9 +1267,11 @@ mod external {
     /// The problems a fresh preview finds at once.
     fn preview(doc: &Document, pages: &[PathBuf]) -> Vec<Problem> {
         Preview::new(offline(), Arc::new(Recorder::default())).problems(
+            &super::tests::opened(doc),
             doc,
             &widgets_of(doc),
-            pages,
+            &designs_of(doc),
+            &rendered(doc, pages),
         )
     }
 
@@ -962,9 +1290,31 @@ mod external {
         let doc = folder("preview-report", "# Home\n\n[gone](gone.md)\n");
         let recorder = Arc::new(Recorder::default());
         let preview = Preview::new(offline(), recorder.clone());
-        let pages = [doc.base.join("README.md")];
-        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
-        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
+        let pages = rendered(&doc, &[doc.base.join("README.md")]);
+        assert_eq!(
+            preview
+                .problems(
+                    &super::tests::opened(&doc),
+                    &doc,
+                    &widgets_of(&doc),
+                    &designs_of(&doc),
+                    &pages,
+                )
+                .len(),
+            1
+        );
+        assert_eq!(
+            preview
+                .problems(
+                    &super::tests::opened(&doc),
+                    &doc,
+                    &widgets_of(&doc),
+                    &designs_of(&doc),
+                    &pages,
+                )
+                .len(),
+            1
+        );
         assert_eq!(
             *recorder.0.lock().unwrap(),
             ["README.md:3: broken link gone.md — no such file"]
@@ -978,29 +1328,46 @@ mod external {
             "# Home\n\n[gone](gone.md) and [heading](README.md#nope)\n",
         );
         let preview = Preview::once(offline(), Arc::new(Recorder::default()));
+        let problems = |files: &[PathBuf]| {
+            preview.problems(
+                &super::tests::opened(&doc),
+                &doc,
+                &widgets_of(&doc),
+                &designs_of(&doc),
+                &rendered(&doc, files),
+            )
+        };
         let pages = [doc.base.join("README.md")];
-        let first = preview.problems(&doc, &widgets_of(&doc), &pages);
+        let first = problems(&pages);
         assert_eq!(first.len(), 2, "{first:#?}");
         // Fixed on disk, which a version never is: the kept answer shows it
         // was not checked again.
         std::fs::write(doc.base.join("README.md"), "# Home\n").unwrap();
         for _ in 0..9 {
-            assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages), first);
+            assert_eq!(problems(&pages), first);
         }
         // Another page is checked on its own.
         std::fs::write(doc.base.join("two.md"), "# Two\n\n[gone](gone.md)\n").unwrap();
-        let two = [doc.base.join("two.md")];
-        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &two).len(), 1);
+        assert_eq!(problems(&[doc.base.join("two.md")]).len(), 1);
     }
 
     #[test]
     fn a_preview_of_files_that_change_checks_on_every_view() {
         let doc = folder("preview-every", "# Home\n\n[gone](gone.md)\n");
         let preview = Preview::new(offline(), Arc::new(Recorder::default()));
+        let problems = |files: &[PathBuf]| {
+            preview.problems(
+                &super::tests::opened(&doc),
+                &doc,
+                &widgets_of(&doc),
+                &designs_of(&doc),
+                &rendered(&doc, files),
+            )
+        };
         let pages = [doc.base.join("README.md")];
-        assert_eq!(preview.problems(&doc, &widgets_of(&doc), &pages).len(), 1);
+        assert_eq!(problems(&pages).len(), 1);
         std::fs::write(doc.base.join("README.md"), "# Home\n").unwrap();
-        assert!(preview.problems(&doc, &widgets_of(&doc), &pages).is_empty());
+        assert!(problems(&pages).is_empty());
     }
 
     #[tokio::test]
@@ -1015,7 +1382,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1036,7 +1403,7 @@ mod external {
         )
         .unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1074,7 +1441,7 @@ mod external {
         // A helper that doesn't compile is a problem too.
         std::fs::write(doc.base.join("widgets/fmt.ts"), "export const x = ;").unwrap();
         let doc = Document::load(&doc.base, &doc.served).unwrap();
-        let found: Vec<String> = document(&doc, None)
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
             .await
             .iter()
             .map(ToString::to_string)
@@ -1120,8 +1487,9 @@ mod external {
 
 #[cfg(test)]
 mod documents {
+    use super::tests::{designs_of, opened};
     use super::*;
-    use crate::served::ServedFolder;
+    use crate::folder::ServedFolder;
 
     /// The top of the repository the core crate sits in.
     fn repository() -> PathBuf {
@@ -1140,7 +1508,13 @@ mod documents {
             let root = repository();
             let doc =
                 Document::load(&root.join(example), &ServedFolder::new(&root).unwrap()).unwrap();
-            let problems = internal(&doc, &mut Vec::new(), None);
+            let problems = internal(
+                &opened(&doc),
+                &designs_of(&doc),
+                &doc,
+                &mut Vec::new(),
+                None,
+            );
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
     }
@@ -1151,10 +1525,63 @@ mod documents {
     fn devpage_docs_have_no_broken_links() {
         let root = repository();
         let doc = Document::load(&root.join("docs"), &ServedFolder::new(&root).unwrap()).unwrap();
-        let problems: Vec<String> = internal(&doc, &mut Vec::new(), None)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        let problems: Vec<String> = internal(
+            &opened(&doc),
+            &designs_of(&doc),
+            &doc,
+            &mut Vec::new(),
+            None,
+        )
+        .iter()
+        .map(ToString::to_string)
+        .collect();
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn a_deck_is_drawn_from_what_its_slides_embed_and_not_what_they_link_to() {
+        let dir = std::env::temp_dir().join(format!("devpage-drawn-from-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("talk")).unwrap();
+        std::fs::create_dir_all(dir.join("img")).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let write = |file: &str, text: &str| std::fs::write(dir.join(file), text).unwrap();
+        write(
+            "talk/one.md",
+            "# One\n\n![Dark](../screen.design.png?theme=dark)\n\n![Later](../img/later.png)\n\n![Other](../other.yml/1.png)\n\n![Top](/img/top.png)\n\n[Linked](../linked.md)\n\n<img src=\"https://example.com/x.png\">\n",
+        );
+        write(
+            "talk/talk.yml",
+            "kind: slides\ntitle: T\nslides: [one.md]\n",
+        );
+        write("screen.design", "<Frame width={10} height={10} />\n");
+        write("img/top.png", "png");
+        write("linked.md", "# Linked\n");
+        write("other.md", "# Other\n\n![Back](talk/talk.yml/1.png)\n");
+        write("other.yml", "kind: slides\ntitle: O\nslides: [other.md]\n");
+        let served = ServedFolder::new(&dir).unwrap();
+        let designs = Designs::new(&served);
+        let files = drawn_from(
+            &dir.join("talk/talk.yml"),
+            &served,
+            &designs,
+            &Modules::default(),
+        );
+        let names: Vec<String> = files
+            .iter()
+            .map(|file| file.strip_prefix(&dir).unwrap().display().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "img/later.png",
+                "img/top.png",
+                "other.md",
+                "other.yml",
+                "screen.design",
+                "talk/one.md",
+                "talk/talk.yml",
+            ]
+        );
     }
 }

@@ -6,7 +6,7 @@ use std::collections::{BTreeSet, HashMap};
 use kurbo::{Rect as KRect, Vec2};
 
 use crate::display::{Order, Space};
-use crate::resolve::{Node, Scene};
+use crate::scene::{Node, Scene};
 use crate::tree::OrderKey;
 
 use super::*;
@@ -15,12 +15,13 @@ impl Renderer {
         &mut self,
         d: &mut Drawing,
         new: &Scene,
-        applied: &crate::wire::Applied,
+        applied: &crate::scene::Applied,
     ) -> Result<Damage, Undrawable> {
         self.register(&new.fonts);
         d.visited = 0;
         let changes = Changes::of(d, new, applied);
-        let mut damage = Damage::default();
+        let mut damage = Vec::new();
+        let mut all = false;
         let mut images = false;
         // What is gone: subtrees removed, moved away or made again — their
         // layout nodes, chunks, records and property-tree nodes.
@@ -106,21 +107,17 @@ impl Renderer {
         let now = d.list.area;
         if now != area {
             if (now.x, now.y) != (area.x, area.y) {
-                damage.all = true;
+                all = true;
             } else {
                 // What the area gained or lost along its right and bottom.
                 let (w0, w1) = (area.width.min(now.width), area.width.max(now.width));
                 let (h0, h1) = (area.height.min(now.height), area.height.max(now.height));
                 let (x, y) = (now.x as f64, now.y as f64);
                 if w0 < w1 {
-                    damage
-                        .rects
-                        .push(KRect::new(x + w0 as f64, y, x + w1 as f64, y + h1 as f64));
+                    damage.push(KRect::new(x + w0 as f64, y, x + w1 as f64, y + h1 as f64));
                 }
                 if h0 < h1 {
-                    damage
-                        .rects
-                        .push(KRect::new(x, y + h0 as f64, x + w1 as f64, y + h1 as f64));
+                    damage.push(KRect::new(x, y + h0 as f64, x + w1 as f64, y + h1 as f64));
                 }
             }
         }
@@ -129,7 +126,14 @@ impl Renderer {
         } else {
             d.fits.clone()?;
         }
-        Ok(damage)
+        Ok(if all {
+            Damage::All
+        } else {
+            Damage::Rects {
+                origin: (now.x as f64, now.y as f64),
+                rects: damage,
+            }
+        })
     }
 }
 
@@ -148,7 +152,7 @@ impl Changes {
     /// What `applied` did, found in the drawing `d` showed before and in
     /// `new`: each subtree's root once — none under another — and each in
     /// tree order.
-    pub(super) fn of(d: &Drawing, new: &Scene, applied: &crate::wire::Applied) -> Changes {
+    pub(super) fn of(d: &Drawing, new: &Scene, applied: &crate::scene::Applied) -> Changes {
         let mut removed: BTreeSet<Order> = applied
             .removed
             .iter()
@@ -171,7 +175,7 @@ impl Changes {
             let node = new.at(o).expect("indexed");
             // A frame turning to no layout, or from it, is another kind of
             // run — a free one, or one along a line: made again.
-            let free = |n: &Node| n.layout == crate::resolve::Layout::None;
+            let free = |n: &Node| n.layout == crate::scene::Layout::None;
             if leafy(old) != leafy(node) || (free(old) != free(node) && !node.children.is_empty()) {
                 removed.insert(o.clone());
                 added.insert(o.clone());
@@ -194,11 +198,11 @@ impl Changes {
         // unless one of those happened.
         let mut maybe: BTreeSet<Order> = BTreeSet::new();
         let along = |n: &Node, c: &Node| match n.layout {
-            crate::resolve::Layout::Row => c.width,
-            crate::resolve::Layout::Column => c.height,
-            crate::resolve::Layout::None => crate::resolve::Size::Hug,
+            crate::scene::Layout::Row => c.width,
+            crate::scene::Layout::Column => c.height,
+            crate::scene::Layout::None => crate::scene::Size::Hug,
         };
-        let fill = crate::resolve::Size::Fill;
+        let fill = crate::scene::Size::Fill;
         for (id, old) in &applied.changed {
             let Some(o) = new.ids.get(id) else { continue };
             let Some(node) = new.at(o) else { continue };
@@ -231,8 +235,8 @@ impl Changes {
             // length and it keeps some: no scan of its children.
             let now = if was
                 && !n.children.is_empty()
-                && n.justify != crate::resolve::Align::SpaceBetween
-                && n.layout != crate::resolve::Layout::None
+                && n.justify != crate::scene::Align::SpaceBetween
+                && n.layout != crate::scene::Layout::None
                 && added
                     .iter()
                     .filter(|o| o.len() == p.len() + 1 && o.starts_with(&p))
@@ -292,7 +296,7 @@ impl Drawing {
     /// Takes out everything at and under `order` — chunks, records, frames,
     /// runs and the property-tree nodes they made — adding where the chunks
     /// were to `damage`. True when any of them painted an image.
-    pub(super) fn forget(&mut self, order: &Order, damage: &mut Damage) -> bool {
+    pub(super) fn forget(&mut self, order: &Order, damage: &mut Vec<KRect>) -> bool {
         let under: Vec<Order> = self
             .recs
             .range(order.clone()..)
@@ -304,7 +308,7 @@ impl Drawing {
             let at = self.list.chunk(o).map(|c| self.list.space_at(&c.space));
             if let Some(c) = self.list.take(o) {
                 let at = at.unwrap_or(Vec2::ZERO);
-                damage.rects.extend(c.bounds.map(|b| b + at));
+                damage.extend(c.bounds.map(|b| b + at));
                 self.list.free(&c.made);
             }
             if let Some(rid) = self.laid.run_of.get(o)
@@ -354,7 +358,7 @@ impl Renderer {
         d: &mut Drawing,
         new: &Scene,
         order: &Order,
-        damage: &mut Damage,
+        damage: &mut Vec<KRect>,
     ) -> bool {
         let parent = (!order.is_empty()).then(|| order[..order.len() - 1].to_vec());
         let run = parent.as_ref().and_then(|p| d.laid.run_of.get(p).copied());
@@ -492,7 +496,7 @@ fn restyle(d: &mut Drawing, new: &Scene, order: &Order) {
         d.laid
             .runs
             .get_mut(rid)
-            .classify(&k, across == crate::resolve::Size::Fill, sens);
+            .classify(&k, across == crate::scene::Size::Fill, sens);
         let _ = p;
         let laid = &mut d.laid;
         laid.runs.touch(&mut laid.top, rid, k);

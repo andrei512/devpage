@@ -307,7 +307,7 @@ the room the slide leaves it, as on screen. A PDF, a slide's PNG and a video
 draw an embed in the theme of the page it is on, as the screen does.
 
 While a design is open, saving any file it is made of — a `themes.yml` it
-reads among them — redraws it in place —
+reads among them, or a font added to a font folder it uses — redraws it in place —
 only the parts that changed are sent to the browser. A design deleted while
 open shows its `no such file` problem, and comes back when it is written
 again — after a branch switch, say — without a reload.

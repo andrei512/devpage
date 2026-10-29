@@ -3,86 +3,25 @@
 //! each version through the same router a local devpage uses: the latest
 //! mounted at `/d/<id>`, every version at `/d/<id>/v/<n>`.
 
-mod api;
 mod cache;
-mod comments;
 #[cfg(test)]
 mod comments_tests;
 mod config;
 pub mod metrics;
 #[cfg(test)]
 mod metrics_tests;
-mod pages;
 #[cfg(test)]
 mod pages_tests;
+mod published;
+mod routes;
 mod searches;
 #[cfg(test)]
 mod tests;
-mod versions;
-
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use axum::Router;
-use axum::extract::DefaultBodyLimit;
-use axum::routing::{any, delete, get, post};
 
 pub use config::Config;
-
-use crate::adapters::bucket::Bucket;
-use crate::adapters::sqlite::Sqlite;
-use crate::changes::{Change, Changes};
-use crate::server;
-use cache::Cache;
-
-#[derive(Clone)]
-struct ServerMode {
-    store: Arc<Sqlite>,
-    bucket: Bucket,
-    cache: Arc<Cache>,
-    /// Where a publish unpacks its zip to check it, on the PVC.
-    scratch: PathBuf,
-    user_header: Option<String>,
-    /// One lock per document: its publishes and deletions happen one at a
-    /// time.
-    publishing: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
-    /// Each document's change bus, shared by every router serving its latest
-    /// version at `/d/<id>`: a publish tells all of them, so a page open
-    /// there swaps in the new version whichever version it loaded; and a
-    /// comment written through the API reaches those pages as one written on
-    /// them does.
-    buses: Arc<Mutex<HashMap<String, Changes>>>,
-    /// The versions' search indexes, each built on its first search.
-    searches: Arc<searches::Searches>,
-}
-
-impl ServerMode {
-    fn publishing(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
-        self.publishing
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .entry(id.to_string())
-            .or_default()
-            .clone()
-    }
-
-    /// The change bus of document `id`'s latest version.
-    fn bus(&self, id: &str) -> Changes {
-        self.buses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .entry(id.to_string())
-            .or_default()
-            .clone()
-    }
-
-    /// Tells every page open at `/d/<id>` that its latest version changed.
-    fn announce(&self, id: &str) {
-        self.bus(id).publish(Change::Refresh);
-    }
-}
 
 /// The `devpage server` router for `config`.
 #[cfg(test)]
@@ -90,71 +29,21 @@ pub fn router(config: &Config) -> Result<Router> {
     Ok(routers(config)?.0)
 }
 
-/// The `devpage server` router for `config`, and its metrics port's router,
-/// which reports what that server holds.
+/// The `devpage server` router for `config` — its published documents, the
+/// store, the bucket and the cache it names, answered over HTTP — and its
+/// metrics port's router, which reports what that server holds.
 pub fn routers(config: &Config) -> Result<(Router, Router)> {
     metrics::listen();
-    let scratch = config.data_dir.join("scratch");
-    // What a publish that stopped halfway left.
-    let _ = std::fs::remove_dir_all(&scratch);
-    std::fs::create_dir_all(&scratch)?;
-    let state = ServerMode {
-        store: Arc::new(Sqlite::open(&config.data_dir.join("store.db"))?),
-        bucket: Bucket::open(&config.bucket_url)?,
-        cache: Arc::new(Cache::open(
-            &config.data_dir.join("cache"),
-            config.cache_max_bytes,
-            config.cache_policy.eviction(),
-            config.memory_cache_versions,
-        )?),
-        scratch: scratch.canonicalize()?,
-        user_header: config.user_header.clone(),
-        publishing: Arc::default(),
-        buses: Arc::default(),
-        searches: Arc::new(searches::Searches::new(searches::BUDGET)),
-    };
-    let api = Router::new()
-        .route("/api/documents", post(api::create).get(api::list))
-        .route("/api/documents/{id}", get(api::get_one).delete(api::delete))
-        .route("/api/documents/{id}/versions", post(api::add_version))
-        .route(
-            "/api/documents/{id}/versions/{n}",
-            delete(api::delete_version),
-        )
-        .route(
-            "/api/documents/{id}/comments",
-            get(comments::list).post(comments::create),
-        )
-        .route(
-            "/api/documents/{id}/comments/{thread}",
-            delete(comments::resolve),
-        )
-        .route(
-            "/api/documents/{id}/comments/{thread}/replies",
-            post(comments::reply),
-        )
-        .layer(DefaultBodyLimit::max(
-            usize::try_from(config.max_upload_bytes).unwrap_or(usize::MAX),
-        ));
-    let app = Router::new()
-        .merge(api)
-        .route("/", get(pages::front))
-        .route("/favicon.ico", get(pages::favicon))
-        .route("/d/{id}", get(versions::to_folder))
-        .route("/d/{id}/", any(versions::latest_root))
-        .route("/d/{id}/{*rest}", any(versions::in_document))
-        .route("/__devpage/{asset}", get(server::asset))
-        .route_layer(axum::middleware::from_fn(metrics::requests))
-        .with_state(state.clone());
-    let cache = state.cache.clone();
+    let published = published::Published::open(config)?;
+    let held = published.clone();
     let metrics = metrics::router(move || {
-        let (versions, routers) = cache.in_memory();
+        let (versions, routers) = held.in_memory();
         metrics::Totals {
             versions,
             routers,
-            open_pages: server::open_pages(),
-            cache_bytes: cache.size(),
+            open_pages: crate::drive::http::open_pages(),
+            cache_bytes: held.cache_bytes(),
         }
     });
-    Ok((app, metrics))
+    Ok((routes::router(published, config.max_upload_bytes), metrics))
 }

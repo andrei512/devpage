@@ -830,7 +830,7 @@ async function loadComments() {
   for (const { section, page, threads } of fetched) {
     if (!section.isConnected) continue;
     for (const thread of threads) {
-      const card = threadCard(page, thread);
+      const card = threadCard(thread);
       const model = textModel(section);
       // A thread whose text the server found gone from this version stays
       // detached, even where its words happen to appear again.
@@ -910,7 +910,7 @@ function messageLine(message) {
   return p;
 }
 
-function threadCard(page, thread) {
+function threadCard(thread) {
   const card = document.createElement("div");
   card.className = "thread";
   card.dataset.thread = thread.id;
@@ -919,8 +919,8 @@ function threadCard(page, thread) {
   card.append(quote, ...thread.thread.map(messageLine));
   const resolve = document.createElement("button");
   resolve.textContent = "Resolve";
-  resolve.addEventListener("click", () => send("resolve", { page, id: thread.id }, card));
-  card.append(editor("Reply", (text) => send("reply", { page, id: thread.id, text }, card), [resolve]));
+  resolve.addEventListener("click", () => send("resolve", { id: thread.id }, card));
+  card.append(editor("Reply", (text) => send("reply", { id: thread.id, text }, card), [resolve]));
   return card;
 }
 

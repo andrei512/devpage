@@ -3,30 +3,22 @@
 //! own tab, the voice played into the recording by the page itself
 //! (`assets/video.js`).
 
-pub mod live;
+pub mod narrator;
 pub mod silence;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
+use axum::Router;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
-use chromiumoxide::cdp::browser_protocol::browser::{
-    Bounds, GetWindowBoundsParams, GetWindowForTargetParams, SetWindowBoundsParams,
-};
-use chromiumoxide::cdp::browser_protocol::input::{DispatchKeyEventParams, DispatchKeyEventType};
-use chromiumoxide::cdp::js_protocol::runtime::EvaluateParams;
-use futures::StreamExt;
-use serde::de::DeserializeOwned;
 
-use crate::document::{Document, Kind};
-use crate::pdf::{Profile, READY};
-use crate::server;
-use silence::{DONE_AFTER_SECONDS, PREBUFFER_SECONDS, RATE, SLIDE_LEAD_SECONDS, Trimmer};
+use crate::adapters::chrome::{Open, Profile, Session, Tab};
+use crate::drive::http;
+use devpage_core::document::{Document, Kind};
+use silence::{RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
 const RECORDER: &str = include_str!("../../assets/video.js");
@@ -41,9 +33,25 @@ const VOICE_STARTS_WITHIN: Duration = Duration::from_secs(60);
 /// to fit in one DevTools message.
 const CHUNK: usize = 4 << 20;
 
-/// The file `devpage video` writes when `-o` names none: the pdf rule, `.mp4`.
-pub fn default_output(title: &str) -> PathBuf {
-    crate::pdf::default_output(title).with_extension("mp4")
+/// How each slide waits on its voice, which streams in as it is spoken: the
+/// two waits a recording spends on every slide beyond its speech. The
+/// default is GPT-Live's, which `devpage video` records with.
+#[derive(Clone, Copy, Debug)]
+pub struct Pacing {
+    /// Voice buffered before a slide starts playing, covering network stalls.
+    pub prebuffer: Duration,
+    /// Quiet after which the voice is done with a slide — there is no
+    /// end-of-speech event — so longer than any pause inside one.
+    pub done_after: Duration,
+}
+
+impl Default for Pacing {
+    fn default() -> Self {
+        Pacing {
+            prebuffer: Duration::from_secs(2),
+            done_after: Duration::from_millis(1500),
+        }
+    }
 }
 
 /// What the narrator is told, checked before anything slow: the session's
@@ -76,10 +84,7 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
         .iter()
         .enumerate()
         .filter(|(_, slide)| slide.notes.as_deref().is_none_or(|n| n.trim().is_empty()))
-        .map(|(i, slide)| {
-            let file = document.served.relative(&slide.file).unwrap_or(&slide.file);
-            format!("{} ({})", i + 1, file.display())
-        })
+        .map(|(i, slide)| format!("{} ({})", i + 1, document.part_name(&slide.file)))
         .collect();
     if !missing.is_empty() {
         bail!(
@@ -88,12 +93,12 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
         );
     }
     let count = slides.len();
-    let instructions = live::instructions(&document.title, count, narration);
+    let instructions = narrator::instructions(&document.title, count, narration);
     let requests = slides
         .iter()
         .enumerate()
         .map(|(i, slide)| {
-            live::request(
+            narrator::request(
                 i + 1,
                 count,
                 slide.delivery.as_deref(),
@@ -105,28 +110,39 @@ pub fn told(document: &Document) -> Result<(String, Vec<String>)> {
 }
 
 /// Records `document`, narrated by GPT-Live per `config`, to `output`.
-pub async fn record(document: Arc<Document>, output: &Path, config: &live::Config) -> Result<()> {
+pub async fn record(
+    document: Arc<Document>,
+    output: &Path,
+    config: &narrator::Config,
+) -> Result<()> {
     let (instructions, requests) = told(&document)?;
     let heard = Arc::new(Mutex::new(Heard::default()));
-    film(document, output, requests, heard.clone(), async |heard| {
-        live::Live::start(config, &instructions, heard).await
-    })
+    let (router, deck) = served(document);
+    film(
+        router,
+        &deck,
+        output,
+        requests,
+        Pacing::default(),
+        heard.clone(),
+        async |heard| narrator::Live::start(config, &instructions, heard).await,
+    )
     .await
 }
 
 /// The voice that says each slide's notes, its audio arriving in [`Heard`].
 pub(crate) trait Voice {
-    /// Asks for slide `n` with its [`live::request`].
+    /// Asks for slide `n` with its [`narrator::request`].
     fn say(&self, n: usize, request: &str);
     async fn close(self);
 }
 
-impl Voice for live::Live {
+impl Voice for narrator::Live {
     fn say(&self, n: usize, request: &str) {
-        live::Live::say(self, n, request);
+        narrator::Live::say(self, n, request);
     }
     async fn close(self) {
-        live::Live::close(self).await;
+        narrator::Live::close(self).await;
     }
 }
 
@@ -158,78 +174,49 @@ impl Heard {
     }
 }
 
-/// Serves the deck, opens it in Chrome for Testing, starts the voice once the
-/// recorder is armed, and records every slide. Chrome is killed however this
-/// ends.
-async fn film<V: Voice>(
-    document: Arc<Document>,
+/// The router `document` is recorded from, as `devpage pdf` serves it, and
+/// its entry.
+pub(super) fn served(document: Arc<Document>) -> (Router, String) {
+    let entry = document.entry();
+    let router = http::router(http::App::printing(document));
+    (router, entry)
+}
+
+/// Serves the deck from `router`, opens it at `deck` in a recording
+/// session, starts the voice once the recorder is armed, and records every
+/// slide, paced by `pacing`. Chrome is killed however this ends.
+pub(super) async fn film<V: Voice>(
+    router: Router,
+    deck: &str,
     output: &Path,
     notes: Vec<String>,
+    pacing: Pacing,
     heard: Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<()> {
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let url = format!("http://{}{}", listener.local_addr()?, document.entry());
-    let changes = crate::changes::Changes::default();
-    let server = tokio::spawn(async move {
-        axum::serve(
-            listener,
-            server::router(server::Options::printing(document, changes)),
-        )
-        .await
-        .ok();
-    });
-    let profile = Profile::new();
-    let config = profile
-        .chrome_for_testing()
-        .await?
-        .viewport(None)
-        .disable_default_args()
-        // Headless as the prototype ran it: chromiumoxide's own headless flags
-        // add `--mute-audio`.
-        .with_head()
-        .arg(("headless", "new"))
-        .arg("hide-scrollbars")
-        .arg("auto-accept-this-tab-capture")
-        .arg(("autoplay-policy", "no-user-gesture-required"))
-        .window_size(1920, 1167)
-        .build()
-        .map_err(anyhow::Error::msg)?;
-    let (mut browser, mut handler) = Browser::launch(config)
-        .await
-        .context("starting Chrome for Testing")?;
-    let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
+    let session = Session::start(Profile::Recording, router).await?;
     let result = async {
-        let page = browser.new_page("about:blank").await?;
-        let bytes = narrate(&page, &url, &notes, &heard, voice).await?;
+        let tab = session.open(deck, Open::default()).await?;
+        let bytes = narrate(&tab, &notes, pacing, &heard, voice).await?;
         std::fs::write(output, bytes).with_context(|| format!("writing {}", output.display()))
     }
     .await;
-    browser.kill().await;
-    browser.wait().await.ok();
-    events.abort();
-    server.abort();
+    session.close().await;
     result
 }
 
 async fn narrate<V: Voice>(
-    page: &Page,
-    url: &str,
+    tab: &Tab,
     notes: &[String],
+    pacing: Pacing,
     heard: &Arc<Mutex<Heard>>,
     voice: impl AsyncFnOnce(Arc<Mutex<Heard>>) -> Result<V>,
 ) -> Result<Vec<u8>> {
-    page.goto(url).await?;
-    for _ in 0..400 {
-        if page.evaluate(READY).await?.into_value::<bool>()? {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    run::<()>(page, &format!("{RECORDER}\nundefined")).await?;
-    run::<()>(page, &format!("devpageVideo.start({RATE})")).await?;
-    fit(page).await?;
-    run::<u32>(page, "devpageVideo.arm()").await?;
+    tab.eval::<()>(&format!("{RECORDER}\nundefined")).await?;
+    tab.eval::<()>(&format!("devpageVideo.start({RATE})"))
+        .await?;
+    fit(tab).await?;
+    tab.eval::<u32>("devpageVideo.arm()").await?;
 
     let voice = voice(heard.clone()).await?;
     let total = notes.len();
@@ -244,7 +231,8 @@ async fn narrate<V: Voice>(
                 let heard = heard.lock().unwrap();
                 heard.check()?;
                 heard.last_loud.is_some_and(|at| at > asked)
-                    && heard.trimmer.buffered() as f64 >= PREBUFFER_SECONDS * RATE as f64
+                    && heard.trimmer.buffered() as f64
+                        >= pacing.prebuffer.as_secs_f64() * RATE as f64
             };
             if ready {
                 break;
@@ -258,7 +246,7 @@ async fn narrate<V: Voice>(
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         // Resume in the same evaluation the audio lands in, so neither leads.
-        flush(page, heard, true).await?;
+        flush(tab, heard, true).await?;
         eprintln!("slide {n}/{total}");
         loop {
             let quiet = {
@@ -266,43 +254,44 @@ async fn narrate<V: Voice>(
                 heard.check()?;
                 heard.last_loud.map_or(Duration::ZERO, |at| at.elapsed())
             };
-            if quiet.as_secs_f64() >= DONE_AFTER_SECONDS {
+            if quiet >= pacing.done_after {
                 break;
             }
             tokio::time::sleep(PUSH_EVERY).await;
-            flush(page, heard, false).await?;
+            flush(tab, heard, false).await?;
         }
         heard.lock().unwrap().trimmer.end_slide();
-        flush(page, heard, false).await?;
-        if let Some(stuck) = run::<Option<serde_json::Value>>(page, "devpageVideo.drain()").await? {
+        flush(tab, heard, false).await?;
+        if let Some(stuck) = tab
+            .eval::<Option<serde_json::Value>>("devpageVideo.drain()")
+            .await?
+        {
             eprintln!("slide {n}: the player did not empty: {stuck}");
         }
         if n < total {
             // Change the slide while recording, and pause only once the new
             // slide has been on screen for its lead: the recording resumes on
             // whatever it last saw, so that must be the new slide.
-            next(page).await?;
+            tab.press("ArrowRight", 39).await?;
             tokio::time::sleep(Duration::from_secs_f64(SLIDE_LEAD_SECONDS)).await;
-            let shown: String = run(page, "devpageVideo.shown()").await?;
+            let shown: String = tab.eval("devpageVideo.shown()").await?;
             if shown != (n + 1).to_string() {
                 bail!(
                     "the deck shows slide {shown} after slide {n}, not slide {}",
                     n + 1
                 );
             }
-            run::<()>(page, "devpageVideo.pause()").await?;
+            tab.eval::<()>("devpageVideo.pause()").await?;
         }
     }
     voice.close().await;
 
-    let size: usize = run(page, "devpageVideo.stop()").await?;
+    let size: usize = tab.eval("devpageVideo.stop()").await?;
     let mut bytes = Vec::with_capacity(size);
     while bytes.len() < size {
-        let piece: String = run(
-            page,
-            &format!("devpageVideo.chunk({}, {CHUNK})", bytes.len()),
-        )
-        .await?;
+        let piece: String = tab
+            .eval(&format!("devpageVideo.chunk({}, {CHUNK})", bytes.len()))
+            .await?;
         let piece = STANDARD.decode(piece).context("reading the recording")?;
         if piece.is_empty() {
             bail!("the recording ended early");
@@ -315,18 +304,11 @@ async fn narrate<V: Voice>(
 /// Capturing adds a "sharing this tab" bar a moment later, which shrinks the
 /// page: keep correcting the window until the page reads 1920 × 1080 three
 /// times in a row.
-async fn fit(page: &Page) -> Result<()> {
-    let window = page
-        .execute(GetWindowForTargetParams {
-            target_id: Some(page.target_id().clone()),
-        })
-        .await?
-        .result
-        .window_id;
+async fn fit(tab: &Tab) -> Result<()> {
     let mut settled = 0;
     for _ in 0..40 {
         tokio::time::sleep(Duration::from_millis(250)).await;
-        let [width, height, ..]: [i64; 4] = run(page, "devpageVideo.size()").await?;
+        let [width, height, ..]: [i64; 4] = tab.eval("devpageVideo.size()").await?;
         if (width, height) == (WIDTH, HEIGHT) {
             settled += 1;
             if settled == 3 {
@@ -335,23 +317,9 @@ async fn fit(page: &Page) -> Result<()> {
             continue;
         }
         settled = 0;
-        let bounds = page
-            .execute(GetWindowBoundsParams::new(window))
-            .await?
-            .result
-            .bounds;
-        let grow = |now: Option<i64>, inner: i64, want: i64| now.map(|n| n + want - inner);
-        page.execute(SetWindowBoundsParams::new(
-            window,
-            Bounds {
-                width: grow(bounds.width, width, WIDTH),
-                height: grow(bounds.height, height, HEIGHT),
-                ..Default::default()
-            },
-        ))
-        .await?;
+        tab.grow_window(WIDTH - width, HEIGHT - height).await?;
     }
-    let size: [i64; 4] = run(page, "devpageVideo.size()").await?;
+    let size: [i64; 4] = tab.eval("devpageVideo.size()").await?;
     bail!(
         "the page never held still at {WIDTH} × {HEIGHT}: it is {} × {}",
         size[0],
@@ -361,62 +329,28 @@ async fn fit(page: &Page) -> Result<()> {
 
 /// Hands whatever voice is ready to the player; `play` resumes the recorder
 /// in the same evaluation.
-async fn flush(page: &Page, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
+async fn flush(tab: &Tab, heard: &Arc<Mutex<Heard>>, play: bool) -> Result<()> {
     let pcm = heard.lock().unwrap().trimmer.drain();
     if pcm.is_empty() {
         return Ok(());
     }
     let bytes: Vec<u8> = pcm.iter().flat_map(|s| s.to_le_bytes()).collect();
     let resume = if play { "devpageVideo.play();" } else { "" };
-    run::<()>(
-        page,
-        &format!("{resume}devpageVideo.push(\"{}\")", STANDARD.encode(bytes)),
-    )
+    tab.eval::<()>(&format!(
+        "{resume}devpageVideo.push(\"{}\")",
+        STANDARD.encode(bytes)
+    ))
     .await
 }
 
-/// Presses → on the deck.
-async fn next(page: &Page) -> Result<()> {
-    for kind in [DispatchKeyEventType::KeyDown, DispatchKeyEventType::KeyUp] {
-        page.execute(
-            DispatchKeyEventParams::builder()
-                .r#type(kind)
-                .key("ArrowRight")
-                .code("ArrowRight")
-                .windows_virtual_key_code(39)
-                .build()
-                .map_err(anyhow::Error::msg)?,
-        )
-        .await?;
-    }
-    Ok(())
-}
-
-/// Evaluates `expression` in the page as a user gesture, awaiting a promise,
-/// and reads its value.
-async fn run<T: DeserializeOwned>(page: &Page, expression: &str) -> Result<T> {
-    let params = EvaluateParams::builder()
-        .expression(expression)
-        .user_gesture(true)
-        .await_promise(true)
-        .return_by_value(true)
-        .build()
-        .map_err(anyhow::Error::msg)?;
-    let result = page.evaluate_expression(params).await?;
-    match result.value() {
-        Some(_) => Ok(result.into_value()?),
-        None => Ok(serde_json::from_value(serde_json::Value::Null)?),
-    }
-}
-
 #[cfg(test)]
-mod tests {
+pub(super) mod tests {
     use super::*;
-    use crate::served::ServedFolder;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use devpage_core::folder::ServedFolder;
+    use std::path::PathBuf;
 
     /// A folder holding `talk.yml`, a deck of `slides`, each `(file, text)`.
-    fn deck(name: &str, slides: &[(&str, &str)]) -> (PathBuf, Arc<Document>) {
+    pub(in crate::drive) fn deck(name: &str, slides: &[(&str, &str)]) -> (PathBuf, Arc<Document>) {
         let dir = std::env::temp_dir().join(format!("devpage-video-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -437,12 +371,6 @@ mod tests {
             Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
         );
         (dir, document)
-    }
-
-    #[test]
-    fn the_default_file_name_is_the_title_made_safe_as_mp4() {
-        assert_eq!(default_output("Launch"), Path::new("Launch.mp4"));
-        assert_eq!(default_output("A/B: v1.2"), Path::new("A-B- v1.2.mp4"));
     }
 
     #[test]
@@ -505,11 +433,11 @@ mod tests {
             std::fs::write(dir.join("devpage.yml"), yml).unwrap();
             let document =
                 Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
-            let config = live::Config {
-                provider: live::Provider::OpenAi {
+            let config = narrator::Config {
+                provider: narrator::Provider::OpenAi {
                     key: "never".into(),
                 },
-                model: live::DEFAULT_MODEL.into(),
+                model: narrator::DEFAULT_MODEL.into(),
             };
             let out = dir.join("never.mp4");
             let error = record(document, &out, &config).await.unwrap_err();
@@ -519,172 +447,6 @@ mod tests {
             );
             assert!(!out.exists());
         }
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// A stand-in for GPT-Live: streams 20 ms of audio every 20 ms, as
-    /// GPT-Live does, silence included, and answers each slide's notes with a tone.
-    struct Tone {
-        left: Arc<AtomicUsize>,
-        seconds: f64,
-        task: tokio::task::JoinHandle<()>,
-    }
-
-    impl Tone {
-        fn start(heard: Arc<Mutex<Heard>>, seconds: f64) -> Self {
-            let left = Arc::new(AtomicUsize::new(0));
-            let tone = left.clone();
-            let task = tokio::spawn(async move {
-                let mut every = tokio::time::interval(Duration::from_millis(20));
-                let mut at = 0usize;
-                loop {
-                    every.tick().await;
-                    let pcm: Vec<i16> = (0..RATE / 50)
-                        .map(|_| {
-                            at += 1;
-                            let on = tone
-                                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                                    n.checked_sub(1)
-                                })
-                                .is_ok();
-                            let phase = at as f64 * 440.0 / RATE as f64 * std::f64::consts::TAU;
-                            if on { (phase.sin() * 8000.0) as i16 } else { 0 }
-                        })
-                        .collect();
-                    heard.lock().unwrap().take(&pcm);
-                }
-            });
-            Self {
-                left,
-                seconds,
-                task,
-            }
-        }
-    }
-
-    impl Voice for Tone {
-        fn say(&self, _: usize, _: &str) {
-            self.left
-                .store((self.seconds * RATE as f64) as usize, Ordering::Relaxed);
-        }
-        async fn close(self) {
-            self.task.abort();
-        }
-    }
-
-    /// The boxes inside `data`, as (type, payload).
-    fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
-        let mut found = Vec::new();
-        let mut at = 0;
-        while at + 8 <= data.len() {
-            let size = u32::from_be_bytes(data[at..at + 4].try_into().unwrap()) as usize;
-            let kind: [u8; 4] = data[at + 4..at + 8].try_into().unwrap();
-            let (start, end) = match size {
-                0 => (at + 8, data.len()),
-                1 => {
-                    let large = u64::from_be_bytes(data[at + 8..at + 16].try_into().unwrap());
-                    (at + 16, at + large as usize)
-                }
-                n => (at + 8, at + n),
-            };
-            found.push((kind, &data[start..end.min(data.len())]));
-            at = end;
-        }
-        found
-    }
-
-    fn inside<'a>(data: &'a [u8], kind: &[u8; 4]) -> Vec<&'a [u8]> {
-        boxes(data)
-            .into_iter()
-            .filter(|(k, _)| k == kind)
-            .map(|(_, payload)| payload)
-            .collect()
-    }
-
-    /// Each track of an mp4: its handler (`vide`, `soun`) and its `tkhd`
-    /// width and height.
-    fn tracks(mp4: &[u8]) -> Vec<(String, u32, u32)> {
-        let moov = inside(mp4, b"moov");
-        moov.iter()
-            .flat_map(|moov| inside(moov, b"trak"))
-            .map(|trak| {
-                let tkhd = inside(trak, b"tkhd")[0];
-                let fixed =
-                    |at: usize| u32::from_be_bytes(tkhd[at..at + 4].try_into().unwrap()) >> 16;
-                let hdlr = inside(trak, b"mdia")
-                    .into_iter()
-                    .flat_map(|mdia| inside(mdia, b"hdlr"))
-                    .next()
-                    .unwrap();
-                (
-                    String::from_utf8_lossy(&hdlr[8..12]).into_owned(),
-                    fixed(tkhd.len() - 8),
-                    fixed(tkhd.len() - 4),
-                )
-            })
-            .collect()
-    }
-
-    /// Drives Chrome for Testing, no GPT-Live; run with
-    /// `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice() {
-        let (dir, talk) = deck(
-            "film",
-            &[
-                ("one.md", "# One\n\n<Notes>First.</Notes>\n"),
-                ("two.md", "# Two\n\n<Notes>Second.</Notes>\n"),
-            ],
-        );
-        let (_, notes) = told(&talk).unwrap();
-        let out = dir.join("Talk.mp4");
-        let heard = Arc::new(Mutex::new(Heard::default()));
-        // `film` fails unless the deck shows slide 2 after slide 1.
-        film(talk, &out, notes, heard, async |heard| {
-            Ok(Tone::start(heard, 2.5))
-        })
-        .await
-        .unwrap();
-        let mp4 = std::fs::read(&out).unwrap();
-        assert_eq!(&mp4[4..8], b"ftyp");
-        let mut tracks = tracks(&mp4);
-        tracks.sort();
-        assert_eq!(
-            tracks,
-            [("soun".to_string(), 0, 0), ("vide".to_string(), 1920, 1080)]
-        );
-        std::fs::remove_dir_all(&dir).ok();
-    }
-
-    /// Calls GPT-Live, which bills per minute; run with
-    /// `cargo test -- --ignored` and `DEVPAGE_OPENAI_API_KEY` set.
-    #[tokio::test]
-    #[ignore]
-    async fn a_deck_is_narrated_by_gpt_live() {
-        if std::env::var_os(live::OPENAI_API_KEY).is_none() {
-            eprintln!("skipped: {} is not set", live::OPENAI_API_KEY);
-            return;
-        }
-        let config = live::Config::from_env().unwrap();
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let talk = Arc::new(
-            Document::load(
-                &root.join("tests/fixtures/narrated-talk"),
-                &ServedFolder::new(root).unwrap(),
-            )
-            .unwrap(),
-        );
-        let dir = std::env::temp_dir().join(format!("devpage-video-live-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let out = dir.join("Narrated talk.mp4");
-        record(talk, &out, &config).await.unwrap();
-        let mut tracks = tracks(&std::fs::read(&out).unwrap());
-        tracks.sort();
-        assert_eq!(
-            tracks,
-            [("soun".to_string(), 0, 0), ("vide".to_string(), 1920, 1080)]
-        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -71,24 +71,28 @@ module of the core names an adapter or a rasterizer.
 | Module | Role | Does |
 | --- | --- | --- |
 | `parse` | core | Text to a syntax tree. |
-| `ids` | core | Element ids kept across saves: a new parse matched against the last. |
+| `ids` | core | Element ids kept across saves: a new parse matched against the last. `Remembering`: files read with each design file's last parse kept, so the next is matched against it — what the store reads through. |
 | `tree` | core | A scene's tree as a tree: a node's id, its order key among its siblings, and children under their keys. |
-| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene, with the scene's index from node id to place. |
-| `render` | core | The renderer — its fonts and text shaping — and the commands' types. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
-| `display` | core | `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
-| `sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
-| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale. |
+| `scene` | core | What a resolved design is: the scene, its nodes and their attributes, colours in both themes, image files, the scene's index from node id to place, and the `Files` port designs are read through. `edit`: how one scene becomes the next — an edit by id (a node changed, a subtree inserted, removed or moved), the edits between two scenes, edits with the files they bring, applied all or nothing, and what they did, for a drawing to follow. |
+| `resolve`, `fonts` | core | A syntax tree and its imports, props, themes, images and font files to a scene; `again`, a design kept resolved and a change resolved again only as far as it reaches, into the edits that bring its scene across. |
+| `render` | core | The renderer — its fonts and text shaping. `layout`: the scene as kept taffy trees — the drawing's own, and one per [run](#layout-boundaries-and-runs) — every frame with children is one — its children each laid out on their own: along a line, their sizes in prefix sums, one size for each child no ask can change and per ask the rest (`layout/run`); a run's `"fill"` children's share, from a flex tree of its own (`layout/run/fill`); a frame with no layout, its children at their own places and its hug counted (`layout/run/free`) — what can depend on the room it is given, counted bottom-up, and every node's box. `painter`: a node's own commands. `drawing`: a scene made into a kept drawing in a theme, its area and the images it paints. `update`: a drawing brought to the next scene by what changed, and the damage. |
+| `display` | core | `draw`: the drawing commands and a node's box after layout. `trees`: the property trees. `chunk`: a node's commands under them, with their R-tree, and the builder that makes them. `list`: every chunk by paint order and the design's own space's R-tree. `run`: a run's children as spaces of their own — placed by the run's prefix sums and its one step between children, or, for a frame with no layout, at their own places and found by an R-tree of their boxes — and the run's one entry in the space it is in. `paint`: the one paint entry point and its port, `Target`. `hit`: hit testing through the index. |
+| `prefix_sums` | core | A sequence in key order with every prefix's summary in log time: what a run keeps its children's sizes in. |
+| `tiles` | core | Where a tile is, the pyramid's levels, the tiles a view needs and where each lands; `cache`: the tile cache and the damage that makes tiles stale; `plan`: the [frame plan](#the-frame-plan) both browser compositors carry out. The server uses the cache only. |
+| `design` | core | A design as it is held while it is shown — its scene, the design's one copy, how many nodes use each file, and its drawing in each theme its holder asks for — each drawing brought along by every edit, the damage to its tiles kept until taken; its size, the interaction at a point, a view's tiles and an area to paint, rounded first; and [one rule for a scene that can't be drawn](#a-design-that-cant-be-drawn). The store and every canvas hold their designs as one. |
 | `shadow`, `atlas`, `compare` | core | A shadow's samples and pieces; the GPU atlas's model; the rule two drawings are compared by. |
-| `wire`, `proto` | core | Scenes as the watch stream's messages; `patch`: the patch between two scenes, as operations by id, and applying one, all or nothing. |
+| `wire`, `proto` | core | Scenes and their edits as the watch stream's messages, and back: a scene whole; `patch`, edits as a patch, each file in it once. It does no I/O. |
 | `cpu` | adapter | The `vello_cpu` paint backend, and a tile's straight-alpha pixels. |
-| `bands` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips. |
+| `png` | adapter | The PNG, written band by band — each band at most 16 MB of pixels — from whatever gives it tiles or strips; `png::fresh`, a scene drawn afresh and kept by nothing, as the PNG the tests compare a drawing against. |
 
-In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — its
-scene, a drawing per theme, the damage since the last frame, a tile on the
-CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
-backend; `gpu/` the compositor on WebGPU — `mod.rs` a frame (damage, the
-view's missing tiles, the budget), `paint.rs` painting a tile into its
-texture, `pass.rs` the composite pass. The page's part is the design script
+In the module (`design/wasm/src/`), `lib.rs` is a canvas's `Design` — the
+engine's `design` and the canvas's frame plan, bound for the page: a stream
+message applied to it, its damage handed to the plan without leaving the
+module, a frame's work and a tile's arrival for the CPU's compositor, a tile
+on the CPU for the worker, hit testing; `vello_backend.rs` the `vello` paint
+backend; `compositor/` the compositor on WebGPU — `mod.rs` a frame of the
+plan carried out, `paint.rs` painting a tile into its texture, `pass.rs` the
+composite pass. The page's part is the design script
 and its modules ([in the browser](#in-the-browser)).
 
 ## Parsing
@@ -224,7 +228,8 @@ the change can reach is resolved again:
   with its subtree — for the design's own root, the design whole, as for
   any change to its own `props` defaults.
 
-What was resolved again is the patch: no scene is compared with another,
+What was resolved again is the edits that bring the scene across — what the
+watch stream sends as a patch: no scene is compared with another,
 with two exceptions that change the whole design and are resolved whole and
 compared: a change to the design's own `props` defaults, which every node
 may read, and its root element replaced. A third is a safety net, not a
@@ -234,12 +239,19 @@ count at zero.
 Resolving again costs what the change reached, beside reading the file that
 was saved: the saved file is parsed, matched against its last parse and
 walked beside it to find what changed — linear in that file, and nothing in
-any other. While a design has problems, what each save reached is kept, and
+any other. Each update counts the elements it resolved again, and the tests
+hold that count to what the edit reached, whatever the design's size. While a design has problems, what each save reached is kept, and
 the save that makes it valid again resolves all of it against the last scene
 sent; the problems themselves, every one, come from resolving the design
 whole, which a design with problems pays on each save. The engine resolves
-again in `design/src/resolve/again.rs` (`Resolution`); the store keeps one per
-design.
+again in `design/src/resolve/again.rs` (`Resolution`): where each node came
+from and the files the scene was made from, but no scene. A design has one
+scene, its holder's — the `Holder` port in `scene`, which the store's held
+`design` is — and resolving again reads it there and applies the edits it
+makes to it there, once; it answers each change with the scene unchanged,
+its problems — the scene left as it was — or the edits and what they did
+(`Outcome::Changed`). The store keeps one per design, and encodes the edits
+as the patch its streams send.
 
 ### Themes
 
@@ -429,7 +441,7 @@ none. A node's position is its
 transform node, so a node that moves keeps its chunk, and its children
 theirs: only the offset changes.
 
-### The index
+### The display index
 
 Painting part of a drawing asks what touches a rectangle, and the answer
 comes from a two-level R-tree (`rstar`):
@@ -484,7 +496,8 @@ each gradient goes to the GPU moved half a device pixel.
 What paint makes is cached as **tiles**: squares of 256 device pixels, keyed
 by theme, scale and position — column and row from the drawing's top-left at
 that scale — so the tiles of every scale painted so far form a pyramid. A
-cache holds a capped number of tiles and drops the least recently used. A
+cache is cost-capped — each tile costs what its holder says, bytes of pixels
+or one — and drops the least recently used past its cap. A
 theme has tiles of its own, so switching back to one is instant.
 
 An update to the scene marks **damage**: for each chunk it touched, the
@@ -501,15 +514,15 @@ it, marked so, until it is painted again.
 
 ### Incremental updates
 
-A change to a file reaches a drawing as the
+A change to a file reaches a drawing as **edits** — in the browser, the
 [patch](#the-watch-stream) the server sends the canvases: nodes changed,
-inserted, removed and moved, each by its id. A drawing applies a patch by work
-proportional to it:
+inserted, removed and moved, each by its id. A drawing follows them by work
+proportional to them:
 
 1. a changed node is dirty; an inserted subtree is new, with order keys
    between its neighbours'; a removed one's chunks, boxes and property-tree
    nodes are freed; a moved one keeps them and takes a new order key;
-2. layout runs again only where the patch can reach: inside the
+2. layout runs again only where the edits can reach: inside the
    [boundary](#layout-boundaries-and-runs) around each dirty node, and past
    it only while a box's size changed — every frame with children is a run,
    along a line by the prefix sums, or free by its counted extent. The tree
@@ -523,8 +536,8 @@ proportional to it:
    the sums. A child of a run the sums moved by a fraction of a pixel rounds
    differently where it now falls, and so may everything in it; the update
    doesn't round it — the damage already covers it — and before an area is
-   painted, hit or read (`Drawing::prepare`, in the server and the canvas
-   alike), the children of runs there that no longer round as their boxes
+   painted, hit or read (by the held [`design`](#how-the-engine-is-built),
+   in the server and the canvas alike), the children of runs there that no longer round as their boxes
    were made are rounded anew, their boxes and any chunk whose box changed
    made again. So an edit costs what it changed, the rounding costs what is
    read, and what is read is a fresh drawing's, box for box;
@@ -532,10 +545,10 @@ proportional to it:
    again;
 5. the damage marks the tiles that overlap it stale.
 
-The server and the browser apply the same patch to the same kind of drawing,
-so both pay only for what changed. The canvas applies the patch to the scene
-it holds the same way: every replacement checked first, so a patch it can't
-use changes nothing, then only the replaced subtrees swapped in — what they
+The server and the browser apply the same edits to the same kind of drawing,
+so both pay only for what changed. Both apply them to the scene they hold the
+same way (`scene::apply`): every replacement checked first, so edits that
+can't be applied change nothing, then only the replaced subtrees swapped in — what they
 replaced is what the drawing is brought across by — and a file no node uses
 any more dropped by a count of the nodes using each file, never a walk of
 the scene.
@@ -623,11 +636,38 @@ page or in an embed, or a save that swaps a file or changes a shadow. A tile
 paints only the images that touch it, so a fresh renderer is first given one
 render that paints every image of the drawing, in the drawing's order, into a
 single pixel: its atlas then holds exactly the drawing's images, placed as the
-engine placed them in a fresh one, and every tile finds its images there. A
+engine placed them in a fresh one, and every tile finds its images there.
+vello takes a scene that binds no image, gradient or glyph run as needing no
+atlas: it frees the atlas texture while its image cache still counts every
+image as uploaded, so a tile painting none of the images still names one of
+them, outside the tile, and the atlas stays as it is for the next. A
 drawing made after the one its canvas last showed, painting
 the same image files and the same shadow pixels in the same order, paints that
 drawing's blobs: a save that changes only text or layout keeps the atlas and
 uploads no image again.
+
+### A design that can't be drawn
+
+A scene can stop being drawable mid-session — a save that adds an image, or
+an image file that grows, past what the atlas holds. The held design
+(`design/src/design/`) has one rule for it, in the store and on the canvas
+alike: it keeps showing its **last good drawing** in that theme — the drawing
+of the last scene that could be drawn — and no damage reaches its tiles.
+Every tile is painted from it, the tiles a pan or a zoom shows that were
+never painted before included, and its size and clicks are its; a PNG
+answers with the problem instead. The last good drawing is made afresh from
+the scene before the edit, the moment the edit leaves the scene undrawable
+— the edit undone, the scene drawn, the edit applied again — so a design
+pays a scene's cost once per break. The drawing that follows the scene is
+kept beside it, so each later change updates it at the change's cost. Why is
+the design's problem, where a design's problems already show: the problems
+bar over the canvas, the PNG route and `devpage check`. The change that makes
+the scene drawable again lets the last good drawing go and makes every tile
+of that theme stale, and what is painted then is a fresh drawing's. A whole
+scene that can't be drawn — a stream sending all of it again — keeps showing
+the drawing of the scene before, rounded whole as the new one arrives; one
+that can't be drawn from the start has nothing to show, and is tried again
+only once the scene changes.
 
 ## In the server
 
@@ -649,18 +689,33 @@ every file it was made from is still the read it saw — otherwise it resolves
 the design again — so a stale scene is never kept. A design whose scene or problems came out different is
 announced to its watch streams. Creating a file a design was missing counts as
 a change to it — a `themes.yml` written into a folder between a design and one
-above it, say. `devpage check` and a page's problems bar read designs
-straight from disk instead, as they read pages. The routes are on
+above it, say — and so does adding a file to, or removing one from, a folder
+it listed: a font added to its font folder. A page's problems bar asks the same store for the problems of
+each design the page reaches, so the design a page embeds is resolved once,
+for the page and its canvas alike. `devpage check`, and a publish on the
+CLI's side, make a store of their own for the one run, and a server checks a
+publish in its one store, under the scratch folder's own mount, which leaves
+it when the check ends; each asks it the same: a
+design's problems, and everything it is made of — the files resolving it
+asked for, one that isn't there named as it would be, and the folders it
+listed, a font folder, so that adding a file, or a font to that folder,
+reaches a slide's PNG drawn from the design too; a publish zips the files
+that are there. The routes are on
 [Serving pages](../serving-pages/README.md#routes).
 
-With each design's scene the store keeps its **drawing** in each theme it
-shows in — layout, chunks, property trees and index — and a design [resolved again](#resolving-again)
-updates them by the patch that resolving made, the very patch its watch
-streams send: only the dirty part is laid out, only dirty
+The store holds each design's scene — its one copy — as the engine's
+`design`, its **drawing** made in each theme the scene shows in — layout, chunks, property
+trees and index — and a design [resolved again](#resolving-again)
+updates them by the edits that resolving made, the very edits its watch
+streams send as a patch: only the dirty part is laid out, only dirty
 chunks are made, only their index entries move, and only the tiles over the
 damage go stale. A changed component file touches only the designs made from
 it. The store's tiles, at 1× in each theme, share one cache capped at 64 MB of
-pixels, least recently used dropped first. A drawing whose tiles don't all fit
+pixels, least recently used dropped first. A [server](../server/README.md)
+holds every version it serves in one store, so that cap — and one renderer —
+is the whole server's: each version's designs are kept under its own mount,
+`/d/<id>/v/<n>`, whichever address shows it, its validators name that mount,
+and a version no router holds any more leaves the store with its tiles. A drawing whose tiles don't all fit
 — about 11,600 pixels tall at 1,440 wide, with nothing else cached — has its
 PNG painted afresh each time it is asked for: the cap costs time, never
 memory.
@@ -745,8 +800,8 @@ the engine and starts the page's canvases, and the modules it imports, each
 a [built-in asset](../serving-pages/README.md#built-in-assets):
 `design-stream.js`, the page's one watch stream; `design-canvas.js`, a
 canvas — its view, pointer, interactions, overlays and an embed's backdrop;
-`design-tiles.js`, the compositor's tiles on the CPU and the worker,
-`design-worker.js`, that paints them.
+`design-tiles.js`, the compositor on the CPU, and the worker,
+`design-worker.js`, that paints its tiles.
 
 ### The compositor
 
@@ -755,7 +810,7 @@ pan or a zoom only places the cached tiles of the view — moved and scaled —
 into a `<canvas>` sized to the screen's device pixels; nothing is painted for
 it. Tiles the view needs that are missing or stale are painted after the
 frame, nearest the view's middle first, at the zoom's real resolution, a few
-each frame, and each is swapped in when it is ready. Until then the view
+at a time, and each is swapped in when it is ready. Until then the view
 shows what the cache has — the stale tile, or the same place at another
 scale, stretched — so nothing flashes, and a view is sharp once its zoom
 settles. The view is shown at the scale tiles are painted at — the zoom in
@@ -765,7 +820,8 @@ is taken back through the same. A canvas keeps at most 384 tiles — more than
 a 4K screen at twice its pixels shows — least recently used dropped first.
 Each update to the design marks stale only the tiles its
 [damage](#tiles) overlaps, in each theme it has been drawn in; another
-design — a navigation — starts with none. A switch of theme keeps the other
+design — a navigation — starts with none. What each frame shows and paints
+is decided once, by the [frame plan](#the-frame-plan), for both compositors. A switch of theme keeps the other
 theme's drawing and its tiles, so switching back makes and paints nothing.
 
 - **On the GPU**: tiles are painted by `vello` through `wgpu` on WebGPU, each
@@ -783,11 +839,38 @@ theme's drawing and its tiles, so switching back makes and paints nothing.
   same stream messages, while the page's own copy says which tiles an update
   made stale — and composited into a 2D canvas. Messages that reach the
   worker while it is still loading the engine wait for it.
-  The same tiles, the same scales — the page's copy of the design names the
-  tiles a view needs, nearest its middle first, as the GPU's are found —
-  asked of the worker in that order, a few in flight at once; no
-  whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
+  The page's copy of the design holds the plan, so the tiles, the scales and
+  the order are the GPU's; the page asks the worker for what the plan
+  requests, keeps each painting by its ticket, and draws what the plan
+  draws; no whole-design bitmap and no cap on the zoom's resolution. Print mode always paints on the CPU, into a 2D canvas,
   which Chrome prints reliably.
+
+### The frame plan
+
+Both compositors carry out one **frame plan**, `tiles::Plan`, which the
+canvas's `Design` holds in the module along with all of its state: the tiles
+held, by the ticket each painting arrived under, cost-capped at 384 with the
+least recently used let go; the tiles in flight — asked for and not yet
+arrived — each under a ticket no plan gives twice; and whether damage
+reached each one. A host keeps only the paintings — textures on the GPU,
+bitmaps on the CPU — by ticket. Damage never leaves the module: each stream
+message's reaches the plan as the message is applied.
+
+- **`frame`** gives a frame's work: the paintings to draw, coarser levels
+  under finer ones and the view's own level on top, each where it lands; the
+  tiles to paint, the view's missing or stale ones nearest its middle first,
+  once a zoom has settled; the paintings to free, which the plan let go since
+  the last frame; and how many tiles the view still lacks.
+- **`arrived`** takes a painting back by its ticket. One whose ticket isn't in
+  flight — answered already, or asked for by the design the canvas showed
+  before — is dropped. One whose tile damage reached while it was painted is
+  kept and shown, stale, and asked for again. A tile painted as nothing
+  (`missed`) is asked for again.
+
+**One budget rule**: at most 6 tiles are in flight. The GPU paints each tile
+the plan asks for at once, inside the frame, so it paints up to 6 a frame;
+the CPU's worker answers later, so a frame asks it only for as many as have
+arrived since the last.
 
 On a slide, the 1920 × 1080 stage is scaled to the window by a transform the
 canvas's CSS size doesn't see, so the bitmap follows the canvas's box on the

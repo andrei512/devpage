@@ -9,9 +9,9 @@ use peniko::{BlendMode, Compose, ImageBrush, Mix};
 use vello_cpu::{Pixmap, RenderContext, Resources};
 
 use crate::display::List;
-use crate::render::{Draw, Paint};
+use crate::display::{Draw, Paint};
 #[cfg(test)]
-use crate::resolve::{Scene, Theme};
+use crate::scene::{Scene, Theme};
 use crate::tiles::{TILE, tile_rect};
 
 /// The `vello_cpu` backend of [`crate::display::paint`].

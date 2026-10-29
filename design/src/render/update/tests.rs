@@ -1,10 +1,58 @@
 use crate::cpu::*;
 use std::collections::HashMap;
 
+use crate::design::Design;
+use crate::ids::Remembering;
 use crate::render::testing::*;
-use crate::resolve::{self, Layout, Node, Scene, Theme};
+use crate::scene::{self, Edits, Layout, Node, Scene, Theme};
 
 use super::*;
+
+/// Files saved one after another, each design file's last parse remembered.
+type Saves = Remembering<HashMap<String, String>>;
+
+fn saves() -> Saves {
+    Remembering::new(HashMap::new())
+}
+
+/// What a canvas holds of `scene`: the scene as the watch stream carries it,
+/// drawn in `theme`, its damage taken.
+fn canvas(r: &mut Renderer, scene: &Scene, theme: Theme) -> Design {
+    let held = crate::wire::decode_scene(
+        &crate::wire::scene(scene),
+        (&Default::default(), &Default::default()),
+    )
+    .unwrap();
+    let mut design = Design::new(held);
+    design.draw(r, theme).unwrap();
+    design.take_damage();
+    design
+}
+
+/// The one damage the last change did, in the one theme drawn.
+fn damage(design: &mut Design) -> Damage {
+    let mut damage = design.take_damage();
+    assert_eq!(damage.len(), 1, "{damage:?}");
+    damage.pop().unwrap().1
+}
+
+/// The rects of a damage that isn't to every tile.
+fn rects(damage: &Damage) -> &[kurbo::Rect] {
+    match damage {
+        Damage::Rects { rects, .. } => rects,
+        Damage::All => panic!("every tile damaged"),
+    }
+}
+
+/// Tile `(0, row)` at 1×, painted from `design` as a canvas paints it.
+fn tile(design: &mut Design, r: &mut Renderer, row: u32) -> Vec<u8> {
+    crate::cpu::tile(
+        design.tile(r, Theme::Light, 1.0, 0, row).unwrap(),
+        1.0,
+        0,
+        row,
+    )
+}
 
 /// An edit to one row of a tall design touches only the tiles around it,
 /// and the drawing it leaves paints as a fresh one.
@@ -25,24 +73,22 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
             format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
         )]
         .into();
-        resolve::resolve(&files, "a.design").unwrap()
+        crate::resolve(&files, "a.design").unwrap()
     };
     let (old, new) = (design("Row 500"), design("Edited"));
     let mut r = Renderer::new();
-    let mut live = r.drawing(&old, Theme::Light, None).unwrap();
-    let mut held = old.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut live = canvas(&mut r, &old, Theme::Light);
     let t = std::time::Instant::now();
-    let applied = crate::wire::bring(&mut held, &mut uses, &new).unwrap();
-    let damage = live.update(&mut r, &held, &applied).unwrap();
+    live.apply(&mut r, &Edits::between(&old, &new)).unwrap();
+    let damage = damage(&mut live);
     eprintln!("update {:?}, damage {damage:?}", t.elapsed());
-    assert!(!damage.all && !damage.rects.is_empty());
-    for d in &damage.rects {
+    assert!(!rects(&damage).is_empty());
+    for d in rects(&damage) {
         assert!(d.y0 >= 50_000.0 - 21.0 && d.y1 <= 50_100.0 + 21.0, "{d:?}");
     }
     let fresh = r.drawing(&new, Theme::Light, None).unwrap();
     for row in [0, 195, 196, 390] {
-        let a = crate::cpu::tile(&live.list, 1.0, 0, row);
+        let a = tile(&mut live, &mut r, row);
         let b = crate::cpu::tile(&fresh.list, 1.0, 0, row);
         assert!(a == b, "tile row {row}");
     }
@@ -74,7 +120,7 @@ fn an_update_paints_as_a_fresh_drawing() {
             format!("<Frame layout=\"none\" fill=\"#ffffff\"><Frame layout=\"column\">{body}</Frame>{extra}</Frame>"),
         )]
         .into();
-        resolve::resolve(&files, "a.design").unwrap()
+        crate::resolve(&files, "a.design").unwrap()
     };
     let mut r = Renderer::new();
     let paint = |d: &Drawing| {
@@ -90,26 +136,25 @@ fn an_update_paints_as_a_fresh_drawing() {
         design(90, 150, 9, true),
         design(40, 60, 6, false),
     ];
-    let mut live = r.drawing(&steps[0], Theme::Light, None).unwrap();
-    let mut held = steps[0].clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut live = canvas(&mut r, &steps[0], Theme::Light);
     for (n, pair) in steps.windows(2).enumerate() {
-        let applied = crate::wire::bring(&mut held, &mut uses, &pair[1]).unwrap();
-        let damage = live.update(&mut r, &held, &applied).unwrap();
+        live.apply(&mut r, &Edits::between(&pair[0], &pair[1]))
+            .unwrap();
+        let damage = damage(&mut live);
         let fresh = r.drawing(&pair[1], Theme::Light, None).unwrap();
+        let live = live.held(Theme::Light);
         assert_eq!(live.area(), fresh.area(), "step {n}");
         assert_eq!(live.frames(), fresh.frames(), "step {n}");
-        assert!(paint(&live) == paint(&fresh), "step {n}");
+        assert!(paint(live) == paint(&fresh), "step {n}");
         match n {
             2 => {
-                assert!(!damage.all);
                 let bottom = live.area().y as f64 + live.area().height as f64;
                 assert!(
-                    damage.rects.iter().any(|d| d.y1 >= bottom - 1.0),
+                    rects(&damage).iter().any(|d| d.y1 >= bottom - 1.0),
                     "{damage:?}"
                 );
             }
-            3 => assert!(damage.all, "{damage:?}"),
+            3 => assert_eq!(damage, Damage::All),
             _ => {}
         }
     }
@@ -134,7 +179,7 @@ fn tall(rows: usize, edit: usize, label: &str) -> Scene {
         format!("<Frame layout=\"column\" fill=\"#ffffff\">{body}</Frame>"),
     )]
     .into();
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 /// The fastest of several updates of row `rows / 2`'s text, back and
@@ -146,19 +191,17 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
         tall(rows, rows / 2, "Edited!!!"),
     );
     let mut r = Renderer::new();
-    let mut d = r.drawing(&a, Theme::Light, None).unwrap();
-    let mut held = a.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut d = canvas(&mut r, &a, Theme::Light);
     let mut best = std::time::Duration::MAX;
     for n in 0..12 {
-        let new = if n % 2 == 0 { &b } else { &a };
+        let (old, new) = if n % 2 == 0 { (&a, &b) } else { (&b, &a) };
         let t = std::time::Instant::now();
-        let applied = crate::wire::bring(&mut held, &mut uses, new).unwrap();
-        let damage = d.update(&mut r, &held, &applied).unwrap();
+        d.apply(&mut r, &Edits::between(old, new)).unwrap();
         best = best.min(t.elapsed());
-        assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
+        let damage = damage(&mut d);
+        assert!(rects(&damage).len() <= 4, "{damage:?}");
     }
-    (best, d.visited)
+    (best, d.held(Theme::Light).visited)
 }
 
 /// Updating one row's text visits only the nodes on its path — the
@@ -182,24 +225,21 @@ fn an_edit_visits_only_its_path() {
 fn a_row_that_grows_moves_the_rows_after_it() {
     let a = tall(50, 20, "Row 00020");
     let mut b = a.clone();
-    b.root.children.nth_mut(20).unwrap().height = resolve::Size::Px(160.0);
+    b.root.children.nth_mut(20).unwrap().height = scene::Size::Px(160.0);
     let mut r = Renderer::new();
-    let mut d = r.drawing(&a, Theme::Light, None).unwrap();
-    let mut held = a.clone();
-    let mut uses = crate::wire::Uses::of(&held.root);
-    let applied = crate::wire::bring(&mut held, &mut uses, &b).unwrap();
-    let damage = d.update(&mut r, &held, &applied).unwrap();
-    assert!(!damage.all);
+    let mut d = canvas(&mut r, &a, Theme::Light);
+    d.apply(&mut r, &Edits::between(&a, &b)).unwrap();
+    let damage = damage(&mut d);
     assert!(
-        damage.rects.iter().all(|r| r.y1 > 2000.0 - 1.0),
+        rects(&damage).iter().all(|r| r.y1 > 2000.0 - 1.0),
         "{damage:?}"
     );
     let fresh = r.drawing(&b, Theme::Light, None).unwrap();
-    assert_eq!(d.frames(), fresh.frames());
-    assert_eq!(d.area(), fresh.area());
-    for row in 0..d.area().height as u32 / 256 + 1 {
+    assert_eq!(d.held(Theme::Light).frames(), fresh.frames());
+    assert_eq!(d.held(Theme::Light).area(), fresh.area());
+    for row in 0..fresh.area().height as u32 / 256 + 1 {
         assert!(
-            crate::cpu::tile(&d.list, 1.0, 0, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+            tile(&mut d, &mut r, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
             "row {row}"
         );
     }
@@ -263,13 +303,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
         let mut scene = start.clone();
         // The canvas's side: the scene as the stream carries it, patched,
         // and the drawing made from it, whose places are its.
-        let mut held = crate::wire::decode_scene(
-            &crate::wire::scene(&scene),
-            (&Default::default(), &Default::default()),
-        )
-        .unwrap();
-        let mut d = r.drawing(&held, theme, None).unwrap();
-        let mut uses = crate::wire::Uses::of(&held.root);
+        let mut d = canvas(&mut r, &scene, theme);
         for step in 0..STEPS {
             let mut next = scene.clone();
             let mut all = Vec::new();
@@ -281,7 +315,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 match kind {
                     0 => n.opacity = if n.opacity < 1.0 { 1.0 } else { 0.5 },
                     1 => n.clip = !n.clip,
-                    2 => n.width = resolve::Size::Px(40.0 + rng.next(300) as f32),
+                    2 => n.width = scene::Size::Px(40.0 + rng.next(300) as f32),
                     3 => n.x += 7.0,
                     4 => {
                         if let Some(t) = &mut n.text {
@@ -322,7 +356,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
             // child of a frame with no layout.
             fn valid(n: &Node) -> bool {
                 let fills =
-                    |c: &Node| c.width == resolve::Size::Fill || c.height == resolve::Size::Fill;
+                    |c: &Node| c.width == scene::Size::Fill || c.height == scene::Size::Fill;
                 !(n.layout == Layout::None && n.children.iter().any(fills))
                     && n.children.iter().all(valid)
             }
@@ -330,11 +364,11 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 continue;
             }
             // Edited by hand, so indexed again.
-            next.ids = crate::resolve::Ids::of(&next.root);
+            next.ids = crate::scene::Ids::of(&next.root);
             // By the very patch the canvas gets, applied as the canvas
             // applies it.
-            let patch = crate::wire::patch(&scene, &next);
-            let replaced = crate::wire::apply(&mut held, &mut uses, &patch).unwrap_or_else(|e| {
+            let patch = crate::wire::patch(&crate::scene::Edits::between(&scene, &next));
+            d.patch(&mut r, &patch).unwrap_or_else(|e| {
                 panic!(
                     "{theme:?} step {step} kind {kind} at {at:?}: {e}\n{:?}",
                     patch
@@ -357,12 +391,12 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                         .collect::<Vec<_>>()
                 )
             });
-            assert!(held.root == next.root, "the patch carries the scene");
-            assert_eq!(uses, crate::wire::Uses::of(&held.root));
-            d.update(&mut r, &held, &replaced).unwrap();
+            assert!(d.scene().root == next.root, "the patch carries the scene");
+            assert!(d.problem(theme).is_none());
             // What the update moved by a fraction of a pixel rounds when read.
-            d.prepare_all(&mut r, &held);
+            d.whole(&mut r, theme).unwrap();
             let fresh = r.drawing(&next, theme, None).unwrap();
+            let d = d.held(theme);
             let case = format!("{theme:?} step {step}: kind {kind} at {at:?}");
             assert_eq!(d.frames(), fresh.frames(), "{case}");
             assert_eq!(d.area(), fresh.area(), "{case}");
@@ -371,7 +405,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                     .data_as_u8_slice()
                     .to_vec()
             };
-            assert!(paint(&d) == paint(&fresh), "{case}");
+            assert!(paint(d) == paint(&fresh), "{case}");
             let live = |d: &Drawing| {
                 let t = &d.list.trees;
                 (
@@ -381,7 +415,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                     d.images.len(),
                 )
             };
-            assert_eq!(live(&d), live(&fresh), "{case}");
+            assert_eq!(live(d), live(&fresh), "{case}");
             scene = next;
         }
     }
@@ -417,7 +451,7 @@ fn balanced(depth: u32, edit: usize, label: &str) -> Scene {
     let mut s = String::new();
     go(depth, 0, edit, label, &mut s);
     let files: HashMap<String, String> = [("a.design".to_string(), s)].into();
-    resolve::resolve(&files, "a.design").unwrap()
+    crate::resolve(&files, "a.design").unwrap()
 }
 
 /// The fastest of several edits of one row's text, back and forth, on a
@@ -427,23 +461,20 @@ fn patch_cost(depth: u32) -> std::time::Duration {
     let n = 10usize.pow(depth);
     let a = balanced(depth, n / 2, &format!("Row {:06}", n / 2));
     let b = balanced(depth, n / 2, "Edited!!!!");
-    let (there, back) = (crate::wire::patch(&a, &b), crate::wire::patch(&b, &a));
-    let mut held = crate::wire::decode_scene(
-        &crate::wire::scene(&a),
-        (&Default::default(), &Default::default()),
-    )
-    .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let (there, back) = (
+        crate::wire::patch(&crate::scene::Edits::between(&a, &b)),
+        crate::wire::patch(&crate::scene::Edits::between(&b, &a)),
+    );
     let mut r = Renderer::new();
-    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let mut d = canvas(&mut r, &a, Theme::Light);
     let mut best = std::time::Duration::MAX;
     for k in 0..10 {
         let p = if k % 2 == 0 { &there } else { &back };
         let t = std::time::Instant::now();
-        let replaced = crate::wire::apply(&mut held, &mut uses, p).unwrap();
-        let damage = d.update(&mut r, &held, &replaced).unwrap();
+        d.patch(&mut r, p).unwrap();
         best = best.min(t.elapsed());
-        assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
+        let damage = damage(&mut d);
+        assert!(rects(&damage).len() <= 4, "{damage:?}");
     }
     best
 }
@@ -464,7 +495,7 @@ fn an_edit_costs_the_patch_not_the_design() {
 
 /// A design of `n` rows in a frame with no layout, as saved: with `front`,
 /// one more before the first.
-fn rows_saved(saves: &mut crate::ids::testing::Saves, n: usize, front: bool) -> Scene {
+fn rows_saved(saves: &mut Saves, n: usize, front: bool) -> Scene {
     let mut rows = String::new();
     if front {
         rows.push_str("<Frame width={400} height={10} fill=\"#ff0000\" />");
@@ -476,11 +507,11 @@ fn rows_saved(saves: &mut crate::ids::testing::Saves, n: usize, front: bool) -> 
             i * 7919 % 0xffffff
         ));
     }
-    saves.save(
-        "a.design",
+    saves.files.insert(
+        "a.design".into(),
         format!("<Frame layout=\"none\" fill=\"#ffffff\">{rows}</Frame>"),
     );
-    saves.resolve("a.design")
+    crate::resolve(&*saves, "a.design").unwrap()
 }
 
 /// A row inserted before the first of 1,000 or 10,000 is one insert in the
@@ -489,28 +520,20 @@ fn rows_saved(saves: &mut crate::ids::testing::Saves, n: usize, front: bool) -> 
 #[test]
 fn an_insert_before_the_first_is_one_insert_and_one_chunk() {
     for n in [1_000, 10_000] {
-        let mut saves = crate::ids::testing::Saves::default();
+        let mut saves = saves();
         let old = rows_saved(&mut saves, n, false);
         let new = rows_saved(&mut saves, n, true);
-        let p = crate::wire::patch(&old, &new);
+        let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
         assert_eq!(p.ops.len(), 1, "{n}");
-        let mut held = crate::wire::decode_scene(
-            &crate::wire::scene(&old),
-            (&Default::default(), &Default::default()),
-        )
-        .unwrap();
-        let mut uses = crate::wire::Uses::of(&held.root);
         let mut r = Renderer::new();
-        let mut d = r.drawing(&held, Theme::Light, None).unwrap();
-        let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
-        d.update(&mut r, &held, &applied).unwrap();
-        assert_eq!(d.visited, 2, "{n}");
+        let mut d = canvas(&mut r, &old, Theme::Light);
+        d.patch(&mut r, &p).unwrap();
+        assert_eq!(d.held(Theme::Light).visited, 2, "{n}");
         let fresh = r.drawing(&new, Theme::Light, None).unwrap();
-        assert_eq!(d.frames(), fresh.frames());
+        assert_eq!(d.held(Theme::Light).frames(), fresh.frames());
         for row in [0, 1, 2] {
             assert!(
-                crate::cpu::tile(&d.list, 1.0, 0, row)
-                    == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                tile(&mut d, &mut r, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
                 "{n} row {row}"
             );
         }
@@ -562,17 +585,11 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
             width: 100,
         })
         .collect();
-    let mut saves = crate::ids::testing::Saves::default();
-    saves.save("a.design", text(&rows));
-    let mut sent = saves.resolve("a.design");
-    let mut held = crate::wire::decode_scene(
-        &crate::wire::scene(&sent),
-        (&Default::default(), &Default::default()),
-    )
-    .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let mut saves = saves();
+    saves.files.insert("a.design".into(), text(&rows));
+    let mut sent = crate::resolve(&saves, "a.design").unwrap();
     let mut r = Renderer::new();
-    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
+    let mut d = canvas(&mut r, &sent, Theme::Light);
     let mut next_label = 100;
     for step in 0..80 {
         let mut touched: Vec<String> = Vec::new();
@@ -610,8 +627,8 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
             _ => continue,
         }
         let before = ids(&sent);
-        saves.save("a.design", text(&rows));
-        let next = saves.resolve("a.design");
+        saves.files.insert("a.design".into(), text(&rows));
+        let next = crate::resolve(&saves, "a.design").unwrap();
         let after = ids(&next);
         for (label, id) in &before {
             if !touched.contains(label) {
@@ -636,19 +653,21 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
                 );
             }
         }
-        let p = crate::wire::patch(&sent, &next);
+        let p = crate::wire::patch(&crate::scene::Edits::between(&sent, &next));
         assert!(p.ops.len() <= 4, "step {step}: {} operations", p.ops.len());
-        let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
-        assert!(held.root == next.root, "step {step}");
-        d.update(&mut r, &held, &applied).unwrap();
+        d.patch(&mut r, &p).unwrap();
+        assert!(d.scene().root == next.root, "step {step}");
         let fresh = r.drawing(&next, Theme::Light, None).unwrap();
-        assert_eq!(d.frames(), fresh.frames(), "step {step}");
-        let paint = |d: &Drawing| {
-            paint_area(&d.list, frame_rect(d.area()), 1.0)
+        assert_eq!(d.held(Theme::Light).frames(), fresh.frames(), "step {step}");
+        let paint = |list: &crate::display::List| {
+            paint_area(list, frame_rect(list.area), 1.0)
                 .data_as_u8_slice()
                 .to_vec()
         };
-        assert!(paint(&d) == paint(&fresh), "step {step}");
+        assert!(
+            paint(d.whole(&mut r, Theme::Light).unwrap()) == paint(&fresh.list),
+            "step {step}"
+        );
         sent = next;
     }
 }
@@ -657,7 +676,7 @@ fn random_saves_keep_ids_and_leave_a_drawing_as_a_fresh_one() {
 /// saved through `saves`, and the row at `edit` given `label`, the row at
 /// `grow` 8 px taller, and a row before the first when `front`.
 fn column_saved(
-    saves: &mut crate::ids::testing::Saves,
+    saves: &mut Saves,
     n: usize,
     label: (usize, &str),
     grow: Option<usize>,
@@ -695,20 +714,17 @@ fn column_saved(
             height(i)
         ));
     }
-    saves.save(
-        "a.design",
+    saves.files.insert(
+        "a.design".into(),
         format!("<Frame layout=\"column\" fill=\"#ffffff\">{rows}</Frame>"),
     );
-    saves.resolve("a.design")
+    crate::resolve(&*saves, "a.design").unwrap()
 }
 
 /// What one edit to a column of `n` rows costs the drawing, in release:
 /// the update's time, and how many nodes it visited.
-fn column_edit(
-    n: usize,
-    edit: &dyn Fn(&mut crate::ids::testing::Saves) -> Scene,
-) -> (std::time::Duration, usize) {
-    let mut saves = crate::ids::testing::Saves::default();
+fn column_edit(n: usize, edit: &dyn Fn(&mut Saves) -> Scene) -> (std::time::Duration, usize) {
+    let mut saves = saves();
     let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
     let old = if edit_fractional() {
         column_saved(&mut saves, n, (usize::MAX, ""), None, false, true)
@@ -716,20 +732,13 @@ fn column_edit(
         old
     };
     let new = edit(&mut saves);
-    let p = crate::wire::patch(&old, &new);
-    let mut held = crate::wire::decode_scene(
-        &crate::wire::scene(&old),
-        (&Default::default(), &Default::default()),
-    )
-    .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
     let mut r = Renderer::new();
-    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
-    let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
+    let mut d = canvas(&mut r, &old, Theme::Light);
     let t = std::time::Instant::now();
-    d.update(&mut r, &held, &applied).unwrap();
+    d.patch(&mut r, &p).unwrap();
     let took = t.elapsed();
-    (took, d.visited)
+    (took, d.held(Theme::Light).visited)
 }
 
 fn edit_fractional() -> bool {
@@ -767,32 +776,27 @@ fn column_edit_costs() {
 #[test]
 fn a_column_edit_visits_the_same_nodes_at_any_length() {
     for n in [1_000, 10_000] {
-        let edits: [&dyn Fn(&mut crate::ids::testing::Saves) -> Scene; 3] = [
+        let edits: [&dyn Fn(&mut Saves) -> Scene; 3] = [
             &|s| column_saved(s, n, (n / 2, "Edited"), None, false, false),
             &|s| column_saved(s, n, (usize::MAX, ""), Some(n / 2), false, false),
             &|s| column_saved(s, n, (usize::MAX, ""), None, true, false),
         ];
         for (e, edit) in edits.iter().enumerate() {
-            let mut saves = crate::ids::testing::Saves::default();
+            let mut saves = saves();
             let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, false);
             let new = edit(&mut saves);
-            let p = crate::wire::patch(&old, &new);
-            let mut held = crate::wire::decode_scene(
-                &crate::wire::scene(&old),
-                (&Default::default(), &Default::default()),
-            )
-            .unwrap();
-            let mut uses = crate::wire::Uses::of(&held.root);
+            let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
             let mut r = Renderer::new();
-            let mut d = r.drawing(&held, Theme::Light, None).unwrap();
-            let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
-            let damage = d.update(&mut r, &held, &applied).unwrap();
-            assert!(d.visited <= 3, "{n} rows, edit {e}: {} visited", d.visited);
+            let mut d = canvas(&mut r, &old, Theme::Light);
+            d.patch(&mut r, &p).unwrap();
+            let damage = damage(&mut d);
+            let visited = d.held(Theme::Light).visited;
+            assert!(visited <= 3, "{n} rows, edit {e}: {visited} visited");
             let fresh = r.drawing(&new, Theme::Light, None).unwrap();
-            assert_eq!(d.area(), fresh.area(), "{n} {e}");
-            assert_eq!(d.frames(), fresh.frames(), "{n} {e}");
+            assert_eq!(d.held(Theme::Light).area(), fresh.area(), "{n} {e}");
+            assert_eq!(d.held(Theme::Light).frames(), fresh.frames(), "{n} {e}");
             let edited = if e == 2 { 0.0 } else { (n / 2) as f64 * 20.0 };
-            for rect in &damage.rects {
+            for rect in rects(&damage) {
                 assert!(
                     rect.y1 >= edited - 1.0,
                     "{n} {e}: damage {rect:?} above the edit"
@@ -801,13 +805,15 @@ fn a_column_edit_visits_the_same_nodes_at_any_length() {
             let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
             for row in [0, rows / 2, rows - 1] {
                 assert!(
-                    crate::cpu::tile(&d.list, 1.0, 0, row)
-                        == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+                    tile(&mut d, &mut r, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
                     "{n} {e}: tile row {row}"
                 );
             }
-            for y in [5.0, edited as f32 + 5.0, fresh.area().height - 5.0] {
-                assert_eq!(d.action_at(10.0, y), fresh.action_at(10.0, y));
+            for y in [5.0, edited + 5.0, fresh.area().height as f64 - 5.0] {
+                assert_eq!(
+                    d.action_at(&mut r, Theme::Light, 10.0, y),
+                    fresh.action_at(10.0, y as f32)
+                );
             }
         }
     }
@@ -821,34 +827,28 @@ fn a_column_edit_visits_the_same_nodes_at_any_length() {
 #[test]
 fn rows_moved_by_a_fraction_round_when_read() {
     let n = 10_000;
-    let mut saves = crate::ids::testing::Saves::default();
+    let mut saves = saves();
     let old = column_saved(&mut saves, n, (usize::MAX, ""), None, false, true);
     let new = column_saved(&mut saves, n, (usize::MAX, ""), None, true, true);
-    let p = crate::wire::patch(&old, &new);
-    let mut held = crate::wire::decode_scene(
-        &crate::wire::scene(&old),
-        (&Default::default(), &Default::default()),
-    )
-    .unwrap();
-    let mut uses = crate::wire::Uses::of(&held.root);
+    let p = crate::wire::patch(&crate::scene::Edits::between(&old, &new));
     let mut r = Renderer::new();
-    let mut d = r.drawing(&held, Theme::Light, None).unwrap();
-    let applied = crate::wire::apply(&mut held, &mut uses, &p).unwrap();
-    d.update(&mut r, &held, &applied).unwrap();
-    assert!(d.visited <= 3, "{} visited", d.visited);
+    let mut d = canvas(&mut r, &old, Theme::Light);
+    d.patch(&mut r, &p).unwrap();
+    let visited = d.held(Theme::Light).visited;
+    assert!(visited <= 3, "{visited} visited");
     let fresh = r.drawing(&new, Theme::Light, None).unwrap();
     let rows = (fresh.area().height as u32).div_ceil(crate::tiles::TILE);
     for row in [rows / 2, rows - 1, 0] {
-        d.visited = 0;
-        let rect = crate::tiles::tile_rect(&d.list, 1.0, 0, row);
-        d.prepare(&mut r, &held, rect);
-        assert!(d.visited < 64, "tile row {row}: {} visited", d.visited);
+        d.held(Theme::Light).visited = 0;
+        let painted = tile(&mut d, &mut r, row);
+        let visited = d.held(Theme::Light).visited;
+        assert!(visited < 64, "tile row {row}: {visited} visited");
         assert!(
-            crate::cpu::tile(&d.list, 1.0, 0, row) == crate::cpu::tile(&fresh.list, 1.0, 0, row),
+            painted == crate::cpu::tile(&fresh.list, 1.0, 0, row),
             "tile row {row}"
         );
     }
-    d.prepare_all(&mut r, &held);
-    assert_eq!(d.frames(), fresh.frames());
-    assert_eq!(d.area(), fresh.area());
+    d.whole(&mut r, Theme::Light).unwrap();
+    assert_eq!(d.held(Theme::Light).frames(), fresh.frames());
+    assert_eq!(d.held(Theme::Light).area(), fresh.area());
 }

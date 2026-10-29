@@ -69,9 +69,11 @@ names a document or a version
 | `download` | a version's PDF or PNG drawn, on its first request |
 
 Stages nest, as the work does: `nav` runs inside `render`, and `check`
-renders the page and every page a `#heading` link reaches, so most Markdown
-rendering is timed under `check`. `render` is timed where every kind of page
-is rendered, so a doc's chapter is counted as a site's page is.
+renders every page a `#heading` link reaches, so that rendering is timed
+under `check`. A page renders in two phases — its content, the Markdown to
+HTML, and then the frame round it — and `render` times each, so a view
+counts two; both are timed where every kind of page renders, so a doc's
+chapter is counted as a site's page is.
 
 **Requests** by route and status, with their time. **Totals**: versions held
 in memory and their routers, threads, open live pages, the cache's bytes,

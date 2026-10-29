@@ -5,7 +5,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::{Result, bail};
-use devpage_core::comments::{self, Anchor, Listed, Message, Thread};
+use devpage_core::comments::{self, Anchor, Carry, Listed, Message, Thread};
 use rusqlite::{Connection, OptionalExtension, params};
 
 pub struct Sqlite(Mutex<Connection>);
@@ -119,10 +119,13 @@ impl Sqlite {
     }
 
     /// Records version `number` as the document's latest — creating the
-    /// document when it is 1. Refused unless `number` is the one
+    /// document when it is 1 — and carries its threads onto it as `carry`
+    /// moves them, in one transaction: the version and its carry land
+    /// together, or neither does. Refused unless `number` is the one
     /// [`Sqlite::next_number`] gives, checked in the same transaction, so two
-    /// publishes never share a number.
-    pub fn record(&self, id: &str, number: u64, publish: &Publish) -> Result<()> {
+    /// publishes never share a number. A thread resolved since the carry was
+    /// worked out has nothing to move.
+    pub fn record(&self, id: &str, number: u64, publish: &Publish, carry: &Carry) -> Result<()> {
         let mut connection = self.connection();
         let tx = connection.transaction()?;
         let last: Option<i64> = tx
@@ -163,6 +166,19 @@ impl Sqlite {
                 publish.sha256
             ],
         )?;
+        for moved in carry.moved() {
+            match &moved.anchor {
+                Some(anchor) => tx.execute(
+                    "UPDATE threads SET quote = ?3, prefix = ?4, suffix = ?5
+                     WHERE document = ?1 AND id = ?2",
+                    params![id, moved.id, anchor.quote, anchor.prefix, anchor.suffix],
+                )?,
+                None => tx.execute(
+                    "UPDATE threads SET detached_in = ?3 WHERE document = ?1 AND id = ?2",
+                    params![id, moved.id, number as i64],
+                )?,
+            };
+        }
         tx.commit()?;
         Ok(())
     }
@@ -300,15 +316,15 @@ pub struct ThreadRow {
 }
 
 impl Sqlite {
-    /// The document's threads, oldest first — on `page` only, when given.
-    pub fn threads(&self, document: &str, page: Option<&str>) -> Result<Vec<ThreadRow>> {
+    /// The document's threads, oldest first.
+    pub fn threads(&self, document: &str) -> Result<Vec<ThreadRow>> {
         let connection = self.connection();
         let mut statement = connection.prepare(
             "SELECT id, page, version, detached_in, quote, prefix, suffix
-             FROM threads WHERE document = ?1 AND (?2 IS NULL OR page = ?2) ORDER BY rowid",
+             FROM threads WHERE document = ?1 ORDER BY rowid",
         )?;
         let threads: Vec<ThreadRow> = statement
-            .query_map(params![document, page], |row| {
+            .query_map(params![document], |row| {
                 Ok(ThreadRow {
                     id: row.get(0)?,
                     page: row.get(1)?,
@@ -355,7 +371,7 @@ impl Sqlite {
         anchor: &Anchor,
         message: &Message,
     ) -> Result<String> {
-        let (id, _) = comments::new_id();
+        let id = comments::new_id();
         let mut connection = self.connection();
         let tx = connection.transaction()?;
         tx.execute(
@@ -376,73 +392,42 @@ impl Sqlite {
         Ok(id)
     }
 
-    /// Appends `message` to thread `id` — on `page`, when given. Whether there
-    /// was such a thread.
-    pub fn reply(
-        &self,
-        document: &str,
-        page: Option<&str>,
-        id: &str,
-        message: &Message,
-    ) -> Result<bool> {
+    /// Appends `message` to thread `id`: the page it is on, or `None` when
+    /// there is no such thread.
+    pub fn reply(&self, document: &str, id: &str, message: &Message) -> Result<Option<String>> {
         let mut connection = self.connection();
         let tx = connection.transaction()?;
-        if !thread_exists(&tx, document, page, id)? {
-            return Ok(false);
-        }
+        let Some(page) = page_of(&tx, document, id)? else {
+            return Ok(None);
+        };
         add_message(&tx, document, id, message)?;
         tx.commit()?;
-        Ok(true)
+        Ok(Some(page))
     }
 
-    /// Resolves thread `id` — on `page`, when given: it is deleted. Whether
-    /// there was such a thread.
-    pub fn resolve(&self, document: &str, page: Option<&str>, id: &str) -> Result<bool> {
-        Ok(self.connection().execute(
-            "DELETE FROM threads WHERE document = ?1 AND id = ?2 AND (?3 IS NULL OR page = ?3)",
-            params![document, id, page],
-        )? > 0)
-    }
-
-    /// Carries thread `id` onto version `version`: at `anchor`, or detached
-    /// when its text is gone.
-    pub fn reanchor(
-        &self,
-        document: &str,
-        id: &str,
-        version: u64,
-        anchor: Option<&Anchor>,
-    ) -> Result<()> {
-        let connection = self.connection();
-        match anchor {
-            Some(anchor) => connection.execute(
-                "UPDATE threads SET quote = ?3, prefix = ?4, suffix = ?5
-                 WHERE document = ?1 AND id = ?2",
-                params![document, id, anchor.quote, anchor.prefix, anchor.suffix],
-            )?,
-            None => connection.execute(
-                "UPDATE threads SET detached_in = ?3 WHERE document = ?1 AND id = ?2",
-                params![document, id, version as i64],
-            )?,
-        };
-        Ok(())
+    /// Resolves thread `id` — it is deleted: the page it was on, or `None`
+    /// when there was no such thread.
+    pub fn resolve(&self, document: &str, id: &str) -> Result<Option<String>> {
+        Ok(self
+            .connection()
+            .query_row(
+                "DELETE FROM threads WHERE document = ?1 AND id = ?2 RETURNING page",
+                params![document, id],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 }
 
-fn thread_exists(
-    connection: &Connection,
-    document: &str,
-    page: Option<&str>,
-    id: &str,
-) -> Result<bool> {
+/// The page thread `id` is on, if there is such a thread.
+fn page_of(connection: &Connection, document: &str, id: &str) -> Result<Option<String>> {
     Ok(connection
         .query_row(
-            "SELECT 1 FROM threads WHERE document = ?1 AND id = ?2 AND (?3 IS NULL OR page = ?3)",
-            params![document, id, page],
-            |_| Ok(()),
+            "SELECT page FROM threads WHERE document = ?1 AND id = ?2",
+            params![document, id],
+            |row| row.get(0),
         )
-        .optional()?
-        .is_some())
+        .optional()?)
 }
 
 fn add_message(connection: &Connection, document: &str, id: &str, message: &Message) -> Result<()> {
@@ -456,79 +441,61 @@ fn add_message(connection: &Connection, document: &str, id: &str, message: &Mess
     Ok(())
 }
 
-/// One document's threads as a comment store: what the page of a version
-/// writes through. A thread started here is on `version`.
+/// One document's threads as a comment store: what the comments of a
+/// version write through. A thread started here is on `version`.
 pub struct DocumentThreads {
     pub store: Arc<Sqlite>,
     pub document: String,
     pub version: u64,
 }
 
-/// A page as the store keys it — `/a.md` — or why it can't be one.
-fn page_key(page: &str) -> Result<String> {
-    if !comments::is_page(page) || page.trim_start_matches('/').is_empty() {
-        bail!("{page}: not a page of the document");
+fn listed(row: ThreadRow) -> Listed {
+    Listed {
+        id: row.id,
+        thread: Thread {
+            anchor: row.anchor,
+            thread: row.thread,
+        },
+        detached: row.detached,
     }
-    Ok(format!("/{}", page.trim_start_matches('/')))
 }
 
 impl comments::Store for DocumentThreads {
     fn list(&self, page: &str) -> Result<Vec<Listed>> {
-        let page = page_key(page)?;
         Ok(self
             .store
-            .threads(&self.document, Some(&page))?
+            .threads(&self.document)?
             .into_iter()
-            .map(|row| Listed {
-                id: row.id,
-                thread: Thread {
-                    anchor: row.anchor,
-                    thread: row.thread,
-                },
-                detached: row.detached,
-            })
+            .filter(|row| row.page == page)
+            .map(listed)
             .collect())
     }
 
-    fn create(&self, page: &str, anchor: Anchor, author: &str, text: &str) -> Result<String> {
-        let page = page_key(page)?;
-        let (_, at) = comments::new_id();
-        self.store.create_thread(
-            &self.document,
-            self.version,
-            &page,
-            &anchor,
-            &Message {
-                author: author.into(),
-                at,
-                text: text.into(),
-            },
-        )
+    fn create(&self, page: &str, anchor: Anchor, first: Message) -> Result<String> {
+        self.store
+            .create_thread(&self.document, self.version, page, &anchor, &first)
     }
 
-    fn reply(&self, page: &str, id: &str, author: &str, text: &str) -> Result<()> {
-        let page = page_key(page)?;
-        let (_, at) = comments::new_id();
-        let message = Message {
-            author: author.into(),
-            at,
-            text: text.into(),
-        };
-        if !self
+    fn reply(&self, id: &str, message: Message) -> Result<Option<String>> {
+        self.store.reply(&self.document, id, &message)
+    }
+
+    fn resolve(&self, id: &str) -> Result<Option<String>> {
+        self.store.resolve(&self.document, id)
+    }
+
+    fn attached(&self) -> Result<Vec<(String, Listed)>> {
+        Ok(self
             .store
-            .reply(&self.document, Some(&page), id, &message)?
-        {
-            bail!("{id}: no such thread on {page}");
-        }
-        Ok(())
+            .threads(&self.document)?
+            .into_iter()
+            .filter(|row| !row.detached)
+            .map(|row| (row.page.clone(), listed(row)))
+            .collect())
     }
 
-    fn resolve(&self, page: &str, id: &str) -> Result<()> {
-        let page = page_key(page)?;
-        if !self.store.resolve(&self.document, Some(&page), id)? {
-            bail!("{id}: no such thread on {page}");
-        }
-        Ok(())
+    fn heard(&self, _: &[std::path::PathBuf]) -> Vec<String> {
+        Vec::new()
     }
 }
 
@@ -578,10 +545,18 @@ mod tests {
     fn a_number_is_given_once_even_after_its_version_is_deleted() {
         let store = store("numbers");
         assert_eq!(store.next_number("d").unwrap(), 1);
-        store.record("d", 1, &publish("One")).unwrap();
-        store.record("d", 2, &publish("Two")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
+        store
+            .record("d", 2, &publish("Two"), &Carry::default())
+            .unwrap();
         // A publish that read the same next number loses.
-        assert!(store.record("d", 2, &publish("Late")).is_err());
+        assert!(
+            store
+                .record("d", 2, &publish("Late"), &Carry::default())
+                .is_err()
+        );
         assert_eq!(store.delete_version("d", 2).unwrap(), Deleted::Version);
         assert_eq!(store.latest("d").unwrap(), Some(1));
         assert_eq!(store.next_number("d").unwrap(), 3);
@@ -594,7 +569,9 @@ mod tests {
     #[test]
     fn deleting_the_only_version_deletes_the_document() {
         let store = store("only");
-        store.record("d", 1, &publish("One")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
         assert_eq!(store.delete_version("d", 9).unwrap(), Deleted::Nothing);
         assert_eq!(store.delete_version("d", 1).unwrap(), Deleted::Document);
         assert!(store.get("d").unwrap().is_none());
@@ -604,9 +581,15 @@ mod tests {
     #[test]
     fn deleting_a_document_deletes_its_versions() {
         let store = store("delete");
-        store.record("d", 1, &publish("One")).unwrap();
-        store.record("d", 2, &publish("Two")).unwrap();
-        store.record("e", 1, &publish("Else")).unwrap();
+        store
+            .record("d", 1, &publish("One"), &Carry::default())
+            .unwrap();
+        store
+            .record("d", 2, &publish("Two"), &Carry::default())
+            .unwrap();
+        store
+            .record("e", 1, &publish("Else"), &Carry::default())
+            .unwrap();
         assert_eq!(store.delete("d").unwrap(), Some(vec![1, 2]));
         assert_eq!(store.delete("d").unwrap(), None);
         assert_eq!(store.entry("d", 1).unwrap(), None);

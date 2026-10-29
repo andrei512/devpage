@@ -49,29 +49,41 @@ The `delivery` attribute of a slide's `<Notes>`: how that slide should feel when
 
 GPT-Live, as `devpage video` uses it: told the deck's audience, goal and tone and each slide's delivery, it says each slide's notes word for word into the recording. See [The narrator](../making-a-video/README.md#the-narrator).
 
+## pacing
+
+How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/README.md#how-it-is-recorded).
+
 ## document file
 
 The YAML file describing a document — any name, `devpage.yml` by default.
 
 ## entry document
 
-The document devpage was started with, where `/` leads.
+The document devpage was started with, where `/` leads. While its file is invalid, its last valid version stays in use and `/` shows why.
 
 ## served folder
 
-The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read or linked to.
+The folder devpage serves: the one it was started from, or the one `--root` names. Addresses are paths in it, `.devpage/` sits at its top, and nothing outside it is served, read, linked to or named: a path outside has no address and no name. In the code, `Folder` (`core/src/folder/`) is the served folder opened on its entry document — its document index, its owners, what a change to it means — and `folder::ServedFolder` is its boundary and its mount. It keeps no document but the entry: every other is loaded from its file when asked for. See [The index](../document-index/README.md#the-index).
 
-## resolver
+## document index
 
-What decides the answer to a request from the documents alone — a page, a redirect, a file's bytes, a design's or a slide's PNG, or an error with its reason — so the HTTP server only turns that answer into a response (`Resolver`, in `core/src/resolve.rs`). See [Routes](../serving-pages/README.md#routes).
+What the served folder knows without scanning: every document file in it and its kind, and every `.gitignore`, kept current by the watcher. Not the [display index](#display-index). See [The index](../document-index/README.md#the-index).
+
+## owner
+
+The document a file belongs to: for a page, the nearest site whose folder holds it (`Folder::owner`); for a widgets folder, the document that names it — the entry document first (`Folder::widgets_owner`). See [The nearest site](../document-index/README.md#the-nearest-site).
+
+## answer
+
+What a request is answered with, decided from the documents alone — a page (a design's canvas page among them), a redirect, a file's bytes, a design's or a slide's PNG, a widget's module or a module that throws why it can't be had, or an error with its reason — so the HTTP server only turns it into a response, with its headers (`Answer`, made by `Answers`, in `core/src/answer.rs`). See [Routes](../serving-pages/README.md#routes).
 
 ## mount prefix
 
-The address every document a server serves sits under, carried by every redirect the resolver answers with; empty, since `devpage` serves at `/`.
+The served folder's mount (`ServedFolder::mount`): the address every document in it sits under, carried by every address and redirect it [answers](#answer) with. Empty locally, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
 
 ## design
 
-A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch.
+A UI drawn as code: one `.design` file holding one root `Frame`, drawn on a canvas and as a PNG. Never "mockup" or "component"; not to be confused with a design doc, which is a doc, or a design branch, which is a git branch. The engine holds one while it is shown as a `Design`: its scene and its [drawing](#drawing) in each theme asked for, brought along by each [edit](#edits). See [How the engine is built](../design-engine/README.md#how-the-engine-is-built).
 
 ## instance
 
@@ -88,6 +100,10 @@ One element of a resolved design — a frame, text, rectangle, ellipse, vector o
 ## scene
 
 A design resolved into one tree of nodes, imports, props and theme colors substituted, every color with its light and its dark value, with the image files and font files its nodes use, ready to lay out and paint in either theme. A scene is **themed** when any `theme.` reference reached it.
+
+## edits
+
+How one scene becomes the next, each step naming its nodes by id: a node's own attributes changed, a subtree inserted after a sibling, a subtree removed or moved — with the image files and font files the scene before didn't have. Applying them is all or nothing. Resolving a design again makes them; on the wire they are a [patch](#patch). See [Resolving again](../design-engine/README.md#resolving-again).
 
 ## interaction
 
@@ -123,7 +139,7 @@ An auto-layout frame whose children each take their own size, set one after anot
 
 ## display list
 
-What the painter makes of a laid-out scene in one theme: drawing commands in [chunks](#chunk), each command under its nodes in the [property trees](#property-trees), and the [index](#index) over them. See [Painting](../design-engine/README.md#painting).
+What the painter makes of a laid-out scene in one theme: drawing commands in [chunks](#chunk), each command under its nodes in the [property trees](#property-trees), and the [display index](#display-index) over them. See [Painting](../design-engine/README.md#painting).
 
 ## property trees
 
@@ -133,9 +149,9 @@ The transform, clip and effect trees a display list's commands refer to instead 
 
 One scene node's own commands, in its own coordinates; its position is a node in the transform tree, so a move keeps the chunk. See [Chunks](../design-engine/README.md#chunks).
 
-## index
+## display index
 
-The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. See [The index](../design-engine/README.md#the-index).
+The two-level R-tree that answers what touches a rectangle: over the chunks in the design's coordinates, and per chunk over its commands. Painting, an edit and a click all ask it. Not the [document index](#document-index). See [The display index](../design-engine/README.md#the-display-index).
 
 ## paint backend
 
@@ -147,11 +163,15 @@ A square of 256 device pixels of a drawing, painted at one scale in one theme an
 
 ## damage
 
-What an update to a scene touched: each changed chunk's old and new bounds. Only the tiles that overlap it are painted again. See [Tiles](../design-engine/README.md#tiles).
+What an update to a scene touched: each changed chunk's old and new bounds, from the drawing's top-left — or every tile, when that corner moved. Only the tiles that overlap it are painted again; a scene that can't be drawn damages none — its last good drawing is painted meanwhile — until it can, and then every one. See [Tiles](../design-engine/README.md#tiles).
 
 ## compositor
 
-What draws a canvas from its tiles: every frame of a pan or zoom only moves and scales cached tiles, and missing or stale ones are painted after it and swapped in. See [The compositor](../design-engine/README.md#the-compositor).
+What draws a canvas from its tiles: every frame of a pan or zoom only moves and scales cached tiles, and missing or stale ones are painted after it and swapped in. It carries out the [frame plan](#frame-plan). See [The compositor](../design-engine/README.md#the-compositor).
+
+## frame plan
+
+What decides, for both compositors, what a canvas's frame draws, which tiles it paints next, and which paintings it lets go — holding the tiles held and in flight, each under a ticket, and their damage, in the module. At most a budget of tiles are in flight at once. See [The frame plan](../design-engine/README.md#the-frame-plan).
 
 ## canvas page
 
@@ -171,7 +191,7 @@ A page's one gRPC-Web call, `Watch`, naming every design the page shows and carr
 
 ## patch
 
-An update on the watch stream after a save: the nodes whose subtree changed since the scene last sent, each replaced by its id, and the image files and font files the scene last sent didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
+An update on the watch stream after a save: the [edits](#edits) since the scene last sent — nodes changed, inserted, removed and moved, each by its id — and the image files and font files that scene didn't have. See [The watch stream](../design-engine/README.md#the-watch-stream).
 
 ## image file
 
@@ -187,7 +207,11 @@ A `.ttf` or `.otf` file of one font, at most 4 MB, in the served folder, that a 
 
 ## page
 
-A Markdown (`.md`) file in the served folder, rendered into a frame when requested. Any other file is served as it is.
+A Markdown (`.md`) file in the served folder, rendered into a frame when requested — its [content](#page-content) first, then its [frame](#page-frame) round it. Any other file is served as it is.
+
+## page content
+
+A page's Markdown as HTML, its widgets' tags expanded, with every link it holds by file and line — before the page frame is put round it, so no link of the frame's is among them. It is what the preview and `devpage check` judge; a page request renders it once, for both the preview and the frame. The code calls it `Rendered` (`page::content`). See [Two phases](../rendering-a-page/README.md#two-phases).
 
 ## root page
 
@@ -195,7 +219,7 @@ The page a site's `root` names: where the site opens, and the top of its sidebar
 
 ## page frame
 
-The HTML a page is wrapped in: the stylesheet, the scripts and the kind's own layout — a site's sidebar, a doc's outline, a deck's stage.
+The HTML a page's content is wrapped in: the stylesheet, the scripts, the problems found and the kind's own layout — a site's navbar and sidebar, a doc's outline, a deck's stage.
 
 ## outline
 
@@ -255,7 +279,7 @@ What tells open pages there is something new to show: typed changes — a refres
 
 ## out of sight
 
-A path the index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
+A path the document index leaves out: inside a `.git` or `.devpage` folder, or excluded by a `.gitignore` in the served folder. Everything else is in sight. Nothing out of sight is watched, except the comment store and an ignored folder a site's `watch` pattern explicitly reaches into. See [What is out of sight](../live-updates/README.md#what-is-out-of-sight).
 
 ## watch set
 
@@ -291,11 +315,11 @@ A comment whose quoted text is no longer on its page. It stays readable, listed 
 
 ## comment store
 
-Where threads are kept, behind the `Store` interface — list, create, reply, resolve. On disk it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. See [The comment store](../comments/the-comment-store/README.md).
+Where threads are kept, by thread id, behind the `Store` interface — list, create, reply, resolve, the threads still attached, and what it heard of hand edits. Locally it is `.devpage/comments/` at the top of the served folder: one YAML file per thread, which git never sees — `.devpage/` ignores itself. In server mode it is the SQLite store, one document's threads at a time. Every write reaches it through `Comments`, which holds the rules. See [The comment store](../comments/the-comment-store/README.md).
 
 ## author
 
-Who wrote a comment: `git config user.name` (or the system's user name) when devpage runs locally, the identity header's value when it is deployed.
+Who wrote a comment: `git config user.name` (or the system's user name) when devpage runs locally, the identity header's trimmed value when it is deployed — a blank one is refused.
 
 ## deployed
 
@@ -311,7 +335,7 @@ Deploying devpage with its documents built into the image: `devpage <path>` in a
 
 ## publish
 
-Sending a document to a server as a zip, with `devpage publish`. The first publish creates the document and its id; each one after adds a version.
+Sending a document to a server as a zip, with `devpage publish`. The first publish creates the document and its id; each one after adds a version — recorded together with its threads' carry onto it, or not at all.
 
 ## version
 
@@ -337,6 +361,10 @@ pele running in QuickJS on a thread of its own in the server, with a cache of wh
 
 A page rendered for Chrome to print: no live updates, no comments, no navigation chrome. What `devpage pdf` captures.
 
+## Chrome session
+
+One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/README.md#the-chrome-it-drives).
+
 ## built-in asset
 
 One of the files compiled into the binary and served under `/__devpage/`.
@@ -351,7 +379,7 @@ Everything a page loads from devpage beyond its stylesheet and page script — i
 
 ## module cache
 
-What devpage has read and compiled of the widget files it serves, with each one's version, held by the served folder's index and forgotten file by file as files change (`Modules`). See [How widgets run](../widgets/how-widgets-run/README.md).
+What devpage has read and compiled of the widget files it serves, with each one's version, one per served folder, forgotten file by file as files change (`Modules`). See [How widgets run](../widgets/how-widgets-run/README.md).
 
 ## build id
 

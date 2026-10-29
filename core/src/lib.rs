@@ -8,6 +8,7 @@
 //! binary plugs in the adapters.
 
 pub mod addresses;
+pub mod answer;
 pub mod cache;
 pub mod changes;
 pub mod check;
@@ -16,16 +17,17 @@ pub mod designs;
 pub mod diagrams;
 pub mod document;
 pub mod external;
-pub mod highlight;
-pub(crate) mod html;
-pub mod icons;
-pub mod index;
-pub mod markup;
-pub mod nav;
-pub mod navbar;
+pub mod folder;
+pub mod page;
 pub mod problem;
-pub mod render;
-pub mod resolve;
 pub mod search;
-pub mod served;
+pub mod watch;
 pub mod widgets;
+
+// The page's own parts, for the core alone: highlighting, icons, reading
+// Markdown, the navigation tree and HTML itself.
+pub(crate) mod highlight;
+pub(crate) mod html;
+pub(crate) mod icons;
+pub(crate) mod markup;
+pub(crate) mod nav;

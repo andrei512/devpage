@@ -7,7 +7,7 @@ use std::collections::{BTreeMap, HashMap};
 use kurbo::{BezPath, Rect as KRect, Shape, Vec2};
 use rstar::{AABB, RTree, RTreeObject};
 
-use crate::render::{Draw, Frame};
+use super::{Draw, Frame};
 
 use super::*;
 
@@ -535,7 +535,7 @@ impl List {
     pub fn swap_images(&mut self, last_of: &HashMap<u64, peniko::ImageData>) {
         for chunk in self.chunks.values_mut() {
             for c in &mut chunk.commands {
-                if let Draw::Fill(_, crate::render::Paint::Image(data, _)) = &mut c.draw
+                if let Draw::Fill(_, super::Paint::Image(data, _)) = &mut c.draw
                     && let Some(old) = last_of.get(&data.data.id())
                 {
                     *data = old.clone();

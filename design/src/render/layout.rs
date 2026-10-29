@@ -1,7 +1,7 @@
 //! Layout: the scene as a taffy tree — flexbox restricted to Figma's auto
 //! layout, no-layout frames hugging their children — and every node's box.
 
-use crate::resolve::{self, Align, ImageFiles, Layout, Node, Scene, Size as DSize};
+use crate::scene::{self, Align, ImageFiles, Layout, Node, Scene, Size as DSize};
 use crate::tree::{Order, OrderKey};
 
 use super::*;
@@ -163,7 +163,7 @@ pub(super) fn remove_subtree(tree: &mut TaffyTree<Option<Leaf>>, id: NodeId) {
 /// image's own size.
 pub(super) enum Leaf {
     /// A text, and whether it wraps at its width.
-    Text(Box<resolve::TextStyle>, bool),
+    Text(Box<scene::TextStyle>, bool),
     Intrinsic(f32, f32),
     /// A run, laid out by its own tree: [`Renderer::measure_run`].
     Run(u32),

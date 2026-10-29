@@ -62,11 +62,20 @@ Each page searched is one of three kinds, at its own address:
 
 ## What is indexed
 
+A page is read as its page shows it: its content rendered — the content
+phase of [rendering a page](../rendering-a-page/README.md), the tags of
+its document's [widgets](../widgets/README.md) expanded — with the widgets
+of the document that shows it: its site, its doc or deck, or, in no site,
+the page alone. So a heading inside a widget, `<Steps>` around `## Install`,
+is a section, and a heading inside a tag that is no widget is not: the page
+shows only the tag's error in its place.
+
 A **section** is the text from one heading to the next, of any level; the
 text before a page's first heading is one too, when there is any. A heading's
 id is the one the rendered page gives it — comrak's, with `-heading` added
 when it would be one of the [frame's ids](../rendering-a-page/README.md) — so
-a section's address lands on its heading. A slide's section is all of its
+a section's address lands on its heading, and is an id
+[`devpage check`](../checking-links/README.md) lets a link land on. A slide's section is all of its
 text, headed by the slide's title: its first `# ` heading, else its first
 `title="…"` — a `<Slide>`'s or a `<Hero>`'s — else `Slide <n>`.
 
@@ -88,7 +97,10 @@ itself. Of a diagram, only what its nodes, edges and messages say is text: no
 ids, arrows, styles or `click` lines. Of an HTML block, what is between its
 tags and its attributes' quoted values are, except those that aren't text
 (`href`, `src`, `class`, `id`, `style`, `icon`, `logo`, `kind`, `delivery` and
-the like) and addresses; `{…}` expressions never are.
+the like) and addresses; `{…}` expressions never are. A widget's content is
+the page's own Markdown, read like the rest of it; of its tag, its string
+props are text, by the same rule — `title="Heads up"` is, `icon="rocket"` and
+`values={["rocket"]}` are not. An unknown tag's error is no text.
 
 `en_stem` is tantivy's default tokenizer, lowercased, with English stemming.
 `title`, `heading` and `prose` each also have an unstemmed twin
@@ -105,6 +117,9 @@ its heading's **depth** (0 before the first heading), its **order** on the
 page, and the page's **place in the nav**, counted from the top in reading
 order: the root, the tree's pages as listed, the navbar's, each document's
 chapters or slides where it is reached.
+The index keeps its sections sorted in that reading order — by the page's
+place in the nav, then the section's order on it — however they came to be
+indexed, so sections that score alike always rank as they read.
 
 Beside the sections, one **page record** per page holds what a page result
 shows: its title, address, kind, trail, document and **lede** — its first
@@ -177,11 +192,13 @@ docs and holds the ranking to a floor
 
 ## How it stays current
 
-The search index is part of the [index](../document-index/README.md#the-index):
-`devpage` builds it at start (`Index::with_search`, given the entry document's
-file), after the document files are found, and the
-[watcher](../live-updates/README.md#the-watcher) hands it each burst's paths
-after the index has heard of them and after the open pages have been told —
+The search index sits beside the served folder's
+[document index](../document-index/README.md#the-index), and reads it:
+`devpage` builds it at start (`Search::build`, given the folder and the entry
+document's file), after the document files are found, and the
+[watcher](../live-updates/README.md#the-watcher)'s listeners
+(`core/src/watch/`) hand it each burst's paths
+after the folder has heard of them and after the open pages have been told —
 so indexing never holds up a refresh (`Search::changed`). `devpage check`,
 `pdf` and `video` build none. In server mode a version never changes, so its
 index is built on its first search, committed once and kept with no writer;
@@ -189,17 +206,67 @@ the most recently searched versions' indexes are kept, up to 256 MB
 ([what a version holds in memory](../server/storage/README.md#what-a-version-holds-in-memory)).
 
 Any Markdown file can change what is published — a page's Topics add or drop
-pages — as can a document file, a `.gitignore` or a folder. So a burst holding
-a Markdown or YAML file, a `.gitignore`, a folder or a path that is gone reads
-everything published again, into an emptied index, in one commit; a burst of
-anything else leaves it alone. On devpage's own docs that takes about 35 ms in
-a release build. So a new rule in a `.gitignore` takes its folder's pages out
-at once, a page dropped from every Topics section leaves, and a deleted
-chapter takes its doc out until it is back.
+pages — as can a document file, a `.gitignore` or a folder; a widget can
+change which of a page's tags are widgets. So a burst holding a Markdown or
+YAML file, a widget's `.tsx`, a `.gitignore`, a folder or a path that is gone
+is indexed; a burst of anything else leaves it alone.
+
+**What is published is kept between bursts.** With every page published,
+the index keeps the documents loaded finding them, and each Markdown file's
+**footprint**: what of it decides what is published, as far as it does where
+it is — its Topics, when a site's nav reads them; its title, when it is the
+trail of one of a doc's several chapters; and, for a page the walk reaches
+nowhere, its front matter's `search`, and out of every site the title its
+own document takes. Everything else in a file is its content, which only its
+page shows. A burst finds what is published again, whole, only when it can
+change it — a folder, a path gone, a `.gitignore`, a YAML file, a Markdown
+file new to it or whose footprint differs. Any other burst — a page's text
+saved, a widget's `.tsx` — leaves what is published as it was, and costs only
+its own pages: no document is loaded, no page's Topics read, and a saved file
+is read for its footprint only when it has one (a site's page no nav reads,
+or a slide, has none).
+
+When what is published is found again, it is compared with what the index
+holds, page by page. Only what differs is indexed again, in one commit:
+
+- a page no longer published leaves;
+- a page newly published comes in;
+- a page whose kind, trail, document, address, place in the nav, or the
+  document that shows it or that document's widgets folder changed, or whose
+  file — or that widgets folder — is one of the burst's paths, inside one of
+  its folders or holding one of them, is read again.
+
+When it is not, only the pages whose file or widgets folder the burst
+reaches, as above, are read again. Every other page stays as it was indexed,
+unread. So a new rule in a `.gitignore` takes its folder's pages out at once,
+a page dropped from every Topics section leaves, a deleted chapter takes its
+doc out until it is back, and a saved page is read again alone — unless it
+moved in the nav, as every page after a page added above it does.
+
+**It answers as one built fresh.** After each commit the index is merged into
+one segment without the sections it replaced: until then they would still
+count in how many sections hold a word — in its score, and in whether the
+index holds it at all, which decides a near match. BM25 measures a field's
+length over the sections the index holds, summed from their lengths as the
+index keeps them, which a merge keeps too; and the sections stay in reading
+order. So a page saved ranks exactly as it would after a restart.
+
+**Each document is loaded once a pass.** Finding what is published, and
+reading the pages that differ, load each document file once, however many
+of its pages they meet — a site of a hundred pages is loaded once, not a
+hundred times — and read a document's widgets once, only when a page it
+shows is read again: a saved page reads only its own document's.
+
+In a release build, on devpage's own docs (106 pages), a page's text saved
+takes about 15 ms, and a page's Topics saved about 22 ms, of which about 8 ms
+is finding what is published again; on a generated site of 5,051 pages,
+about 19 ms and about 200 ms. Most of what a page's text saved still costs
+is the merge into one segment, which grows with the site: about 10 ms of the
+15, and 15 of the 19.
 
 ## The endpoint
 
-`GET /__devpage/search?q=<query>` (`search` in `src/drive/server.rs`) answers
+`GET /__devpage/search?q=<query>` (`search` in `src/drive/http.rs`) answers
 `200` with the pages found, whether comments are on or off; a missing or
 blank `q` answers none:
 
@@ -245,7 +312,7 @@ code, as the text spells them — `Designs`, `design` — each once, in the orde
 they first appear, for the page to find and mark. Stopwords and excluded
 words are never among them.
 
-`server::Options::printing`, which `devpage pdf` and `video` serve through, has no
+`http::App::printing`, which `devpage pdf` and `video` serve through, has no
 search index, and finds nothing.
 
 The index is written by one thread with a 15 MB memory arena, the least
@@ -256,7 +323,7 @@ tantivy allows; it is most of what search adds to devpage's memory.
 A site's sidebar ([`DevpageSidebar`](../widgets/system-widgets/README.md#devpagesidebar))
 opens with a search box, between the site's title and the tree; a site with
 `sidebar: false` has none, nor does a doc or a deck. The server draws it with
-the sidebar (`render::SEARCH_BOX`), empty, so React takes it over without a
+the sidebar (`page`'s `SEARCH_BOX`), empty, so React takes it over without a
 change ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar)).
 
 **As the reader types**, the box asks the endpoint for the text typed, once

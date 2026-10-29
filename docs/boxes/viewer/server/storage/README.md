@@ -78,6 +78,20 @@ again.
 Hits, misses, size and evictions are logged, so the PVC can be sized from what
 the cache does.
 
+## In memory
+
+Memory follows the cache, not the number of versions ever published. A
+version read since start keeps its router — one per mount it was read under —
+for as long as the cache keeps the version and memory's own limit, below,
+lets it; an evicted or deleted version lets its routers go once its last
+request is answered. Every version's designs
+live in one [design store](../../design-engine/README.md#in-the-server),
+with one renderer and one tile cache capped at 64 MB for the whole server;
+a version leaves it with its routers. What each document alone needs — its
+change bus, and the lock its publishes and deletions take turns on — goes
+with it: the lock once nothing holds it, the bus when the document is
+deleted.
+
 ### What a version holds in memory
 
 A version read since the server started has its router in memory, and
@@ -105,6 +119,16 @@ what a count costs — about 300 KB a version, so the default's 600 MB leaves a
 4 GB pod room for the rest. A version leaving the disk cache leaves memory with
 it. So memory holds what readers are reading now, never every version ever
 read, however big the cache on disk.
+
+## A publish, in order
+
+A publish is checked, then takes its document's lock, its number, works out
+where each comment thread goes on the new version, keeps the zip in the
+bucket, and records the version and those threads' moves in one SQLite
+transaction. If that transaction fails nothing is published: the zip it kept
+is deleted, and the next publish takes the same number. Only then are the
+document's open pages told. Deleting goes in one order too: the lock, the
+store, the bucket and the cache, then the open pages.
 
 ### The eviction policy
 

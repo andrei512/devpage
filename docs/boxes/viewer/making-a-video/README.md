@@ -187,6 +187,13 @@ end-of-speech event: a slide is done after 1.5 seconds without speech. Then
 devpage presses → while still recording, waits the slide's lead, and only then
 pauses, so the recording resumes on the new slide.
 
+Those two waits — the voice buffered before a slide plays, and the quiet that
+ends it — are the recording's **pacing**, a value the recorder is given
+(`Pacing` in `src/drive/video.rs`). `devpage video` always records with the
+default, 2 seconds and 1.5 seconds, which suits GPT-Live over a network; the
+quiet must outlast any pause inside a slide's speech. The Chrome tests record
+a stand-in voice from the same machine with a short pacing instead.
+
 ### Silence
 
 The narrator pauses between sentences and waits between slides. What reaches
@@ -211,6 +218,7 @@ in Printing to PDF). devpage downloads it the
 first time a video is made — about 370 MB once unpacked, into
 `~/Library/Caches/devpage/chrome-for-testing` on macOS,
 `~/.cache/devpage/chrome-for-testing` elsewhere, beside the shell — and uses
-that copy from then on, in headless mode. Each run starts its own Chrome, with
-its own temporary profile and a debugging port Chrome picks, and kills it when
+that copy from then on, in headless mode — the **recording profile**, beside
+the shot profile `devpage pdf` and a slide's PNG use. Each run starts its own Chrome, with
+its own temporary profile folder and a debugging port Chrome picks, and kills it when
 the run ends, however it ends — done, failed, Ctrl-C, `SIGTERM` or `SIGHUP`.

@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use prost::Message;
 
 use super::*;
+use crate::scene::{Applied, Edits, Uses};
 
 /// A patch applied as a canvas applies it, its files counted afresh.
 fn apply(scene: &mut Scene, patch: &proto::Patch) -> Result<Applied, String> {
@@ -19,7 +20,7 @@ fn a_patch_says_what_it_changed() {
     let new = scene(r##"<Frame layout="column"><Text>One</Text><Text>Too</Text></Frame>"##);
     let mut held =
         decode_scene(&super::scene(&old), (&ImageFiles::new(), &FontFiles::new())).unwrap();
-    let applied = apply(&mut held, &patch(&old, &new)).unwrap();
+    let applied = apply(&mut held, &patch(&Edits::between(&old, &new))).unwrap();
     assert_eq!(applied.changed.len(), 1);
     assert_eq!(applied.changed[0].0, new.root.children[1].id);
     assert_eq!(applied.changed[0].1.text, old.root.children[1].text);
@@ -42,7 +43,7 @@ fn a_patch_carries_only_what_changed() {
         r##"<Frame layout="column"><Text>One</Text><Frame><Text>Three</Text></Frame></Frame>"##,
     );
     assert_eq!(decode(&encode(&old.root)).unwrap(), old.root);
-    let patch = patch(&old, &new);
+    let patch = patch(&Edits::between(&old, &new));
     let changed: Vec<NodeId> = patch
         .ops
         .iter()
@@ -89,10 +90,10 @@ fn a_scene_carries_both_themes() {
     .unwrap();
     assert!(whole.themed, "the gradient names theme.a");
     let mut applied = whole;
-    apply(&mut applied, &patch(&light_only, &both)).unwrap();
+    apply(&mut applied, &patch(&Edits::between(&light_only, &both))).unwrap();
     assert_eq!(applied.root, both.root);
     let plain = scene("<Frame />");
-    apply(&mut applied, &patch(&both, &plain)).unwrap();
+    apply(&mut applied, &patch(&Edits::between(&both, &plain))).unwrap();
     assert!(!applied.themed);
 }
 
@@ -104,7 +105,7 @@ impl Files for Mem {
         self.0.get(path).cloned()
     }
     fn list(&self, path: &str) -> Option<Vec<String>> {
-        crate::resolve::listed(self.0.keys(), path)
+        crate::scene::listed(self.0.keys(), path)
     }
 }
 
@@ -168,7 +169,7 @@ fn an_image_file_travels_once() {
     )
     .unwrap();
     assert_eq!(more.images.len(), 1, "copy.jpg is shirt.jpg's bytes");
-    let p = patch(&fifty, &more);
+    let p = patch(&Edits::between(&fifty, &more));
     assert!(p.images.is_empty());
     let mut browser = decode_scene(
         &super::scene(&fifty),
@@ -184,7 +185,7 @@ fn an_image_file_travels_once() {
     let mut fs = cards(1, r#"<Image src="other.png" width={10} height={10} />"#);
     fs.0.insert("other.png".into(), png(2, 2));
     let other = crate::resolve(&fs, "page.design").unwrap();
-    let p = patch(&more, &other);
+    let p = patch(&Edits::between(&more, &other));
     assert_eq!(p.images.len(), 1);
     apply(&mut browser, &p).unwrap();
     assert_eq!(browser.images.len(), 2);
@@ -250,17 +251,17 @@ fn a_font_file_travels_once() {
     .unwrap();
     let held = browser.fonts.values().next().unwrap().clone();
     let more = texts(&r#"<Text font="inter">a</Text>"#.repeat(21));
-    let p = patch(&many, &more);
+    let p = patch(&Edits::between(&many, &more));
     assert!(p.fonts.is_empty());
     apply(&mut browser, &p).unwrap();
     assert!(Arc::ptr_eq(browser.fonts.values().next().unwrap(), &held));
     let bold = texts(r#"<Text font="inter">a</Text><Text font="inter" weight={700}>b</Text>"#);
-    let p = patch(&more, &bold);
+    let p = patch(&Edits::between(&more, &bold));
     assert_eq!(p.fonts.len(), 1);
     apply(&mut browser, &p).unwrap();
     assert_eq!(browser.root, bold.root);
     assert_eq!(browser.fonts.len(), 2);
-    let mut lacking = patch(&more, &bold);
+    let mut lacking = patch(&Edits::between(&more, &bold));
     lacking.fonts.clear();
     let mut kept = decode_scene(
         &super::scene(&more),
@@ -274,6 +275,6 @@ fn a_font_file_travels_once() {
     );
     // Back to Inter: the scene no longer holds the font files.
     let plain = texts("<Text>a</Text>");
-    apply(&mut browser, &patch(&bold, &plain)).unwrap();
+    apply(&mut browser, &patch(&Edits::between(&bold, &plain))).unwrap();
     assert!(browser.fonts.is_empty());
 }

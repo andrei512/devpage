@@ -1,8 +1,7 @@
 //! The module cache: what was read of each project widget and helper, and
 //! what each compiled to, kept until a file changes — so a widget is read and
 //! compiled once per change rather than once per request. One cache belongs to
-//! one served folder's [index](crate::index::Index), which forgets a file when
-//! the watcher says it changed.
+//! one served folder, and forgets a file when the watcher says it changed.
 
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{Hash, Hasher};
@@ -15,7 +14,7 @@ use sha2::{Digest, Sha256};
 use super::compile::{compile, relative_imports};
 use super::{SYSTEM, system};
 use crate::addresses::{Owned, address};
-use crate::served::ServedFolder;
+use crate::folder::{ServedFolder, lexical};
 
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]
@@ -53,7 +52,7 @@ struct Read {
 }
 
 /// The extensions a relative specifier is tried with, in order.
-const IMPORT_EXTENSIONS: [&str; 3] = ["", ".tsx", ".ts"];
+pub(super) const IMPORT_EXTENSIONS: [&str; 3] = ["", ".tsx", ".ts"];
 
 impl Modules {
     /// Reads `file` and every module its relative imports reach inside the
@@ -191,23 +190,6 @@ impl Modules {
     }
 }
 
-/// `path` with its `.` and `..` components resolved by name, not on disk: a
-/// specifier's path when the file it names may not exist.
-fn lexical(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other),
-        }
-    }
-    out
-}
-
 /// The files a module is made from, each read once: the module and every
 /// module its relative imports reach inside the served folder. Its version
 /// and its compiled bytes both come from one snapshot, so a save landing
@@ -253,24 +235,41 @@ impl Snapshot {
     /// A module's version: a hash of its source, the sources of every module
     /// its relative imports reach (each with its path), the widget names it
     /// can render and devpage's build — everything its compiled bytes are
-    /// made from. [`address`] is the address that carries it.
+    /// made from. [`Snapshot::address`] is the address that carries it.
     pub fn hash(&self, file: &Path, known: &[String]) -> String {
         let mut hash = Sha256::new();
         hash.update(crate::addresses::BUILD);
         hash.update(known.join("\0"));
         for (path, source) in self.closure(file) {
             hash.update([0]);
-            hash.update(
-                self.served
-                    .relative(&path)
-                    .unwrap_or(&path)
-                    .to_string_lossy()
-                    .as_bytes(),
-            );
+            hash.update(self.name(&path).as_bytes());
             hash.update([0]);
             hash.update(source.as_bytes());
         }
         crate::addresses::short(&hash.finalize())
+    }
+
+    /// The address `file` is served at, carrying its [version](Self::hash):
+    /// the one a page names it by and an import of it asks for.
+    ///
+    /// Panics on a file outside the served folder, which has no address: a
+    /// snapshot reads and imports only modules inside it, so that is a
+    /// mistake in devpage, not in a document.
+    pub fn address(&self, file: &Path, known: &[String]) -> String {
+        let name = self.name(file);
+        address(Owned::Module {
+            mount: self.served.mount(),
+            name: &name,
+            hash: &self.hash(file, known),
+        })
+    }
+
+    /// A module's name in the served folder. Panics on one outside it, as
+    /// [`Self::address`] does: a snapshot reads only modules inside.
+    fn name(&self, file: &Path) -> String {
+        self.served
+            .name(file)
+            .unwrap_or_else(|| panic!("{} is outside the served folder", file.display()))
     }
 
     /// A project widget or helper, compiled as its address serves it: each
@@ -285,14 +284,7 @@ impl Snapshot {
             .imports
             .iter()
             .filter(|(_, path)| self.served.contains(path))
-            .map(|(specifier, path)| {
-                let url = address(Owned::Module {
-                    snapshot: self,
-                    file: path,
-                    known,
-                });
-                (specifier.clone(), url)
-            })
+            .map(|(specifier, path)| (specifier.clone(), self.address(path, known)))
             .collect();
         self.modules.compile(file, &read.source, known, &imports)
     }
@@ -376,11 +368,9 @@ mod tests {
             .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("Card.tsx"))
             .compile(&w.join("Card.tsx"), &known)
             .unwrap();
-        let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = modules
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+            .address(&w.join("label.ts"), &known);
         assert!(card.contains(&format!("\"{label}\"")), "{card}");
         assert!(label.ends_with(&format!("?v={}", after[3])), "{label}");
         // The names a widget can render are part of what it is compiled from.
@@ -414,11 +404,9 @@ mod tests {
         modules.forget(&w.join("label.ts"));
         let created = module_hash(&modules, &dir, &other, &known);
         assert_ne!(missing, created, "creating the helper");
-        let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = modules
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+            .address(&w.join("label.ts"), &known);
         let compiled = modules
             .snapshot(&ServedFolder::new(&dir).unwrap(), &other)
             .compile(&other, &known)
@@ -477,19 +465,13 @@ mod tests {
         assert_eq!(hash, snapshot.hash(&card, &known));
         let compiled = snapshot.compile(&card, &known).unwrap();
         assert!(compiled.contains("\"old\""), "{compiled}");
-        let label = address(Owned::Module {
-            snapshot: &snapshot,
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = snapshot.address(&w.join("label.ts"), &known);
         assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
         assert_ne!(
             label,
-            address(Owned::Module {
-                snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-                file: &w.join("label.ts"),
-                known: &known,
-            })
+            modules
+                .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+                .address(&w.join("label.ts"), &known)
         );
     }
 

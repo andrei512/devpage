@@ -1,9 +1,9 @@
 # An example image serving devpage's own docs, deployed: installed from
 # crates.io like anyone would, behind an auth proxy that names each reader.
 # It reads nothing from the build context: docker build deploy/bundled
-FROM rust:1.97-slim-bookworm AS build
+FROM rust:1.98.1-slim-bookworm AS build
 ARG DEVPAGE_VERSION=0.2.3
-# The docs and licence come from the published crate's own source, so they
+# The docs, licence and changelog come from the published crate's own source, so they
 # always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
  && cp -r "$CARGO_HOME"/registry/src/*/devpage-"$DEVPAGE_VERSION" /devpage-src
@@ -16,6 +16,7 @@ RUN apt-get update \
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=build /devpage-src/docs /srv/docs
 COPY --from=build /devpage-src/LICENSE /srv/LICENSE
+COPY --from=build /devpage-src/CHANGELOG.md /srv/CHANGELOG.md
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]

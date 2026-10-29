@@ -1,14 +1,15 @@
-//! Scenes on the wire: a scene to its `proto::Scene` and back; the patch
-//! between two scenes is [`patch`]'s. Each image file and font file travels once: a scene
-//! carries every one its nodes use, a patch only those the scene before it
-//! didn't have.
+//! Scenes and their edits on the wire: a scene to its `proto::Scene` and
+//! back, and [`Edits`](crate::scene::Edits) to the `proto::Patch` the watch
+//! stream sends and back ([`patch`]). Each image file and font file travels
+//! once: a scene carries every one its nodes use, a patch only those the
+//! scene before it didn't have. It does no I/O.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use crate::fonts::{FontFile, FontFiles, FontId};
 use crate::proto;
-use crate::resolve::{
+use crate::scene::{
     Align, Color, Fill, Image, ImageFile, ImageFiles, ImageId, Kind, Layout, Node, Origin, Rgba,
     Scene, Shadow, Size, TextAlign, TextStyle, Vector,
 };
@@ -162,11 +163,11 @@ pub fn encode_own(n: &Node) -> proto::Node {
     encode(&own)
 }
 
-pub(crate) fn node_id(id: &NodeId) -> proto::NodeId {
+fn node_id(id: &NodeId) -> proto::NodeId {
     proto::NodeId { path: id.0.clone() }
 }
 
-pub(crate) fn unnode_id(id: Option<&proto::NodeId>) -> Result<NodeId, String> {
+fn unnode_id(id: Option<&proto::NodeId>) -> Result<NodeId, String> {
     id.map(|i| NodeId(i.path.clone()))
         .ok_or_else(|| "a node with no id".to_string())
 }
@@ -280,14 +281,14 @@ pub fn scene(scene: &Scene) -> proto::Scene {
     }
 }
 
-pub(crate) fn font_file(f: &FontFile) -> proto::FontFile {
+fn font_file(f: &FontFile) -> proto::FontFile {
     proto::FontFile {
         id: f.id.0.to_vec(),
         data: f.bytes.to_vec(),
     }
 }
 
-pub(crate) fn file(f: &ImageFile) -> proto::ImageFile {
+fn file(f: &ImageFile) -> proto::ImageFile {
     proto::ImageFile {
         id: f.id.0.to_vec(),
         data: f.bytes.clone(),
@@ -367,7 +368,7 @@ pub fn decode_scene(
     let mut images = files(&message.images, held.0)?;
     let mut fonts = font_files(&message.fonts, held.1)?;
     settle(&root, &mut images, &mut fonts)?;
-    let scene = Scene::new(root, images, fonts, Vec::new(), message.themed);
+    let scene = Scene::new(root, images, fonts, message.themed);
     if scene.ids.len() != count(&scene.root) {
         return Err("a scene with two nodes of the same id".into());
     }
@@ -378,69 +379,9 @@ fn count(n: &Node) -> usize {
     1 + n.children.iter().map(count).sum::<usize>()
 }
 
-/// How many nodes of a scene show each image file and are set in each font
-/// file: what lets a patch drop the files no node uses any more without
-/// walking the scene.
-#[derive(Debug, Default, Clone, PartialEq)]
-pub struct Uses {
-    images: std::collections::HashMap<ImageId, usize>,
-    fonts: std::collections::HashMap<FontId, usize>,
-}
-
-impl Uses {
-    /// The files `root` and every node under it use.
-    pub fn of(root: &Node) -> Uses {
-        let mut uses = Uses::default();
-        uses.add(root);
-        uses
-    }
-
-    fn add(&mut self, n: &Node) {
-        self.add_own(n);
-        for c in &n.children {
-            self.add(c);
-        }
-    }
-
-    fn add_own(&mut self, n: &Node) {
-        if let Some(i) = &n.image {
-            *self.images.entry(i.id).or_default() += 1;
-        }
-        if let Some(font) = n.text.as_ref().and_then(|t| t.font) {
-            *self.fonts.entry(font).or_default() += 1;
-        }
-    }
-
-    fn take(&mut self, n: &Node) {
-        self.take_own(n);
-        for c in &n.children {
-            self.take(c);
-        }
-    }
-
-    fn take_own(&mut self, n: &Node) {
-        let less = |count: Option<&mut usize>| {
-            if let Some(c) = count {
-                *c -= 1;
-            }
-        };
-        if let Some(i) = &n.image {
-            less(self.images.get_mut(&i.id));
-        }
-        if let Some(font) = n.text.as_ref().and_then(|t| t.font) {
-            less(self.fonts.get_mut(&font));
-        }
-    }
-
-    /// Drops the files no node uses any more.
-    fn settle(&mut self) {
-        self.images.retain(|_, c| *c > 0);
-        self.fonts.retain(|_, c| *c > 0);
-    }
-}
-
 mod patch;
-pub use patch::{Applied, Edit, apply, apply_edits, bring, edits, encode_edits, patch, subtree};
+pub(crate) use patch::edits;
+pub use patch::{apply, patch};
 
 #[cfg(test)]
 mod tests;

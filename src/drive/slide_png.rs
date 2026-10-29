@@ -2,28 +2,24 @@
 //! browser devpage drives shows it on a 1920 × 1080 screen — so an agent
 //! writing a slide's notes can look at the slide.
 //!
-//! One Chrome draws every slide for a server: started on the first shot,
-//! a tab per shot, two shots at a time, closed once idle. What it drew is
-//! kept until a watched file changes.
+//! One Chrome session draws every slide for a server: started on the first
+//! shot, a tab per shot, two shots at a time, closed once idle. A slide is
+//! shot without comments and without problems, so what it drew is kept until
+//! a file its deck is drawn from changes, whatever is commented meanwhile,
+//! whatever a link on it comes to reach, and whatever another deck's files
+//! do.
 
 use std::collections::{HashMap, VecDeque};
-use std::net::SocketAddr;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use axum::Router;
-use chromiumoxide::Page;
-use chromiumoxide::browser::Browser;
-use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
-use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotParams;
-use futures::StreamExt;
 use tokio::sync::Semaphore;
 
-use crate::changes::{Changes, Subscription};
-use tokio::task::JoinHandle;
-
-use crate::pdf::{Profile, shot, wait_ready};
+use crate::adapters::chrome::{Open, Profile, Session};
 
 /// devpage's own controls, which are not part of the slide.
 const HIDE_CONTROLS: &str = "document.head.insertAdjacentHTML('beforeend', \
@@ -46,70 +42,102 @@ pub struct Shot {
     pub ready: bool,
 }
 
-/// A server's slide PNGs: its Chrome and the shots it drew. Cheap to clone.
+/// A server's slide PNGs: its Chrome session and the shots it drew. Cheap to
+/// clone.
 #[derive(Clone)]
 pub struct Shots(Arc<Inner>);
 
 struct Inner {
-    chrome: tokio::sync::Mutex<Option<Chrome>>,
+    session: tokio::sync::Mutex<Option<Arc<Session>>>,
     turns: Semaphore,
     cache: Mutex<Cache>,
-    /// The server's changes, read on each use: any clears the cache.
-    changes: Mutex<Subscription>,
+    /// The shots being drawn, each told of changes as the kept ones are.
+    drawing: Mutex<Vec<Weak<Drawing>>>,
     used: Mutex<Instant>,
 }
 
-/// The running Chrome and the server its tabs load the deck from. Its
-/// profile lives as long as it does.
-struct Chrome {
-    browser: Arc<Browser>,
-    events: JoinHandle<()>,
-    server: JoinHandle<()>,
-    address: SocketAddr,
-    _profile: Profile,
+/// What a slide's PNG is kept with: the picture and the files its deck was
+/// drawn from.
+struct Kept {
+    shot: Shot,
+    files: Vec<PathBuf>,
 }
 
 #[derive(Default)]
 struct Cache {
-    shots: HashMap<(String, usize), Shot>,
+    shots: HashMap<(String, usize), Kept>,
     order: VecDeque<(String, usize)>,
     bytes: usize,
-    /// Bumped each time a change clears the cache.
-    generation: u64,
+}
+
+/// A shot being drawn: the files its deck is drawn from, once they are
+/// known, and whether one of them — or, before they are known, any file —
+/// changed since it started, so its picture may be stale.
+#[derive(Default)]
+struct Drawing {
+    files: Mutex<Option<Vec<PathBuf>>>,
+    stale: AtomicBool,
+}
+
+impl Default for Shots {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Shots {
-    /// No Chrome yet and nothing drawn; `changes` clears what will be.
-    pub fn new(changes: &Changes) -> Self {
+    /// No Chrome yet and nothing drawn.
+    pub fn new() -> Self {
         Self(Arc::new(Inner {
-            chrome: tokio::sync::Mutex::new(None),
+            session: tokio::sync::Mutex::new(None),
             turns: Semaphore::new(AT_ONCE as usize),
             cache: Mutex::new(Cache::default()),
-            changes: Mutex::new(changes.subscribe()),
+            drawing: Mutex::new(Vec::new()),
             used: Mutex::new(Instant::now()),
         }))
     }
 
-    /// Slide `n` of the deck served at `deck`, if it was drawn since the last
-    /// change.
+    /// Slide `n` of the deck served at `deck`, if it was drawn since a file
+    /// its deck is drawn from last changed.
     pub fn cached(&self, deck: &str, n: usize) -> Option<Shot> {
-        self.0.generation();
         let cache = self.0.cache.lock().unwrap();
-        cache.shots.get(&(deck.to_string(), n)).cloned()
+        cache
+            .shots
+            .get(&(deck.to_string(), n))
+            .map(|kept| kept.shot.clone())
     }
 
     /// Slide `n` (1-based) of the deck served at `deck`, as a 1920 × 1080
-    /// PNG: from the cache, or drawn by Chrome loading the deck from a server
-    /// `serve` makes — started, like Chrome, on the first shot.
-    pub async fn png(&self, deck: &str, n: usize, serve: impl FnOnce() -> Router) -> Result<Shot> {
+    /// PNG: from the cache, or drawn by Chrome loading the deck from the
+    /// router `serve` makes — started, like Chrome, on the first shot. That
+    /// router serves the deck with comments and problems off. `drawn_from` names the
+    /// files the deck is drawn from, read before the slide is drawn; the
+    /// slide is kept until one of them changes.
+    pub async fn png(
+        &self,
+        deck: &str,
+        n: usize,
+        drawn_from: impl FnOnce() -> Vec<PathBuf> + Send + 'static,
+        serve: impl FnOnce() -> Router,
+    ) -> Result<Shot> {
         if let Some(shot) = self.cached(deck, n) {
             return Ok(shot);
         }
         let _turn = self.0.turns.acquire().await?;
-        let generation = self.0.generation();
-        let (browser, address) = self.chrome(serve).await?;
-        let url = format!("http://{address}{deck}#{n}");
-        let drawn = capture(&browser, &url).await;
+        // Heard of from now on, so a change while the files are read, or
+        // while the slide is drawn, isn't missed.
+        let drawing = Arc::new(Drawing::default());
+        {
+            let mut drawings = self.0.drawing.lock().unwrap();
+            // Those drawn already go, even where no change is ever heard.
+            drawings.retain(|drawn| drawn.strong_count() > 0);
+            drawings.push(Arc::downgrade(&drawing));
+        }
+        // Reading a deck and resolving its designs block.
+        let files = tokio::task::spawn_blocking(drawn_from).await?;
+        *drawing.files.lock().unwrap() = Some(files.clone());
+        let session = self.session(serve).await?;
+        let drawn = capture(&session, &format!("{deck}#{n}")).await;
         *self.0.used.lock().unwrap() = Instant::now();
         let (png, ready) = drawn?;
         let shot = Shot {
@@ -117,65 +145,49 @@ impl Shots {
             png: png.into(),
             ready,
         };
-        // A file changed while it was drawn: the picture may be stale, so it
-        // isn't kept.
-        if self.0.generation() == generation {
-            self.0
-                .cache
-                .lock()
-                .unwrap()
-                .insert((deck.to_string(), n), shot.clone());
+        // Checked and kept under the cache's lock, which a change takes
+        // first: a change either made it stale already, or finds it kept.
+        let mut cache = self.0.cache.lock().unwrap();
+        if !drawing.stale.load(Ordering::SeqCst) {
+            cache.insert(
+                (deck.to_string(), n),
+                Kept {
+                    shot: shot.clone(),
+                    files,
+                },
+            );
         }
         Ok(shot)
     }
 
-    /// The running Chrome, started — with its server — if there is none or
-    /// it has stopped.
-    async fn chrome(&self, serve: impl FnOnce() -> Router) -> Result<(Arc<Browser>, SocketAddr)> {
-        let mut chrome = self.0.chrome.lock().await;
-        if let Some(running) = chrome.as_ref()
-            && !running.events.is_finished()
+    /// Slide `n` of `deck` kept as drawn from `files`, without Chrome: for
+    /// the tests.
+    #[cfg(test)]
+    pub(in crate::drive) fn keep(&self, deck: &str, n: usize, shot: Shot, files: Vec<PathBuf>) {
+        self.0
+            .cache
+            .lock()
+            .unwrap()
+            .insert((deck.to_string(), n), Kept { shot, files });
+    }
+
+    /// The running session, started — Chrome with the router `serve` makes —
+    /// if there is none or its Chrome has stopped.
+    async fn session(&self, serve: impl FnOnce() -> Router) -> Result<Arc<Session>> {
+        let mut session = self.0.session.lock().await;
+        if let Some(running) = session.as_ref()
+            && running.running()
         {
-            return Ok((running.browser.clone(), running.address));
+            return Ok(running.clone());
         }
-        if let Some(stopped) = chrome.take() {
-            stopped.close().await;
+        if let Some(stopped) = session.take() {
+            close(stopped).await;
         }
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-        let address = listener.local_addr()?;
-        let router = serve();
-        let server = tokio::spawn(async move {
-            axum::serve(listener, router).await.ok();
-        });
-        let profile = Profile::new();
-        // With the GPU on, a screenshot holds an embedded design's WebGPU
-        // canvas as the reader sees it, rather than black.
-        let config = profile
-            .chrome()
-            .await?
-            .arg("enable-unsafe-webgpu")
-            .arg("enable-gpu")
-            .build()
-            .map_err(anyhow::Error::msg)?;
-        let (browser, mut handler) = match Browser::launch(config).await {
-            Ok(launched) => launched,
-            Err(error) => {
-                server.abort();
-                return Err(error).context("starting Chrome");
-            }
-        };
-        let events = tokio::spawn(async move { while handler.next().await.is_some() {} });
-        let browser = Arc::new(browser);
-        *chrome = Some(Chrome {
-            browser: browser.clone(),
-            events,
-            server,
-            address,
-            _profile: profile,
-        });
+        let started = Arc::new(Session::start(Profile::Shot, serve()).await?);
+        *session = Some(started.clone());
         *self.0.used.lock().unwrap() = Instant::now();
         tokio::spawn(close_when_idle(Arc::downgrade(&self.0)));
-        Ok((browser, address))
+        Ok(started)
     }
 
     /// Closes Chrome, once the shots it is drawing are done.
@@ -185,26 +197,57 @@ impl Shots {
 
     /// Whether Chrome is running: for the tests.
     #[cfg(test)]
-    async fn running(&self) -> bool {
-        self.0.chrome.lock().await.is_some()
+    pub(in crate::drive) async fn running(&self) -> bool {
+        self.0.session.lock().await.is_some()
     }
 }
 
-impl Inner {
-    /// The cache's generation, after clearing it if a change arrived since
-    /// the last look.
-    fn generation(&self) -> u64 {
-        let changed = self.changes.lock().unwrap().heard();
-        let mut cache = self.cache.lock().unwrap();
-        if changed {
-            *cache = Cache {
-                generation: cache.generation + 1,
-                ..Cache::default()
-            };
+/// The watcher's word that files changed: every kept slide whose deck is
+/// drawn from one of them is forgotten, and every slide being drawn from
+/// one — or whose files aren't known yet — won't be kept. A comment changes
+/// no file of a deck: no slide is shot with its comments. Nor does a file a
+/// slide only links to, whose arrival fixes a broken link: no slide is shot
+/// with its problems.
+impl devpage_core::watch::SlidePngs for Shots {
+    fn changed(&self, files: &[PathBuf]) {
+        let mut cache = self.0.cache.lock().unwrap();
+        let gone: Vec<(String, usize)> = cache
+            .shots
+            .iter()
+            .filter(|(_, kept)| reaches(files, &kept.files))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in gone {
+            cache.remove(&key);
         }
-        cache.generation
+        self.0.drawing.lock().unwrap().retain(|drawing| {
+            let Some(drawing) = drawing.upgrade() else {
+                return false;
+            };
+            let stale = match &*drawing.files.lock().unwrap() {
+                Some(drawn_from) => reaches(files, drawn_from),
+                None => true,
+            };
+            if stale {
+                drawing.stale.store(true, Ordering::SeqCst);
+            }
+            true
+        });
     }
+}
 
+/// Whether a change to `changed` reaches what was drawn from `drawn_from`:
+/// one of them changed, a file inside one of them — a widgets folder — or a
+/// folder holding one.
+fn reaches(changed: &[PathBuf], drawn_from: &[PathBuf]) -> bool {
+    changed.iter().any(|changed| {
+        drawn_from
+            .iter()
+            .any(|file| changed.starts_with(file) || file.starts_with(changed))
+    })
+}
+
+impl Inner {
     /// Closes Chrome — when `idle`, only if it has drawn nothing for
     /// [`IDLE`]. It takes every turn first, so no shot is cut short and none
     /// starts until Chrome is closed.
@@ -215,39 +258,39 @@ impl Inner {
         if idle && self.used.lock().unwrap().elapsed() < IDLE {
             return;
         }
-        if let Some(running) = self.chrome.lock().await.take() {
-            running.close().await;
+        if let Some(running) = self.session.lock().await.take() {
+            close(running).await;
         }
     }
 }
 
-impl Chrome {
-    async fn close(self) {
-        if let Ok(mut browser) = Arc::try_unwrap(self.browser) {
-            browser.close().await.ok();
-            browser.wait().await.ok();
-        }
-        // Otherwise a dropped Browser kills its process.
-        self.events.abort();
-        self.server.abort();
+/// Closes `session` if no shot holds it still; otherwise the last shot to
+/// let it go drops it, which kills its Chrome.
+async fn close(session: Arc<Session>) {
+    if let Ok(session) = Arc::try_unwrap(session) {
+        session.close().await;
     }
 }
 
 impl Cache {
-    fn insert(&mut self, key: (String, usize), shot: Shot) {
-        if let Some(old) = self.shots.remove(&key) {
-            self.bytes -= old.png.len();
-            self.order.retain(|k| k != &key);
-        }
-        self.bytes += shot.png.len();
-        self.shots.insert(key.clone(), shot);
+    fn insert(&mut self, key: (String, usize), kept: Kept) {
+        self.remove(&key);
+        self.bytes += kept.shot.png.len();
+        self.shots.insert(key.clone(), kept);
         self.order.push_back(key);
         while self.bytes > CACHE_BYTES
             && let Some(oldest) = self.order.pop_front()
         {
             if let Some(old) = self.shots.remove(&oldest) {
-                self.bytes -= old.png.len();
+                self.bytes -= old.shot.png.len();
             }
+        }
+    }
+
+    fn remove(&mut self, key: &(String, usize)) {
+        if let Some(old) = self.shots.remove(key) {
+            self.bytes -= old.shot.png.len();
+            self.order.retain(|k| k != key);
         }
     }
 }
@@ -258,7 +301,7 @@ async fn close_when_idle(inner: Weak<Inner>) {
     loop {
         let left = {
             let Some(inner) = inner.upgrade() else { return };
-            if inner.chrome.lock().await.is_none() {
+            if inner.session.lock().await.is_none() {
                 return;
             }
             let idle = inner.used.lock().unwrap().elapsed();
@@ -281,266 +324,206 @@ fn etag(png: &[u8]) -> String {
     format!("\"{:016x}\"", hasher.finish())
 }
 
-/// Opens `url` in a new tab on a 1920 × 1080 screen, waits until the page is
+/// Opens `path` in a new tab, shot, on a 1920 × 1080 screen, once the page is
 /// ready, and screenshots it without devpage's controls; the tab is closed
 /// after. False beside the picture when the page was never ready.
-async fn capture(browser: &Browser, url: &str) -> Result<(Vec<u8>, bool)> {
-    let page: Page = browser.new_page("about:blank").await?;
+async fn capture(session: &Session, path: &str) -> Result<(Vec<u8>, bool)> {
+    let tab = session
+        .open(
+            path,
+            Open {
+                shot: true,
+                screen: Some((1920, 1080)),
+                ..Open::default()
+            },
+        )
+        .await?;
     let shot = async {
-        shot(&page).await?;
-        page.execute(SetDeviceMetricsOverrideParams::new(1920, 1080, 1.0, false))
-            .await?;
-        page.goto(url).await?;
-        let ready = wait_ready(&page, url).await?;
-        page.evaluate(HIDE_CONTROLS).await?;
-        let png = page
-            .screenshot(CaptureScreenshotParams::builder().build())
-            .await
-            .context("taking the screenshot")?;
-        anyhow::Ok((png, ready))
+        tab.eval::<()>(HIDE_CONTROLS).await?;
+        anyhow::Ok((tab.screenshot().await?, tab.ready()))
     }
     .await;
-    page.close().await.ok();
+    tab.close().await;
     shot
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::changes::Change;
-    use crate::document::Document;
-    use crate::served::ServedFolder;
-    use crate::server;
+    use devpage_core::designs::Designs;
+    use devpage_core::document::Document;
+    use devpage_core::folder::{Folder, ServedFolder};
+    use devpage_core::watch::Listeners;
+    use devpage_core::widgets::Modules;
 
-    /// A design that paints.
-    const BOX: &str = "<Frame width={400} height={300} fill=\"#2563eb\" />";
+    use crate::adapters::changes::Changes;
 
-    /// A folder of `files`, served with `talk.yml` as its entry; its address
-    /// and the channel that tells the server a file changed.
-    async fn deck(name: &str, files: &[(&str, &str)]) -> (String, Changes) {
-        let dir = std::env::temp_dir().join(format!("devpage-shots-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        for (file, text) in files {
-            std::fs::write(dir.join(file), text).unwrap();
+    fn shot() -> Shot {
+        Shot {
+            png: axum::body::Bytes::from_static(b"png"),
+            etag: etag(b"png"),
+            ready: true,
         }
+    }
+
+    /// A served folder of two decks: `a.yml`, whose slide embeds an image
+    /// and a design that shows another image and sets text in a font from
+    /// the folder `fonts/Body/`, and widgets from `widgets/`;
+    /// and `b.yml`, a slide of its own. The watcher's listeners on it, telling
+    /// `shots`, and its slides kept as drawn — every file but those in
+    /// `without`, which aren't there yet.
+    fn two_decks(name: &str, shots: &Shots) -> (PathBuf, Listeners) {
+        two_decks_without(name, shots, &[])
+    }
+
+    fn two_decks_without(name: &str, shots: &Shots, without: &[&str]) -> (PathBuf, Listeners) {
+        let dir = std::env::temp_dir().join(format!("devpage-shots-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
         let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(
-            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let changes = crate::changes::Changes::default();
-        let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
-            ..server::Options::new(document, changes.clone())
-        });
-        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-        (format!("http://{address}"), changes)
-    }
-
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn a_slide_beside_a_design_is_drawn_without_waiting_for_it() {
-        let (address, _changes) = deck(
-            "beside",
-            &[
-                ("box.design", BOX),
-                ("one.md", "# One\n"),
-                ("two.md", "# Two\n\n![The box](box.design)\n"),
-                (
-                    "talk.yml",
-                    "kind: slides\ntitle: Talk\nslides: [one.md, two.md]\n",
-                ),
-            ],
-        )
-        .await;
-        // The design on slide 2 is hidden on slide 1: not waited for.
-        let started = Instant::now();
-        let first = reqwest::get(format!("{address}/talk.yml/1.png"))
-            .await
-            .unwrap();
-        assert_eq!(first.status(), 200);
-        assert!(first.headers().get("x-devpage-ready").is_none());
-        assert!(
-            started.elapsed() < Duration::from_secs(3),
-            "{:?}",
-            started.elapsed()
-        );
-        // On its own slide it is painted before the shot.
-        let second = reqwest::get(format!("{address}/talk.yml/2.png"))
-            .await
-            .unwrap();
-        assert_eq!(second.status(), 200);
-        assert!(second.headers().get("x-devpage-ready").is_none());
-    }
-
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn a_slide_showing_its_own_png_returns_promptly() {
-        let (address, _changes) = deck(
-            "itself",
-            &[
-                ("one.md", "# One\n\n![Itself](talk.yml/1.png)\n"),
-                ("talk.yml", "kind: slides\ntitle: Talk\nslides: [one.md]\n"),
-            ],
-        )
-        .await;
-        let started = Instant::now();
-        let response = reqwest::get(format!("{address}/talk.yml/1.png"))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
-        assert!(
-            started.elapsed() < Duration::from_secs(5),
-            "{:?}",
-            started.elapsed()
-        );
-    }
-
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
-        let (address, changes) = deck(
-            "cache",
-            &[
-                ("one.md", "# One\n"),
-                ("talk.yml", "kind: slides\ntitle: Talk\nslides: [one.md]\n"),
-            ],
-        )
-        .await;
-        let url = format!("{address}/talk.yml/1.png");
-        let client = reqwest::Client::new();
-        let shot = |held: Option<String>, inside: bool| {
-            let mut request = client.get(&url);
-            if let Some(etag) = held {
-                request = request.header("if-none-match", etag);
+        let write = |file: &str, text: &str| {
+            if !without.contains(&file) {
+                std::fs::write(dir.join(file), text).unwrap();
             }
-            if inside {
-                request = request.header(crate::pdf::SHOT_HEADER, "1");
-            }
-            request.send()
         };
-        // Inside another shot, a slide not yet drawn isn't drawn.
-        assert_eq!(shot(None, true).await.unwrap().status(), 508);
-
-        let first = shot(None, false).await.unwrap();
-        let etag = first.headers()["etag"].to_str().unwrap().to_string();
-        let first = first.bytes().await.unwrap();
-
-        // Drawn already: no Chrome, and nothing sent to a holder of it.
-        let started = Instant::now();
-        let again = shot(Some(etag.clone()), false).await.unwrap();
-        assert_eq!(again.status(), 304);
-        assert_eq!(again.headers()["etag"], etag.as_str());
-        let cached = shot(None, true).await.unwrap();
-        assert_eq!(cached.status(), 200);
-        assert_eq!(cached.bytes().await.unwrap(), first);
-        assert!(
-            started.elapsed() < Duration::from_millis(200),
-            "{:?}",
-            started.elapsed()
+        write(
+            "a.md",
+            "# A\n\n![Logo](logo.png)\n\n![Screen](screen.design)\n\n[B](b.md)\n",
         );
-
-        // A change: the slide is drawn again, as it is now.
-        let dir = std::env::temp_dir()
-            .join(format!("devpage-shots-{}-cache", std::process::id()))
-            .canonicalize()
-            .unwrap();
-        std::fs::write(dir.join("one.md"), "# Changed\n").unwrap();
-        changes.publish(Change::Refresh);
-        let changed = shot(Some(etag.clone()), false).await.unwrap();
-        assert_eq!(changed.status(), 200);
-        assert_ne!(changed.headers()["etag"], etag.as_str());
-        assert_ne!(changed.bytes().await.unwrap(), first);
-    }
-
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
-        let changes = crate::changes::Changes::default();
-        let shots = Shots::new(&changes);
-        let dir = std::env::temp_dir().join(format!("devpage-shots-{}-close", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("one.md"), "# One\n").unwrap();
-        std::fs::write(
-            dir.join("talk.yml"),
-            "kind: slides\ntitle: Talk\nslides: [one.md]\n",
+        write("logo.png", "png");
+        write("photo.png", "png");
+        std::fs::create_dir_all(dir.join("fonts/Body")).unwrap();
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Regular.ttf"),
+            dir.join("fonts/Body/Body-Regular.ttf"),
         )
         .unwrap();
-        let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(
-            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        write(
+            "themes.yml",
+            "kind: themes\nfonts:\n  body: ./fonts/Body\nlight: {}\ndark: {}\n",
         );
-        let serve = || server::router(server::Options::printing(document.clone(), changes.clone()));
-        shots.png("/talk.yml", 1, serve).await.unwrap();
-        assert!(shots.running().await);
-        shots.close().await;
-        assert!(!shots.running().await);
-        changes.publish(Change::Refresh);
-        shots.png("/talk.yml", 1, serve).await.unwrap();
-        assert!(shots.running().await);
-        shots.close().await;
-    }
-
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
-    #[tokio::test]
-    #[ignore]
-    async fn a_slide_is_served_as_a_1920_by_1080_png() {
-        let dir = std::env::temp_dir().join(format!("devpage-slide-png-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("one.md"), "# One\n").unwrap();
-        std::fs::write(dir.join("two.md"), "# Two\n\n<Notes>Never drawn.</Notes>\n").unwrap();
-        std::fs::write(
-            dir.join("talk.yml"),
-            "kind: slides\ntitle: Talk\nslides: [one.md, two.md]\n",
-        )
-        .unwrap();
-        let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(
-            Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        write(
+            "screen.design",
+            "<Frame width={10} height={10}><Image src=\"photo.png\" width={10} height={10} /><Text font=\"body\">Hi</Text></Frame>\n",
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let address = listener.local_addr().unwrap();
-        let changes = crate::changes::Changes::default();
-        let router = server::router(server::Options {
-            comments: Some(server::Identity::Local("T".into())),
-            ..server::Options::new(document, changes)
-        });
-        tokio::spawn(async move { axum::serve(listener, router).await.ok() });
-
-        let response = reqwest::get(format!("http://{address}/talk.yml/2.png"))
-            .await
-            .unwrap();
-        assert_eq!(response.status(), 200);
-        assert_eq!(response.headers()["content-type"], "image/png");
-        let png = response.bytes().await.unwrap();
-        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
-        // The IHDR chunk's width and height, big-endian.
-        let size = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
-        assert_eq!((size(16), size(20)), (1920, 1080));
-
-        // Slide 1 and slide 2 are different pictures.
-        let first = reqwest::get(format!("http://{address}/talk.yml/1.png"))
-            .await
-            .unwrap()
-            .bytes()
-            .await
-            .unwrap();
-        assert_ne!(first, png);
-
-        for path in ["talk.yml/3.png", "talk.yml/0.png", "one.md/1.png"] {
-            let status = reqwest::get(format!("http://{address}/{path}"))
-                .await
-                .unwrap()
-                .status();
-            assert_eq!(status, 404, "{path}");
+        write(
+            "widgets/Badge.tsx",
+            "export default function Badge() { return null; }\n",
+        );
+        write(
+            "a.yml",
+            "kind: slides\ntitle: A\nslides: [a.md]\nwidgets: widgets\n",
+        );
+        write("b.md", "# B\n");
+        write("b.yml", "kind: slides\ntitle: B\nslides: [b.md]\n");
+        let served = ServedFolder::new(&dir).unwrap();
+        let entry = Document::load(&dir.join("a.yml"), &served).unwrap();
+        let folder = Arc::new(Folder::new(Arc::new(entry)));
+        let designs = Designs::new(&served);
+        let modules = Modules::default();
+        for deck in ["a.yml", "b.yml"] {
+            let files =
+                devpage_core::check::drawn_from(&dir.join(deck), &served, &designs, &modules);
+            shots.keep(&format!("/{deck}"), 1, shot(), files);
         }
+        let listeners = Listeners::new(
+            folder,
+            designs,
+            modules,
+            None,
+            Arc::new(Changes::default()),
+            None,
+        )
+        .with_slide_pngs(Arc::new(shots.clone()));
+        (dir, listeners)
+    }
+
+    #[test]
+    fn saving_a_file_of_one_deck_keeps_another_decks_slides() {
+        for file in ["a.md", "a.yml"] {
+            let shots = Shots::new();
+            let (dir, listeners) = two_decks("own", &shots);
+            listeners.changed(&[dir.join(file)]);
+            assert!(shots.cached("/a.yml", 1).is_none(), "{file}");
+            assert!(shots.cached("/b.yml", 1).is_some(), "{file}");
+        }
+    }
+
+    #[test]
+    fn saving_a_file_a_deck_embeds_forgets_its_slides() {
+        for file in [
+            "logo.png",
+            "screen.design",
+            "photo.png",
+            "widgets/Badge.tsx",
+            "widgets/New.tsx",
+        ] {
+            let shots = Shots::new();
+            let (dir, listeners) = two_decks("embeds", &shots);
+            listeners.changed(&[dir.join(file)]);
+            assert!(shots.cached("/a.yml", 1).is_none(), "{file}");
+            assert!(shots.cached("/b.yml", 1).is_some(), "{file}");
+        }
+    }
+
+    /// An image a design on a slide shows, added after the slide was drawn
+    /// without it, forgets that deck's slides.
+    #[test]
+    fn adding_an_image_an_embedded_design_lacks_forgets_its_slides() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks_without("design-lacks", &shots, &["photo.png"]);
+        std::fs::write(dir.join("photo.png"), "png").unwrap();
+        listeners.changed(&[dir.join("photo.png")]);
+        assert!(shots.cached("/a.yml", 1).is_none());
+        assert!(shots.cached("/b.yml", 1).is_some());
+    }
+
+    /// A font added to the folder an embedded design's font is read from
+    /// forgets that deck's slides, and no other deck's.
+    #[test]
+    fn a_font_added_to_an_embedded_designs_font_folder_forgets_its_slides() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks("font-folder", &shots);
+        let bold = dir.join("fonts/Body/Body-Bold.ttf");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("design/fonts/Inter-Bold.ttf"),
+            &bold,
+        )
+        .unwrap();
+        listeners.changed(&[bold]);
+        assert!(shots.cached("/a.yml", 1).is_none());
+        assert!(shots.cached("/b.yml", 1).is_some());
+    }
+
+    #[test]
+    fn a_page_a_slide_only_links_to_is_not_what_it_is_drawn_from() {
+        let shots = Shots::new();
+        let (dir, listeners) = two_decks("linked", &shots);
+        listeners.changed(&[dir.join("b.md")]);
+        assert!(shots.cached("/a.yml", 1).is_some());
+        assert!(shots.cached("/b.yml", 1).is_none());
+    }
+
+    #[test]
+    fn a_slide_being_drawn_when_its_files_change_is_not_kept() {
+        use devpage_core::watch::SlidePngs;
+        let shots = Shots::new();
+        let unknown = Arc::new(Drawing::default());
+        let other = Arc::new(Drawing::default());
+        let own = Arc::new(Drawing::default());
+        *other.files.lock().unwrap() = Some(vec![PathBuf::from("/x/b.md")]);
+        *own.files.lock().unwrap() = Some(vec![PathBuf::from("/x/a.md")]);
+        for drawing in [&unknown, &other, &own] {
+            shots
+                .0
+                .drawing
+                .lock()
+                .unwrap()
+                .push(Arc::downgrade(drawing));
+        }
+        shots.changed(&[PathBuf::from("/x/a.md")]);
+        assert!(unknown.stale.load(Ordering::SeqCst));
+        assert!(!other.stale.load(Ordering::SeqCst));
+        assert!(own.stale.load(Ordering::SeqCst));
     }
 }

@@ -427,3 +427,250 @@ async fn deleting_a_document_deletes_its_threads() {
         StatusCode::NOT_FOUND
     );
 }
+
+#[tokio::test]
+async fn a_thread_starts_only_on_a_file_in_the_latest_version() {
+    let app = router(&config("pages")).unwrap();
+    let zip = zip_of(&[
+        (
+            "devpage.yml",
+            "kind: site\ntitle: Launch\nroot: README.md\n",
+        ),
+        ("README.md", "# Launch\n\nSome text here.\n"),
+        // In the zip, but no page of the site links to it.
+        ("notes/lone.md", "# Lone\n\nA lone page.\n"),
+    ]);
+    let id = publish(&app, "/api/documents", zip).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let new = |page: &str| json!({ "page": page, "anchor": anchor("", "lone", ""), "text": "hi" });
+    for path in [
+        format!("/api/documents/{id}/comments"),
+        format!("/d/{id}/__devpage/comments"),
+    ] {
+        // A page that isn't in the version is refused, by both routes alike.
+        for page in ["/missing.md", "/notes", "/../x.md"] {
+            let (status, answer) = ask(&app, json_request("POST", &path, new(page), None)).await;
+            assert_eq!(
+                status,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "{path} {page}: {answer}"
+            );
+        }
+        let (status, answer) = ask(
+            &app,
+            json_request("POST", &path, new("/notes/lone.md"), None),
+        )
+        .await;
+        assert!(status.is_success(), "{path}: {answer}");
+    }
+    let pages: Vec<Value> = threads(&app, &id)
+        .await
+        .into_iter()
+        .map(|t| t["page"].clone())
+        .collect();
+    assert_eq!(pages, ["/notes/lone.md", "/notes/lone.md"]);
+}
+
+#[tokio::test]
+async fn a_blank_author_is_refused_by_both_routes() {
+    let mut config = config("blank");
+    config.user_header = Some("X-User".into());
+    let app = router(&config).unwrap();
+    let id = publish(&app, "/api/documents", site("Some text here.", None)).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let new = json!({ "page": "/README.md", "anchor": anchor("", "text", ""), "text": "hi" });
+    for path in [
+        format!("/api/documents/{id}/comments"),
+        format!("/d/{id}/__devpage/comments"),
+    ] {
+        let (status, _) = ask(&app, json_request("POST", &path, new.clone(), Some("   "))).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED, "{path}");
+        let (status, _) = ask(
+            &app,
+            json_request("POST", &path, new.clone(), Some("  cy@example.com ")),
+        )
+        .await;
+        assert!(status.is_success(), "{path}");
+    }
+    let all = threads(&app, &id).await;
+    assert_eq!(all.len(), 2);
+    assert!(
+        all.iter()
+            .all(|t| t["thread"][0]["author"] == "cy@example.com"),
+        "trimmed: {all:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_detached_thread_still_takes_replies_by_its_id() {
+    let app = router(&config("detached")).unwrap();
+    let id = publish(
+        &app,
+        "/api/documents",
+        site("Some text here.", Some("Retries are capped at five.")),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let thread = comment(
+        &app,
+        &id,
+        "/rollout.md",
+        anchor("", "capped at five", "."),
+        "five?",
+    )
+    .await;
+    // Version 2 drops rollout.md: the thread is detached.
+    publish(
+        &app,
+        &format!("/api/documents/{id}/versions"),
+        site("Some text here.", None),
+    )
+    .await;
+    assert_eq!(threads(&app, &id).await[0]["detached"], true);
+
+    let (status, answer) = ask(
+        &app,
+        json_request(
+            "POST",
+            &format!("/d/{id}/__devpage/comments/reply"),
+            json!({ "id": thread, "text": "from the page" }),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{answer}");
+    let (status, _) = ask(
+        &app,
+        json_request(
+            "POST",
+            &format!("/api/documents/{id}/comments/{thread}/replies"),
+            json!({ "text": "from the API" }),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let texts: Vec<Value> = threads(&app, &id).await[0]["thread"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["text"].clone())
+        .collect();
+    assert_eq!(texts, ["five?", "from the page", "from the API"]);
+
+    // A reply to a made-up thread finds nothing.
+    let (status, _) = ask(
+        &app,
+        json_request(
+            "POST",
+            &format!("/api/documents/{id}/comments/20261025T000000Z-0000/replies"),
+            json!({ "text": "x" }),
+            None,
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn carry_reads_each_page_as_it_is_shown() {
+    let app = router(&config("shown")).unwrap();
+    let page = "---\ndescription: The launch.\n---\n\n# Launch\n\n<Callout>\nThe client **retries** every write.\n</Callout>\n";
+    let zip = || {
+        zip_of(&[
+            (
+                "devpage.yml",
+                "kind: site\ntitle: Launch\nroot: README.md\n",
+            ),
+            ("README.md", page),
+        ])
+    };
+    let id = publish(&app, "/api/documents", zip()).await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    // Anchored as the page shows the text: bold, inside the widget.
+    let thread = comment(
+        &app,
+        &id,
+        "/README.md",
+        anchor("The client ", "retries every write", "."),
+        "every one?",
+    )
+    .await;
+    publish(&app, &format!("/api/documents/{id}/versions"), zip()).await;
+    let all = threads(&app, &id).await;
+    let carried = all.iter().find(|t| t["id"] == thread.as_str()).unwrap();
+    assert_eq!(carried["detached"], false, "{all:?}");
+}
+
+/// A carry that fails publishes nothing: the version is not recorded, its
+/// zip is not left in the bucket, every thread stays where it was, and the
+/// next publish takes the same number.
+#[tokio::test]
+async fn a_carry_that_fails_publishes_nothing() {
+    let config = config("carry-fails");
+    let app = router(&config).unwrap();
+    let id = publish(
+        &app,
+        "/api/documents",
+        site("The client retries every write.", None),
+    )
+    .await["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    comment(
+        &app,
+        &id,
+        "/README.md",
+        anchor("The client ", "retries every write", "."),
+        "detached by the next version",
+    )
+    .await;
+
+    // The store refuses to move a thread, as a full disk or a lost lock
+    // would.
+    let store = rusqlite::Connection::open(config.data_dir.join("store.db")).unwrap();
+    store
+        .execute_batch(
+            "CREATE TRIGGER no_carry BEFORE UPDATE ON threads
+             BEGIN SELECT RAISE(ABORT, 'the carry failed'); END;",
+        )
+        .unwrap();
+    let next = site("Every write is retried.", None);
+    let request = Request::post(format!("/api/documents/{id}/versions"))
+        .body(Body::from(next.clone()))
+        .unwrap();
+    let (status, answer) = ask(&app, request).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{answer}");
+    assert!(
+        answer.as_str().unwrap().contains("the carry failed"),
+        "{answer}"
+    );
+
+    let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
+    assert_eq!(document["latest"], 1);
+    assert_eq!(document["versions"].as_array().unwrap().len(), 1);
+    let bucket = std::path::PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap());
+    assert!(
+        !bucket
+            .join(format!("documents/{id}/versions/2.zip"))
+            .exists()
+    );
+    let listed = threads(&app, &id).await;
+    assert_eq!(listed[0]["detached"], false);
+    assert_eq!(listed[0]["detached_in"], Value::Null);
+
+    store.execute_batch("DROP TRIGGER no_carry;").unwrap();
+    let again = publish(&app, &format!("/api/documents/{id}/versions"), next).await;
+    assert_eq!(again["version"], 2, "the number nothing took");
+    let listed = threads(&app, &id).await;
+    assert_eq!(listed[0]["detached_in"], 2);
+}

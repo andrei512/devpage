@@ -18,9 +18,9 @@ export const Applied = Object.freeze({
 });
 
 /**
- * One canvas's design: its scene, its problems, its drawing in each theme
- * it has been shown in — each updated by every patch — and the damage those
- * updates did, until the canvas takes it.
+ * One canvas's design: the engine's, once a scene arrives, the problems
+ * the stream last reported, the theme the page draws it in, and the plan
+ * of the canvas's frames.
  */
 export class Design {
     __destroy_into_raw() {
@@ -58,6 +58,9 @@ export class Design {
     }
     /**
      * Applies one watch-stream message: a whole scene, a patch or problems.
+     * A patch that leaves the scene undrawable is a problem like any the
+     * stream reports: the canvas keeps showing the last good drawing, a
+     * tile it never painted before included.
      * @param {Uint8Array} bytes
      * @returns {Applied}
      */
@@ -67,6 +70,44 @@ export class Design {
         const ret = wasm.design_apply(this.__wbg_ptr, ptr0, len0);
         return ret;
     }
+    /**
+     * The painting asked for under `ticket` has arrived: true when the
+     * page keeps it, false when it frees it — the plan no longer asks for
+     * it.
+     * @param {number} ticket
+     * @returns {boolean}
+     */
+    arrived(ticket) {
+        const ret = wasm.design_arrived(this.__wbg_ptr, ticket);
+        return ret !== 0;
+    }
+    /**
+     * The work of a frame of a view `width` × `height` device pixels, the
+     * drawing scaled by `scale` — shown at its [`level`] — and its top-left
+     * at `(x, y)`, rounded to a whole device pixel: the plan the GPU
+     * carries out, for the page to carry out on the CPU. Once a zoom has
+     * `settled` it asks for the tiles the view still needs; `None` before
+     * there is anything to draw.
+     * @param {number} width
+     * @param {number} height
+     * @param {number} scale
+     * @param {number} x
+     * @param {number} y
+     * @param {boolean} settled
+     * @returns {Work | undefined}
+     */
+    frame(width, height, scale, x, y, settled) {
+        const ret = wasm.design_frame(this.__wbg_ptr, width, height, scale, x, y, settled);
+        return ret === 0 ? undefined : Work.__wrap(ret);
+    }
+    /**
+     * The tile asked for under `ticket` was painted as nothing: it is
+     * asked for again.
+     * @param {number} ticket
+     */
+    missed(ticket) {
+        wasm.design_missed(this.__wbg_ptr, ticket);
+    }
     constructor() {
         const ret = wasm.design_new();
         this.__wbg_ptr = ret;
@@ -75,7 +116,8 @@ export class Design {
     }
     /**
      * Paints tile `(col, row)` of the drawing at `scale` on the CPU with
-     * `vello_cpu`: 256 device pixels a side, straight alpha.
+     * `vello_cpu`: 256 device pixels a side, straight alpha — from the last
+     * good drawing while the scene can't be drawn.
      * @param {number} scale
      * @param {number} col
      * @param {number} row
@@ -134,26 +176,6 @@ export class Design {
         }
     }
     /**
-     * The damage since the last call, flat for the page: per theme, its
-     * theme (0 light, 1 dark), 1 when every tile is stale or else 0, the
-     * drawing's top-left `x` and `y`, the number of rects, and each rect's
-     * `x0, y0, x1, y1` in the design's coordinates.
-     * @returns {Float64Array}
-     */
-    take_damage() {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.design_take_damage(retptr, this.__wbg_ptr);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayF64FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export5(r0, r1 * 8, 8);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
-    }
-    /**
      * Whether any `theme.` reference reached the scene: what puts an
      * embed's own theme switch on its backdrop.
      * @returns {boolean}
@@ -161,32 +183,6 @@ export class Design {
     themed() {
         const ret = wasm.design_themed(this.__wbg_ptr);
         return ret !== 0;
-    }
-    /**
-     * The tiles a view of `width` × `height` device pixels needs at
-     * `scale` — the drawing scaled by it, its top-left at the whole device
-     * pixel `(x, y)` — nearest the view's middle first, flat: column, row,
-     * column, row… The engine's [`View`](devpage_design::tiles::View), so
-     * the CPU's compositor asks for the very tiles the GPU's would.
-     * @param {number} width
-     * @param {number} height
-     * @param {number} scale
-     * @param {number} x
-     * @param {number} y
-     * @returns {Uint32Array}
-     */
-    view_tiles(width, height, scale, x, y) {
-        try {
-            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-            wasm.design_view_tiles(retptr, this.__wbg_ptr, width, height, scale, x, y);
-            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
-            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
-            var v1 = getArrayU32FromWasm0(r0, r1).slice();
-            wasm.__wbindgen_export5(r0, r1 * 4, 4);
-            return v1;
-        } finally {
-            wasm.__wbindgen_add_to_stack_pointer(16);
-        }
     }
 }
 if (Symbol.dispose) Design.prototype[Symbol.dispose] = Design.prototype.free;
@@ -209,14 +205,14 @@ export class Gpu {
         wasm.__wbg_gpu_free(ptr, 0);
     }
     /**
-     * Composites `design` into `target`, `width` × `height` device pixels,
-     * the design scaled by `zoom` and its top-left at `(x, y)`, over
-     * `background` (`0xRRGGBB`): the cached tiles of the view, moved and
-     * scaled. After the frame, when `settled`, up to `budget` missing or
-     * stale tiles of the view are painted at `zoom`, nearest the middle
-     * first, for the next frame to show. Returns how many tiles of the view
-     * at `zoom` the frame lacked — 0 when it showed the view current — or
-     * -1 when there is nothing to draw yet or the frame was lost.
+     * Carries out a frame of the design's plan in `target`, `width` ×
+     * `height` device pixels, the design scaled by `zoom` and its top-left
+     * at `(x, y)`, over `background` (`0xRRGGBB`): the held tiles of the
+     * view, moved and scaled. After the frame, when `settled`, the tiles
+     * the plan asks for are painted at once, for the next frame to show.
+     * Returns how many tiles of the view at `zoom` the frame lacked — 0
+     * when it showed the view current — or -1 when there is nothing to
+     * draw yet or the frame was lost.
      * @param {Target} target
      * @param {Design} design
      * @param {number} width
@@ -226,13 +222,12 @@ export class Gpu {
      * @param {number} y
      * @param {number} background
      * @param {boolean} settled
-     * @param {number} budget
      * @returns {number}
      */
-    draw(target, design, width, height, zoom, x, y, background, settled, budget) {
+    draw(target, design, width, height, zoom, x, y, background, settled) {
         _assertClass(target, Target);
         _assertClass(design, Design);
-        const ret = wasm.gpu_draw(this.__wbg_ptr, target.__wbg_ptr, design.__wbg_ptr, width, height, zoom, x, y, background, settled, budget);
+        const ret = wasm.gpu_draw(this.__wbg_ptr, target.__wbg_ptr, design.__wbg_ptr, width, height, zoom, x, y, background, settled);
         return ret;
     }
     /**
@@ -351,6 +346,102 @@ export class Target {
     }
 }
 if (Symbol.dispose) Target.prototype[Symbol.dispose] = Target.prototype.free;
+
+/**
+ * A frame's [work](devpage_design::tiles::Work), flat for the page.
+ */
+export class Work {
+    static __wrap(ptr) {
+        const obj = Object.create(Work.prototype);
+        obj.__wbg_ptr = ptr;
+        WorkFinalization.register(obj, obj.__wbg_ptr, obj);
+        return obj;
+    }
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        WorkFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_work_free(ptr, 0);
+    }
+    /**
+     * The paintings to draw, bottom first: per painting its ticket and
+     * where it lands in the view, `x0, y0, x1, y1` in device pixels.
+     * @returns {Float64Array}
+     */
+    get draw() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.work_draw(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export5(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * The tickets of the paintings let go: the page frees them.
+     * @returns {Uint32Array}
+     */
+    get evict() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.work_evict(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayU32FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export5(r0, r1 * 4, 4);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+    /**
+     * How many tiles of the view at its own scale are missing or stale.
+     * @returns {number}
+     */
+    get missing() {
+        const ret = wasm.work_missing(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * The tiles to paint, in order: per tile its ticket, its theme (0
+     * light, 1 dark), its scale, column and row.
+     * @returns {Float64Array}
+     */
+    get request() {
+        try {
+            const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+            wasm.work_request(retptr, this.__wbg_ptr);
+            var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+            var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+            var v1 = getArrayF64FromWasm0(r0, r1).slice();
+            wasm.__wbindgen_export5(r0, r1 * 8, 8);
+            return v1;
+        } finally {
+            wasm.__wbindgen_add_to_stack_pointer(16);
+        }
+    }
+}
+if (Symbol.dispose) Work.prototype[Symbol.dispose] = Work.prototype.free;
+
+/**
+ * The scale tiles are painted at for a view at `scale`, in device pixels:
+ * its [`Level`], to a 1/1024th. The view is shown at it, so a tile at the
+ * view's own level lands pixel for pixel.
+ * @param {number} scale
+ * @returns {number}
+ */
+export function level(scale) {
+    const ret = wasm.level(scale);
+    return ret;
+}
 function __wbg_get_imports() {
     const import0 = {
         __proto__: null,
@@ -558,7 +649,7 @@ function __wbg_get_imports() {
                     const a = state0.a;
                     state0.a = 0;
                     try {
-                        return __wasm_bindgen_func_elem_2858(a, state0.b, arg0, arg1);
+                        return __wasm_bindgen_func_elem_2890(a, state0.b, arg0, arg1);
                     } finally {
                         state0.a = a;
                     }
@@ -1089,22 +1180,22 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbindgen_generic_0000000000000001: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [Externref], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2826);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2858);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000002: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("GPUDevice")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2826_19);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2858_25);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000003: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("any")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2826_20);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2858_26);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000004: function(arg0, arg1) {
             // Cast intrinsic for `Closure(Closure { owned: true, function: Function { arguments: [NamedExternref("undefined")], shim_idx: 9, ret: Result(Unit), inner_ret: Some(Result(Unit)) }, mutable: true }) -> Externref`.
-            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2826_21);
+            const ret = makeMutClosure(arg0, arg1, __wasm_bindgen_func_elem_2858_27);
             return addHeapObject(ret);
         },
         __wbindgen_generic_0000000000000005: function(arg0) {
@@ -1136,14 +1227,14 @@ function __wbg_get_imports() {
     };
 }
 
-function __wasm_bindgen_func_elem_2858(arg0, arg1, arg2, arg3) {
-    wasm.__wasm_bindgen_func_elem_2858(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
+function __wasm_bindgen_func_elem_2890(arg0, arg1, arg2, arg3) {
+    wasm.__wasm_bindgen_func_elem_2890(arg0, arg1, addHeapObject(arg2), addHeapObject(arg3));
 }
 
-function __wasm_bindgen_func_elem_2826(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2858(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2826(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2858(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1154,10 +1245,10 @@ function __wasm_bindgen_func_elem_2826(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2826_19(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2858_25(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2826_19(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2858_25(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1168,10 +1259,10 @@ function __wasm_bindgen_func_elem_2826_19(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2826_20(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2858_26(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2826_20(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2858_26(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1182,10 +1273,10 @@ function __wasm_bindgen_func_elem_2826_20(arg0, arg1, arg2) {
     }
 }
 
-function __wasm_bindgen_func_elem_2826_21(arg0, arg1, arg2) {
+function __wasm_bindgen_func_elem_2858_27(arg0, arg1, arg2) {
     try {
         const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
-        wasm.__wasm_bindgen_func_elem_2826_21(retptr, arg0, arg1, addHeapObject(arg2));
+        wasm.__wasm_bindgen_func_elem_2858_27(retptr, arg0, arg1, addHeapObject(arg2));
         var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
         var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
         if (r1) {
@@ -1270,6 +1361,9 @@ const PixelsFinalization = (typeof FinalizationRegistry === 'undefined')
 const TargetFinalization = (typeof FinalizationRegistry === 'undefined')
     ? { register: () => {}, unregister: () => {} }
     : new FinalizationRegistry(ptr => wasm.__wbg_target_free(ptr, 1));
+const WorkFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_work_free(ptr, 1));
 
 function addHeapObject(obj) {
     if (heap_next === heap.length) heap.push(heap.length + 1);

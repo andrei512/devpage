@@ -39,13 +39,20 @@ flowchart LR
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
-**Who decides.** What every route from `/` down answers with — a page, a
-redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
-`500` with the reason — is decided by the **resolver** (`core/src/resolve.rs`) from
-the documents alone: the entry document, the index, the problems each page
-lists and whether comments are on. The HTTP server only turns its answer into
-a response, reading the file's bytes or drawing the PNG it names, so every
-route is tested without a socket.
+**Who decides.** What `/`, `/{*path}` and the two widget routes answer with
+— a page (a design's [canvas page](#the-canvas-page) among them), a redirect,
+a file's bytes, a design's or a slide's PNG, a widget's module (`immutable`
+at its current address), a module that throws why it can't be had, or `404`,
+`400` or `500` with the reason — is the **[answer](../glossary/README.md#answer)**
+`Answers` (`core/src/answer.rs`) decides from the documents alone: the served
+folder (`Folder`) with its entry document and its document index, the widget
+modules, the design store, the problems each page lists and whether comments
+are on. The
+widgets own how a module's address finds its file and whether it is current
+([How widgets run](../widgets/how-widgets-run/README.md)). The HTTP server
+only turns an answer into a response — its headers, the file's bytes read,
+the PNG it names drawn — so every one of these routes is tested without a
+socket.
 
 **The mount.** The served folder carries a **mount prefix** — empty for
 `devpage` and bundled mode, `/d/<id>` for a document's latest version and
@@ -53,7 +60,7 @@ route is tested without a socket.
 set once, where devpage starts serving a folder, and every document, index,
 design store and widget snapshot is loaded from that same served folder, so
 every address a page carries starts with it: its links, sidebar and navbar,
-its widgets and their helpers, the redirects the resolver answers with, and
+its widgets and their helpers, the redirects it answers with, and
 the page script's endpoints — the events, comments, search and the design
 watch stream. Only the [built-in assets](#built-in-assets) are outside it, the
 same for every document. The page's `<html>` carries the prefix as
@@ -93,6 +100,11 @@ exist. Anything that fails — a path escaping with `..`, a symbolic link
 pointing outside, a missing file, a folder — gets `404` with the body
 `<path> is not part of the served folder`. A file that exists but can't be read
 gets `500` with the error's text.
+
+A path outside the served folder has no address, so a page never carries one:
+a link in a page, chapter, slide or navbar that leads out keeps its target as
+written — never the file's absolute path — and
+[`devpage check`](../checking-links/README.md) reports it.
 
 ## What a file is served as
 
@@ -154,7 +166,7 @@ addresses.
 | `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design; it loads the engine and starts the page's canvases | `text/javascript` |
 | `design-canvas.js` | `core/assets/design-canvas.js`, a design's canvas: its view, pointer and interactions, overlays and an embed's backdrop | `text/javascript` |
 | `design-stream.js` | `core/assets/design-stream.js`, the page's one watch stream | `text/javascript` |
-| `design-tiles.js` | `core/assets/design-tiles.js`, the compositor's tiles on the CPU, painted by the worker | `text/javascript` |
+| `design-tiles.js` | `core/assets/design-tiles.js`, the compositor on the CPU, carrying out the frame plan with the worker's paintings | `text/javascript` |
 | `design-worker.js` | `core/assets/design-worker.js`, the worker that paints those tiles with the engine's `vello_cpu` backend | `text/javascript` |
 | `design-engine.js` | `core/assets/vendor/design-engine.js`, the [design engine](../design-engine/README.md#one-crate-two-targets)'s vendored bindings | `text/javascript` |
 | `design-engine.wasm` | `core/assets/vendor/design-engine.wasm`, the design engine's vendored WebAssembly module | `application/wasm` |

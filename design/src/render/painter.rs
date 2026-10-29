@@ -7,7 +7,7 @@ use kurbo::{Affine, BezPath, Ellipse as KEllipse, Rect as KRect, RoundedRect, Sh
 use peniko::{Color as PColor, Gradient};
 
 use crate::display::Builder;
-use crate::resolve::{Color, Fill, Kind, Node, Rgba, Scene, Theme};
+use crate::scene::{Color, Fill, Kind, Node, Rgba, Scene, Theme};
 use crate::shadow::{self, Outline};
 
 use super::*;

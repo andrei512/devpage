@@ -79,8 +79,8 @@ A comment is stamped with its **author** and the time it was written.
 - **Locally** the author is `git config user.name` as git sees it in the
   served folder, or the system's user name when git has none.
 - **Deployed** the author is the value of the identity header the auth proxy
-  sets — `X-Forwarded-Email` unless `--user-header` names another. A comment
-  without it is refused ([devpage authenticates no one](../constraints/devpage-authenticates-no-one.md),
+  sets — `X-Forwarded-Email` unless `--user-header` names another — trimmed. A
+  comment without it, or with it blank, is refused ([devpage authenticates no one](../constraints/devpage-authenticates-no-one.md),
   [Deploying devpage](../deploying/README.md)).
 
 ## When the text changes

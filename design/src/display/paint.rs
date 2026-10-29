@@ -4,7 +4,7 @@
 
 use kurbo::{Affine, BezPath, Rect as KRect};
 
-use crate::render::Draw;
+use super::Draw;
 
 use super::*;
 

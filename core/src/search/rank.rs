@@ -75,11 +75,10 @@ impl Search {
     pub(super) fn ranked(
         &self,
         parsed: &Parsed,
-        searcher: &tantivy::Searcher,
-        pages: &Pages,
+        now: &Snapshot,
         fallback: bool,
     ) -> Vec<(Score, DocAddress)> {
-        let Some(query) = self.query(parsed, pages, fallback) else {
+        let Some(query) = self.query(parsed, &now.pages, fallback) else {
             return Vec::new();
         };
         let collector = TopDocs::with_limit(RANKED).tweak_score(move |segment: &SegmentReader| {
@@ -95,7 +94,9 @@ impl Search {
                 score * structure(depth.get_val(doc), order.get_val(doc), nav.get_val(doc))
             }
         });
-        searcher.search(&query, &collector).unwrap_or_default()
+        now.searcher
+            .search_with_statistics_provider(&query, &collector, now)
+            .unwrap_or_default()
     }
 
     /// Whether the query is `title`: the same words but stopwords, the last

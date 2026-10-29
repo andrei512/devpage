@@ -1,10 +1,9 @@
-//! Scene → pixels. The engine lays a scene out ([`layout`]: taffy, parley),
+//! Scene → drawing. The engine lays a scene out ([`layout`]: taffy, parley),
 //! paints each node's own commands ([`painter`]) into a [`Drawing`]
 //! ([`drawing`]): its display list in chunks under property trees, kept and
-//! brought up to date by what changes ([`update`]). A backend paints any area
-//! of it through [`crate::display::paint`].
-//! This module holds the renderer — its fonts and text shaping — and the
-//! commands' types.
+//! brought up to date by what changes ([`update`]). No pixels are made here:
+//! a backend paints any area of it through [`crate::display::paint`].
+//! This module holds the renderer — its fonts and text shaping.
 
 use parley::{
     Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout as Text,
@@ -13,11 +12,12 @@ use parley::{
 use std::collections::{BTreeSet, HashMap};
 use taffy::prelude::*;
 
-use kurbo::{Affine, BezPath, Rect as KRect};
-use peniko::{Color as PColor, FontData, Gradient, ImageData};
+use kurbo::Rect as KRect;
+use peniko::ImageData;
 
+use crate::display::{Draw, Frame, Glyph, Paint};
 use crate::fonts::{self, FontFiles, FontId};
-use crate::resolve::{self, ImageId, Origin, TextAlign};
+use crate::scene::{self, ImageId, Origin, TextAlign};
 
 mod drawing;
 #[cfg(test)]
@@ -60,45 +60,6 @@ impl Default for Renderer {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// A node's box after layout, in the scene's pixels.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Frame {
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
-}
-
-/// One glyph of a run: its id in its font and where its origin sits, in the
-/// run's coordinates.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Glyph {
-    pub id: u32,
-    pub x: f32,
-    pub y: f32,
-}
-
-/// What a `Draw::Fill` covers its path with.
-pub enum Paint {
-    Solid(PColor),
-    /// A gradient whose points are in scene pixels.
-    Gradient(Gradient),
-    /// An image, placed by the transform from its pixels to scene pixels.
-    Image(ImageData, Affine),
-}
-
-/// One drawing command, in its chunk's coordinates: what both vello backends
-/// replay. Every decision about the drawing is made before a command is
-/// made; a backend only translates it into its library's call. The layers it
-/// is drawn in are nodes of the property trees, not commands.
-pub enum Draw {
-    Fill(BezPath, Paint),
-    Stroke(BezPath, f32, PColor),
-    /// A glyph run: its font, size and color, its point on the font's
-    /// variation axes — empty for a static font — and its glyphs.
-    Glyphs(FontData, f32, PColor, Vec<i16>, Vec<Glyph>),
 }
 
 /// Why a scene can't be drawn: images and shadows that don't fit the GPU's
@@ -167,7 +128,7 @@ impl Renderer {
         self.registered = Some(files.keys().copied().collect());
     }
 
-    fn text_layout(&mut self, text: &resolve::TextStyle, width: Option<f32>) -> Text<()> {
+    fn text_layout(&mut self, text: &scene::TextStyle, width: Option<f32>) -> Text<()> {
         let mut builder = self
             .layouts
             .ranged_builder(&mut self.fonts, &text.content, 1.0, true);

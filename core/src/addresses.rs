@@ -20,9 +20,6 @@
 //! `immutable`; any other — a bare name, a stale hash — still answers, with
 //! the current bytes and `no-cache`.
 
-use std::path::Path;
-use std::sync::LazyLock;
-
 use sha2::{Digest, Sha256};
 
 /// A built-in asset, as `build.rs` made it.
@@ -50,16 +47,19 @@ pub enum Owned<'a> {
     /// A built-in asset, by the name it is written by: `"devpage.js"`.
     Asset(&'a str),
     /// A system widget, by name — `"Callout"` — for the document served under
-    /// `mount`.
-    SystemWidget { name: &'a str, mount: &'a str },
-    /// A project widget, or a helper a widget imports: its file in the served
-    /// folder, the [snapshot](crate::widgets::Snapshot) of the files it is
-    /// made from, and the widget names it can render — those of the document
-    /// whose widgets folder holds it.
+    /// `mount`, at its version `hash`.
+    SystemWidget {
+        name: &'a str,
+        mount: &'a str,
+        hash: &'a str,
+    },
+    /// A project widget, or a helper a widget imports, by its `name` in the
+    /// served folder under `mount`, at its version `hash` — what the
+    /// [widgets](crate::widgets) say its compiled bytes are made from.
     Module {
-        snapshot: &'a crate::widgets::Snapshot,
-        file: &'a Path,
-        known: &'a [String],
+        mount: &'a str,
+        name: &'a str,
+        hash: &'a str,
     },
 }
 
@@ -77,20 +77,12 @@ pub fn address(owned: Owned) -> String {
                 .unwrap_or_else(|| panic!("{name} is not a built-in asset"));
             format!("/__devpage/{}", asset.hashed)
         }
-        Owned::SystemWidget { name, mount } => format!(
-            "{mount}/__devpage/system-widgets/{name}.tsx?v={}",
-            system_widget_hash(name).unwrap_or_default()
-        ),
-        Owned::Module {
-            snapshot,
-            file,
-            known,
-        } => format!(
-            "{}/__devpage/widgets/{}?v={}",
-            snapshot.served().mount(),
-            snapshot.served().name(file),
-            snapshot.hash(file, known)
-        ),
+        Owned::SystemWidget { name, mount, hash } => {
+            format!("{mount}/__devpage/system-widgets/{name}.tsx?v={hash}")
+        }
+        Owned::Module { mount, name, hash } => {
+            format!("{mount}/__devpage/widgets/{name}?v={hash}")
+        }
     }
 }
 
@@ -107,29 +99,6 @@ pub fn asset(requested: &str) -> Option<(&'static Asset, bool)> {
         .iter()
         .find(|asset| asset.name == format!("{stem}.{ext}"))
         .map(|asset| (asset, false))
-}
-
-/// A system widget's version: its source, the names it can render and the
-/// build. `None` for a name that isn't a system widget.
-pub fn system_widget_hash(name: &str) -> Option<&'static str> {
-    static HASHES: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
-        let names: Vec<&str> = crate::widgets::SYSTEM.iter().map(|(n, _)| *n).collect();
-        crate::widgets::SYSTEM
-            .iter()
-            .map(|(name, source)| {
-                let mut hash = Sha256::new();
-                hash.update(BUILD);
-                hash.update(names.join("\0"));
-                hash.update(name);
-                hash.update(source);
-                (*name, short(&hash.finalize()))
-            })
-            .collect()
-    });
-    HASHES
-        .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, hash)| hash.as_str())
 }
 
 /// The first 16 hex digits of a digest: what every address and validator
@@ -181,22 +150,22 @@ mod tests {
     }
 
     #[test]
-    fn a_system_widget_address_carries_its_version() {
-        let callout = address(Owned::SystemWidget {
-            name: "Callout",
-            mount: "",
-        });
+    fn a_widget_address_carries_its_mount_and_version() {
         assert_eq!(
-            callout,
-            format!(
-                "/__devpage/system-widgets/Callout.tsx?v={}",
-                system_widget_hash("Callout").unwrap()
-            )
+            address(Owned::SystemWidget {
+                name: "Callout",
+                mount: "/d/x/v/1",
+                hash: "0123456789abcdef",
+            }),
+            "/d/x/v/1/__devpage/system-widgets/Callout.tsx?v=0123456789abcdef"
         );
-        assert_ne!(
-            system_widget_hash("Callout"),
-            system_widget_hash("Tabs"),
-            "each system widget has its own version"
+        assert_eq!(
+            address(Owned::Module {
+                mount: "",
+                name: "docs/widgets/Card.tsx",
+                hash: "fedcba9876543210",
+            }),
+            "/__devpage/widgets/docs/widgets/Card.tsx?v=fedcba9876543210"
         );
     }
 }

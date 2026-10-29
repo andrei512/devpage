@@ -105,6 +105,15 @@ impl Platform {
         let mut folders = self.set.deep.iter().chain(&self.set.shallow);
         folders.any(|folder| folder.starts_with(path))
     }
+
+    /// Whether changes in `folder`, as it is now, are reported: by a stream,
+    /// which follows its path, or by a kqueue watch open on this very
+    /// folder — not on one deleted that had its name, whose watch lasts
+    /// until its deletion is read.
+    #[cfg(test)]
+    pub fn live(&self, folder: &Path) -> bool {
+        self.set.deep.iter().any(|deep| folder.starts_with(deep)) || self.kqueue.live(folder)
+    }
 }
 
 /// How far back a stopped stream's folder is looked over. fseventsd holds
@@ -373,6 +382,27 @@ impl Kqueue {
 
     fn unwatch(&self, folder: &Path) {
         lock(&self.watches).forget(folder);
+    }
+
+    /// Whether a shallow folder's watch is open on the folder now at its path.
+    #[cfg(test)]
+    fn live(&self, folder: &Path) -> bool {
+        let watches = lock(&self.watches);
+        let Some(watched) = watches
+            .folders
+            .get(folder)
+            .and_then(|id| watches.by_id.get(id))
+        else {
+            return false;
+        };
+        let Ok(now) = std::fs::metadata(folder) else {
+            return false;
+        };
+        // SAFETY: an all-zero stat is a valid value to overwrite, and the
+        // descriptor is open while `watches` is held.
+        let mut open = unsafe { std::mem::zeroed::<libc::stat>() };
+        let read = unsafe { libc::fstat(watched._fd.as_raw_fd(), &mut open) } == 0;
+        read && open.st_ino == now.ino()
     }
 }
 

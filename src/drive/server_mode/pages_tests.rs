@@ -378,3 +378,45 @@ fn the_servers_logo_is_devpages() {
         "assets/logo.svg is a copy of docs/logo.svg: copy it again, and redraw assets/favicon.ico"
     );
 }
+
+/// Every version's designs are held in one design store, each under its own
+/// version's mount: when a new version changes a design, its PNG at the
+/// document's link is the new one, with a validator the old one's browser
+/// doesn't hold — and the old version still shows its own.
+#[tokio::test]
+async fn a_new_version_of_a_design_is_never_its_old_ones_png() {
+    let app = router(&config("design-versions")).unwrap();
+    let red = "<Frame width={40} height={40} fill=\"#ff0000\" />\n";
+    let zip = |design: &str| zip_of(&[("box.design", design)]);
+    let (_, answer) = ask(&app, post("/api/documents?entry=box.design", zip(BOX))).await;
+    let id = answer["id"].as_str().unwrap().to_string();
+    let latest = format!("/d/{id}/box.design.png");
+    let (status, headers, blue) = fetch(&app, &latest).await;
+    assert_eq!(status, StatusCode::OK);
+    let old = headers["etag"].to_str().unwrap().to_string();
+
+    let (status, _) = ask(
+        &app,
+        post(
+            &format!("/api/documents/{id}/versions?entry=box.design"),
+            zip(red),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let request = axum::http::Request::get(&latest)
+        .header("if-none-match", &old)
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK, "not the old PNG's 304");
+    assert_ne!(response.headers()["etag"].to_str().unwrap(), old);
+    let png = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_ne!(png.to_vec(), blue);
+
+    let (_, headers, pinned) = fetch(&app, &format!("/d/{id}/v/1/box.design.png")).await;
+    assert_eq!(pinned, blue, "version 1 still shows its own");
+    assert_eq!(headers["etag"].to_str().unwrap(), old);
+}
