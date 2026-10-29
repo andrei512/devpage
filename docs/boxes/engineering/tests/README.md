@@ -265,7 +265,7 @@ In Chrome:
 
 ### `designs`
 
-*21 tests in the store; 14 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
+*21 tests in the store; 14 more through the server, in `drive::server`, and 46 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
@@ -303,7 +303,8 @@ In Chrome:
 - An edit to one row of the 100,000-pixel design repainting only the tile it touches, and one out of view none, on the GPU and the CPU.
 - A canvas without WebGPU painting when its scene reaches the worker before the worker has loaded the engine; asking the worker for the tile under the view's middle first, and never more than the plan's budget in flight at once.
 - An undone typo clearing the problems.
-- An image growing mid-session past what the GPU's atlas holds putting the problem on the problems bar, a save meanwhile kept, and once mended the canvas, on the CPU, matching the PNG.
+- An image growing mid-session past what the GPU's atlas holds putting the problem on the problems bar, a save meanwhile kept, and once mended the canvas, on the GPU, matching the PNG.
+- A save changing only a fill, on the GPU, repainting its tiles with their images, as in the PNG — a tile beside them that paints no image leaving the canvas's atlas as it was.
 - A deleted design, on its canvas page and embedded, coming back when written again — after a page refetch too — without reopening its stream meanwhile.
 - A canvas saying so when the engine doesn't load.
 - An embedded design drawing at its own size and surviving a page edit; centred at its own size and only ever scaled down, to the page's width or the window's height.

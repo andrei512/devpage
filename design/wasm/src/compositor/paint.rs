@@ -20,13 +20,15 @@ impl Gpu {
         Some(renderer)
     }
 
-    /// Tile `key` of `list` painted with `renderer`, bound for the
-    /// compositor by `layout` and `sampler`; `None` when the render failed.
+    /// Tile `key` of `list` painted with `renderer`, whose atlas holds the
+    /// drawing's images, `first` the first of them; bound for the compositor
+    /// by `layout` and `sampler`; `None` when the render failed.
     pub(super) fn paint(
         &self,
         renderer: &mut vello::Renderer,
         list: &List,
         key: &Key,
+        first: Option<&vello::peniko::ImageData>,
         (layout, sampler): (&wgpu::BindGroupLayout, &wgpu::Sampler),
     ) -> Option<Tile> {
         let scale = key.level.scale();
@@ -35,6 +37,22 @@ impl Gpu {
             scene: vello::Scene::new(),
         };
         devpage_design::display::paint(list, area, scale, &mut gpu);
+        // vello resolves a scene that binds no image, gradient or glyph run
+        // as needing a 1×1 atlas: it frees the atlas texture while its image
+        // cache still counts every image as uploaded, and every tile painted
+        // after finds them gone. A tile that binds nothing names one of the
+        // drawing's images, outside itself, so the atlas stays as it is.
+        if let Some(image) = first
+            && gpu.scene.encoding().resources.patches.is_empty()
+        {
+            gpu.scene.fill(
+                vello::peniko::Fill::NonZero,
+                Affine::IDENTITY,
+                &vello::peniko::ImageBrush::new(image.clone()),
+                None,
+                &vello::kurbo::Rect::new(-1.0, -1.0, 0.0, 0.0),
+            );
+        }
         let texture = self.tile_texture();
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
         let params = vello::RenderParams {
