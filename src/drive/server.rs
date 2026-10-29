@@ -50,6 +50,8 @@ struct AppState {
     shots: Shots,
     /// The problems each page lists above itself.
     preview: Arc<Preview>,
+    /// The search index built on the first search, when the index holds none.
+    search_on_demand: Option<OnDemand>,
 }
 
 /// Comments on: the threads, announced as they are written, and who
@@ -125,7 +127,15 @@ pub struct Options {
     pub preview: Arc<Preview>,
     /// Whether every request is logged, as `devpage` does.
     pub log: bool,
+    /// Where a search is answered from when the index holds none: the
+    /// index this gives, built on the first search — a published version's.
+    /// `None` answers from the index's own search.
+    pub search_on_demand: Option<OnDemand>,
 }
+
+/// Gives the search index to answer from, building it if it has to; it
+/// blocks, so it runs off the async threads.
+pub type OnDemand = Arc<dyn Fn() -> Arc<devpage_core::search::Search> + Send + Sync>;
 
 impl Options {
     /// One document, with a fresh index of its served folder and no search
@@ -146,6 +156,7 @@ impl Options {
             comments: Some(Identity::Local(String::new())),
             changes,
             log: false,
+            search_on_demand: None,
         }
     }
 
@@ -190,6 +201,7 @@ pub fn router(options: Options) -> Router {
         shots,
         preview,
         log,
+        search_on_demand,
     } = options;
     let router = routes(AppState {
         comments: comments.map(|identity| {
@@ -205,6 +217,7 @@ pub fn router(options: Options) -> Router {
         changes,
         shots,
         preview,
+        search_on_demand,
     });
     if log {
         router.layer(middleware::from_fn(log_request))
@@ -689,11 +702,17 @@ struct SearchQuery {
 /// Comments on or off; a server without a search index — printing's — finds
 /// nothing.
 async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>) -> Response {
-    let answer = state
-        .index
-        .search()
-        .map(|search| search.search(&query.q))
-        .unwrap_or_default();
+    let answer = match state.search_on_demand.clone() {
+        // Building the index, and searching it, block.
+        Some(on_demand) => tokio::task::spawn_blocking(move || on_demand().search(&query.q))
+            .await
+            .unwrap_or_default(),
+        None => state
+            .index
+            .search()
+            .map(|search| search.search(&query.q))
+            .unwrap_or_default(),
+    };
     Json(answer).into_response()
 }
 

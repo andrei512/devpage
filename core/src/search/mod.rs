@@ -2,7 +2,8 @@
 //! nav reaches, and the chapters and slides of every document those reach,
 //! split at their headings into sections, in a tantivy index held in memory.
 //! Built at start beside the document index and kept current by the watcher,
-//! so a search never reads a file.
+//! so a search never reads a file; or, over files that never change, built
+//! once and frozen, with no writer left.
 //!
 //! tantivy, because it is a real full-text engine — BM25 ranking, stemming,
 //! phrases, near and prefix matches — as a library in pure Rust, with an
@@ -94,7 +95,8 @@ pub struct Owner {
 pub struct Search {
     fields: Fields,
     reader: IndexReader,
-    writer: Mutex<IndexWriter>,
+    /// What keeps it current; `None` once [frozen](Search::frozen).
+    writer: Mutex<Option<IndexWriter>>,
     stemmed: TextAnalyzer,
     plain: TextAnalyzer,
     /// The served document's file, where what is published starts.
@@ -139,12 +141,27 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 }
 
 impl Search {
+    /// Whether it still has a writer to keep it current: a frozen index
+    /// has none, nor its threads.
+    pub fn is_live(&self) -> bool {
+        lock(&self.writer).is_some()
+    }
+
+    /// The bytes its segments hold in memory.
+    pub fn bytes(&self) -> u64 {
+        self.reader
+            .searcher()
+            .space_usage()
+            .map(|usage| usage.total().get_bytes())
+            .unwrap_or(0)
+    }
+
     /// Brings the index up to date after `paths` changed, appeared or
     /// vanished — after `index` has heard of them. Any of them can change
     /// what is published — a page's Topics, a document file, a
     /// `.gitignore`, a folder — so a burst that holds a Markdown file, a
     /// YAML file, a `.gitignore`, a folder or a path that is gone reads
-    /// everything published again.
+    /// everything published again. A frozen index never changes.
     pub fn changed(&self, index: &Index, paths: &[PathBuf]) {
         let matters = |path: &PathBuf| {
             path.is_dir()

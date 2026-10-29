@@ -179,6 +179,7 @@ async fn main() -> Result<()> {
         shots: shots.clone(),
         preview,
         log: true,
+        search_on_demand: None,
     };
     let _watcher = options.watch()?;
 
