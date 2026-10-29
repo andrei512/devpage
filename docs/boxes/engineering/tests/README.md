@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 527 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 529 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 111 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 158 in `devpage`, 209 in its
+`cargo test` runs every crate in the workspace: 155 in `devpage`, 215 in its
 core `devpage-core`, 147 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -126,7 +126,24 @@ the suite green.
 
 - Every built-in asset at its content address, the hash of its bytes; its bare name and a stale hash finding it, not as current.
 - An asset naming the others by their content addresses.
-- A system widget's address carrying its own version.
+- A widget's address carrying the mount and the version it is given.
+
+### `answer`
+
+*12 tests, without a socket.*
+
+- A widget's module answered compiled for the document whose widgets folder holds it, each helper imported by its own address; immutable at the address its page names it by, and at any other the current module, never immutable; an import without an extension finding the `.ts`; a system widget the same, an unknown one not found; nothing outside the served folder.
+- A widget whose helper — reached through another helper — doesn't compile answered by a module that throws, naming that helper.
+- A design opening on its canvas page, in the theme its address names, and passing any other over.
+- An edited `.gitignore`d doc served fresh: no document is kept between requests.
+- A slide's PNG address naming a slide of a deck, or why there is none: a slide the deck doesn't have, a number written otherwise than plainly, a file that isn't a deck.
+- A design's PNG taking its theme from the address, and `400` for a bad one.
+- A site's page printing as a doc of one chapter.
+- Each site's title linking to its own root page.
+- A folder with no `.git` answered by what each file is.
+- A served folder reached through a symbolic link.
+- Nothing outside the served folder answered.
+- Every address it answers with carrying the mount prefix.
 
 ### `adapters::bucket`
 
@@ -246,7 +263,7 @@ In Chrome:
 
 ### `designs`
 
-*20 tests in the store; 16 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
+*20 tests in the store; 14 more through the server, in `drive::server`, and 45 in Chrome, in `drive::browser_tests::canvas`.*
 
 - Saves through the store — rows inserted at the front and the end, edited and removed, a component and a theme changed, a break and its fix — each sent as the store's one patch, which brings the browser's copy to the store's scene, nothing resolved whole after the first resolve, and a stream joining late sent the scene whole.
 - The store announcing only the designs made from a changed file, and resolving a design again when a missing import appears; a save landing while a design resolves never leaving a stale scene kept.
@@ -261,7 +278,7 @@ In Chrome:
 - Two folders in one store — two versions of a document — sharing its one tile cache and nothing else: the same address in each its own design with its own validator, the same mount and folder the design already kept, and a folder no one holds leaving the store with its tiles.
 - A design's PNG answering `304` from its scene without painting, until a design it uses changes.
 - A PNG, or `422` and the problems, and `404` for a design outside the served folder or missing.
-- A design as the entry document; the canvas page titled without `.design`.
+- A design as the entry document.
 - The design service answering only `Watch`.
 - The bytes the watch stream sends for a move, an insert and a new image file fixed, byte for byte, whatever the engine's edits and the wire's encoding of them are cut into.
 - Two streams sending the one patch the store made, and a third joining later the scene whole; a change that only makes a scene themed still sent.
@@ -477,8 +494,9 @@ In Chrome:
 
 ### `render`
 
-*24 tests.*
+*26 tests.*
 
+- The canvas page titled without `.design`, and carrying its mount.
 - An image of a design becoming its canvas, and a raw `<img>` found whole with or without its closing slash, its attributes read however they are quoted, spaced or capitalised.
 - Headings never taking an id the frame uses.
 - Every frame carrying the logo as its tab's icon, before the sidebar's and the outline's title.
@@ -513,20 +531,6 @@ In Chrome:
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - Sections keeping the rendered ids, their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
-### `resolve`
-
-*9 tests, without a socket.*
-
-- An edited `.gitignore`d doc served fresh: no document is kept between requests.
-- A slide's PNG address naming a slide of a deck, or why there is none: a slide the deck doesn't have, a number written otherwise than plainly, a file that isn't a deck.
-- A design's PNG taking its theme from the address, and `400` for a bad one.
-- A site's page printing as a doc of one chapter.
-- Each site's title linking to its own root page.
-- A folder with no `.git` answered by what each file is.
-- A served folder reached through a symbolic link.
-- Nothing outside the served folder answered.
-- Every address it answers with carrying the mount prefix.
-
 ### The search's quality
 
 `tests/search_quality.rs`, one test: it starts the real `devpage` on a free
@@ -554,9 +558,9 @@ on the example deploy. Without Litestream's restore it fails.
 
 *30 tests.*
 
-The design tests through the server — a PNG, its `304`, its theme, the watch stream and the canvas page — are listed under [`designs`](#designs), and the Chrome suites of the pages it serves — `drive::browser_tests::canvas` and `::comments` — under `designs` and `comments`.
+The design tests through the server — a PNG, its `304`, its theme, the watch stream and a design as the entry document — are listed under [`designs`](#designs), and the Chrome suites of the pages it serves — `drive::browser_tests::canvas` and `::comments` — under `designs` and `comments`.
 
-- Widgets served compiled, for the document they belong to, each helper imported by its own address; `immutable` at the current version, `no-cache` at any other.
+- A widget's module, and a module that throws why one doesn't compile, sent as JavaScript, `immutable` only at its current address; `404` for one there is none of.
 - Every built-in asset `immutable` at its content address, its bare name and a stale hash answering `no-cache`, and the page naming them.
 - An asset sent as brotli or gzip as `Accept-Encoding` takes, each with its own ETag, and `304` for a holder of it.
 - A page, an image and a document file answering `304` to a strong or weakened ETag until they change; the event stream carrying none.
@@ -709,8 +713,9 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 
 ### `widgets`
 
-*28 tests.*
+*29 tests.*
 
+- A system widget's address carrying its own version, each one's its own.
 - `<Notes>` taken out of the page, and a project `Notes.tsx` a clash; an unclosed one a problem, so none of it is shown; its `delivery` never shown; a `<Notes>` whose attributes can't be read, or whose delivery isn't a quoted string, a problem and never shown — finding `<Notes>` itself is [`markup`](#markup)'s.
 - Widget tags expanded with Markdown content, expression, bare and self-closing props, code left alone — fenced, indented and inline code and HTML comments, but not indented list content.
 - An unknown tag replaced by an error, not passed through.

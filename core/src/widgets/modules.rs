@@ -52,7 +52,7 @@ struct Read {
 }
 
 /// The extensions a relative specifier is tried with, in order.
-const IMPORT_EXTENSIONS: [&str; 3] = ["", ".tsx", ".ts"];
+pub(super) const IMPORT_EXTENSIONS: [&str; 3] = ["", ".tsx", ".ts"];
 
 impl Modules {
     /// Reads `file` and every module its relative imports reach inside the
@@ -252,7 +252,7 @@ impl Snapshot {
     /// A module's version: a hash of its source, the sources of every module
     /// its relative imports reach (each with its path), the widget names it
     /// can render and devpage's build — everything its compiled bytes are
-    /// made from. [`address`] is the address that carries it.
+    /// made from. [`Snapshot::address`] is the address that carries it.
     pub fn hash(&self, file: &Path, known: &[String]) -> String {
         let mut hash = Sha256::new();
         hash.update(crate::addresses::BUILD);
@@ -272,6 +272,16 @@ impl Snapshot {
         crate::addresses::short(&hash.finalize())
     }
 
+    /// The address `file` is served at, carrying its [version](Self::hash):
+    /// the one a page names it by and an import of it asks for.
+    pub fn address(&self, file: &Path, known: &[String]) -> String {
+        address(Owned::Module {
+            mount: self.served.mount(),
+            name: &self.served.name(file),
+            hash: &self.hash(file, known),
+        })
+    }
+
     /// A project widget or helper, compiled as its address serves it: each
     /// relative import rewritten to the imported module's address, made
     /// from this same snapshot.
@@ -284,14 +294,7 @@ impl Snapshot {
             .imports
             .iter()
             .filter(|(_, path)| self.served.contains(path))
-            .map(|(specifier, path)| {
-                let url = address(Owned::Module {
-                    snapshot: self,
-                    file: path,
-                    known,
-                });
-                (specifier.clone(), url)
-            })
+            .map(|(specifier, path)| (specifier.clone(), self.address(path, known)))
             .collect();
         self.modules.compile(file, &read.source, known, &imports)
     }
@@ -375,11 +378,9 @@ mod tests {
             .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("Card.tsx"))
             .compile(&w.join("Card.tsx"), &known)
             .unwrap();
-        let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = modules
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+            .address(&w.join("label.ts"), &known);
         assert!(card.contains(&format!("\"{label}\"")), "{card}");
         assert!(label.ends_with(&format!("?v={}", after[3])), "{label}");
         // The names a widget can render are part of what it is compiled from.
@@ -413,11 +414,9 @@ mod tests {
         modules.forget(&w.join("label.ts"));
         let created = module_hash(&modules, &dir, &other, &known);
         assert_ne!(missing, created, "creating the helper");
-        let label = address(Owned::Module {
-            snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = modules
+            .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+            .address(&w.join("label.ts"), &known);
         let compiled = modules
             .snapshot(&ServedFolder::new(&dir).unwrap(), &other)
             .compile(&other, &known)
@@ -476,19 +475,13 @@ mod tests {
         assert_eq!(hash, snapshot.hash(&card, &known));
         let compiled = snapshot.compile(&card, &known).unwrap();
         assert!(compiled.contains("\"old\""), "{compiled}");
-        let label = address(Owned::Module {
-            snapshot: &snapshot,
-            file: &w.join("label.ts"),
-            known: &known,
-        });
+        let label = snapshot.address(&w.join("label.ts"), &known);
         assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
         assert_ne!(
             label,
-            address(Owned::Module {
-                snapshot: &modules.snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts")),
-                file: &w.join("label.ts"),
-                known: &known,
-            })
+            modules
+                .snapshot(&ServedFolder::new(&dir).unwrap(), &w.join("label.ts"))
+                .address(&w.join("label.ts"), &known)
         );
     }
 

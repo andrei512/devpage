@@ -69,13 +69,13 @@ What the served folder knows without scanning: every document file in it and its
 
 The document a file belongs to: for a page, the nearest site whose folder holds it (`Folder::owner`); for a widgets folder, the document that names it — the entry document first (`Folder::widgets_owner`). See [The nearest site](../document-index/README.md#the-nearest-site).
 
-## resolver
+## answer
 
-What decides the answer to a request from the documents alone — a page, a redirect, a file's bytes, a design's or a slide's PNG, or an error with its reason — so the HTTP server only turns that answer into a response (`Resolver`, in `core/src/resolve.rs`). See [Routes](../serving-pages/README.md#routes).
+What a request is answered with, decided from the documents alone — a page (a design's canvas page among them), a redirect, a file's bytes, a design's or a slide's PNG, a widget's module or a module that throws why it can't be had, or an error with its reason — so the HTTP server only turns it into a response, with its headers (`Answer`, made by `Answers`, in `core/src/answer.rs`). See [Routes](../serving-pages/README.md#routes).
 
 ## mount prefix
 
-The address every document a server serves sits under, carried by every redirect the resolver answers with: empty, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
+The address every document a server serves sits under, carried by every redirect it [answers](#answer) with: empty, since `devpage` serves at `/`; in [server mode](#server-mode), a version's mount — `/d/<id>` for the latest, in place, or `/d/<id>/v/<n>` for version `n` (`Mount::Latest` and `Mount::Pinned`).
 
 ## design
 

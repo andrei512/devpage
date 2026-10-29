@@ -1,7 +1,6 @@
 //! The HTTP server: pages rendered on request, the page assets, and a stream
 //! that tells open pages a watched file changed.
 
-mod canvas;
 #[cfg(test)]
 pub(crate) mod design_tests;
 mod watch_stream;
@@ -21,13 +20,13 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
 
+use crate::answer::{Answer, Answers};
 use crate::changes::Changes;
 use crate::check::Preview;
 use crate::comments::{self, Anchor, Comments, Identity};
 use crate::designs::Designs;
 use crate::document::Document;
 use crate::folder::Folder;
-use crate::resolve::{Answer, Resolver};
 use crate::search::Search;
 use crate::slide_png::Shots;
 
@@ -347,38 +346,64 @@ async fn log_request(request: Request, next: Next) -> Response {
     response
 }
 
-/// The resolver for a request: the server's documents, under their served
-/// folder's mount.
-fn resolver(state: &AppState) -> Resolver<'_> {
-    Resolver {
-        folder: &state.folder,
-        modules: &state.modules,
-        preview: &state.preview,
-        comments: state.comments_on(),
-    }
+/// What decides a request's answer: the server's documents, under their
+/// served folder's mount.
+fn answers(state: &AppState) -> Answers<'_> {
+    Answers::new(
+        &state.folder,
+        &state.modules,
+        &state.preview,
+        state.comments_on(),
+    )
 }
 
-/// `/`: whatever the resolver says the entry document leads to now.
+/// `/`: whatever the entry document leads to now.
 async fn home(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    let answer = resolver(&state).home();
+    let answer = answers(&state).home();
     respond(&state, &headers, answer).await
 }
 
-/// Any other path: answered as the resolver decides.
+/// Any other path in the served folder.
 async fn file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     RawQuery(query): RawQuery,
     headers: HeaderMap,
 ) -> Response {
-    let answer = resolver(&state).path(&path, query.as_deref());
+    let answer = answers(&state).path(&path, query.as_deref());
     respond(&state, &headers, answer).await
 }
 
-/// An answer as a response: the file's bytes read, the PNG drawn.
+/// A system widget's module.
+async fn system_widget(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    let answer = answers(&state).system_widget(&name, query.as_deref());
+    respond(&state, &headers, answer).await
+}
+
+/// A project widget's module, or a helper's it imports.
+async fn project_widget(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    RawQuery(query): RawQuery,
+    headers: HeaderMap,
+) -> Response {
+    let answer = answers(&state).widget(&path, query.as_deref());
+    respond(&state, &headers, answer).await
+}
+
+/// An answer as a response: its headers, the file's bytes read, the PNG
+/// drawn.
 async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Response {
     match answer {
         Answer::Html(html) => Html(html).into_response(),
+        Answer::Module { js, immutable } => javascript(js, immutable),
+        // A module that throws is never kept: the next request may compile.
+        Answer::ModuleError(js) => javascript(js, false),
         Answer::Redirect(address) => Redirect::temporary(&address).into_response(),
         Answer::NotFound(why) => (StatusCode::NOT_FOUND, why).into_response(),
         Answer::BadRequest(why) => (StatusCode::BAD_REQUEST, why).into_response(),
@@ -390,12 +415,23 @@ async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Respo
             }
             Err(error) => (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()).into_response(),
         },
-        Answer::Canvas { design, theme } => {
-            Html(canvas::page(state.folder.served(), &design, theme)).into_response()
-        }
         Answer::DesignPng { design, theme } => design_png(state, headers, design, theme).await,
         Answer::SlidePng { page, n } => slide_png(state, headers, &page, n).await,
     }
+}
+
+/// A module, `immutable` when what answers its address never changes, else
+/// `no-cache`.
+fn javascript(js: String, immutable: bool) -> Response {
+    let cache = if immutable { IMMUTABLE } else { "no-cache" };
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript"),
+            (header::CACHE_CONTROL, cache),
+        ],
+        js,
+    )
+        .into_response()
 }
 
 /// The design at `design` as a PNG in `theme`. The ETag comes from the
@@ -543,134 +579,9 @@ async fn events(
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
 }
 
-/// The `v` a widget's address was asked with, if any.
-fn asked_version(query: Option<&str>) -> Option<&str> {
-    query?.split('&').find_map(|pair| pair.strip_prefix("v="))
-}
-
-/// A system widget, compiled from the TSX built into the binary: `immutable`
-/// at its current address, `no-cache` at any other.
-async fn system_widget(
-    State(state): State<AppState>,
-    Path(name): Path<String>,
-    RawQuery(query): RawQuery,
-) -> Response {
-    let stem = name.trim_end_matches(".tsx");
-    match state.modules.system(stem) {
-        Some(module) => {
-            let current = crate::addresses::system_widget_hash(stem)
-                .is_some_and(|hash| asked_version(query.as_deref()) == Some(hash));
-            compiled(&name, module, current)
-        }
-        None => StatusCode::NOT_FOUND.into_response(),
-    }
-}
-
-/// A project widget or a helper it imports, compiled from the served folder:
-/// `immutable` at its current address, `no-cache` at any other. An import
-/// without an extension finds the `.ts` or `.tsx` beside it.
-async fn project_widget(
-    State(state): State<AppState>,
-    Path(path): Path<String>,
-    RawQuery(query): RawQuery,
-) -> Response {
-    let document = state.folder.entry();
-    let found = ["", ".tsx", ".ts"]
-        .iter()
-        .find_map(|ext| document.file(&format!("{path}{ext}")))
-        .filter(|file| file.is_file());
-    let Some(file) = found else {
-        return (
-            StatusCode::NOT_FOUND,
-            format!("{path} is not part of the served folder"),
-        )
-            .into_response();
-    };
-    // The names a widget here can render by name: the system widgets and
-    // those of the document whose widgets folder holds it — the entry
-    // document's when no other names it.
-    let folder = file.parent().unwrap_or(&file);
-    let owner = state
-        .folder
-        .widgets_owner(folder)
-        .unwrap_or_else(|| state.folder.entry());
-    let known: Vec<String> = crate::widgets::Widgets::of(&owner, &state.modules)
-        .modules
-        .into_keys()
-        .collect();
-    // The version asked about and the bytes sent come from one reading of
-    // the files: a save between the two can't be served as `immutable` under
-    // the version before it.
-    let snapshot = state.modules.snapshot(&document.served, &file);
-    let current = asked_version(query.as_deref()) == Some(snapshot.hash(&file, &known).as_str());
-    // A helper this file imports that doesn't compile: the browser would only
-    // say the import failed, so say why, here.
-    if let Some(error) = broken_import(&document, &snapshot, &file, &known) {
-        return module_error(&error);
-    }
-    let label = document.name(&file);
-    compiled(&label, snapshot.compile(&file, &known), current)
-}
-
-/// The first helper reached through `file`'s relative imports that doesn't
-/// compile: its name and the compiler's message.
-fn broken_import(
-    document: &crate::document::Document,
-    snapshot: &crate::widgets::Snapshot,
-    file: &std::path::Path,
-    known: &[String],
-) -> Option<String> {
-    snapshot
-        .closure(file)
-        .into_iter()
-        .skip(1)
-        .find_map(|(helper, _)| {
-            snapshot
-                .compile(&helper, known)
-                .err()
-                .map(|error| format!("{} does not compile: {error}", document.name(&helper)))
-        })
-}
-
-/// A module that throws `message`, so the page shows it in the widget's place.
-fn module_error(message: &str) -> Response {
-    (
-        [
-            (header::CONTENT_TYPE, "text/javascript"),
-            (header::CACHE_CONTROL, "no-cache"),
-        ],
-        format!(
-            "throw new Error({});",
-            serde_json::to_string(message).unwrap_or_default()
-        ),
-    )
-        .into_response()
-}
-
 /// `Cache-Control` for what answers a current content address: it never
 /// changes.
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
-
-/// A compiled module — `immutable` when asked for at its `current` address —
-/// or, when it doesn't compile, a module that throws the compiler's message,
-/// naming the file as `label`, so the page shows it in the place of the
-/// widget it belongs to.
-fn compiled(label: &str, result: anyhow::Result<String>, current: bool) -> Response {
-    match result {
-        Ok(js) => (
-            [
-                (header::CONTENT_TYPE, "text/javascript"),
-                (
-                    header::CACHE_CONTROL,
-                    if current { IMMUTABLE } else { "no-cache" },
-                ),
-            ],
-            js,
-        )
-            .into_response(),
-        Err(error) => module_error(&format!("{label} does not compile: {error}")),
-    }
-}
 
 /// A built-in asset, from the manifest `build.rs` made: `immutable` at its
 /// content address; at its bare name or a stale hash, the current bytes with
@@ -1321,10 +1232,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn widgets_are_served_compiled_for_the_document_they_belong_to() {
+    async fn a_widgets_module_is_javascript_immutable_only_at_its_current_address() {
         let dir = served("widget-routes");
         std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
-        std::fs::create_dir_all(dir.join("notes/parts")).unwrap();
         std::fs::write(
             dir.join("docs/devpage.yml"),
             "kind: site\ntitle: Docs\nroot: README.md\nwidgets: widgets\n",
@@ -1332,113 +1242,40 @@ mod tests {
         .unwrap();
         std::fs::write(
             dir.join("docs/widgets/Card.tsx"),
-            "import { label } from \"./label\";\nexport default () => <Callout>{label}</Callout>;",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("docs/widgets/label.ts"),
-            "export const label = 'x';",
+            "export default () => <Callout>x</Callout>;",
         )
         .unwrap();
         std::fs::write(dir.join("docs/widgets/Broken.tsx"), "export default (").unwrap();
-        // Another document's widgets compose with that document's names.
-        std::fs::write(
-            dir.join("notes/talk.yml"),
-            "kind: slides\ntitle: Talk\nslides: [one.md]\nwidgets: parts\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("notes/parts/Pill.tsx"),
-            "export default () => <i>p</i>;",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.join("notes/parts/Row.tsx"),
-            "export default () => <Pill />;",
-        )
-        .unwrap();
         let base = serve(&dir, "docs").await;
-
-        let (status, system) = get(&format!("{base}/__devpage/system-widgets/Tabs.tsx")).await;
-        assert_eq!(status, 200);
-        assert!(system.contains("export const __devpageUses"), "{system}");
-        assert_eq!(
-            get(&format!("{base}/__devpage/system-widgets/Nope.tsx"))
-                .await
-                .0,
-            404
-        );
-
         let (_, page) = get(&format!("{base}/docs/README.md")).await;
-        let card_address = page
+        let card = page
             .split("\"Card\":\"")
             .nth(1)
             .and_then(|rest| rest.split('"').next())
             .unwrap()
             .to_string();
-        let served = dir.canonicalize().unwrap();
-        let docs =
-            Document::load(&served.join("docs"), &ServedFolder::new(&served).unwrap()).unwrap();
-        let known: Vec<String> = crate::widgets::Widgets::of(&docs, &Default::default())
-            .modules
-            .into_keys()
-            .collect();
-        let address = |file: &str| {
-            crate::addresses::address(crate::addresses::Owned::Module {
-                snapshot: &crate::widgets::Modules::default()
-                    .snapshot(&ServedFolder::new(&served).unwrap(), &served.join(file)),
-                file: &served.join(file),
-                known: &known,
-            })
-        };
-        assert_eq!(card_address, address("docs/widgets/Card.tsx"));
-        let response = reqwest::get(format!("{base}{card_address}")).await.unwrap();
-        assert_eq!(response.status(), 200);
-        assert_eq!(
-            response.headers()["cache-control"],
-            "public, max-age=31536000, immutable"
-        );
-        let card = response.text().await.unwrap();
-        // The helper is imported by its own address, whatever the import says.
-        let label = address("docs/widgets/label.ts");
-        assert!(card.contains(&format!("\"{label}\"")), "{card}");
-        assert!(card.contains("__devpageUses = [\"Callout\"]"), "{card}");
-        let response = reqwest::get(format!("{base}{label}")).await.unwrap();
-        assert_eq!(
-            response.headers()["cache-control"],
-            "public, max-age=31536000, immutable"
-        );
-        assert!(response.text().await.unwrap().contains("label"));
-        // Any other version answers with the current module, never immutable.
-        for stale in [
-            "/__devpage/widgets/docs/widgets/Card.tsx?v=0123456789abcdef",
-            "/__devpage/widgets/docs/widgets/Card.tsx",
+        let tabs = crate::widgets::system_address("Tabs", "");
+        for (address, cache) in [
+            (card.as_str(), "public, max-age=31536000, immutable"),
+            ("/__devpage/widgets/docs/widgets/Card.tsx", "no-cache"),
+            (tabs.as_str(), "public, max-age=31536000, immutable"),
+            ("/__devpage/system-widgets/Tabs.tsx", "no-cache"),
+            // A module that throws why is never kept.
+            ("/__devpage/widgets/docs/widgets/Broken.tsx", "no-cache"),
         ] {
-            let response = reqwest::get(format!("{base}{stale}")).await.unwrap();
-            assert_eq!(response.headers()["cache-control"], "no-cache", "{stale}");
-            assert_eq!(response.text().await.unwrap(), card, "{stale}");
+            let (status, headers, body) = fetch(&format!("{base}{address}"), &[]).await;
+            assert_eq!(status, 200, "{address}");
+            assert_eq!(headers["content-type"], "text/javascript", "{address}");
+            assert_eq!(headers["cache-control"], cache, "{address}");
+            assert!(!body.is_empty(), "{address}");
         }
-        let (status, helper) = get(&format!("{base}/__devpage/widgets/docs/widgets/label")).await;
-        assert_eq!(status, 200, "an import without an extension finds the .ts");
-        assert!(helper.contains("label"), "{helper}");
-        let system = crate::addresses::address(crate::addresses::Owned::SystemWidget {
-            name: "Tabs",
-            mount: "",
-        });
-        let response = reqwest::get(format!("{base}{system}")).await.unwrap();
-        assert_eq!(
-            response.headers()["cache-control"],
-            "public, max-age=31536000, immutable"
-        );
-
-        let (_, broken) = get(&format!("{base}/__devpage/widgets/docs/widgets/Broken.tsx")).await;
-        assert!(broken.starts_with("throw new Error("), "{broken}");
-
-        let (_, row) = get(&format!("{base}/__devpage/widgets/notes/parts/Row.tsx")).await;
-        assert!(row.contains("__devpageUses = [\"Pill\"]"), "{row}");
-
-        let (status, _) = get(&format!("{base}/__devpage/widgets/../secret.md")).await;
-        assert_eq!(status, 404);
+        for missing in [
+            "/__devpage/system-widgets/Nope.tsx",
+            "/__devpage/widgets/../secret.md",
+            "/__devpage/widgets/docs/widgets/Gone.tsx",
+        ] {
+            assert_eq!(get(&format!("{base}{missing}")).await.0, 404, "{missing}");
+        }
     }
 
     #[tokio::test]
@@ -1455,10 +1292,7 @@ mod tests {
         assert!(
             page.contains(&format!(
                 "\"Callout\":\"{}\"",
-                crate::addresses::address(crate::addresses::Owned::SystemWidget {
-                    name: "Callout",
-                    mount: ""
-                })
+                crate::widgets::system_address("Callout", "")
             )),
             "{page}"
         );

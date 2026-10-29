@@ -13,8 +13,8 @@ mod drive;
 // The core's modules and the binary's, each by its own name.
 use adapters::{changes, chrome, git, http, terminal, watch};
 use devpage_core::{
-    addresses, check, comments, designs, diagrams, document, folder, navbar, problem, render,
-    resolve, search, widgets,
+    addresses, answer, check, comments, designs, diagrams, document, folder, problem, search,
+    widgets,
 };
 use drive::{pdf, server, slide_png, validators, video};
 
