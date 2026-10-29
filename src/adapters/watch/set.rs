@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crate::document::{Document, Entry, KindName};
 use crate::index::Index;
+use crate::served::ServedFolder;
 
 /// The folders to watch: `deep` ones recursively, `shallow` ones for their
 /// entries and the files directly in them.
@@ -22,11 +23,13 @@ impl WatchSet {
     /// The watch set of the canonical served folder `served`, judged by the
     /// index's rules and every site's `watch` list. Walks only what is in
     /// sight: an out-of-sight folder is never read.
-    pub fn plan(served: &Path, index: &Index, entry: &Entry) -> Self {
+    pub fn plan(served: &ServedFolder, index: &Index, entry: &Entry) -> Self {
+        let roots = watch_roots(served, index, entry);
+        let served = served.path();
         let sight = Sight {
             served,
             index,
-            roots: watch_roots(served, index, entry),
+            roots,
         };
         let mut set = Self::default();
         if sight.walk(served, &mut set) {
@@ -103,7 +106,7 @@ impl Sight<'_> {
 
 /// The literal prefixes of every site's `watch` patterns: the entry's, and
 /// those of every indexed site.
-fn watch_roots(served: &Path, index: &Index, entry: &Entry) -> Vec<PathBuf> {
+fn watch_roots(served: &ServedFolder, index: &Index, entry: &Entry) -> Vec<PathBuf> {
     let document = entry.document();
     let mut roots = document.watch_roots().to_vec();
     for file in index.documents() {
@@ -144,8 +147,9 @@ mod tests {
     }
 
     fn plan(dir: &Path) -> WatchSet {
-        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
-        WatchSet::plan(dir, &Index::build(dir), &Entry::new(document))
+        let served = ServedFolder::new(dir).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
+        WatchSet::plan(&served, &Index::build(&served), &Entry::new(document))
     }
 
     fn set(dir: &Path, deep: &[&str], shallow: &[&str]) -> WatchSet {

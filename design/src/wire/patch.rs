@@ -388,13 +388,13 @@ fn run(
             } => {
                 let Some(parent) = parent.as_ref() else {
                     // A new root: the scene, replaced.
-                    if crate::tree::Ids::of(&node).len() != count(&node) {
+                    if crate::resolve::Ids::of(&node).len() != count(&node) {
                         return Err(format!("{} holds a node twice", node.id));
                     }
                     let old = std::mem::replace(&mut scene.root, node);
                     uses.take(&old);
                     uses.add(&scene.root);
-                    scene.ids = crate::tree::Ids::of(&scene.root);
+                    scene.ids = crate::resolve::Ids::of(&scene.root);
                     applied.removed.push(old.id.clone());
                     applied.placed.push(scene.root.id.clone());
                     undo.push(Undo::Root(old));
@@ -562,7 +562,7 @@ fn revert(scene: &mut Scene, uses: &mut Uses, u: Undo) {
             let new = std::mem::replace(&mut scene.root, old);
             uses.take(&new);
             uses.add(&scene.root);
-            scene.ids = crate::tree::Ids::of(&scene.root);
+            scene.ids = crate::resolve::Ids::of(&scene.root);
         }
     }
 }

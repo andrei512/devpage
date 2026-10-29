@@ -188,22 +188,6 @@ impl Drawing {
         let everything = KRect::new(-1e12, -1e12, 1e12, 1e12);
         self.prepare(renderer, scene, everything);
     }
-
-    /// [`Drawing::update`] from `old`, the scene the drawing shows, to the
-    /// content of `new`, by the patch between them — `old` patched to it,
-    /// keeping its places, so it stays the scene the drawing shows: for a
-    /// caller holding both.
-    pub fn update_between(
-        &mut self,
-        renderer: &mut Renderer,
-        old: &mut Scene,
-        new: &Scene,
-    ) -> Result<Damage, Undrawable> {
-        let mut uses = crate::wire::Uses::of(&old.root);
-        let applied = crate::wire::bring(old, &mut uses, new)
-            .expect("the patch between two scenes applies to the first");
-        renderer.update(self, old, &applied)
-    }
 }
 
 impl Renderer {

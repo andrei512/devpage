@@ -12,7 +12,7 @@ use ignore::gitignore::Gitignore;
 
 use crate::document::{KindName, kind_of};
 use crate::search::Search;
-use crate::served::{Served, ServedFolder};
+use crate::served::ServedFolder;
 use crate::widgets::Modules;
 
 pub struct Index {
@@ -34,8 +34,7 @@ struct Inner {
 
 impl Index {
     /// Indexes the served folder, which must be canonical.
-    pub fn build(served: impl Served) -> Self {
-        let served = served.served();
+    pub fn build(served: &ServedFolder) -> Self {
         let index = Self {
             served: served.clone(),
             modules: Modules::default(),
@@ -262,7 +261,7 @@ mod tests {
     #[test]
     fn indexes_document_files_outside_what_gitignore_excludes() {
         let dir = served("build");
-        let index = Index::build(&dir);
+        let index = Index::build(&ServedFolder::new(&dir).unwrap());
         assert_eq!(index.kind(&dir.join("site.yml")), Some(KindName::Site));
         assert_eq!(
             index.kind(&dir.join("guides/talk.yml")),
@@ -283,7 +282,7 @@ mod tests {
     #[test]
     fn a_page_belongs_to_the_nearest_site_above_it() {
         let dir = served("nearest");
-        let index = Index::build(&dir);
+        let index = Index::build(&ServedFolder::new(&dir).unwrap());
         assert_eq!(
             index.site_for(&dir.join("guides/deep/b.md")),
             Some(dir.join("guides/inner.yml"))
@@ -297,7 +296,7 @@ mod tests {
     #[test]
     fn nested_gitignores_and_git_folders_are_out_of_sight() {
         let dir = served("ignored");
-        let index = Index::build(&dir);
+        let index = Index::build(&ServedFolder::new(&dir).unwrap());
         assert!(index.ignored(&dir.join("target/doc/x.md"), false));
         assert!(
             index.ignored(&dir.join("guides/notes.tmp"), false),
@@ -315,7 +314,7 @@ mod tests {
     #[test]
     fn changes_keep_it_current() {
         let dir = served("changes");
-        let index = Index::build(&dir);
+        let index = Index::build(&ServedFolder::new(&dir).unwrap());
         let deck = dir.join("guides/deep/deck.yml");
         std::fs::write(&deck, "kind: slides\ntitle: D\nslides: [b.md]\n").unwrap();
         index.changed(&deck);

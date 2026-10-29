@@ -30,8 +30,11 @@ fn an_edit_to_one_node_damages_only_the_tiles_around_it() {
     let (old, new) = (design("Row 500"), design("Edited"));
     let mut r = Renderer::new();
     let mut live = r.drawing(&old, Theme::Light, None).unwrap();
+    let mut held = old.clone();
+    let mut uses = crate::wire::Uses::of(&held.root);
     let t = std::time::Instant::now();
-    let damage = live.update_between(&mut r, &mut old.clone(), &new).unwrap();
+    let applied = crate::wire::bring(&mut held, &mut uses, &new).unwrap();
+    let damage = live.update(&mut r, &held, &applied).unwrap();
     eprintln!("update {:?}, damage {damage:?}", t.elapsed());
     assert!(!damage.all && !damage.rects.is_empty());
     for d in &damage.rects {
@@ -89,8 +92,10 @@ fn an_update_paints_as_a_fresh_drawing() {
     ];
     let mut live = r.drawing(&steps[0], Theme::Light, None).unwrap();
     let mut held = steps[0].clone();
+    let mut uses = crate::wire::Uses::of(&held.root);
     for (n, pair) in steps.windows(2).enumerate() {
-        let damage = live.update_between(&mut r, &mut held, &pair[1]).unwrap();
+        let applied = crate::wire::bring(&mut held, &mut uses, &pair[1]).unwrap();
+        let damage = live.update(&mut r, &held, &applied).unwrap();
         let fresh = r.drawing(&pair[1], Theme::Light, None).unwrap();
         assert_eq!(live.area(), fresh.area(), "step {n}");
         assert_eq!(live.frames(), fresh.frames(), "step {n}");
@@ -143,11 +148,13 @@ fn edit_cost(rows: usize) -> (std::time::Duration, usize) {
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
     let mut held = a.clone();
+    let mut uses = crate::wire::Uses::of(&held.root);
     let mut best = std::time::Duration::MAX;
     for n in 0..12 {
         let new = if n % 2 == 0 { &b } else { &a };
         let t = std::time::Instant::now();
-        let damage = d.update_between(&mut r, &mut held, new).unwrap();
+        let applied = crate::wire::bring(&mut held, &mut uses, new).unwrap();
+        let damage = d.update(&mut r, &held, &applied).unwrap();
         best = best.min(t.elapsed());
         assert!(!damage.all && damage.rects.len() <= 4, "{damage:?}");
     }
@@ -178,7 +185,10 @@ fn a_row_that_grows_moves_the_rows_after_it() {
     b.root.children.nth_mut(20).unwrap().height = resolve::Size::Px(160.0);
     let mut r = Renderer::new();
     let mut d = r.drawing(&a, Theme::Light, None).unwrap();
-    let damage = d.update_between(&mut r, &mut a.clone(), &b).unwrap();
+    let mut held = a.clone();
+    let mut uses = crate::wire::Uses::of(&held.root);
+    let applied = crate::wire::bring(&mut held, &mut uses, &b).unwrap();
+    let damage = d.update(&mut r, &held, &applied).unwrap();
     assert!(!damage.all);
     assert!(
         damage.rects.iter().all(|r| r.y1 > 2000.0 - 1.0),
@@ -320,7 +330,7 @@ fn random_edits_leave_a_drawing_as_a_fresh_one() {
                 continue;
             }
             // Edited by hand, so indexed again.
-            next.ids = crate::tree::Ids::of(&next.root);
+            next.ids = crate::resolve::Ids::of(&next.root);
             // By the very patch the canvas gets, applied as the canvas
             // applies it.
             let patch = crate::wire::patch(&scene, &next);

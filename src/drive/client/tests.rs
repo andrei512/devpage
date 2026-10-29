@@ -14,6 +14,7 @@ use clap::Parser;
 
 use super::contexts::{Home, test_home};
 use super::{Command, run};
+use crate::served::ServedFolder;
 
 /// The CLI's own arguments, for parsing a command line in a test.
 #[derive(Parser)]
@@ -133,14 +134,20 @@ async fn fake(name: &str, token_command: Option<&str>) -> (Fake, Home) {
             token_command: token_command.map(str::to_string),
         },
     };
-    run(add, &home, Path::new("."), None).await.unwrap();
-    run(command("context use fake"), &home, Path::new("."), None)
+    run(add, &home, &here(), None).await.unwrap();
+    run(command("context use fake"), &home, &here(), None)
         .await
         .unwrap();
     (fake, home)
 }
 
-async fn ok(home: &Home, served: &Path, line: &str) -> String {
+/// The current folder, served: what the commands that read no document
+/// are given.
+fn here() -> ServedFolder {
+    ServedFolder::new(Path::new(".")).unwrap()
+}
+
+async fn ok(home: &Home, served: &ServedFolder, line: &str) -> String {
     let output = run(command(line), home, served, None).await.unwrap();
     assert_eq!(output.code, 0, "{}", output.text);
     output.text
@@ -181,7 +188,7 @@ fn zip_names(zip: &[u8]) -> Vec<String> {
 #[tokio::test]
 async fn contexts_are_added_used_and_listed_with_the_current_one_marked() {
     let home = test_home("contexts");
-    let served = Path::new(".");
+    let served = &here();
     ok(&home, served, "context add work https://docs.example.com").await;
     ok(&home, served, "context add lab http://localhost:3030").await;
     assert!(
@@ -215,14 +222,15 @@ async fn contexts_are_added_used_and_listed_with_the_current_one_marked() {
 #[tokio::test]
 async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_files() {
     let dir = folder("remember");
+    let served = &ServedFolder::new(&dir).unwrap();
     site(&dir);
     let (fake, home) = fake("remember", None).await;
-    let first = ok(&home, &dir, &format!("publish {}/launch", dir.display())).await;
+    let first = ok(&home, served, &format!("publish {}/launch", dir.display())).await;
     assert!(first.starts_with("Launch — version 1\nhttp://"), "{first}");
     assert!(first.trim_end().ends_with(&format!("/d/{ID}")), "{first}");
     let second = ok(
         &home,
-        &dir,
+        served,
         &format!("publish {}/launch/devpage.yml", dir.display()),
     )
     .await;
@@ -252,17 +260,18 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
 #[tokio::test]
 async fn id_publishes_to_that_document_and_new_always_creates_one() {
     let dir = folder("flags");
+    let served = &ServedFolder::new(&dir).unwrap();
     site(&dir);
     let (fake, home) = fake("flags", None).await;
     ok(
         &home,
-        &dir,
+        served,
         &format!("publish {}/launch --id {ID}", dir.display()),
     )
     .await;
     ok(
         &home,
-        &dir,
+        served,
         &format!("publish {}/launch --new", dir.display()),
     )
     .await;
@@ -283,7 +292,7 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
     let error = run(
         command(&format!("publish {}/launch --id gone", dir.display())),
         &home,
-        &dir,
+        served,
         None,
     )
     .await
@@ -300,13 +309,14 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
 #[tokio::test]
 async fn a_broken_link_stops_publish_before_any_request() {
     let dir = folder("broken");
+    let served = &ServedFolder::new(&dir).unwrap();
     site(&dir);
     std::fs::write(dir.join("launch/plan.md"), "# Plan\n\n[Gone](gone.md)\n").unwrap();
     let (fake, home) = fake("broken", None).await;
     let output = run(
         command(&format!("publish {}/launch", dir.display())),
         &home,
-        &dir,
+        served,
         None,
     )
     .await
@@ -325,7 +335,7 @@ async fn a_broken_link_stops_publish_before_any_request() {
     let json = run(
         command(&format!("publish {}/launch --json", dir.display())),
         &home,
-        &dir,
+        served,
         None,
     )
     .await
@@ -340,7 +350,7 @@ async fn a_broken_link_stops_publish_before_any_request() {
 #[tokio::test]
 async fn the_token_commands_output_is_the_bearer_token() {
     let (fake, home) = fake("token", Some("echo secret-token")).await;
-    ok(&home, Path::new("."), "list").await;
+    ok(&home, &here(), "list").await;
     let heard = fake.heard.lock().unwrap().clone();
     assert_eq!(
         heard[0].authorization.as_deref(),
@@ -358,7 +368,7 @@ async fn the_token_commands_output_is_the_bearer_token() {
 #[tokio::test]
 async fn list_and_versions_print_text_and_json() {
     let (_, home) = fake("list", None).await;
-    let served = Path::new(".");
+    let served = &here();
     let list = ok(&home, served, "list").await;
     assert!(
         list.starts_with(&format!("{ID}  doc  Launch  v2  http://")),
@@ -382,7 +392,7 @@ async fn list_and_versions_print_text_and_json() {
 #[tokio::test]
 async fn comments_print_as_the_reading_page_shows_them() {
     let (fake, home) = fake("comments", None).await;
-    let served = Path::new(".");
+    let served = &here();
     assert_eq!(
         ok(&home, served, &format!("comments {ID}")).await,
         "chapters/rollout.md\n\
@@ -434,17 +444,23 @@ async fn comments_print_as_the_reading_page_shows_them() {
 #[tokio::test]
 async fn download_saves_the_latest_versions_pdf_and_delete_names_what_it_deletes() {
     let dir = folder("download");
+    let served = &ServedFolder::new(&dir).unwrap();
     let (fake, home) = fake("download", None).await;
     let file = dir.join("out.pdf");
-    let text = ok(&home, &dir, &format!("download {ID} -o {}", file.display())).await;
+    let text = ok(
+        &home,
+        served,
+        &format!("download {ID} -o {}", file.display()),
+    )
+    .await;
     assert_eq!(text, format!("{}\n", file.display()));
     assert_eq!(std::fs::read(&file).unwrap(), b"%PDF-fake");
     assert_eq!(
-        ok(&home, &dir, &format!("delete {ID} --version 3")).await,
+        ok(&home, served, &format!("delete {ID} --version 3")).await,
         format!("deleted version 3 of {ID}\n")
     );
     let json: serde_json::Value =
-        serde_json::from_str(&ok(&home, &dir, &format!("delete {ID} --json")).await).unwrap();
+        serde_json::from_str(&ok(&home, served, &format!("delete {ID} --json")).await).unwrap();
     assert_eq!(json["deleted"], true);
     let heard = fake.heard.lock().unwrap().clone();
     assert!(
@@ -462,19 +478,19 @@ async fn download_saves_the_latest_versions_pdf_and_delete_names_what_it_deletes
 #[tokio::test]
 async fn an_unknown_document_and_no_context_are_errors_that_say_what_to_do() {
     let (_, home) = fake("unknown", None).await;
-    let error = run(command("versions nope"), &home, Path::new("."), None)
+    let error = run(command("versions nope"), &home, &here(), None)
         .await
         .unwrap_err()
         .to_string();
     assert!(error.contains("not found"), "{error}");
     let empty = test_home("no-context");
-    let error = run(command("list"), &empty, Path::new("."), None)
+    let error = run(command("list"), &empty, &here(), None)
         .await
         .unwrap_err()
         .to_string();
     assert!(error.contains("devpage context add"), "{error}");
     // DEVPAGE_CONTEXT, passed in, picks a context that isn't current.
-    let error = run(command("list"), &home, Path::new("."), Some("other".into()))
+    let error = run(command("list"), &home, &here(), Some("other".into()))
         .await
         .unwrap_err()
         .to_string();
@@ -486,6 +502,7 @@ async fn an_unknown_document_and_no_context_are_errors_that_say_what_to_do() {
 #[tokio::test]
 async fn publish_creates_and_updates_a_document_on_a_real_server() {
     let dir = folder("real");
+    let served = &ServedFolder::new(&dir).unwrap();
     site(&dir);
     let data = dir.join("data");
     std::fs::create_dir_all(&data).unwrap();
@@ -496,12 +513,17 @@ async fn publish_creates_and_updates_a_document_on_a_real_server() {
     let address = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let home = test_home("real");
-    ok(&home, &dir, &format!("context add local http://{address}")).await;
-    ok(&home, &dir, "context use local").await;
+    ok(
+        &home,
+        served,
+        &format!("context add local http://{address}"),
+    )
+    .await;
+    ok(&home, served, "context use local").await;
 
     let first = ok(
         &home,
-        &dir,
+        served,
         &format!("publish {}/launch --json", dir.display()),
     )
     .await;
@@ -511,7 +533,7 @@ async fn publish_creates_and_updates_a_document_on_a_real_server() {
     let second: serde_json::Value = serde_json::from_str(
         &ok(
             &home,
-            &dir,
+            served,
             &format!("publish {}/launch --json", dir.display()),
         )
         .await,

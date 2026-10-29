@@ -10,6 +10,7 @@ use futures::StreamExt;
 
 use crate::comments::*;
 use crate::document::Document;
+use crate::served::ServedFolder;
 use crate::server;
 
 /// Serves `entry` from `root`, opens `path` in a headless Chrome with a
@@ -37,7 +38,7 @@ async fn open_off(
     entry: &Path,
     path: &str,
 ) -> (Browser, chromiumoxide::Page, tokio::task::JoinHandle<()>) {
-    let document = Arc::new(Document::load(entry, root).unwrap());
+    let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let changes = crate::changes::Changes::default();

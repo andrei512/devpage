@@ -199,6 +199,7 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
     use std::process::Command;
 
     fn git(repo: &Path, args: &[&str]) -> String {
@@ -314,7 +315,9 @@ mod tests {
         assert!(bad.is_file(), "left alone");
 
         std::fs::write(root.join("a.md"), "# A\n").unwrap();
-        let document = crate::document::Document::load(&root.join("a.md"), &root).unwrap();
+        let document =
+            crate::document::Document::load(&root.join("a.md"), &ServedFolder::new(&root).unwrap())
+                .unwrap();
         let found = problems(&document, &document.served.path().join("a.md"));
         assert_eq!(found.len(), 1);
         assert_eq!(

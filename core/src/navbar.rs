@@ -382,10 +382,11 @@ pub fn theme_script(switchable: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
 
     fn site(dir: &Path, yaml: &str) -> Document {
         std::fs::write(dir.join("devpage.yml"), yaml).unwrap();
-        Document::load(&dir.join("devpage.yml"), dir).unwrap()
+        Document::load(&dir.join("devpage.yml"), &ServedFolder::new(dir).unwrap()).unwrap()
     }
 
     fn folder(name: &str) -> PathBuf {
@@ -529,7 +530,8 @@ mod tests {
             "kind: slides\ntitle: D\nslides: [guide/deep.md]\nlogo: logo.svg\n",
         )
         .unwrap();
-        let deck = Document::load(&dir.join("deck.yml"), &dir).unwrap();
+        let deck =
+            Document::load(&dir.join("deck.yml"), &ServedFolder::new(&dir).unwrap()).unwrap();
         assert!(head(&deck).contains("rel=\"icon\" href=\"/logo.svg\""));
         // None, no image and no icon.
         let without = site(&dir, NAVBAR);

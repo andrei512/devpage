@@ -86,11 +86,14 @@ enum Command {
 async fn main() -> Result<()> {
     let mut cli = Cli::parse();
     diagrams::start();
-    let served = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
+    // The served folder, made where a command that reads it starts.
+    let served =
+        || served::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
     if let Some(Command::Check { path }) = &cli.command {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
-            &served,
+            &served()?,
         )?;
         let problems = check::document(&document, Some(&http::external(None))).await;
         for problem in &problems {
@@ -100,7 +103,7 @@ async fn main() -> Result<()> {
     }
     match cli.command.take() {
         Some(Command::Pdf { path, output }) => {
-            let document = Arc::new(Document::load(&path, &served)?);
+            let document = Arc::new(Document::load(&path, &served()?)?);
             let output = output.unwrap_or_else(|| pdf::default_output(&document.title));
             pdf::print(document, &output).await?;
             println!("{}", output.display());
@@ -108,7 +111,7 @@ async fn main() -> Result<()> {
         }
         Some(Command::Video { path, output }) => {
             let config = video::live::Config::from_env()?;
-            let document = Arc::new(Document::load(&path, &served)?);
+            let document = Arc::new(Document::load(&path, &served()?)?);
             let output = output.unwrap_or_else(|| video::default_output(&document.title));
             // However the run ends — done, failed or interrupted — the
             // recording future is dropped, and its Chrome with it.
@@ -131,14 +134,14 @@ async fn main() -> Result<()> {
         Some(Command::Remote(command)) => {
             let home = drive::client::contexts::Home::from_env()?;
             let context = std::env::var("DEVPAGE_CONTEXT").ok();
-            let output = drive::client::run(command, &home, &served, context).await?;
+            let output = drive::client::run(command, &home, &served()?, context).await?;
             print!("{}", output.text);
             std::process::exit(output.code);
         }
         Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let document = Arc::new(Document::load(&path, &served)?);
+    let document = Arc::new(Document::load(&path, &served()?)?);
     let index = Arc::new(Index::build(&document.served).with_search(&document.path()));
     let entry = Arc::new(Entry::new(document.clone()));
 

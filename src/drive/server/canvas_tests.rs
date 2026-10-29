@@ -19,6 +19,7 @@ use devpage_design::compare::{self, Difference};
 
 use crate::document::Document;
 use crate::pdf::Profile;
+use crate::served::ServedFolder;
 use crate::server;
 
 /// A screen of two buttons — Pay navigates, Sheet opens an overlay — a next
@@ -72,7 +73,8 @@ fn folder(name: &str) -> PathBuf {
 
 /// Serves `dir`, entered at `entry`; returns its address.
 async fn serve(dir: &Path, entry: &str) -> String {
-    let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
+    let document =
+        Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let changes = crate::changes::Changes::default();
@@ -87,8 +89,9 @@ async fn serve(dir: &Path, entry: &str) -> String {
 /// Serves `dir`, entered at `entry`, and hands back its design store, so a
 /// test can tell it about a saved file as the watcher would.
 async fn serve_designs(dir: &Path, entry: &str) -> (String, super::Designs) {
-    let document = Arc::new(Document::load(&dir.join(entry), dir).unwrap());
-    let designs = super::Designs::new(dir.to_path_buf());
+    let document =
+        Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
+    let designs = super::Designs::new(&document.served);
     let changes = crate::changes::Changes::default();
     let router = server::router(server::Options {
         designs: designs.clone(),
@@ -582,11 +585,13 @@ async fn a_doc_prints_its_embedded_design() {
         "# Doc\n\n![The screen](screen.design)\n",
     )
     .unwrap();
-    let document = Arc::new(Document::load(&dir.join("doc.md"), &dir).unwrap());
+    let document =
+        Arc::new(Document::load(&dir.join("doc.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let with = dir.join("with.pdf");
     crate::pdf::print(document, &with).await.unwrap();
     std::fs::write(dir.join("plain.md"), "# Doc\n\nNo design.\n").unwrap();
-    let document = Arc::new(Document::load(&dir.join("plain.md"), &dir).unwrap());
+    let document =
+        Arc::new(Document::load(&dir.join("plain.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let without = dir.join("without.pdf");
     crate::pdf::print(document, &without).await.unwrap();
     // The painted canvas is an image in the PDF; the page without one has none.
@@ -1021,7 +1026,9 @@ async fn a_doc_with_eight_embeds_prints_as_fast_as_one_with_one() {
     let time = |name: &'static str| {
         let dir = dir.clone();
         async move {
-            let document = Arc::new(Document::load(&dir.join(name), &dir).unwrap());
+            let document = Arc::new(
+                Document::load(&dir.join(name), &ServedFolder::new(&dir).unwrap()).unwrap(),
+            );
             let started = std::time::Instant::now();
             crate::pdf::print(document, &dir.join(format!("{name}.pdf")))
                 .await
@@ -1456,7 +1463,8 @@ async fn a_design_on_a_widget_slide_fits_the_slide_on_screen_and_on_paper() {
     browser.close().await.ok();
     events.abort();
     // On paper: printed promptly, the design painted in it.
-    let document = Arc::new(Document::load(&dir.join("deck.yml"), &dir).unwrap());
+    let document =
+        Arc::new(Document::load(&dir.join("deck.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
     let pdf = dir.join("deck.pdf");
     let started = std::time::Instant::now();
     crate::pdf::print(document, &pdf).await.unwrap();
@@ -2385,7 +2393,7 @@ async fn a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_cpu() {
 /// screenshot's pixels.
 async fn zoomed_against_the_engine(page: &Page, width: usize, height: usize) -> Vec<u8> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let scene = super::Designs::new(root.to_path_buf())
+    let scene = super::Designs::new(&ServedFolder::new(root).unwrap())
         .resolve("docs/designs/checkout/checkout.design")
         .unwrap();
     let drawing = devpage_design::Renderer::new()

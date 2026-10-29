@@ -69,7 +69,7 @@ pub fn start(
     threads: Arc<Yaml>,
 ) -> Result<Watch> {
     let root = entry.document().served.clone();
-    let set = WatchSet::plan(root.path(), &index, &entry);
+    let set = WatchSet::plan(&root, &index, &entry);
     let listeners = Listeners {
         served: root.clone(),
         entry,
@@ -266,8 +266,7 @@ impl Listeners {
     /// watch started still reaches its page.
     fn replan(&self, platform: &mut Platform) {
         let mut found = Vec::new();
-        for (folder, deep) in
-            platform.apply(WatchSet::plan(self.served.path(), &self.index, &self.entry))
+        for (folder, deep) in platform.apply(WatchSet::plan(&self.served, &self.index, &self.entry))
         {
             within(&folder, deep, &mut found);
             found.push(folder);
@@ -448,11 +447,12 @@ mod tests {
     /// Starts watching the served folder `dir`, started on `docs/`, and
     /// lets the platform's watcher settle.
     async fn watching(dir: &Path) -> Watch {
-        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let served = ServedFolder::new(dir).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
         let watch = start(
             Arc::new(Entry::new(document)),
-            Arc::new(Index::build(dir)),
-            Designs::new(dir.to_path_buf()),
+            Arc::new(Index::build(&served)),
+            Designs::new(&served),
             Changes::default(),
             Arc::new(Yaml::new(dir)),
         )
@@ -639,12 +639,13 @@ mod tests {
 
     /// The listeners of the served folder `dir`, started on `docs/`.
     fn listeners(dir: &Path, changes: Changes) -> Listeners {
-        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let served = ServedFolder::new(dir).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
         Listeners {
-            served: ServedFolder::canonical(dir.to_path_buf()),
+            index: Arc::new(Index::build(&served)),
+            designs: Designs::new(&served),
+            served,
             entry: Arc::new(Entry::new(document)),
-            index: Arc::new(Index::build(dir)),
-            designs: Designs::new(dir.to_path_buf()),
             changes,
             threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
         }
@@ -761,7 +762,10 @@ mod tests {
         let page = dir.join("docs/guide.md");
         std::fs::write(&page, "# Guide\n\nAn otter swims.\n").unwrap();
         let mut listeners = listeners(&dir, Changes::default());
-        listeners.index = Arc::new(Index::build(&dir).with_search(&dir.join("docs/devpage.yml")));
+        listeners.index = Arc::new(
+            Index::build(&ServedFolder::new(&dir).unwrap())
+                .with_search(&dir.join("docs/devpage.yml")),
+        );
         let found = |word: &str| {
             let search = listeners.index.search().unwrap();
             search
@@ -848,11 +852,12 @@ mod tests {
         within: Duration,
         want: Option<&str>,
     ) -> Vec<String> {
-        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
-        let index = Arc::new(Index::build(dir));
+        let document =
+            Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(dir).unwrap()).unwrap());
+        let index = Arc::new(Index::build(&document.served));
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(dir.to_path_buf());
+        let designs = Designs::new(&document.served);
         let _watcher = start(
             Arc::new(Entry::new(document)),
             index,
@@ -898,12 +903,13 @@ mod tests {
         let broken = "<Frame width={10} height={10} lable=\"x\" />\n";
         std::fs::write(dir.join("docs/screen.design"), valid).unwrap();
         std::fs::write(dir.join(".devpage/screen.design"), valid).unwrap();
-        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
-        let designs = Designs::new(dir.clone());
+        let served = ServedFolder::new(&dir).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
+        let designs = Designs::new(&served);
         let listeners = Listeners {
-            served: ServedFolder::canonical(dir.clone()),
+            index: Arc::new(Index::build(&served)),
+            served,
             entry: Arc::new(Entry::new(document)),
-            index: Arc::new(Index::build(&dir)),
             designs: designs.clone(),
             changes: Changes::default(),
             threads: Arc::new(Yaml::new(dir.canonicalize().unwrap())),
@@ -1008,12 +1014,13 @@ mod tests {
             "relist",
             "kind: site\ntitle: T\nroot: README.md\nwatch: [\"**/*.md\"]\n",
         );
-        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let served = ServedFolder::new(&dir).unwrap();
+        let document = Arc::new(Document::load(&dir.join("docs"), &served).unwrap());
         let entry = Arc::new(Entry::new(document));
-        let index = Arc::new(Index::build(&dir));
+        let index = Arc::new(Index::build(&served));
         let changes = Changes::default();
         let mut received = changes.subscribe();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&served);
         let threads = Arc::new(Yaml::new(&dir));
         let _watcher = start(entry.clone(), index, designs, changes, threads).unwrap();
         tokio::time::sleep(Duration::from_millis(300)).await;

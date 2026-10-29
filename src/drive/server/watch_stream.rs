@@ -144,6 +144,7 @@ impl devpage_design::proto::designs_server::Designs for Watch {
 
 #[cfg(test)]
 mod tests {
+    use crate::served::ServedFolder;
     use std::time::Duration;
 
     use prost::Message;
@@ -164,7 +165,7 @@ mod tests {
         .unwrap();
         let file = dir.join("app/a.design");
         std::fs::write(&file, "<Frame fill=\"#ffffff\" />").unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let mut sent = Sent::default();
         let next = |sent: &mut Sent| sent.next(designs.next("app/a.design", sent.version));
         assert!(matches!(next(&mut sent), Some(Body::Scene(_))));
@@ -181,7 +182,7 @@ mod tests {
     #[test]
     fn every_stream_sends_the_one_patch_and_a_late_one_the_scene() {
         let dir = served("one-patch");
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let (mut a, mut b) = (Sent::default(), Sent::default());
         let path = "app/screen.design";
         assert!(matches!(

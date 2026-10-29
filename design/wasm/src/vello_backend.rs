@@ -315,11 +315,10 @@ mod tests {
         // The same drawing, painted anyway — an update leaves the drawing
         // the new scene's even when it can't be painted: vello leaves out
         // the image the engine said it would.
-        assert!(
-            drawing
-                .update_between(&mut renderer, &mut design(&files), &more)
-                .is_err()
-        );
+        let mut held = design(&files);
+        let mut uses = devpage_design::wire::Uses::of(&held.root);
+        let applied = devpage_design::wire::bring(&mut held, &mut uses, &more).unwrap();
+        assert!(drawing.update(&mut renderer, &held, &applied).is_err());
         let images = drawing.images.clone();
         let sizes: Vec<_> = images.iter().map(|i| (i.width, i.height)).collect();
         assert!(atlas::place(&sizes).is_err());

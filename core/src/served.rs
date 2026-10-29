@@ -14,44 +14,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ServedFolder(PathBuf, String);
 
-/// What a served folder is given as: one already made, which keeps its mount,
-/// or a bare path — at the edges, the command line and tests — served at `/`.
-pub trait Served {
-    fn served(self) -> ServedFolder;
-}
-
-impl Served for ServedFolder {
-    fn served(self) -> ServedFolder {
-        self
-    }
-}
-
-impl Served for &ServedFolder {
-    fn served(self) -> ServedFolder {
-        self.clone()
-    }
-}
-
-impl Served for &Path {
-    /// Made canonical when it exists; a path that doesn't is kept as given,
-    /// and nothing resolves inside it.
-    fn served(self) -> ServedFolder {
-        ServedFolder::canonical(self.canonicalize().unwrap_or_else(|_| self.to_path_buf()))
-    }
-}
-
-impl Served for &PathBuf {
-    fn served(self) -> ServedFolder {
-        self.as_path().served()
-    }
-}
-
-impl Served for PathBuf {
-    fn served(self) -> ServedFolder {
-        self.as_path().served()
-    }
-}
-
 impl ServedFolder {
     /// The served folder at `path`, made canonical; an error when it doesn't
     /// exist.
@@ -191,9 +153,8 @@ mod tests {
         assert_eq!(mounted.url(&a), "/d/x/v/2/docs/a.md");
         assert_eq!(mounted.name(&a), "docs/a.md", "a name is the same anywhere");
         assert_eq!(mounted.mount(), "/d/x/v/2");
-        // Passed on, it keeps the mount; a bare path is served at `/`.
-        assert_eq!((&mounted).served().mount(), "/d/x/v/2");
-        assert_eq!(top.join("served").served(), served);
+        // A folder made from its path is served at `/`.
+        assert_eq!(ServedFolder::new(&top.join("served")).unwrap(), served);
     }
 
     #[test]

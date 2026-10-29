@@ -126,7 +126,7 @@ fn internal(
             problems.extend(widget_problems(owner, &widgets));
             if files.is_some() {
                 for widget in widget_files(folder) {
-                    let snapshot = index.modules().snapshot(document.served.path(), &widget);
+                    let snapshot = index.modules().snapshot(&document.served, &widget);
                     for (module, _) in snapshot.closure(&widget) {
                         follow(document, &mut files, &module);
                     }
@@ -595,6 +595,7 @@ pub mod testing {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
 
     /// `document`'s widget set, read through a cache of its own.
     fn widgets_of(document: &Document) -> Widgets {
@@ -616,7 +617,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        let doc = Document::load(&dir, &dir).unwrap();
+        let doc = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
         let found: Vec<String> = internal(&doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)
@@ -649,7 +650,7 @@ mod tests {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        let doc = Document::load(&dir, &dir).unwrap();
+        let doc = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
         let expected = "README.md:17: broken diagram — Parse error on line 2:\n  A->>B: one; two\n";
         // In `devpage check`, and in the page's problems.
         for found in [
@@ -667,6 +668,7 @@ mod tests {
 #[cfg(test)]
 mod external {
     use super::*;
+    use crate::served::ServedFolder;
     use crate::widgets::Modules;
 
     /// `document`'s widget set, read through a cache of its own.
@@ -684,7 +686,7 @@ mod external {
             "kind: site\ntitle: T\nroot: README.md\n",
         )
         .unwrap();
-        Document::load(&dir, &dir).unwrap()
+        Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap()
     }
 
     #[tokio::test]
@@ -704,7 +706,7 @@ mod external {
         )
         .unwrap();
         std::fs::write(top.join("CONTRIBUTING.md"), "# Contributing").unwrap();
-        let site = Document::load(&docs, &top).unwrap();
+        let site = Document::load(&docs, &ServedFolder::new(&top).unwrap()).unwrap();
         let found: Vec<String> = document(&site, None)
             .await
             .iter()
@@ -836,7 +838,11 @@ mod external {
             "{found:#?}"
         );
         // The preview: a deck's slides, and a page of the site.
-        let deck = Document::load(&doc.base.join("deck/devpage.yml"), &doc.base).unwrap();
+        let deck = Document::load(
+            &doc.base.join("deck/devpage.yml"),
+            &ServedFolder::new(&doc.base).unwrap(),
+        )
+        .unwrap();
         let shown: Vec<String> = preview(&deck, &pages(&deck))
             .iter()
             .map(ToString::to_string)
@@ -870,7 +876,11 @@ mod external {
             .collect();
         let expected = vec!["deck/a.md:3: a <Notes> without its </Notes>".to_string()];
         assert_eq!(found, expected, "{found:#?}");
-        let deck = Document::load(&doc.base.join("deck/devpage.yml"), &doc.base).unwrap();
+        let deck = Document::load(
+            &doc.base.join("deck/devpage.yml"),
+            &ServedFolder::new(&doc.base).unwrap(),
+        )
+        .unwrap();
         let shown: Vec<String> = preview(&deck, &pages(&deck))
             .iter()
             .map(ToString::to_string)
@@ -1051,6 +1061,7 @@ mod external {
 #[cfg(test)]
 mod documents {
     use super::*;
+    use crate::served::ServedFolder;
 
     /// The top of the repository the core crate sits in.
     fn repository() -> PathBuf {
@@ -1067,7 +1078,8 @@ mod documents {
             "docs/features",
         ] {
             let root = repository();
-            let doc = Document::load(&root.join(example), &root).unwrap();
+            let doc =
+                Document::load(&root.join(example), &ServedFolder::new(&root).unwrap()).unwrap();
             let problems = internal(&doc, &mut Vec::new(), None);
             assert!(problems.is_empty(), "{example}: {problems:#?}");
         }
@@ -1078,7 +1090,7 @@ mod documents {
     #[test]
     fn devpage_docs_have_no_broken_links() {
         let root = repository();
-        let doc = Document::load(&root.join("docs"), &root).unwrap();
+        let doc = Document::load(&root.join("docs"), &ServedFolder::new(&root).unwrap()).unwrap();
         let problems: Vec<String> = internal(&doc, &mut Vec::new(), None)
             .iter()
             .map(ToString::to_string)

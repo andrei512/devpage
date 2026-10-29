@@ -327,6 +327,7 @@ fn doc_params(pdf: &Pdf) -> PrintToPdfParams {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::served::ServedFolder;
 
     #[test]
     fn chromes_sandbox_is_on_unless_turned_off() {
@@ -485,7 +486,7 @@ mod tests {
             "kind: site\ntitle: Home\nroot: README.md\n",
         )
         .unwrap();
-        let site = Arc::new(Document::load(&dir, &dir).unwrap());
+        let site = Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
         let error = print(site, Path::new("never.pdf")).await.unwrap_err();
         assert_eq!(error.to_string(), "pdf prints a doc or slides, not a site");
         assert!(!Path::new("never.pdf").exists());
@@ -518,7 +519,9 @@ mod tests {
         std::fs::write(dir.join("broken.design"), "<Frame width={400} height={300}").unwrap();
         std::fs::write(dir.join("doc.md"), "# Doc\n\n![Broken](broken.design)\n").unwrap();
         let dir = dir.canonicalize().unwrap();
-        let document = Arc::new(Document::load(&dir.join("doc.md"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("doc.md"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         let output = dir.join("doc.pdf");
         let started = std::time::Instant::now();
         print(document, &output).await.unwrap();
@@ -535,8 +538,13 @@ mod tests {
     #[ignore]
     async fn the_fixture_doc_prints_on_a4_with_its_header_and_footer() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document =
-            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
+        let document = Arc::new(
+            Document::load(
+                &root.join("tests/fixtures/sync-design"),
+                &ServedFolder::new(root).unwrap(),
+            )
+            .unwrap(),
+        );
         let Kind::Doc { pdf, .. } = &document.kind else {
             panic!()
         };
@@ -573,7 +581,13 @@ mod tests {
     #[ignore]
     async fn the_talk_prints_one_16_by_9_page_per_slide() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
+        let document = Arc::new(
+            Document::load(
+                &root.join("docs/talks/devpage"),
+                &ServedFolder::new(root).unwrap(),
+            )
+            .unwrap(),
+        );
         let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
@@ -613,7 +627,8 @@ mod tests {
             "# W\n\n<Callout kind=\"warning\">\nSome **markdown**\n</Callout>\n\n<Pair />\n",
         )
         .unwrap();
-        let document = Arc::new(Document::load(&dir.join("docs"), &dir).unwrap());
+        let document =
+            Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(&dir).unwrap()).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
@@ -670,7 +685,13 @@ mod tests {
     #[ignore]
     async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document = Arc::new(Document::load(&root.join("docs/talks/devpage"), root).unwrap());
+        let document = Arc::new(
+            Document::load(
+                &root.join("docs/talks/devpage"),
+                &ServedFolder::new(root).unwrap(),
+            )
+            .unwrap(),
+        );
         let Kind::Slides { slides, .. } = &document.kind else {
             panic!()
         };
@@ -748,7 +769,13 @@ mod tests {
                 ),
             ],
         );
-        let document = Arc::new(Document::load(&dir.join("docs/talk.yml"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(
+                &dir.join("docs/talk.yml"),
+                &ServedFolder::new(&dir).unwrap(),
+            )
+            .unwrap(),
+        );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
@@ -798,8 +825,13 @@ mod tests {
     async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
         use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let document =
-            Arc::new(Document::load(&root.join("tests/fixtures/sync-design"), root).unwrap());
+        let document = Arc::new(
+            Document::load(
+                &root.join("tests/fixtures/sync-design"),
+                &ServedFolder::new(root).unwrap(),
+            )
+            .unwrap(),
+        );
         let url = document.entry();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -890,7 +922,8 @@ mod tests {
         Profile,
         Answered,
     ) {
-        let document = Arc::new(Document::load(&dir.join("docs"), dir).unwrap());
+        let document =
+            Arc::new(Document::load(&dir.join("docs"), &ServedFolder::new(dir).unwrap()).unwrap());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let changes = crate::changes::Changes::default();
@@ -2917,7 +2950,9 @@ mod tests {
         );
         browser.close().await.ok();
         events.abort();
-        let document = Arc::new(Document::load(&dir.join("docs/design"), &dir).unwrap());
+        let document = Arc::new(
+            Document::load(&dir.join("docs/design"), &ServedFolder::new(&dir).unwrap()).unwrap(),
+        );
         let out = dir.join("d.pdf");
         print(document, &out).await.unwrap();
         let pdf = std::fs::read(&out).unwrap();

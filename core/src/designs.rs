@@ -18,7 +18,7 @@ use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
 use devpage_design::wire::Applied;
 use devpage_design::{Files, Problem, Renderer, Scene, Theme};
 
-use crate::served::{Served, ServedFolder};
+use crate::served::ServedFolder;
 
 /// What the store knows of a design without locking it: which version of
 /// its scene it shows or its problems, every file resolving it asked for —
@@ -540,9 +540,9 @@ pub fn address(path: &str) -> &str {
 
 impl Designs {
     /// The store for the served folder.
-    pub fn new(served: impl Served) -> Designs {
+    pub fn new(served: &ServedFolder) -> Designs {
         Designs(Arc::new(Store {
-            served: served.served(),
+            served: served.clone(),
             renderer: Mutex::new(Renderer::new()),
             sources: Mutex::default(),
             reads: Default::default(),
@@ -845,8 +845,7 @@ fn prepared<'a>(
 
 /// The design at `path`'s problems, read straight from disk: what
 /// `devpage check` and a page's problems bar report.
-pub fn problems(served: impl Served, path: &str) -> Vec<Problem> {
-    let served = served.served();
+pub fn problems(served: &ServedFolder, path: &str) -> Vec<Problem> {
     struct Disk<'a>(&'a ServedFolder);
     impl Files for Disk<'_> {
         fn bytes(&self, path: &str) -> Option<Vec<u8>> {
@@ -860,7 +859,7 @@ pub fn problems(served: impl Served, path: &str) -> Vec<Problem> {
     let path = address(path);
     guarded(
         path,
-        || devpage_design::resolve(&Disk(&served), path),
+        || devpage_design::resolve(&Disk(served), path),
         |p| vec![p],
     )
     .and_then(|scene| drawable(&mut Renderer::new(), path, &scene))
@@ -1083,7 +1082,7 @@ mod tests {
             r##"<Frame width={40000} height={20} fill="#ffffff"><Rect x={39990} y={10} width={10} height={10} fill="#0000ff" /></Frame>"##,
         )
         .unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let png = designs.png("app/wide.design", Theme::Light).unwrap();
         let (px, w, h) = devpage_design::compare::pixels(&png).unwrap();
         assert_eq!((w, h), (40_000, 20));
@@ -1101,8 +1100,8 @@ mod tests {
     fn a_design_100000_pixels_tall_streams_its_png_from_a_capped_cache() {
         let dir = served("huge");
         tall(&dir, None);
-        let designs = Designs::new(dir.clone());
-        assert!(problems(&dir, "/app/huge.design").is_empty());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        assert!(problems(&ServedFolder::new(&dir).unwrap(), "/app/huge.design").is_empty());
         let started = std::time::Instant::now();
         let png = designs.png("app/huge.design", Theme::Light).unwrap();
         let took = started.elapsed();
@@ -1138,7 +1137,7 @@ mod tests {
             r##"<Frame width={600} height={300} fill="#336699" />"##,
         )
         .unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let first = designs.png("app/small.design", Theme::Light).unwrap();
         assert_eq!(painted(&designs), 6);
         assert_eq!(
@@ -1184,7 +1183,7 @@ mod tests {
         std::fs::write(dir.join("app/themes.yml"), THEMES).unwrap();
         let file = dir.join("app/t.design");
         std::fs::write(&file, "<Frame width={300} height={100} fill={theme.bg} />").unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let light = designs.png("app/t.design", Theme::Light).unwrap();
         let dark = designs.png("app/t.design", Theme::Dark).unwrap();
         assert_ne!(light, dark);
@@ -1215,7 +1214,7 @@ mod tests {
     fn a_save_lands_while_a_png_is_not_read() {
         let dir = served("unread");
         tall(&dir, None);
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         designs.resolve("app/huge.design").unwrap();
         /// A reader that stops after the first write until it is let go.
         struct Stalled(std::sync::mpsc::Receiver<()>, bool);
@@ -1271,7 +1270,7 @@ mod tests {
     fn a_writer_that_fails_stops_the_painting() {
         let dir = served("gone");
         tall(&dir, None);
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         struct Gone;
         impl std::io::Write for Gone {
             fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
@@ -1345,7 +1344,7 @@ mod tests {
         std::fs::write(dir.join("app/p.jpg"), &shirt).unwrap();
         let photo = "<Frame>\n  <Image src=\"./p.jpg\" />\n  <Image src=\"./p.jpg\" />\n</Frame>\n";
         std::fs::write(dir.join("app/photo.design"), photo).unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let first = designs.resolve("app/photo.design").unwrap();
         assert_eq!(first.images.len(), 1, "one file shown twice");
         save(
@@ -1384,11 +1383,11 @@ mod tests {
         .unwrap();
         let expected = "app/photo.design:2:10: src: ./broken.png is a PNG that doesn't decode";
         // What `devpage check` reports…
-        let found = problems(&dir, "app/photo.design");
+        let found = problems(&ServedFolder::new(&dir).unwrap(), "app/photo.design");
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found[0].to_string().starts_with(expected), "{found:?}");
         // …and the PNG, instead of a blank picture.
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let png = designs.png("app/photo.design", Theme::Light).unwrap_err();
         assert!(png.starts_with(expected), "{png}");
     }
@@ -1396,7 +1395,7 @@ mod tests {
     #[test]
     fn only_the_designs_made_from_a_changed_file_are_announced() {
         let dir = served("store");
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let updates = announced(&designs);
         assert!(designs.resolve("app/screen.design").is_ok());
         assert!(designs.resolve("/app/other.design").is_ok());
@@ -1441,7 +1440,7 @@ mod tests {
     #[test]
     fn a_save_while_a_design_resolves_is_not_lost() {
         let dir = served("race");
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let other = dir.join("app/other.design");
         let saver = designs.clone();
         let saved = std::sync::atomic::AtomicBool::new(false);
@@ -1464,7 +1463,7 @@ mod tests {
     #[test]
     fn no_design_file_stops_the_store() {
         let dir = served("hostile");
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let other = dir.join("app/other.design");
         assert!(designs.png("app/other.design", Theme::Light).is_ok());
         // A colour with a pasted zero-width space, saved over a design held
@@ -1497,7 +1496,7 @@ mod tests {
     #[test]
     fn creating_a_missing_import_resolves_the_design_again() {
         let dir = served("create");
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         std::fs::remove_file(dir.join("app/button.design")).unwrap();
         let problems = designs.resolve("app/screen.design").unwrap_err();
         assert!(problems[0].message.contains("no such file"), "{problems:?}");
@@ -1515,7 +1514,7 @@ mod tests {
             "<Frame width={10} height={10} fill={theme.bg} />",
         )
         .unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let updates = announced(&designs);
         let problems = designs.resolve("app/themed.design").unwrap_err();
         assert!(
@@ -1569,7 +1568,7 @@ mod tests {
             r#"<Frame><Text font="body">Hello</Text></Frame>"#,
         )
         .unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let updates = announced(&designs);
         let scene = designs.resolve("app/set.design").unwrap();
         assert_eq!(scene.fonts.len(), 1);
@@ -1597,7 +1596,7 @@ mod tests {
         let problems = designs.resolve("app/set.design").unwrap_err();
         assert_eq!(problems[0].to_string(), expected);
         assert_eq!(
-            super::problems(&dir, "/app/set.design")[0].to_string(),
+            super::problems(&ServedFolder::new(&dir).unwrap(), "/app/set.design")[0].to_string(),
             expected
         );
         // It goes again, and a font file itself is saved over as bold.
@@ -1622,7 +1621,7 @@ mod tests {
     fn a_design_outside_the_served_folder_is_never_read() {
         let dir = served("outside");
         std::fs::write(dir.join("../outside.design"), OTHER).unwrap();
-        let designs = Designs::new(dir.join("app"));
+        let designs = Designs::new(&ServedFolder::new(&dir.join("app")).unwrap());
         assert!(designs.resolve("../outside.design").is_err());
     }
     /// Saves through the store — rows inserted at the front and the end,
@@ -1645,7 +1644,7 @@ mod tests {
         let file = dir.join("app/list.design");
         let mut rows = vec!["a", "b", "c"];
         std::fs::write(&file, screen(&rows)).unwrap();
-        let designs = Designs::new(dir.clone());
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
         let path = "app/list.design";
         let decode = |s: &proto::Scene| {
             devpage_design::wire::decode_scene(s, (&Default::default(), &Default::default()))
@@ -1710,7 +1709,9 @@ mod tests {
                 devpage_design::wire::encode(&kept.root),
                 "step {step}"
             );
-            let fresh = Designs::new(dir.clone()).resolve(path).unwrap();
+            let fresh = Designs::new(&ServedFolder::new(&dir).unwrap())
+                .resolve(path)
+                .unwrap();
             assert_eq!(
                 kept.root.children.len(),
                 fresh.root.children.len(),
@@ -1754,7 +1755,7 @@ mod bench {
                 format!("<Frame layout=\"column\">\n{body}</Frame>\n")
             };
             std::fs::write(&file, rows(usize::MAX)).unwrap();
-            let designs = Designs::new(dir.clone());
+            let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
             let v = match designs.next("app/list.design", None) {
                 Next::Scene(v, _) => v,
                 _ => panic!(),
