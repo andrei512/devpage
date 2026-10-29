@@ -93,13 +93,23 @@ everything worked out from its files is worked out once
   256 MB in all; past that the least recently searched is dropped, and its
   next search builds it again.
 
-A router goes when its version leaves the cache. So what memory holds grows
-with the versions being read, not with every version ever read.
+**Memory is a cache too, with a limit and the same policy.** At most
+`DEVPAGE_MEMORY_CACHE_VERSIONS` versions — 2,000 by default — hold a router in
+memory, each with its kept problems. Past the limit the
+[eviction policy](#the-eviction-policy) chooses which go, each version counted
+as one entry, and those routers are dropped; their files stay on the PVC, and
+a version's next view makes its router again from them, in milliseconds. A
+router being served is never dropped. The limit is a count, not bytes: a
+router's memory can't be measured where it is held, and the benchmark measures
+what a count costs — about 300 KB a version, so the default's 600 MB leaves a
+4 GB pod room for the rest. A version leaving the disk cache leaves memory with
+it. So memory holds what readers are reading now, never every version ever
+read, however big the cache on disk.
 
 ### The eviction policy
 
 A port: given the entries and how many bytes to free, it returns which to
-delete. One policy exists — the seam is there because policies are expected
+delete — for the cache in memory, how many versions, each an entry of one. One policy exists — the seam is there because policies are expected
 to change, by what a cache under real use shows, without touching the cache.
 A policy is a pure function of its entries, tested on lists of them, with no
 disk or bucket.
