@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 483 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 496 tests in the six crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -18,8 +18,8 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 `cargo test` runs every crate in the workspace: 152 in `devpage`, 179 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
-`devpage-design-wasm`, whose tests run natively, and 2 in
-`devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
+`devpage-design-wasm`, whose tests run natively, 2 in
+`devpage-design-module` and 13 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
 the code they test — the canvas's Chrome tests in
 `src/drive/server/canvas_tests.rs` and the comments' in
 `src/drive/server/comments_browser.rs`, child modules of `server`. The `tests/`
@@ -510,14 +510,16 @@ repository holds no corpus and no results.
 - **The stack** is `deploy/server/compose.yaml`'s, the image built from the
   checkout and held to 2 CPUs and 4 GB, with RustFS for S3; the load runs on
   the runner's other cores.
-- **The corpus** is generated from a seed, the workflow's input, into a
-  temporary folder: 10,000 documents — docs, sites, slides and designs in the
-  proportions teams write them, page sizes, links, `#heading` links, diagrams
-  and code spread around a median with a long tail — and their versions, 5 a
-  document on average, 50,000 in all. The same seed gives the same corpus.
-  devpage's own `docs/` is one of the sites. It is published through the API,
-  eight at a time, and that publishing is the first number: publishes a
-  second.
+- **The corpus** is generated from a seed, the workflow's input, in memory:
+  10,000 documents — half docs, then sites, slides and a few designs, page
+  counts and sizes, links, `#heading` links, diagrams and code spread around a
+  median with a long tail — and their versions, one to nine a document, five
+  on average, 50,000 in all. A document's pages are the same in every
+  version; what they say changes. The same seed gives the same corpus.
+  devpage's own `docs/` is one more site. It is published through the API,
+  eight documents at a time, and that publishing is the first number:
+  publishes a second. Then every latest page is read once, so *views*
+  measures the served path and *misses* the versions no one has read.
 - **The load is open**: each request goes at its scheduled time whether or
   not the last has answered, and its latency counts from that time, so a
   server that stalls is charged for the requests it kept waiting rather
@@ -525,20 +527,49 @@ repository holds no corpus and no results.
 - **The scenarios**, each run three times, the median reported:
   - *views* — readers following a popularity curve over the documents, a few
     read often and most rarely, at 50 a second, then a burst of 500 a second;
-    pages, search, a design's PNG and first downloads among them.
+    pages, search, a design's PNG and first downloads among them, each
+    reported on its own.
   - *misses* — first views of versions no one has read, so each comes from
     the bucket.
   - *writes* — a publish and a comment a second, alongside the views.
-  - *herd* — 500 pages open on one document, and a publish to it.
+  - *herd* — 500 pages open on one document, and a publish to it; each page,
+    on hearing of it, fetches the page and the versions again, as a reader's
+    page does.
   - *open pages* — 2,000 pages listening throughout.
   - *soak* — the whole envelope for 30 minutes: memory and threads, run once.
-  - *knee* — views of each kind of document raised past 500 a second until
-    their p99 crosses 100 ms.
+  - *knee* — views of each kind of document, from 50 a second and doubling,
+    until their p99 crosses 100 ms.
 - **The report** is the run's summary page: each number beside its target and
-  main's last run, and from `/metrics`, scraped after each scenario, the stage
-  that took the time. The numbers are the run's artifact; a run downloads the
-  last one from `main` to compare against. A number has moved only by more
-  than the spread of its three runs.
+  main's last run, and from `/metrics`, scraped before and after each
+  scenario, the stages that took the time. The numbers are the run's
+  artifact; a run downloads the last one from `main` to compare against. A
+  number has moved only by more than the spread of either run's three; a
+  target is missed only by more than it. A baseline at another scale or seed
+  is not compared.
+
+The workflow lays `bench/compose.yaml` over the example's compose file: the
+server held to 2 CPUs and 4 GB with no swap, its cache sized as on a 10 GB
+PVC, its metrics port at 9031. The same binary runs from a laptop against
+any server; `--scale` shrinks the corpus, the open pages and the durations,
+never the rates:
+
+<Terminal>
+
+```text
+$ docker compose -f deploy/server/compose.yaml -f bench/compose.yaml up --build --wait devpage-s3
+$ cargo run --release -p devpage-bench -- --server http://127.0.0.1:3031 \
+    --metrics http://127.0.0.1:9031/metrics --scale 0.01 --runs 1
+```
+
+</Terminal>
+
+`devpage-bench`'s own 13 tests pin the corpus — the same seed, the same
+zips; every kind; five versions on average; the same pages in every version;
+a zip holding its pages; a folder published whole — the load — a server that
+stalls is charged its stall, one that keeps up only its answer; a quantile —
+the scrape of `/metrics`, and the report: a target missed only past the
+spread, a number moved only past the noise, a run's JSON read back as the
+next one's baseline.
 
 ### `drive::server`
 

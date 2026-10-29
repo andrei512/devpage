@@ -1,26 +1,38 @@
-//! devpage-bench: publishes a seeded corpus to a server, loads it with page
-//! views sent at their scheduled times, and reports the numbers beside the
-//! envelope's targets, with the time the server says each stage took.
+//! devpage-bench: publishes a seeded corpus to a server, loads it the ways
+//! the envelope says — views and bursts, misses, writes, a herd, open pages,
+//! the knee, a soak — and reports each number beside its target and a
+//! baseline's, with the time the server says each stage took.
+//!
+//!     devpage-bench --server http://127.0.0.1:3031 --metrics http://127.0.0.1:9031/metrics \
+//!       [--seed 1] [--scale 1] [--runs 3] [--scenarios views,herd] [--docs docs] \
+//!       [--memory-limit 4294967296] [--out results.json] [--report report.md] \
+//!       [--baseline main.json]
 
 mod corpus;
+mod load;
+mod metrics;
 mod report;
+mod scenarios;
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
-use anyhow::{Context, Result, bail};
-
-/// The envelope's target for a page view, at p99.
-const VIEW_TARGET: Duration = Duration::from_millis(100);
+use anyhow::{Context, Result};
+use serde_json::json;
 
 struct Args {
     server: String,
     metrics: String,
     seed: u64,
-    documents: u64,
-    rate: u64,
-    seconds: u64,
+    scale: f64,
+    runs: usize,
+    scenarios: Vec<String>,
+    docs: Option<PathBuf>,
+    memory_limit: f64,
+    out: Option<PathBuf>,
+    report: Option<PathBuf>,
+    baseline: Option<PathBuf>,
 }
 
 fn args() -> Result<Args> {
@@ -30,10 +42,12 @@ fn args() -> Result<Args> {
         let name = flag.strip_prefix("--").context("flags are --name value")?;
         given.insert(
             name.to_string(),
-            words.next().context("a flag needs a value")?,
+            words
+                .next()
+                .with_context(|| format!("--{name} needs a value"))?,
         );
     }
-    let number = |name: &str, default: u64| -> Result<u64> {
+    let number = |name: &str, default: f64| -> Result<f64> {
         given
             .get(name)
             .map(|v| {
@@ -42,6 +56,20 @@ fn args() -> Result<Args> {
             })
             .unwrap_or(Ok(default))
     };
+    let scale = number("scale", 1.0)?;
+    anyhow::ensure!(scale > 0.0, "--scale is above 0");
+    let scenarios: Vec<String> = match given.get("scenarios") {
+        Some(list) => list.split(',').map(str::to_string).collect(),
+        None => scenarios::ALL.iter().map(|s| s.to_string()).collect(),
+    };
+    for scenario in &scenarios {
+        anyhow::ensure!(
+            scenarios::ALL.contains(&scenario.as_str()),
+            "no scenario {scenario}: the scenarios are {}",
+            scenarios::ALL.join(", ")
+        );
+    }
+    let path = |name: &str| given.get(name).map(PathBuf::from);
     Ok(Args {
         server: given
             .get("server")
@@ -51,155 +79,108 @@ fn args() -> Result<Args> {
             .get("metrics")
             .cloned()
             .unwrap_or("http://127.0.0.1:9030/metrics".into()),
-        seed: number("seed", 1)?,
-        documents: number("documents", 100)?,
-        rate: number("rate", 50)?,
-        seconds: number("seconds", 20)?,
+        seed: number("seed", 1.0)? as u64,
+        scale,
+        runs: (number("runs", 3.0)? as usize).max(1),
+        scenarios,
+        docs: path("docs"),
+        memory_limit: number("memory-limit", 4.0 * 1024.0 * 1024.0 * 1024.0)?,
+        out: path("out"),
+        report: path("report"),
+        baseline: path("baseline"),
     })
 }
 
-/// A published document: its link and the pages a reader opens.
-struct Published {
-    link: String,
-    pages: Vec<String>,
-}
-
-async fn publish(
-    client: &reqwest::Client,
-    server: &str,
-    doc: corpus::Generated,
-) -> Result<(Published, Duration)> {
-    let started = Instant::now();
-    let answer = client
-        .post(format!("{server}/api/documents?entry={}", doc.entry))
-        .header("content-type", "application/zip")
-        .body(doc.zip)
-        .send()
-        .await?;
-    let took = started.elapsed();
-    if !answer.status().is_success() {
-        bail!("publish: {} {}", answer.status(), answer.text().await?);
+/// Open files enough for the pages held open: as many as the system allows.
+#[cfg(unix)]
+fn raise_open_files() {
+    // SAFETY: getrlimit and setrlimit only read and write the struct given.
+    unsafe {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+            return;
+        }
+        for want in [limit.rlim_max.min(65_536), 10_240] {
+            limit.rlim_cur = want.max(limit.rlim_cur);
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) == 0 {
+                return;
+            }
+        }
     }
-    let body: serde_json::Value = answer.json().await?;
-    let id = body["id"].as_str().context("publish: no id")?;
-    Ok((
-        Published {
-            link: format!("{server}/d/{id}/"),
-            pages: doc.pages,
-        },
-        took,
-    ))
 }
 
-/// A document picked by a popularity curve — Zipf, exponent 1 — given its
-/// cumulative `weights`: a few read often, most rarely.
-fn popular(rng: &mut corpus::Seeded, weights: &[f64]) -> usize {
-    let total = weights.last().copied().unwrap_or(1.0);
-    let at = (rng.next() as f64 / u64::MAX as f64) * total;
-    weights.partition_point(|w| *w < at).min(weights.len() - 1)
-}
+#[cfg(not(unix))]
+fn raise_open_files() {}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = args()?;
-    let client = reqwest::Client::builder()
-        .pool_max_idle_per_host(256)
-        .build()?;
-
-    // The corpus, published eight at a time.
-    let started = Instant::now();
-    let mut published = Vec::new();
-    let mut publishes = Vec::new();
-    let mut n = 0;
-    while n < args.documents {
-        let batch: Vec<_> = (n..(n + 8).min(args.documents))
-            .map(|i| publish(&client, &args.server, corpus::document(args.seed, i)))
-            .collect();
-        for done in futures::future::join_all(batch).await {
-            let (doc, took) = done?;
-            published.push(doc);
-            publishes.push(took);
+    raise_open_files();
+    let baseline = match &args.baseline {
+        Some(path) if path.exists() => {
+            let text = std::fs::read_to_string(path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let json: serde_json::Value = serde_json::from_str(&text)?;
+            // Numbers at another scale or seed measure another corpus.
+            let same = json["about"]["scale"].as_f64() == Some(args.scale)
+                && json["about"]["seed"].as_u64() == Some(args.seed);
+            if !same {
+                eprintln!("{}: another scale or seed, so not compared", path.display());
+            }
+            same.then(|| report::baseline(&json))
         }
-        n += 8;
-    }
-    let seeding = started.elapsed();
-
-    // Every page read once, so the views below measure the served path and
-    // not the first unpack.
-    for doc in &published {
-        for page in &doc.pages {
-            client
-                .get(format!("{}{page}", doc.link))
-                .send()
-                .await?
-                .bytes()
-                .await?;
+        _ => None,
+    };
+    let folder = args.docs.as_deref().map(corpus::folder).transpose()?;
+    let mut bench = scenarios::Bench::new(
+        args.server.clone(),
+        args.metrics.clone(),
+        args.seed,
+        args.scale,
+        args.memory_limit,
+    )?;
+    let mut results = report::Results::default();
+    eprintln!("seeding: the corpus, scale {}", args.scale);
+    bench.seed(&mut results, folder).await?;
+    let bench = Arc::new(bench);
+    for run in 1..=args.runs {
+        for scenario in args.scenarios.iter().filter(|s| *s != "soak") {
+            eprintln!("run {run}/{}: {scenario}", args.runs);
+            bench.run(scenario, &mut results).await?;
         }
     }
-
-    let before = report::scrape(&client, &args.metrics).await?;
-    let views = views(&client, &published, &args).await;
-    let after = report::scrape(&client, &args.metrics).await?;
-
-    println!(
-        "{}",
-        report::render(&report::Run {
-            documents: published.len(),
-            seeding,
-            publishes,
-            views,
-            rate: args.rate,
-            seconds: args.seconds,
-            target: VIEW_TARGET,
-            stages: report::stages(&before, &after),
-        })
+    if args.scenarios.iter().any(|s| s == "soak") {
+        eprintln!("soak, once");
+        bench.run("soak", &mut results).await?;
+    }
+    let about = format!(
+        "{} at seed {}, scale {}: {} of {}, the median of each; the soak once.",
+        args.server,
+        args.seed,
+        args.scale,
+        match args.runs {
+            1 => "1 run".to_string(),
+            n => format!("{n} runs"),
+        },
+        args.scenarios.join(", ")
     );
+    let markdown = report::markdown(&results, &about, baseline.as_ref());
+    println!("{markdown}");
+    if let Some(path) = &args.report {
+        std::fs::write(path, &markdown)?;
+    }
+    if let Some(path) = &args.out {
+        let about = json!({
+            "server": args.server,
+            "seed": args.seed,
+            "scale": args.scale,
+            "runs": args.runs,
+            "scenarios": args.scenarios,
+        });
+        std::fs::write(path, serde_json::to_string_pretty(&results.to_json(about))?)?;
+    }
     Ok(())
-}
-
-/// Page views at `rate` a second for `seconds`, each sent at its scheduled
-/// time whether or not the ones before have answered, timed from then.
-async fn views(
-    client: &reqwest::Client,
-    published: &[Published],
-    args: &Args,
-) -> report::Latencies {
-    let mut rng = corpus::Seeded::new(args.seed ^ 0xBEEF);
-    let mut sum = 0.0;
-    let weights: Vec<f64> = (1..=published.len())
-        .map(|rank| {
-            sum += 1.0 / rank as f64;
-            sum
-        })
-        .collect();
-    let urls: Vec<String> = (0..args.rate * args.seconds)
-        .map(|_| {
-            let doc = &published[popular(&mut rng, &weights)];
-            let page = &doc.pages[rng.below(doc.pages.len() as u64) as usize];
-            format!("{}{page}", doc.link)
-        })
-        .collect();
-    let gap = Duration::from_secs_f64(1.0 / args.rate as f64);
-    let start = tokio::time::Instant::now();
-    let results = Arc::new(std::sync::Mutex::new(Vec::new()));
-    let mut tasks = Vec::new();
-    for (i, url) in urls.into_iter().enumerate() {
-        let scheduled = start + gap * i as u32;
-        tokio::time::sleep_until(scheduled).await;
-        let client = client.clone();
-        let results = results.clone();
-        tasks.push(tokio::spawn(async move {
-            let ok = match client.get(url).send().await {
-                Ok(answer) => answer.status().is_success() && answer.bytes().await.is_ok(),
-                Err(_) => false,
-            };
-            results.lock().unwrap().push((scheduled.elapsed(), ok));
-        }));
-    }
-    for task in tasks {
-        let _ = task.await;
-    }
-    let wall = start.elapsed();
-    let results = std::mem::take(&mut *results.lock().unwrap());
-    report::Latencies::of(results, wall)
 }
