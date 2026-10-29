@@ -12,6 +12,7 @@ mod watch_stream;
 
 use std::convert::Infallible;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::Json;
@@ -440,12 +441,40 @@ async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) 
 async fn events(
     State(state): State<AppState>,
 ) -> Sse<impl tokio_stream::Stream<Item = Result<Event, Infallible>>> {
-    let heard = state.changes.subscribe();
-    let stream = futures::stream::unfold(heard, |mut heard| async move {
+    let heard = (state.changes.subscribe(), Listening::new());
+    let stream = futures::stream::unfold(heard, |(mut heard, listening)| async move {
         let change = heard.next().await?;
-        Some((Ok(Event::default().data(change.message())), heard))
+        Some((
+            Ok(Event::default().data(change.message())),
+            (heard, listening),
+        ))
     });
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
+
+/// Pages listening on the live-update stream now, in every router of the
+/// process.
+static OPEN_PAGES: AtomicU64 = AtomicU64::new(0);
+
+/// How many pages are listening on the live-update stream now.
+pub fn open_pages() -> u64 {
+    OPEN_PAGES.load(Ordering::Relaxed)
+}
+
+/// One page listening, counted while its stream lives.
+struct Listening;
+
+impl Listening {
+    fn new() -> Self {
+        OPEN_PAGES.fetch_add(1, Ordering::Relaxed);
+        Listening
+    }
+}
+
+impl Drop for Listening {
+    fn drop(&mut self) {
+        OPEN_PAGES.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 /// The `v` a widget's address was asked with, if any.

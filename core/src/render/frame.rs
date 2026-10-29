@@ -123,6 +123,7 @@ pub fn doc(
     comments: bool,
     found: &[Problem],
 ) -> String {
+    let _render = tracing::info_span!("render").entered();
     let mut content = String::new();
     let mut outline = String::new();
     // Several chapters share one page, so each one's ids are prefixed with its
@@ -391,6 +392,7 @@ pub fn slides(
     comments: bool,
     found: &[Problem],
 ) -> String {
+    let _render = tracing::info_span!("render").entered();
     let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
     let mut content = String::new();
     for (index, slide) in files.iter().enumerate() {

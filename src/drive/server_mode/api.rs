@@ -14,6 +14,7 @@ use devpage_core::served::ServedFolder;
 use sha2::{Digest, Sha256};
 
 use super::ServerMode;
+use super::metrics::{self, Stage};
 use crate::adapters::sqlite::{Deleted, DocumentRow, Publish, VersionRow};
 use crate::drive::api_types::{Described, Listed, Published, Refusal, Version};
 
@@ -119,7 +120,7 @@ async fn publish(
     // Kept until the publish is done: re-anchoring reads the new version's
     // pages from it.
     let _scratch = Scratch(scratch.clone());
-    let (kind, title) = check(&zip, entry, &scratch)
+    let (kind, title) = metrics::timed(Stage::PublishCheck, check(&zip, entry, &scratch))
         .await
         .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
     let sha256 = format!("{:x}", Sha256::digest(&zip));
@@ -128,7 +129,7 @@ async fn publish(
     let lock = state.publishing(id);
     let _one_at_a_time = lock.lock().await;
     let version = state.store.next_number(id)?;
-    state.bucket.put_version(id, version, zip).await?;
+    metrics::timed(Stage::Upload, state.bucket.put_version(id, version, zip)).await?;
     state.store.record(
         id,
         version,

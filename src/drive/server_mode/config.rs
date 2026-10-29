@@ -268,6 +268,7 @@ mod tests {
         let config = Config::from_vars(minimal(&[]), gigabytes(10)).unwrap();
         assert_eq!(config.host, IpAddr::from([127, 0, 0, 1]));
         assert_eq!(config.port, 3030);
+        assert_eq!(config.metrics_port, 9030);
         assert_eq!(config.cache_max_bytes, (10 << 30) / 100 * 80);
         assert_eq!(config.cache_policy, Policy::Lru);
         assert_eq!(config.max_upload_bytes, 100 << 20);
@@ -280,6 +281,7 @@ mod tests {
             minimal(&[
                 ("DEVPAGE_HOST", "0.0.0.0"),
                 ("DEVPAGE_PORT", "8080"),
+                ("DEVPAGE_METRICS_PORT", "9100"),
                 ("DEVPAGE_CACHE_MAX_BYTES", "8GB"),
                 ("DEVPAGE_CACHE_POLICY", "lru"),
                 ("DEVPAGE_MAX_UPLOAD_BYTES", "5MB"),
@@ -290,6 +292,7 @@ mod tests {
         .unwrap();
         assert_eq!(config.host, IpAddr::from([0, 0, 0, 0]));
         assert_eq!(config.port, 8080);
+        assert_eq!(config.metrics_port, 9100);
         assert_eq!(config.cache_max_bytes, 8 << 30);
         assert_eq!(config.max_upload_bytes, 5 << 20);
         assert_eq!(config.user_header.as_deref(), Some("X-Forwarded-Email"));
@@ -312,6 +315,10 @@ mod tests {
             (
                 minimal(&[("DEVPAGE_PORT", secret)]),
                 "DEVPAGE_PORT is not a port",
+            ),
+            (
+                minimal(&[("DEVPAGE_METRICS_PORT", secret)]),
+                "DEVPAGE_METRICS_PORT is not a port",
             ),
             (
                 minimal(&[("DEVPAGE_HOST", secret)]),

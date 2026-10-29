@@ -552,9 +552,9 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 
 ### `drive::server_mode`
 
-*30 tests, and 5 of its configuration; 4 in Chrome.*
+*35 tests, and 5 of its configuration; 4 in Chrome.*
 
-- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
+- Every `DEVPAGE_*` variable read, the defaults filling what is left out — the cache's limit 80% of the volume, the metrics port 9030 — and each missing, malformed or foreign variable stopping the server by its name, never echoing its value; another command's variables no mistake.
 - A published zip kept in the bucket byte for byte and served at its link — the latest in place at `/d/<id>/`, each version under its own mount — and a version kept unchanged by a later publish, its sha-256 recorded.
 - A publish naming its document file with `?entry=`, served from it, and an entry outside the zip refused; a broken link or a zip entry outside the document refusing the publish with `422`.
 - An upload over the limit refused with `413`, one over axum's own 2 MB default and under the limit accepted.
@@ -565,6 +565,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - Past its limit the cache evicting the least recently read version and a read fetching it again; misses arriving together unpacking a version once; a version bigger than the limit served without being cached, its folder deleted after; a version answering a request never evicted; an evicted version made again under both its mounts.
 - A published page asking no external address.
 - A page's problems — a broken link and a broken `#heading` — found on its first view and shown on every later one without checking again; each version keeping its own.
+- The metrics port reporting every stage, a publish and a view counted against the stages they went through, each request by its route and status, and every total; the pages' port answering `/metrics` with `404`; no label naming a document, a version or a page however many are read; a core span counted against its stage, and the text naming only stages.
 - A thread started, replied to and resolved through the API and through the latest's page — the same threads, on the page's unmounted path, oldest first — a page outside the document refused, a second resolve finding nothing.
 - With a user header, every comment write — the API's and the page's — needing it and carrying its author.
 - Each publish carrying the open threads onto the new version: one kept, one with new context, one whose quote is gone and one whose page is gone detached, each still on the version it was started on; the latest's page listing the detached one as detached; a thread started then on the new version; an earlier version taking no comments; a detached thread staying detached when its words come back.

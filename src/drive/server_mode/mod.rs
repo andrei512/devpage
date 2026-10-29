@@ -10,6 +10,8 @@ mod comments;
 mod comments_tests;
 mod config;
 pub mod metrics;
+#[cfg(test)]
+mod metrics_tests;
 mod pages;
 #[cfg(test)]
 mod pages_tests;
@@ -80,7 +82,15 @@ impl ServerMode {
 }
 
 /// The `devpage server` router for `config`.
+#[cfg(test)]
 pub fn router(config: &Config) -> Result<Router> {
+    Ok(routers(config)?.0)
+}
+
+/// The `devpage server` router for `config`, and its metrics port's router,
+/// which reports what that server holds.
+pub fn routers(config: &Config) -> Result<(Router, Router)> {
+    metrics::listen();
     let scratch = config.data_dir.join("scratch");
     // What a publish that stopped halfway left.
     let _ = std::fs::remove_dir_all(&scratch);
@@ -121,7 +131,7 @@ pub fn router(config: &Config) -> Result<Router> {
         .layer(DefaultBodyLimit::max(
             usize::try_from(config.max_upload_bytes).unwrap_or(usize::MAX),
         ));
-    Ok(Router::new()
+    let app = Router::new()
         .merge(api)
         .route("/", get(pages::front))
         .route("/favicon.ico", get(pages::favicon))
@@ -129,5 +139,17 @@ pub fn router(config: &Config) -> Result<Router> {
         .route("/d/{id}/", any(versions::latest_root))
         .route("/d/{id}/{*rest}", any(versions::in_document))
         .route("/__devpage/{asset}", get(server::asset))
-        .with_state(state))
+        .route_layer(axum::middleware::from_fn(metrics::requests))
+        .with_state(state.clone());
+    let cache = state.cache.clone();
+    let metrics = metrics::router(move || {
+        let (versions, routers) = cache.in_memory();
+        metrics::Totals {
+            versions,
+            routers,
+            open_pages: server::open_pages(),
+            cache_bytes: cache.size(),
+        }
+    });
+    Ok((app, metrics))
 }
