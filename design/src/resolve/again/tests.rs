@@ -250,11 +250,13 @@ fn list(n: usize, edited: Option<usize>, front: bool) -> String {
 }
 
 /// An edit to one row's text, and a row inserted before the first, are
-/// patches of one operation, and resolving them again costs no more on
-/// 100,000 rows than on 1,000, apart from reading the saved file.
+/// patches of one operation, and resolving them again resolves as many
+/// elements on 100,000 rows as on 1,000: what the edit reached, beside
+/// reading the saved file. Counted, not timed, so a loaded machine can't
+/// fail it.
 #[test]
 fn an_edit_resolves_again_only_what_it_reaches() {
-    let mut cost = Vec::new();
+    let mut counts = Vec::new();
     for n in [1_000usize, 100_000] {
         let mut saves = Remembering::new(HashMap::<String, String>::new());
         saves.files.insert("a.design".into(), list(n, None, false));
@@ -264,10 +266,11 @@ fn an_edit_resolves_again_only_what_it_reaches() {
             .files
             .insert("a.design".into(), list(n, Some(n / 2), false));
         let outcome = res.update(&mut held, &saves, &["a.design".to_string()]);
-        let Outcome::Changed(edits, _) = outcome else {
+        let Outcome::Changed(edits, applied) = outcome else {
             panic!("{outcome:?}")
         };
         assert_eq!(edits.list.len(), 1, "{n}");
+        let edited = (res.elements, applied.changed.len());
         saves
             .files
             .insert("a.design".into(), list(n, Some(n / 2), true));
@@ -278,29 +281,17 @@ fn an_edit_resolves_again_only_what_it_reaches() {
         };
         assert_eq!(edits.list.len(), 1, "{n}");
         assert_eq!(applied.placed.len(), 1);
+        let inserted = (res.elements, applied.placed.len(), applied.changed.len());
         same(&held.scene, &crate::resolve(&saves, "a.design").unwrap());
-        // What resolving again costs beyond reading the file: the update,
-        // less a parse and match of the same text.
-        saves
-            .files
-            .insert("a.design".into(), list(n, Some(n / 3), true));
-        let t = std::time::Instant::now();
-        let outcome = res.update(&mut held, &saves, &["a.design".to_string()]);
-        let update = t.elapsed();
-        assert!(matches!(outcome, Outcome::Changed(..)));
-        let t = std::time::Instant::now();
-        let text = list(n, Some(n / 3), true);
-        let _ = saves.parse("a.design", &text).unwrap();
-        let read = t.elapsed();
-        cost.push((n, update, read));
+        assert_eq!(res.wholes, 0, "{n}: brought across whole");
+        counts.push((n, edited, inserted));
     }
-    eprintln!("{cost:?}");
-    // The update is reading the file and a little more, at every size.
-    for &(n, update, read) in &cost {
-        assert!(
-            update < read * 4 + std::time::Duration::from_millis(5),
-            "{n}: update {update:?}, reading the file {read:?}"
-        );
+    eprintln!("{counts:?}");
+    let (_, edited, inserted) = counts[0];
+    // The edited row's text; the inserted row's frame and its text.
+    assert_eq!((edited.0, inserted.0), (1, 2), "{counts:?}");
+    for &(n, e, i) in &counts {
+        assert_eq!((e, i), (edited, inserted), "{n} rows: {counts:?}");
     }
 }
 

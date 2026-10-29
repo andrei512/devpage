@@ -72,6 +72,13 @@ impl Platform {
         lock(&self.folders).contains(folder)
     }
 
+    /// Whether changes in `folder`, as it is now, are reported — as far as
+    /// [`Self::covers`] knows: `notify` keeps inotify's watches to itself.
+    #[cfg(test)]
+    pub fn live(&self, folder: &Path) -> bool {
+        self.covers(folder)
+    }
+
     /// Whether a watched folder is `path` or inside it.
     pub fn watches_within(&self, path: &Path) -> bool {
         lock(&self.folders)
