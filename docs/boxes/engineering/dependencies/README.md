@@ -70,7 +70,7 @@ except where a code comment says so, and this page doesn't guess.
 | --- | --- | --- | --- | --- |
 | `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/server.rs` |
 | `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
-| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, and the widgets' props, widget lists and `__devpageUses`. | `src/drive/server.rs`, `core/src/render/frame.rs`, `core/src/render/sidebar.rs`, `core/src/widgets/` |
+| `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/server.rs`, `core/src/render/frame.rs`, `core/src/render/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
 
 ## Links and Chrome
 
@@ -101,7 +101,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `sha2` (core; and its build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/modules.rs`, `src/drive/validators.rs` |
+| `sha2` (core; and its build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `src/drive/validators.rs` |
 | `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/server.rs` (tests) |
 | `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/server.rs` (tests) |
 

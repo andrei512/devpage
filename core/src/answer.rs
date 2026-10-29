@@ -1,8 +1,8 @@
-//! What a request for a path in the served folder is answered with: a page,
-//! a redirect, a file's bytes, a design's or a slide's PNG, or why there is
-//! none. Decided here from the documents alone, so every route is tested
-//! without a socket; the HTTP server only turns an [`Answer`] into a response
-//! and draws the PNGs it names.
+//! What a request is answered with: a page, a redirect, a file's bytes, a
+//! design's or a slide's PNG, a widget's module, or why there is none.
+//! Decided here from the documents alone, so every route is tested without
+//! a socket; the HTTP server only turns an [`Answer`] into a response — its
+//! headers, the file's bytes read, the PNGs it names drawn.
 
 use std::path::PathBuf;
 
@@ -12,21 +12,16 @@ use crate::check::Preview;
 use crate::document::{self, Document, Kind};
 use crate::folder::{Folder, Owner};
 use crate::render;
-use crate::widgets::{Modules, Widgets};
+use crate::widgets::{self, Compiled, Modules, Widgets};
 
-/// What a path answers with.
+/// What a request is answered with.
 #[derive(Debug, PartialEq)]
 pub enum Answer {
-    /// A rendered page.
+    /// A rendered page: a document, a page of one, or a design's canvas
+    /// page.
     Html(String),
     /// Elsewhere: an address, mount prefix included.
     Redirect(String),
-    /// The canvas page of the design at `design`, a path in the served
-    /// folder, in `theme` when the address names one.
-    Canvas {
-        design: String,
-        theme: Option<Theme>,
-    },
     /// A file of the served folder, sent as it is.
     File(PathBuf),
     /// The PNG of the design at `design`, a path in the served folder.
@@ -34,6 +29,13 @@ pub enum Answer {
     /// Slide `n` of the deck whose page is at `page` — the deck's own
     /// address, without the mount prefix, as Chrome asks the server for it.
     SlidePng { page: String, n: usize },
+    /// A widget's module, compiled; `immutable` when asked for at its current
+    /// address, since what answers that never changes.
+    Module { js: String, immutable: bool },
+    /// A module that throws why a widget's module can't be had — it, or a
+    /// helper it imports, doesn't compile — so the page shows it in the
+    /// widget's place.
+    ModuleError(String),
     /// 404, and why.
     NotFound(String),
     /// 400, and why.
@@ -46,14 +48,30 @@ pub enum Answer {
 /// widget modules, the problems each page lists and whether comments are on.
 /// Every address it answers with is under the served folder's mount, which
 /// the documents carry.
-pub struct Resolver<'a> {
-    pub folder: &'a Folder,
-    pub modules: &'a Modules,
-    pub preview: &'a Preview,
-    pub comments: bool,
+pub struct Answers<'a> {
+    folder: &'a Folder,
+    modules: &'a Modules,
+    preview: &'a Preview,
+    comments: bool,
 }
 
-impl Resolver<'_> {
+impl<'a> Answers<'a> {
+    /// Answers from `folder`, its widget `modules` and the `preview` that
+    /// finds each page's problems, with comments shown or not.
+    pub fn new(
+        folder: &'a Folder,
+        modules: &'a Modules,
+        preview: &'a Preview,
+        comments: bool,
+    ) -> Self {
+        Self {
+            folder,
+            modules,
+            preview,
+            comments,
+        }
+    }
+
     /// `/` leads to the entry document as its file says now — or, while the
     /// file is invalid, shows why.
     pub fn home(&self) -> Answer {
@@ -121,10 +139,11 @@ impl Resolver<'_> {
         if path.ends_with(".design") {
             // An address that names a theme shows it; any other `theme` is
             // passed over.
-            return Answer::Canvas {
-                design: path.to_string(),
-                theme: theme.and_then(Result::ok),
-            };
+            return Answer::Html(render::canvas(
+                self.folder.served(),
+                path,
+                theme.and_then(Result::ok),
+            ));
         }
         let served = &entry.served;
         if document::kind_of(&file).is_some() {
@@ -178,6 +197,24 @@ impl Resolver<'_> {
                 Err(error) => Answer::Failed(format!("{error:#}")),
             },
         }
+    }
+
+    /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
+    /// the TSX built into the binary.
+    pub fn system_widget(&self, name: &str, query: Option<&str>) -> Answer {
+        module(
+            widgets::system_module(self.modules, name, version(query)),
+            || format!("{name} is not a system widget"),
+        )
+    }
+
+    /// `/__devpage/widgets/<path>`: a project widget or a helper it imports,
+    /// compiled from the served folder.
+    pub fn widget(&self, path: &str, query: Option<&str>) -> Answer {
+        module(
+            widgets::project_module(self.folder, self.modules, path, version(query)),
+            || format!("{path} is not part of the served folder"),
+        )
     }
 
     /// `<deck>/<n>.png`: slide `n` of the deck at `file` — or why there is
@@ -251,6 +288,27 @@ impl Resolver<'_> {
     }
 }
 
+/// The `v` a module's address was asked with, if any.
+fn version(query: Option<&str>) -> Option<&str> {
+    query?.split('&').find_map(|pair| pair.strip_prefix("v="))
+}
+
+/// A module request's answer: the module, a module that throws why it
+/// can't be had, or — when there is none — 404 with `missing`.
+fn module(requested: Option<Result<Compiled, String>>, missing: impl FnOnce() -> String) -> Answer {
+    match requested {
+        Some(Ok(Compiled { js, current })) => Answer::Module {
+            js,
+            immutable: current,
+        },
+        Some(Err(why)) => Answer::ModuleError(format!(
+            "throw new Error({});",
+            serde_json::to_string(&why).unwrap_or_default()
+        )),
+        None => Answer::NotFound(missing()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -259,7 +317,7 @@ mod tests {
     /// a YAML file that isn't a document — and a secret beside it, outside.
     fn served(name: &str) -> PathBuf {
         let top =
-            std::env::temp_dir().join(format!("devpage-resolve-{name}-{}", std::process::id()));
+            std::env::temp_dir().join(format!("devpage-answer-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&top);
         let dir = top.join("served");
         std::fs::create_dir_all(dir.join("docs/guide")).unwrap();
@@ -289,8 +347,8 @@ mod tests {
         dir.canonicalize().unwrap()
     }
 
-    /// The documents of `dir` with `entry` as the entry document: what a
-    /// resolver is made from.
+    /// The documents of `dir` with `entry` as the entry document: what
+    /// answers are made from.
     struct Served {
         folder: Folder,
         modules: Modules,
@@ -316,13 +374,8 @@ mod tests {
             }
         }
 
-        fn at(&self) -> Resolver<'_> {
-            Resolver {
-                folder: &self.folder,
-                modules: &self.modules,
-                preview: &self.preview,
-                comments: true,
-            }
+        fn at(&self) -> Answers<'_> {
+            Answers::new(&self.folder, &self.modules, &self.preview, true)
         }
     }
 
@@ -338,28 +391,28 @@ mod tests {
         let dir = served("kinds");
         assert!(!dir.join(".git").exists());
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
+        let answers = served.at();
 
-        assert_eq!(resolve.home(), Answer::Redirect("/docs/README.md".into()));
-        let page = html(resolve.path("docs/guide/step.md", None));
+        assert_eq!(answers.home(), Answer::Redirect("/docs/README.md".into()));
+        let page = html(answers.path("docs/guide/step.md", None));
         assert!(
             page.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "a page of its nearest site"
         );
         assert!(page.contains("Step · Docs"), "{page}");
 
-        let deck = html(resolve.path("notes/talk.yml", None));
+        let deck = html(answers.path("notes/talk.yml", None));
         assert!(deck.contains("Talk"), "a document file opens as its kind");
         assert!(!deck.contains("<nav id=\"devpage-nav\" data-sidebar="));
 
-        let loose = html(resolve.path("notes/loose.md", None));
+        let loose = html(answers.path("notes/loose.md", None));
         assert!(
             !loose.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "in no site: a doc of one chapter"
         );
         assert!(loose.contains("Loose"));
 
-        let broken = html(resolve.path("notes/broken.yml", None));
+        let broken = html(answers.path("notes/broken.yml", None));
         assert!(broken.contains("not a valid document"), "{broken}");
         assert!(
             broken.contains("chapter gone.md does not exist"),
@@ -367,20 +420,18 @@ mod tests {
         );
 
         assert_eq!(
-            resolve.path("docs/devpage.yml", None),
+            answers.path("docs/devpage.yml", None),
             Answer::Redirect("/docs/README.md".into()),
             "a site opens on its root page"
         );
         assert_eq!(
-            resolve.path("notes/ci.yml", None),
+            answers.path("notes/ci.yml", None),
             Answer::File(dir.join("notes/ci.yml"))
         );
-        assert_eq!(
-            resolve.path("notes/screen.design", Some("theme=dark")),
-            Answer::Canvas {
-                design: "notes/screen.design".into(),
-                theme: Some(Theme::Dark)
-            }
+        let canvas = html(answers.path("notes/screen.design", None));
+        assert!(
+            canvas.contains(r#"<canvas class="design" src="/notes/screen.design""#),
+            "a design opens on its canvas page: {canvas}"
         );
     }
 
@@ -388,8 +439,8 @@ mod tests {
     fn a_page_of_a_site_prints_as_a_doc_of_one_chapter() {
         let dir = served("print");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
-        let page = html(resolve.path("docs/guide/step.md", Some("print")));
+        let answers = served.at();
+        let page = html(answers.path("docs/guide/step.md", Some("print")));
         assert!(
             page.contains("<body class=\"doc print\" data-build="),
             "{page}"
@@ -399,7 +450,7 @@ mod tests {
             !page.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "{page}"
         );
-        let on_screen = html(resolve.path("docs/guide/step.md", Some("x=1&y")));
+        let on_screen = html(answers.path("docs/guide/step.md", Some("x=1&y")));
         assert!(
             on_screen.contains("<nav id=\"devpage-nav\" data-sidebar="),
             "still a site page on screen"
@@ -418,13 +469,13 @@ mod tests {
         )
         .unwrap();
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
+        let answers = served.at();
         assert!(
-            html(resolve.path("other/page.md", None))
+            html(answers.path("other/page.md", None))
                 .contains("<a class=\"document-title\" href=\"/other/index.md\">Other</a>")
         );
         assert!(
-            html(resolve.path("docs/guide/step.md", None))
+            html(answers.path("docs/guide/step.md", None))
                 .contains("<a class=\"document-title\" href=\"/docs/README.md\">Docs</a>")
         );
     }
@@ -434,7 +485,7 @@ mod tests {
         let dir = served("outside");
         std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
+        let answers = served.at();
         for path in [
             "../secret.md",
             "docs/escape.md",
@@ -444,7 +495,7 @@ mod tests {
             "../secret.md/1.png",
         ] {
             assert!(
-                matches!(resolve.path(path, None), Answer::NotFound(_)),
+                matches!(answers.path(path, None), Answer::NotFound(_)),
                 "{path}"
             );
         }
@@ -457,10 +508,10 @@ mod tests {
         std::os::unix::fs::symlink(&dir, &link).unwrap();
         let link = link.canonicalize().unwrap();
         let served = Served::new(&link, "docs");
-        let resolve = served.at();
-        assert!(html(resolve.path("docs/guide/step.md", None)).contains("Step"));
+        let answers = served.at();
+        assert!(html(answers.path("docs/guide/step.md", None)).contains("Step"));
         assert!(matches!(
-            resolve.path("notes/ci.yml", None),
+            answers.path("notes/ci.yml", None),
             Answer::File(_)
         ));
     }
@@ -469,9 +520,9 @@ mod tests {
     fn a_slide_png_names_a_slide_of_a_deck_or_why_there_is_none() {
         let dir = served("slide-png");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
+        let answers = served.at();
         assert_eq!(
-            resolve.path("notes/talk.yml/1.png", None),
+            answers.path("notes/talk.yml/1.png", None),
             Answer::SlidePng {
                 page: "/notes/talk.yml".into(),
                 n: 1
@@ -487,7 +538,7 @@ mod tests {
             ("notes/broken.yml/1.png", "notes/broken.yml is not a deck"),
             ("notes/gone.yml/1.png", "is not part of the served folder"),
         ] {
-            match resolve.path(path, None) {
+            match answers.path(path, None) {
                 Answer::NotFound(why) => assert!(why.contains(reason), "{path}: {why}"),
                 other => panic!("{path}: {other:?}"),
             }
@@ -498,8 +549,8 @@ mod tests {
     fn a_design_png_takes_its_theme_from_the_address() {
         let dir = served("design-png");
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
-        let png = |query| resolve.path("notes/screen.design.png", query);
+        let answers = served.at();
+        let png = |query| answers.path("notes/screen.design.png", query);
         assert_eq!(
             png(None),
             Answer::DesignPng {
@@ -526,15 +577,20 @@ mod tests {
     #[test]
     fn every_address_it_answers_with_carries_the_mount_prefix() {
         let dir = served("mount");
-        let resolve = Served::mounted(&dir, "docs", "/d/6f1c/v/3");
-        let resolve = resolve.at();
+        let served = Served::mounted(&dir, "docs", "/d/6f1c/v/3");
+        let answers = served.at();
         assert_eq!(
-            resolve.home(),
+            answers.home(),
             Answer::Redirect("/d/6f1c/v/3/docs/README.md".into())
         );
         assert_eq!(
-            resolve.path("docs/devpage.yml", None),
+            answers.path("docs/devpage.yml", None),
             Answer::Redirect("/d/6f1c/v/3/docs/README.md".into())
+        );
+        let canvas = html(answers.path("notes/screen.design", None));
+        assert!(
+            canvas.contains(r#"src="/d/6f1c/v/3/notes/screen.design""#),
+            "{canvas}"
         );
         // Unmounted, the same answers are today's addresses.
         assert_eq!(
@@ -555,8 +611,8 @@ mod tests {
         .unwrap();
         std::fs::write(dir.join("drafts/a.md"), "# First draft\n").unwrap();
         let served = Served::new(&dir, "docs");
-        let resolve = served.at();
-        let page = html(resolve.path("drafts/plan.yml", None));
+        let answers = served.at();
+        let page = html(answers.path("drafts/plan.yml", None));
         assert!(page.contains("First draft"), "{page}");
 
         // The watcher never hears of a gitignored file, and nothing has to:
@@ -567,9 +623,176 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("drafts/a.md"), "# Second draft\n").unwrap();
-        let page = html(resolve.path("drafts/plan.yml", None));
+        let page = html(answers.path("drafts/plan.yml", None));
         assert!(page.contains("Renamed plan"), "{page}");
         assert!(page.contains("Second draft"), "{page}");
         assert!(!page.contains("First draft"), "{page}");
+    }
+
+    #[test]
+    fn a_design_opens_on_its_canvas_page_in_the_theme_its_address_names() {
+        let dir = served("canvas-theme");
+        let served = Served::new(&dir, "docs");
+        let answers = served.at();
+        let page = |query| html(answers.path("notes/screen.design", query));
+        let chosen = r#"<script>document.documentElement.dataset.theme="dark"</script>"#;
+        assert!(page(Some("theme=dark")).contains(chosen));
+        assert!(!page(None).contains("dataset.theme=\"dark\""));
+        assert!(!page(Some("theme=blue")).contains("dataset.theme=\"blue\""));
+        assert!(page(None).contains("<title>screen</title>"));
+    }
+
+    /// The module `answer` is, and whether it is immutable.
+    fn module(answer: Answer) -> (String, bool) {
+        match answer {
+            Answer::Module { js, immutable } => (js, immutable),
+            other => panic!("not a module: {other:?}"),
+        }
+    }
+
+    /// The module that throws, that `answer` is.
+    fn thrown(answer: Answer) -> String {
+        match answer {
+            Answer::ModuleError(js) => js,
+            other => panic!("not a module that throws: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn widgets_are_answered_compiled_for_the_document_they_belong_to() {
+        let dir = served("widget-modules");
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        std::fs::create_dir_all(dir.join("notes/parts")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/Card.tsx"),
+            "import { label } from \"./label\";\nexport default () => <Callout>{label}</Callout>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/label.ts"),
+            "export const label = 'x';",
+        )
+        .unwrap();
+        std::fs::write(dir.join("docs/widgets/Broken.tsx"), "export default (").unwrap();
+        // Another document's widgets compose with that document's names.
+        std::fs::write(
+            dir.join("notes/talk.yml"),
+            "kind: slides\ntitle: Talk\nslides: [one.md]\nwidgets: parts\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Pill.tsx"),
+            "export default () => <i>p</i>;",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("notes/parts/Row.tsx"),
+            "export default () => <Pill />;",
+        )
+        .unwrap();
+        let served = Served::new(&dir, "docs");
+        let answers = served.at();
+
+        // A system widget: immutable at its current address only.
+        let tabs = widgets::system_address("Tabs", "");
+        let (path, query) = tabs.split_once('?').unwrap();
+        let name = path.rsplit('/').next().unwrap();
+        let (system, immutable) = module(answers.system_widget(name, Some(query)));
+        assert!(system.contains("export const __devpageUses"), "{system}");
+        assert!(immutable);
+        assert_eq!(module(answers.system_widget(name, None)), (system, false));
+        assert_eq!(
+            answers.system_widget("Nope.tsx", None),
+            Answer::NotFound("Nope.tsx is not a system widget".into())
+        );
+
+        // The address a page names a project widget by is the one it is
+        // immutable at; the helper it imports is named by its own address.
+        let page = html(answers.path("docs/README.md", None));
+        let card = page
+            .split("\"Card\":\"")
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap()
+            .to_string();
+        let asked = |address: &str| {
+            let (path, query) = address.split_once('?').unwrap_or((address, ""));
+            let path = path.strip_prefix("/__devpage/widgets/").unwrap();
+            answers.widget(path, Some(query).filter(|q| !q.is_empty()))
+        };
+        let (compiled, immutable) = module(asked(&card));
+        assert!(immutable, "{card}");
+        let label = Modules::default()
+            .snapshot(served.folder.served(), &dir.join("docs/widgets/label.ts"))
+            .address(
+                &dir.join("docs/widgets/label.ts"),
+                Widgets::of(&served.folder.entry(), &Modules::default()).names(),
+            );
+        assert!(compiled.contains(&format!("\"{label}\"")), "{compiled}");
+        assert!(
+            compiled.contains("__devpageUses = [\"Callout\"]"),
+            "{compiled}"
+        );
+        let (helper, immutable) = module(asked(&label));
+        assert!(immutable && helper.contains("label"), "{helper}");
+        // Any other version answers with the current module, never immutable.
+        for stale in [
+            "/__devpage/widgets/docs/widgets/Card.tsx?v=0123456789abcdef",
+            "/__devpage/widgets/docs/widgets/Card.tsx",
+        ] {
+            assert_eq!(module(asked(stale)), (compiled.clone(), false), "{stale}");
+        }
+        // An import without an extension finds the `.ts` beside it.
+        let (helper, _) = module(answers.widget("docs/widgets/label", None));
+        assert!(helper.contains("label"), "{helper}");
+
+        let broken = thrown(answers.widget("docs/widgets/Broken.tsx", None));
+        assert!(
+            broken.starts_with("throw new Error(\"docs/widgets/Broken.tsx does not compile:"),
+            "{broken}"
+        );
+        let (row, _) = module(answers.widget("notes/parts/Row.tsx", None));
+        assert!(row.contains("__devpageUses = [\"Pill\"]"), "{row}");
+
+        for outside in ["../secret.md", "docs/widgets/Gone.tsx"] {
+            assert_eq!(
+                answers.widget(outside, None),
+                Answer::NotFound(format!("{outside} is not part of the served folder"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_widget_whose_helper_does_not_compile_throws_naming_the_helper() {
+        let dir = served("widget-broken-helper");
+        std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/widgets/Card.tsx"),
+            "import { frame } from \"./frame\";\nexport default () => <i>{frame}</i>;",
+        )
+        .unwrap();
+        // Reached through a second helper: the error is transitive.
+        std::fs::write(
+            dir.join("docs/widgets/frame.ts"),
+            "export { inner as frame } from \"./inner\";",
+        )
+        .unwrap();
+        std::fs::write(dir.join("docs/widgets/inner.ts"), "export const inner = (").unwrap();
+        let served = Served::new(&dir, "docs");
+        let thrown = thrown(served.at().widget("docs/widgets/Card.tsx", None));
+        assert!(
+            thrown.starts_with("throw new Error(\"docs/widgets/inner.ts does not compile:"),
+            "{thrown}"
+        );
     }
 }

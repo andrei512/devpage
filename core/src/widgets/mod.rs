@@ -7,18 +7,23 @@
 //! placeholder. What was read and compiled is kept in a [`Modules`] cache.
 //!
 //! This module is the widget set a document has: its names, the address
-//! each is served at, and what a page loads.
+//! each is served at, what a page loads, and what a request for one of its
+//! modules answers ([`request`]).
 
 mod compile;
 mod modules;
+mod request;
 mod tags;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use anyhow::{Result, anyhow};
+use sha2::{Digest, Sha256};
 
 pub use modules::{Modules, Snapshot};
+pub use request::{Compiled, project_module, system_module};
 pub use tags::expand;
 
 use crate::addresses::{Owned, address};
@@ -84,10 +89,9 @@ impl Widgets {
         };
         for (name, _) in SYSTEM {
             let mount = document.served.mount();
-            widgets.modules.insert(
-                name.to_string(),
-                address(Owned::SystemWidget { name, mount }),
-            );
+            widgets
+                .modules
+                .insert(name.to_string(), system_address(name, mount));
         }
         widgets.served = document.served.clone();
         widgets.known = widgets.modules.keys().cloned().collect();
@@ -143,11 +147,9 @@ impl Widgets {
             .into_iter()
             .collect();
         for (name, file) in own {
-            let url = address(Owned::Module {
-                snapshot: &cache.snapshot(&document.served, &file),
-                file: &file,
-                known: &known,
-            });
+            let url = cache
+                .snapshot(&document.served, &file)
+                .address(&file, &known);
             widgets.modules.insert(name.clone(), url);
             widgets.files.insert(name, file);
         }
@@ -234,11 +236,7 @@ impl Widgets {
                 Some(file) => {
                     let snapshot = self.cache.snapshot(&self.served, file);
                     for (helper, _) in snapshot.closure(file).into_iter().skip(1) {
-                        helpers.push(address(Owned::Module {
-                            snapshot: &snapshot,
-                            file: &helper,
-                            known: &self.known,
-                        }));
+                        helpers.push(snapshot.address(&helper, &self.known));
                     }
                     snapshot.compile(file, &self.known)
                 }
@@ -292,9 +290,60 @@ pub fn system(name: &str) -> Option<&'static str> {
     SYSTEM.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
 }
 
+/// A system widget's version: its source, the names it can render and the
+/// build — everything its compiled bytes are made from. `None` for a name
+/// that isn't a system widget.
+pub fn system_hash(name: &str) -> Option<&'static str> {
+    static HASHES: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
+        let names: Vec<&str> = SYSTEM.iter().map(|(n, _)| *n).collect();
+        SYSTEM
+            .iter()
+            .map(|(name, source)| {
+                let mut hash = Sha256::new();
+                hash.update(crate::addresses::BUILD);
+                hash.update(names.join("\0"));
+                hash.update(name);
+                hash.update(source);
+                (*name, crate::addresses::short(&hash.finalize()))
+            })
+            .collect()
+    });
+    HASHES
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, hash)| hash.as_str())
+}
+
+/// The address the system widget `name` is served at for the document
+/// served under `mount`, carrying its [version](system_hash).
+pub fn system_address(name: &str, mount: &str) -> String {
+    address(Owned::SystemWidget {
+        name,
+        mount,
+        hash: system_hash(name).unwrap_or_default(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_system_widget_address_carries_its_own_version() {
+        assert_eq!(
+            system_address("Callout", ""),
+            format!(
+                "/__devpage/system-widgets/Callout.tsx?v={}",
+                system_hash("Callout").unwrap()
+            )
+        );
+        assert_ne!(
+            system_hash("Callout"),
+            system_hash("Tabs"),
+            "each system widget has its own version"
+        );
+        assert_eq!(system_hash("Nope"), None);
+    }
 
     #[test]
     fn lowercase_files_are_helpers_and_a_system_name_is_a_problem() {
@@ -327,14 +376,12 @@ mod tests {
         let known: Vec<String> = widgets.modules.keys().cloned().collect();
         assert_eq!(
             widgets.modules["Card"],
-            address(Owned::Module {
-                snapshot: &Modules::default().snapshot(
+            Modules::default()
+                .snapshot(
                     &ServedFolder::new(&dir).unwrap(),
                     &dir.join("widgets/Card.tsx")
-                ),
-                file: &dir.join("widgets/Card.tsx"),
-                known: &known
-            })
+                )
+                .address(&dir.join("widgets/Card.tsx"), &known)
         );
     }
 

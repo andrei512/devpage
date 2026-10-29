@@ -8,6 +8,7 @@
 //! binary plugs in the adapters.
 
 pub mod addresses;
+pub mod answer;
 pub mod cache;
 pub mod changes;
 pub mod check;
@@ -25,7 +26,6 @@ pub mod nav;
 pub mod navbar;
 pub mod problem;
 pub mod render;
-pub mod resolve;
 pub mod search;
 pub mod watch;
 pub mod widgets;

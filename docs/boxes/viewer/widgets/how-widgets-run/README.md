@@ -58,7 +58,9 @@ page preloading its helper name the same address. A module asked for at its
 current version is served `immutable`, and the browser never asks for it
 again; at any other version, or none, it is served as it is now, with
 `no-cache` ([Caching](../../serving-pages/README.md#caching)). Every address
-comes from one function, `address` in `core/src/addresses.rs`. A module's version
+comes from one function, `address` in `core/src/addresses.rs`, given the
+version the widgets compute: a system widget's from `system_hash`, a project
+module's from its `Snapshot`. A module's version
 and its compiled bytes come from one reading of the files they are made from
 (a `Snapshot`), so a save landing while a request is answered can't send the
 new bytes as `immutable` under the old version. The files a version
@@ -80,7 +82,12 @@ out — is never read, as nothing outside it is
 a module that throws the compiler's message, and so is a widget whose relative
 imports reach a helper that doesn't compile — with the helper's message — so
 the page shows why in the widget's place rather than only that its import
-failed.
+failed. Which file a module address names, the document whose names it can
+render, whether it was asked for at its current version and why it can't be
+had are all decided in `core/src/widgets/request.rs`, the one place the
+extensions an import is tried with are written; the request's
+[answer](../../glossary/README.md#answer) is a module or a module that
+throws, and the server only adds its headers.
 
 | Address | What it serves |
 | --- | --- |

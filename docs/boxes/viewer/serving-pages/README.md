@@ -39,14 +39,19 @@ flowchart LR
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
-**Who decides.** What every route from `/` down answers with — a page, a
-redirect, a file's bytes, a design's or a slide's PNG, or `404`, `400` or
-`500` with the reason — is decided by the **resolver** (`core/src/resolve.rs`) from
-the documents alone: the served folder (`Folder`) with its entry document and
-its document index, the widget modules, the problems each page lists and
-whether comments are on. The HTTP server only turns its answer into
-a response, reading the file's bytes or drawing the PNG it names, so every
-route is tested without a socket.
+**Who decides.** What `/`, `/{*path}` and the two widget routes answer with
+— a page (a design's [canvas page](#the-canvas-page) among them), a redirect,
+a file's bytes, a design's or a slide's PNG, a widget's module (`immutable`
+at its current address), a module that throws why it can't be had, or `404`,
+`400` or `500` with the reason — is the **[answer](../glossary/README.md#answer)**
+`Answers` (`core/src/answer.rs`) decides from the documents alone: the served
+folder (`Folder`) with its entry document and its document index, the widget
+modules, the problems each page lists and whether comments are on. The
+widgets own how a module's address finds its file and whether it is current
+([How widgets run](../widgets/how-widgets-run/README.md)). The HTTP server
+only turns an answer into a response — its headers, the file's bytes read,
+the PNG it names drawn — so every one of these routes is tested without a
+socket.
 
 **The mount.** The served folder carries a **mount prefix** — empty for
 `devpage` and bundled mode, `/d/<id>` for a document's latest version and
@@ -54,7 +59,7 @@ route is tested without a socket.
 set once, where devpage starts serving a folder, and every document, index,
 design store and widget snapshot is loaded from that same served folder, so
 every address a page carries starts with it: its links, sidebar and navbar,
-its widgets and their helpers, the redirects the resolver answers with, and
+its widgets and their helpers, the redirects it answers with, and
 the page script's endpoints — the events, comments, search and the design
 watch stream. Only the [built-in assets](#built-in-assets) are outside it, the
 same for every document. The page's `<html>` carries the prefix as
