@@ -306,6 +306,35 @@ async fn a_design_resolves_under_its_documents_mount() {
 }
 
 #[tokio::test]
+async fn a_versions_problems_are_found_once_whichever_address_it_is_read_at() {
+    let config = config("problems-both-mounts");
+    let app = router(&config).unwrap();
+    let doc = zip_of(&[
+        (
+            "devpage.yml",
+            "kind: doc\ntitle: T\nchapters:\n  - README.md\n",
+        ),
+        ("README.md", "# T\n"),
+        ("stray.md", "# Stray\n\n[gone](gone.md)\n"),
+    ]);
+    let id = create(&app, doc).await;
+    let first = ask(&app, get(&format!("/d/{id}/stray.md"))).await.1;
+    assert!(
+        first.as_str().unwrap().contains("broken link gone.md"),
+        "{first}"
+    );
+    // Fixed in the cache behind the server's back: the version's own address
+    // shows what the latest's view found, so it checked nothing again.
+    let cached = config.data_dir.join("cache").join(&id).join("1");
+    std::fs::write(cached.join("stray.md"), "# Stray\n").unwrap();
+    let pinned = ask(&app, get(&format!("/d/{id}/v/1/stray.md"))).await.1;
+    assert!(
+        pinned.as_str().unwrap().contains("broken link gone.md"),
+        "{pinned}"
+    );
+}
+
+#[tokio::test]
 async fn a_pages_problems_are_found_on_its_first_view_and_kept_with_its_version() {
     let config = config("problems-once");
     let app = router(&config).unwrap();
