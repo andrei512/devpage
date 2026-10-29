@@ -49,9 +49,15 @@ content's: they are the document file's, and checked with it.
 
 The content is rendered once per request: what the preview checks is what the
 page shows. A link into another page lands on an id that page renders, which
-`page::ids` answers without building the page — a Markdown file's ids, or a
-doc's, each with its chapter's name before it when it has more than one, as
-[the doc's frame](#the-page-frame) scopes them.
+`page::ids` answers from that page's content phase, without building its
+frame — a Markdown file's ids, its tags expanded with the widgets of the
+document that shows it (`page::shown_in`: its nearest site, or, in no site,
+the file alone), or a doc's, with its own widgets, each with its chapter's
+name before it when it has more than one, as
+[the doc's frame](#the-page-frame) scopes them. `Rendered::ids` and
+`Rendered::heading_ids` are the one source of a content's ids: the check
+lands links on them and [search](../search/README.md#what-is-indexed) names
+its sections by them.
 
 ## Markdown to HTML
 

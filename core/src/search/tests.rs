@@ -66,6 +66,15 @@ pub(crate) fn served(name: &str) -> PathBuf {
     dir.canonicalize().unwrap()
 }
 
+/// `source`'s content as a page with no widgets shows it.
+fn unwidgeted(source: &str) -> crate::page::Rendered {
+    crate::page::content(
+        &crate::widgets::Widgets::default(),
+        Path::new("page.md"),
+        source.to_string(),
+    )
+}
+
 /// The folder opened on `docs/`, and the search index of what it publishes.
 struct Indexed {
     folder: Folder,
@@ -181,7 +190,11 @@ fn a_doc_and_a_deck_are_searched_at_their_own_addresses() {
         &ServedFolder::new(&dir).unwrap(),
     )
     .unwrap();
-    let ids = crate::page::ids(&plan.path(), &plan.served);
+    let ids = crate::page::ids(
+        &plan.path(),
+        &index.folder,
+        &crate::widgets::Modules::default(),
+    );
     assert!(ids.contains("how--context"), "{ids:?}");
     assert!(ids.contains("how"), "{ids:?}");
     // A slide's notes are searchable, and lead to its slide.
@@ -487,7 +500,7 @@ fn changes_keep_it_current() {
 #[test]
 fn a_section_split_keeps_rendered_ids_and_sorts_text() {
     let source = "Intro text.\n\n# Comments\n\nx\n\n## Two `words`\n\ny\n\n## Two words\n\nBefore.\n```\ncode here\n```\n";
-    let found = read(source).sections;
+    let found = read(&unwidgeted(source)).sections;
     let ids: Vec<_> = found.iter().map(|s| s.id.clone()).collect();
     let html = crate::page::markdown::markdown(source);
     for id in ids.iter().flatten() {
@@ -725,13 +738,20 @@ fn a_section_is_at_an_id_the_check_lets_a_link_land_on() {
     let served = ServedFolder::new(&dir).unwrap();
     let page = dir.join("page.md");
     let source = "# Use `code` *here*\n\n## Same\n\n## Same\n\n## devpage-page\n\n\
-        ## [A link](x.md) & more\n\n<h2 id=\"raw\">Raw</h2>\n\n## Title[^1]\n\n[^1]: A note.\n";
+        ## [A link](x.md) & more\n\n<h2 id=\"raw\">Raw</h2>\n\n## Title[^1]\n\n[^1]: A note.\n\n\
+        <Steps>\n## One\n## Two\n</Steps>\n\n<Nope>\n## Hidden\n</Nope>\n";
     std::fs::write(&page, source).unwrap();
-    let sections: Vec<String> = gather::read(source)
+    let document = Document::load(&page, &served).unwrap();
+    let folder = Folder::new(std::sync::Arc::new(Document::load(&page, &served).unwrap()));
+    let modules = crate::widgets::Modules::default();
+    let rendered = crate::page::read(&crate::widgets::Widgets::of(&document, &modules), &page);
+    let sections: Vec<String> = gather::read(&rendered)
         .sections
         .into_iter()
         .filter_map(|section| section.id)
         .collect();
+    // A heading inside a widget is a section, as its page shows it; one
+    // inside an unknown tag, which shows only its error, is not.
     assert_eq!(
         sections,
         [
@@ -740,11 +760,68 @@ fn a_section_is_at_an_id_the_check_lets_a_link_land_on() {
             "same-1",
             "devpage-page-heading",
             "a-link--more",
-            "title"
+            "title",
+            "one",
+            "two"
         ]
     );
-    let landed = crate::page::ids(&page, &served);
+    let landed = crate::page::ids(&page, &folder, &modules);
     for id in &sections {
         assert!(landed.contains(id), "{id} isn't an id of {landed:?}");
     }
+    assert!(!landed.contains("hidden"), "{landed:?}");
+}
+
+#[test]
+fn a_heading_inside_a_widget_is_found_and_one_inside_an_unknown_tag_is_not() {
+    let dir = served("widget-headings");
+    std::fs::write(
+        dir.join("docs/guide/layout.md"),
+        "# Layout\n\n<Steps>\n## Install the flamingo\nRun it.\n</Steps>\n\n\
+         <Callout title=\"Heads up\" values={[\"rocket\"]} open>\nMind the step.\n</Callout>\n\n\
+         <Nope>\n## Secret heron\nHidden capybara.\n</Nope>\n",
+    )
+    .unwrap();
+    let index = index(&dir);
+    assert_eq!(
+        section_urls(&find(&index, "flamingo")),
+        ["/docs/guide/layout.md#install-the-flamingo"]
+    );
+    // A widget's text props are prose; an expression's strings are not.
+    assert!(!find(&index, "heads").pages.is_empty());
+    assert!(find(&index, "rocket").pages.is_empty());
+    // An unknown tag's content isn't shown, so it isn't searched, nor is
+    // its error.
+    assert!(find(&index, "heron").pages.is_empty());
+    assert!(find(&index, "capybara").pages.is_empty());
+    assert!(find(&index, "widget").pages.is_empty());
+}
+
+#[test]
+fn a_widget_added_reads_again_the_pages_whose_tags_it_makes_widgets() {
+    let dir = served("widget-added");
+    std::fs::write(
+        dir.join("docs/devpage.yml"),
+        "kind: site\ntitle: Handbook\nroot: README.md\nwidgets: widgets\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
+    std::fs::write(
+        dir.join("docs/guide/layout.md"),
+        "# Layout\n\n<Box>\n## The boxed wombat\n</Box>\n",
+    )
+    .unwrap();
+    let index = index(&dir);
+    assert!(find(&index, "wombat").pages.is_empty());
+    let widget = dir.join("docs/widgets/Box.tsx");
+    std::fs::write(
+        &widget,
+        "export default function Box({ children }) { return children; }\n",
+    )
+    .unwrap();
+    index.search.changed(&index.folder, &[widget]);
+    assert_eq!(
+        section_urls(&find(&index, "wombat")),
+        ["/docs/guide/layout.md#the-boxed-wombat"]
+    );
 }

@@ -59,19 +59,20 @@ pub struct Answers<'a> {
     folder: &'a Folder,
     modules: &'a Modules,
     designs: &'a Designs,
-    preview: &'a Preview,
+    /// `None` for the Chrome that shoots slides: its pages list no problems.
+    preview: Option<&'a Preview>,
     comments: bool,
 }
 
 impl<'a> Answers<'a> {
     /// Answers from `folder`, its widget `modules`, its design store
-    /// `designs` and the `preview` that finds each page's problems, with
-    /// comments shown or not.
+    /// `designs` and the `preview` that finds each page's problems — or
+    /// none, and no page lists any — with comments shown or not.
     pub fn new(
         folder: &'a Folder,
         modules: &'a Modules,
         designs: &'a Designs,
-        preview: &'a Preview,
+        preview: Option<&'a Preview>,
         comments: bool,
     ) -> Self {
         Self {
@@ -181,12 +182,7 @@ impl<'a> Answers<'a> {
                 // Rendered once: the preview judges the content the page shows.
                 let widgets = Widgets::of(&site, self.modules);
                 let rendered = page::content(&widgets, &file, source);
-                let found = self.preview.problems(
-                    &site,
-                    &widgets,
-                    self.designs,
-                    std::slice::from_ref(&rendered),
-                );
+                let found = self.problems(&site, &widgets, std::slice::from_ref(&rendered));
                 page::page(&site, &widgets, &rendered, self.comments, &found)
                     .map_or_else(outside, Answer::Html)
             }
@@ -258,6 +254,19 @@ impl<'a> Answers<'a> {
         }
     }
 
+    /// The problems `pages` of `document` list above themselves: none
+    /// without a preview, which then looks for none.
+    fn problems(
+        &self,
+        document: &Document,
+        widgets: &Widgets,
+        pages: &[page::Rendered],
+    ) -> Vec<crate::problem::Problem> {
+        self.preview.map_or_else(Vec::new, |preview| {
+            preview.problems(self.folder, document, widgets, self.designs, pages)
+        })
+    }
+
     /// A document as its kind: a site opens on its root page. Printed, a
     /// page lists no problems, so none are looked for.
     /// Each page's content is rendered once, for the preview to judge and
@@ -268,8 +277,7 @@ impl<'a> Answers<'a> {
             if print {
                 Vec::new()
             } else {
-                self.preview
-                    .problems(document, &widgets, self.designs, pages)
+                self.problems(document, &widgets, pages)
             }
         };
         match &document.kind {
@@ -406,7 +414,7 @@ mod tests {
                 &self.folder,
                 &self.modules,
                 &self.designs,
-                &self.preview,
+                Some(&self.preview),
                 true,
             )
         }

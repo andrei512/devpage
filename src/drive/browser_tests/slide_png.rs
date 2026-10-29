@@ -1,5 +1,5 @@
-//! A slide's PNG, shot by chrome-headless-shell: drawn without its comments,
-//! without waiting for a design on another slide, never shooting itself,
+//! A slide's PNG, shot by chrome-headless-shell: drawn without its comments
+//! and its problems, without waiting for a design on another slide, never shooting itself,
 //! kept until a file its deck is drawn from changes, and Chrome closed and
 //! started again.
 
@@ -67,6 +67,36 @@ async fn a_slide_is_shot_without_its_comments() {
     shots.changed(&[dir.join("one.md")]);
     let after = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
     assert!(after == before, "the comment shows in the slide's PNG");
+}
+
+/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+#[tokio::test]
+#[ignore]
+async fn a_slide_is_shot_without_its_problems() {
+    let (address, dir, shots) = deck(
+        "problems",
+        &[
+            ("one.md", "# One\n\nSee [the plan](plan.md) first.\n"),
+            ("talk.yml", "kind: slides\ntitle: Talk\nslides: [one.md]\n"),
+        ],
+    )
+    .await;
+    // The deck's page lists the broken link, and marks it …
+    let page = reqwest::get(format!("{address}/talk.yml"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(page.contains("broken link plan.md"), "{page}");
+    // … but its slide's PNG shows neither: it is the slide drawn once the
+    // link is fixed.
+    let url = format!("{address}/talk.yml/1.png");
+    let broken = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
+    std::fs::write(dir.join("plan.md"), "# Plan\n").unwrap();
+    shots.changed(&[dir.join("one.md")]);
+    let fixed = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
+    assert!(broken == fixed, "the problem shows in the slide's PNG");
 }
 
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.

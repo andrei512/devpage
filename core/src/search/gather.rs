@@ -12,6 +12,7 @@ use ignore::WalkBuilder;
 
 use crate::document::{Document, Kind};
 use crate::folder::Folder;
+use crate::page::Rendered;
 
 use super::*;
 
@@ -29,9 +30,48 @@ pub(super) struct Unit {
     pub(super) name: Option<String>,
     /// Its place in the nav, counted from the top in reading order.
     pub(super) nav: u64,
+    /// What its content is rendered by, as its page renders it: the
+    /// document file whose widgets its tags are expanded with — its site,
+    /// its doc or deck, or the page alone — and that document's widgets
+    /// folder. `None` when that document can't be read, and its page shows
+    /// none of the file.
+    pub(super) shown_in: Option<Shown>,
+}
+
+/// The document a page's content is rendered by, and its widgets folder.
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Shown {
+    pub(super) file: PathBuf,
+    pub(super) widgets: Option<PathBuf>,
+}
+
+impl Shown {
+    fn of(document: &Document) -> Self {
+        Self {
+            file: document.path(),
+            widgets: document.widgets.clone(),
+        }
+    }
+
+    /// The document a Markdown file is shown in at its own address.
+    fn page(file: &Path, folder: &Folder) -> Option<Self> {
+        crate::page::shown_in(file, folder).map(|document| Self::of(&document))
+    }
 }
 
 impl Unit {
+    /// Whether a change to `path` reaches its content: its file, or its
+    /// document's widgets folder — a widget added, renamed or removed
+    /// changes which tags are widgets.
+    pub(super) fn reached(&self, path: &Path) -> bool {
+        self.file.starts_with(path)
+            || self
+                .shown_in
+                .as_ref()
+                .and_then(|shown| shown.widgets.as_ref())
+                .is_some_and(|widgets| path.starts_with(widgets) || widgets.starts_with(path))
+    }
+
     /// Where the page opens: what holds it, at the chapter's name or the
     /// slide's number. A page's address in the index.
     pub(super) fn url(&self) -> String {
@@ -143,6 +183,7 @@ pub(super) fn scope(folder: &Folder, entry: &Path) -> Vec<Unit> {
             },
         };
         units.push(Unit {
+            shown_in: Shown::page(&file, folder),
             file,
             kind: PageKind::Page,
             trail: Vec::new(),
@@ -191,6 +232,7 @@ impl Walk<'_> {
                         && let Some(address) = document.url(file)
                     {
                         walk.units.push(Unit {
+                            shown_in: Shown::page(file, walk.folder),
                             file: file.to_path_buf(),
                             kind: PageKind::Page,
                             trail: trails.get(file).cloned().unwrap_or_default(),
@@ -253,6 +295,7 @@ impl Walk<'_> {
                         address: owner.path.clone(),
                         name: scoped.then_some(name),
                         nav: 0,
+                        shown_in: Some(Shown::of(&document)),
                     });
                 }
             }
@@ -269,6 +312,7 @@ impl Walk<'_> {
                         address: owner.path.clone(),
                         name: Some((n + 1).to_string()),
                         nav: 0,
+                        shown_in: Some(Shown::of(&document)),
                     });
                 }
             }
@@ -338,11 +382,14 @@ pub(super) fn slide_title(source: &str, read: &Read, number: &str) -> String {
         .unwrap_or_else(|| format!("Slide {number}"))
 }
 
-/// A Markdown file split at its headings, each heading with the id the
-/// rendered page gives it (`page::markdown::heading_ids`), and its text
-/// sorted by kind: prose — with a diagram's labels and a widget's text — and
-/// code.
-pub(super) fn read(source: &str) -> Read {
+/// A page's content as its page shows it — `rendered`, its widgets' tags
+/// expanded — split at its headings, each heading with the id the page
+/// gives it ([`Rendered::heading_ids`]), and its text sorted by kind: prose
+/// — with a diagram's labels and a widget's text — and code. A heading
+/// inside a widget is a section; one inside an unknown tag, which the page
+/// shows as an error, is not.
+pub(super) fn read(rendered: &Rendered) -> Read {
+    let source = rendered.expanded();
     let arena = Arena::new();
     let root = parse_document(&arena, source, &crate::page::markdown::options());
     let lede = root
@@ -350,7 +397,7 @@ pub(super) fn read(source: &str) -> Read {
         .find(|node| matches!(node.data().value, NodeValue::Paragraph))
         .map(|node| squeeze(&node.collect_text()))
         .unwrap_or_default();
-    let mut ids = crate::page::markdown::heading_ids(source).into_iter();
+    let mut ids = rendered.heading_ids().into_iter();
     let mut sections = vec![Section::default()];
     let mut stack: Vec<&AstNode> = root.reverse_children().collect();
     while let Some(node) = stack.pop() {
@@ -383,15 +430,15 @@ pub(super) fn read(source: &str) -> Read {
                     current.code.push_str(&block.literal);
                 }
             }
-            // A slide's `<Notes>` are not shown on the page; a deck adds them
-            // to its slide's text itself.
-            NodeValue::HtmlBlock(block) if !block.literal.trim_start().starts_with("<Notes") => {
+            // A slide's `<Notes>` were taken out with the widgets' tags
+            // expanded: a deck adds them to its slide's text itself.
+            NodeValue::HtmlBlock(block) => {
                 current.prose.push(' ');
                 current.prose.push_str(&widget_text(&block.literal));
                 current.prose.push(' ');
             }
             NodeValue::SoftBreak | NodeValue::LineBreak => current.prose.push(' '),
-            NodeValue::HtmlBlock(_) | NodeValue::HtmlInline(_) | NodeValue::FrontMatter(_) => {}
+            NodeValue::HtmlInline(_) | NodeValue::FrontMatter(_) => {}
             _ => {
                 if node.data().value.block() {
                     current.prose.push(' ');
@@ -526,11 +573,108 @@ pub(super) const NOT_TEXT: &[&str] = &[
     "delivery",
     "target",
     "rel",
+    // A widget's placeholder: its name, and its content's source, which is
+    // read as the page's own Markdown.
+    "data-widget",
+    "data-widget-source",
+    "data-widget-source-html",
 ];
 
+/// What an unknown widget tag becomes, as a block or inline: its error, in
+/// its place.
+const WIDGET_ERRORS: [(&str, &str); 2] = [
+    ("<div class=\"widget-error\">", "</div>"),
+    ("<span class=\"widget-error\">", "</span>"),
+];
+
+/// `html` without the errors unknown widget tags became: no text of the
+/// page's. Their message is escaped, so it holds no tag.
+fn without_errors(html: &str) -> String {
+    let mut html = html.to_string();
+    for (open, close) in WIDGET_ERRORS {
+        while let Some(at) = html.find(open) {
+            let end = html[at..]
+                .find(close)
+                .map_or(html.len(), |end| at + end + close.len());
+            html.replace_range(at..end, " ");
+        }
+    }
+    html
+}
+
+/// The text a widget's props hold, from the object literal its placeholder
+/// carries — `{"title": "…", "values": ([…]), "open": true}`: the value of
+/// each string prop whose name is text, never an expression's.
+fn props_text(props: &str) -> String {
+    let mut text = Vec::new();
+    let mut rest = props.trim().strip_prefix('{').unwrap_or_default();
+    loop {
+        rest = rest.trim_start_matches([' ', ',']);
+        let mut strings = serde_json::Deserializer::from_str(rest).into_iter::<String>();
+        let Some(Ok(key)) = strings.next() else {
+            break;
+        };
+        rest = rest[strings.byte_offset()..].trim_start();
+        let Some(value) = rest.strip_prefix(':') else {
+            break;
+        };
+        rest = value.trim_start();
+        if rest.starts_with('"') {
+            let mut strings = serde_json::Deserializer::from_str(rest).into_iter::<String>();
+            let Some(Ok(value)) = strings.next() else {
+                break;
+            };
+            rest = &rest[strings.byte_offset()..];
+            if !NOT_TEXT.contains(&key.as_str()) && !value.contains("://") {
+                text.push(value);
+            }
+        } else if rest.starts_with('(') {
+            rest = &rest[expression_end(rest)..];
+        } else {
+            // A bare attribute: `true`.
+            rest = rest.trim_start_matches(|c: char| c.is_ascii_alphanumeric());
+        }
+    }
+    text.join(" ")
+}
+
+/// The length of the parenthesized expression `text` starts with, its
+/// strings skipped; all of it when it never closes.
+fn expression_end(text: &str) -> usize {
+    let mut depth = 0;
+    let mut string: Option<char> = None;
+    let mut escaped = false;
+    for (at, c) in text.char_indices() {
+        if let Some(quote) = string {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == quote {
+                string = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' | '`' => string = Some(c),
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return at + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    text.len()
+}
+
 /// The text of an HTML block: what is between its tags, and its tags' text
-/// attributes — never its markup, an expression `{…}`, or an address.
+/// attributes — a widget's text props among them — never its markup, an
+/// expression `{…}`, an address, or an unknown tag's error.
 pub(super) fn widget_text(html: &str) -> String {
+    let html = without_errors(html);
     let chars: Vec<char> = html.chars().collect();
     let mut text = String::new();
     let mut i = 0;
@@ -573,7 +717,11 @@ pub(super) fn widget_text(html: &str) -> String {
                     .find(|&j| chars[j] == c)
                     .unwrap_or(chars.len());
                 let value: String = chars[i + 1..end].iter().collect();
-                if !NOT_TEXT.contains(&name.as_str()) && !value.contains("://") {
+                if name == "data-props" {
+                    text.push(' ');
+                    text.push_str(&props_text(&crate::html::unescape(&value)));
+                    text.push(' ');
+                } else if !NOT_TEXT.contains(&name.as_str()) && !value.contains("://") {
                     text.push(' ');
                     text.push_str(&value);
                     text.push(' ');

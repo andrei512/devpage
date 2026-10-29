@@ -132,7 +132,7 @@ mod tests {
 
     use super::*;
     use crate::adapters::changes::{Change, Subscription};
-    use devpage_core::folder::ServedFolder;
+    use devpage_core::folder::{Folder, ServedFolder};
 
     /// A local web server for external-link tests, so the suite needs no
     /// network: `/ok` answers 200, anything else 404, and it counts the requests
@@ -204,6 +204,13 @@ mod tests {
         Widgets::of(document, &Modules::default())
     }
 
+    /// The served folder opened on `document`.
+    fn opened(document: &Document) -> Folder {
+        Folder::new(Arc::new(
+            Document::load(&document.path(), &document.served).unwrap(),
+        ))
+    }
+
     /// A design store of its own for `document`'s served folder.
     fn designs_of(document: &Document) -> Designs {
         Designs::new(&document.served)
@@ -273,7 +280,8 @@ mod tests {
     ) -> Vec<Problem> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         loop {
-            let found = preview.problems(doc, &widgets_of(doc), &designs_of(doc), pages);
+            let found =
+                preview.problems(&opened(doc), doc, &widgets_of(doc), &designs_of(doc), pages);
             if done(&found) || tokio::time::Instant::now() > deadline {
                 return found;
             }
@@ -318,7 +326,13 @@ mod tests {
         // The first render holds nothing up: the answer isn't in yet.
         assert!(
             preview
-                .problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages)
+                .problems(
+                    &opened(&doc),
+                    &doc,
+                    &widgets_of(&doc),
+                    &designs_of(&doc),
+                    &pages,
+                )
                 .is_empty()
         );
         // A broken address, once answered, asks open pages to fetch again …
@@ -334,7 +348,13 @@ mod tests {
         assert_eq!(found[0].line, Some(3));
         // Each address is asked once for as long as devpage runs — the good
         // one may still be on its way when the broken one's answer is in.
-        preview.problems(&doc, &widgets_of(&doc), &designs_of(&doc), &pages);
+        preview.problems(
+            &opened(&doc),
+            &doc,
+            &widgets_of(&doc),
+            &designs_of(&doc),
+            &pages,
+        );
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
         while !web.hits.lock().unwrap().contains_key("/ok")
             && tokio::time::Instant::now() < deadline

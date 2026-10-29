@@ -929,7 +929,15 @@ fn ids_are_the_ids_a_file_or_a_doc_renders() {
     )
     .unwrap();
     let served = ServedFolder::new(&dir).unwrap();
-    let ids = |file: &str| -> Vec<String> { ids(&dir.join(file), &served).into_iter().collect() };
+    let folder = crate::folder::Folder::new(std::sync::Arc::new(
+        Document::load(&dir.join("d.yml"), &served).unwrap(),
+    ));
+    let modules = crate::widgets::Modules::default();
+    let ids = |file: &str| -> Vec<String> {
+        ids(&dir.join(file), &folder, &modules)
+            .into_iter()
+            .collect()
+    };
     assert_eq!(ids("a.md"), ["context", "raw", "why"]);
     // One chapter keeps its own ids; several each carry their chapter's name.
     assert_eq!(ids("one.yml"), ["context", "raw", "why"]);

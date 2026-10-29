@@ -45,8 +45,9 @@ struct AppState {
     design_updates: tokio::sync::broadcast::Sender<String>,
     /// Slides as images: the Chrome that draws them and what it drew.
     shots: Shots,
-    /// The problems each page lists above itself.
-    preview: Arc<Preview>,
+    /// The problems each page lists above itself; `None` for the Chrome
+    /// that shoots slides, whose pages list none.
+    preview: Option<Arc<Preview>>,
 }
 
 impl AppState {
@@ -297,7 +298,7 @@ pub fn router(app: App) -> Router {
         search,
         changes,
         shots,
-        preview,
+        preview: Some(preview),
     })
 }
 
@@ -357,7 +358,7 @@ fn answers(state: &AppState) -> Answers<'_> {
         &state.folder,
         &state.modules,
         &state.designs,
-        &state.preview,
+        state.preview.as_deref(),
         state.comments_on(),
     )
 }
@@ -520,8 +521,8 @@ async fn design_png(
 }
 
 /// Slide `n` of the deck whose page is at `page` and whose file is `deck`,
-/// drawn by Chrome from these routes with comments off, so a slide is shot
-/// without them. A slide drawn since a file its deck is drawn from last
+/// drawn by Chrome from these routes with comments and problems off, so a
+/// slide is shot without them. A slide drawn since a file its deck is drawn from last
 /// changed comes from the cache, and is a 304 for a request that already
 /// holds it. Asked for by a page devpage's own Chrome is shooting, it is
 /// never drawn: the cache's copy, or 508.
@@ -546,6 +547,7 @@ async fn slide_png(
     } else {
         let shooting = AppState {
             comments: None,
+            preview: None,
             ..state.clone()
         };
         let drawn_from = {
