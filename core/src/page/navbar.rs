@@ -77,7 +77,7 @@ fn links(document: &Document) -> impl Iterator<Item = &NavLink> {
 
 /// The navbar's problems: a link to a file that isn't in the served folder,
 /// and an icon devpage doesn't have. They belong to the document file.
-pub fn problems(document: &Document) -> Vec<Problem> {
+pub(crate) fn problems(document: &Document) -> Vec<Problem> {
     let file = document.name(&document.path());
     let mut problems = Vec::new();
     let mut icon = |name: &Option<String>| {
@@ -118,7 +118,7 @@ pub fn problems(document: &Document) -> Vec<Problem> {
 
 /// Where the navbar leads, for the link checker: the files it names that
 /// exist, and its addresses on the web.
-pub fn reached(document: &Document) -> (Vec<PathBuf>, Vec<String>) {
+pub(crate) fn reached(document: &Document) -> (Vec<PathBuf>, Vec<String>) {
     let mut files = Vec::new();
     let mut web = Vec::new();
     for link in links(document) {
@@ -133,9 +133,9 @@ pub fn reached(document: &Document) -> (Vec<PathBuf>, Vec<String>) {
 }
 
 /// The address of the navbar link that holds the page shown: the link to the
-/// page itself, or else to its nearest ancestor in the sidebar tree, the root
-/// page holding them all.
-fn active(document: &Document, current: &str) -> Option<String> {
+/// page itself, or else to its nearest ancestor in the site's navigation
+/// `tree`, the root page holding them all.
+fn active(document: &Document, tree: &[nav::Group], current: &str) -> Option<String> {
     let targets: Vec<String> = links(document)
         .map(|link| target(document, &link.target).href)
         .collect();
@@ -160,7 +160,7 @@ fn active(document: &Document, current: &str) -> Option<String> {
         false
     }
     let mut trail = vec![document.entry()];
-    let found = trail[0] == current || path(document, &nav::tree(document), current, &mut trail);
+    let found = trail[0] == current || path(document, tree, current, &mut trail);
     if !found {
         return None;
     }
@@ -210,13 +210,18 @@ fn link(document: &Document, link: &NavLink, active: Option<&str>, class: &str) 
 }
 
 /// The bar across the top of a site's pages, when its document file sets
-/// `navbar`; `current` is the page's address, and `comments` whether
-/// comments are on.
-pub fn render(document: &Document, current: &str, comments: bool) -> String {
+/// `navbar`; `tree` is the site's navigation tree, `current` the page's
+/// address, and `comments` whether comments are on.
+pub(super) fn render(
+    document: &Document,
+    tree: &[nav::Group],
+    current: &str,
+    comments: bool,
+) -> String {
     if document.navbar.is_empty() {
         return String::new();
     }
-    let active = active(document, current);
+    let active = active(document, tree, current);
     let active = active.as_deref();
     let mut items = String::new();
     for item in &document.navbar {
@@ -261,7 +266,7 @@ pub fn render(document: &Document, current: &str, comments: bool) -> String {
 
 /// The document's logo, to sit before its title; nothing when it has none.
 /// It is decoration beside the title it repeats, so it has no alt text.
-pub fn logo(document: &Document) -> String {
+pub(super) fn logo(document: &Document) -> String {
     match document.logo_url() {
         Some(url) => format!("<img class=\"logo\" src=\"{}\" alt=\"\">", escape(&url)),
         None => String::new(),
@@ -270,7 +275,7 @@ pub fn logo(document: &Document) -> String {
 
 /// A logo that names no image in the served folder. It belongs to the
 /// document file, like a broken navbar link.
-pub fn logo_problem(document: &Document) -> Option<Problem> {
+pub(crate) fn logo_problem(document: &Document) -> Option<Problem> {
     let written = document.logo.as_ref()?;
     if document.logo_url().is_some() {
         return None;
@@ -286,7 +291,7 @@ pub fn logo_problem(document: &Document) -> Option<Problem> {
 /// The theme selector, when the document shows one: one button that switches
 /// between light and dark. It carries both icons; the stylesheet shows the one
 /// for the theme a click switches to — the moon in light, the sun in dark.
-pub fn selector(document: &Document) -> String {
+fn selector(document: &Document) -> String {
     if !document.theme_selector {
         return String::new();
     }
@@ -294,7 +299,7 @@ pub fn selector(document: &Document) -> String {
 }
 
 /// The light/dark button itself, for a page that shows one.
-pub fn theme_toggle() -> String {
+pub(super) fn theme_toggle() -> String {
     format!(
         "<button type=\"button\" class=\"theme-toggle\" title=\"Switch theme\" aria-label=\"Switch theme\">{}</button>",
         theme_icons()
@@ -304,7 +309,7 @@ pub fn theme_toggle() -> String {
 /// The switch's two faces — a moon to switch to dark, a sun to switch to
 /// light — which the stylesheet shows one at a time: the page's switch and
 /// an embedded design's own.
-pub fn theme_icons() -> String {
+fn theme_icons() -> String {
     format!(
         "<span class=\"to-dark\">{}</span><span class=\"to-light\">{}</span>",
         icons::svg("moon").unwrap_or_default(),
@@ -314,7 +319,7 @@ pub fn theme_icons() -> String {
 
 /// An embedded design's own theme switch, hidden until the design script
 /// finds the design themed; it turns only that embed.
-pub fn design_theme_toggle() -> String {
+pub(super) fn design_theme_toggle() -> String {
     format!(
         "<button type=\"button\" class=\"design-theme\" hidden title=\"Switch this design's theme\" aria-label=\"Switch this design's theme\">{}</button>",
         theme_icons()
@@ -325,14 +330,14 @@ pub fn design_theme_toggle() -> String {
 /// selection's Comment button only appear while it is pressed. The page script
 /// remembers the choice; threads show either way. Its icon is the speech
 /// bubble the paragraph button uses.
-pub fn comment_mode() -> String {
+fn comment_mode() -> String {
     "<button type=\"button\" class=\"comment-mode\" title=\"Comment mode\" aria-label=\"Comment mode\" aria-pressed=\"false\"><svg viewBox=\"0 0 20 20\" width=\"17\" height=\"17\" aria-hidden=\"true\"><path d=\"M4 3.5h12A1.5 1.5 0 0 1 17.5 5v8a1.5 1.5 0 0 1-1.5 1.5H9l-3.5 3v-3H4A1.5 1.5 0 0 1 2.5 13V5A1.5 1.5 0 0 1 4 3.5Z\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linejoin=\"round\"/></svg></button>".to_string()
 }
 
 /// The page's own controls, in the navbar's end or the corner: the
 /// comment-mode switch while comments are on, then the theme selector when
 /// the document shows one.
-pub fn controls(document: &Document, comments: bool) -> String {
+fn controls(document: &Document, comments: bool) -> String {
     let mode = if comments {
         comment_mode()
     } else {
@@ -342,7 +347,7 @@ pub fn controls(document: &Document, comments: bool) -> String {
 }
 
 /// The controls for a page with no navbar to hold them: the top-right corner.
-pub fn corner(document: &Document, comments: bool) -> String {
+pub(super) fn corner(document: &Document, comments: bool) -> String {
     format!(
         "<div id=\"devpage-corner\">{}</div>",
         controls(document, comments)
@@ -353,7 +358,7 @@ pub fn corner(document: &Document, comments: bool) -> String {
 /// tab's icon, and a script that sets the theme before the page paints, so it
 /// never flashes the wrong one — the theme the reader switched to, if the page
 /// offers the switch and they used it, else the system's setting.
-pub fn head(document: &Document) -> String {
+pub(super) fn head(document: &Document) -> String {
     let icon = match document.logo_url() {
         Some(url) => format!("<link rel=\"icon\" href=\"{}\">\n", escape(&url)),
         None => String::new(),
@@ -364,7 +369,7 @@ pub fn head(document: &Document) -> String {
 /// The script that sets the theme before the page paints: the one the reader
 /// switched to, when the page offers the switch and they used it, else the
 /// system's setting.
-pub fn theme_script(switchable: bool) -> String {
+pub(super) fn theme_script(switchable: bool) -> String {
     let stored = if switchable {
         r#"try{c=localStorage.getItem("devpage-theme")}catch(e){}"#
     } else {
@@ -415,7 +420,7 @@ mod tests {
     fn renders_links_dropdowns_icons_and_icon_only_links_in_order() {
         let dir = folder("render");
         let document = site(&dir, NAVBAR);
-        let html = render(&document, "/guide/deep.md", true);
+        let html = render(&document, &nav::tree(&document), "/guide/deep.md", true);
         let order: Vec<usize> = ["Home", "Guide", "More", "Talk", "github.com"]
             .iter()
             .map(|text| {
@@ -437,7 +442,7 @@ mod tests {
         let dir = folder("current");
         let document = site(&dir, NAVBAR);
         // A page deep under the guide lights the guide, not home.
-        let deep = render(&document, "/guide/deep.md", true);
+        let deep = render(&document, &nav::tree(&document), "/guide/deep.md", true);
         assert!(
             deep.contains("class=\"navbar-link current\" href=\"/guide/README.md\""),
             "{deep}"
@@ -447,13 +452,13 @@ mod tests {
             "{deep}"
         );
         // The root page lights home.
-        let home = render(&document, "/README.md", true);
+        let home = render(&document, &nav::tree(&document), "/README.md", true);
         assert!(
             home.contains("class=\"navbar-link current\" href=\"/README.md\""),
             "{home}"
         );
         // A deck in a dropdown lights its dropdown.
-        let talk = render(&document, "/talk.yml", true);
+        let talk = render(&document, &nav::tree(&document), "/talk.yml", true);
         assert!(talk.contains("class=\"navbar-menu current\""), "{talk}");
     }
 
@@ -504,7 +509,7 @@ mod tests {
         let (files, web) = reached(&document);
         assert!(files.is_empty(), "{files:?}");
         assert!(web.is_empty(), "{web:?}");
-        let html = render(&document, "/README.md", true);
+        let html = render(&document, &nav::tree(&document), "/README.md", true);
         let out = html
             .split("<a ")
             .find(|link| link.contains("<span>Out</span>"))
@@ -516,7 +521,7 @@ mod tests {
     fn no_navbar_renders_nothing_and_the_selector_can_be_turned_off() {
         let dir = folder("off");
         let plain = site(&dir, "kind: site\ntitle: T\nroot: README.md\n");
-        assert_eq!(render(&plain, "/README.md", true), "");
+        assert_eq!(render(&plain, &nav::tree(&plain), "/README.md", true), "");
         assert!(corner(&plain, true).contains("class=\"theme-toggle\""));
         assert!(head(&plain).contains("localStorage"));
         let off = site(
@@ -546,7 +551,7 @@ mod tests {
         )
         .unwrap();
         let with = site(&dir, &format!("{NAVBAR}logo: logo.svg\n"));
-        let bar = render(&with, "/README.md", true);
+        let bar = render(&with, &nav::tree(&with), "/README.md", true);
         let img = bar
             .find("<img class=\"logo\" src=\"/logo.svg\" alt=\"\">")
             .expect(&bar);
@@ -567,7 +572,7 @@ mod tests {
         assert!(head(&deck).contains("rel=\"icon\" href=\"/logo.svg\""));
         // None, no image and no icon.
         let without = site(&dir, NAVBAR);
-        assert!(!render(&without, "/README.md", true).contains("<img"));
+        assert!(!render(&without, &nav::tree(&without), "/README.md", true).contains("<img"));
         assert!(!head(&without).contains("rel=\"icon\""));
     }
 
@@ -578,7 +583,7 @@ mod tests {
         let problem = logo_problem(&document).expect("a problem");
         assert_eq!(problem.message, "logo: gone.svg — no such file");
         assert_eq!(problem.file, "devpage.yml");
-        assert!(!render(&document, "/README.md", true).contains("<img"));
+        assert!(!render(&document, &nav::tree(&document), "/README.md", true).contains("<img"));
         assert!(!head(&document).contains("rel=\"icon\""));
         // Outside the served folder is no logo either.
         let outside = site(&dir, &format!("{NAVBAR}logo: ../../etc/hosts\n"));

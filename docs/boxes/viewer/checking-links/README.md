@@ -16,7 +16,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 | What | Must |
 | --- | --- |
 | A target inside the served folder | exist, inside the [served folder](../constraints/the-served-folder-is-the-boundary.md) |
-| A `#fragment` | name a heading or id on the page it points at |
+| A `#fragment` | name a heading or id the page it points at renders — in a doc of several chapters, `<chapter>--<id>` or the chapter's own name |
 | `#n` on a deck | be a slide the deck has |
 | A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |
 | A Topics entry | point at an existing page |
@@ -73,6 +73,10 @@ its top, and every broken link on it is marked where it stands — a red wavy
 underline on a link, a dashed outline on an image, a dashed red border on a
 diagram node. They update as
 you edit, like the rest of the page: fix the link, save, and the problem goes.
+The problems are found in the very content the page shows: devpage renders a
+page's content once, checks it, and puts the frame round it — so a link of the
+frame's own, the navbar's or the sidebar's, is checked with the document file
+rather than as a link on the page.
 devpage also prints each problem once on its terminal, as it first finds it:
 
 <Terminal title="devpage's terminal">

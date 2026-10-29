@@ -19,7 +19,7 @@ use tokio::task::JoinHandle;
 use super::Heard;
 use super::silence::RATE;
 
-use crate::document::Narration;
+use devpage_core::document::Narration;
 
 pub const OPENAI_API_KEY: &str = "DEVPAGE_OPENAI_API_KEY";
 pub const AZURE_ENDPOINT: &str = "DEVPAGE_AZURE_OPENAI_ENDPOINT";

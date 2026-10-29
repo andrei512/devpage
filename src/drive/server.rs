@@ -20,20 +20,20 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use serde::Deserialize;
 
-use crate::answer::{Answer, Answers};
-use crate::changes::Changes;
-use crate::check::Preview;
-use crate::comments::{self, Anchor, Comments, Identity};
-use crate::designs::Designs;
-use crate::document::Document;
-use crate::folder::Folder;
-use crate::search::Search;
-use crate::slide_png::Shots;
+use crate::adapters::changes::Changes;
+use crate::drive::slide_png::Shots;
+use devpage_core::answer::{Answer, Answers};
+use devpage_core::check::Preview;
+use devpage_core::comments::{self, Anchor, Comments, Identity};
+use devpage_core::designs::Designs;
+use devpage_core::document::Document;
+use devpage_core::folder::Folder;
+use devpage_core::search::Search;
 
 #[derive(Clone)]
 struct AppState {
     folder: Arc<Folder>,
-    modules: crate::widgets::Modules,
+    modules: devpage_core::widgets::Modules,
     search: Option<Arc<Search>>,
     changes: Changes,
     /// `None` when comments are off: the pages show none and every comment
@@ -105,7 +105,7 @@ pub struct App {
     /// as its file changes.
     folder: Arc<Folder>,
     /// What was read and compiled of the served folder's widgets.
-    modules: crate::widgets::Modules,
+    modules: devpage_core::widgets::Modules,
     /// The search index of what the entry document publishes, or `None`:
     /// every search then finds nothing.
     search: Option<Arc<Search>>,
@@ -149,8 +149,8 @@ impl App {
             Identity::Local(String::new()),
         );
         let preview = Arc::new(Preview::new(
-            crate::http::external(None),
-            Arc::new(crate::terminal::Terminal),
+            crate::adapters::http::external(None),
+            Arc::new(crate::adapters::terminal::Terminal),
         ));
         let designs = Designs::new(&document.served);
         Self::of(document, designs, changes, preview, Some(comments))
@@ -168,8 +168,8 @@ impl App {
         comments: Option<Commenting>,
     ) -> Self {
         let preview = Arc::new(Preview::new(
-            crate::http::offline(),
-            Arc::new(crate::terminal::Terminal),
+            crate::adapters::http::offline(),
+            Arc::new(crate::adapters::terminal::Terminal),
         ));
         Self::of(document, designs, changes, preview, comments).searched()
     }
@@ -180,7 +180,7 @@ impl App {
     #[cfg(test)]
     pub fn testing(document: Arc<Document>, changes: Changes) -> Self {
         let designs = Designs::new(&document.served);
-        let preview = crate::check::testing::preview();
+        let preview = devpage_core::check::testing::preview();
         Self::of(document, designs, changes, preview, None)
     }
 
@@ -229,7 +229,7 @@ impl App {
     ) -> Self {
         Self {
             folder: Arc::new(Folder::new(document)),
-            modules: crate::widgets::Modules::default(),
+            modules: devpage_core::widgets::Modules::default(),
             search: None,
             designs,
             shots: Shots::new(&changes),
@@ -252,8 +252,8 @@ impl App {
     /// same served folder, design store, widget modules, change bus and
     /// search index, and the same comments, so a thread the server wrote is
     /// announced once, by the server.
-    pub fn watch(&self) -> anyhow::Result<crate::watch::Watch> {
-        crate::watch::start(devpage_core::watch::Listeners::new(
+    pub fn watch(&self) -> anyhow::Result<crate::adapters::watch::Watch> {
+        crate::adapters::watch::start(devpage_core::watch::Listeners::new(
             self.folder.clone(),
             self.designs.clone(),
             self.modules.clone(),
@@ -320,7 +320,7 @@ fn routes(state: AppState) -> Router {
         .route("/{*path}", get(file))
         // Every route so far answers with a validator; the streams below
         // never end, so the middleware, which reads a whole body, skips them.
-        .route_layer(middleware::from_fn(crate::validators::validate))
+        .route_layer(middleware::from_fn(crate::drive::validators::validate))
         .route("/__devpage/events", get(events))
         .route_service(
             "/devpage.design.v1.Designs/Watch",
@@ -451,9 +451,9 @@ async fn design_png(
         .await
         .ok()
         .flatten()
-        .map(|hash| crate::validators::strong(&hash));
+        .map(|hash| crate::drive::validators::strong(&hash));
     if let Some(tag) = &tag
-        && crate::validators::already_has(headers, tag)
+        && crate::drive::validators::already_has(headers, tag)
     {
         let mut known = HeaderMap::new();
         if let Ok(value) = tag.parse() {
@@ -463,7 +463,7 @@ async fn design_png(
             header::CACHE_CONTROL,
             header::HeaderValue::from_static("no-cache"),
         );
-        return crate::validators::not_modified(known);
+        return crate::drive::validators::not_modified(known);
     }
     // The PNG streams band by band as it is painted; the problems, if any,
     // are known before the first byte.
@@ -521,7 +521,7 @@ async fn design_png(
 /// request that already holds it. Asked for by a page devpage's own Chrome
 /// is shooting, it is never drawn: the cache's copy, or 508.
 async fn slide_png(state: &AppState, headers: &HeaderMap, page: &str, n: usize) -> Response {
-    let shot = if headers.contains_key(crate::chrome::SHOT_HEADER) {
+    let shot = if headers.contains_key(crate::adapters::chrome::SHOT_HEADER) {
         match state.shots.cached(page, n) {
             Some(shot) => shot,
             None => {
@@ -589,11 +589,11 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// `no-cache`, so a page from an older build still loads. Sent brotli- or
 /// gzip-compressed when the browser takes it.
 pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
-    let Some((asset, current)) = crate::addresses::asset(&name) else {
+    let Some((asset, current)) = devpage_core::addresses::asset(&name) else {
         return StatusCode::NOT_FOUND.into_response();
     };
     let encoding =
-        crate::validators::encoding(&headers, asset.brotli.is_some(), asset.gzip.is_some());
+        crate::drive::validators::encoding(&headers, asset.brotli.is_some(), asset.gzip.is_some());
     let (body, tag) = match encoding {
         Some("br") => (asset.brotli, format!("{}-br", asset.hash)),
         Some(_) => (asset.gzip, format!("{}-gz", asset.hash)),
@@ -607,7 +607,7 @@ pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
                 if current { IMMUTABLE } else { "no-cache" }.to_string(),
             ),
             (header::VARY, "Accept-Encoding".to_string()),
-            (header::ETAG, crate::validators::strong(&tag)),
+            (header::ETAG, crate::drive::validators::strong(&tag)),
         ],
         body.unwrap_or(asset.identity),
     )
@@ -729,7 +729,7 @@ async fn resolve_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::folder::ServedFolder;
+    use devpage_core::folder::ServedFolder;
     use serde_json::{Value, json};
 
     /// A served folder holding one page, served by the real router on a free
@@ -746,7 +746,11 @@ mod tests {
     async fn serve_comments_on(
         name: &str,
         comments: Option<Identity>,
-    ) -> (String, std::path::PathBuf, crate::changes::Changes) {
+    ) -> (
+        String,
+        std::path::PathBuf,
+        crate::adapters::changes::Changes,
+    ) {
         let root =
             std::env::temp_dir().join(format!("devpage-routes-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -759,7 +763,7 @@ mod tests {
         let document = Arc::new(
             Document::load(&root.join("a.md"), &ServedFolder::new(&root).unwrap()).unwrap(),
         );
-        let changes = crate::changes::Changes::default();
+        let changes = crate::adapters::changes::Changes::default();
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = format!("http://{}", listener.local_addr().unwrap());
         let app = App::testing(document, changes.clone());
@@ -834,7 +838,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_server_and_the_watcher_its_app_starts_announce_a_write_once() {
-        use crate::changes::Change;
+        use crate::adapters::changes::Change;
         let dir = std::env::temp_dir().join(format!("devpage-paired-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -842,7 +846,7 @@ mod tests {
         std::fs::write(dir.join("a.md"), "# A\n\nThe client retries every write.\n").unwrap();
         let document =
             Arc::new(Document::load(&dir.join("a.md"), &ServedFolder::new(&dir).unwrap()).unwrap());
-        let changes = crate::changes::Changes::default();
+        let changes = crate::adapters::changes::Changes::default();
         let app = App::testing(document, changes.clone())
             .with_comments_on_disk(Identity::Local(String::new()));
         let _watcher = app.watch().unwrap();
@@ -871,7 +875,7 @@ mod tests {
 
     #[tokio::test]
     async fn each_write_reaches_open_pages_without_a_watcher() {
-        use crate::changes::Change;
+        use crate::adapters::changes::Change;
         let (address, _, changes) =
             serve_comments_on("announce", Some(Identity::Local("Ana".into()))).await;
         let mut heard = changes.subscribe();
@@ -1037,7 +1041,7 @@ mod tests {
     async fn serve(dir: &std::path::Path, entry: &str) -> String {
         let document =
             Arc::new(Document::load(&dir.join(entry), &ServedFolder::new(dir).unwrap()).unwrap());
-        let changes = crate::changes::Changes::default();
+        let changes = crate::adapters::changes::Changes::default();
         let router = router(
             App::testing(document, changes).with_comments_on_disk(Identity::Local("T".into())),
         );
@@ -1065,11 +1069,11 @@ mod tests {
         )
         .unwrap();
         let document = Arc::new(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap());
-        let changes = crate::changes::Changes::default();
+        let changes = crate::adapters::changes::Changes::default();
         let router = router(App::local(
             document,
             changes,
-            crate::check::testing::preview(),
+            devpage_core::check::testing::preview(),
             None,
         ));
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1198,7 +1202,7 @@ mod tests {
         std::fs::write(&site, "kind: site\ntitle: T\nroot: a.md\n").unwrap();
 
         let document = Arc::new(Document::load(&site, &ServedFolder::new(&dir).unwrap()).unwrap());
-        let changes = crate::changes::Changes::default();
+        let changes = crate::adapters::changes::Changes::default();
         let app = App::testing(document, changes.clone())
             .with_comments_on_disk(Identity::Local("T".into()));
         let _watcher = app.watch().unwrap();
@@ -1255,7 +1259,7 @@ mod tests {
             .and_then(|rest| rest.split('"').next())
             .unwrap()
             .to_string();
-        let tabs = crate::widgets::system_address("Tabs", "");
+        let tabs = devpage_core::widgets::system_address("Tabs", "");
         for (address, cache) in [
             (card.as_str(), "public, max-age=31536000, immutable"),
             ("/__devpage/widgets/docs/widgets/Card.tsx", "no-cache"),
@@ -1293,7 +1297,7 @@ mod tests {
         assert!(
             page.contains(&format!(
                 "\"Callout\":\"{}\"",
-                crate::widgets::system_address("Callout", "")
+                devpage_core::widgets::system_address("Callout", "")
             )),
             "{page}"
         );
@@ -1326,8 +1330,9 @@ mod tests {
         let dir = served("assets");
         let base = serve(&dir, "docs").await;
         let (_, page) = get(&format!("{base}/docs/README.md")).await;
-        for asset in crate::addresses::ASSETS {
-            let address = crate::addresses::address(crate::addresses::Owned::Asset(asset.name));
+        for asset in devpage_core::addresses::ASSETS {
+            let address =
+                devpage_core::addresses::address(devpage_core::addresses::Owned::Asset(asset.name));
             if !matches!(
                 asset.name,
                 "design.js"
@@ -1372,8 +1377,9 @@ mod tests {
         use std::io::Read;
         let dir = served("encodings");
         let base = serve(&dir, "docs").await;
-        let react = crate::addresses::address(crate::addresses::Owned::Asset("react.js"));
-        let identity = crate::addresses::ASSETS
+        let react =
+            devpage_core::addresses::address(devpage_core::addresses::Owned::Asset("react.js"));
+        let identity = devpage_core::addresses::ASSETS
             .iter()
             .find(|a| a.name == "react.js")
             .unwrap()
@@ -1454,7 +1460,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_pages_event_stream_carries_each_change_on_its_bus_in_order() {
-        use crate::changes::{Change, Changes};
+        use crate::adapters::changes::{Change, Changes};
         let root = std::env::temp_dir().join(format!("devpage-events-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(&root).unwrap();

@@ -7,7 +7,6 @@ use comrak::{Options, markdown_to_html_with_plugins};
 use crate::highlight::Highlighter;
 use crate::html::{attributes, tag_end};
 use crate::markup::split_front_matter;
-use crate::widgets::Widgets;
 
 /// GitHub-flavoured Markdown with raw HTML allowed. Fenced code goes through
 /// `highlight::Highlighter`, which keeps the language only on Mermaid blocks
@@ -33,7 +32,7 @@ pub(crate) fn options() -> Options<'static> {
 /// `assets/devpage.js`. They all start with `devpage-`, so a heading's id,
 /// taken from its text, matches one only if the heading spells it out; such a
 /// heading's id gets `-heading` added, so a frame id is never a heading's.
-pub const FRAME_IDS: [&str; 8] = [
+pub(crate) const FRAME_IDS: [&str; 8] = [
     "devpage-page",
     "devpage-nav",
     "devpage-sidebar",
@@ -47,7 +46,7 @@ pub const FRAME_IDS: [&str; 8] = [
 /// Renders Markdown to HTML, highlighting fenced code (see `highlight`),
 /// turning an image of a design into its canvas (see `embed_designs`) and
 /// drawing each Mermaid fence (see `diagrams`).
-pub fn markdown(source: &str) -> String {
+pub(crate) fn markdown(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
     // A wide table scrolls inside its own box rather than widening the page.
@@ -65,15 +64,6 @@ pub fn markdown(source: &str) -> String {
         }
     }
     crate::diagrams::draw_fences(&embed_designs(&html))
-}
-
-/// Renders a page's Markdown, the tags of `widgets` expanded first.
-pub fn markdown_in(widgets: &Widgets, source: &str) -> String {
-    markdown(&crate::widgets::expand(
-        source,
-        widgets.names(),
-        &mut Vec::new(),
-    ))
 }
 
 /// `![Name](x.design)` embeds the design: comrak's `<img>` becomes the canvas
@@ -114,7 +104,7 @@ fn embed_designs(html: &str) -> String {
                     "<span class=\"design-embed\"><canvas class=\"design\" src=\"{}\" role=\"img\" aria-label=\"{}\"></canvas>{}</span>",
                     src.replace('"', "&quot;"),
                     attribute("alt").unwrap_or_default().replace('"', "&quot;"),
-                    crate::navbar::design_theme_toggle()
+                    super::navbar::design_theme_toggle()
                 ));
             }
             _ => out.push_str(tag),
@@ -127,6 +117,6 @@ fn embed_designs(html: &str) -> String {
 
 /// The YAML of a page's front matter: what lies between a `---` on its first
 /// line and the next line that is `---`, if the page opens with one.
-pub fn front_matter(source: &str) -> Option<&str> {
+pub(crate) fn front_matter(source: &str) -> Option<&str> {
     split_front_matter(source).map(|(yaml, _)| yaml)
 }

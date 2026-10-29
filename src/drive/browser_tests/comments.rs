@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::chrome::testing::{self, eval, until};
+use crate::adapters::chrome::testing::{self, eval, until};
 
-use crate::comments::*;
-use crate::document::Document;
-use crate::folder::ServedFolder;
-use crate::server;
+use crate::drive::server;
+use devpage_core::comments::*;
+use devpage_core::document::Document;
+use devpage_core::folder::ServedFolder;
 
 /// Serves `entry` from `root`, opens `path` in a headless Chrome with a
 /// profile of its own and turns comment mode on, as a reader starting a
@@ -31,9 +31,9 @@ async fn open_off(
     path: &str,
 ) -> (testing::Browser, chromiumoxide::Page) {
     let document = Arc::new(Document::load(entry, &ServedFolder::new(root).unwrap()).unwrap());
-    let changes = crate::changes::Changes::default();
+    let changes = crate::adapters::changes::Changes::default();
     let app = server::App::testing(document, changes.clone())
-        .with_comments_on_disk(crate::comments::Identity::Local("Ana".into()));
+        .with_comments_on_disk(devpage_core::comments::Identity::Local("Ana".into()));
     let watcher = app.watch().unwrap();
     let address = testing::serve(server::router(app)).await;
     // Watching as long as the page is served: until the test ends.

@@ -7,18 +7,17 @@ use crate::nav;
 use super::escape;
 
 /// A site's sidebar, unless it sets `sidebar: false`: its title — left to the
-/// navbar when there is one — then the tree its Topics sections form,
+/// navbar when there is one — then `groups`, the tree its Topics sections form,
 /// collapsed but for the branch down to the page shown, under the search box.
 /// It is the markup
 /// [`DevpageSidebar`](crate::widgets::SIDEBAR) renders from the same tree,
 /// which follows it as JSON: the page script has React take the sidebar over
 /// without changing a node. Before the page paints, a small script opens the
 /// entries the reader opened on another visit, as the widget will.
-pub(super) fn sidebar(document: &Document, current: &str) -> String {
+pub(super) fn sidebar(document: &Document, groups: &[nav::Group], current: &str) -> String {
     if !document.sidebar {
         return String::new();
     }
-    let groups = nav::tree(document);
     let title = document.navbar.is_empty().then(|| SidebarTitle {
         label: document.title.clone(),
         href: document.entry(),
@@ -37,7 +36,7 @@ pub(super) fn sidebar(document: &Document, current: &str) -> String {
                 ""
             },
             escape(&title.href),
-            crate::navbar::logo(document),
+            super::navbar::logo(document),
             escape(&title.label)
         ));
     }

@@ -29,7 +29,7 @@ use anyhow::Result;
 use devpage_core::watch::Listeners;
 use notify::event::{CreateKind, EventKind, RemoveKind};
 
-use crate::folder::{Folder, WatchSet};
+use devpage_core::folder::{Folder, WatchSet};
 
 /// How long a burst of file events is collected before it is handled: each
 /// path once, and at most one `change` for the whole burst.
@@ -237,12 +237,12 @@ fn canonical(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::changes::{Change, Changes};
-    use crate::comments::Comments;
-    use crate::designs::Designs;
-    use crate::document::Document;
-    use crate::folder::ServedFolder;
-    use crate::widgets::Modules;
+    use crate::adapters::changes::{Change, Changes};
+    use devpage_core::comments::Comments;
+    use devpage_core::designs::Designs;
+    use devpage_core::document::Document;
+    use devpage_core::folder::ServedFolder;
+    use devpage_core::widgets::Modules;
     use notify::event::{DataChange, ModifyKind};
 
     thread_local! {
@@ -456,7 +456,7 @@ mod tests {
     /// The comments of `served`, in its thread files, announced on `changes`.
     fn comments(served: &ServedFolder, changes: &Changes) -> Comments {
         Comments::new(
-            Arc::new(crate::comments::yaml::Yaml::new(served)),
+            Arc::new(devpage_core::comments::yaml::Yaml::new(served)),
             Arc::new(changes.clone()),
             served.clone(),
         )
@@ -645,7 +645,7 @@ mod tests {
     /// What `received` hears within `within`, stopping early at the first
     /// message that is `want`.
     async fn listen(
-        received: &mut crate::changes::Subscription,
+        received: &mut crate::adapters::changes::Subscription,
         within: Duration,
         want: Option<&str>,
     ) -> Vec<String> {
@@ -692,7 +692,7 @@ mod tests {
         let messages = heard(
             &dir,
             |comments| {
-                let anchor = crate::comments::Anchor {
+                let anchor = devpage_core::comments::Anchor {
                     quote: "x".into(),
                     prefix: String::new(),
                     suffix: String::new(),

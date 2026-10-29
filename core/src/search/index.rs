@@ -277,7 +277,7 @@ impl Search {
                     if path.first() != Some(&page.title) {
                         path.insert(0, page.title.clone());
                     }
-                    // As `render::doc` lays them out: with more than one
+                    // As `page::doc` lays them out: with more than one
                     // chapter, each one's ids carry its name, and the chapter
                     // is an id itself.
                     let anchor = match (&section.id, &unit.name) {

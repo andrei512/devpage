@@ -5,7 +5,7 @@
 use axum::http::{HeaderMap, header};
 use axum::response::{Html, IntoResponse, Response};
 use devpage_core::addresses::{Owned, address};
-use devpage_core::render::escape;
+use devpage_core::page::escape;
 
 use crate::drive::api_types::Refusal;
 use crate::drive::server_mode::published::{Mount, Published, downloadable};

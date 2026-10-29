@@ -33,7 +33,7 @@ pub async fn validate(request: Request, next: Next) -> Response {
         let bytes = axum::body::to_bytes(body, usize::MAX)
             .await
             .unwrap_or_default();
-        if let Ok(value) = HeaderValue::from_str(&strong(&crate::addresses::hash(&bytes))) {
+        if let Ok(value) = HeaderValue::from_str(&strong(&devpage_core::addresses::hash(&bytes))) {
             parts.headers.insert(header::ETAG, value);
         }
         Body::from(bytes)

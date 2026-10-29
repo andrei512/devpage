@@ -10,14 +10,6 @@ mod adapters;
 /// Driving adapters: what drives the core — the HTTP server, Chrome.
 mod drive;
 
-// The core's modules and the binary's, each by its own name.
-use adapters::{changes, chrome, git, http, terminal, watch};
-use devpage_core::{
-    addresses, answer, check, comments, designs, diagrams, document, folder, problem, search,
-    widgets,
-};
-use drive::{pdf, server, slide_png, validators, video};
-
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,9 +17,6 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tokio::net::TcpListener;
-
-use crate::document::Document;
-use crate::folder::Folder;
 
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
@@ -84,6 +73,13 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // The composition root's own names, kept to it: every other module names
+    // the core's and the binary's modules by their paths.
+    use adapters::{changes, git, http, terminal};
+    use devpage_core::document::Document;
+    use devpage_core::folder::{self, Folder};
+    use devpage_core::{check, comments, designs, diagrams};
+    use drive::{pdf, server, video};
     let mut cli = Cli::parse();
     diagrams::start();
     let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));

@@ -3,7 +3,7 @@
 How `core/src/nav.rs` reads the sidebar tree out of the pages' `## Topics`
 sections — finding the section, taking each item's first link, resolving it to
 a file, grouping by `###` headings and placing each page once — and how
-`core/src/render/sidebar.rs` turns the tree into the sidebar's HTML — collapsed, the
+`core/src/page/sidebar.rs` turns the tree into the sidebar's HTML — collapsed, the
 current page highlighted and its branch open — which the `DevpageSidebar`
 widget takes over in the browser. It is a mechanism page under the
 [viewer](../README.md), for someone about to change those files; how to use Topics is in
@@ -111,20 +111,22 @@ Grouping compares with the *last* group only, so the same `###` title appearing
 twice, with another group between, gives two separate groups.
 
 The tree is rebuilt for every page request, reading every page it reaches; no
-result is kept between requests.
+result is kept between requests. It is built once per page: the sidebar is
+drawn from it, and the navbar finds in the same tree the link that holds the
+page shown.
 
 ## Rendering the sidebar
 
 The sidebar is the `DevpageSidebar` widget, devpage's own
 ([Widgets](../widgets/system-widgets/README.md#devpagesidebar)). The server
-renders its first paint and the browser keeps it: `render::sidebar` writes the
+renders its first paint and the browser keeps it: `page`'s `sidebar` writes the
 markup the widget renders, and the tree beside it as JSON, so React takes the
 sidebar over without changing a node.
 
 **The markup.** Under the title link comes the
-[search box](../search/README.md#the-search-box) — `render::SEARCH_BOX`, a
+[search box](../search/README.md#the-search-box) — `SEARCH_BOX`, a
 `<div class="search">` holding the empty field and the `/` that focuses it —
-then the tree. `render::tree` renders the groups as nested `<ul>` lists:
+then the tree. `tree` renders the groups as nested `<ul>` lists:
 
 - a group with a title becomes `<li class="group"><span>title</span></li>`
   before its entries;

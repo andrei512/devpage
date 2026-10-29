@@ -1,22 +1,26 @@
-//! The frame each kind of document is shown in: a site's page, a doc's
-//! chapters on one page, a deck's slides, and the page for a document file
-//! that can't be loaded — with the problems listed above the content.
+//! The frame phase: content put inside the frame its document is shown in —
+//! a site's page, a doc's chapters on one page, a deck's slides — with the
+//! problems found listed above it; and the page for a document file that
+//! can't be loaded.
 
 use std::path::{Path, PathBuf};
 
 use crate::addresses::{Owned, address};
-use crate::document::{Document, Paper, Pdf, Slide};
+use crate::document::{Document, Paper, Pdf};
 use crate::folder::ServedFolder;
+use crate::html::{Link, escape};
+use crate::markup::title;
+use crate::nav;
 use crate::problem::Problem;
 use crate::widgets::Widgets;
 
+use super::content::Rendered;
+use super::navbar;
 use super::sidebar::sidebar;
-use super::{escape, markdown_in, title};
-use crate::html::Link;
 
 /// A site page's tab title: `<page> · <site>`, or just the site's name when
 /// the page is titled like it (trimmed, ignoring case).
-pub fn tab_title(page: &str, site: &str) -> String {
+pub(super) fn tab_title(page: &str, site: &str) -> String {
     let (page, site) = (page.trim(), site.trim());
     if page.to_lowercase() == site.to_lowercase() {
         site.to_string()
@@ -28,7 +32,7 @@ pub fn tab_title(page: &str, site: &str) -> String {
 /// The page's `<html>` tag, carrying the served folder's mount when it has
 /// one, for the page script and the design script to ask their endpoints
 /// under.
-pub fn html_open(served: &ServedFolder) -> String {
+pub(super) fn html_open(served: &ServedFolder) -> String {
     match served.mount() {
         "" => r#"<html lang="en">"#.to_string(),
         mount => format!(r#"<html lang="en" data-mount="{}">"#, escape(mount)),
@@ -53,20 +57,25 @@ fn page_script(print: bool, comments: bool) -> String {
     )
 }
 
-/// The whole page for one Markdown file: navigation, the rendered content and
-/// the scripts that mount its widgets and keep it live. `comments` is whether
-/// comments are on.
-/// `found` is the page's problems, listed above it.
+/// The whole page for one Markdown file of the site `document`: navigation,
+/// the file's `rendered` content and the scripts that mount its widgets and
+/// keep it live. `comments` is whether comments are on; `found` is the page's
+/// problems, listed above it. The navbar and the sidebar are drawn from one
+/// navigation tree, built once for the page.
 pub fn page(
     document: &Document,
     widgets: &Widgets,
-    file: &Path,
-    source: &str,
+    rendered: &Rendered,
     comments: bool,
     found: &[Problem],
 ) -> String {
-    let current = document.url(file);
-    let content = markdown_in(widgets, source);
+    let current = document.url(rendered.file());
+    let content = rendered.html();
+    let tree = if document.sidebar || !document.navbar.is_empty() {
+        nav::tree(document)
+    } else {
+        Vec::new()
+    };
     format!(
         r#"<!doctype html>
 {html}
@@ -87,20 +96,23 @@ pub fn page(
         html = html_open(&document.served),
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
-        tab = escape(&tab_title(&title(source, file), &document.title)),
-        theme = crate::navbar::head(document),
+        tab = escape(&tab_title(
+            &title(rendered.source(), rendered.file()),
+            &document.title
+        )),
+        theme = navbar::head(document),
         body_class = site_class(document),
-        navbar = crate::navbar::render(document, &current, comments),
-        sidebar = sidebar(document, &current),
+        navbar = navbar::render(document, &tree, &current, comments),
+        sidebar = sidebar(document, &tree, &current),
         script = page_script(false, comments),
         corner = if document.navbar.is_empty() {
-            crate::navbar::corner(document, comments)
+            navbar::corner(document, comments)
         } else {
             String::new()
         },
         problems = problems(found),
         widgets = widgets.head(
-            &content,
+            content,
             if document.sidebar {
                 &[crate::widgets::SIDEBAR]
             } else {
@@ -110,13 +122,13 @@ pub fn page(
     )
 }
 
-/// A doc: every chapter on one page, in order, with an outline of the
-/// chapters' headings beside them. In print mode the outline and the live
-/// connection are left out and the page size is the doc's paper.
+/// A doc: every chapter's `rendered` content on one page, in order, with an
+/// outline of the chapters' headings beside them. In print mode the outline
+/// and the live connection are left out and the page size is the doc's paper.
 pub fn doc(
     document: &Document,
     widgets: &Widgets,
-    chapters: &[PathBuf],
+    chapters: &[Rendered],
     pdf: &Pdf,
     print: bool,
     comments: bool,
@@ -124,26 +136,11 @@ pub fn doc(
 ) -> String {
     let mut content = String::new();
     let mut outline = String::new();
-    // Several chapters share one page, so each one's ids are prefixed with its
-    // name, and links to a chapter or its headings point at those ids.
-    let names: Vec<(PathBuf, String)> = chapters
-        .iter()
-        .map(|chapter| {
-            let canonical = document
-                .served
-                .inside(chapter)
-                .unwrap_or_else(|| chapter.clone());
-            let name = chapter
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .into_owned();
-            (canonical, name)
-        })
-        .collect();
-    for chapter in chapters {
-        let source = std::fs::read_to_string(chapter).unwrap_or_default();
-        let mut html = markdown_in(widgets, &source);
+    let files: Vec<PathBuf> = chapters.iter().map(|c| c.file().to_path_buf()).collect();
+    let names = chapter_names(&files, &document.served);
+    for rendered in chapters {
+        let chapter = rendered.file();
+        let mut html = rendered.html().to_string();
         if chapters.len() > 1 {
             html = scope_ids(&html, chapter, &names, &document.served);
         }
@@ -178,7 +175,7 @@ pub fn doc(
     } else {
         format!(
             "<nav id=\"devpage-nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
-            crate::navbar::logo(document),
+            navbar::logo(document),
             escape(&document.title)
         )
     };
@@ -204,11 +201,11 @@ pub fn doc(
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),
-        theme = crate::navbar::head(document),
+        theme = navbar::head(document),
         corner = if print {
             String::new()
         } else {
-            crate::navbar::corner(document, comments)
+            navbar::corner(document, comments)
         },
         widgets = widgets.head(&content, &[]),
         // A lone Markdown file's title is its own first heading; don't repeat it.
@@ -225,6 +222,24 @@ pub fn doc(
             problems(found)
         },
     )
+}
+
+/// Several chapters share one page, so each one's ids are prefixed with its
+/// name — its file's stem — and links to a chapter or its headings point at
+/// those ids: each chapter, as the served folder names it, with its name.
+pub(super) fn chapter_names(chapters: &[PathBuf], served: &ServedFolder) -> Vec<(PathBuf, String)> {
+    chapters
+        .iter()
+        .map(|chapter| {
+            let canonical = served.inside(chapter).unwrap_or_else(|| chapter.clone());
+            let name = chapter
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
+            (canonical, name)
+        })
+        .collect()
 }
 
 fn chapter_name(chapter: &Path, names: &[(PathBuf, String)], served: &ServedFolder) -> String {
@@ -356,7 +371,7 @@ pub fn invalid(entry: &Document, file: &Path, error: &str) -> String {
         page_script = page_script(false, true),
         address = escape(&address),
         document = escape(&entry.title),
-        theme = crate::navbar::head(entry),
+        theme = navbar::head(entry),
         error = escape(error),
     )
 }
@@ -380,25 +395,24 @@ fn problems(found: &[Problem]) -> String {
     )
 }
 
-/// A deck: every slide on its own 1920 × 1080 stage, scaled to the window as a
-/// whole, one shown at a time. In print mode each slide is one 16:9 page.
+/// A deck: every slide's `rendered` content on its own 1920 × 1080 stage,
+/// scaled to the window as a whole, one shown at a time. In print mode each
+/// slide is one 16:9 page.
 pub fn slides(
     document: &Document,
     widgets: &Widgets,
-    slides: &[Slide],
+    slides: &[Rendered],
     print: bool,
     comments: bool,
     found: &[Problem],
 ) -> String {
-    let files: Vec<PathBuf> = slides.iter().map(|slide| slide.file.clone()).collect();
     let mut content = String::new();
-    for (index, slide) in files.iter().enumerate() {
-        let source = std::fs::read_to_string(slide).unwrap_or_default();
+    for (index, slide) in slides.iter().enumerate() {
         content.push_str(&format!(
             "<section class=\"slide\" data-slide=\"{}\" data-source=\"{}\"><div class=\"slide-body\">{}</div></section>",
             index + 1,
-            document.url(slide),
-            rebase(&markdown_in(widgets, &source), slide, document)
+            document.url(slide.file()),
+            rebase(slide.html(), slide.file(), document)
         ));
     }
     format!(
@@ -422,11 +436,11 @@ pub fn slides(
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
         title = escape(&document.title),
-        theme = crate::navbar::head(document),
+        theme = navbar::head(document),
         corner = if print {
             String::new()
         } else {
-            crate::navbar::corner(document, comments)
+            navbar::corner(document, comments)
         },
         widgets = widgets.head(&content, &[]),
         print_class = if print { " print" } else { "" },

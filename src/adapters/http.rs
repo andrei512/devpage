@@ -10,7 +10,7 @@ use std::time::Duration;
 use devpage_core::external::{Ask, Background, External, Outcome, Waits};
 use futures::future::BoxFuture;
 
-use crate::changes::Changes;
+use crate::adapters::changes::Changes;
 
 /// The checker devpage uses: the network, the default waits, announcing on
 /// `changes`.
@@ -119,18 +119,18 @@ fn seconds(wait: Duration) -> String {
 /// local web server, so the suite needs no network.
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use std::sync::Mutex;
 
     use devpage_core::check::{Preview, Report, document};
     use devpage_core::designs::Designs;
     use devpage_core::document::Document;
+    use devpage_core::page::{self, Rendered};
     use devpage_core::problem::Problem;
     use devpage_core::widgets::{Modules, Widgets};
 
     use super::*;
-    use crate::changes::{Change, Subscription};
-    use crate::folder::ServedFolder;
+    use crate::adapters::changes::{Change, Subscription};
+    use devpage_core::folder::ServedFolder;
 
     /// A local web server for external-link tests, so the suite needs no
     /// network: `/ok` answers 200, anything else 404, and it counts the requests
@@ -266,7 +266,7 @@ mod tests {
     async fn render_until(
         preview: &Preview,
         doc: &Document,
-        pages: &[PathBuf],
+        pages: &[Rendered],
         done: impl Fn(&[Problem]) -> bool,
     ) -> Vec<Problem> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
@@ -290,7 +290,7 @@ mod tests {
             ),
         );
         let designs = designs_of(&doc);
-        let opened = crate::folder::Folder::new(Arc::new(doc));
+        let opened = devpage_core::folder::Folder::new(Arc::new(doc));
         let found: Vec<String> = document(&opened, &designs, Some(&checker(300, 3000, 50)))
             .await
             .iter()
@@ -311,7 +311,7 @@ mod tests {
             &format!("# Home\n\n[a]({0}/missing) [b]({0}/ok)\n", web.address),
         );
         let (preview, mut heard) = previewing(Waits::default());
-        let pages = [doc.base.join("README.md")];
+        let pages = [page::read(&widgets_of(&doc), &doc.base.join("README.md"))];
 
         // The first render holds nothing up: the answer isn't in yet.
         assert!(

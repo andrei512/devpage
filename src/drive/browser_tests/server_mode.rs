@@ -6,7 +6,7 @@ use std::time::Duration;
 use chromiumoxide::Browser;
 
 use super::{publish, server_mode, zip_of};
-use crate::chrome::testing::{self, Answered, eval, until};
+use crate::adapters::chrome::testing::{self, Answered, eval, until};
 
 /// A site with everything a page asks its server for: a sidebar with
 /// search, a navbar, a system widget, a project widget that renders one, an

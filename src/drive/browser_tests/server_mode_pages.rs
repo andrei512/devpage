@@ -5,7 +5,7 @@
 use std::time::Duration;
 
 use super::{publish, server_mode, zip_of};
-use crate::chrome::testing::{self, eval, until};
+use crate::adapters::chrome::testing::{self, eval, until};
 
 fn doc(text: &str) -> Vec<u8> {
     zip_of(&[

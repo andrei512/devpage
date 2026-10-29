@@ -15,7 +15,7 @@ use axum::routing::{any, delete, get, post};
 
 use super::published::Published;
 use crate::drive::api_types::Refusal;
-use crate::server;
+use crate::drive::server;
 
 /// Every route of `devpage server`, on `published`, taking uploads of up to
 /// `max_upload_bytes`.

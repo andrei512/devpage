@@ -21,12 +21,12 @@ use super::Config;
 use super::cache::{Cache, Served};
 use crate::adapters::bucket::Bucket;
 use crate::adapters::bundle;
+use crate::adapters::changes::{Change, Changes};
 use crate::adapters::sqlite::{
     Deleted, DocumentRow, DocumentThreads, Publish, Sqlite, ThreadRow, VersionRow,
 };
-use crate::changes::{Change, Changes};
 use crate::drive::api_types::Refusal;
-use crate::server::{self, App, Commenting};
+use crate::drive::server::{self, App, Commenting};
 
 /// Which version of a document an address shows: the latest, in place at
 /// `/d/<id>`, or version `n` at its own `/d/<id>/v/<n>`.
@@ -322,7 +322,7 @@ impl Published {
                 render(&designs, &mount, &folder, &entry, extension).await
             })
             .await?;
-        let name = crate::pdf::default_output(&row.title)
+        let name = crate::drive::pdf::default_output(&row.title)
             .with_extension(extension)
             .to_string_lossy()
             .into_owned();
@@ -409,7 +409,7 @@ async fn render(
             .map_err(anyhow::Error::msg);
     }
     let document = Document::load(&served.path().join(entry), &served)?;
-    crate::pdf::print(Arc::new(document)).await
+    crate::drive::pdf::print(Arc::new(document)).await
 }
 
 /// What the zip is — its kind and title — or why it can't be published:

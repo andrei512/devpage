@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use anyhow::{Result, bail};
 
-use crate::chrome::{Open, PrintToPdfParams, Profile, Session};
-use crate::document::{Document, Kind, Paper, Pdf};
-use crate::server;
+use crate::adapters::chrome::{Open, PrintToPdfParams, Profile, Session};
+use crate::drive::server;
+use devpage_core::document::{Document, Kind, Paper, Pdf};
 
 /// `document` printed, as a PDF's bytes.
 pub async fn print(document: Arc<Document>) -> Result<Vec<u8>> {
@@ -107,7 +107,7 @@ mod tests {
     use super::*;
     use std::path::Path;
 
-    use crate::folder::ServedFolder;
+    use devpage_core::folder::ServedFolder;
 
     #[test]
     fn the_default_file_name_is_the_title_made_safe() {

@@ -15,8 +15,8 @@ use anyhow::Result;
 use axum::Router;
 use tokio::sync::Semaphore;
 
-use crate::changes::{Changes, Subscription};
-use crate::chrome::{Open, Profile, Session};
+use crate::adapters::changes::{Changes, Subscription};
+use crate::adapters::chrome::{Open, Profile, Session};
 
 /// devpage's own controls, which are not part of the slide.
 const HIDE_CONTROLS: &str = "document.head.insertAdjacentHTML('beforeend', \
@@ -259,7 +259,7 @@ async fn capture(session: &Session, path: &str) -> Result<(Vec<u8>, bool)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::changes::Change;
+    use crate::adapters::changes::Change;
 
     #[test]
     fn a_refresh_clears_the_kept_slides_and_a_comment_does_not() {

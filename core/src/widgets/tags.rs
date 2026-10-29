@@ -223,7 +223,7 @@ mod tests {
         );
         assert!(out.contains("\n\nSome **markdown**\n\n</div>"), "{out}");
         assert!(problems.is_empty());
-        let html = crate::render::markdown(&out);
+        let html = crate::page::markdown::markdown(&out);
         assert!(html.contains("<strong>markdown</strong>"), "{html}");
     }
 
@@ -257,7 +257,7 @@ mod tests {
         let out = expand(source, &set(&["Callout"]), &mut problems);
         assert_eq!(out, source, "{out}");
         assert!(problems.is_empty(), "{problems:?}");
-        let html = crate::render::markdown(&out);
+        let html = crate::page::markdown::markdown(&out);
         assert!(
             html.contains("let v: Vec&lt;String&gt; = Vec::new();"),
             "{html}"
@@ -287,7 +287,7 @@ mod tests {
             &set(&["Callout"]),
             &mut problems,
         );
-        let html = crate::render::markdown(&out);
+        let html = crate::page::markdown::markdown(&out);
         assert!(!html.contains("<nope>"), "{html}");
         assert!(!html.contains("hello"), "{html}");
         assert!(!html.contains("<gone"), "{html}");
@@ -336,7 +336,7 @@ mod tests {
             &set(&["Tabs", "Tab", "Keys"]),
             &mut problems,
         );
-        let html = crate::render::markdown(&out);
+        let html = crate::page::markdown::markdown(&out);
         assert!(html.contains(r#"<div data-widget="Tabs""#), "{html}");
         assert!(html.contains(r#"<div data-widget="Tab""#), "{html}");
         assert!(
@@ -358,7 +358,7 @@ mod tests {
             &set(&["Keys"]),
             &mut problems,
         );
-        let html = crate::render::markdown(&out);
+        let html = crate::page::markdown::markdown(&out);
         assert!(html.starts_with("<p><span data-widget=\"Keys\""), "{html}");
         assert!(html.contains("<strong>print</strong>"), "{html}");
         assert_eq!(html.matches("data-widget=\"Keys\"").count(), 2, "{html}");
@@ -396,7 +396,8 @@ mod tests {
     fn notes_are_taken_out_of_the_page_and_their_text_kept() {
         let source = "# Title\n\n<Notes>\n  Say **this**, word for word.\n</Notes>\n\nAfter.\n";
         let mut problems = Vec::new();
-        let html = crate::render::markdown(&expand(source, &set(&["Callout"]), &mut problems));
+        let html =
+            crate::page::markdown::markdown(&expand(source, &set(&["Callout"]), &mut problems));
         assert!(!html.contains("word for word"), "{html}");
         assert!(!html.contains("widget-error"), "{html}");
         assert!(html.contains("<p>After.</p>"), "{html}");
@@ -407,7 +408,7 @@ mod tests {
     fn unclosed_notes_are_a_problem_and_never_shown() {
         let source = "# Title\n\nShown.\n\n<Notes>\nSay this.\n</Note>\n\nAfter.\n";
         let mut problems = Vec::new();
-        let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+        let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut problems));
         assert!(html.contains("<p>Shown.</p>"), "{html}");
         assert!(!html.contains("Say this"), "{html}");
         assert!(!html.contains("After."), "{html}");
@@ -420,7 +421,7 @@ mod tests {
     #[test]
     fn a_notes_delivery_is_kept_and_never_shown() {
         let source = "<Notes delivery=\"Honest and a little teasing: you caught them.\">\nSay this.\n</Notes>\n";
-        let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
+        let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut Vec::new()));
         assert!(!html.contains("teasing"), "{html}");
     }
 
@@ -431,7 +432,7 @@ mod tests {
             "<Notes delivery=\"say \\\"wow\\\" now\">\nSAYTHIS\n</Notes>\n\nAfter.\n",
         ] {
             let mut problems = Vec::new();
-            let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+            let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut problems));
             assert!(
                 !html.contains("SAYTHIS") && !html.contains("Notes"),
                 "{html}"
@@ -445,7 +446,7 @@ mod tests {
     fn a_notes_delivery_that_is_not_a_quoted_string_is_a_problem() {
         let source = "<Notes delivery={\"warm\"}>\nSay this.\n</Notes>\n";
         let mut problems = Vec::new();
-        let html = crate::render::markdown(&expand(source, &set(&[]), &mut problems));
+        let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut problems));
         assert!(!html.contains("Say this"), "{html}");
         assert_eq!(
             problems,
@@ -456,7 +457,7 @@ mod tests {
     #[test]
     fn notes_inside_code_and_comments_are_not_notes() {
         let source = "`<Notes>x</Notes>`\n\n```\n<Notes>fenced</Notes>\n```\n\n    <Notes>indented</Notes>\n\n<!-- <Notes>hidden</Notes> -->\n";
-        let html = crate::render::markdown(&expand(source, &set(&[]), &mut Vec::new()));
+        let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut Vec::new()));
         assert!(
             html.contains("fenced") && html.contains("indented"),
             "{html}"

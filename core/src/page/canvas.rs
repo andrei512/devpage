@@ -26,11 +26,11 @@ pub fn canvas(served: &ServedFolder, path: &str, theme: Option<Theme>) -> String
 </body></html>"#,
         stylesheet = address(Owned::Asset("style.css")),
         design_script = address(Owned::Asset("design.js")),
-        html = super::html_open(served),
-        mount = super::escape(served.mount()),
-        name = super::escape(name),
-        path = super::escape(path),
-        theme = crate::navbar::theme_script(true),
+        html = super::frame::html_open(served),
+        mount = crate::html::escape(served.mount()),
+        name = crate::html::escape(name),
+        path = crate::html::escape(path),
+        theme = super::navbar::theme_script(true),
         chosen = match theme {
             Some(Theme::Dark) =>
                 r#"<script>document.documentElement.dataset.theme="dark"</script>"#,
@@ -38,7 +38,7 @@ pub fn canvas(served: &ServedFolder, path: &str, theme: Option<Theme>) -> String
                 r#"<script>document.documentElement.dataset.theme="light"</script>"#,
             None => "",
         },
-        toggle = crate::navbar::theme_toggle(),
+        toggle = super::navbar::theme_toggle(),
     )
 }
 

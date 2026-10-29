@@ -13,12 +13,12 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 
-use crate::designs::Designs;
-use crate::document::Document;
 use crate::drive::api_types::{Refusal, Thread};
-use crate::folder::{Folder, ServedFolder};
 use api::Api;
 use contexts::{Context, Home};
+use devpage_core::designs::Designs;
+use devpage_core::document::Document;
+use devpage_core::folder::{Folder, ServedFolder};
 
 /// The commands that talk to a devpage server.
 #[derive(Subcommand, Debug)]
@@ -210,7 +210,7 @@ pub async fn run(
             let version = version.unwrap_or(document.latest);
             let bytes = api.download(&id, version).await?;
             let output = output.unwrap_or_else(|| {
-                crate::pdf::default_output(&document.title).with_extension(extension)
+                crate::drive::pdf::default_output(&document.title).with_extension(extension)
             });
             std::fs::write(&output, &bytes)
                 .with_context(|| format!("writing {}", output.display()))?;
@@ -314,8 +314,12 @@ async fn publish(
     let document = folder.entry();
     // One store for the check and the zip: each design is resolved once.
     let designs = Designs::new(served);
-    let problems =
-        crate::check::document(&folder, &designs, Some(&crate::http::external(None))).await;
+    let problems = devpage_core::check::document(
+        &folder,
+        &designs,
+        Some(&crate::adapters::http::external(None)),
+    )
+    .await;
     if !problems.is_empty() {
         let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
         let text = if as_json {

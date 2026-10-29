@@ -1,10 +1,11 @@
 # Rendering a page
 
 How a Markdown file becomes the HTML page a reader sees: comrak turns it into
-HTML with highlighted code, its diagrams are drawn, the title and sidebar are
-worked out, and the pieces go into the page frame. It is a mechanism page under the
+HTML with highlighted code, its diagrams are drawn, its problems are found,
+the title and sidebar are worked out, and the pieces go into the page frame.
+It is a mechanism page under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
-for someone about to change `core/src/render/`, `core/src/highlight.rs` or
+for someone about to change `core/src/page/`, `core/src/highlight.rs` or
 `core/src/diagrams.rs`.
 
 ```mermaid
@@ -12,24 +13,50 @@ flowchart LR
   md["page.md"] --> comrak["Markdown to HTML<br/>comrak"]
   comrak --> code["Code highlighted<br/>syntect"]
   code --> diagrams["Diagrams drawn<br/>pele"]
-  diagrams --> frame["The page frame"]
+  diagrams --> rendered["Rendered<br/>HTML and links"]
+  rendered --> problems["Its problems<br/>the preview"]
+  rendered --> frame["The page frame"]
+  problems --> frame
   title["Title"] --> frame
   side["Sidebar"] --> frame
   click comrak href "#markdown-to-html" "Markdown to HTML"
   click code href "#highlighted-code" "Highlighted code"
   click diagrams href "#diagrams" "Diagrams"
+  click rendered href "#two-phases" "Two phases"
+  click problems href "../checking-links/README.md#in-the-preview" "In the preview"
   click title href "#the-title-and-the-sidebar" "The title and the sidebar"
   click side href "#the-title-and-the-sidebar" "The title and the sidebar"
   click frame href "#the-page-frame" "The page frame"
 ```
 
-A file ending in `.md` is read as text and passed to `render::page`, which
-does the steps below.
+A file ending in `.md` is read as text and rendered in the two phases below.
+
+## Two phases
+
+**Content.** `page::content` turns one file's Markdown — the tags of its
+document's [widgets](../widgets/README.md) expanded first — into `Rendered`:
+the HTML of the steps below, and every link that HTML holds (each `href` and
+`src`, and each design the Markdown embeds), with the file and line it is
+written at. The preview finds the page's problems in it
+([Checking links](../checking-links/README.md#in-the-preview)), and
+`devpage check` judges every page it reaches the same way.
+
+**Frame.** `page::page` — `page::doc` for a doc's chapters, `page::slides`
+for a deck's slides — puts the `Rendered` content inside
+[the page frame](#the-page-frame) with those problems listed above it. The
+frame's own links, the navbar's and the sidebar's, are never among the
+content's: they are the document file's, and checked with it.
+
+The content is rendered once per request: what the preview checks is what the
+page shows. A link into another page lands on an id that page renders, which
+`page::ids` answers without building the page — a Markdown file's ids, or a
+doc's, each with its chapter's name before it when it has more than one, as
+[the doc's frame](#the-page-frame) scopes them.
 
 ## Markdown to HTML
 
-`render::markdown` runs comrak with these options
-(`options()` in `core/src/render/markdown.rs`):
+`page::markdown` runs comrak with these options
+(`options()` in `core/src/page/markdown.rs`):
 
 | Option | Effect |
 | --- | --- |
@@ -57,7 +84,7 @@ image is left as it is.
 
 ## Highlighted code
 
-`render::markdown` also plugs in a code-fence highlighter,
+`page::markdown` also plugs in a code-fence highlighter,
 `highlight::Highlighter` in `core/src/highlight.rs`, through comrak's `Plugins`
 (`SyntaxHighlighterAdapter`). For each fenced block it:
 
@@ -78,7 +105,7 @@ image is left as it is.
 
 ## Diagrams
 
-Then `render::markdown` hands the HTML to `diagrams::draw_fences`, which
+Then `page::markdown` hands the HTML to `diagrams::draw_fences`, which
 replaces each `<pre lang="mermaid">` block with the SVG pele draws from its
 text, in a `<div class="diagram">`, or with a `<pre class="diagram-error">`
 when it doesn't parse. All of a page's diagrams go to the
@@ -88,11 +115,12 @@ the browser, and a page's HTML holds its diagrams already drawn.
 
 ## The title and the sidebar
 
-**Title.** `render::title` takes the first line starting with `# `, or the
+**Title.** `markup::title` takes the first line starting with `# `, or the
 file name without its extension.
 
 **Sidebar.** The [navigation tree](../navigation-tree/README.md) is built
-from the root page and rendered to nested lists, collapsed but for the branch
+once per page from the root page — the sidebar is drawn from it, and the
+navbar finds in it the link that holds the page shown — and rendered to nested lists, collapsed but for the branch
 down to the current page, which is marked — the markup the `DevpageSidebar`
 widget takes over in the browser — with the tree beside it as JSON.
 
