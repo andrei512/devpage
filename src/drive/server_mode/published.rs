@@ -164,7 +164,7 @@ impl Published {
         // unchanged. Kept until the publish is done: the carry reads the new
         // version's pages from it.
         let scratch = Scratch::new(&library.scratch)?;
-        let (kind, title) = check(&zip, entry, &scratch.0)
+        let (kind, title) = check(&library.designs, &zip, entry, &scratch.0)
             .await
             .map_err(|e| Refusal::Unprocessable(format!("{e:#}")))?;
         let sha256 = format!("{:x}", Sha256::digest(&zip));
@@ -415,8 +415,15 @@ async fn render(
 /// What the zip is — its kind and title — or why it can't be published:
 /// a file outside it, no document at `entry`, or a broken link inside it.
 /// External addresses aren't asked: the CLI asks them before uploading, so a
-/// publish never waits on the internet.
-async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str, String)> {
+/// publish never waits on the internet. Its designs are checked in the
+/// server's one design store, under the scratch folder's own mount, which
+/// leaves the store when the check is done.
+async fn check(
+    store: &designs::Store,
+    zip: &[u8],
+    entry: &str,
+    scratch: &Path,
+) -> Result<(&'static str, String)> {
     bundle::unpack(zip, scratch)?;
     let scratch = ServedFolder::new(scratch)?;
     let file = scratch.path().join(entry);
@@ -424,7 +431,7 @@ async fn check(zip: &[u8], entry: &str, scratch: &Path) -> Result<(&'static str,
         bail!("{entry}: no such file in the zip");
     }
     let folder = Folder::new(Arc::new(Document::load(&file, &scratch)?));
-    let designs = designs::Designs::new(&scratch);
+    let designs = store.designs(&format!("scratch:{}", scratch.path().display()), &scratch);
     let problems = devpage_core::check::document(&folder, &designs, None).await;
     let document = folder.entry();
     if !problems.is_empty() {

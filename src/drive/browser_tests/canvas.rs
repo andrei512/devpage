@@ -2090,6 +2090,115 @@ async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
     browser.close().await.ok();
 }
 
+/// How a test breaks a design mid-session through one of its image files.
+#[derive(Clone, Copy, Debug)]
+enum Break {
+    /// The file no longer decodes: the design's problem, its scene kept.
+    Decode,
+    /// The file grows past what the GPU's atlas holds beside the others:
+    /// its scene can't be drawn.
+    Atlas,
+}
+
+/// A design broken mid-session — an image that no longer decodes, or one
+/// that grows past what the GPU's atlas holds — keeps showing its last good
+/// drawing: its problem on the problems bar, a save meanwhile not shown, and
+/// a zoom into a part of it no tile was painted of yet paints those tiles,
+/// of the last good drawing.
+async fn a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(
+    webgpu: bool,
+    broken: Break,
+) {
+    let dir = folder(&format!("last-good-{broken:?}-{webgpu}"));
+    // Three distinct files: one the same as another would be held once.
+    for (name, fill) in [("a", "#cccccc"), ("b", "#bbbbbb"), ("c", "#aaaaaa")] {
+        std::fs::write(
+            dir.join(format!("{name}.png")),
+            painted_png(4096, 4096, fill),
+        )
+        .unwrap();
+    }
+    std::fs::write(dir.join("x.png"), painted_png(8, 8, "#c800c8")).unwrap();
+    std::fs::write(dir.join("y.png"), painted_png(8, 8, "#00c8c8")).unwrap();
+    let design = |fill: &str| {
+        let images: String = "abcxy"
+            .chars()
+            .map(|c| format!(r#"<Image src="./{c}.png" width={{40}} height={{40}} />"#))
+            .collect();
+        format!(
+            r##"<Frame layout="column" gap={{4}} padding={{8}} fill="#ffffff"><Frame layout="row" gap={{4}}>{images}</Frame><Rect width={{40}} height={{2000}} fill="#ffffff" /><Rect width={{200}} height={{200}} fill="{fill}" /></Frame>"##
+        )
+    };
+    let file = dir.join("tall.design");
+    std::fs::write(&file, design("#dc0000")).unwrap();
+    let (address, designs) = serve_designs(&dir, "tall.design").await;
+    let mut browser = testing::launch().await;
+    let page = canvas_page(&mut browser, webgpu, 1280, 1000).await;
+    page.goto(format!("{address}/tall.design")).await.unwrap();
+    until(&page, PAINTED).await;
+    let backend: String = eval(
+        &page,
+        "document.querySelector('canvas.design').dataset.backend",
+    )
+    .await;
+    assert_eq!(backend, if webgpu { "gpu" } else { "cpu" });
+
+    let x = dir.join("x.png");
+    match broken {
+        Break::Decode => std::fs::write(&x, b"not a png").unwrap(),
+        Break::Atlas => std::fs::write(&x, painted_png(4096, 4096, "#c800c8")).unwrap(),
+    }
+    designs.changed(&x);
+    until(&page, "!!document.querySelector('.design-problems')").await;
+    std::fs::write(&file, design("#ffaa00")).unwrap();
+    designs.changed(&file);
+
+    // The bottom box, at 100%: tiles never painted, at a scale never shown.
+    let before = number(&page, "tiles").await;
+    zoom_to(&page, 1.0, 100.0, 2156.0).await;
+    until(
+        &page,
+        &format!(
+            "Number(document.querySelector('canvas.design').dataset.tiles) > {before} && {PAINTED}"
+        ),
+    )
+    .await;
+    let bottom = on_screen(&page, "canvas.design", 100.0, 2156.0).await;
+    until_pixel(&page, bottom, [220, 0, 0]).await;
+    assert!(
+        eval::<bool>(&page, "!!document.querySelector('.design-problems')").await,
+        "the problem still shows"
+    );
+    browser.close().await.ok();
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_image_that_stops_decoding_paints_the_last_good_drawing_on_the_cpu() {
+    a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(false, Break::Decode)
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_image_past_the_atlas_paints_the_last_good_drawing_on_the_cpu() {
+    a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(false, Break::Atlas)
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_image_that_stops_decoding_paints_the_last_good_drawing_on_the_gpu() {
+    a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(true, Break::Decode)
+        .await;
+}
+
+#[tokio::test]
+#[ignore]
+async fn an_image_past_the_atlas_paints_the_last_good_drawing_on_the_gpu() {
+    a_broken_design_paints_its_last_good_drawing_where_it_was_not_painted(true, Break::Atlas).await;
+}
+
 #[tokio::test]
 #[ignore]
 async fn a_swap_keeps_a_design_outside_a_widget_and_stops_watching_a_removed_widgets() {

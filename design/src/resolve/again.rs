@@ -16,17 +16,19 @@ use std::sync::Arc;
 use super::{Caller, Instance, Record, Resolver, resolved};
 use crate::Problem;
 use crate::parse::{self, Child, Element, TextPart};
-use crate::scene::{self, Applied, Edit, Edits, Files, Layout, Node, Scene, Uses};
+use crate::scene::{self, Applied, Edit, Edits, Files, Holder, Layout, Node, Scene};
 use crate::tree::NodeId;
 
-/// A design kept resolved: its last valid scene, where each of its nodes came
-/// from, and the files changed since it was last valid.
+/// A design kept resolved: where each node of its scene came from, the
+/// files it was made from, and the files changed since it was last valid.
+/// It keeps no scene: the design's one scene is its holder's, which
+/// resolving it again reads and brings across by the edits it makes.
 #[derive(Debug, Clone)]
 pub struct Resolution {
     path: String,
-    scene: Scene,
-    uses: Uses,
     record: Record,
+    /// The files the scene was made from.
+    files: Vec<String>,
     /// The files changed since the scene was valid, which the next valid
     /// resolve brings it across.
     pending: BTreeSet<String>,
@@ -41,29 +43,32 @@ pub enum Outcome {
     /// Its scene is as it was, and valid.
     Same,
     /// Its scene changed by these edits — what the browser is sent, as a
-    /// patch — and the scene kept was brought across as `applied` says.
+    /// patch — applied to it once, in its holder, as `applied` says.
     Changed(Edits, Applied),
-    /// It has these problems, every one; its last valid scene is kept.
+    /// It has these problems, every one; its holder's scene is left the
+    /// last valid one.
     Problems(Vec<Problem>),
 }
 
 impl Resolution {
-    /// The design at `path` resolved, or every problem it has.
-    pub fn new(files: &dyn Files, path: &str) -> Result<Resolution, Vec<Problem>> {
-        let (scene, record) = resolved(files, path)?;
-        Ok(Resolution {
+    /// The design at `path` resolved — what to resolve it again from, and
+    /// its scene, for a holder to keep — or every problem it has.
+    pub fn new(files: &dyn Files, path: &str) -> Result<(Resolution, Scene), Vec<Problem>> {
+        let (scene, record, read) = resolved(files, path)?;
+        let resolution = Resolution {
             path: path.to_string(),
-            uses: Uses::of(&scene.root),
-            scene,
             record,
+            files: read,
             pending: BTreeSet::new(),
             wholes: 0,
-        })
+        };
+        Ok((resolution, scene))
     }
 
-    /// The scene: the design's last valid one.
-    pub fn scene(&self) -> &Scene {
-        &self.scene
+    /// The files the design's scene is made from: the design, its imports,
+    /// images, themes and fonts.
+    pub fn files(&self) -> &[String] {
+        &self.files
     }
 
     /// How many times the scene was brought across whole since it was first
@@ -73,20 +78,21 @@ impl Resolution {
         self.wholes
     }
 
-    /// How many of the scene's nodes use each image and font file.
-    pub fn uses(&self) -> &Uses {
-        &self.uses
-    }
-
     /// The design after the files `changed` — as the store names them, a
     /// folder's listing by its path and a `/` — changed: what they reach
-    /// resolved again, and the scene brought across, or every problem the
-    /// design now has. A change while the design has problems is kept, and
-    /// the change that makes it valid again brings the scene across all of
-    /// them.
-    pub fn update(&mut self, files: &dyn Files, changed: &[String]) -> Outcome {
+    /// resolved again against the scene `held` holds — the design's last
+    /// valid one — and the edits that bring it across applied to it there,
+    /// once; or every problem the design now has, `held` left as it was. A
+    /// change while the design has problems is kept, and the change that
+    /// makes it valid again brings the scene across all of them.
+    pub fn update(
+        &mut self,
+        held: &mut dyn Holder,
+        files: &dyn Files,
+        changed: &[String],
+    ) -> Outcome {
         self.pending.extend(changed.iter().cloned());
-        match self.again(files) {
+        match self.again(held, files) {
             Ok(outcome) => {
                 self.pending.clear();
                 outcome
@@ -95,54 +101,60 @@ impl Resolution {
                 Err(problems) => Outcome::Problems(problems),
                 // The parts resolved again had a problem the whole design
                 // hasn't: it is brought across whole.
-                Ok((scene, record)) => {
+                Ok((scene, record, read)) => {
                     self.pending.clear();
-                    self.whole(scene, record)
+                    self.whole(held, scene, record, read)
                 }
             },
         }
     }
 
-    /// The scene brought across to `scene`, resolved afresh, by the edits
-    /// between the two.
-    fn whole(&mut self, scene: Scene, record: Record) -> Outcome {
+    /// The scene `held` holds brought across to `scene`, resolved afresh, by
+    /// the edits between the two.
+    fn whole(
+        &mut self,
+        held: &mut dyn Holder,
+        scene: Scene,
+        record: Record,
+        read: Vec<String>,
+    ) -> Outcome {
         self.wholes += 1;
-        let was_themed = self.scene.themed;
-        let edits = Edits::between(&self.scene, &scene);
-        match scene::apply(&mut self.scene, &mut self.uses, &edits) {
-            Ok(applied) => {
-                self.scene.files = scene.files;
-                self.record = record;
-                if edits.list.is_empty() && was_themed == edits.themed {
-                    Outcome::Same
-                } else {
-                    Outcome::Changed(edits, applied)
-                }
-            }
+        self.record = record;
+        self.files = read;
+        let was_themed = held.scene().themed;
+        let edits = Edits::between(held.scene(), &scene);
+        if edits.list.is_empty() && was_themed == edits.themed {
+            return Outcome::Same;
+        }
+        match held.apply(&edits) {
+            Ok(applied) => Outcome::Changed(edits, applied),
+            // Edits made between two scenes apply to the first; if they
+            // ever didn't, the scene starts again from the new one: its
+            // root replaces the held one's, whatever that holds.
             Err(_) => {
-                // Edits made between two scenes apply to the first; if they
-                // ever didn't, the scene starts again from the new one.
-                self.uses = Uses::of(&scene.root);
-                self.scene = scene;
-                self.record = record;
-                let applied = Applied {
-                    removed: vec![],
-                    placed: vec![self.scene.root.id.clone()],
-                    changed: vec![],
-                };
-                Outcome::Changed(Edits::whole(&self.scene), applied)
+                let edits = Edits::whole(&scene);
+                match held.apply(&edits) {
+                    Ok(applied) => Outcome::Changed(edits, applied),
+                    Err(e) => Outcome::Problems(vec![Problem {
+                        file: self.path.clone(),
+                        pos: parse::Pos { line: 1, col: 1 },
+                        message: format!("the design engine failed on this design: {e}"),
+                    }]),
+                }
             }
         }
     }
 
-    /// The pending changes resolved again and the scene brought across; or
-    /// `Err` when the design has a problem now.
-    fn again(&mut self, files: &dyn Files) -> Result<Outcome, ()> {
+    /// The pending changes resolved again against `held`'s scene and brought
+    /// across; or `Err` when the design has a problem now, `held` as it was.
+    fn again(&mut self, held: &mut dyn Holder, files: &dyn Files) -> Result<Outcome, ()> {
         let pending: Vec<String> = self.pending.iter().cloned().collect();
+        let scene = held.scene();
         let mut w = Work {
             r: Resolver::new(files),
             files,
             res: self,
+            scene,
             edits: Vec::new(),
             forget: Vec::new(),
             forget_instances: Vec::new(),
@@ -185,11 +197,12 @@ impl Resolution {
             return Err(());
         }
         if whole {
-            let (scene, record) = resolved(files, &self.path).map_err(|_| ())?;
-            return Ok(self.whole(scene, record));
+            let (scene, record, read) = resolved(files, &self.path).map_err(|_| ())?;
+            return Ok(self.whole(held, scene, record, read));
         }
         // What the parts resolved again read and made replaces what the
-        // nodes they replace did.
+        // nodes they replace did. Were the edits refused, the design is
+        // resolved again whole, and that record replaces this one.
         let record = &mut self.record;
         for prefix in &forget_instances {
             record.forget_instances(prefix);
@@ -201,14 +214,15 @@ impl Resolution {
         record.merge(r.record);
         record.parses.extend(parses);
         let themed = !record.themed.is_empty();
-        if edits.is_empty() && themed == self.scene.themed {
+        if edits.is_empty() && themed == scene.themed {
             return Ok(Outcome::Same);
         }
-        let edits = Edits::onto(&self.scene, edits, &r.images, &r.fonts, themed);
-        let applied = scene::apply(&mut self.scene, &mut self.uses, &edits).map_err(|_| ())?;
+        let edits = Edits::onto(scene, edits, &r.images, &r.fonts, themed);
+        // Applied once, where the scene is held.
+        let applied = held.apply(&edits).map_err(|_| ())?;
         for file in r.read {
-            if !self.scene.files.contains(&file) {
-                self.scene.files.push(file);
+            if !self.files.contains(&file) {
+                self.files.push(file);
             }
         }
         // Even no node changed when only whether the scene is themed did.
@@ -276,6 +290,8 @@ struct Work<'a, 'r> {
     r: Resolver<'a>,
     files: &'a dyn Files,
     res: &'r Resolution,
+    /// The scene as it is held: what the edits are found against.
+    scene: &'r Scene,
     edits: Vec<Edit>,
     /// Nodes whose record goes.
     forget: Vec<NodeId>,
@@ -494,7 +510,7 @@ impl Work<'_, '_> {
     fn layout(&self, parent: &NodeId) -> Option<Layout> {
         self.own
             .get(parent)
-            .or_else(|| self.res.scene.node(parent))
+            .or_else(|| self.scene.node(parent))
             .map(|n| n.layout)
     }
 
@@ -631,7 +647,7 @@ impl Work<'_, '_> {
 
     /// How deep, counting through instances, the node `id` at `order` is.
     fn depth_of(&self, id: &NodeId) -> usize {
-        let order = self.res.scene.ids.get(id).map_or(0, |o| o.len());
+        let order = self.scene.ids.get(id).map_or(0, |o| o.len());
         order + id.0.len() - 1
     }
 
@@ -649,14 +665,14 @@ impl Work<'_, '_> {
         if self.covered.contains(id) || self.own.contains_key(id) {
             return;
         }
-        let Some(was) = self.res.scene.node(id) else {
+        let Some(was) = self.scene.node(id) else {
             return;
         };
         let parent = if root {
             inst.parent
         } else {
-            let order = &self.res.scene.ids.get(id).expect("indexed")[..];
-            let parent = self.res.scene.at(&order[..order.len() - 1]);
+            let order = &self.scene.ids.get(id).expect("indexed")[..];
+            let parent = self.scene.at(&order[..order.len() - 1]);
             parent
                 .and_then(|p| self.own.get(&p.id).or(Some(p)))
                 .map(|p| p.layout)
@@ -690,12 +706,12 @@ impl Work<'_, '_> {
         if self.covered.contains(was) {
             return;
         }
-        let Some(order) = self.res.scene.ids.get(was).cloned() else {
+        let Some(order) = self.scene.ids.get(was).cloned() else {
             return;
         };
         let parent_order = &order[..order.len().saturating_sub(1)];
         let Some(parent) = (!order.is_empty())
-            .then(|| self.res.scene.at(parent_order))
+            .then(|| self.scene.at(parent_order))
             .flatten()
         else {
             // The scene's root: the design, resolved again whole.
@@ -714,8 +730,7 @@ impl Work<'_, '_> {
         };
         self.drop_subtree(was);
         if node.id == *was {
-            self.edits
-                .extend(scene::subtree(&self.res.scene, &order, &node));
+            self.edits.extend(scene::subtree(self.scene, &order, &node));
         } else {
             self.edits.push(Edit::Remove(was.clone()));
             self.edits.push(Edit::Insert {
@@ -753,7 +768,7 @@ impl Work<'_, '_> {
     /// The subtree of the node `id` is going: what its nodes and instances
     /// recorded goes with it.
     fn drop_subtree(&mut self, id: &NodeId) {
-        let Some(node) = self.res.scene.node(id) else {
+        let Some(node) = self.scene.node(id) else {
             return;
         };
         let mut todo = vec![node];

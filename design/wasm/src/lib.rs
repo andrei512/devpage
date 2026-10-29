@@ -195,7 +195,8 @@ impl Design {
 
     /// Applies one watch-stream message: a whole scene, a patch or problems.
     /// A patch that leaves the scene undrawable is a problem like any the
-    /// stream reports: the canvas keeps the tiles it painted last.
+    /// stream reports: the canvas keeps showing the last good drawing, a
+    /// tile it never painted before included.
     pub fn apply(&mut self, bytes: &[u8]) -> Applied {
         let applied = self.update(bytes);
         // What it changed reaches the plan: the tiles over it go stale.
@@ -272,8 +273,8 @@ impl Design {
     }
 
     /// Paints tile `(col, row)` of the drawing at `scale` on the CPU with
-    /// `vello_cpu`: 256 device pixels a side, straight alpha. Nothing while
-    /// the scene can't be drawn.
+    /// `vello_cpu`: 256 device pixels a side, straight alpha — from the last
+    /// good drawing while the scene can't be drawn.
     pub fn paint_tile(&mut self, scale: f32, col: u32, row: u32) -> Option<Pixels> {
         let theme = self.theme;
         let (design, r) = self.held()?;
@@ -303,7 +304,7 @@ impl Design {
                     .map(|d| (d.scene().images.clone(), d.scene().fonts.clone()))
                     .unwrap_or_default();
                 wire::decode_scene(&whole, (&held.0, &held.1)).map(|scene| match &mut self.design {
-                    Some(design) => design.replace(scene),
+                    Some(design) => design.replace(&mut self.engine, scene),
                     None => self.design = Some(devpage_design::Design::new(scene)),
                 })
             }
@@ -358,7 +359,7 @@ impl Design {
 
     /// The plan's work for a frame, as [`Design::frame`] gives it: every
     /// held tile of the theme the view shows, and once `settled` the tiles
-    /// it needs — none while the scene can't be drawn.
+    /// it needs — the last good drawing's while the scene can't be drawn.
     pub(crate) fn plan(
         &mut self,
         width: u32,
@@ -693,11 +694,13 @@ mod tests {
 
     /// A patch that leaves the design undrawable — four images filling the
     /// GPU's atlas and a fifth — is the design's problem, where the stream's
-    /// problems show: the canvas's plan keeps showing the tiles painted,
-    /// stales none and asks for none. The patch that makes it drawable again
-    /// stales every tile, and the canvas paints as the server paints its PNG.
+    /// problems show: the canvas keeps showing the last good drawing — the
+    /// tiles painted stay, none goes stale, and a tile a zoom needs that was
+    /// never painted paints the last good drawing too. The patch that makes
+    /// it drawable again stales every tile, and the canvas paints as the
+    /// server paints its PNG.
     #[test]
-    fn a_patch_that_cant_be_drawn_keeps_the_tiles_painted_until_one_can() {
+    fn a_patch_that_cant_be_drawn_shows_the_last_good_drawing_until_one_can() {
         // An image file `side` pixels a side, of one `fill`.
         let png = |side: u32, fill: &str| {
             let files = HashMap::from([(
@@ -754,13 +757,25 @@ mod tests {
             problems.len() == 1 && problems[0].starts_with("an image doesn't fit"),
             "{problems:?}"
         );
-        assert!(design.paint_tile(1.0, 0, 0).is_none());
         // The tiles painted last are shown, current, and none is asked for.
         let kept = design.plan(800, 600, 1.0, (0.0, 0.0), true).unwrap();
         assert_eq!(
             (kept.draw.len(), kept.request.len(), kept.missing),
             (tiles, 0, 0)
         );
+        // A zoom asks for tiles never painted: they paint the scene before
+        // the patch.
+        let last_good = |col, row| {
+            let mut fresh = Design::new();
+            fresh.apply(&message(Body::Scene(wire::scene(&good))));
+            fresh.paint_tile(2.0, col, row).unwrap().take()
+        };
+        let zoomed = design.plan(800, 600, 2.0, (0.0, 0.0), true).unwrap();
+        assert!(!zoomed.request.is_empty());
+        for (_, key) in zoomed.request {
+            let mut tile = design.paint_tile(2.0, key.col, key.row).unwrap();
+            assert!(tile.take() == last_good(key.col, key.row), "{key:?}");
+        }
 
         assert_eq!(design.apply(&patch(&broken, &again)), Applied::Changed);
         assert!(design.problems().is_empty());

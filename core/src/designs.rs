@@ -15,7 +15,7 @@ use devpage_design::ids::{Parses, Remembering};
 use devpage_design::proto;
 use devpage_design::render::Undrawable;
 use devpage_design::resolve::{Outcome, Resolution};
-use devpage_design::scene::{Edits, ImageFile};
+use devpage_design::scene::{Applied, Edits, Holder, ImageFile};
 use devpage_design::tiles::{Cache, Key, Level, TILE, Tiled};
 use devpage_design::{Damage, Design, Files, Problem, Renderer, Scene, Theme, wire};
 
@@ -53,9 +53,9 @@ struct Source {
     font: Option<Result<Arc<FontFile>, String>>,
 }
 
-/// A design as the store keeps it: kept resolved — its last valid scene, and
-/// where each node came from — with that scene's version, its problems now,
-/// the scene held as a [`Design`], drawn in each theme it shows in, and the
+/// A design as the store keeps it: kept resolved — where each node of its
+/// scene came from — and held as a [`Design`], its one scene drawn in each
+/// theme it shows in; with that scene's version, its problems now, and the
 /// patches that brought the scene to its version, for the watch streams.
 #[derive(Default)]
 struct Kept {
@@ -63,17 +63,47 @@ struct Kept {
     id: u64,
     /// The scene's version: one more for each patch that changed it.
     version: u64,
-    resolution: Option<Resolution>,
+    /// `None` before the design first resolves, or after the engine
+    /// panicked on it.
+    held: Option<Held>,
     /// The design's problems now — resolving it, or drawing its scene.
     problems: Option<Vec<Problem>>,
-    /// The resolution's scene, drawn in every theme it shows in: `None`
-    /// before it is first drawn, or after the engine panicked on it.
-    design: Option<Design>,
     /// The last patches, each from the version before it: what a stream that
     /// sent that version sends next.
     log: std::collections::VecDeque<(u64, Arc<proto::Patch>)>,
     asked: Vec<String>,
     missing: bool,
+}
+
+/// A design resolved and held: what resolving it again starts from, and
+/// the design holding its last valid scene — the one copy of it.
+struct Held {
+    resolution: Resolution,
+    design: Design,
+}
+
+/// A kept design as the holder of its scene, which resolving it again
+/// reads and brings across: each edit applied once, to the design, its
+/// drawings brought along under the store's renderer — locked only then,
+/// never while files are read.
+struct Bringing<'a> {
+    design: &'a mut Design,
+    renderer: &'a Mutex<Renderer>,
+    #[cfg(test)]
+    applies: &'a std::sync::atomic::AtomicUsize,
+}
+
+impl Holder for Bringing<'_> {
+    fn scene(&self) -> &Scene {
+        self.design.scene()
+    }
+
+    fn apply(&mut self, edits: &Edits) -> Result<Applied, String> {
+        #[cfg(test)]
+        self.applies
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.design.apply(&mut lock(self.renderer), edits)
+    }
 }
 
 /// How many patches a design keeps for streams behind: one further behind
@@ -162,6 +192,10 @@ struct Folder {
     /// How many times a design was resolved, for the tests.
     #[cfg(test)]
     resolutions: std::sync::atomic::AtomicUsize,
+    /// How many times edits were applied to a design's scene, for the
+    /// tests.
+    #[cfg(test)]
+    applies: std::sync::atomic::AtomicUsize,
     /// Called after each file read from disk, for the tests: a save can land
     /// there.
     #[cfg(test)]
@@ -368,8 +402,8 @@ impl Folder {
     }
 
     /// Resolves the design at `path` — whole, or again as far as `changed`
-    /// reaches — and brings its drawings across; says which read of each
-    /// file it saw.
+    /// reaches, its edits applied to the design that holds its scene — and
+    /// draws it; says which read of each file it saw.
     fn bring(&self, path: &str, k: &mut Kept, changed: &[String]) -> Vec<(String, u64)> {
         #[cfg(test)]
         self.resolutions
@@ -383,14 +417,26 @@ impl Folder {
             &self.parses,
         );
         enum Done {
-            Fresh(Box<Resolution>),
+            Fresh(Box<(Resolution, Scene)>),
             Again(Outcome),
         }
         let done = guarded(
             path,
-            || match k.resolution.as_mut() {
+            || match k.held.as_mut() {
                 None => Resolution::new(&reading, path).map(|r| Done::Fresh(Box::new(r))),
-                Some(res) => Ok(Done::Again(res.update(&reading, changed))),
+                Some(held) => {
+                    let mut holder = Bringing {
+                        design: &mut held.design,
+                        renderer: &self.shared.renderer,
+                        #[cfg(test)]
+                        applies: &self.applies,
+                    };
+                    Ok(Done::Again(held.resolution.update(
+                        &mut holder,
+                        &reading,
+                        changed,
+                    )))
+                }
             },
             |p| vec![p],
         );
@@ -399,25 +445,28 @@ impl Folder {
             .get(path)
             .is_none_or(|source| source.bytes.is_none());
         match done {
-            Ok(Done::Fresh(res)) => {
+            Ok(Done::Fresh(fresh)) => {
+                let (resolution, scene) = *fresh;
                 if k.id == 0 {
                     k.id = 1 + self
                         .shared
                         .versions
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-                k.resolution = Some(*res);
+                k.held = Some(Held {
+                    resolution,
+                    design: Design::new(scene),
+                });
                 k.version += 1;
                 // No stream holds this scene yet, or holds one it can't be
                 // patched into: each is sent it whole.
                 k.log.clear();
                 k.asked = asked;
-                k.design = None;
-                k.problems = self.draw(path, k, None).err();
+                k.problems = self.draw(path, k).err();
             }
             Ok(Done::Again(Outcome::Same)) => {
                 k.asked.extend(asked);
-                k.problems = self.draw(path, k, None).err();
+                k.problems = self.draw(path, k).err();
             }
             Ok(Done::Again(Outcome::Changed(edits, _))) => {
                 k.asked.extend(asked);
@@ -426,7 +475,7 @@ impl Folder {
                     k.log.pop_front();
                 }
                 k.version += 1;
-                k.problems = self.draw(path, k, Some(&edits)).err();
+                k.problems = self.draw(path, k).err();
             }
             Ok(Done::Again(Outcome::Problems(problems))) => {
                 k.asked.extend(asked);
@@ -434,13 +483,14 @@ impl Folder {
             }
             Err(problems) => {
                 // Resolving failed — or the engine did, and what it kept may
-                // be half done: the next change resolves the design afresh.
+                // be half done: the next change resolves the design afresh,
+                // and owes nothing to the tiles painted before.
                 k.asked.extend(asked);
                 if problems
                     .iter()
                     .any(|p| p.message.starts_with("the design engine failed"))
                 {
-                    k.resolution = None;
+                    self.let_go(k);
                 }
                 k.problems = Some(problems);
             }
@@ -458,40 +508,30 @@ impl Folder {
             .clone()
     }
 
-    /// Brings the design to its resolution's scene — by `edits`, or held
-    /// afresh the first time — drawn in each theme the scene shows in, the
-    /// tiles its changes damaged gone stale and those of a theme it no
-    /// longer shows in dropped. Or why the scene can't be drawn: the design
-    /// keeps its drawings, so the next change updates them, and paints
-    /// nothing from them until one can be drawn again — the tiles painted
-    /// last stay.
-    fn draw(&self, path: &str, k: &mut Kept, edits: Option<&Edits>) -> Result<(), Vec<Problem>> {
-        let Kept {
-            id,
-            resolution,
-            design: held,
-            ..
-        } = k;
-        let Some(res) = resolution.as_ref() else {
+    /// Lets the design `k` holds go, with its tiles: the engine panicked on
+    /// it, and it is resolved afresh next time.
+    fn let_go(&self, k: &mut Kept) {
+        k.held = None;
+        let id = k.id;
+        lock(&self.shared.tiles).forget(|t| t.design == id);
+    }
+
+    /// Draws the design in each theme its scene shows in — the edits that
+    /// brought it there applied already — the tiles its changes damaged gone
+    /// stale and those of a theme it no longer shows in dropped. Or why the
+    /// scene can't be drawn: the design keeps showing its last good drawing,
+    /// and no tile goes stale until the scene can be drawn again.
+    fn draw(&self, path: &str, k: &mut Kept) -> Result<(), Vec<Problem>> {
+        let id = k.id;
+        let Some(held) = k.held.as_mut() else {
             return Ok(());
         };
-        let (id, scene) = (*id, res.scene());
-        let themes = themes(scene);
+        let themes = themes(held.design.scene());
         let mut renderer = lock(&self.shared.renderer);
         let drawn = guarded(
             path,
             || {
-                let mut design = match (held.take(), edits) {
-                    // Edits the resolution's scene took apply to the same
-                    // scene here; were they ever refused, it starts again
-                    // from the resolution's.
-                    (Some(mut design), Some(edits)) => match design.apply(&mut renderer, edits) {
-                        Ok(()) => design,
-                        Err(_) => Design::new(scene.clone()),
-                    },
-                    (Some(design), None) => design,
-                    (None, _) => Design::new(scene.clone()),
-                };
+                let design = &mut held.design;
                 for theme in [Theme::Light, Theme::Dark] {
                     if !themes.contains(&theme) {
                         design.forget(theme);
@@ -503,9 +543,7 @@ impl Folder {
                         broke.get_or_insert_with(|| undrawable.clone());
                     }
                 }
-                let damage = design.take_damage();
-                *held = Some(design);
-                Ok((damage, broke))
+                Ok((design.take_damage(), broke))
             },
             |p| Undrawable {
                 message: p.message,
@@ -513,16 +551,15 @@ impl Folder {
             },
         );
         drop(renderer);
-        let mut tiles = lock(&self.shared.tiles);
         let (damage, broke) = match drawn {
             Ok(drawn) => drawn,
-            // A design the engine panicked on is held afresh next time, and
-            // owes nothing to tiles painted before.
+            // A design the engine panicked on is resolved afresh next time.
             Err(undrawable) => {
-                tiles.forget(|t| t.design == id);
+                self.let_go(k);
                 (Vec::new(), Some(undrawable))
             }
         };
+        let mut tiles = lock(&self.shared.tiles);
         for (theme, damage) in damage {
             let mine = |t: &Tile| t.design == id && t.key.theme == theme;
             match damage {
@@ -593,6 +630,8 @@ impl Store {
             #[cfg(test)]
             resolutions: Default::default(),
             #[cfg(test)]
+            applies: Default::default(),
+            #[cfg(test)]
             after_read: Mutex::default(),
         });
         mounts.insert(mount.to_string(), Arc::downgrade(&folder));
@@ -642,9 +681,10 @@ impl Designs {
         }
         let kept = self.0.kept(path);
         let k = lock(&kept);
-        Ok(k.resolution
+        Ok(k.held
             .as_ref()
-            .expect("a design with no problems is resolved")
+            .expect("a design with no problems is held")
+            .design
             .scene()
             .clone())
     }
@@ -662,10 +702,10 @@ impl Designs {
         }
         let kept = self.0.kept(path);
         let k = lock(&kept);
-        let Some(res) = k.resolution.as_ref() else {
+        let Some(held) = k.held.as_ref() else {
             return Next::Problems(Vec::new());
         };
-        let scene = res.scene();
+        let scene = held.design.scene();
         let whole = || Next::Scene(k.version, Box::new(wire::scene(scene)));
         match sent {
             None => whole(),
@@ -834,12 +874,12 @@ impl Designs {
             if let Some(problems) = &k.problems {
                 return Err(lines(problems));
             }
-            let themed = k.resolution.as_ref().is_some_and(|r| r.scene().themed);
+            let themed = k.held.as_ref().is_some_and(|h| h.design.scene().themed);
             let theme = if themed { theme } else { Theme::Light };
             let area = k
-                .design
+                .held
                 .as_mut()
-                .and_then(|d| d.area(&mut lock(&store.shared.renderer), theme))
+                .and_then(|h| h.design.area(&mut lock(&store.shared.renderer), theme))
                 .ok_or_else(|| format!("{path}: the design has no drawing in {theme:?}"))?;
             (k.id, k.version, area, theme)
         };
@@ -921,8 +961,8 @@ fn prepared<'a>(
     if kept.version != version {
         return Err(gone);
     }
-    let design = kept.design.as_mut().ok_or(gone)?;
-    list(design, &mut lock(renderer)).ok_or(gone)
+    let held = kept.held.as_mut().ok_or(gone)?;
+    list(&mut held.design, &mut lock(renderer)).ok_or(gone)
 }
 
 /// The themes a design shows in: both when it is themed, else the light one,
@@ -1270,6 +1310,44 @@ mod tests {
             before
         );
         assert_eq!(painted(&designs), 2);
+    }
+
+    /// A design's scene is held once, by its `Design`: a save that changes
+    /// it applies its edits there once — never again to a copy beside it —
+    /// and what the store serves, the scene and the PNG, is that one scene.
+    #[test]
+    fn a_save_applies_its_edits_to_the_designs_one_scene_once() {
+        let dir = served("once");
+        let file = dir.join("app/once.design");
+        let design = |fill: &str| {
+            format!(
+                r##"<Frame width={{60}} height={{40}} fill="#ffffff"><Rect width={{20}} height={{20}} fill="{fill}" /></Frame>"##
+            )
+        };
+        std::fs::write(&file, design("#ff0000")).unwrap();
+        let designs = Designs::new(&ServedFolder::new(&dir).unwrap());
+        designs.png("app/once.design", Theme::Light).unwrap();
+        let applies = || designs.0.applies.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(applies(), 0);
+
+        save(&designs, &file, &design("#00ff00"));
+        assert_eq!(applies(), 1);
+        let scene = designs.resolve("app/once.design").unwrap();
+        let fresh = devpage_design::resolve(
+            &std::collections::HashMap::from([("a.design".to_string(), design("#00ff00"))]),
+            "a.design",
+        )
+        .unwrap();
+        assert_eq!(scene.root.children[0].fill, fresh.root.children[0].fill);
+        let png = designs.png("app/once.design", Theme::Light).unwrap();
+        let (px, _, _) = devpage_design::compare::pixels(&png).unwrap();
+        assert_eq!(
+            px[(10 * 60 + 10) * 4..(10 * 60 + 10) * 4 + 4],
+            [0, 255, 0, 255]
+        );
+        // A save that changes nothing applies nothing.
+        save(&designs, &file, &design("#00ff00"));
+        assert_eq!(applies(), 1);
     }
 
     /// A themed design keeps a drawing in each theme, and each theme its own
@@ -1915,7 +1993,7 @@ mod tests {
         assert!(matches!(late, Some(Next::Scene(..))));
         // Nothing was resolved whole after the first.
         let kept = designs.0.kept(path);
-        assert_eq!(lock(&kept).resolution.as_ref().unwrap().wholes(), 0);
+        assert_eq!(lock(&kept).held.as_ref().unwrap().resolution.wholes(), 0);
     }
 }
 
@@ -1964,7 +2042,7 @@ mod bench {
             };
             let diff = t.elapsed();
             // Of the store's time, resolving again alone.
-            let mut saves = devpage_design::resolve::Resolution::new(
+            let (mut saves, scene) = devpage_design::resolve::Resolution::new(
                 &std::collections::HashMap::<String, String>::from([(
                     "a.design".to_string(),
                     rows(usize::MAX),
@@ -1972,12 +2050,21 @@ mod bench {
                 "a.design",
             )
             .unwrap();
+            // Its scene held undrawn: the edits applied, nothing brought
+            // along.
+            let mut design = Design::new(scene);
+            let (renderer, applies) = (Mutex::new(Renderer::new()), Default::default());
+            let mut holder = Bringing {
+                design: &mut design,
+                renderer: &renderer,
+                applies: &applies,
+            };
             let files = std::collections::HashMap::<String, String>::from([(
                 "a.design".to_string(),
                 rows(n / 2),
             )]);
             let t = std::time::Instant::now();
-            let _ = saves.update(&files, &["a.design".to_string()]);
+            let _ = saves.update(&mut holder, &files, &["a.design".to_string()]);
             let again = t.elapsed();
             // Of the rest, matching the saved file's elements against its
             // last parse — what the store does and the line above doesn't.

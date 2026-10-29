@@ -111,8 +111,8 @@ impl Files for Sized {
     }
 }
 
-/// Four images that fill the GPU's atlas, a fifth when `more`, and a box
-/// in `fill`.
+/// Four images that fill the GPU's atlas, a fifth when `more`, and — 1,500
+/// pixels below them — a box in `fill`.
 fn crowded(more: bool, fill: &str) -> Scene {
     let mut images: String = (0..4)
         .map(|n| format!(r#"<Image src="4096x4096-{n}.png" width={{40}} height={{40}} />"#))
@@ -121,7 +121,7 @@ fn crowded(more: bool, fill: &str) -> Scene {
         images.push_str(r#"<Image src="8x8-5.png" width={40} height={40} />"#);
     }
     let source = format!(
-        r##"<Frame layout="row" gap={{4}} padding={{8}} fill="#ffffff">{images}<Rect width={{40}} height={{40}} fill="{fill}" /></Frame>"##
+        r##"<Frame layout="column" gap={{4}} padding={{8}} fill="#ffffff"><Frame layout="row" gap={{4}}>{images}</Frame><Rect width={{40}} height={{1500}} fill="#ffffff" /><Rect width={{40}} height={{40}} fill="{fill}" /></Frame>"##
     );
     crate::resolve(
         &Sized([("a.design".to_string(), source)].into()),
@@ -130,22 +130,61 @@ fn crowded(more: bool, fill: &str) -> Scene {
     .unwrap()
 }
 
+/// A canvas's view of `design` at `zoom`, its top-left at `origin`.
+fn view(zoom: f64, origin: (f64, f64)) -> View {
+    View {
+        width: 800.0,
+        height: 600.0,
+        zoom,
+        origin,
+    }
+}
+
+/// The tiles `view` needs of `design`, painted as a canvas paints them.
+fn viewed(design: &mut Design, renderer: &mut Renderer, view: &View) -> Vec<Vec<u8>> {
+    let scale = Level::of(view.zoom).scale();
+    design
+        .view_tiles(renderer, Theme::Light, view)
+        .into_iter()
+        .map(|(col, row)| {
+            let list = design
+                .tile(renderer, Theme::Light, scale, col, row)
+                .expect("a tile to paint");
+            cpu::tile(list, scale, col, row)
+        })
+        .collect()
+}
+
 /// An edit that leaves the scene undrawable — its images too many for the
-/// GPU's atlas — keeps the drawing and says why: nothing is painted from it
-/// and no tile is damaged, so the last good tiles stay what is shown. The
-/// edit that makes it drawable again damages every tile, and the drawing
-/// paints as a fresh one of the scene.
+/// GPU's atlas — says why, damages no tile, and keeps showing the last good
+/// drawing: every tile a view needs paints the scene before the edit, the
+/// tiles of a pan and a zoom no one painted before too. Saves in the
+/// meantime change nothing shown. The edit that makes the scene drawable
+/// again damages every tile, and the drawing paints as a fresh one of it.
 #[test]
-fn a_scene_that_cant_be_drawn_keeps_the_last_good_tiles_until_it_can() {
-    let (good, broken, again) = (
+fn a_scene_that_cant_be_drawn_shows_the_last_good_drawing_until_it_can() {
+    let (good, broken, later, again) = (
         crowded(false, "#ff0000"),
         crowded(true, "#00ff00"),
+        crowded(true, "#ffaa00"),
         crowded(false, "#0000ff"),
     );
     let mut renderer = Renderer::new();
     let mut design = Design::new(good.clone());
     design.draw(&mut renderer, Theme::Light).unwrap();
     let size = design.area(&mut renderer, Theme::Light).unwrap();
+    let (top, panned, zoomed) = (
+        view(1.0, (0.0, 0.0)),
+        view(1.0, (0.0, -1100.0)),
+        view(2.0, (0.0, -2800.0)),
+    );
+    let mut fresh_design = Design::new(good.clone());
+    let want: Vec<_> = [&top, &panned, &zoomed]
+        .iter()
+        .map(|v| viewed(&mut fresh_design, &mut Renderer::new(), v))
+        .collect();
+    // Only the top of it is painted before it breaks.
+    assert_eq!(viewed(&mut design, &mut renderer, &top), want[0]);
     design.take_damage();
 
     design
@@ -155,36 +194,56 @@ fn a_scene_that_cant_be_drawn_keeps_the_last_good_tiles_until_it_can() {
     assert!(problem.message.contains("doesn't fit"), "{problem}");
     assert!(design.take_damage().is_empty());
     assert!(design.draw(&mut renderer, Theme::Light).is_err());
-    assert!(
-        design
-            .tile(&mut renderer, Theme::Light, 1.0, 0, 0)
-            .is_none()
-    );
-    assert!(design.images(&mut renderer, Theme::Light).is_none());
-    let view = View {
-        width: 800.0,
-        height: 600.0,
-        zoom: 1.0,
-        origin: (0.0, 0.0),
-    };
-    assert!(
-        design
-            .view_tiles(&mut renderer, Theme::Light, &view)
-            .is_empty()
-    );
-    // Its size and its clicks are still the drawing's.
-    assert!(design.area(&mut renderer, Theme::Light).unwrap().width > size.width);
+    design
+        .apply(&mut renderer, &Edits::between(&broken, &later))
+        .unwrap();
+    assert!(design.take_damage().is_empty());
+    // Its size, its images and its tiles are the last good drawing's.
+    assert_eq!(design.area(&mut renderer, Theme::Light).unwrap(), size);
+    assert_eq!(design.images(&mut renderer, Theme::Light).unwrap().len(), 4);
+    for (v, want) in [&top, &panned, &zoomed].into_iter().zip(&want) {
+        let got = viewed(&mut design, &mut renderer, v);
+        assert!(!got.is_empty());
+        assert!(got == *want, "the view at {:?} ×{}", v.origin, v.zoom);
+    }
+    assert_eq!(design.scene(), &later);
 
     design
-        .apply(&mut renderer, &Edits::between(&broken, &again))
+        .apply(&mut renderer, &Edits::between(&later, &again))
         .unwrap();
     assert!(design.problem(Theme::Light).is_none());
     assert_eq!(design.take_damage(), vec![(Theme::Light, Damage::All)]);
-    assert!(
-        !design
-            .view_tiles(&mut renderer, Theme::Light, &view)
-            .is_empty()
+    assert_eq!(
+        painted(&mut design, &mut renderer, Theme::Light),
+        fresh(&again, Theme::Light)
     );
+}
+
+/// A whole scene that can't be drawn, after one that could, keeps showing
+/// the drawing of the one before; a whole scene that can be drawn then
+/// damages every tile again, and is what is painted.
+#[test]
+fn a_whole_scene_that_cant_be_drawn_shows_the_one_before() {
+    let (good, broken, again) = (
+        crowded(false, "#ff0000"),
+        crowded(true, "#00ff00"),
+        crowded(false, "#0000ff"),
+    );
+    let mut renderer = Renderer::new();
+    let mut design = Design::new(good.clone());
+    design.draw(&mut renderer, Theme::Light).unwrap();
+    design.take_damage();
+    design.replace(&mut renderer, broken);
+    design.take_damage();
+    assert!(design.draw(&mut renderer, Theme::Light).is_err());
+    assert_eq!(
+        painted(&mut design, &mut renderer, Theme::Light),
+        fresh(&good, Theme::Light)
+    );
+    design.replace(&mut renderer, again.clone());
+    assert!(design.problem(Theme::Light).is_none());
+    design.draw(&mut renderer, Theme::Light).unwrap();
+    assert!(design.take_damage().contains(&(Theme::Light, Damage::All)));
     assert_eq!(
         painted(&mut design, &mut renderer, Theme::Light),
         fresh(&again, Theme::Light)
@@ -203,7 +262,7 @@ fn a_whole_scene_that_cant_be_drawn_is_tried_again_only_when_it_changes() {
     assert!(design.area(&mut renderer, Theme::Light).is_none());
     design.take_damage();
     let good = crowded(false, "#ff0000");
-    design.replace(good.clone());
+    design.replace(&mut renderer, good.clone());
     assert!(design.problem(Theme::Light).is_none());
     design.draw(&mut renderer, Theme::Light).unwrap();
     assert_eq!(
@@ -238,7 +297,7 @@ fn a_whole_scene_redraws_and_a_theme_let_go_is_left_alone() {
         design.draw(&mut renderer, theme).unwrap();
     }
     design.take_damage();
-    design.replace(grey.clone());
+    design.replace(&mut renderer, grey.clone());
     assert_eq!(
         design.take_damage(),
         vec![(Theme::Light, Damage::All), (Theme::Dark, Damage::All)]
