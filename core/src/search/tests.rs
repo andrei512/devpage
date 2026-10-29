@@ -553,3 +553,173 @@ fn near_matches_count_a_swap_as_one_edit() {
     assert_eq!(distance("layout", "layuot"), 1);
     assert_eq!(distance("", "abc"), 3);
 }
+
+#[test]
+fn a_save_reads_again_only_the_pages_it_touches() {
+    let dir = served("touches");
+    let index = index(&dir);
+    let search = &index.search;
+    // The tour changes on disk unheard, so whatever reads it again shows.
+    let tour = dir.join("docs/features/tour.md");
+    std::fs::write(&tour, "# Tour\n\nA narwhal tours it all.\n").unwrap();
+    let layout = dir.join("docs/guide/layout.md");
+    std::fs::write(
+        &layout,
+        "# Layout\n\n## The sidebar\n\nA heron stands still.\n",
+    )
+    .unwrap();
+    index.folder.changed(std::slice::from_ref(&layout));
+    search.changed(&index.folder, std::slice::from_ref(&layout));
+    assert_eq!(
+        section_urls(&search.search("heron")),
+        ["/docs/guide/layout.md#the-sidebar"]
+    );
+    assert!(search.search("narwhal").pages.is_empty());
+    assert_eq!(
+        urls(&search.search("walrus")),
+        ["/docs/features/features.yml"]
+    );
+}
+
+/// The queries an index kept current must answer as one built fresh does:
+/// words, a typo, a word being typed, a phrase, a title, code.
+const ALIKE: &[&str] = &[
+    "sidebar",
+    "heron",
+    "context",
+    "welcome",
+    "pelican",
+    "quokka",
+    "walrus",
+    "tour",
+    "guide",
+    "layout",
+    "plan",
+    "results",
+    "sidbar",
+    "navig",
+    "\"the sidebar\"",
+    "handbook",
+    "the",
+    "lonely",
+    "kingfisher",
+    "otter",
+    "zebra",
+    "forever",
+    "arrows",
+    "numbers",
+    "hello",
+];
+
+fn alike(index: &Indexed, dir: &Path, queries: &[&str], when: &str) {
+    let fresh = Search::build(&index.folder, &dir.join("docs/devpage.yml"));
+    for query in queries {
+        assert_eq!(
+            index.search.search(query),
+            fresh.search(query),
+            "{query:?} after {when}"
+        );
+    }
+}
+
+#[test]
+fn an_index_kept_current_answers_as_one_built_fresh() {
+    let dir = served("alike");
+    let index = index(&dir);
+    let write = |path: &str, text: &str| {
+        let path = dir.join(path);
+        std::fs::write(&path, text).unwrap();
+        path
+    };
+    let changed = |paths: &[PathBuf], when: &str| {
+        index.folder.changed(paths);
+        index.search.changed(&index.folder, paths);
+        alike(&index, &dir, ALIKE, when);
+    };
+    alike(&index, &dir, ALIKE, "the build");
+    let layout = write(
+        "docs/guide/layout.md",
+        "# Layout\n\n## The sidebar\n\nA heron stands still in the sidebar.\n",
+    );
+    changed(&[layout], "a page's text changed");
+    // A page first in the Topics moves every page after it in the nav, and
+    // the guide's label changes its trail.
+    let otter = write(
+        "docs/otter.md",
+        "# Otter\n\nAn otter floats in the sidebar.\n",
+    );
+    let readme = write(
+        "docs/README.md",
+        "# Handbook\n\nWelcome.\n\n## Topics\n\n- [Otter](otter.md)\n- [The guide](guide/README.md)\n- [The plan](../plan/plan.yml)\n- [The talk](../talk/talk.yml)\n- [Features](features/features.yml)\n- [Tour](features/tour.md)\n",
+    );
+    changed(&[otter, readme], "a page added first");
+    let why = write(
+        "plan/why.md",
+        "# Reasons\n\n## Context\n\nUsers scroll forever.\n",
+    );
+    changed(&[why], "a chapter's title changed");
+    let orphan = write(
+        "docs/orphan.md",
+        "---\nsearch: true\n---\n# Orphan\n\nA lonely heron.\n",
+    );
+    let tour = write(
+        "docs/features/tour.md",
+        "---\nsearch: false\n---\n# Tour\n\nA walrus tours it all.\n",
+    );
+    changed(&[orphan, tour], "front matter changed");
+    let rule = write(".gitignore", "talk/\n");
+    changed(std::slice::from_ref(&rule), "a rule excluded the talk");
+    let how = dir.join("plan/how.md");
+    std::fs::remove_file(&how).unwrap();
+    changed(std::slice::from_ref(&how), "a chapter was deleted");
+    write(
+        "plan/how.md",
+        "# How\n\n## Context\n\nA kingfisher index answers.\n",
+    );
+    std::fs::remove_file(&rule).unwrap();
+    changed(&[how, rule], "a chapter and the talk came back");
+    let guide = dir.join("docs/guide");
+    std::fs::remove_dir_all(&guide).unwrap();
+    changed(&[guide], "a folder was deleted");
+}
+
+/// Every page of the frozen docs saved in turn, unchanged: each is indexed
+/// again behind every other, and every query answers as before.
+#[test]
+fn the_frozen_docs_answer_alike_after_every_page_is_saved() {
+    const QUERIES: &[&str] = &[
+        "design",
+        "search",
+        "glossary",
+        "live updates",
+        "comment store",
+        "outbox",
+        "sidebar",
+        "front matter",
+        "Search::changed",
+        "desgin",
+        "wid",
+        "\"page script\"",
+        "chrome -pdf",
+        "how a page renders",
+        "slides",
+        "the",
+        "version",
+        "publish",
+    ];
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../tests/fixtures/search-docs")
+        .canonicalize()
+        .unwrap();
+    let entry = root.join("docs/devpage.yml");
+    let document = Document::load(&entry, &ServedFolder::new(&root).unwrap()).unwrap();
+    let folder = Folder::new(std::sync::Arc::new(document));
+    let fresh = Search::build(&folder, &entry);
+    let kept = Search::build(&folder, &entry);
+    for page in markdown_files(&folder) {
+        kept.changed(&folder, &[page]);
+    }
+    for query in QUERIES {
+        assert_eq!(kept.search(query), fresh.search(query), "{query:?}");
+    }
+}

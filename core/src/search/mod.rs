@@ -1,8 +1,8 @@
 //! Full-text search over what the served document publishes: the pages its
 //! nav reaches, and the chapters and slides of every document those reach,
 //! split at their headings into sections, in a tantivy index held in memory.
-//! Built at start beside the served folder's document index and kept current by the watcher,
-//! so a search never reads a file.
+//! Built at start beside the served folder's document index and kept current
+//! by the watcher a page at a time, so a search never reads a file.
 //!
 //! tantivy, because it is a real full-text engine — BM25 ranking, stemming,
 //! phrases, near and prefix matches — as a library in pure Rust, with an
@@ -10,12 +10,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use serde::Serialize;
+use tantivy::query::Bm25StatisticsProvider;
 use tantivy::schema::{Field, Value};
 use tantivy::tokenizer::TextAnalyzer;
-use tantivy::{IndexReader, IndexWriter, Score, TantivyDocument};
+use tantivy::{IndexReader, Score, Searcher, TantivyDocument, Term};
 
 use crate::folder::Folder;
 
@@ -94,13 +95,77 @@ pub struct Owner {
 pub struct Search {
     fields: Fields,
     reader: IndexReader,
-    writer: Mutex<IndexWriter>,
+    indexer: Mutex<Indexer>,
     stemmed: TextAnalyzer,
     plain: TextAnalyzer,
     /// The served document's file, where what is published starts.
     entry: PathBuf,
+    /// What a search reads, as of the last commit.
+    snapshot: RwLock<Arc<Snapshot>>,
+}
+
+/// The index as one commit left it, read together: its sections, every
+/// page's record, and the statistics BM25 scores by.
+struct Snapshot {
+    searcher: Searcher,
     /// Every page indexed, by its address.
-    pages: RwLock<Pages>,
+    pages: Pages,
+    /// Each field's length over every section, by field id: the sum of its
+    /// sections' lengths as the index keeps them.
+    tokens: Vec<u64>,
+}
+
+impl Snapshot {
+    fn new(searcher: Searcher, pages: Pages) -> Self {
+        let tokens = searcher
+            .schema()
+            .fields()
+            .map(|(field, _)| {
+                searcher
+                    .segment_readers()
+                    .iter()
+                    .filter_map(|segment| {
+                        let norms = segment.fieldnorms_readers().get_field(field).ok()??;
+                        Some(
+                            segment
+                                .doc_ids_alive()
+                                .map(|doc| u64::from(norms.fieldnorm(doc)))
+                                .sum::<u64>(),
+                        )
+                    })
+                    .sum()
+            })
+            .collect();
+        Self {
+            searcher,
+            pages,
+            tokens,
+        }
+    }
+}
+
+/// BM25's statistics are those of the sections the snapshot holds, however
+/// they came to be indexed. tantivy's own statistics count a field's length
+/// exactly when a segment is written, but estimate it from the sections'
+/// lengths when a merge leaves deleted sections out; summing those lengths
+/// always makes an index kept current a page at a time score as one built
+/// fresh.
+impl Bm25StatisticsProvider for Snapshot {
+    fn total_num_tokens(&self, field: tantivy::schema::Field) -> tantivy::Result<u64> {
+        Ok(self
+            .tokens
+            .get(field.field_id() as usize)
+            .copied()
+            .unwrap_or(0))
+    }
+
+    fn total_num_docs(&self) -> tantivy::Result<u64> {
+        Ok(self.searcher.num_docs())
+    }
+
+    fn doc_freq(&self, term: &Term) -> tantivy::Result<u64> {
+        self.searcher.doc_freq(term)
+    }
 }
 
 /// The page record: what a page result shows besides its sections.
@@ -143,8 +208,9 @@ impl Search {
     /// vanished — after `folder` has heard of them. Any of them can change
     /// what is published — a page's Topics, a document file, a
     /// `.gitignore`, a folder — so a burst that holds a Markdown file, a
-    /// YAML file, a `.gitignore`, a folder or a path that is gone reads
-    /// everything published again.
+    /// YAML file, a `.gitignore`, a folder or a path that is gone finds
+    /// what is published again, and reads again only the pages that are new
+    /// to it, moved in it, or among `paths`.
     pub fn changed(&self, folder: &Folder, paths: &[PathBuf]) {
         let matters = |path: &PathBuf| {
             path.is_dir()
@@ -155,21 +221,21 @@ impl Search {
                     .is_some_and(|ext| ext == "md" || ext == "yml" || ext == "yaml")
         };
         if paths.iter().any(matters) {
-            self.rebuild(folder);
+            self.index(folder, paths);
         }
     }
 
     /// The pages matching `query`, best first, at most [`MAX_PAGES`], each
     /// with its best sections.
     pub fn search(&self, query: &str) -> Answer {
-        let searcher = self.reader.searcher();
-        let pages = self.pages.read().unwrap_or_else(|p| p.into_inner());
+        let now = Arc::clone(&self.snapshot.read().unwrap_or_else(|p| p.into_inner()));
+        let (searcher, pages) = (&now.searcher, &now.pages);
         let mut parsed = self.parse(query);
-        self.mark_near(&mut parsed, &searcher);
-        let mut found = self.ranked(&parsed, &searcher, &pages, false);
+        self.mark_near(&mut parsed, searcher);
+        let mut found = self.ranked(&parsed, &now, false);
         let fallback = found.is_empty() && parsed.required() > 1;
         if fallback {
-            found = self.ranked(&parsed, &searcher, &pages, true);
+            found = self.ranked(&parsed, &now, true);
         }
         let wanted = parsed.matched();
         // Each section found, with its page, scored.

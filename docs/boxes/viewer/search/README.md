@@ -105,6 +105,9 @@ its heading's **depth** (0 before the first heading), its **order** on the
 page, and the page's **place in the nav**, counted from the top in reading
 order: the root, the tree's pages as listed, the navbar's, each document's
 chapters or slides where it is reached.
+The index keeps its sections sorted in that reading order — by the page's
+place in the nav, then the section's order on it — however they came to be
+indexed, so sections that score alike always rank as they read.
 
 Beside the sections, one **page record** per page holds what a page result
 shows: its title, address, kind, trail, document and **lede** — its first
@@ -189,12 +192,34 @@ so indexing never holds up a refresh (`Search::changed`). `devpage check`,
 
 Any Markdown file can change what is published — a page's Topics add or drop
 pages — as can a document file, a `.gitignore` or a folder. So a burst holding
-a Markdown or YAML file, a `.gitignore`, a folder or a path that is gone reads
-everything published again, into an emptied index, in one commit; a burst of
-anything else leaves it alone. On devpage's own docs that takes about 35 ms in
-a release build. So a new rule in a `.gitignore` takes its folder's pages out
-at once, a page dropped from every Topics section leaves, and a deleted
-chapter takes its doc out until it is back.
+a Markdown or YAML file, a `.gitignore`, a folder or a path that is gone finds
+what is published again, whole, and compares it with what the index holds,
+page by page; a burst of anything else leaves it alone. Only what differs is
+indexed again, in one commit:
+
+- a page no longer published leaves;
+- a page newly published comes in;
+- a page whose kind, trail, document, address or place in the nav changed,
+  or whose file is one of the burst's paths or inside one of its folders, is
+  read again.
+
+Every other page stays as it was indexed, unread. So a new rule in a
+`.gitignore` takes its folder's pages out at once, a page dropped from every
+Topics section leaves, a deleted chapter takes its doc out until it is back,
+and a saved page is read again alone — unless it moved in the nav, as every
+page after a page added above it does.
+
+**It answers as one built fresh.** After each commit the index is merged into
+one segment without the sections it replaced: until then they would still
+count in how many sections hold a word — in its score, and in whether the
+index holds it at all, which decides a near match. BM25 measures a field's
+length over the sections the index holds, summed from their lengths as the
+index keeps them, which a merge keeps too; and the sections stay in reading
+order. So a page saved ranks exactly as it would after a restart.
+
+On devpage's own docs, in a release build, a saved page takes about 35 ms,
+against about 47 ms to read everything again: about 25 ms of it is finding
+what is published, which every burst does whole, and about 10 ms the merge.
 
 ## The endpoint
 
