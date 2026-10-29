@@ -8,7 +8,8 @@
 //! images, under the same blobs, in the same order: its atlas then holds
 //! those images and nothing else, placed as `devpage_design::atlas` places
 //! them — which is how the engine knows they fit. Any other drawing gets a
-//! fresh renderer.
+//! fresh renderer. A tile that paints none of the images still names one,
+//! or vello would let its atlas go ([`paint`]).
 
 use std::collections::HashMap;
 
@@ -220,8 +221,13 @@ impl Gpu {
             let Some(list) = held.tile(renderer, theme, key.level.scale(), key.col, key.row) else {
                 return n;
             };
-            let Some(tile) = self.paint(vello, list, &key, (&target.layout, &target.sampler))
-            else {
+            let Some(tile) = self.paint(
+                vello,
+                list,
+                &key,
+                images.first(),
+                (&target.layout, &target.sampler),
+            ) else {
                 return n;
             };
             target.painted += 1;

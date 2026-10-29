@@ -631,7 +631,11 @@ page or in an embed, or a save that swaps a file or changes a shadow. A tile
 paints only the images that touch it, so a fresh renderer is first given one
 render that paints every image of the drawing, in the drawing's order, into a
 single pixel: its atlas then holds exactly the drawing's images, placed as the
-engine placed them in a fresh one, and every tile finds its images there. A
+engine placed them in a fresh one, and every tile finds its images there.
+vello takes a scene that binds no image, gradient or glyph run as needing no
+atlas: it frees the atlas texture while its image cache still counts every
+image as uploaded, so a tile painting none of the images still names one of
+them, outside the tile, and the atlas stays as it is for the next. A
 drawing made after the one its canvas last showed, painting
 the same image files and the same shadow pixels in the same order, paints that
 drawing's blobs: a save that changes only text or layout keeps the atlas and

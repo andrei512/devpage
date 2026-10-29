@@ -1976,12 +1976,59 @@ async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
     browser.close().await.ok();
 }
 
+/// A save that changes only a fill, on the GPU, repaints its tiles with their
+/// images: five images in a row and a rect past them, whose second tile
+/// paints no image — the canvas keeps its renderer for the save, and the
+/// tiles it repaints show what the server's PNG of the saved design does.
+#[tokio::test]
+#[ignore]
+async fn a_fill_saved_on_the_gpu_repaints_its_tiles_with_their_images() {
+    let dir = folder("fill-saved-gpu");
+    for (name, fill) in [
+        ("a", "#dc0000"),
+        ("b", "#00c800"),
+        ("c", "#0000dc"),
+        ("x", "#c800c8"),
+        ("y", "#00c8c8"),
+    ] {
+        std::fs::write(dir.join(format!("{name}.png")), painted_png(64, 64, fill)).unwrap();
+    }
+    let design = |fill: &str| {
+        let images: String = "abcxy"
+            .chars()
+            .map(|c| format!(r#"<Image src="./{c}.png" width={{40}} height={{40}} />"#))
+            .collect();
+        format!(
+            r##"<Frame layout="row" gap={{4}} padding={{8}} fill="#ffffff">{images}<Rect width={{40}} height={{40}} fill="{fill}" /></Frame>"##
+        )
+    };
+    let file = dir.join("fill.design");
+    std::fs::write(&file, design("#000000")).unwrap();
+    let (address, designs) = serve_designs(&dir, "fill.design").await;
+    let mut browser = testing::launch().await;
+    let page = canvas_page(&mut browser, true, 1280, 1000).await;
+    page.goto(format!("{address}/fill.design")).await.unwrap();
+    gpu_against_png(&page, &address, "fill").await.unwrap();
+    let painted = number(&page, "tiles").await;
+
+    eval::<bool>(
+        &page,
+        "(document.querySelector('canvas.design').dataset.painted = 'false', true)",
+    )
+    .await;
+    std::fs::write(&file, design("#ffaa00")).unwrap();
+    designs.changed(&file);
+    gpu_against_png(&page, &address, "fill").await.unwrap();
+    assert!(number(&page, "tiles").await > painted, "no tile repainted");
+    browser.close().await.ok();
+}
+
 /// An image that grows mid-session past what the GPU's atlas holds — three
 /// 4096-pixel squares and two small images, one of which turns into a fourth
 /// square — puts the design's problem on the problems bar, over the last
 /// drawing that could be drawn; a save in the meantime is kept. Once the
-/// image is small again the bar goes, and the canvas shows what the
-/// server's PNG of the mended design does.
+/// image is small again the bar goes, and the canvas, on the GPU, shows what
+/// the server's PNG of the mended design does.
 #[tokio::test]
 #[ignore]
 async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
@@ -2009,7 +2056,7 @@ async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
     std::fs::write(&file, design("#000000")).unwrap();
     let (address, designs) = serve_designs(&dir, "grows.design").await;
     let mut browser = testing::launch().await;
-    let page = canvas_page(&mut browser, false, 1280, 1000).await;
+    let page = canvas_page(&mut browser, true, 1280, 1000).await;
     page.goto(format!("{address}/grows.design")).await.unwrap();
     until(&page, PAINTED).await;
     let backend: String = eval(
@@ -2017,7 +2064,7 @@ async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
         "document.querySelector('canvas.design').dataset.backend",
     )
     .await;
-    assert_eq!(backend, "cpu");
+    assert_eq!(backend, "gpu");
 
     std::fs::write(dir.join("x.png"), painted_png(4096, 4096, "#c800c8")).unwrap();
     designs.changed(&dir.join("x.png"));
@@ -2039,15 +2086,7 @@ async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
     std::fs::write(dir.join("x.png"), &small).unwrap();
     designs.changed(&dir.join("x.png"));
     until(&page, "!document.querySelector('.design-problems')").await;
-    until(&page, PAINTED).await;
-    let [width, height]: [f64; 2] = eval(
-        &page,
-        "document.querySelector('canvas.design').dataset.size.split(',').map(Number)",
-    )
-    .await;
-    let shot = screenshot(&page, width, height, 24.0).await;
-    let d = difference(&page, &address, &shot, "/grows.design.png", 24).await;
-    assert!(d.is_some_and(|d| d.within_tolerance()), "{d:?}");
+    gpu_against_png(&page, &address, "grows").await.unwrap();
     browser.close().await.ok();
 }
 
