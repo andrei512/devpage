@@ -2322,19 +2322,18 @@ async fn number(page: &Page, name: &str) -> f64 {
 }
 
 /// Zooms the canvas page to `to` about the design point `(x, y)`, with ⌘ and
-/// the wheel, and waits until the canvas is painted at that zoom. The view
-/// the canvas shows is at a scale to a 1/1024th, so the wheel goes again
-/// until it is there.
+/// the wheel, and waits until the canvas is painted at that zoom. The wheel
+/// multiplies the view's own zoom, which is shown at its level, so the
+/// wheel's step is taken from the zoom itself: one step lands on `to`. A
+/// second view on the way would be painted once it settled, and its tiles
+/// counted with the ones of `to`.
 async fn zoom_to(page: &Page, to: f64, x: f64, y: f64) {
     let shown = || async {
         let view: String = eval(page, "document.querySelector('canvas.design').dataset.view").await;
         view.split(',').next().unwrap().parse::<f64>().unwrap()
     };
-    for _ in 0..4 {
-        let zoom = shown().await;
-        if (zoom - to).abs() < 0.001 {
-            break;
-        }
+    if (shown().await - to).abs() >= 0.001 {
+        let zoom = number(page, "zoom").await;
         let pointer = on_screen(page, "canvas.design", x, y).await;
         page.evaluate(format!(
             "document.querySelector('canvas.design').dispatchEvent(new WheelEvent('wheel', \
@@ -2345,14 +2344,6 @@ async fn zoom_to(page: &Page, to: f64, x: f64, y: f64) {
         ))
         .await
         .unwrap();
-        let before = zoom;
-        until(
-            page,
-            &format!(
-                "document.querySelector('canvas.design').dataset.view.split(',')[0] != {before}"
-            ),
-        )
-        .await;
     }
     until(
         page,
@@ -2428,8 +2419,12 @@ async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
     eprintln!("webgpu {webgpu}: {fitted} tiles fitted, {tiles} at 100%");
     // The view at 100%: two columns, four rows of 256; fitted, one column of
     // four.
-    assert!(fitted <= 4.0, "{fitted}");
-    assert!(tiles - fitted <= 10.0, "{tiles}");
+    assert!(fitted <= 4.0, "{fitted} tiles painted fitted");
+    assert!(
+        tiles - fitted <= 10.0,
+        "{} tiles painted at 100%",
+        tiles - fitted
+    );
     browser.close().await.ok();
 }
 

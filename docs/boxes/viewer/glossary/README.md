@@ -49,6 +49,10 @@ The `delivery` attribute of a slide's `<Notes>`: how that slide should feel when
 
 GPT-Live, as `devpage video` uses it: told the deck's audience, goal and tone and each slide's delivery, it says each slide's notes word for word into the recording. See [The narrator](../making-a-video/README.md#the-narrator).
 
+## pacing
+
+How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/README.md#how-it-is-recorded).
+
 ## document file
 
 The YAML file describing a document — any name, `devpage.yml` by default.

@@ -10,7 +10,7 @@ use std::time::Duration;
 use crate::adapters::chrome::testing;
 use crate::drive::video::silence::RATE;
 use crate::drive::video::tests::deck;
-use crate::drive::video::{Heard, Voice, film, narrator, record, served, told};
+use crate::drive::video::{Heard, Pacing, Voice, film, narrator, record, served, told};
 use devpage_core::document::Document;
 use devpage_core::folder::ServedFolder;
 
@@ -74,6 +74,18 @@ impl Voice for Tone {
         self.task.abort();
     }
 }
+
+/// The tests' pacing: the stand-in voice streams from this machine with no
+/// pause inside a slide, so a tenth of a second buffered covers it and a
+/// fifth of a second of quiet means it is done.
+const QUICK: Pacing = Pacing {
+    prebuffer: Duration::from_millis(100),
+    done_after: Duration::from_millis(200),
+};
+
+/// How long the stand-in voice says each slide: longer than [`QUICK`]'s
+/// prebuffer, so each slide is recorded while it is still speaking.
+const SAYS: f64 = 0.4;
 
 /// The boxes inside `data`, as (type, payload).
 fn boxes(data: &[u8]) -> Vec<([u8; 4], &[u8])> {
@@ -144,8 +156,8 @@ async fn a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice() {
     let heard = Arc::new(Mutex::new(Heard::default()));
     let (router, entry) = served(talk);
     // `film` fails unless the deck shows slide 2 after slide 1.
-    film(router, &entry, &out, notes, heard, async |heard| {
-        Ok(Tone::start(heard, 2.5, |_| false))
+    film(router, &entry, &out, notes, QUICK, heard, async |heard| {
+        Ok(Tone::start(heard, SAYS, |_| false))
     })
     .await
     .unwrap();
@@ -192,8 +204,8 @@ async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
                 .iter()
                 .any(|(path, _)| path == "/talk.yml/2.png")
     };
-    film(router, &entry, &out, notes, heard, async |heard| {
-        Ok(Tone::start(heard, 2.5, holding))
+    film(router, &entry, &out, notes, QUICK, heard, async |heard| {
+        Ok(Tone::start(heard, SAYS, holding))
     })
     .await
     .unwrap();
