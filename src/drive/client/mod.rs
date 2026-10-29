@@ -14,8 +14,9 @@ use anyhow::{Context as _, Result, bail};
 use clap::{Args, Subcommand};
 
 use crate::document::Document;
+use crate::drive::api_types::{Refusal, Thread};
 use crate::served::ServedFolder;
-use api::{Api, Thread};
+use api::Api;
 use contexts::{Context, Home};
 
 /// The commands that talk to a devpage server.
@@ -336,7 +337,7 @@ async fn publish(
         .await
         .map_err(|error| match &target {
             // A document deleted on the server, or an id from elsewhere.
-            Some(id) if error.to_string().contains("not found") => anyhow::anyhow!(
+            Some(id) if api::refused(&error, &Refusal::NotFound) => anyhow::anyhow!(
                 "{error}: no document {id} on context {name} — publish with --new to create one"
             ),
             _ => error,

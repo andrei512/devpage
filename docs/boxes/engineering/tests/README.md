@@ -8,7 +8,7 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 482 tests in the five crates; needs no network and no Chrome
+$ cargo test                  # 483 tests in the five crates; needs no network and no Chrome
 $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
@@ -16,7 +16,7 @@ $ cargo test -- --ignored     # the 107 tests that drive Chrome or Docker, call 
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 151 in `devpage`, 179 in its
+`cargo test` runs every crate in the workspace: 152 in `devpage`, 179 in its
 core `devpage-core`, 140 in the engine `devpage-design`, 9 in
 `devpage-design-wasm`, whose tests run natively, and 2 in
 `devpage-design-module`. Tests are written as `#[cfg(test)]` modules beside
@@ -338,16 +338,22 @@ In Chrome:
 - The tree stopping at a cycle.
 - A Topics entry outside the site or to a missing file is a problem.
 
+### `drive::api_types`
+
+*1 test.*
+
+- Every refusal the server answers — not found, unauthorized, unprocessable, a failure — read back by the client as the same refusal.
+
 ### `drive::client`
 
-*17 tests.*
+*17 tests. Every server command runs against a real `devpage server` on a `file://` bucket, with each request it hears recorded.*
 
 - The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
 - A broken link stopping `publish` before any request, in text and `--json`.
-- `publish` remembering the document per context in `published.yml`, adding a version the second time; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
+- `publish` remembering the document per context in `published.yml`, adding a version the second time, the bucket keeping the zip it sent and its link rendering the new version; `--id` publishing to that document, `--new` creating one, the two refused together, and an id the server doesn't have pointing to `--new`.
 - Contexts added, used and listed, the current one marked; `DEVPAGE_CONTEXT`; no context saying how to add one; a token command's output sent as the bearer token and stored nowhere.
-- `list`, `versions`, `comments` (grouped by page, a detached thread marked), `reply`, `resolve`, `download` and `delete` against a fake server answering the API, in text and `--json`; every command parsing as the reference writes it.
-- `publish` against a real `devpage server` on a `file://` bucket: version 1, then version 2 of the same document, kept in the bucket with exactly the checked files, its link rendering.
+- `list`, `versions` and `comments` printing what the server answers, their `--json` the server's own JSON unchanged; a detached thread marked with the version that detached it, not the latest; `reply` and `resolve` reaching the thread; a design's `download` its PNG; `delete` of a version and of the document; an unknown document the server's not-found refusal, naming the server.
+- The threads as text: grouped by page, each thread's quote in its context, its messages with their authors aligned; every command parsing as the reference writes it.
 
 ### `drive::pdf`
 

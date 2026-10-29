@@ -1,11 +1,12 @@
 //! The server's API, as the CLI calls it: one request per method, each
 //! carrying the context's token when it has one.
 
-use anyhow::{Context as _, Result, bail};
-use reqwest::{Method, StatusCode};
-use serde::{Deserialize, Serialize};
+use anyhow::{Context as _, Result};
+use reqwest::Method;
+use serde::Deserialize;
 
 use super::contexts::Context;
+use crate::drive::api_types::{Described, Listed, Published, Refusal, Reply, Thread};
 
 /// A server, reached with a token or without one.
 pub struct Api {
@@ -14,56 +15,45 @@ pub struct Api {
     http: reqwest::Client,
 }
 
-/// What a publish answers.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Published {
-    pub id: String,
-    pub version: u64,
-    pub url: String,
+/// A request the server refused: what was asked, of which server, and the
+/// refusal it answered.
+#[derive(Debug)]
+pub struct Refused {
+    pub what: String,
+    pub server: String,
+    pub refusal: Refusal,
 }
 
-/// A document as `GET /api/documents` lists it.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Listed {
-    pub id: String,
-    pub kind: String,
-    pub title: String,
-    pub latest: u64,
+impl std::fmt::Display for Refused {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Refused {
+            what,
+            server,
+            refusal,
+        } = self;
+        match refusal {
+            Refusal::NotFound => write!(f, "{what}: not found on {server}"),
+            Refusal::Unprocessable(problems) => {
+                write!(f, "{what}: the server refused it:\n{problems}")
+            }
+            Refusal::Unauthorized(_) | Refusal::Failed { status: 403, .. } => {
+                write!(
+                    f,
+                    "{what}: {refusal} — does the context need a token command?"
+                )
+            }
+            Refusal::Failed { .. } => write!(f, "{what}: {refusal}"),
+        }
+    }
 }
 
-/// A document and its versions, as `GET /api/documents/<id>` answers.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Described {
-    pub id: String,
-    pub kind: String,
-    pub title: String,
-    pub latest: u64,
-    pub versions: Vec<Version>,
-}
+impl std::error::Error for Refused {}
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Version {
-    pub number: u64,
-    pub author: String,
-    pub published: String,
-    #[serde(default)]
-    pub size: u64,
-}
-
-/// A thread, as `GET /api/documents/<id>/comments` answers: the comment
-/// store's fields, its page, the version it was started on, whether its
-/// text is gone from the latest version, and the version it left.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Thread {
-    pub id: String,
-    pub page: String,
-    pub version: u64,
-    #[serde(default)]
-    pub detached: bool,
-    #[serde(default)]
-    pub detached_in: Option<u64>,
-    pub anchor: devpage_core::comments::Anchor,
-    pub thread: Vec<devpage_core::comments::Message>,
+/// Whether `error` is a request the server answered with `refusal`.
+pub fn refused(error: &anyhow::Error, refusal: &Refusal) -> bool {
+    error
+        .downcast_ref::<Refused>()
+        .is_some_and(|refused| &refused.refusal == refusal)
 }
 
 impl Api {
@@ -102,17 +92,13 @@ impl Api {
         if status.is_success() {
             return Ok(response);
         }
-        let body = response.text().await.unwrap_or_default();
-        let body = body.trim();
-        match status {
-            StatusCode::UNPROCESSABLE_ENTITY => bail!("{what}: the server refused it:\n{body}"),
-            StatusCode::NOT_FOUND => bail!("{what}: not found on {}", self.server),
-            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
-                bail!("{what}: {status} — does the context need a token command?")
-            }
-            _ if body.is_empty() => bail!("{what}: {status}"),
-            _ => bail!("{what}: {status}: {body}"),
+        let text = response.text().await.unwrap_or_default();
+        Err(Refused {
+            what: what.to_string(),
+            server: self.server.clone(),
+            refusal: Refusal::read(status.as_u16(), &text),
         }
+        .into())
     }
 
     async fn json<T: for<'de> Deserialize<'de>>(&self, path: &str, what: &str) -> Result<T> {
@@ -135,15 +121,7 @@ impl Api {
             .body(zip);
         let response = self.send(request, "publish").await?;
         let bytes = response.bytes().await?;
-        let mut published: serde_json::Value =
-            serde_json::from_slice(&bytes).context("publish: reading the answer")?;
-        // Adding a version answers without the id it was given.
-        if let (Some(id), Some(object)) = (id, published.as_object_mut()) {
-            object
-                .entry("id")
-                .or_insert_with(|| serde_json::Value::String(id.to_string()));
-        }
-        serde_json::from_value(published).context("publish: reading the answer")
+        serde_json::from_slice(&bytes).context("publish: reading the answer")
     }
 
     pub async fn list(&self) -> Result<Vec<Listed>> {
@@ -166,7 +144,9 @@ impl Api {
                 &format!("/api/documents/{id}/comments/{thread}/replies"),
             )
             .header(reqwest::header::CONTENT_TYPE, "application/json")
-            .body(serde_json::json!({ "text": text }).to_string());
+            .body(serde_json::to_vec(&Reply {
+                text: text.to_string(),
+            })?);
         self.send(request, thread).await.map(drop)
     }
 

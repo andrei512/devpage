@@ -1,7 +1,8 @@
 //! The driving adapters: the HTTP server that answers the browser, and the
 //! Chrome that prints PDFs, takes slide PNGs and records videos, and the
-//! command line that talks to a devpage server.
+//! command line that talks to a devpage server, over the API JSON both share.
 
+pub mod api_types;
 pub mod client;
 pub mod pdf;
 pub mod server;
