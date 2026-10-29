@@ -13,7 +13,7 @@ explains how they are used together.
 - .claude/
   - skills/
     - design/
-      - SKILL.md — frontmatter (`name`, `description`, sometimes `disable-model-invocation: true`), then the instructions
+      - SKILL.md — frontmatter (`name`, `description`), then the instructions
     - … one folder per skill, some with supporting files
 - .agents/
   - skills — a symbolic link to `../.claude/skills`, for tools that look under `.agents/`
@@ -26,14 +26,14 @@ There is one copy of each skill; edit it under `.claude/skills/`.
 
 ## The skills
 
-The operator starts a stage; agents reach for the skills that serve one. That
-split is machine-readable: an *operator only* skill carries
-`disable-model-invocation: true` in its frontmatter, so an agent never starts
-it on its own.
+The operator starts a stage; agents reach for the skills that serve one. The
+operator starts one with its slash command or by asking for it in words, and
+the agent then loads the skill itself. An agent never starts a stage unasked:
+permission is stated, never inferred.
 
-### Operator only
+### Started by the operator
 
-The operator's slash command starts these.
+These run when the operator asks for them.
 
 | Skill | Takes | Produces |
 | --- | --- | --- |

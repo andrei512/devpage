@@ -1,8 +1,8 @@
 # Running the flow with skills
 
 How the operator drives a change through devpage's development flow in this
-repository: the slash command that starts each stage, which skills only the
-operator can start and which agents reach for themselves, where each stage's
+repository: the slash command that starts each stage, which skills start
+only when the operator asks and which agents reach for themselves, where each stage's
 output lands, and how to choose between the full flow, a hacking session and a
 direct pull request. It is the essentials article under
 [Engineering](../README.md); the [SDLC](../sdlc/README.md) is the full design
@@ -13,12 +13,12 @@ every skill exactly.
 
 **Each stage is a skill, and the operator starts it.** A skill is a folder
 under `.claude/skills/` whose `SKILL.md` tells an agent how to run one kind of
-work. The operator types its name as a slash command — `/design`, `/plan` — and
-the agent follows it. Between stages nothing moves on its own: a settled design
+work. The operator types its name as a slash command — `/design`, `/plan` — or asks
+for it in words, and the agent follows it. Between stages nothing moves on its own: a settled design
 is not permission to spike it, and a conversation stays a conversation until
 the operator asks for the artifact (`AGENTS.md`).
 
-**Some skills only the operator can start**; agents reach for the rest when
+**Some skills start only when the operator asks**; agents reach for the rest when
 their work calls for one — the design session forks itself to run
 `prototype`, a lane runs `implement-ticket`, every stage uses `align` to talk.
 Which is which is listed once, on the

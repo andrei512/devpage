@@ -1,7 +1,6 @@
 ---
 name: hack
 description: A hacking session — prototype first, design after. For bug fixes and small changes where iterating on running code beats writing docs first. The operator opens it explicitly, or you offer it when a request sounds small.
-disable-model-invocation: true
 ---
 
 # Hack

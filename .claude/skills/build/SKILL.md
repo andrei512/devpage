@@ -1,7 +1,6 @@
 ---
 name: build
 description: Take an approved plan and make it happen — dispatch tickets to workers, get each reviewed and merged, finish with the design branch ready for main.
-disable-model-invocation: true
 ---
 
 # Build
