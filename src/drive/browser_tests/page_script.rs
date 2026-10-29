@@ -1089,6 +1089,8 @@ async fn an_outline_click_scrolls_without_a_fetch() {
         ],
     );
     let (mut browser, page, answered) = open_logged(&dir, "/docs/guide/devpage.yml").await;
+    // What the page asked for as it loaded — its comments — has come.
+    settled(&page, &answered, 0).await;
     let from = answered.lock().unwrap().len();
     page.evaluate("[...document.querySelectorAll('.outline a')].find((a) => a.textContent === 'Far down').click()")
             .await

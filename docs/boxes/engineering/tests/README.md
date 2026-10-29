@@ -135,28 +135,30 @@ the suite green.
 `cargo test --bin devpage -- --ignored` — every Chrome suite, the GPT-Live
 test passing at once without a key — on an Apple M5 Max with 18 cores, the
 binary already built: before the suites shared one Chrome and waited on
-conditions, and after.
+conditions, and after. One at a time, the same 102 tests; the run after holds
+six more — five canvas tests that landed meanwhile, and the shared Chrome's
+own.
 
 | | Before | After |
 | --- | --- | --- |
-| The run, in parallel | 22.4–23.5 s | 18.8–19.7 s |
-| Every test one at a time | 145 s | 74 s |
-| `page_script`, one at a time | 27.3 s | 4.3 s |
-| `canvas`, one at a time | 75.9 s | 34.6 s |
+| The run, in parallel | 22.4–23.5 s | 19.4–20.1 s |
+| The same tests, one at a time | 145 s | 76 s |
+| `page_script`, one at a time | 27.3 s | 4.7 s |
+| `canvas`, one at a time | 75.9 s | 35.7 s |
 
 The slowest tests, one at a time:
 
 | Test | Before | After |
 | --- | --- | --- |
-| `video::a_recorded_slide_showing_a_slides_png_gets_it_drawn` | 18.9 s | 13.0 s |
-| `video::a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice` | 13.4 s | 13.0 s |
-| `canvas::images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png` | 6.0 s | 2.8 s |
-| `canvas::the_canvas_on_the_gpu_matches_the_png` | 5.4 s | 0.9 s |
-| `canvas::the_canvas_on_the_cpu_matches_the_png` | 5.4 s | 0.6 s |
+| `video::a_recorded_slide_showing_a_slides_png_gets_it_drawn` | 18.9 s | 13.1 s |
+| `video::a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice` | 13.4 s | 13.1 s |
+| `canvas::images_larger_than_the_gpu_atlas_draw_on_the_gpu_as_in_the_png` | 6.0 s | 3.4 s |
+| `canvas::the_canvas_on_the_gpu_matches_the_png` | 5.4 s | 0.95 s |
+| `canvas::the_canvas_on_the_cpu_matches_the_png` | 5.4 s | 0.7 s |
 | `canvas::a_pan_costs_the_same_on_a_huge_design_as_on_a_small_one_on_the_gpu` | 5.1 s | 4.9 s |
 | `canvas::a_cpu_canvas_paints_when_its_scene_arrives_before_the_worker_has_loaded` | 4.3 s | 0.3 s |
 | `canvas::a_deleted_design_comes_back_when_written_again` | 3.8 s | 0.25 s |
-| `page_script::widgets_mount_on_load_and_after_a_live_update` | 3.3 s | 0.08 s |
+| `page_script::widgets_mount_on_load_and_after_a_live_update` | 3.3 s | 0.1 s |
 
 What is left is what the tests are about. A recorded deck plays in real
 time: a slide's voice must be buffered two seconds before it plays, and is
@@ -164,7 +166,7 @@ over once it has been quiet for one and a half. A pan is timed over 60 frames
 on each of two designs. In parallel the run is bounded by the two `video`
 tests, which the test runner, taking tests in the order of their names,
 starts last; one at a time, the rest of the run — less the test that asks
-Google's server for the pinned Chrome — takes about 45 s.
+Google's server for the pinned Chrome — takes about 50 s.
 
 ## By module
 
