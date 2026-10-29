@@ -1,7 +1,8 @@
-//! A published version holds no search index until it is searched: the real
-//! `devpage server`, on a free port, has as many threads after hundreds of
-//! versions are read as after the first. It runs alone in its own process,
-//! so its thread count is the server's.
+//! What the real `devpage server` holds as versions are read, measured on
+//! the process: a published version holds no search index until it is
+//! searched, so it has as many threads after hundreds of versions are read as
+//! after the first; and its memory holds at most so many versions' routers.
+//! Each server runs in its own process, so its counts are the server's.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, Command, Stdio};
@@ -11,10 +12,17 @@ use std::process::{Child, Command, Stdio};
 struct Server {
     child: Child,
     address: String,
+    /// Where it serves `/metrics`.
+    metrics: String,
 }
 
 impl Server {
     fn start(dir: &std::path::Path) -> Self {
+        Server::start_with(dir, &[])
+    }
+
+    /// The server, with `env` set besides.
+    fn start_with(dir: &std::path::Path, env: &[(&str, &str)]) -> Self {
         let _ = std::fs::remove_dir_all(dir);
         std::fs::create_dir_all(dir.join("data")).unwrap();
         std::fs::create_dir_all(dir.join("bucket")).unwrap();
@@ -27,6 +35,7 @@ impl Server {
             )
             .env("DEVPAGE_PORT", "0")
             .env("DEVPAGE_METRICS_PORT", "0")
+            .envs(env.iter().copied())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .spawn()
@@ -40,7 +49,30 @@ impl Server {
                     .map(String::from)
             })
             .expect("the server prints its address");
-        Server { child, address }
+        // Then `metrics on http://<address>/metrics`.
+        let metrics = lines
+            .find_map(|line| line.ok()?.strip_prefix("metrics on ").map(String::from))
+            .expect("the server prints its metrics' address");
+        Server {
+            child,
+            address,
+            metrics,
+        }
+    }
+
+    /// The total `name` from its metrics.
+    async fn total(&self, http: &reqwest::Client, name: &str) -> f64 {
+        let text = http
+            .get(&self.metrics)
+            .send()
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        text.lines()
+            .find_map(|line| line.strip_prefix(name)?.trim().parse().ok())
+            .unwrap_or_else(|| panic!("no {name} in {text}"))
     }
 
     /// The server's threads, as the system counts them.
@@ -144,4 +176,48 @@ async fn reading_hundreds_of_versions_adds_no_threads() {
         .unwrap();
     assert_eq!(found["pages"][0]["url"], format!("/d/{last}/more.md"));
     assert!(server.threads() <= before + 8);
+}
+
+/// The real `devpage server`, its memory holding at most
+/// `DEVPAGE_MEMORY_CACHE_VERSIONS` versions: past it, the routers it reports
+/// stay at the limit however many more versions are read, and each still
+/// answers.
+#[tokio::test]
+async fn past_its_memory_limit_the_routers_stay_flat() {
+    let dir = std::env::temp_dir().join(format!("devpage-server-memory-{}", std::process::id()));
+    let server = Server::start_with(&dir, &[("DEVPAGE_MEMORY_CACHE_VERSIONS", "20")]);
+    let http = reqwest::Client::new();
+    let mut ids = Vec::new();
+    for n in 0..60 {
+        let published: serde_json::Value = http
+            .post(format!(
+                "http://{}/api/documents?entry=devpage.yml",
+                server.address
+            ))
+            .body(site(n))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let id = published["id"].as_str().unwrap().to_string();
+        let page = http
+            .get(format!("http://{}/d/{id}/README.md", server.address))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(page.status(), 200);
+        ids.push(id);
+        let routers = server.total(&http, "devpage_versions_in_memory").await;
+        assert!(routers <= 20.0, "{routers} versions in memory after {n}");
+    }
+    // The first, long let go, answers again from its files.
+    let page = http
+        .get(format!("http://{}/d/{}/README.md", server.address, ids[0]))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), 200);
+    assert!(page.text().await.unwrap().contains("Site 0"));
 }

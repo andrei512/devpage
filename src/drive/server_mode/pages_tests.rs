@@ -192,7 +192,7 @@ async fn a_download_counts_with_its_version_and_goes_with_it() {
 
     let dir = std::env::temp_dir().join(format!("devpage-cache-downloads-{}", std::process::id()));
     let reopened =
-        super::cache::Cache::open(&dir, 1 << 20, Box::new(devpage_core::cache::Lru)).unwrap();
+        super::cache::Cache::open(&dir, 1 << 20, Box::new(devpage_core::cache::Lru), 2000).unwrap();
     assert_eq!(reopened.size(), unpacked + 1000, "seeded with its download");
     reopened.remove(&key);
     assert!(!dir.join("d/1.download.pdf").exists());

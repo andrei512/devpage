@@ -105,6 +105,7 @@ pub fn routers(config: &Config) -> Result<(Router, Router)> {
             &config.data_dir.join("cache"),
             config.cache_max_bytes,
             config.cache_policy.eviction(),
+            config.memory_cache_versions,
         )?),
         scratch: scratch.canonicalize()?,
         user_header: config.user_header.clone(),
