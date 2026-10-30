@@ -926,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "devpage"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "async-tungstenite",
@@ -980,7 +980,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-core"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "anyhow",
  "brotli",
@@ -1005,7 +1005,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-design"
-version = "0.2.4"
+version = "0.2.5"
 dependencies = [
  "guillotiere",
  "kurbo",

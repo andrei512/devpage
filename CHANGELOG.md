@@ -4,6 +4,16 @@ What changed in each released version of devpage, newest first. The three
 crates — `devpage`, `devpage-core` and `devpage-design` — are released
 together at the same version.
 
+## 0.2.5 — 2026-10-30
+
+- **devpage runs on Windows.** Install, serve, check, publish, PDFs, slide
+  PNGs and videos work on Windows; CI checks every change on Windows as well
+  as Linux. Designs drawn on the GPU are tested by hand, since CI's Windows
+  machines have none.
+- **Paths read the same everywhere.** Page addresses, names, comments and
+  `devpage check` always join folders with `/`.
+- **Videos record their sound at 48 kHz.**
+
 ## 0.2.4 — 2026-10-30
 
 - **Server metrics and a benchmark.** `devpage server` serves Prometheus
