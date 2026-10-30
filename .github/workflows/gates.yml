@@ -57,3 +57,19 @@ jobs:
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
+
+  # Windows end to end: devpage installed from the checkout as a user would,
+  # and the Chrome tests — pages, PDFs, slide PNGs, designs, videos — on the
+  # pinned Chrome.
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Install from the checkout with nothing added
+        run: cargo install --path . --locked
+      - run: devpage --version
+      - name: The Chrome tests
+        run: cargo test --locked --bin devpage -- --ignored
+
