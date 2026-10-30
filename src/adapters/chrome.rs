@@ -565,8 +565,7 @@ fn platform() -> Option<Platform> {
 /// loopback, and the waits a test needs on a page.
 #[cfg(test)]
 pub(crate) mod testing {
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::{Arc, Mutex};
 
     use axum::Router;
     use chromiumoxide::Page;
@@ -624,7 +623,7 @@ pub(crate) mod testing {
     /// What the run kills and deletes as it exits: the shared Chrome's
     /// process and its profile folder.
     #[cfg(unix)]
-    static AT_EXIT: OnceLock<(u32, PathBuf)> = OnceLock::new();
+    static AT_EXIT: std::sync::OnceLock<(u32, std::path::PathBuf)> = std::sync::OnceLock::new();
 
     #[cfg(unix)]
     fn killed_at_exit(chrome: &mut Launched) {
