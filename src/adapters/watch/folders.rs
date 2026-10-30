@@ -28,6 +28,10 @@ impl Platform {
         let watched = folders.clone();
         let watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
+                #[cfg(windows)]
+                let Some(event) = classified(event, &watched) else {
+                    return;
+                };
                 if let Ok(event) = &event {
                     lost(&watched, event);
                 }
@@ -86,6 +90,42 @@ impl Platform {
             .iter()
             .any(|folder| folder.starts_with(path))
     }
+}
+
+/// `event` as inotify would report it: ReadDirectoryChangesW says a path
+/// was added or removed, not whether it is a file or a folder, so a path
+/// added is looked at, and one removed is a folder if it was watched as one.
+/// A folder's own change — its last write, moved by every write in it — is
+/// dropped: what is in sight in it is watched itself.
+#[cfg(windows)]
+fn classified(
+    event: notify::Result<notify::Event>,
+    folders: &Mutex<BTreeSet<PathBuf>>,
+) -> Option<notify::Result<notify::Event>> {
+    use notify::event::{CreateKind, RemoveKind};
+    let Ok(mut event) = event else {
+        return Some(event);
+    };
+    let path = event.paths.first()?;
+    match event.kind {
+        EventKind::Create(CreateKind::Any) => {
+            event.kind = EventKind::Create(if path.is_dir() {
+                CreateKind::Folder
+            } else {
+                CreateKind::File
+            });
+        }
+        EventKind::Remove(RemoveKind::Any) => {
+            event.kind = EventKind::Remove(if lock(folders).contains(path) {
+                RemoveKind::Folder
+            } else {
+                RemoveKind::File
+            });
+        }
+        EventKind::Modify(ModifyKind::Any) if path.is_dir() => return None,
+        _ => {}
+    }
+    Some(Ok(event))
 }
 
 /// Forgets the watched folders `event` says are gone: a removed or renamed

@@ -108,7 +108,7 @@ impl Profile {
         let chrome = match self {
             // chrome-headless-shell keeps its GPU process off unless
             // `enable-gpu` is passed. chromiumoxide adds the `--` itself.
-            Profile::Shot => chrome.arg("enable-unsafe-webgpu").arg("enable-gpu"),
+            Profile::Shot => windows_shaders(chrome.arg("enable-unsafe-webgpu").arg("enable-gpu")),
             Profile::Recording => chrome
                 .viewport(None)
                 .disable_default_args()
@@ -120,6 +120,17 @@ impl Profile {
                 .window_size(1920, 1167),
         };
         sandboxed(chrome, sandbox)
+    }
+}
+
+/// On Windows, WebGPU compiling its shaders with FXC, which Windows has:
+/// chrome-headless-shell ships without DXC, Dawn's default, and opens no
+/// WebGPU device without it.
+fn windows_shaders(chrome: BrowserConfigBuilder) -> BrowserConfigBuilder {
+    if cfg!(windows) {
+        chrome.arg(("disable-dawn-features", "use_dxc"))
+    } else {
+        chrome
     }
 }
 

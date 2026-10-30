@@ -4,17 +4,19 @@
 // pushes the voice in, and pauses the recorder only between slides, once the
 // player has played its last sample.
 window.devpageVideo = (() => {
-  // H.264 High profile at level 4.0, the lowest that holds 1080p at 30 fps:
-  // a bare `avc1` leaves the level to the encoder, and Windows' picks one
-  // too low for 1080p and refuses to start.
-  const TYPE = "video/mp4;codecs=avc1.640028,mp4a.40.2";
-  // One queue of samples, played without a gap for as long as it holds any;
+  const TYPE = "video/mp4;codecs=avc1,mp4a.40.2";
+  // The sound is recorded at 48 kHz: Windows' AAC encoder takes only 44.1
+  // or 48 kHz, and the narrator speaks at a lower rate.
+  const CONTEXT_RATE = 48_000;
+  // One queue of samples at the narrator's rate, played without a gap for as
+  // long as it holds any, resampled to the context's rate between neighbours;
   // it says "empty" when it runs out.
   const WORKLET = `
 class Player extends AudioWorkletProcessor {
-  constructor() {
+  constructor(options) {
     super();
-    this.queue = []; this.offset = 0; this.empty = true;
+    this.step = options.processorOptions.rate / sampleRate;
+    this.queue = []; this.at = 0; this.empty = true;
     this.port.onmessage = (e) => { this.queue.push(e.data); this.empty = false; };
   }
   process(_, outputs) {
@@ -22,10 +24,17 @@ class Player extends AudioWorkletProcessor {
     for (let i = 0; i < out.length; i++) {
       const head = this.queue[0];
       if (!head) { out[i] = 0; continue; }
-      out[i] = head[this.offset++];
-      if (this.offset >= head.length) { this.queue.shift(); this.offset = 0; }
+      const k = Math.floor(this.at);
+      const a = head[k];
+      const b = k + 1 < head.length ? head[k + 1] : (this.queue[1]?.[0] ?? a);
+      out[i] = a + (b - a) * (this.at - k);
+      this.at += this.step;
+      while (this.queue.length && this.at >= this.queue[0].length) {
+        this.at -= this.queue[0].length;
+        this.queue.shift();
+      }
     }
-    if (!this.queue.length && !this.empty) { this.empty = true; this.port.postMessage("empty"); }
+    if (!this.queue.length && !this.empty) { this.empty = true; this.at = 0; this.port.postMessage("empty"); }
     return true;
   }
 }
@@ -62,10 +71,10 @@ registerProcessor("player", Player);`;
         preferCurrentTab: true,
       });
       screen.getVideoTracks()[0].onended = () => events.push("track ended");
-      context = new AudioContext({ sampleRate: rate });
+      context = new AudioContext({ sampleRate: CONTEXT_RATE });
       const module = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
       await context.audioWorklet.addModule(module);
-      player = new AudioWorkletNode(context, "player");
+      player = new AudioWorkletNode(context, "player", { processorOptions: { rate } });
       const voice = context.createMediaStreamDestination();
       player.connect(voice);
       player.port.onmessage = (e) => {

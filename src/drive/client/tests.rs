@@ -156,7 +156,7 @@ async fn publish(home: &Home, dir: &Path, path: &str) -> String {
     let answer = ok(
         home,
         dir,
-        &format!("publish {}/{path} --json", dir.display()),
+        &format!("publish {} --json", dir.join(path).display()),
     )
     .await;
     let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
@@ -174,7 +174,7 @@ fn folder(name: &str) -> PathBuf {
 fn site(dir: &Path) {
     std::fs::create_dir_all(dir.join("launch")).unwrap();
     std::fs::write(
-        dir.join("launch/devpage.yml"),
+        dir.join("launch").join("devpage.yml"),
         "kind: site\ntitle: Launch\nroot: README.md\n",
     )
     .unwrap();
@@ -235,7 +235,12 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
     let dir = folder("remember");
     site(&dir);
     let (server, home) = server(&dir, None).await;
-    let first = ok(&home, &dir, &format!("publish {}/launch", dir.display())).await;
+    let first = ok(
+        &home,
+        &dir,
+        &format!("publish {}", dir.join("launch").display()),
+    )
+    .await;
     let link = first
         .strip_prefix("Launch — version 1\n")
         .unwrap_or_else(|| panic!("{first}"))
@@ -247,7 +252,10 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
     let second = ok(
         &home,
         &dir,
-        &format!("publish {}/launch/devpage.yml", dir.display()),
+        &format!(
+            "publish {}",
+            dir.join("launch").join("devpage.yml").display()
+        ),
     )
     .await;
     assert_eq!(second, format!("Launch — version 2\n{link}\n"));
@@ -269,7 +277,7 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
     assert!(
         published.contains(&format!(
             "{}: {id}",
-            dir.join("launch/devpage.yml").display()
+            dir.join("launch").join("devpage.yml").display()
         )),
         "{published}"
     );
@@ -289,7 +297,7 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
     ok(
         &home,
         &dir,
-        &format!("publish {}/launch --id {id}", dir.display()),
+        &format!("publish {} --id {id}", dir.join("launch").display()),
     )
     .await;
     let other = publish(&home, &dir, "launch --new").await;
@@ -305,7 +313,10 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
     );
     for gone in ["gone", "6f1c2a9e-0000-4000-8000-000000000001"] {
         let error = run(
-            command(&format!("publish {}/launch --id {gone}", dir.display())),
+            command(&format!(
+                "publish {} --id {gone}",
+                dir.join("launch").display()
+            )),
             &home,
             &served(&dir),
             None,
@@ -329,7 +340,7 @@ async fn a_broken_link_stops_publish_before_any_request() {
     std::fs::write(dir.join("launch/plan.md"), "# Plan\n\n[Gone](gone.md)\n").unwrap();
     let (server, home) = server(&dir, None).await;
     let output = run(
-        command(&format!("publish {}/launch", dir.display())),
+        command(&format!("publish {}", dir.join("launch").display())),
         &home,
         &served(&dir),
         None,
@@ -348,7 +359,7 @@ async fn a_broken_link_stops_publish_before_any_request() {
         output.text
     );
     let json = run(
-        command(&format!("publish {}/launch --json", dir.display())),
+        command(&format!("publish {} --json", dir.join("launch").display())),
         &home,
         &served(&dir),
         None,

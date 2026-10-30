@@ -82,7 +82,9 @@ passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The shot p
 with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
-it.
+it. On Windows it adds `--disable-dawn-features=use_dxc`: the shell ships
+without DXC, the shader compiler Dawn uses by default there, and opens no
+WebGPU device without it; FXC, which Windows has, compiles instead.
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.
