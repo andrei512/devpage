@@ -1572,7 +1572,7 @@ mod documents {
         );
         let names: Vec<String> = files
             .iter()
-            .map(|file| file.strip_prefix(&dir).unwrap().display().to_string())
+            .map(|file| crate::folder::slashed(file.strip_prefix(&dir).unwrap()))
             .collect();
         assert_eq!(
             names,

@@ -1198,7 +1198,7 @@ mod tests {
             designs
                 .made_of(path)
                 .iter()
-                .map(|f| f.strip_prefix(&dir).unwrap().to_string_lossy().into_owned())
+                .map(|f| crate::folder::slashed(f.strip_prefix(&dir).unwrap()))
                 .collect()
         };
         assert_eq!(

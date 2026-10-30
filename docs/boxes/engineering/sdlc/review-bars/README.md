@@ -35,8 +35,9 @@ side by side:
   then runs the Chrome tests, `cargo test --bin devpage -- --ignored`, two at
   a time. The
   runner has no GPU, so `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome ignore its
-  GPU blocklist and take WARP, Direct3D's software adapter: the GPU tests
-  draw on WebGPU there too.
+  GPU blocklist and take WARP, Direct3D's software adapter, for WebGPU only
+  — pages are still rastered and composited on the CPU: the GPU tests draw
+  on WebGPU there too.
 
 All three keep the built dependencies between runs with `Swatinem/rust-cache`,
 pinned to a commit, keyed on `Cargo.lock` and the toolchain; devpage's own

@@ -701,12 +701,16 @@ pub(crate) mod testing {
     /// The run's Chrome with its GPU blocklist ignored when
     /// `DEVPAGE_TEST_SOFTWARE_GPU` is set: for CI runners, which have no GPU.
     /// On Windows Chrome then takes WARP, Direct3D's software adapter, so the
-    /// GPU tests still draw on WebGPU.
+    /// GPU tests still draw on WebGPU. Pages are still rastered and composited
+    /// on the CPU, as without a GPU: WARP is far slower at that.
     fn software_gpu(chrome: BrowserConfigBuilder) -> BrowserConfigBuilder {
         if std::env::var_os("DEVPAGE_TEST_SOFTWARE_GPU").is_none() {
             return chrome;
         }
-        chrome.arg("ignore-gpu-blocklist")
+        chrome
+            .arg("ignore-gpu-blocklist")
+            .arg("disable-gpu-rasterization")
+            .arg("disable-gpu-compositing")
     }
 
     /// The run's one Chrome, as chromiumoxide drives it.
