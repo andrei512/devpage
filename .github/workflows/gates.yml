@@ -87,11 +87,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
-      - name: The Chrome tests
-        # Two at a time: WARP draws in software on the runner's few cores, and
-        # more at once starve each other past the tests' waits.
-        run: cargo test --locked --bin devpage -- --ignored --test-threads=2
-        # The runner has no GPU: WARP, Direct3D's software adapter, stands in.
+      # Every test that draws on the GPU has `gpu` in its name.
+      - name: The Chrome tests, but the GPU's
+        run: cargo test --locked --bin devpage -- --ignored --skip gpu
+      # The runner has no GPU: WARP, Direct3D's software adapter, stands in.
+      # Chrome draws everything on it then, slowly, so two at a time: more
+      # starve each other past the tests' waits.
+      - name: The GPU's Chrome tests, on WARP
+        run: cargo test --locked --bin devpage -- --ignored gpu --test-threads=2
         env:
           DEVPAGE_TEST_SOFTWARE_GPU: "1"
 

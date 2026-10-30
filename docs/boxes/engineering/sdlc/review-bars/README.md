@@ -34,11 +34,11 @@ side by side:
 - **`install-windows`** installs devpage from the checkout on Windows the
   same way.
 - **`chrome-windows`** runs the Chrome tests on Windows,
-  `cargo test --bin devpage -- --ignored`, two at a time. The
-  runner has no GPU, so `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome ignore its
-  GPU blocklist and take WARP, Direct3D's software adapter, for WebGPU only
-  — pages are still rastered and composited on the CPU: the GPU tests draw
-  on WebGPU there too.
+  `cargo test --bin devpage -- --ignored`, in two passes: every test but
+  the GPU's — each has `gpu` in its name — then those, two at a time. The
+  runner has no GPU, so for them `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome
+  ignore its GPU blocklist and take WARP, Direct3D's software adapter: the
+  GPU tests draw on WebGPU there too, slowly.
 
 Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
 pinned to a commit, keyed on `Cargo.lock` and the toolchain, and saved when a
