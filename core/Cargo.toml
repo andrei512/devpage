@@ -1,6 +1,6 @@
 [package]
 name = "devpage-core"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.97"
 description = "devpage's core: documents, rendering, link checking, comments and designs, with no I/O runtime"

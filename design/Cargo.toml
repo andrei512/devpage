@@ -1,6 +1,6 @@
 [package]
 name = "devpage-design"
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.89"
 description = "The design engine: parses, resolves, lays out and paints devpage designs"

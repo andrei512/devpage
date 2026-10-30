@@ -4,6 +4,34 @@ What changed in each released version of devpage, newest first. The three
 crates — `devpage`, `devpage-core` and `devpage-design` — are released
 together at the same version.
 
+## 0.2.4 — 2026-10-30
+
+- **Server metrics and a benchmark.** `devpage server` serves Prometheus
+  metrics on their own port (`DEVPAGE_METRICS_PORT`). A version's problems
+  are found once, the search index is built on the first search and capped at
+  256 MB, and at most `DEVPAGE_MEMORY_CACHE_VERSIONS` versions are held in
+  memory.
+- **Faster saves on big sites.** Search keeps what is published between
+  saves and loads each document once a pass: on a 5,000-page site a save
+  re-indexes in about 19 ms, down from 450 ms.
+- **Edits cost what they change.** An edit in a design's frame no longer
+  grows with how many siblings it has, whatever the frame's layout.
+- **A broken design keeps its last good drawing** until it can be drawn
+  again.
+- **Slide PNGs show neither comments nor problems.** A deck redraws its slide
+  PNGs when an image or font its designs use is added or removed.
+- **Links and search see widgets.** `devpage check` and search read a page as
+  it is shown, so a link to a widget's heading lands and search finds it.
+- **A path outside the served folder is refused.** A link leading out of it is
+  reported as broken and never shows the file's absolute path.
+- **Comments:** a comment on a missing page is refused, and so is a blank
+  author.
+- **Fix:** on the GPU, a design's images no longer vanish from tiles redrawn
+  after an edit.
+- **Internals:** the target-architecture migration — deeper modules with
+  clearer names (`design`, `png`, `compositor`, `watch`, `published`, …) —
+  and a browser test suite that runs in a fraction of the time.
+
 ## 0.2.3 — 2026-10-28
 
 - **Server mode.** `devpage server` hosts published documents: `devpage
