@@ -1,4 +1,5 @@
-# The gates — formatting, clippy, the tests and devpage's own docs — on every
+# The gates — formatting, clippy, the tests and devpage's own docs, on Linux
+# and Windows — on every
 # pull request and every push to main, a design branch or a prototype; and the
 # install page kept true: a checkout installs with only what
 # docs/installing.md lists. GitHub-hosted runners only: this repository is
@@ -17,7 +18,13 @@ permissions:
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    # devpage runs on Linux, macOS and Windows; macOS is where it is
+    # developed, so CI gates the other two.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: The toolchain rust-toolchain.toml names, with rustfmt and clippy

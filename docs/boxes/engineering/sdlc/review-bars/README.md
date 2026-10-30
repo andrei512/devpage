@@ -25,7 +25,8 @@ side by side:
 - **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
   `cargo clippy --all-targets -- -D warnings` and `cargo test`, with
   `--locked` — and then `devpage check docs`, external links included, on
-  the change's own docs.
+  the change's own docs. It runs twice, on Linux and on Windows: devpage
+  runs on both and on macOS, where it is developed.
 - **`install`** runs `cargo install --path . --locked` in a bare
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)

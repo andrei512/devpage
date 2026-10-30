@@ -239,8 +239,31 @@ pub fn volume_size(folder: &Path) -> std::io::Result<u64> {
     Ok(stat.f_blocks as u64 * stat.f_frsize as u64)
 }
 
+/// The size of the volume `folder` is on, in bytes.
+#[cfg(windows)]
+pub fn volume_size(folder: &Path) -> std::io::Result<u64> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let path: Vec<u16> = folder.as_os_str().encode_wide().chain([0]).collect();
+    let mut total = 0u64;
+    // SAFETY: `path` is a NUL-terminated wide string and `total` a u64 to
+    // fill; the two counts not asked for are null.
+    let read = unsafe {
+        GetDiskFreeSpaceExW(
+            path.as_ptr(),
+            std::ptr::null_mut(),
+            &mut total,
+            std::ptr::null_mut(),
+        )
+    };
+    if read == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(total)
+}
+
 /// Elsewhere the volume's size is unknown: `DEVPAGE_CACHE_MAX_BYTES` must say.
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 pub fn volume_size(_: &Path) -> std::io::Result<u64> {
     Err(std::io::Error::other("unsupported"))
 }
@@ -402,7 +425,7 @@ mod tests {
         assert!(config.is_ok());
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     #[test]
     fn the_volume_under_a_folder_has_a_size() {
         assert!(volume_size(&std::env::temp_dir()).unwrap() > 0);

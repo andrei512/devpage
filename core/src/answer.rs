@@ -524,7 +524,7 @@ mod tests {
     #[test]
     fn nothing_outside_the_served_folder_is_answered() {
         let dir = served("outside");
-        std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
+        crate::folder::symlink(&dir.join("../secret.md"), &dir.join("docs/escape.md")).unwrap();
         let served = Served::new(&dir, "docs");
         let answers = served.at();
         for path in [
@@ -546,7 +546,7 @@ mod tests {
     fn answers_a_folder_reached_through_a_symbolic_link() {
         let dir = served("symlinked");
         let link = dir.parent().unwrap().join("link");
-        std::os::unix::fs::symlink(&dir, &link).unwrap();
+        crate::folder::symlink(&dir, &link).unwrap();
         let link = link.canonicalize().unwrap();
         let served = Served::new(&link, "docs");
         let answers = served.at();

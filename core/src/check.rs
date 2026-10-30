@@ -612,7 +612,10 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
 /// An error's text with the served folder's absolute path taken out, so
 /// files read as their addresses do.
 fn relative(text: &str, served: &Path) -> String {
-    text.replace(&format!("{}/", served.display()), "")
+    text.replace(
+        &format!("{}{}", served.display(), std::path::MAIN_SEPARATOR),
+        "",
+    )
 }
 
 /// Where the preview tells someone about a problem it has just found: the

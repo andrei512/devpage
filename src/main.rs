@@ -201,6 +201,7 @@ async fn main() -> Result<()> {
 }
 
 /// Waits for Ctrl-C, SIGTERM or SIGHUP, and names it.
+#[cfg(unix)]
 async fn interrupted() -> &'static str {
     use tokio::signal::unix::{SignalKind, signal};
     let (Ok(mut term), Ok(mut hangup)) = (
@@ -214,6 +215,21 @@ async fn interrupted() -> &'static str {
         _ = tokio::signal::ctrl_c() => "Ctrl-C",
         _ = term.recv() => "SIGTERM",
         _ = hangup.recv() => "SIGHUP",
+    }
+}
+
+/// Waits for Ctrl-C, Ctrl-Break or the console closing, and names it.
+#[cfg(windows)]
+async fn interrupted() -> &'static str {
+    use tokio::signal::windows::{ctrl_break, ctrl_close};
+    let (Ok(mut ctrl_break), Ok(mut close)) = (ctrl_break(), ctrl_close()) else {
+        tokio::signal::ctrl_c().await.ok();
+        return "Ctrl-C";
+    };
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => "Ctrl-C",
+        _ = ctrl_break.recv() => "Ctrl-Break",
+        _ = close.recv() => "the console closing",
     }
 }
 

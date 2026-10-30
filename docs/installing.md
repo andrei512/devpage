@@ -7,11 +7,14 @@ starting it. It is a task page under the [devpage landing page](README.md);
 
 ## What you need
 
+devpage runs on macOS, Linux and Windows.
+
 - **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
   Check what you have with `cargo --version`; install or update Rust with
   [rustup](https://rustup.rs) (`rustup update`).
 - **A C compiler** — the one Rust itself links with is enough (Xcode's command
-  line tools on macOS, `build-essential` on Debian or Ubuntu): the JavaScript
+  line tools on macOS, `build-essential` on Debian or Ubuntu, the Visual
+  Studio Build Tools that rustup offers to install on Windows): the JavaScript
   engine that draws diagrams is built from its C source
   ([Dependencies](boxes/engineering/dependencies/README.md#diagrams)).
 - **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
