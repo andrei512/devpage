@@ -67,6 +67,8 @@ chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
+Every test that draws on the GPU has `gpu` in its name, so
+`--skip gpu` runs the rest on a machine without one, as CI does on Windows.
 They run in parallel, so the longest bounds the run: the `video` tests,
 which record a deck as long as its slides play, and start last in the
 run's order — [how long they take](#how-long-the-chrome-suites-take). Run

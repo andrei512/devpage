@@ -33,12 +33,9 @@ side by side:
   true.
 - **`install-windows`** installs devpage from the checkout on Windows the
   same way.
-- **`chrome-windows`** runs the Chrome tests on Windows,
-  `cargo test --bin devpage -- --ignored`, in two passes: every test but
-  the GPU's — each has `gpu` in its name — then those, two at a time. The
-  runner has no GPU, so for them `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome
-  ignore its GPU blocklist and take WARP, Direct3D's software adapter: the
-  GPU tests draw on WebGPU there too, slowly.
+- **`chrome-windows`** runs the Chrome tests on Windows but the GPU's,
+  `cargo test --bin devpage -- --ignored --skip gpu`: every test that draws
+  on the GPU has `gpu` in its name, and the runner has no GPU.
 
 Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
 pinned to a commit, keyed on `Cargo.lock` and the toolchain, and saved when a
@@ -73,11 +70,12 @@ envelope's targets and against the last run from `main`. It gates nothing on
 its own; a change to how a server serves, publishes, caches or holds memory
 links its report from the pull request.
 
-<Callout kind="note" title="The Chrome tests on macOS and Linux run by hand">
+<Callout kind="note" title="The GPU tests run by hand">
 
-CI runs the Chrome tests on Windows only, where WARP gives a GPU-less runner
-a WebGPU adapter; a Linux runner has none to give. On macOS and Linux whoever
-changes what they cover runs them by hand
-([Developing devpage](../../developing-devpage/README.md#tests) says when).
+CI runs the Chrome tests on Windows, but not those that draw on the GPU, nor
+any on Linux or macOS: a GitHub-hosted runner has no GPU, and WARP, Windows'
+software adapter, neither draws in time nor draws glyph edges as a GPU does.
+Whoever changes what the GPU tests cover runs them by hand on a machine with
+one ([Developing devpage](../../developing-devpage/README.md#tests) says when).
 
 </Callout>

@@ -587,7 +587,7 @@ pub(crate) mod testing {
     };
     use serde::de::DeserializeOwned;
 
-    use super::{BrowserConfigBuilder, Launched, Profile, READY_WITHIN};
+    use super::{Launched, Profile, READY_WITHIN};
 
     /// The one Chrome every test's [`Browser`] lives in, and the runtime
     /// that carries its DevTools events: a runtime of its own, since each
@@ -613,7 +613,7 @@ pub(crate) mod testing {
                         .enable_all()
                         .build()
                         .unwrap();
-                    let chrome = runtime.block_on(Launched::new(Profile::Shot, software_gpu));
+                    let chrome = runtime.block_on(Launched::new(Profile::Shot, |chrome| chrome));
                     let running = chrome.is_ok();
                     sent.send(chrome.map(|chrome| Shared {
                         chrome,
@@ -696,17 +696,6 @@ pub(crate) mod testing {
             context: Some(context),
             screen,
         }
-    }
-
-    /// The run's Chrome with its GPU blocklist ignored when
-    /// `DEVPAGE_TEST_SOFTWARE_GPU` is set: for CI runners, which have no GPU.
-    /// On Windows Chrome then takes WARP, Direct3D's software adapter, so the
-    /// GPU tests still draw on WebGPU.
-    fn software_gpu(chrome: BrowserConfigBuilder) -> BrowserConfigBuilder {
-        if std::env::var_os("DEVPAGE_TEST_SOFTWARE_GPU").is_none() {
-            return chrome;
-        }
-        chrome.arg("ignore-gpu-blocklist")
     }
 
     /// The run's one Chrome, as chromiumoxide drives it.
