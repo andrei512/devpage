@@ -70,6 +70,13 @@ jobs:
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
+      # Windows Server leaves out Media Foundation, the H.264 and AAC
+      # encoders a video records with; desktop Windows has it.
+      - name: Media Foundation
+        shell: pwsh
+        run: Install-WindowsFeature Server-Media-Foundation
       - name: The Chrome tests
         run: cargo test --locked --bin devpage -- --ignored
+        env:
+          DEVPAGE_TEST_SOFTWARE_GPU: "1"
 

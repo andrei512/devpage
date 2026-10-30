@@ -577,7 +577,7 @@ pub(crate) mod testing {
     };
     use serde::de::DeserializeOwned;
 
-    use super::{Launched, Profile, READY_WITHIN};
+    use super::{BrowserConfigBuilder, Launched, Profile, READY_WITHIN};
 
     /// The one Chrome every test's [`Browser`] lives in, and the runtime
     /// that carries its DevTools events: a runtime of its own, since each
@@ -603,7 +603,7 @@ pub(crate) mod testing {
                         .enable_all()
                         .build()
                         .unwrap();
-                    let chrome = runtime.block_on(Launched::new(Profile::Shot, |chrome| chrome));
+                    let chrome = runtime.block_on(Launched::new(Profile::Shot, software_gpu));
                     let running = chrome.is_ok();
                     sent.send(chrome.map(|chrome| Shared {
                         chrome,
@@ -623,6 +623,7 @@ pub(crate) mod testing {
 
     /// What the run kills and deletes as it exits: the shared Chrome's
     /// process and its profile folder.
+    #[cfg(unix)]
     static AT_EXIT: OnceLock<(u32, PathBuf)> = OnceLock::new();
 
     #[cfg(unix)]
@@ -685,6 +686,18 @@ pub(crate) mod testing {
             context: Some(context),
             screen,
         }
+    }
+
+    /// The run's Chrome on SwiftShader's WebGPU adapter when
+    /// `DEVPAGE_TEST_SOFTWARE_GPU` is set: for CI runners, which have no GPU,
+    /// so the GPU tests still draw on WebGPU.
+    fn software_gpu(chrome: BrowserConfigBuilder) -> BrowserConfigBuilder {
+        if std::env::var_os("DEVPAGE_TEST_SOFTWARE_GPU").is_none() {
+            return chrome;
+        }
+        chrome
+            .arg(("use-webgpu-adapter", "swiftshader"))
+            .arg("enable-unsafe-swiftshader")
     }
 
     /// The run's one Chrome, as chromiumoxide drives it.
