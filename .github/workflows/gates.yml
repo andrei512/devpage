@@ -71,7 +71,9 @@ jobs:
         run: cargo install --path . --locked
       - run: devpage --version
       - name: The Chrome tests
-        run: cargo test --locked --bin devpage -- --ignored
+        # Two at a time: WARP draws in software on the runner's few cores, and
+        # more at once starve each other past the tests' waits.
+        run: cargo test --locked --bin devpage -- --ignored --test-threads=2
         # The runner has no GPU: WARP, Direct3D's software adapter, stands in.
         env:
           DEVPAGE_TEST_SOFTWARE_GPU: "1"

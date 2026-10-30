@@ -32,7 +32,8 @@ side by side:
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
 - **`windows`** installs devpage from the checkout on Windows the same way,
-  then runs the Chrome tests, `cargo test --bin devpage -- --ignored`. The
+  then runs the Chrome tests, `cargo test --bin devpage -- --ignored`, two at
+  a time. The
   runner has no GPU, so `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome ignore its
   GPU blocklist and take WARP, Direct3D's software adapter: the GPU tests
   draw on WebGPU there too.
