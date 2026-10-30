@@ -2,20 +2,21 @@
 //! arrive and gathered into bursts, each handed to the core's
 //! [`Listeners`], which decide everything that follows from it. Only the
 //! folders the folder says to watch are watched, through the platform's
-//! watcher: `macos.rs`, `inotify.rs`, or `recursive.rs` elsewhere.
+//! watcher: `macos.rs`, `folders.rs` on Linux and Windows, or `recursive.rs`
+//! elsewhere.
 
-#[cfg(target_os = "linux")]
-mod inotify;
+#[cfg(any(target_os = "linux", windows))]
+mod folders;
 #[cfg(target_os = "macos")]
 mod macos;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 mod recursive;
 
-#[cfg(target_os = "linux")]
-use inotify::Platform;
+#[cfg(any(target_os = "linux", windows))]
+use folders::Platform;
 #[cfg(target_os = "macos")]
 use macos::Platform;
-#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 use recursive::Platform;
 
 use std::collections::HashSet;

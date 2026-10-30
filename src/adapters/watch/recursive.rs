@@ -1,4 +1,4 @@
-//! The watcher everywhere but macOS and Linux: `notify`'s recommended
+//! The watcher everywhere but macOS, Linux and Windows: `notify`'s recommended
 //! watcher, recursive on the whole served folder, since it can't leave a
 //! subtree out. Sifting drops what is out of sight.
 

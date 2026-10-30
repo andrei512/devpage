@@ -1,6 +1,6 @@
-//! The Linux watcher: `notify`'s inotify watcher, non-recursive on every
-//! folder in sight. inotify watches a folder at a time anyway, so leaving
-//! the out-of-sight ones out means they get no inotify watch at all.
+//! The Linux and Windows watcher: `notify`'s platform watcher — inotify, or
+//! ReadDirectoryChangesW — non-recursive on every folder in sight. Both
+//! watch a folder at a time, so the out-of-sight ones get no watch at all.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -8,17 +8,17 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use anyhow::Result;
 use notify::event::{EventKind, ModifyKind};
-use notify::{INotifyWatcher, RecursiveMode, Watcher};
+use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 
 use super::{Handler, WatchSet};
 
 /// The platform's watcher over a watch set. Stops when dropped.
 pub struct Platform {
-    watcher: INotifyWatcher,
+    watcher: RecommendedWatcher,
     /// Every folder watched now: the shallow ones and every folder of the
-    /// deep ones, less any deleted or renamed since its watch was added —
-    /// inotify drops a deleted folder's watch, and a folder made again with
-    /// its name has none.
+    /// deep ones, less any deleted or renamed since its watch was added — a
+    /// deleted folder's watch is dropped, and a folder made again with its
+    /// name has none.
     folders: Arc<Mutex<BTreeSet<PathBuf>>>,
 }
 
@@ -26,7 +26,7 @@ impl Platform {
     pub fn new(_served: &Path, handler: Handler) -> Result<Self> {
         let folders = Arc::new(Mutex::new(BTreeSet::new()));
         let watched = folders.clone();
-        let watcher = INotifyWatcher::new(
+        let watcher = RecommendedWatcher::new(
             move |event: notify::Result<notify::Event>| {
                 if let Ok(event) = &event {
                     lost(&watched, event);
@@ -73,7 +73,8 @@ impl Platform {
     }
 
     /// Whether changes in `folder`, as it is now, are reported — as far as
-    /// [`Self::covers`] knows: `notify` keeps inotify's watches to itself.
+    /// [`Self::covers`] knows: `notify` keeps the platform's watches to
+    /// itself.
     #[cfg(test)]
     pub fn live(&self, folder: &Path) -> bool {
         self.covers(folder)

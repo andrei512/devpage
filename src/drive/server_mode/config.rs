@@ -193,13 +193,21 @@ impl Config {
             port: 0,
             metrics_port: 0,
             data_dir: data_dir.to_path_buf(),
-            bucket_url: format!("file://{}", bucket.display()),
+            bucket_url: url::Url::from_directory_path(bucket).unwrap().to_string(),
             cache_max_bytes,
             cache_policy: Policy::Lru,
             memory_cache_versions: 2000,
             max_upload_bytes: 100 << 20,
             user_header: None,
         }
+    }
+
+    /// The folder a `file://` bucket keeps its objects in.
+    pub fn bucket_folder(&self) -> PathBuf {
+        url::Url::parse(&self.bucket_url)
+            .unwrap()
+            .to_file_path()
+            .unwrap()
     }
 }
 

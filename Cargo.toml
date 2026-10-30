@@ -53,10 +53,17 @@ dispatch2 = { version = "0.3.1", default-features = false, features = ["std"] }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2.191"
 
-# The size of the volume server mode's cache is on, on Windows
-# (`src/drive/server_mode/config.rs`).
+# On Windows, the size of the volume server mode's cache is on
+# (`src/drive/server_mode/config.rs`), and the server's threads and resident
+# bytes (`src/drive/server_mode/metrics.rs`).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61.2", features = [
+  "Win32_Foundation",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Diagnostics_ToolHelp",
+  "Win32_System_ProcessStatus",
+  "Win32_System_Threading",
+] }
 
 [dev-dependencies]
 devpage-core = { path = "core", version = "0.2.4", features = ["testing"] }

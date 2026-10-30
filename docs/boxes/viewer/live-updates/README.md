@@ -239,14 +239,15 @@ written into a new folder of the comment store at once.
   stopping a stream, devpage handles as changed every file under its folder
   still in sight that was modified in the last second. Flushing the stream
   first doesn't help — fseventsd hasn't handed it the event yet.
-- **Linux** (`src/adapters/watch/inotify.rs`): `notify`'s inotify watcher,
-  non-recursive on every folder in sight — the shallow folders and every
-  folder of the deep ones. inotify watches a folder at a time anyway, so an
-  ignored folder gets no inotify watch at all, and a folder created in sight
+- **Linux and Windows** (`src/adapters/watch/folders.rs`): `notify`'s
+  platform watcher — inotify, or ReadDirectoryChangesW — non-recursive on
+  every folder in sight: the shallow folders and every folder of the deep
+  ones. Both watch a folder at a time, so an ignored folder gets no watch
+  at all, and a folder created in sight
   is watched on the next re-plan. A folder an event says was removed or
   renamed is no longer counted watched, with every folder under it, so the
   next re-plan watches whatever has its name again.
-- **Elsewhere** (`src/adapters/watch/recursive.rs`): `notify`'s recommended watcher,
+- **Anywhere else** (`src/adapters/watch/recursive.rs`): `notify`'s recommended watcher,
   recursive on the whole served folder, as before the watch set: it reports
   everything, and sifting drops what is out of sight.
 
