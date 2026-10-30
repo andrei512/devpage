@@ -1,4 +1,5 @@
-# The gates — formatting, clippy, the tests and devpage's own docs — on every
+# The gates — formatting, clippy, the tests and devpage's own docs, on Linux
+# and Windows — on every
 # pull request and every push to main, a design branch or a prototype; and the
 # install page kept true: a checkout installs with only what
 # docs/installing.md lists. GitHub-hosted runners only: this repository is
@@ -17,7 +18,13 @@ permissions:
 
 jobs:
   gates:
-    runs-on: ubuntu-latest
+    # devpage runs on Linux, macOS and Windows; macOS is where it is
+    # developed, so CI gates the other two.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - name: The toolchain rust-toolchain.toml names, with rustfmt and clippy
@@ -25,8 +32,12 @@ jobs:
           rustup toolchain install
           rustup component add rustfmt clippy
       # The dependencies, built, from the last run with the same Cargo.lock
-      # and toolchain; devpage's own crates are always built afresh.
+      # and toolchain — kept when a run fails too, so a red run doesn't make
+      # the next build every dependency again; devpage's own crates are
+      # always built afresh.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -47,6 +58,36 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          cache-on-failure: true
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
+
+  # The same on Windows, beside the Chrome tests rather than before them.
+  install-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          cache-on-failure: true
+      - name: Install from the checkout with nothing added
+        run: cargo install --path . --locked
+      - run: devpage --version
+
+  # The Chrome tests on Windows — pages, PDFs, slide PNGs, designs, videos —
+  # on the pinned Chrome.
+  chrome-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+      # All but the GPU's — each has `gpu` in its name: the runner has no GPU.
+      - name: The Chrome tests, but the GPU's
+        run: cargo test --locked --bin devpage -- --ignored --skip gpu
+

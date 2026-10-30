@@ -37,7 +37,8 @@ mod tests {
             .ok()
             .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
             .filter(|name| !name.is_empty())
-            .or_else(|| std::env::var("USER").ok());
+            .or_else(|| std::env::var("USER").ok())
+            .or_else(|| std::env::var("USERNAME").ok());
         assert_eq!(Some(user_name(&folder)), expected);
     }
 }

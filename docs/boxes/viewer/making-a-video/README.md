@@ -27,7 +27,7 @@ can't hold become `-`. It prints one line on stderr as each slide starts, and
 the file's name when it is done. A site, a doc or a design is refused
 (`video records slides, not a doc`).
 
-The video is 1920 × 1080, H.264 with AAC sound: each slide as the browser
+The video is 1920 × 1080, H.264 with AAC sound at 48 kHz: each slide as the browser
 shows it, devpage's own controls hidden, and the narrator's voice. The slide
 changes a moment before the narrator starts on it.
 
@@ -217,6 +217,7 @@ shell's version ([The Chrome it drives](../pdf/README.md#the-chrome-it-drives)
 in Printing to PDF). devpage downloads it the
 first time a video is made — about 370 MB once unpacked, into
 `~/Library/Caches/devpage/chrome-for-testing` on macOS,
+`%LOCALAPPDATA%\devpage\chrome-for-testing` on Windows,
 `~/.cache/devpage/chrome-for-testing` elsewhere, beside the shell — and uses
 that copy from then on, in headless mode — the **recording profile**, beside
 the shot profile `devpage pdf` and a slide's PNG use. Each run starts its own Chrome, with

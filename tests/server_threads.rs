@@ -85,6 +85,17 @@ impl Server {
                 .and_then(|n| n.trim().parse().ok())
                 .unwrap();
         }
+        if cfg!(windows) {
+            let out = Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-Command",
+                    &format!("(Get-Process -Id {pid}).Threads.Count"),
+                ])
+                .output()
+                .unwrap();
+            return String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+        }
         // macOS: one line per thread, after a header.
         let out = Command::new("ps")
             .args(["-M", "-p", &pid.to_string()])

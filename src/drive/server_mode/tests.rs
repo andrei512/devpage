@@ -31,7 +31,7 @@ pub(super) fn config(name: &str) -> Config {
 }
 
 fn bucket_dir(config: &Config) -> PathBuf {
-    PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap())
+    config.bucket_folder()
 }
 
 pub(super) fn site(title: &str, text: &str) -> Vec<u8> {
@@ -106,10 +106,8 @@ async fn a_published_zip_is_kept_in_the_bucket_and_served_at_its_link() {
 
     // The bucket holds the zip byte for byte.
     let kept = config
-        .bucket_url
-        .strip_prefix("file://")
-        .map(|dir| Path::new(dir).join(format!("documents/{id}/versions/1.zip")))
-        .unwrap();
+        .bucket_folder()
+        .join(format!("documents/{id}/versions/1.zip"));
     assert_eq!(std::fs::read(kept).unwrap(), zip);
 
     // The cache is empty until a read; then the page renders from it.

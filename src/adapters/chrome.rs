@@ -108,7 +108,7 @@ impl Profile {
         let chrome = match self {
             // chrome-headless-shell keeps its GPU process off unless
             // `enable-gpu` is passed. chromiumoxide adds the `--` itself.
-            Profile::Shot => chrome.arg("enable-unsafe-webgpu").arg("enable-gpu"),
+            Profile::Shot => windows_shaders(chrome.arg("enable-unsafe-webgpu").arg("enable-gpu")),
             Profile::Recording => chrome
                 .viewport(None)
                 .disable_default_args()
@@ -120,6 +120,17 @@ impl Profile {
                 .window_size(1920, 1167),
         };
         sandboxed(chrome, sandbox)
+    }
+}
+
+/// On Windows, WebGPU compiling its shaders with FXC, which Windows has:
+/// chrome-headless-shell ships without DXC, Dawn's default, and opens no
+/// WebGPU device without it.
+fn windows_shaders(chrome: BrowserConfigBuilder) -> BrowserConfigBuilder {
+    if cfg!(windows) {
+        chrome.arg(("disable-dawn-features", "use_dxc"))
+    } else {
+        chrome
     }
 }
 
@@ -172,6 +183,19 @@ impl Launched {
 impl Drop for Launched {
     fn drop(&mut self) {
         self.events.abort();
+        // Chrome is killed and waited for here, before its profile folder is
+        // deleted: on Windows a running Chrome holds the folder's files open,
+        // and the delete would fail.
+        if let Some(child) = self.browser.get_mut_child() {
+            let child = child.as_mut_inner();
+            child.start_kill().ok();
+            for _ in 0..100 {
+                if !matches!(child.try_wait(), Ok(None)) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
     }
 }
 
@@ -432,7 +456,14 @@ impl Folder {
 
 impl Drop for Folder {
     fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
+        // Chrome's helper processes outlive it by a moment, and on Windows a
+        // file one still holds open can't be deleted: a few tries.
+        for _ in 0..20 {
+            if std::fs::remove_dir_all(&self.0).is_ok() || !self.0.exists() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
     }
 }
 
@@ -462,13 +493,24 @@ async fn chrome_for_testing() -> Result<PathBuf> {
 /// Downloads `kind` into `<devpage's cache folder>/<name>` unless it is
 /// there already, and returns the program.
 async fn fetch(kind: BrowserKind, name: &str) -> Result<PathBuf> {
-    let home = std::env::var_os("HOME").context("no HOME for devpage's cache folder")?;
-    let cache = if cfg!(target_os = "macos") {
-        Path::new(&home).join("Library/Caches/devpage").join(name)
-    } else {
-        Path::new(&home).join(".cache/devpage").join(name)
-    };
+    let cache = cache_folder()?.join(name);
     install(kind, name, &cache, BrowserHost::current(kind)).await
+}
+
+/// devpage's cache folder: `~/Library/Caches/devpage` on macOS,
+/// `%LOCALAPPDATA%\devpage` on Windows, `~/.cache/devpage` elsewhere.
+fn cache_folder() -> Result<PathBuf> {
+    if cfg!(windows) {
+        let local = std::env::var_os("LOCALAPPDATA")
+            .context("no LOCALAPPDATA for devpage's cache folder")?;
+        return Ok(PathBuf::from(local).join("devpage"));
+    }
+    let home = std::env::home_dir().context("no home folder for devpage's cache folder")?;
+    Ok(if cfg!(target_os = "macos") {
+        home.join("Library/Caches/devpage")
+    } else {
+        home.join(".cache/devpage")
+    })
 }
 
 /// Downloads `kind` at [`CHROME_VERSION`] from `host` into `cache` unless it
@@ -534,8 +576,7 @@ fn platform() -> Option<Platform> {
 /// loopback, and the waits a test needs on a page.
 #[cfg(test)]
 pub(crate) mod testing {
-    use std::path::PathBuf;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::{Arc, Mutex};
 
     use axum::Router;
     use chromiumoxide::Page;
@@ -592,7 +633,8 @@ pub(crate) mod testing {
 
     /// What the run kills and deletes as it exits: the shared Chrome's
     /// process and its profile folder.
-    static AT_EXIT: OnceLock<(u32, PathBuf)> = OnceLock::new();
+    #[cfg(unix)]
+    static AT_EXIT: std::sync::OnceLock<(u32, std::path::PathBuf)> = std::sync::OnceLock::new();
 
     #[cfg(unix)]
     fn killed_at_exit(chrome: &mut Launched) {
@@ -901,14 +943,20 @@ mod tests {
     }
 
     /// Where the pinned Chrome's programs sit in a cache folder, on the
-    /// platforms the tests run on.
-    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    /// platforms the tests run on: macOS, and Linux and Windows on x86-64.
+    #[cfg(any(
+        target_os = "macos",
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     fn pinned_programs() -> [(BrowserKind, &'static str, PathBuf); 2] {
         let (major, minor, build, patch) = CHROME_VERSION;
         let version = format!("{major}.{minor}.{build}.{patch}");
         let platform = cft_platform();
         let folder = if cfg!(target_os = "linux") {
             "linux"
+        } else if cfg!(windows) {
+            "win64"
         } else if cfg!(target_arch = "aarch64") {
             "mac_arm"
         } else {
@@ -917,6 +965,8 @@ mod tests {
         let folder = Path::new(&format!("{folder}-{version}")).to_path_buf();
         let chrome = if cfg!(target_os = "linux") {
             Path::new("chrome").to_path_buf()
+        } else if cfg!(windows) {
+            Path::new("chrome.exe").to_path_buf()
         } else {
             Path::new("Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing")
                 .to_path_buf()
@@ -927,7 +977,11 @@ mod tests {
                 "chrome-headless-shell",
                 folder
                     .join(format!("chrome-headless-shell-{platform}"))
-                    .join("chrome-headless-shell"),
+                    .join(if cfg!(windows) {
+                        "chrome-headless-shell.exe"
+                    } else {
+                        "chrome-headless-shell"
+                    }),
             ),
             (
                 BrowserKind::Chrome,
@@ -939,7 +993,11 @@ mod tests {
 
     /// The cached copy is used with no network call: the host is an address
     /// nothing listens on.
-    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(any(
+        target_os = "macos",
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     #[tokio::test]
     async fn the_pinned_chrome_already_in_the_cache_is_used_as_it_is() {
         let caches = std::env::temp_dir().join(format!("devpage-pinned-{}", std::process::id()));
@@ -955,7 +1013,11 @@ mod tests {
     }
 
     /// A failed download says which browser, version, platform and address.
-    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(any(
+        target_os = "macos",
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     #[tokio::test]
     async fn a_failed_download_names_the_browser_version_platform_and_address() {
         let cache =
@@ -984,10 +1046,16 @@ mod tests {
     }
 
     /// Chrome for Testing's name for this machine's platform.
-    #[cfg(any(target_os = "macos", all(target_os = "linux", target_arch = "x86_64")))]
+    #[cfg(any(
+        target_os = "macos",
+        all(target_os = "linux", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64")
+    ))]
     fn cft_platform() -> &'static str {
         if cfg!(target_os = "linux") {
             "linux64"
+        } else if cfg!(windows) {
+            "win64"
         } else if cfg!(target_arch = "aarch64") {
             "mac-arm64"
         } else {

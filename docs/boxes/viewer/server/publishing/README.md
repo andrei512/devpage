@@ -13,7 +13,8 @@ devpage context use work
 ```
 
 If a proxy guards the server, give the context a **token command**. devpage
-runs it before each command and sends what it prints as a bearer token; the
+runs it before each command — with `sh -c`, or `cmd /C` on Windows — and sends
+what it prints as a bearer token; the
 command caches and refreshes its own token, so devpage stores none. With Entra
 ID in front:
 
@@ -22,7 +23,8 @@ devpage context add work https://docs.company.com \
   --token-command 'az account get-access-token --resource api://devpage-docs --query accessToken -o tsv'
 ```
 
-The contexts are kept in `~/.devpage/config.yml`. `--context <name>` uses
+The contexts are kept in `~/.devpage/config.yml` — `~` is the home folder,
+`%USERPROFILE%` on Windows. `--context <name>` uses
 another one for a single command.
 
 ## Publish and update

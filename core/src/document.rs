@@ -342,8 +342,11 @@ impl Document {
                 logo: None,
             });
         }
-        Self::parse(&text, base, file_name, served.clone())
-            .with_context(|| format!("in {}", file.display()))
+        // Named as the served folder names it, with `/` on every platform.
+        let named = served
+            .name(&base.join(&file_name))
+            .unwrap_or_else(|| file.display().to_string());
+        Self::parse(&text, base, file_name, served.clone()).with_context(|| format!("in {named}"))
     }
 
     fn parse(text: &str, base: PathBuf, file_name: String, served: ServedFolder) -> Result<Self> {

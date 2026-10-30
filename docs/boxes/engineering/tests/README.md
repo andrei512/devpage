@@ -67,6 +67,8 @@ chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
+Every test that draws on the GPU has `gpu` in its name, so
+`--skip gpu` runs the rest on a machine without one, as CI does on Windows.
 They run in parallel, so the longest bounds the run: the `video` tests,
 which record a deck as long as its slides play, and start last in the
 run's order — [how long they take](#how-long-the-chrome-suites-take). Run
@@ -82,7 +84,9 @@ passes without doing anything unless `DEVPAGE_OPENAI_API_KEY` is set. The shot p
 with `--enable-unsafe-webgpu` and `--enable-gpu`: the shell keeps its GPU process off without the second, and
 then a screenshot holds black where a WebGPU canvas is; with it, WebGPU gets
 the machine's real adapter and the screenshot is the canvas as a reader sees
-it.
+it. On Windows it adds `--disable-dawn-features=use_dxc`: the shell ships
+without DXC, the shader compiler Dawn uses by default there, and opens no
+WebGPU device without it; FXC, which Windows has, compiles instead.
 
 Tests that need files write them into folders under the system temp
 directory, named with the test process's id, and don't all remove them.

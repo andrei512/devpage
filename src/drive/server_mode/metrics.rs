@@ -314,8 +314,54 @@ fn process() -> (u64, u64) {
     (info.pti_threadnum as u64, info.pti_resident_size)
 }
 
+/// The process's threads and resident bytes, as the kernel counts them: the
+/// threads in a snapshot of the system's, and the working set.
+#[cfg(windows)]
+fn process() -> (u64, u64) {
+    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
+    };
+    use windows_sys::Win32::System::ProcessStatus::{
+        GetProcessMemoryInfo, PROCESS_MEMORY_COUNTERS,
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentProcess;
+    let id = std::process::id();
+    let mut threads = 0;
+    // SAFETY: the snapshot handle is checked, walked with entries of the
+    // size they say, and closed.
+    unsafe {
+        let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+        if snapshot != INVALID_HANDLE_VALUE {
+            let mut entry: THREADENTRY32 = std::mem::zeroed();
+            entry.dwSize = std::mem::size_of::<THREADENTRY32>() as u32;
+            let mut more = Thread32First(snapshot, &mut entry) != 0;
+            while more {
+                if entry.th32OwnerProcessID == id {
+                    threads += 1;
+                }
+                more = Thread32Next(snapshot, &mut entry) != 0;
+            }
+            CloseHandle(snapshot);
+        }
+    }
+    let mut memory: PROCESS_MEMORY_COUNTERS = unsafe { std::mem::zeroed() };
+    let size = std::mem::size_of::<PROCESS_MEMORY_COUNTERS>() as u32;
+    // SAFETY: `memory` is a PROCESS_MEMORY_COUNTERS of `size` bytes to fill,
+    // for this process's pseudo-handle.
+    let read = unsafe { GetProcessMemoryInfo(GetCurrentProcess(), &mut memory, size) } != 0;
+    (
+        threads,
+        if read {
+            memory.WorkingSetSize as u64
+        } else {
+            0
+        },
+    )
+}
+
 /// Elsewhere the kernel isn't asked: both read 0.
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn process() -> (u64, u64) {
     (0, 0)
 }

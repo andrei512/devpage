@@ -19,20 +19,28 @@ is public and never uses a self-hosted runner.
 
 **`.github/workflows/gates.yml`** runs on every pull request and every push to
 `main`, `design/**` and `prototype/**` — tickets merge into a design branch
-without a pull request, so a push there is what gates them. Its two jobs run
+without a pull request, so a push there is what gates them. Its jobs run
 side by side:
 
 - **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
   `cargo clippy --all-targets -- -D warnings` and `cargo test`, with
   `--locked` — and then `devpage check docs`, external links included, on
-  the change's own docs.
+  the change's own docs. It runs twice, on Linux and on Windows: devpage
+  runs on both and on macOS, where it is developed.
 - **`install`** runs `cargo install --path . --locked` in a bare
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
+- **`install-windows`** installs devpage from the checkout on Windows the
+  same way.
+- **`chrome-windows`** runs the Chrome tests on Windows but the GPU's,
+  `cargo test --bin devpage -- --ignored --skip gpu`: every test that draws
+  on the GPU has `gpu` in its name, and the runner has no GPU.
 
-Both keep the built dependencies between runs with `Swatinem/rust-cache`,
-pinned to a commit, keyed on `Cargo.lock` and the toolchain; devpage's own
+Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
+pinned to a commit, keyed on `Cargo.lock` and the toolchain, and saved when a
+run fails too, so a red run doesn't leave the next one to build them all
+again; devpage's own
 crates are built afresh every run. A change to `Cargo.lock` or the toolchain
 misses the cache, so `install` builds every dependency again — their build
 scripts and C sources too — with nothing added. `install` caches no installed
@@ -62,12 +70,12 @@ envelope's targets and against the last run from `main`. It gates nothing on
 its own; a change to how a server serves, publishes, caches or holds memory
 links its report from the pull request.
 
-<Callout kind="note" title="The Chrome tests run by hand">
+<Callout kind="note" title="The GPU tests run by hand">
 
-CI doesn't run `cargo test -- --ignored`. The canvas tests need a WebGPU
-adapter, which a GitHub-hosted runner has no GPU to give, and the `video`
-tests record from Chrome for Testing in real time; whoever changes what they
-cover runs them by hand
-([Developing devpage](../../developing-devpage/README.md#tests) says when).
+CI runs the Chrome tests on Windows, but not those that draw on the GPU, nor
+any on Linux or macOS: a GitHub-hosted runner has no GPU, and WARP, Windows'
+software adapter, neither draws in time nor draws glyph edges as a GPU does.
+Whoever changes what the GPU tests cover runs them by hand on a machine with
+one ([Developing devpage](../../developing-devpage/README.md#tests) says when).
 
 </Callout>

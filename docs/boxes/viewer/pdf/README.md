@@ -79,6 +79,7 @@ The Chrome is always **chrome-headless-shell**, never a Chrome installed on
 the machine, and always one version, pinned in devpage — 156.0.8078.47,
 `CHROME_VERSION` in `src/adapters/chrome.rs`. devpage downloads it the first time it
 needs one — into `~/Library/Caches/devpage/chrome-headless-shell` on macOS,
+`%LOCALAPPDATA%\devpage\chrome-headless-shell` on Windows,
 `~/.cache/devpage/chrome-headless-shell` elsewhere, in a folder named for the
 platform and version, such as `mac_arm-156.0.8078.47` — and uses that copy
 from then on. Because the version is pinned, finding the copy makes no

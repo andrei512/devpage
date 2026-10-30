@@ -33,10 +33,11 @@ pub struct Context {
 pub struct Home(pub PathBuf);
 
 impl Home {
-    /// `~/.devpage`, from `$HOME`.
+    /// `~/.devpage`, in the user's home folder: `$HOME`, or the profile
+    /// folder on Windows.
     pub fn from_env() -> Result<Home> {
-        let home = std::env::var_os("HOME").ok_or_else(|| anyhow!("HOME is not set"))?;
-        Ok(Home(PathBuf::from(home).join(".devpage")))
+        let home = std::env::home_dir().ok_or_else(|| anyhow!("no home folder"))?;
+        Ok(Home(home.join(".devpage")))
     }
 
     fn config_file(&self) -> PathBuf {
@@ -85,6 +86,18 @@ impl Home {
     }
 }
 
+/// `command` run by the system's shell: `sh -c`, or `cmd /C` on Windows.
+fn shell(command: &str) -> Command {
+    let (shell, flag) = if cfg!(windows) {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    let mut shell = Command::new(shell);
+    shell.arg(flag).arg(command);
+    shell
+}
+
 impl Context {
     /// The bearer token for this context, from its token command, run
     /// before each command; `None` when it has none. devpage keeps no token.
@@ -92,9 +105,7 @@ impl Context {
         let Some(command) = &self.token_command else {
             return Ok(None);
         };
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(command)
+        let output = shell(command)
             .output()
             .with_context(|| format!("running the token command `{command}`"))?;
         if !output.status.success() {

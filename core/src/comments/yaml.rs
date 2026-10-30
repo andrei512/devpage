@@ -16,7 +16,7 @@ use std::sync::Mutex;
 use anyhow::Result;
 
 use super::{Anchor, Listed, Message, Store, Thread, new_id};
-use crate::folder::ServedFolder;
+use crate::folder::{ServedFolder, slashed};
 
 /// Thread files that don't parse, each with its error.
 type Unparsable = Vec<(PathBuf, String)>;
@@ -64,7 +64,7 @@ impl Yaml {
         let page = thread
             .parent()
             .filter(|page| !page.as_os_str().is_empty())?;
-        Some(format!("/{}", page.display()))
+        Some(format!("/{}", slashed(page)))
     }
 
     /// Thread `id`'s file and its page, found through the served folder.
@@ -372,10 +372,9 @@ mod tests {
         .unwrap();
         let folder = served.path().join(".devpage/comments/a.md");
         std::fs::create_dir_all(&folder).unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(
-            outside.join(format!("{id}.yml")),
-            folder.join(format!("{id}.yml")),
+        crate::folder::symlink(
+            &outside.join(format!("{id}.yml")),
+            &folder.join(format!("{id}.yml")),
         )
         .unwrap();
         let store = Yaml::new(&served);

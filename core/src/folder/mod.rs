@@ -20,8 +20,10 @@ use crate::changes::Change;
 use crate::document::{Document, KindName};
 use index::Index;
 
-pub use served::ServedFolder;
 pub(crate) use served::lexical;
+#[cfg(any(test, feature = "testing"))]
+pub use served::symlink;
+pub use served::{ServedFolder, slashed};
 pub use sight::WatchSet;
 
 /// A served folder opened on its entry document.

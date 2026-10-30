@@ -9,7 +9,7 @@ use anyhow::{Context, Result, bail};
 
 use devpage_core::check;
 use devpage_core::designs::Designs;
-use devpage_core::folder::Folder;
+use devpage_core::folder::{Folder, slashed};
 
 /// A document zipped: the bytes, the document file's path inside the zip,
 /// and every path the zip holds.
@@ -28,12 +28,10 @@ pub fn pack(folder: &Folder, designs: &Designs) -> Result<Bundle> {
     let files = check::files(folder, designs);
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {
-        file.strip_prefix(&root)
-            .expect("every file packed lies under the folder common to them all")
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy())
-            .collect::<Vec<_>>()
-            .join("/")
+        slashed(
+            file.strip_prefix(&root)
+                .expect("every file packed lies under the folder common to them all"),
+        )
     };
     let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     let options = zip::write::SimpleFileOptions::default()

@@ -475,7 +475,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
     fn a_module_or_import_that_links_out_of_the_served_folder_is_never_read() {
         let top = std::env::temp_dir().join(format!("devpage-wlinkout-{}", std::process::id()));
@@ -494,8 +493,8 @@ mod tests {
             "export default () => \"EVIL\";",
         )
         .unwrap();
-        std::os::unix::fs::symlink(top.join("outside/secret.ts"), w.join("leak.ts")).unwrap();
-        std::os::unix::fs::symlink(top.join("outside/Evil.tsx"), w.join("Evil.tsx")).unwrap();
+        crate::folder::symlink(&top.join("outside/secret.ts"), &w.join("leak.ts")).unwrap();
+        crate::folder::symlink(&top.join("outside/Evil.tsx"), &w.join("Evil.tsx")).unwrap();
         std::fs::write(
             w.join("Card.tsx"),
             "import { secret } from \"./leak\";\nexport default () => secret;",

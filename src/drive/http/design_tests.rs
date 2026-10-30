@@ -142,7 +142,7 @@ async fn no_png_of_a_design_outside_the_served_folder() {
     let dir = served("png-outside");
     let outside = dir.join("../png-outside-secret.design");
     std::fs::write(&outside, "<Frame width={10} height={10} />").unwrap();
-    std::os::unix::fs::symlink(&outside, dir.join("app/escape.design")).unwrap();
+    devpage_core::folder::symlink(&outside, &dir.join("app/escape.design")).unwrap();
     let (address, _) = start(&dir, "app/screen.design").await;
     for path in [
         "/../png-outside-secret.design.png",

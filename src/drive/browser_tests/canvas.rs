@@ -1914,7 +1914,7 @@ async fn shadows_in_pieces_draw_on_the_gpu_as_in_the_png() {
 /// the new drawing's images never share an atlas with the last design's.
 #[tokio::test]
 #[ignore]
-async fn a_navigation_from_a_full_atlas_draws_the_next_design_as_its_png() {
+async fn a_navigation_from_a_full_atlas_on_the_gpu_draws_the_next_design_as_its_png() {
     let dir = folder("atlas-navigation");
     for (name, color) in [
         ("red", "#dc0000"),
@@ -2035,7 +2035,7 @@ async fn a_fill_saved_on_the_gpu_repaints_its_tiles_with_their_images() {
 /// the server's PNG of the mended design does.
 #[tokio::test]
 #[ignore]
-async fn an_image_that_breaks_mid_session_draws_as_its_png_once_mended() {
+async fn an_image_that_breaks_mid_session_on_the_gpu_draws_as_its_png_once_mended() {
     let dir = folder("image-breaks");
     for (name, fill) in [("a", "#dc0000"), ("b", "#00c800"), ("c", "#0000dc")] {
         std::fs::write(

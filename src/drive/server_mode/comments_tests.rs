@@ -658,7 +658,7 @@ async fn a_carry_that_fails_publishes_nothing() {
     let (_, document) = ask(&app, get(&format!("/api/documents/{id}"))).await;
     assert_eq!(document["latest"], 1);
     assert_eq!(document["versions"].as_array().unwrap().len(), 1);
-    let bucket = std::path::PathBuf::from(config.bucket_url.strip_prefix("file://").unwrap());
+    let bucket = config.bucket_folder();
     assert!(
         !bucket
             .join(format!("documents/{id}/versions/2.zip"))

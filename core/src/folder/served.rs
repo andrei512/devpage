@@ -114,8 +114,32 @@ impl ServedFolder {
     /// labels show it. `None` when it lies outside: a path outside the
     /// folder is never named.
     pub fn name(&self, file: &Path) -> Option<String> {
-        Some(self.relative(file)?.display().to_string())
+        Some(slashed(self.relative(file)?))
     }
+}
+
+/// A symbolic link at `link` to `target`, on every platform: on Windows a
+/// file's link and a folder's are made differently. For tests that check
+/// nothing is reached through a link out of the folder.
+#[cfg(any(test, feature = "testing"))]
+pub fn symlink(target: &Path, link: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(target, link);
+    #[cfg(windows)]
+    return if target.is_dir() {
+        std::os::windows::fs::symlink_dir(target, link)
+    } else {
+        std::os::windows::fs::symlink_file(target, link)
+    };
+}
+
+/// A path inside the folder as addresses name it: its parts joined with `/`
+/// on every platform, Windows too.
+pub fn slashed(path: &Path) -> String {
+    path.components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// `path` with its `.` and `..` components resolved by name, not on disk:
@@ -155,10 +179,22 @@ mod tests {
         std::fs::create_dir_all(top.join("served/docs")).unwrap();
         std::fs::write(top.join("outside.txt"), "secret").unwrap();
         std::fs::write(top.join("served/docs/a.md"), "# A").unwrap();
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(top.join("outside.txt"), top.join("served/link-out")).unwrap();
+        symlink(&top.join("outside.txt"), &top.join("served/link-out")).unwrap();
         let served = ServedFolder::new(&top.join("served")).unwrap();
         (top.canonicalize().unwrap(), served)
+    }
+
+    /// A nested file's name and address join its parts with `/` on every
+    /// platform: on Windows the path's own separator is `\`.
+    #[test]
+    fn names_and_addresses_join_with_slashes() {
+        let (top, served) = fixture("slashes");
+        let a = served
+            .file(&top.join("served").join("docs").join("a.md"))
+            .unwrap();
+        assert_eq!(served.name(&a).as_deref(), Some("docs/a.md"));
+        assert_eq!(served.url(&a).as_deref(), Some("/docs/a.md"));
+        std::fs::remove_dir_all(&top).ok();
     }
 
     #[test]
@@ -209,11 +245,8 @@ mod tests {
         assert_eq!(served.at("/../outside.txt"), None);
         assert_eq!(served.file_at("/../outside.txt"), None);
         assert_eq!(served.file(&top.join("served/../outside.txt")), None);
-        #[cfg(unix)]
-        {
-            assert_eq!(served.at("/link-out"), None);
-            assert_eq!(served.file(&top.join("served/link-out")), None);
-        }
+        assert_eq!(served.at("/link-out"), None);
+        assert_eq!(served.file(&top.join("served/link-out")), None);
         assert_eq!(served.inside(&top.join("served/missing.md")), None);
         assert!(!served.contains(&top.join("outside.txt")));
         assert_eq!(served.relative(&top.join("outside.txt")), None);

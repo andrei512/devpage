@@ -1321,7 +1321,8 @@ mod tests {
     #[tokio::test]
     async fn nothing_outside_the_served_folder_is_served() {
         let dir = served("outside");
-        std::os::unix::fs::symlink(dir.join("../secret.md"), dir.join("docs/escape.md")).unwrap();
+        devpage_core::folder::symlink(&dir.join("../secret.md"), &dir.join("docs/escape.md"))
+            .unwrap();
         let base = serve(&dir, "docs").await;
         for path in [
             "/../secret.md",
