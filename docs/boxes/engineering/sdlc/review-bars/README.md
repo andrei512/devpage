@@ -31,16 +31,19 @@ side by side:
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
-- **`windows`** installs devpage from the checkout on Windows the same way,
-  then runs the Chrome tests, `cargo test --bin devpage -- --ignored`, two at
-  a time. The
+- **`install-windows`** installs devpage from the checkout on Windows the
+  same way.
+- **`chrome-windows`** runs the Chrome tests on Windows,
+  `cargo test --bin devpage -- --ignored`, two at a time. The
   runner has no GPU, so `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome ignore its
   GPU blocklist and take WARP, Direct3D's software adapter, for WebGPU only
   — pages are still rastered and composited on the CPU: the GPU tests draw
   on WebGPU there too.
 
-All three keep the built dependencies between runs with `Swatinem/rust-cache`,
-pinned to a commit, keyed on `Cargo.lock` and the toolchain; devpage's own
+Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
+pinned to a commit, keyed on `Cargo.lock` and the toolchain, and saved when a
+run fails too, so a red run doesn't leave the next one to build them all
+again; devpage's own
 crates are built afresh every run. A change to `Cargo.lock` or the toolchain
 misses the cache, so `install` builds every dependency again — their build
 scripts and C sources too — with nothing added. `install` caches no installed

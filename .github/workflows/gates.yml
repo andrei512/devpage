@@ -32,8 +32,12 @@ jobs:
           rustup toolchain install
           rustup component add rustfmt clippy
       # The dependencies, built, from the last run with the same Cargo.lock
-      # and toolchain; devpage's own crates are always built afresh.
+      # and toolchain — kept when a run fails too, so a red run doesn't make
+      # the next build every dependency again; devpage's own crates are
+      # always built afresh.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
@@ -54,22 +58,35 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
+          cache-on-failure: true
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
 
-  # Windows end to end: devpage installed from the checkout as a user would,
-  # and the Chrome tests — pages, PDFs, slide PNGs, designs, videos — on the
-  # pinned Chrome.
-  windows:
+  # The same on Windows, beside the Chrome tests rather than before them.
+  install-windows:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-bin: false
+          cache-on-failure: true
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
+
+  # The Chrome tests on Windows — pages, PDFs, slide PNGs, designs, videos —
+  # on the pinned Chrome.
+  chrome-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
       - name: The Chrome tests
         # Two at a time: WARP draws in software on the runner's few cores, and
         # more at once starve each other past the tests' waits.
