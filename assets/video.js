@@ -4,7 +4,10 @@
 // pushes the voice in, and pauses the recorder only between slides, once the
 // player has played its last sample.
 window.devpageVideo = (() => {
-  const TYPE = "video/mp4;codecs=avc1,mp4a.40.2";
+  // H.264 High profile at level 4.0, the lowest that holds 1080p at 30 fps:
+  // a bare `avc1` leaves the level to the encoder, and Windows' picks one
+  // too low for 1080p and refuses to start.
+  const TYPE = "video/mp4;codecs=avc1.640028,mp4a.40.2";
   // One queue of samples, played without a gap for as long as it holds any;
   // it says "empty" when it runs out.
   const WORKLET = `

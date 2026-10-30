@@ -19,7 +19,7 @@ is public and never uses a self-hosted runner.
 
 **`.github/workflows/gates.yml`** runs on every pull request and every push to
 `main`, `design/**` and `prototype/**` — tickets merge into a design branch
-without a pull request, so a push there is what gates them. Its two jobs run
+without a pull request, so a push there is what gates them. Its jobs run
 side by side:
 
 - **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
@@ -31,8 +31,13 @@ side by side:
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
+- **`windows`** installs devpage from the checkout on Windows the same way,
+  then runs the Chrome tests, `cargo test --bin devpage -- --ignored`. The
+  runner has no GPU, so `DEVPAGE_TEST_SOFTWARE_GPU` has Chrome ignore its
+  GPU blocklist and take WARP, Direct3D's software adapter: the GPU tests
+  draw on WebGPU there too.
 
-Both keep the built dependencies between runs with `Swatinem/rust-cache`,
+All three keep the built dependencies between runs with `Swatinem/rust-cache`,
 pinned to a commit, keyed on `Cargo.lock` and the toolchain; devpage's own
 crates are built afresh every run. A change to `Cargo.lock` or the toolchain
 misses the cache, so `install` builds every dependency again — their build
@@ -63,12 +68,11 @@ envelope's targets and against the last run from `main`. It gates nothing on
 its own; a change to how a server serves, publishes, caches or holds memory
 links its report from the pull request.
 
-<Callout kind="note" title="The Chrome tests run by hand">
+<Callout kind="note" title="The Chrome tests on macOS and Linux run by hand">
 
-CI doesn't run `cargo test -- --ignored`. The canvas tests need a WebGPU
-adapter, which a GitHub-hosted runner has no GPU to give, and the `video`
-tests record from Chrome for Testing in real time; whoever changes what they
-cover runs them by hand
+CI runs the Chrome tests on Windows only, where WARP gives a GPU-less runner
+a WebGPU adapter; a Linux runner has none to give. On macOS and Linux whoever
+changes what they cover runs them by hand
 ([Developing devpage](../../developing-devpage/README.md#tests) says when).
 
 </Callout>

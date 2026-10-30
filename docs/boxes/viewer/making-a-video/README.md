@@ -27,7 +27,8 @@ can't hold become `-`. It prints one line on stderr as each slide starts, and
 the file's name when it is done. A site, a doc or a design is refused
 (`video records slides, not a doc`).
 
-The video is 1920 × 1080, H.264 with AAC sound: each slide as the browser
+The video is 1920 × 1080, H.264 (High profile, level 4.0, the lowest that
+holds 1080p) with AAC sound: each slide as the browser
 shows it, devpage's own controls hidden, and the narrator's voice. The slide
 changes a moment before the narrator starts on it.
 
