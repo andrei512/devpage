@@ -125,6 +125,7 @@ impl External {
                 .map(|(file, line)| Problem {
                     file,
                     line,
+                    column: None,
                     message: format!("{address} — {why}"),
                     target: Some(address.clone()),
                 })
@@ -165,6 +166,7 @@ impl External {
                 Some(Answer::Broken(why)) => problems.push(Problem {
                     file,
                     line,
+                    column: None,
                     message: format!("{address} — {why}"),
                     target: Some(address),
                 }),
@@ -174,6 +176,7 @@ impl External {
                     problems.push(Problem {
                         file,
                         line,
+                        column: None,
                         message: format!(
                             "{address} — {why}, {FAILURES_BEFORE_A_PROBLEM} times in a row"
                         ),

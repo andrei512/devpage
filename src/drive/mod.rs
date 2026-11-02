@@ -6,6 +6,7 @@ pub mod api_types;
 pub mod client;
 pub mod http;
 pub mod pdf;
+pub mod png;
 pub mod server_mode;
 pub mod slide_png;
 pub mod validators;

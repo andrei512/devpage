@@ -136,7 +136,8 @@ slides: [intro.md, problem.md, demo.md]
 ## A slide as an image
 
 Every slide is also a PNG: `<deck file>/<n>.png` — `/talks/launch/devpage.yml/3.png`
-is the third slide, numbered from 1 as in `#3`. It is the slide as the browser
+is the third slide, numbered from 1 as in `#3`. `devpage png talks/launch --slide 3`
+draws the same picture to a file with no server running. It is the slide as the browser
 shows it on a 1920 × 1080 screen, with devpage's controls hidden. It is there
 so whoever writes a slide's notes — an agent, usually — can look at the slide
 they are writing for. A number the deck doesn't have, or a file that isn't a

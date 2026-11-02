@@ -258,6 +258,7 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
                 .name(&file)
                 .unwrap_or_else(|| panic!("{} is outside the served folder", file.display())),
             line: None,
+            column: None,
             message: format!("comment thread doesn't parse — {error}"),
             target: None,
         })

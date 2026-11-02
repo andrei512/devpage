@@ -154,3 +154,13 @@ test or a CI job to keep the docs from shipping a broken link or a diagram
 that doesn't parse. devpage's own
 tests check devpage's docs the same way, external links aside, so the test
 suite needs no network.
+
+`--json` prints the problems as one line of JSON instead, for a script or an
+agent to read — a field with no value is left out:
+
+```json
+{"problems":[{"file":"docs/README.md","line":12,"message":"https://example.com/gone — 404 Not Found","target":"https://example.com/gone"}]}
+```
+
+A document it can't load at all is not a problem it found: it exits `2`, with
+the error on standard error ([exit codes](../configuration-reference/README.md#exit-codes)).

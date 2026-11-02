@@ -297,3 +297,35 @@ async fn a_slide_is_served_as_a_1920_by_1080_png() {
     assert_ne!(first, png);
     // A PNG of no slide is `http::tests::a_png_of_no_slide_is_not_found`.
 }
+
+/// `devpage png --slide`: the slide drawn with no server running, as the
+/// deck's own route draws it. Drives chrome-headless-shell; run with
+/// `cargo test -- --ignored`.
+#[tokio::test]
+#[ignore]
+async fn png_draws_a_slide_without_a_server() {
+    let dir = std::env::temp_dir().join(format!("devpage-png-slide-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("one.md"), "# One\n").unwrap();
+    std::fs::write(dir.join("box.design"), BOX).unwrap();
+    std::fs::write(dir.join("two.md"), "# Two\n\n![Box](box.design)\n").unwrap();
+    std::fs::write(
+        dir.join("talk.yml"),
+        "kind: slides\ntitle: Talk\nslides: [one.md, two.md]\n",
+    )
+    .unwrap();
+    let dir = dir.canonicalize().unwrap();
+    let document =
+        Arc::new(Document::load(&dir.join("talk.yml"), &ServedFolder::new(&dir).unwrap()).unwrap());
+    let crate::drive::png::Drawn::Png(png) = crate::drive::png::draw(document, Some(2), None)
+        .await
+        .unwrap()
+    else {
+        panic!("slide 2 not drawn")
+    };
+    assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+    // The IHDR chunk's width and height, big-endian.
+    let size = |at: usize| u32::from_be_bytes(png[at..at + 4].try_into().unwrap());
+    assert_eq!((size(16), size(20)), (1920, 1080));
+}

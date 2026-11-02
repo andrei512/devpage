@@ -170,11 +170,34 @@ pub struct Remote {
     json: bool,
 }
 
+impl Command {
+    /// Whether the command answers in JSON.
+    pub fn json(&self) -> bool {
+        match self {
+            Command::Context {
+                action: ContextAction::List { json },
+            } => *json,
+            Command::Context { .. } => false,
+            Command::Publish { remote, .. }
+            | Command::List { remote }
+            | Command::Versions { remote, .. }
+            | Command::Download { remote, .. }
+            | Command::Delete { remote, .. } => remote.json,
+            Command::Comments(args) => match &args.action {
+                Some(
+                    CommentAction::Reply { remote, .. } | CommentAction::Resolve { remote, .. },
+                ) => remote.json,
+                None => args.remote.json,
+            },
+        }
+    }
+}
+
 /// What a command prints, and the code it exits with.
 #[derive(Debug, PartialEq)]
 pub struct Output {
     pub text: String,
-    pub code: i32,
+    pub code: u8,
 }
 
 impl Output {
@@ -276,10 +299,7 @@ pub async fn run(command: Command, home: &Home, context: Option<String>) -> Resu
 }
 
 fn json<T: serde::Serialize>(value: &T) -> Result<Output> {
-    Ok(Output::ok(format!(
-        "{}\n",
-        serde_json::to_string_pretty(value)?
-    )))
+    Ok(Output::ok(format!("{}\n", serde_json::to_string(value)?)))
 }
 
 fn connect(home: &Home, context: &Option<String>) -> Result<(Api, String)> {
@@ -357,13 +377,10 @@ async fn publish(
     )
     .await;
     if !problems.is_empty() {
-        let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
         let text = if as_json {
-            format!(
-                "{}\n",
-                serde_json::to_string_pretty(&serde_json::json!({ "problems": lines }))?
-            )
+            format!("{}\n", serde_json::json!({ "problems": problems }))
         } else {
+            let lines: Vec<String> = problems.iter().map(ToString::to_string).collect();
             format!("{}\nnothing published\n", lines.join("\n"))
         };
         return Ok(Output { text, code: 1 });

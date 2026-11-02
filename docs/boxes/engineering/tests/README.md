@@ -480,6 +480,18 @@ an ignored folder but reaches into none, watching none.
 - `list`, `versions` and `comments` printing what the server answers, their `--json` the server's own JSON unchanged; a detached thread marked with the version that detached it, not the latest; `reply` and `resolve` reaching the thread; a design's `download` its PNG; `delete` of a version and of the document; an unknown document the server's not-found refusal, naming the server.
 - The threads as text: grouped by page, each thread's quote in its context, its messages with their authors aligned; every command parsing as the reference writes it.
 
+### `drive::png`
+
+*And in Chrome, in `drive::browser_tests::slide_png`.*
+
+- A design drawn in either theme with no server.
+- A broken design not drawn.
+- What `png` can't draw refused with what to do: a doc, a deck with no `--slide`, a slide with a `--theme`, a design with a `--slide`, a slide the deck doesn't have.
+
+In Chrome:
+
+- A slide with a design on it drawn as a 1920 × 1080 PNG with no server.
+
 ### `drive::pdf`
 
 *And in Chrome, in `drive::browser_tests::pdf`.*
@@ -599,6 +611,15 @@ counted 53 threads before and 1,252 after. The other starts it with
 `DEVPAGE_MEMORY_CACHE_VERSIONS=20`, publishes and reads 60 sites, and finds
 `devpage_versions_in_memory` on its metrics never above 20, and the first
 site, long let go, answering again.
+
+### Exit codes
+
+`tests/exit_codes.rs` runs the real `devpage`: `check` exiting `0` on a clean
+document and `1` on a broken one, its `--json` the problems with their file,
+line, message and link; `png` on a broken design exiting `1` with the
+problem's line and column, and writing no file; a missing document exiting `2`,
+its `--json` error on standard error with nothing on standard output; a
+command line it can't read exiting `2`.
 
 ### The restore of a deploy
 
