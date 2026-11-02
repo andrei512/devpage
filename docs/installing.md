@@ -7,55 +7,17 @@ starting it. It is a task page under the [devpage landing page](README.md);
 
 ## What you need
 
-devpage runs on macOS, Linux and Windows.
+devpage runs on macOS, Linux and Windows. Installing it builds it, so it needs:
 
-- **Rust 1.97 or later**, with `cargo` — devpage is installed by building it.
-  Check what you have with `cargo --version`; install or update Rust with
-  [rustup](https://rustup.rs) (`rustup update`).
-- **A C compiler** — the one Rust itself links with is enough (Xcode's command
-  line tools on macOS, `build-essential` on Debian or Ubuntu, the Visual
-  Studio Build Tools that rustup offers to install on Windows): the JavaScript
-  engine that draws diagrams is built from its C source
-  ([Dependencies](boxes/engineering/dependencies/README.md#diagrams)).
-- **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
-  machine: the first time it prints, it downloads chrome-headless-shell, at
-  the version devpage pins, once into devpage's cache folder and uses that
-  from then on, with no network
-  ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
-- **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
-  OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
-  time it records it downloads Chrome for Testing, at the same pinned
-  version, once into the same cache folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
+- **Rust 1.97 or later**, with `cargo`. Check with `cargo --version`; install
+  or update with [rustup](https://rustup.rs).
+- **A C compiler**: the one Rust links with is enough — Xcode's command line
+  tools on macOS, `build-essential` on Debian or Ubuntu, the Visual Studio
+  Build Tools rustup offers on Windows.
 
-<Callout kind="note" title="Why 1.97">
-The locked `oxc 0.153.0`, which compiles widgets, declares
-`rust-version = 1.97`, the highest of any dependency.
-</Callout>
-
-<Callout kind="note" title="Linux, releases up to 0.2.0">
-Releases up to 0.2.0 link fontconfig, so installing one on Linux also needs
-`pkg-config` and fontconfig's headers — on Debian or Ubuntu,
-`apt install pkg-config libfontconfig1-dev`. Later releases and a checkout
-need neither.
-</Callout>
-
-Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
-no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer
-(pele, and the QuickJS engine that runs it) and
-the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
-are compiled into the binary; the module is
-[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), so
-installing devpage builds no WebAssembly. Diagrams are drawn by devpage
-itself, and designs by the module. The engine's protobuf file is compiled
-with a Rust library
-([Dependencies](boxes/engineering/dependencies/README.md#devpage-design-the-design-engine)).
-The first build downloads the crates `devpage` and `devpage-design` use and
-compiles the engine once, for your machine.
-
-The result is one file. A release build of `devpage` for 64-bit ARM macOS is
-about 40 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as
-a compressing proxy in front of a deployed devpage would send it; devpage
-itself sends it uncompressed).
+Nothing else. `devpage pdf` downloads the Chrome it prints with the first time
+it runs, and `devpage video` also needs a GPT-Live key
+([below](#what-pdf-and-video-need)).
 
 ## Install it
 
@@ -91,8 +53,10 @@ it ([Developing devpage](boxes/engineering/developing-devpage/README.md#the-vend
 
 ## Run it
 
-Give it a document file, a folder holding a `devpage.yml`, a single
-Markdown file, or a `.design` file; with no argument it uses `devpage.yml` in the current folder.
+The quickest start is one Markdown file: `devpage README.md`. Give it a
+document file, a folder holding a `devpage.yml`, a single Markdown file, or a
+`.design` file; with no argument it uses `devpage.yml` in the current folder,
+and a folder without one is refused with the command to run instead.
 devpage prints one line — the document's title and the address it serves on —
 then logs each request. For these docs, whose title is `devpage`, run from the
 top of the devpage repository:
@@ -114,6 +78,54 @@ exact rules are in the
 To serve the docs of another repository, give it a document file — see
 [Documenting another repository](boxes/viewer/writing-a-document/README.md#documenting-another-repository).
 To serve docs to a team, see [Deploying devpage](boxes/viewer/deploying/README.md).
+
+## What pdf and video need
+
+- **Nothing for `devpage pdf`.** It never uses a Chrome installed on the
+  machine: the first time it prints, it downloads chrome-headless-shell, at
+  the version devpage pins, once into devpage's cache folder and uses that
+  from then on, with no network
+  ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
+- **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
+  OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
+  time it records it downloads Chrome for Testing, at the same pinned
+  version, once into the same cache folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
+
+## What the build uses
+
+devpage needs a C compiler because the JavaScript engine that draws diagrams
+is built from its C source
+([Dependencies](boxes/engineering/dependencies/README.md#diagrams)).
+
+<Callout kind="note" title="Why 1.97">
+The locked `oxc 0.153.0`, which compiles widgets, declares
+`rust-version = 1.97`, the highest of any dependency.
+</Callout>
+
+<Callout kind="note" title="Linux, releases up to 0.2.0">
+Releases up to 0.2.0 link fontconfig, so installing one on Linux also needs
+`pkg-config` and fontconfig's headers — on Debian or Ubuntu,
+`apt install pkg-config libfontconfig1-dev`. Later releases and a checkout
+need neither.
+</Callout>
+
+Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
+no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer
+(pele, and the QuickJS engine that runs it) and
+the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
+are compiled into the binary; the module is
+[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), so
+installing devpage builds no WebAssembly. Diagrams are drawn by devpage
+itself, and designs by the module. The engine's protobuf file is compiled
+with a Rust library
+([Dependencies](boxes/engineering/dependencies/README.md#devpage-design-the-design-engine)).
+The first build downloads the crates `devpage` and `devpage-design` use and
+compiles the engine once, for your machine.
+
+The result is one file. A release build of `devpage` for 64-bit ARM macOS is
+about 40 MB, of which the design engine's module is 4.9 MB (1.9 MB gzipped, as
+a compressing proxy in front of a deployed devpage would send it; devpage
+itself sends it uncompressed).
 
 ## Licence
 

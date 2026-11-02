@@ -6,6 +6,14 @@ repository, and designs of its UI from `.design` files, live: point it at a docu
 every page you have open updates the moment its file is saved — by you or by an
 agent. These pages are devpage's own documentation, served by devpage.
 
+```sh
+cargo install devpage --locked
+devpage README.md
+```
+
+[Installing](installing.md) has what the build needs; [Getting
+started](getting-started.md) goes from there.
+
 ## What devpage does
 
 <KindCards />
@@ -60,6 +68,8 @@ commitments. How these docs are laid out is on the
   printing needs, and running it.
 - [Getting started](getting-started.md) — the mental model, and a first
   site, doc and deck run end to end.
+- [Working with an agent](working-with-an-agent.md) — what to tell an agent
+  so it checks its links, looks at its designs and resolves your comments.
 
 ### The system
 
