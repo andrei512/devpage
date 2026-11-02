@@ -74,6 +74,12 @@ A site is never printed, so on a Markdown file `?print` always renders it as a
 doc of one chapter in print mode, even when the file is a page of a site — which
 is how `devpage pdf` prints one Markdown file.
 
+## Extension file views and routes
+
+An enabled [extension](../extensions/README.md) can render an existing served file as a full view after normal path validation. Its resolver validates that format's fragments; raw-file fallback does not make arbitrary fragments valid. Additional read-only routes and browser assets are confined to `<mount>/__devpage/extensions/<owner>/<id>/`, retain the served document's mount, and cannot override built-in or another extension's addresses. Package directories are not added as public file roots.
+
+The answer boundary delegates registered views and routes through the extension port; the HTTP adapter still converts typed answers to responses. The [package reference](../extensions/reference/README.md#file-views-routes-and-references) defines target resolution and the [local acceptance test](../extensions/local-test/README.md) covers mounted links and assets.
+
 ## The URL is the file path
 
 A URL path is joined to the [served folder](../writing-a-document/README.md#the-served-folder)

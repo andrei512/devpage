@@ -31,9 +31,7 @@ description of the program.
 
 ## Not built yet
 
-- **No extension API beyond widgets.** A project adds its own widgets, but
-  Markdown syntax and layouts can't be added from outside; they are fixed in
-  devpage's code.
+- **Extension distribution beyond local bundles.** The [local extension contract](boxes/viewer/extensions/README.md) covers Rust packages selected by configuration; registries, automatic builds, and extension-enabled publishing remain separate work.
 - **No reference extractors.** No page is generated from code.
 - **No theme overrides.** The themes are built into the binary.
 - **No static export.** Pages exist only while devpage is running.

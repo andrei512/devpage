@@ -254,6 +254,12 @@ written into a new folder of the comment store at once.
 Every platform hands the same handler `notify` events, so sifting, bursts
 and the listeners are the same everywhere.
 
+## Extension inputs
+
+Enabled [extensions](../extensions/README.md) declare bounded source inputs before filesystem filtering and watch planning. Creation and removal matter as well as edits; document authors do not repeat those inputs in a site's `watch` list. The host captures and prepares changed extension state before announcing the existing refresh notification. Failed capture or preparation remains visible rather than silently presenting an old revision as current.
+
+This preserves the one ordered response to a saved batch. Extensions do not start another watcher. The first extension contract retains the global refresh event; it does not introduce page-targeted event delivery. Search reindexing still follows the refresh.
+
 ## The bus and the stream
 
 The change bus (`Changes` in `src/adapters/changes.rs`) carries typed changes: a

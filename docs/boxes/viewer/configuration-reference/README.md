@@ -159,6 +159,12 @@ default.
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
 
+### Extensions
+
+Every document kind accepts an optional `extensions` mapping. Each entry selects a local native bundle with `package` and supplies its extension-specific `config`. Paths are relative to this document file. The [package reference](../extensions/reference/README.md#configuration) defines validation, ownership, API compatibility, and errors. Enabling an extension does not compile or install it.
+
+Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.
+
 ## Front matter
 
 A page may open with YAML front matter: a `---` line first, the fields, and
