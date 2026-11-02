@@ -46,8 +46,9 @@ pub async fn document(
                 .into_iter()
                 // A design names its place by line and column.
                 .map(|problem| Problem {
-                    file: format!("{}:{}:{}", problem.file, problem.pos.line, problem.pos.col),
-                    line: None,
+                    file: problem.file,
+                    line: Some(problem.pos.line as usize),
+                    column: Some(problem.pos.col as usize),
                     message: problem.message,
                     target: None,
                 }),
@@ -342,6 +343,7 @@ fn notes_problems(document: &Document, rendered: &Rendered, slide: bool) -> Vec<
         .map(|note| Problem {
             file: file.clone(),
             line: Some(note.line),
+            column: None,
             message: if slide {
                 "a second <Notes> on one slide".to_string()
             } else {
@@ -377,6 +379,7 @@ fn page_links_with(
         problems.push(Problem {
             file: file.clone(),
             line: line.parse().ok(),
+            column: None,
             message: message.to_string(),
             target: None,
         });
@@ -416,6 +419,7 @@ fn page_links_with(
             problems.push(Problem {
                 file: file.clone(),
                 line,
+                column: None,
                 message: format!("broken link {target} — no such file"),
                 target: Some(target.clone()),
             });
@@ -426,6 +430,7 @@ fn page_links_with(
         let no_heading = || Problem {
             file: file.clone(),
             line,
+            column: None,
             message: format!("broken link {target} — no heading #{fragment}"),
             target: Some(target.clone()),
         };
@@ -448,6 +453,7 @@ fn page_links_with(
                 problems.push(Problem {
                     file: file.clone(),
                     line,
+                    column: None,
                     message: format!("broken design {target} — {problem}"),
                     target: Some(target.clone()),
                 });
@@ -459,6 +465,7 @@ fn page_links_with(
                     problems.push(Problem {
                         file: file.clone(),
                         line,
+                        column: None,
                         message: format!(
                             "broken link {target} — {}",
                             relative(&format!("{error:#}"), document.served.path())
@@ -479,6 +486,7 @@ fn page_links_with(
                     problems.push(Problem {
                         file: file.clone(),
                         line,
+                        column: None,
                         message: format!(
                             "broken link {target} — the deck has {} slide{}",
                             slides.len(),
@@ -513,6 +521,7 @@ fn page_links_with(
                     line: source
                         .find(&topic.href)
                         .map(|at| source[..at].lines().count().max(1)),
+                    column: None,
                     message,
                     target: Some(topic.href.clone()),
                 });
@@ -552,6 +561,7 @@ fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
             Some(Problem {
                 file: file.to_string(),
                 line: Some(*line),
+                column: None,
                 message: format!("broken diagram — {why}"),
                 target: None,
             })
@@ -584,6 +594,7 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
             Problem {
                 file: widget_file.to_string(),
                 line: None,
+                column: None,
                 message: message.to_string(),
                 target: None,
             }
@@ -601,6 +612,7 @@ fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
             problems.push(Problem {
                 file: name,
                 line: None,
+                column: None,
                 message: format!("does not compile: {error}"),
                 target: None,
             });

@@ -89,7 +89,10 @@ only version deletes the document.
 
 ## For agents
 
-Every command takes `--json`. The loop an agent runs on a published document:
+Every command but `context add` and `context use` takes `--json`, and each
+exits `1` when `publish` refuses a document's problems and `2` when a command
+fails — an unknown document, a server that refused
+([exit codes](../../configuration-reference/README.md#exit-codes)). The loop an agent runs on a published document:
 `devpage comments <id>` to read the threads, edit the source, `devpage publish`,
 then `devpage comments resolve <id> <thread>` for each thread it dealt with. What it sees is
 on [Reading a published document](../reading-a-published-document/README.md#comments).

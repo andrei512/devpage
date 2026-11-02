@@ -10,8 +10,9 @@ under the [viewer](../README.md).
 ```sh
 devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
-devpage check [path] [--root <folder>]
+devpage check [path] [--root <folder>] [--json]
 devpage pdf <path> [--root <folder>] [-o <file>]
+devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
 devpage server
 devpage context add|use|list …
@@ -25,8 +26,9 @@ devpage --version
 | Command | Does |
 | --- | --- |
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
-| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
+| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
 | `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../server/README.md)). |
 | `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../server/reference/README.md#cli). |
@@ -45,13 +47,28 @@ devpage --version
 
 | Flag | Command | Default | Meaning |
 | --- | --- | --- | --- |
-| `--root <folder>` | `devpage`, `check`, `pdf`, `video`, `publish` — the commands that read documents | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
+| `--root <folder>` | `devpage`, `check`, `pdf`, `png`, `video`, `publish` — the commands that read documents | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
 | `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/README.md#turning-comments-off)). |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 | `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
+| `-o, --output <file>` | `devpage png` | `<title>.png`, or `<title> <n>.png` for a slide, in the current folder | Where to write the PNG. |
+| `--slide <n>` | `devpage png` | none | The slide to draw, from 1. A deck needs one; a design takes none. |
+| `--theme light\|dark` | `devpage png` | `light` | The theme a design is drawn in. A slide takes none. |
+| `--json` | `devpage check`, `devpage png`, the server commands | text | Answer in JSON, one line: the problems as `{"problems": [{"file", "line", "column", "message", "target"}]}` (a field with no value left out), `png`'s file as `{"png": "<file>"}`, and an error as `{"error", "causes"}` on standard error. |
+
+### Exit codes
+
+Every command exits with one of three codes, so a script or an agent can tell
+a document's problems from a command that couldn't run:
+
+| Code | Means |
+| --- | --- |
+| `0` | Done. |
+| `1` | The document has problems — `check` found some, `png`'s design has some, or `publish` refused to send them — and they were printed. |
+| `2` | devpage couldn't run: a command line it can't read, a document it can't load, a server that refused or isn't there. The error is on standard error. |
 
 ### Environment variables
 
@@ -169,7 +186,8 @@ Any other field is read by nothing and ignored.
 
 devpage stops before serving when the **entry** document can't be loaded. It
 prints `Error:` and what it was doing — `reading <file>` or `in <file>` — then
-the cause:
+the cause, on standard error, and exits `2`. With `--json` the same error is
+one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file or directory (os error 2)"]}`.
 
 ### Loading the document
 

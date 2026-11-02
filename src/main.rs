@@ -12,6 +12,7 @@ mod drive;
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
@@ -24,11 +25,16 @@ const FIRST_PORT: u16 = 3030;
 /// What `devpage --help` ends with: the commands a first run needs.
 const EXAMPLES: &str = "\
 Examples:
-  devpage README.md          Serve a Markdown file; open the address it prints
-  devpage docs               Serve the site, doc or deck in docs/devpage.yml
-  devpage check docs         Check every link of a document; exit 1 if one is broken
-  devpage pdf talk           Print a doc or deck to <title>.pdf
-  devpage checkout.design    Draw a design on a canvas
+  devpage README.md            Serve a Markdown file; open the address it prints
+  devpage docs                 Serve the site, doc or deck in docs/devpage.yml
+  devpage check docs --json    Check every link of a document; exit 1 if one is broken
+  devpage pdf talk             Print a doc or deck to <title>.pdf
+  devpage png app.design       Draw a design to <title>.png, no server needed
+  devpage png talk --slide 3   Draw slide 3 of a deck
+  devpage checkout.design      Draw a design on a canvas
+
+Exit codes: 0 done, 1 the document has problems (printed), 2 devpage couldn't run.
+With --json, a result is JSON on standard output and an error JSON on standard error.
 
 Docs: https://devpage.ai/docs/README.md";
 
@@ -66,6 +72,9 @@ enum Command {
         /// The document: a Markdown file, a design, a folder holding
         /// devpage.yml, or a document file. The current folder by default.
         path: Option<PathBuf>,
+        /// Answer in JSON: `{"problems": [{"file", "line", "message"}]}`.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -77,6 +86,30 @@ enum Command {
         /// Where to write the PDF; `<title>.pdf` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[command(flatten)]
+        root: drive::client::Root,
+    },
+    /// Draw a design, or one slide of a deck, to a PNG; no server needed.
+    ///
+    /// Prints the file written. A design with problems is not drawn: they
+    /// are printed as `devpage check` prints them, and it exits 1.
+    Png {
+        /// The design (.design), or the deck: a folder holding its
+        /// devpage.yml, or its document file.
+        path: PathBuf,
+        /// The slide to draw, from 1; a deck needs one.
+        #[arg(long)]
+        slide: Option<usize>,
+        /// The theme a design is drawn in; light by default.
+        #[arg(long, value_parser = ["light", "dark"])]
+        theme: Option<String>,
+        /// Where to write the PNG; `<title>.png`, or `<title> <n>.png` for a
+        /// slide, by default.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// Answer in JSON: `{"png": "<file>"}`, or `{"problems": […]}`.
+        #[arg(long)]
+        json: bool,
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -103,18 +136,70 @@ enum Command {
     },
 }
 
+impl Command {
+    /// Whether the command answers in JSON, and so reports an error in JSON.
+    fn json(&self) -> bool {
+        match self {
+            Command::Check { json, .. } | Command::Png { json, .. } => *json,
+            Command::Remote(command) => command.json(),
+            Command::Pdf { .. } | Command::Server | Command::Video { .. } => false,
+        }
+    }
+}
+
+/// devpage's exit codes: 0 done, 1 the document has problems, 2 devpage
+/// couldn't run — as clap exits on a command line it can't read.
+const PROBLEMS: u8 = 1;
+const FAILED: u8 = 2;
+
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> ExitCode {
+    let cli = Cli::parse();
+    let json = cli.command.as_ref().is_some_and(Command::json);
+    match run(cli).await {
+        Ok(code) => code,
+        Err(error) => {
+            if json {
+                let causes: Vec<String> = error.chain().skip(1).map(ToString::to_string).collect();
+                eprintln!(
+                    "{}",
+                    serde_json::json!({ "error": error.to_string(), "causes": causes })
+                );
+            } else {
+                eprintln!("Error: {error:?}");
+            }
+            ExitCode::from(FAILED)
+        }
+    }
+}
+
+/// The problems found, printed one a line or as JSON, and the code to exit
+/// with.
+fn reported(problems: &[devpage_core::problem::Problem], json: bool) -> ExitCode {
+    if json {
+        println!("{}", serde_json::json!({ "problems": problems }));
+    } else {
+        for problem in problems {
+            println!("{problem}");
+        }
+    }
+    if problems.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(PROBLEMS)
+    }
+}
+
+async fn run(mut cli: Cli) -> Result<ExitCode> {
     // The composition root's own names, kept to it: every other module names
     // the core's and the binary's modules by their paths.
     use adapters::{changes, external, git, terminal};
     use devpage_core::document::{Document, download_name};
     use devpage_core::folder::Folder;
     use devpage_core::{check, comments, designs, diagrams};
-    use drive::{http, pdf, video};
-    let mut cli = Cli::parse();
+    use drive::{http, pdf, png, video};
     diagrams::start();
-    if let Some(Command::Check { path, root }) = &cli.command {
+    if let Some(Command::Check { path, json, root }) = &cli.command {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &root.served()?,
@@ -122,10 +207,7 @@ async fn main() -> Result<()> {
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
         let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
-        for problem in &problems {
-            println!("{problem}");
-        }
-        std::process::exit(i32::from(!problems.is_empty()));
+        return Ok(reported(&problems, *json));
     }
     match cli.command.take() {
         Some(Command::Pdf { path, output, root }) => {
@@ -135,7 +217,38 @@ async fn main() -> Result<()> {
             std::fs::write(&output, bytes)
                 .with_context(|| format!("writing {}", output.display()))?;
             println!("{}", output.display());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some(Command::Png {
+            path,
+            slide,
+            theme,
+            output,
+            json,
+            root,
+        }) => {
+            let document = Arc::new(Document::load(&path, &root.served()?)?);
+            let output = output.unwrap_or_else(|| match slide {
+                Some(n) => download_name(&format!("{} {n}", document.title), "png"),
+                None => download_name(&document.title, "png"),
+            });
+            match png::draw(document.clone(), slide, theme.as_deref()).await? {
+                png::Drawn::Png(bytes) => {
+                    std::fs::write(&output, bytes)
+                        .with_context(|| format!("writing {}", output.display()))?;
+                    if json {
+                        println!("{}", serde_json::json!({ "png": output }));
+                    } else {
+                        println!("{}", output.display());
+                    }
+                    return Ok(ExitCode::SUCCESS);
+                }
+                png::Drawn::Broken => {
+                    let designs = designs::Designs::new(&document.served);
+                    let problems = check::document(&Folder::new(document), &designs, None).await;
+                    return Ok(reported(&problems, json));
+                }
+            }
         }
         Some(Command::Video { path, output, root }) => {
             let config = video::narrator::Config::from_env()?;
@@ -148,7 +261,7 @@ async fn main() -> Result<()> {
                 signal = interrupted() => anyhow::bail!("stopped by {signal}"),
             }
             println!("{}", output.display());
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Command::Server) => {
             let config = drive::server_mode::Config::from_env()?;
@@ -161,14 +274,14 @@ async fn main() -> Result<()> {
             println!("metrics on http://{}/metrics", metrics.local_addr()?);
             tokio::spawn(async move { axum::serve(metrics, metrics_router).await });
             axum::serve(listener, app).await?;
-            return Ok(());
+            return Ok(ExitCode::SUCCESS);
         }
         Some(Command::Remote(command)) => {
             let home = drive::client::contexts::Home::from_env()?;
             let context = std::env::var("DEVPAGE_CONTEXT").ok();
             let output = drive::client::run(command, &home, context).await?;
             print!("{}", output.text);
-            std::process::exit(output.code);
+            return Ok(ExitCode::from(output.code));
         }
         Some(Command::Check { .. }) | None => {}
     }
@@ -225,7 +338,7 @@ async fn main() -> Result<()> {
         _ = interrupted() => {}
     }
     shots.close().await;
-    Ok(())
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Waits for Ctrl-C, SIGTERM or SIGHUP, and names it.

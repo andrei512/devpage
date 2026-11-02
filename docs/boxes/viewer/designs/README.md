@@ -326,6 +326,16 @@ curl -s http://localhost:3030/docs/designs/checkout/checkout.design.png -o check
 `checkout.design.png?theme=dark` — and `?theme=light`, or no `theme`, in its
 light one.
 
+With no server running, `devpage png` draws the same picture to a file:
+
+```sh
+devpage png docs/designs/checkout/checkout.design               # checkout.png
+devpage png docs/designs/checkout/checkout.design --theme dark -o dark.png
+```
+
+A design with problems isn't drawn: `devpage png` prints them as
+`devpage check` does and exits `1`.
+
 This is how an agent looks at its work: write the file, fetch the PNG, look,
 fix — in both themes when the design uses them. devpage keeps every design it has read resolved in memory and paints the
 PNG itself on the CPU, without a browser, so the answer arrives as fast as a

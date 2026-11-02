@@ -81,6 +81,7 @@ pub(crate) fn problems(document: &Document) -> Vec<Problem> {
             problems.push(Problem {
                 file: file.clone(),
                 line: None,
+                column: None,
                 message: format!("navbar: no icon named {name}"),
                 target: None,
             });
@@ -101,6 +102,7 @@ pub(crate) fn problems(document: &Document) -> Vec<Problem> {
                 problems.push(Problem {
                     file: file.clone(),
                     line: None,
+                    column: None,
                     message: format!("navbar: {} — no such file", link.target),
                     target: Some(link.target.clone()),
                 });
@@ -282,6 +284,7 @@ pub(crate) fn logo_problem(document: &Document) -> Option<Problem> {
     Some(Problem {
         file: document.part_name(&document.path()),
         line: None,
+        column: None,
         message: format!("logo: {written} — no such file"),
         target: Some(written.clone()),
     })

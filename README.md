@@ -22,6 +22,7 @@ and edit the file: the page updates without a reload.
 devpage docs              # serve the site, doc or deck in docs/devpage.yml
 devpage check docs        # check every link; exit 1 if one is broken
 devpage pdf talk          # print the doc or deck in talk/devpage.yml to <title>.pdf
+devpage png app.design    # draw a design to a PNG; --slide <n> for a deck's slide
 devpage checkout.design   # draw a design on a canvas
 devpage --help            # every command
 ```
@@ -55,6 +56,9 @@ Linux and Windows ([Installing](https://devpage.ai/docs/installing.md)).
 
 ## With an agent
 
+`check`, `png` and the server commands answer in JSON with `--json`, and
+every command exits 0 when done, 1 when the document has problems, and 2 when
+devpage couldn't run.
 [Working with an agent](https://devpage.ai/docs/working-with-an-agent.md) has
 a block to paste into your `AGENTS.md` or `CLAUDE.md`: how the agent checks
 its links, looks at its designs and slides, and resolves your comments.

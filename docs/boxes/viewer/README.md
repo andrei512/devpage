@@ -20,6 +20,8 @@ devpage check docs            # every link, exit 1 if one is broken
 devpage pdf talks/launch      # the deck as a PDF
 devpage video talks/launch    # the deck as an mp4, its notes read aloud
 devpage app/checkout.design   # one design, on a canvas
+devpage png app/checkout.design            # the design as a PNG, no server
+devpage png talks/launch --slide 3         # slide 3 as a PNG
 ```
 
 Every page is rendered when it is requested, straight from the files on disk,

@@ -3,21 +3,29 @@
 //! lists above itself. A leaf: it depends on nothing else in devpage.
 
 /// One broken thing, where it was found.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
 pub struct Problem {
     /// The file it is in, from the top of the served folder.
     pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
+    /// The column on `line`, where the problem names one: a design's.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub column: Option<usize>,
     pub message: String,
     /// The link as written, so the page can mark it where it stands.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target: Option<String>,
 }
 
 impl std::fmt::Display for Problem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.line {
-            Some(line) => write!(f, "{}:{line}: {}", self.file, self.message),
-            None => write!(f, "{}: {}", self.file, self.message),
+        match (self.line, self.column) {
+            (Some(line), Some(column)) => {
+                write!(f, "{}:{line}:{column}: {}", self.file, self.message)
+            }
+            (Some(line), None) => write!(f, "{}:{line}: {}", self.file, self.message),
+            _ => write!(f, "{}: {}", self.file, self.message),
         }
     }
 }
