@@ -15,9 +15,10 @@ devpage pdf <path> [--root <folder>] [-o <file>]
 devpage video <path> [--root <folder>] [-o <file>]
 devpage server
 devpage context add|use|list …
-devpage publish <path> [--id <uuid>] [--new]
+devpage publish <path> [--root <folder>] [--id <uuid>] [--new]
 devpage list | versions | comments | download | delete …
-devpage --help
+devpage --help        # every command, and examples
+devpage <command> --help
 devpage --version
 ```
 
@@ -44,7 +45,7 @@ devpage --version
 
 | Flag | Command | Default | Meaning |
 | --- | --- | --- | --- |
-| `--root <folder>` | all | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
+| `--root <folder>` | `devpage`, `check`, `pdf`, `video`, `publish` — the commands that read documents | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
@@ -174,7 +175,8 @@ the cause:
 
 | Problem | Message |
 | --- | --- |
-| The file, or a folder's `devpage.yml`, can't be read | `reading <file>` — then the system error, e.g. `No such file or directory (os error 2)` |
+| A folder holds no `devpage.yml` | `<folder> has no devpage.yml` (`the current folder` for `.`), then a Markdown file to name instead — the folder's `README.md` when it has one — and where making a site is explained |
+| The file can't be read | `reading <file>` — then the system error, e.g. `No such file or directory (os error 2)` |
 | `kind` missing | `in <file>` — `` missing field `kind` `` |
 | `kind` not one of the three | `in <file>` — ``kind: unknown variant `deck`, expected one of `site`, `doc`, `slides` at line 1 column 7`` |
 | A field the kind doesn't have | `in <file>` — ``unknown field `root`, expected one of `title`, `chapters`, `pdf` `` |

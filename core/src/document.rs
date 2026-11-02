@@ -277,7 +277,11 @@ impl Document {
     /// design, which must lie inside the served folder `served`.
     pub fn load(path: &Path, served: &ServedFolder) -> Result<Self> {
         let file = if path.is_dir() {
-            path.join("devpage.yml")
+            let file = path.join("devpage.yml");
+            if !file.exists() {
+                bail!("{}", no_document_file(path));
+            }
+            file
         } else {
             path.to_path_buf()
         };
@@ -624,9 +628,55 @@ pub fn download_name(title: &str, extension: &str) -> PathBuf {
     PathBuf::from(format!("{name}.{extension}"))
 }
 
+/// What to give devpage instead, for a folder holding no `devpage.yml`: its
+/// `README.md` when it has one, else any Markdown file.
+fn no_document_file(folder: &Path) -> String {
+    let here = folder == Path::new(".");
+    let named = |file: &str| {
+        if here {
+            file.to_string()
+        } else {
+            folder.join(file).display().to_string()
+        }
+    };
+    let file = if folder.join("README.md").is_file() {
+        named("README.md")
+    } else {
+        named("<file>.md")
+    };
+    let folder = if here {
+        "the current folder".to_string()
+    } else {
+        folder.display().to_string()
+    };
+    format!(
+        "{folder} has no devpage.yml\n\n  \
+         Name a Markdown file instead, e.g. {file}\n  \
+         Or make the folder a site: https://devpage.ai/docs/your-first-site-doc-and-deck.md"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_folder_without_a_document_file_says_what_to_run() {
+        let dir = folder("no-yml");
+        let error = Document::load(&dir, &ServedFolder::canonical(dir.clone()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("has no devpage.yml"), "{error}");
+        assert!(
+            error.contains(&format!("e.g. {}", dir.join("README.md").display())),
+            "{error}"
+        );
+        let bare = dir.join("guides");
+        let error = Document::load(&bare, &ServedFolder::canonical(dir.clone()))
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("<file>.md"), "{error}");
+    }
 
     #[test]
     fn docs_and_slides_download_as_a_pdf_a_design_as_a_png_and_a_site_not() {

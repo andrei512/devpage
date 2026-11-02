@@ -17,7 +17,6 @@ use super::contexts::{Home, test_home};
 use super::{Command, run, threads_text};
 use crate::drive::api_types::{NewThread, Refusal, Started, Thread};
 use crate::drive::server_mode::{Config, router};
-use devpage_core::folder::ServedFolder;
 
 /// The CLI's own arguments, for parsing a command line in a test.
 #[derive(Parser)]
@@ -128,10 +127,8 @@ async fn server(dir: &Path, token_command: Option<&str>) -> (Server, Home) {
             token_command: token_command.map(str::to_string),
         },
     };
-    run(add, &home, &served(dir), None).await.unwrap();
-    run(command("context use real"), &home, &served(dir), None)
-        .await
-        .unwrap();
+    run(add, &home, None).await.unwrap();
+    run(command("context use real"), &home, None).await.unwrap();
     let server = Server {
         address,
         bucket,
@@ -140,13 +137,8 @@ async fn server(dir: &Path, token_command: Option<&str>) -> (Server, Home) {
     (server, home)
 }
 
-/// `dir`, served: what a command reading a document reads it in.
-fn served(dir: &Path) -> ServedFolder {
-    ServedFolder::new(dir).unwrap()
-}
-
-async fn ok(home: &Home, dir: &Path, line: &str) -> String {
-    let output = run(command(line), home, &served(dir), None).await.unwrap();
+async fn ok(home: &Home, line: &str) -> String {
+    let output = run(command(line), home, None).await.unwrap();
     assert_eq!(output.code, 0, "{}", output.text);
     output.text
 }
@@ -155,8 +147,11 @@ async fn ok(home: &Home, dir: &Path, line: &str) -> String {
 async fn publish(home: &Home, dir: &Path, path: &str) -> String {
     let answer = ok(
         home,
-        dir,
-        &format!("publish {} --json", dir.join(path).display()),
+        &format!(
+            "publish --root {} {} --json",
+            dir.display(),
+            dir.join(path).display()
+        ),
     )
     .await;
     let answer: serde_json::Value = serde_json::from_str(&answer).unwrap();
@@ -198,31 +193,21 @@ fn zip_names(zip: &[u8]) -> Vec<String> {
 #[tokio::test]
 async fn contexts_are_added_used_and_listed_with_the_current_one_marked() {
     let home = test_home("contexts");
-    let here = Path::new(".");
-    ok(&home, here, "context add work https://docs.example.com").await;
-    ok(&home, here, "context add lab http://localhost:3030").await;
+    ok(&home, "context add work https://docs.example.com").await;
+    ok(&home, "context add lab http://localhost:3030").await;
+    assert!(run(command("context use nope"), &home, None).await.is_err());
     assert!(
-        run(command("context use nope"), &home, &served(here), None)
+        run(command("context add bad docs.example.com"), &home, None)
             .await
             .is_err()
     );
-    assert!(
-        run(
-            command("context add bad docs.example.com"),
-            &home,
-            &served(here),
-            None
-        )
-        .await
-        .is_err()
-    );
-    ok(&home, here, "context use work").await;
+    ok(&home, "context use work").await;
     assert_eq!(
-        ok(&home, here, "context list").await,
+        ok(&home, "context list").await,
         "  lab  http://localhost:3030\n* work  https://docs.example.com\n"
     );
     let json: serde_json::Value =
-        serde_json::from_str(&ok(&home, here, "context list --json").await).unwrap();
+        serde_json::from_str(&ok(&home, "context list --json").await).unwrap();
     assert_eq!(json["current-context"], "work");
 }
 
@@ -237,8 +222,11 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
     let (server, home) = server(&dir, None).await;
     let first = ok(
         &home,
-        &dir,
-        &format!("publish {}", dir.join("launch").display()),
+        &format!(
+            "publish --root {} {}",
+            dir.display(),
+            dir.join("launch").display()
+        ),
     )
     .await;
     let link = first
@@ -251,9 +239,9 @@ async fn publish_remembers_the_document_per_context_and_sends_only_the_checked_f
     std::fs::write(dir.join("launch/plan.md"), "# Plan, revised\n").unwrap();
     let second = ok(
         &home,
-        &dir,
         &format!(
-            "publish {}",
+            "publish --root {} {}",
+            dir.display(),
             dir.join("launch").join("devpage.yml").display()
         ),
     )
@@ -296,8 +284,11 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
     let id = publish(&home, &dir, "launch --new").await;
     ok(
         &home,
-        &dir,
-        &format!("publish {} --id {id}", dir.join("launch").display()),
+        &format!(
+            "publish --root {} {} --id {id}",
+            dir.display(),
+            dir.join("launch").display()
+        ),
     )
     .await;
     let other = publish(&home, &dir, "launch --new").await;
@@ -314,11 +305,11 @@ async fn id_publishes_to_that_document_and_new_always_creates_one() {
     for gone in ["gone", "6f1c2a9e-0000-4000-8000-000000000001"] {
         let error = run(
             command(&format!(
-                "publish {} --id {gone}",
+                "publish --root {} {} --id {gone}",
+                dir.display(),
                 dir.join("launch").display()
             )),
             &home,
-            &served(&dir),
             None,
         )
         .await
@@ -340,9 +331,12 @@ async fn a_broken_link_stops_publish_before_any_request() {
     std::fs::write(dir.join("launch/plan.md"), "# Plan\n\n[Gone](gone.md)\n").unwrap();
     let (server, home) = server(&dir, None).await;
     let output = run(
-        command(&format!("publish {}", dir.join("launch").display())),
+        command(&format!(
+            "publish --root {} {}",
+            dir.display(),
+            dir.join("launch").display()
+        )),
         &home,
-        &served(&dir),
         None,
     )
     .await
@@ -359,9 +353,12 @@ async fn a_broken_link_stops_publish_before_any_request() {
         output.text
     );
     let json = run(
-        command(&format!("publish {} --json", dir.join("launch").display())),
+        command(&format!(
+            "publish --root {} {} --json",
+            dir.display(),
+            dir.join("launch").display()
+        )),
         &home,
-        &served(&dir),
         None,
     )
     .await
@@ -377,7 +374,7 @@ async fn a_broken_link_stops_publish_before_any_request() {
 async fn the_token_commands_output_is_the_bearer_token() {
     let dir = folder("token");
     let (server, home) = server(&dir, Some("echo secret-token")).await;
-    ok(&home, &dir, "list").await;
+    ok(&home, "list").await;
     let heard = server.heard();
     assert_eq!(
         heard[0].authorization.as_deref(),
@@ -402,17 +399,16 @@ async fn list_and_versions_print_text_and_json() {
     let id = publish(&home, &dir, "launch").await;
     publish(&home, &dir, "launch").await;
     assert_eq!(
-        ok(&home, &dir, "list").await,
+        ok(&home, "list").await,
         format!("{id}  site  Launch  v2  {}/d/{id}\n", server.address)
     );
-    let listed: serde_json::Value =
-        serde_json::from_str(&ok(&home, &dir, "list --json").await).unwrap();
+    let listed: serde_json::Value = serde_json::from_str(&ok(&home, "list --json").await).unwrap();
     assert_eq!(listed, server.json("/api/documents").await);
 
     let described = server.json(&format!("/api/documents/{id}")).await;
     let versions = &described["versions"];
     assert_eq!(
-        ok(&home, &dir, &format!("versions {id}")).await,
+        ok(&home, &format!("versions {id}")).await,
         format!(
             "v1  {}  anonymous\nv2  {}  anonymous\n",
             versions[0]["published"].as_str().unwrap(),
@@ -420,7 +416,7 @@ async fn list_and_versions_print_text_and_json() {
         )
     );
     let json: serde_json::Value =
-        serde_json::from_str(&ok(&home, &dir, &format!("versions {id} --json")).await).unwrap();
+        serde_json::from_str(&ok(&home, &format!("versions {id} --json")).await).unwrap();
     assert_eq!(&json, versions);
 }
 
@@ -464,12 +460,12 @@ async fn comments_are_listed_replied_to_and_resolved_on_the_server() {
 
     let listed = server.json(&format!("/api/documents/{id}/comments")).await;
     let json: serde_json::Value =
-        serde_json::from_str(&ok(&home, &dir, &format!("comments {id} --json")).await).unwrap();
+        serde_json::from_str(&ok(&home, &format!("comments {id} --json")).await).unwrap();
     assert_eq!(json, listed);
     let threads: Vec<Thread> = serde_json::from_value(listed).unwrap();
     assert_eq!(threads[1].id, capped.id);
     assert_eq!(threads[1].detached_in, Some(2));
-    let text = ok(&home, &dir, &format!("comments {id}")).await;
+    let text = ok(&home, &format!("comments {id}")).await;
     assert_eq!(text, threads_text(&threads, 3));
     assert!(text.starts_with("plan.md\n"), "{text}");
     assert!(
@@ -481,12 +477,7 @@ async fn comments_are_listed_replied_to_and_resolved_on_the_server() {
     );
 
     assert_eq!(
-        ok(
-            &home,
-            &dir,
-            &format!("comments reply {id} {} Agreed", kept.id)
-        )
-        .await,
+        ok(&home, &format!("comments reply {id} {} Agreed", kept.id)).await,
         format!("replied to {}\n", kept.id)
     );
     let replied = server
@@ -504,7 +495,7 @@ async fn comments_are_listed_replied_to_and_resolved_on_the_server() {
     assert_eq!(threads[0].thread.len(), 2);
     assert_eq!(threads[0].thread[1].text, "Agreed");
 
-    ok(&home, &dir, &format!("comments resolve {id} {}", kept.id)).await;
+    ok(&home, &format!("comments resolve {id} {}", kept.id)).await;
     assert!(
         server.heard().iter().any(|h| h.method == "DELETE"
             && h.path == format!("/api/documents/{id}/comments/{}", kept.id))
@@ -532,7 +523,7 @@ async fn download_saves_the_latest_versions_png_and_delete_names_what_it_deletes
     let id = publish(&home, &dir, "box.design").await;
     publish(&home, &dir, "box.design").await;
     let file = dir.join("out.png");
-    let text = ok(&home, &dir, &format!("download {id} -o {}", file.display())).await;
+    let text = ok(&home, &format!("download {id} -o {}", file.display())).await;
     assert_eq!(text, format!("{}\n", file.display()));
     assert!(std::fs::read(&file).unwrap().starts_with(b"\x89PNG"));
     assert!(
@@ -543,18 +534,18 @@ async fn download_saves_the_latest_versions_png_and_delete_names_what_it_deletes
     );
 
     assert_eq!(
-        ok(&home, &dir, &format!("delete {id} --version 1")).await,
+        ok(&home, &format!("delete {id} --version 1")).await,
         format!("deleted version 1 of {id}\n")
     );
     assert!(
-        ok(&home, &dir, &format!("versions {id}"))
+        ok(&home, &format!("versions {id}"))
             .await
             .starts_with("v2  ")
     );
     let json: serde_json::Value =
-        serde_json::from_str(&ok(&home, &dir, &format!("delete {id} --json")).await).unwrap();
+        serde_json::from_str(&ok(&home, &format!("delete {id} --json")).await).unwrap();
     assert_eq!(json["deleted"], true);
-    assert_eq!(ok(&home, &dir, "list").await, "");
+    assert_eq!(ok(&home, "list").await, "");
     let heard = server.heard();
     assert!(
         heard
@@ -577,7 +568,6 @@ async fn an_unknown_document_and_no_context_are_errors_that_say_what_to_do() {
     let error = run(
         command("versions 6f1c2a9e-0000-4000-8000-000000000001"),
         &home,
-        &served(&dir),
         None,
     )
     .await
@@ -591,13 +581,13 @@ async fn an_unknown_document_and_no_context_are_errors_that_say_what_to_do() {
         )
     );
     let empty = test_home("no-context");
-    let error = run(command("list"), &empty, &served(&dir), None)
+    let error = run(command("list"), &empty, None)
         .await
         .unwrap_err()
         .to_string();
     assert!(error.contains("devpage context add"), "{error}");
     // DEVPAGE_CONTEXT, passed in, picks a context that isn't current.
-    let error = run(command("list"), &home, &served(&dir), Some("other".into()))
+    let error = run(command("list"), &home, Some("other".into()))
         .await
         .unwrap_err()
         .to_string();

@@ -39,6 +39,8 @@ pub enum Command {
         #[arg(long)]
         new: bool,
         #[command(flatten)]
+        root: Root,
+        #[command(flatten)]
         remote: Remote,
     },
     /// The documents on the server.
@@ -48,6 +50,7 @@ pub enum Command {
     },
     /// A document's versions.
     Versions {
+        /// The document's id, as `devpage list` shows it.
         id: String,
         #[command(flatten)]
         remote: Remote,
@@ -56,7 +59,9 @@ pub enum Command {
     Comments(CommentsArgs),
     /// Save the PDF or PNG of a document's latest version, or of one version.
     Download {
+        /// The document's id, as `devpage list` shows it.
         id: String,
+        /// This version instead of the latest.
         #[arg(long)]
         version: Option<u64>,
         /// Where to write it; `<title>.pdf` or `<title>.png` by default.
@@ -67,7 +72,9 @@ pub enum Command {
     },
     /// Delete a document — its versions and comments — or one version.
     Delete {
+        /// The document's id, as `devpage list` shows it.
         id: String,
+        /// Delete only this version.
         #[arg(long)]
         version: Option<u64>,
         #[command(flatten)]
@@ -79,16 +86,22 @@ pub enum Command {
 pub enum ContextAction {
     /// Add a context: a name for a server.
     Add {
+        /// The context's name, as `--context` and `devpage context use` take it.
         name: String,
+        /// The server's address, e.g. `https://docs.example.com`.
         server: String,
         /// A command printing a bearer token for the proxy in front of the server.
         #[arg(long)]
         token_command: Option<String>,
     },
     /// Make a context the current one.
-    Use { name: String },
+    Use {
+        /// The context's name.
+        name: String,
+    },
     /// The contexts, the current one marked.
     List {
+        /// Answer in JSON.
         #[arg(long)]
         json: bool,
     },
@@ -99,6 +112,7 @@ pub enum ContextAction {
 pub struct CommentsArgs {
     #[command(subcommand)]
     action: Option<CommentAction>,
+    /// The document's id, as `devpage list` shows it.
     id: Option<String>,
     #[command(flatten)]
     remote: Remote,
@@ -108,19 +122,41 @@ pub struct CommentsArgs {
 pub enum CommentAction {
     /// Reply to a thread.
     Reply {
+        /// The document's id, as `devpage list` shows it.
         id: String,
+        /// The thread's id, as `devpage comments` shows it.
         thread: String,
+        /// The reply.
         text: String,
         #[command(flatten)]
         remote: Remote,
     },
     /// Resolve a thread: it is deleted.
     Resolve {
+        /// The document's id, as `devpage list` shows it.
         id: String,
+        /// The thread's id, as `devpage comments` shows it.
         thread: String,
         #[command(flatten)]
         remote: Remote,
     },
+}
+
+/// The served folder a command that reads documents reads them in.
+#[derive(Args, Debug, Default, Clone)]
+pub struct Root {
+    /// The served folder: nothing outside it is served or read. The current
+    /// folder by default.
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
+impl Root {
+    /// The served folder, opened.
+    pub fn served(&self) -> Result<ServedFolder> {
+        let root = self.root.as_deref().unwrap_or(Path::new("."));
+        ServedFolder::new(root).with_context(|| format!("reading {}", root.display()))
+    }
 }
 
 /// Which server a command talks to, and how it answers.
@@ -147,14 +183,9 @@ impl Output {
     }
 }
 
-/// Runs `command` with the CLI's files in `home`, reading documents in the
-/// served folder `served`; `context` is `DEVPAGE_CONTEXT`, when set.
-pub async fn run(
-    command: Command,
-    home: &Home,
-    served: &ServedFolder,
-    context: Option<String>,
-) -> Result<Output> {
+/// Runs `command` with the CLI's files in `home`; `context` is
+/// `DEVPAGE_CONTEXT`, when set.
+pub async fn run(command: Command, home: &Home, context: Option<String>) -> Result<Output> {
     let chosen = |remote: &Remote| remote.context.clone().or_else(|| context.clone());
     match command {
         Command::Context { action } => contexts_command(action, home),
@@ -162,8 +193,12 @@ pub async fn run(
             path,
             id,
             new,
+            root,
             remote,
-        } => publish(home, served, &path, id, new, &chosen(&remote), remote.json).await,
+        } => {
+            let served = root.served()?;
+            publish(home, &served, &path, id, new, &chosen(&remote), remote.json).await
+        }
         Command::List { remote } => {
             let (api, _) = connect(home, &chosen(&remote))?;
             let documents = api.list().await?;

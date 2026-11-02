@@ -21,16 +21,27 @@ use tokio::net::TcpListener;
 /// The first port tried; when it is taken, the next one up, until one is free.
 const FIRST_PORT: u16 = 3030;
 
+/// What `devpage --help` ends with: the commands a first run needs.
+const EXAMPLES: &str = "\
+Examples:
+  devpage README.md          Serve a Markdown file; open the address it prints
+  devpage docs               Serve the site, doc or deck in docs/devpage.yml
+  devpage check docs         Check every link of a document; exit 1 if one is broken
+  devpage pdf talk           Print a doc or deck to <title>.pdf
+  devpage checkout.design    Draw a design on a canvas
+
+Docs: https://devpage.ai/docs/README.md";
+
 #[derive(Parser)]
-#[command(version, about)]
+#[command(version, about, after_help = EXAMPLES)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,
-    /// A document file, a folder holding devpage.yml, a Markdown file, or a design (.design).
+    /// What to serve: a Markdown file, a design (.design), a folder holding
+    /// devpage.yml, or a document file. The current folder by default.
     path: Option<PathBuf>,
-    /// The served folder: nothing outside it is served. The current folder by default.
-    #[arg(long, global = true)]
-    root: Option<PathBuf>,
+    #[command(flatten)]
+    root: drive::client::Root,
     /// The address to listen on; any non-loopback address means deployed.
     #[arg(long, default_value = "127.0.0.1")]
     host: IpAddr,
@@ -48,26 +59,47 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// Check every link; exit 1 if one is broken.
-    Check { path: Option<PathBuf> },
-    /// Print a doc or a deck to PDF.
+    ///
+    /// Checks the document and every page it reaches by links, external
+    /// addresses too, and prints each problem as `<file>:<line>: <problem>`.
+    Check {
+        /// The document: a Markdown file, a design, a folder holding
+        /// devpage.yml, or a document file. The current folder by default.
+        path: Option<PathBuf>,
+        #[command(flatten)]
+        root: drive::client::Root,
+    },
+    /// Print a doc or a deck to PDF, as the browser shows it.
     Pdf {
+        /// The doc or deck: a Markdown file, a folder holding devpage.yml, or
+        /// a document file.
         path: PathBuf,
         /// Where to write the PDF; `<title>.pdf` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[command(flatten)]
+        root: drive::client::Root,
     },
-    /// Serve published documents: every version kept in the bucket, served
-    /// from the cache. Configured by `DEVPAGE_*` variables.
+    /// Serve published documents for a team, every version kept.
+    ///
+    /// Configured only by `DEVPAGE_*` variables, every one listed at
+    /// https://devpage.ai/docs/boxes/viewer/server/reference/README.md#environment
     Server,
     /// The commands that talk to a devpage server.
     #[command(flatten)]
     Remote(drive::client::Command),
     /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
+    ///
+    /// Needs `DEVPAGE_OPENAI_API_KEY`, or `DEVPAGE_AZURE_OPENAI_ENDPOINT` and
+    /// `DEVPAGE_AZURE_OPENAI_API_KEY`; `DEVPAGE_VIDEO_MODEL` picks the model.
     Video {
+        /// The deck: a folder holding its devpage.yml, or its document file.
         path: PathBuf,
         /// Where to write the video; `<title>.mp4` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        #[command(flatten)]
+        root: drive::client::Root,
     },
 }
 
@@ -77,19 +109,15 @@ async fn main() -> Result<()> {
     // the core's and the binary's modules by their paths.
     use adapters::{changes, external, git, terminal};
     use devpage_core::document::{Document, download_name};
-    use devpage_core::folder::{self, Folder};
+    use devpage_core::folder::Folder;
     use devpage_core::{check, comments, designs, diagrams};
     use drive::{http, pdf, video};
     let mut cli = Cli::parse();
     diagrams::start();
-    let root = cli.root.clone().unwrap_or_else(|| PathBuf::from("."));
-    // The served folder, made where a command that reads it starts.
-    let served =
-        || folder::ServedFolder::new(&root).with_context(|| format!("reading {}", root.display()));
-    if let Some(Command::Check { path }) = &cli.command {
+    if let Some(Command::Check { path, root }) = &cli.command {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
-            &served()?,
+            &root.served()?,
         )?;
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
@@ -100,8 +128,8 @@ async fn main() -> Result<()> {
         std::process::exit(i32::from(!problems.is_empty()));
     }
     match cli.command.take() {
-        Some(Command::Pdf { path, output }) => {
-            let document = Arc::new(Document::load(&path, &served()?)?);
+        Some(Command::Pdf { path, output, root }) => {
+            let document = Arc::new(Document::load(&path, &root.served()?)?);
             let output = output.unwrap_or_else(|| download_name(&document.title, "pdf"));
             let bytes = pdf::print(document).await?;
             std::fs::write(&output, bytes)
@@ -109,9 +137,9 @@ async fn main() -> Result<()> {
             println!("{}", output.display());
             return Ok(());
         }
-        Some(Command::Video { path, output }) => {
+        Some(Command::Video { path, output, root }) => {
             let config = video::narrator::Config::from_env()?;
-            let document = Arc::new(Document::load(&path, &served()?)?);
+            let document = Arc::new(Document::load(&path, &root.served()?)?);
             let output = output.unwrap_or_else(|| download_name(&document.title, "mp4"));
             // However the run ends — done, failed or interrupted — the
             // recording future is dropped, and its Chrome with it.
@@ -138,14 +166,14 @@ async fn main() -> Result<()> {
         Some(Command::Remote(command)) => {
             let home = drive::client::contexts::Home::from_env()?;
             let context = std::env::var("DEVPAGE_CONTEXT").ok();
-            let output = drive::client::run(command, &home, &served()?, context).await?;
+            let output = drive::client::run(command, &home, context).await?;
             print!("{}", output.text);
             std::process::exit(output.code);
         }
         Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let document = Arc::new(Document::load(&path, &served()?)?);
+    let document = Arc::new(Document::load(&path, &cli.root.served()?)?);
 
     // The process-wide parts: the change bus, the link checker on the
     // network reporting to the terminal, and who writes a comment — the

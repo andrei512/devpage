@@ -7,6 +7,20 @@ comments. It sits under the [devpage landing page](README.md); the
 [Your first site, doc and deck](your-first-site-doc-and-deck.md) walks all of
 it end to end.
 
+## In one minute
+
+With devpage [installed](installing.md), serve any Markdown file and open the
+address it prints:
+
+```sh
+devpage README.md        # serve one Markdown file, live
+devpage check README.md  # check its links; exit 1 if one is broken
+```
+
+Edit the file and the page updates without a reload. A site, a doc or a deck
+is a folder with a `devpage.yml`; [Your first site, doc and
+deck](your-first-site-doc-and-deck.md) makes one of each.
+
 ## Six ideas
 
 <Cards columns={3}>
