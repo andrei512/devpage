@@ -431,6 +431,14 @@ async fn project_widget(
     respond(&state, &headers, answer).await
 }
 
+/// Whether the request is a browser's: it accepts HTML.
+fn accepts_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::ACCEPT)
+        .and_then(|accept| accept.to_str().ok())
+        .is_some_and(|accept| accept.contains("text/html"))
+}
+
 /// An answer as a response: its headers, the file's bytes read, the PNG
 /// drawn.
 async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Response {
@@ -441,6 +449,14 @@ async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Respo
         Answer::ModuleError(js) => javascript(js, false),
         Answer::Redirect(address) => Redirect::temporary(&address).into_response(),
         Answer::NotFound(why) => (StatusCode::NOT_FOUND, why).into_response(),
+        // A browser is shown a page; an agent, or curl, reads why.
+        Answer::Missing { why, page } => {
+            if accepts_html(headers) {
+                (StatusCode::NOT_FOUND, Html(page)).into_response()
+            } else {
+                (StatusCode::NOT_FOUND, why).into_response()
+            }
+        }
         Answer::BadRequest(why) => (StatusCode::BAD_REQUEST, why).into_response(),
         Answer::Failed(why) => (StatusCode::INTERNAL_SERVER_ERROR, why).into_response(),
         Answer::File(file) => match tokio::fs::read(&file).await {
@@ -1528,6 +1544,31 @@ mod tests {
             fetch(&format!("{base}/__devpage/nope.js"), &[]).await.0,
             404
         );
+    }
+
+    #[tokio::test]
+    async fn a_browser_is_shown_a_page_where_there_is_nothing_and_an_agent_why() {
+        let dir = served("missing");
+        let base = serve(&dir, "docs").await;
+        let (status, headers, body) = fetch(&format!("{base}/docs/nope"), &[]).await;
+        assert_eq!(status, 404);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/plain")
+        );
+        assert_eq!(String::from_utf8(body).unwrap(), "nothing at /docs/nope");
+        let (status, headers, body) =
+            fetch(&format!("{base}/docs/nope"), &[("accept", "text/html")]).await;
+        assert_eq!(status, 404);
+        assert!(
+            headers["content-type"]
+                .to_str()
+                .unwrap()
+                .starts_with("text/html")
+        );
+        assert!(String::from_utf8(body).unwrap().contains("Page not found"));
     }
 
     #[tokio::test]

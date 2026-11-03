@@ -349,7 +349,7 @@ the design itself.
 | `200`, `image/png` | the design is valid: its whole drawing at 1× |
 | `400`, `theme: expected light or dark, found "<value>"` | `theme` is anything but `light` or `dark` |
 | `422`, the problems as `text/plain`, one per line | the design has problems |
-| `404`, `<address> is not part of the served folder` | `<path>.design` isn't a file in the served folder, as for any other path |
+| `404`, `nothing at <address>` | `<path>.design` isn't a file in the served folder, as for any other path |
 
 A real file named `checkout.design.png` beside the design wins: it is served
 as it is, and a link to it is checked as that file.

@@ -19,7 +19,7 @@ mod sidebar;
 pub use crate::html::escape;
 pub use canvas::canvas;
 pub use content::{Link, Rendered, content, ids, read, shown_by, shown_in};
-pub use frame::{doc, invalid, page, slides};
+pub use frame::{doc, invalid, missing, nothing_at, nothing_at_alone, page, slides};
 
 #[cfg(test)]
 mod tests;
