@@ -394,6 +394,18 @@ fn literal_prefix(pattern: &Path) -> PathBuf {
     prefix
 }
 
+/// One page of a code reference, as search reads it.
+pub struct Searched {
+    pub url: String,
+    pub title: String,
+    /// Where it is: the reference, then each module above it.
+    pub trail: Vec<String>,
+    /// Its doc comment and the prose that adds to it.
+    pub prose: String,
+    /// Its declaration.
+    pub code: String,
+}
+
 /// The kinds the sidebar's tree lists; the rest are left to their pages.
 const NAVIGATED: [&str; 7] = [
     "module", "struct", "enum", "union", "trait", "type", "macro",
@@ -508,6 +520,45 @@ impl Index {
             file.push(segment);
         }
         file
+    }
+
+    /// Every page of the reference as search reads it: each target's and
+    /// each member's, in path order.
+    pub fn searched(&self) -> Vec<Searched> {
+        let prose = self.prose.read().unwrap();
+        let mut out = Vec::new();
+        for namespace in &self.namespaces {
+            let targets = namespace.targets();
+            let reference = format!("{} reference", render::title_case(&namespace.name));
+            let added = |path: &[String]| {
+                let id = format!("{}:{}", namespace.name, path.join("::"));
+                prose.get(&id).map(|p| p.body.clone()).unwrap_or_default()
+            };
+            for (path, target) in &targets.targets {
+                let mut trail = vec![reference.clone()];
+                trail.extend(path[..path.len() - 1].iter().cloned());
+                out.push(Searched {
+                    url: self.address(&namespace.name, path),
+                    title: path.last().cloned().unwrap_or_default(),
+                    trail: trail.clone(),
+                    prose: format!("{}\n\n{}", target.doc, added(path)),
+                    code: target.signature.clone(),
+                });
+                trail.push(path.last().cloned().unwrap_or_default());
+                for member in &target.members {
+                    let mut member_path = path.clone();
+                    member_path.push(member.name.clone());
+                    out.push(Searched {
+                        url: self.address(&namespace.name, &member_path),
+                        title: member.name.clone(),
+                        trail: trail.clone(),
+                        prose: format!("{}\n\n{}", member.doc, added(&member_path)),
+                        code: member.signature.clone(),
+                    });
+                }
+            }
+        }
+        out
     }
 
     /// The sidebar's tree under a Topics entry for the page at `path`: for a

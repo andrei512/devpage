@@ -92,6 +92,9 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
     let mut targets: BTreeMap<Vec<String>, Target> = BTreeMap::new();
     // Whether each module's own declaration makes it public; a crate root is.
     let mut module_public: HashMap<Vec<String>, bool> = HashMap::new();
+    // Modules declared hidden — `#[cfg(test)] mod tests;` — whose files,
+    // read on their own, are left out with them.
+    let mut hidden: Vec<Vec<String>> = Vec::new();
     // Members of `impl` blocks, by the module they are written in and the
     // type they name, attached once every type is known.
     let mut attached = Vec::new();
@@ -130,6 +133,11 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
             };
             // Hidden, and everything inside it.
             if declaration.hidden {
+                if declaration.kind == "module" {
+                    let mut path = inside.clone();
+                    path.push(declaration.name.clone());
+                    hidden.push(path);
+                }
                 paths.push(None);
                 continue;
             }
@@ -220,6 +228,8 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
             }
         }
     }
+
+    targets.retain(|path, _| !hidden.iter().any(|module| path.starts_with(module)));
 
     // `impl` members onto the types they name: in the same module first,
     // then the one type of that name in the crate.
@@ -525,6 +535,21 @@ mod tests {
         assert_eq!(targets.targets[&path("my_crate::a")].doc, "A.");
         let all = linked(&dir, &["lib.rs", "a/mod.rs", "a/b.rs", "hidden.rs"], true);
         assert!(all.targets.contains_key(&path("my_crate::hidden::secret")));
+    }
+
+    #[test]
+    fn a_test_module_in_its_own_file_is_left_out() {
+        let dir = crate_dir(
+            "hidden",
+            &[
+                ("lib.rs", "pub mod a;\n#[cfg(test)]\nmod tests;\n"),
+                ("a.rs", "pub fn shown() {}\n"),
+                ("tests.rs", "pub fn hidden() {}\n"),
+            ],
+        );
+        let targets = linked(&dir, &["lib.rs", "a.rs", "tests.rs"], true);
+        let paths: Vec<String> = targets.targets.keys().map(|p| p.join("::")).collect();
+        assert_eq!(paths, ["my_crate", "my_crate::a", "my_crate::a::shown"]);
     }
 
     #[test]

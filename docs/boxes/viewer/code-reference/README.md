@@ -114,7 +114,9 @@ path reaches an item from its crate's root.
 devpage parses every file when it loads the site, across the machine's cores,
 and holds what they declare in memory. A save parses that one file again and
 links the namespace again; open pages refresh. A namespace's folders are
-watched whatever the site's `watch` list says. Nothing is written to disk and
+watched whatever the site's `watch` list says. [Search](../search/README.md#what-is-searched)
+finds every page of the reference, and a save re-indexes the pages it
+changed. Nothing is written to disk and
 nothing has to run first: devpage's own 68,000 lines of Rust add no time a
 `devpage check` can measure.
 
@@ -123,5 +125,5 @@ nothing has to run first: devpage's own 68,000 lines of Rust add no time a
 It reads the code as written, not as compiled: no macro output, no `#[cfg]`
 evaluation, no `#[path]` attributes, no inferred types and no links a doc
 comment writes to a Rust path. A file outside its crate's `src/` — a test, a
-bench, `build.rs` — is no module. Search doesn't index the reference's pages,
-and a code reference isn't published by `devpage publish`.
+bench, `build.rs` — is no module. A code reference isn't published by
+`devpage publish`.

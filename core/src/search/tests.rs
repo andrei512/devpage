@@ -1236,3 +1236,48 @@ fn a_frozen_index_answers_as_a_live_one_does_and_keeps_no_writer() {
     assert!(frozen.search("narwhal").pages.is_empty());
     assert_eq!(urls(&frozen.search("sidebar")).len(), 1);
 }
+
+#[test]
+fn the_code_reference_is_searched_and_a_save_is_found_at_once() {
+    let dir = served("code-reference");
+    std::fs::create_dir_all(dir.join("lib/src")).unwrap();
+    std::fs::write(dir.join("lib/Cargo.toml"), "[package]\nname = \"my-lib\"\n").unwrap();
+    let file = dir.join("lib/src/lib.rs");
+    std::fs::write(
+        &file,
+        "/// Holds every flamingo.\npub struct Store;\nimpl Store {\n    /// Reads one.\n    pub fn read(&self) {}\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("docs/devpage.yml"),
+        "kind: site\ntitle: Handbook\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n",
+    )
+    .unwrap();
+    let index = index(&dir);
+    let found = find(&index, "flamingo");
+    assert_eq!(urls(&found), ["/docs/reference/rust/my_lib/Store"]);
+    assert_eq!(found.pages[0].trail, ["Rust reference", "my_lib"]);
+    assert_eq!(
+        urls(&find(&index, "read"))[0],
+        "/docs/reference/rust/my_lib/Store/read"
+    );
+
+    std::fs::write(&file, "/// Holds every albatross.\npub struct Store;\n").unwrap();
+    assert!(crate::code::changed(
+        index.folder.served(),
+        std::slice::from_ref(&file)
+    ));
+    index
+        .search
+        .changed(&index.folder, std::slice::from_ref(&file));
+    assert!(urls(&find(&index, "flamingo")).is_empty());
+    assert!(
+        !urls(&find(&index, "read"))
+            .iter()
+            .any(|url| url.contains("/reference/"))
+    );
+    assert_eq!(
+        urls(&find(&index, "albatross")),
+        ["/docs/reference/rust/my_lib/Store"]
+    );
+}

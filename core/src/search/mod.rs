@@ -235,8 +235,10 @@ impl Search {
     /// `paths` — or whose document's widgets folder holds one of them — are
     /// read again. A frozen index never changes.
     pub fn changed(&self, folder: &Folder, paths: &[PathBuf]) {
+        let code = crate::code::input_roots(folder.served());
         let matters = |path: &PathBuf| {
-            path.is_dir()
+            code.iter().any(|root| path.starts_with(root))
+                || path.is_dir()
                 || !path.exists()
                 || path.file_name().is_some_and(|name| name == ".gitignore")
                 || path
@@ -325,7 +327,11 @@ impl Search {
         let titled = |page: &Page| self.title_match(&parsed, &page.title);
         grouped.sort_by(|a, b| {
             let (ta, tb) = (titled(a.1), titled(b.1));
+            // A name written as it was typed, case and all, before one that
+            // only matches it.
+            let exact = |page: &Page| page.title != query.trim();
             ta.cmp(&tb)
+                .then_with(|| exact(a.1).cmp(&exact(b.1)))
                 .then_with(|| match ta {
                     TitleMatch::None => b.0.total_cmp(&a.0),
                     _ => a.1.nav.cmp(&b.1.nav),

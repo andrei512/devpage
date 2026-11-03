@@ -33,6 +33,10 @@ pub(super) const RAW: &str = "raw";
 /// on the page.
 const PLACE: &str = "place";
 
+/// Where the code reference's pages start in reading order: after any page
+/// a nav can reach.
+const CODE_NAV: u64 = 1 << 40;
+
 #[derive(Clone, Copy)]
 pub(super) struct Fields {
     pub(super) page: Field,
@@ -57,6 +61,9 @@ pub(super) struct Fields {
 pub(super) struct Indexer {
     writer: IndexWriter,
     published: Option<Published>,
+    /// The code reference's pages indexed, by address, each with a hash of
+    /// what it reads: a page is indexed again only when that changed.
+    code: BTreeMap<String, u64>,
 }
 
 /// One section, ready to be a tantivy document.
@@ -158,6 +165,7 @@ impl Search {
             indexer: Mutex::new(Some(Indexer {
                 writer,
                 published: None,
+                code: BTreeMap::new(),
             })),
             stemmed,
             plain,
@@ -191,7 +199,12 @@ impl Search {
     /// is.
     pub(super) fn index(&self, folder: &Folder, paths: &[PathBuf]) {
         let mut indexer = lock(&self.indexer);
-        let Some(Indexer { writer, published }) = indexer.as_mut() else {
+        let Some(Indexer {
+            writer,
+            published,
+            code,
+        }) = indexer.as_mut()
+        else {
             return;
         };
         let read = |unit: &Unit| paths.iter().any(|path| unit.reached(path));
@@ -255,6 +268,7 @@ impl Search {
                 self.add(writer, unit, set, &mut pages);
             }
         }
+        self.add_code(writer, code, folder, paths, &mut pages);
         let documents = pass.into_documents();
         let committed = writer.commit().is_ok();
         match (found, published.as_mut()) {
@@ -388,6 +402,88 @@ impl Search {
             }
         }
         pages.insert(page.url.clone(), page);
+    }
+
+    /// Indexes the served site's code reference as it reads now, when
+    /// `paths` reach it — its code, its prose, its document file — or on the
+    /// first pass: each page one section, its name, its doc and its
+    /// declaration, after every page the nav reaches. Only the pages whose
+    /// text changed, came or went are written.
+    fn add_code(
+        &self,
+        writer: &IndexWriter,
+        known: &mut BTreeMap<String, u64>,
+        folder: &Folder,
+        paths: &[PathBuf],
+        pages: &mut Pages,
+    ) {
+        let roots = crate::code::input_roots(folder.served());
+        let reached = paths.is_empty()
+            || paths.iter().any(|path| {
+                roots.iter().any(|root| path.starts_with(root))
+                    || path
+                        .extension()
+                        .is_some_and(|ext| ext == "md" || ext == "yml" || ext == "yaml")
+            });
+        if !reached {
+            return;
+        }
+        let entry = folder.entry();
+        let found = crate::code::for_document(&entry.path())
+            .map(|index| index.searched())
+            .unwrap_or_default();
+        let owner = Owner {
+            title: entry.title.clone(),
+            path: entry.part_url(&entry.path()),
+        };
+        let mut now = BTreeMap::new();
+        for (at, found) in found.iter().enumerate() {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            (&found.title, &found.trail, &found.prose, &found.code, at).hash(&mut hasher);
+            let hash = hasher.finish();
+            now.insert(found.url.clone(), hash);
+            if known.get(&found.url) == Some(&hash) {
+                continue;
+            }
+            writer.delete_term(Term::from_field_text(self.fields.page, &found.url));
+            let prose = squeeze(&found.prose);
+            let page = Page {
+                title: found.title.clone(),
+                url: found.url.clone(),
+                trail: found.trail.clone(),
+                document: owner.clone(),
+                kind: PageKind::Page,
+                lede: prose.split(". ").next().unwrap_or("").to_string(),
+                // After every page the nav reaches.
+                nav: CODE_NAV + at as u64,
+                title_stems: self.stems(&found.title),
+                meta_stems: BTreeSet::new(),
+            };
+            self.add_entry(
+                writer,
+                Entry {
+                    page: &page,
+                    heading: &page.title,
+                    url: page.url.clone(),
+                    path: vec![page.title.clone()],
+                    depth: 1,
+                    order: 0,
+                    prose: &prose,
+                    code: &squeeze(&found.code),
+                    notes: "",
+                    meta: "",
+                },
+            );
+            pages.insert(page.url.clone(), page);
+        }
+        for url in known.keys() {
+            if !now.contains_key(url) {
+                writer.delete_term(Term::from_field_text(self.fields.page, url));
+                pages.remove(url);
+            }
+        }
+        *known = now;
     }
 
     pub(super) fn add_entry(&self, writer: &IndexWriter, entry: Entry) {

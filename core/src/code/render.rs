@@ -402,7 +402,7 @@ fn kind_label(kind: &str) -> &str {
     }
 }
 
-fn title_case(name: &str) -> String {
+pub(super) fn title_case(name: &str) -> String {
     let mut chars = name.chars();
     chars
         .next()

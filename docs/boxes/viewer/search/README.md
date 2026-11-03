@@ -37,7 +37,15 @@ never searched. Starting from its document file:
   in its [navigation tree](../navigation-tree/README.md), and every Markdown
   file in its folder its [navbar](../organizing-navigation/README.md#the-navbar)
   links to — and every document either of them links to, in turn;
-- a **doc** publishes its chapters, and a **deck** its slides.
+- a **doc** publishes its chapters, and a **deck** its slides;
+- a site with a [code reference](../code-reference/README.md) publishes every
+  page of it too — each item and member one section: its name, its doc
+  comment and the prose that adds to it, and its declaration as code — after
+  every page its nav reaches. A save re-indexes only the reference pages whose
+  text changed.
+
+A page whose title is exactly what was typed, case and all, comes before one
+whose title only matches it: `Answers` before `answers`.
 
 Only what is [in sight](../live-updates/README.md#what-is-out-of-sight) is
 searched, and a document file that can't be loaded publishes nothing until it
