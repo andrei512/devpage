@@ -26,11 +26,7 @@ const ITEMS: [(&str, &str); 10] = [
 
 /// The page of a namespace: every crate it holds.
 pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
-    let mut out = hero(
-        "Reference",
-        &title_case(name),
-        "Every crate, module, type and function of the code, read from the code as it is now.",
-    );
+    let mut out = hero("Reference", &title_case(name), "");
     let crates: Vec<&Target> = targets
         .targets
         .values()

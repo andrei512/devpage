@@ -77,5 +77,4 @@ commitments. How these docs are laid out is on the
   folder.
 - [General constraints](constraints/README.md) — the rules every change is
   reviewed against.
-- [Rust reference](reference/rust) — every module, type and function of
-  devpage's code, read from the code as it is now.
+- [Rust reference](reference/rust) — devpage's crates, modules and types.
