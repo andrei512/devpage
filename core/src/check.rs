@@ -277,11 +277,15 @@ fn internal(
         if let Some(logo) = &owner.logo {
             follow(document, designs, &mut files, &owner.base.join(logo));
         }
-        // A document's logo is checked once.
-        if logos.insert(owner.path())
-            && let Some(problem) = page::navbar::logo_problem(owner)
-        {
-            problems.push(problem);
+        // A document's logo is checked once, and a site's 404.md with it:
+        // it is shown wherever the site has nothing.
+        if logos.insert(owner.path()) {
+            problems.extend(page::navbar::logo_problem(owner));
+            if matches!(owner.kind, Kind::Site { .. })
+                && let Some(missing) = owner.served.file(&owner.base.join("404.md"))
+            {
+                queue.push_back(missing);
+            }
         }
         // A site's navbar is checked once, and what it links to is checked too.
         if !owner.navbar.is_empty() && navbars.insert(owner.path()) {
@@ -1428,6 +1432,31 @@ mod external {
             .filter(|p| p.contains("logo: gone.svg — no such file"))
             .count();
         assert_eq!(count, 1, "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn a_sites_404_md_is_checked_with_it() {
+        let doc = folder("missing-check", "# Home\n");
+        std::fs::write(doc.base.join("404.md"), "# Lost\n\n[Gone](gone.md)\n").unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert!(
+            found
+                .iter()
+                .any(|p| p.ends_with("404.md:3: broken link gone.md — no such file")),
+            "{found:#?}"
+        );
+        let files = files(&opened(&doc), &designs_of(&doc));
+        assert!(files.iter().any(|f| f.ends_with("404.md")), "{files:#?}");
     }
 
     #[tokio::test]

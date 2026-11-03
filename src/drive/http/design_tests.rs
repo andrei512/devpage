@@ -153,10 +153,7 @@ async fn no_png_of_a_design_outside_the_served_folder() {
         let response = reqwest::get(format!("{address}{path}")).await.unwrap();
         assert_eq!(response.status(), 404, "{path}");
         let body = response.text().await.unwrap();
-        assert!(
-            body.ends_with("is not part of the served folder"),
-            "{path}: {body}"
-        );
+        assert!(body.starts_with("nothing at /"), "{path}: {body}");
     }
 }
 

@@ -122,7 +122,9 @@ served folder. A field the kind doesn't have is an error, not ignored.
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
-belongs to the nearest one.
+belongs to the nearest one. A `404.md` beside the document file is shown, in
+the site's frame, at every address in its folder with nothing at it
+([a page for missing addresses](../making-a-site/README.md#a-page-for-missing-addresses)).
 
 ### `doc`
 

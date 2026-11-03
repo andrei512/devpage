@@ -70,9 +70,118 @@ pub fn page(
     comments: bool,
     found: &[Problem],
 ) -> Option<String> {
+    let page = title(rendered.source(), rendered.file());
+    framed(
+        document,
+        widgets,
+        rendered.file(),
+        &page,
+        rendered.html(),
+        comments,
+        found,
+    )
+}
+
+/// The site `document`'s page for an address with nothing at it, `rendered`
+/// from the site's `404.md`. Shown at that address, not its own, so its
+/// relative links are pointed at their served addresses; it shows no
+/// comments and lists no problems — `devpage check` reports its own.
+pub fn missing(document: &Document, widgets: &Widgets, rendered: &Rendered) -> Option<String> {
+    let page = title(rendered.source(), rendered.file());
+    let content = rebase(rendered.html(), rendered.file(), document);
+    framed(
+        document,
+        widgets,
+        rendered.file(),
+        &page,
+        &content,
+        false,
+        &[],
+    )
+}
+
+/// devpage's own page for `address`, with nothing at it, when the site
+/// `document` has no `404.md`: in the site's frame, as its `404.md` would be,
+/// offering `meant` — the address it most likely meant — and the site's root.
+pub fn nothing_at(
+    document: &Document,
+    widgets: &Widgets,
+    address: &str,
+    meant: Option<&str>,
+) -> Option<String> {
+    let content = nothing_at_content(document, address, meant);
+    framed(
+        document,
+        widgets,
+        &document.base.join("404.md"),
+        NOT_FOUND,
+        &content,
+        false,
+        &[],
+    )
+}
+
+/// devpage's own page for `asked`, an address with nothing at it, outside any site:
+/// alone, in the theme of `entry`, the served document, offering `meant` and
+/// where `/` leads.
+pub fn nothing_at_alone(entry: &Document, asked: &str, meant: Option<&str>) -> String {
+    format!(
+        r#"<!doctype html>
+{html}
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{NOT_FOUND} · {document}</title>
+{theme}
+<link rel="stylesheet" href="{stylesheet}">
+</head>
+<body class="missing" data-build="{build}">
+<main id="devpage-page"><article>{content}</article></main>
+</body>
+</html>"#,
+        html = html_open(&entry.served),
+        stylesheet = address(Owned::Asset("style.css")),
+        build = crate::addresses::BUILD,
+        document = escape(&entry.title),
+        theme = navbar::head(entry),
+        content = nothing_at_content(entry, asked, meant),
+    )
+}
+
+/// The heading of devpage's own page for an address with nothing at it.
+const NOT_FOUND: &str = "Page not found";
+
+/// What devpage's own page for `address` says: nothing is there, `meant` may
+/// be, and the way to `document`'s first page. Written as HTML, every part
+/// escaped: the address is whatever was asked for.
+fn nothing_at_content(document: &Document, address: &str, meant: Option<&str>) -> String {
+    let meant = meant.map_or_else(String::new, |meant| {
+        format!(
+            r#"<p>Did you mean <a href="{0}">{0}</a>?</p>"#,
+            escape(meant)
+        )
+    });
+    format!(
+        r#"<h1>{NOT_FOUND}</h1><p>There is nothing at <code>{address}</code>.</p>{meant}<p><a href="{home}">Go to {title}</a></p>"#,
+        address = escape(address),
+        home = escape(&document.entry()),
+        title = escape(&document.title),
+    )
+}
+
+/// A site page: the frame round `content`, the HTML of `file`, whose page is
+/// titled `page`. `None` for a file outside the served folder.
+fn framed(
+    document: &Document,
+    widgets: &Widgets,
+    file: &Path,
+    page: &str,
+    content: &str,
+    comments: bool,
+    found: &[Problem],
+) -> Option<String> {
     let _render = tracing::info_span!("render").entered();
-    let current = document.url(rendered.file())?;
-    let content = rendered.html();
+    let current = document.url(file)?;
     let tree = if document.sidebar || !document.navbar.is_empty() {
         nav::tree(document)
     } else {
@@ -98,10 +207,7 @@ pub fn page(
         html = html_open(&document.served),
         stylesheet = address(Owned::Asset("style.css")),
         build = crate::addresses::BUILD,
-        tab = escape(&tab_title(
-            &title(rendered.source(), rendered.file()),
-            &document.title
-        )),
+        tab = escape(&tab_title(page, &document.title)),
         theme = navbar::head(document),
         body_class = site_class(document),
         navbar = navbar::render(document, &tree, &current, comments),

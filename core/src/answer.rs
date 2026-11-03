@@ -11,7 +11,7 @@ use devpage_design::Theme;
 use crate::check::Preview;
 use crate::designs::Designs;
 use crate::document::{self, Document, Kind};
-use crate::folder::{Folder, Owner};
+use crate::folder::{Folder, Owner, ServedFolder, lexical};
 use crate::page;
 use crate::widgets::{self, Compiled, Modules, Widgets};
 
@@ -44,6 +44,10 @@ pub enum Answer {
     ModuleError(String),
     /// 404, and why.
     NotFound(String),
+    /// 404 for an address with nothing at it: `why`, for an agent, and the
+    /// `page` a browser is shown instead — the nearest site's `404.md`, or
+    /// devpage's own.
+    Missing { why: String, page: String },
     /// 400, and why.
     BadRequest(String),
     /// 500, and why.
@@ -111,7 +115,7 @@ impl<'a> Answers<'a> {
             .map(|name| Theme::named(name).ok_or(name));
         let entry = self.folder.entry();
         let file_at = |path: &str| entry.served.file_at(path);
-        let outside = || Answer::NotFound(format!("{path} is not part of the served folder"));
+        let outside = || self.missing(path);
         let real = file_at(path);
 
         if real.is_none()
@@ -205,6 +209,44 @@ impl<'a> Answers<'a> {
                 Err(error) => Answer::Failed(format!("{error:#}")),
             },
         }
+    }
+
+    /// `path`, with nothing at it — or nothing that is shown: why, and the
+    /// page a browser is shown. Inside a site, in that site's frame: the
+    /// `404.md` beside its document file, or devpage's own page; outside any
+    /// site, devpage's own page alone. devpage's own offers the file the
+    /// address most likely meant, when there is one.
+    fn missing(&self, path: &str) -> Answer {
+        let entry = self.folder.entry();
+        let served = &entry.served;
+        let address = format!("{}/{}", served.mount(), path.trim_start_matches('/'));
+        let meant = meant(served, path).and_then(|file| entry.url(&file));
+        let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let site = served
+            .contains(&would_be)
+            .then(|| self.folder.owner(&would_be))
+            .flatten();
+        let page = match site {
+            Some(Owner {
+                document: Ok(site), ..
+            }) => {
+                let widgets = Widgets::of(&site, self.modules);
+                served
+                    .file(&site.base.join("404.md"))
+                    .and_then(|file| {
+                        let source = std::fs::read_to_string(&file).ok()?;
+                        page::missing(&site, &widgets, &page::content(&widgets, &file, source))
+                    })
+                    .or_else(|| page::nothing_at(&site, &widgets, &address, meant.as_deref()))
+            }
+            _ => None,
+        }
+        .unwrap_or_else(|| page::nothing_at_alone(&entry, &address, meant.as_deref()));
+        let why = match &meant {
+            Some(meant) => format!("nothing at {address} — did you mean {meant}?"),
+            None => format!("nothing at {address}"),
+        };
+        Answer::Missing { why, page }
     }
 
     /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
@@ -319,6 +361,20 @@ impl<'a> Answers<'a> {
     fn redirect(&self, address: String) -> Answer {
         Answer::Redirect(address)
     }
+}
+
+/// The file an address with nothing at it most likely meant: the page it
+/// names without `.md`, or ending `.html` for `.md`, or the `README.md` of
+/// the folder it names.
+fn meant(served: &ServedFolder, path: &str) -> Option<PathBuf> {
+    let path = path.trim_matches('/');
+    if path.is_empty() {
+        return None;
+    }
+    let page = path.strip_suffix(".html").unwrap_or(path);
+    [format!("{page}.md"), format!("{path}/README.md")]
+        .iter()
+        .find_map(|candidate| served.file_at(candidate))
 }
 
 /// The `v` a module's address was asked with, if any.
@@ -535,11 +591,75 @@ mod tests {
             "missing.design.png",
             "../secret.md/1.png",
         ] {
-            assert!(
-                matches!(answers.path(path, None), Answer::NotFound(_)),
-                "{path}"
-            );
+            // What is outside is neither sent nor shown on the page instead.
+            match answers.path(path, None) {
+                Answer::Missing { page, .. } => assert!(!page.contains("Secret"), "{path}"),
+                other => panic!("{path}: {other:?}"),
+            }
         }
+    }
+
+    /// The why and the page of an address with nothing at it.
+    fn missing(answer: Answer) -> (String, String) {
+        match answer {
+            Answer::Missing { why, page } => (why, page),
+            other => panic!("not missing: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_page_is_shown_in_its_sites_frame_offering_what_it_meant() {
+        let dir = served("missing");
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+
+        let (why, page) = missing(answers.path("docs/guide/step", None));
+        assert_eq!(
+            why,
+            "nothing at /docs/guide/step — did you mean /docs/guide/step.md?"
+        );
+        assert!(page.contains("<h1>Page not found</h1>"), "{page}");
+        assert!(page.contains(r#"<a href="/docs/guide/step.md">"#), "{page}");
+        assert!(page.contains(r#"class="document-title""#), "{page}");
+        assert!(
+            page.contains(r#"<a href="/docs/README.md">Go to Docs</a>"#),
+            "{page}"
+        );
+
+        let (why, _) = missing(answers.path("docs/guide/step.html", None));
+        assert!(why.ends_with("did you mean /docs/guide/step.md?"), "{why}");
+        let (why, _) = missing(answers.path("docs/", None));
+        assert!(why.ends_with("did you mean /docs/README.md?"), "{why}");
+        let (why, _) = missing(answers.path("docs/nope", None));
+        assert_eq!(why, "nothing at /docs/nope");
+
+        // In no site, the page is alone, in the served document's theme.
+        let (_, page) = missing(answers.path("notes/nope", None));
+        assert!(page.contains(r#"<body class="missing""#), "{page}");
+        assert!(page.contains("Go to Docs"), "{page}");
+
+        // The address is whatever was asked for: it is never markup.
+        let (_, page) = missing(answers.path("docs/<b>x", None));
+        assert!(page.contains("/docs/&lt;b&gt;x"), "{page}");
+        assert!(!page.contains("<b>x"), "{page}");
+    }
+
+    #[test]
+    fn a_sites_404_md_is_shown_where_it_has_nothing_its_links_at_their_addresses() {
+        let dir = served("missing-custom");
+        std::fs::write(dir.join("docs/404.md"), "# Lost\n\n[Step](guide/step.md)\n").unwrap();
+        let served = Served::mounted(&dir, "docs/devpage.yml", "/m");
+        let answers = served.at();
+        let (why, page) = missing(answers.path("docs/a/b/gone", None));
+        assert_eq!(why, "nothing at /m/docs/a/b/gone");
+        assert!(page.contains("<title>Lost · Docs</title>"), "{page}");
+        assert!(page.contains(r#"href="/m/docs/guide/step.md""#), "{page}");
+        assert!(!page.contains("Page not found"), "{page}");
+        // Outside the site, devpage's own page is shown.
+        let (_, page) = missing(answers.path("notes/gone", None));
+        assert!(page.contains("Page not found"), "{page}");
+        // At its own address, it is a page of the site like any other.
+        assert!(html(answers.path("docs/404.md", None)).contains("Lost"));
     }
 
     #[test]
@@ -578,10 +698,12 @@ mod tests {
             ("docs/devpage.yml/1.png", "docs/devpage.yml is not a deck"),
             ("notes/ci.yml/1.png", "notes/ci.yml is not a deck"),
             ("notes/broken.yml/1.png", "notes/broken.yml is not a deck"),
-            ("notes/gone.yml/1.png", "is not part of the served folder"),
+            ("notes/gone.yml/1.png", "nothing at /notes/gone.yml/1.png"),
         ] {
             match answers.path(path, None) {
-                Answer::NotFound(why) => assert!(why.contains(reason), "{path}: {why}"),
+                Answer::NotFound(why) | Answer::Missing { why, .. } => {
+                    assert!(why.contains(reason), "{path}: {why}")
+                }
                 other => panic!("{path}: {other:?}"),
             }
         }
