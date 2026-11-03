@@ -151,7 +151,11 @@ fn children(
             children: if page_target {
                 children(document, &file, homes, read)
             } else {
-                Vec::new()
+                // A code reference lists its crates, modules and types, as
+                // DocC's navigator does.
+                crate::code::for_document(&document.path())
+                    .map(|index| index.navigator(&file))
+                    .unwrap_or_default()
             },
             file,
         };

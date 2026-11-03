@@ -400,6 +400,8 @@ pub enum Page {
     Namespace(usize),
     /// A target, by its path.
     Target(usize, Vec<String>),
+    /// A member of the target at the path, by its index.
+    Member(usize, Vec<String>, usize),
 }
 
 impl Index {
@@ -423,10 +425,23 @@ impl Index {
         }
         let targets = self.namespaces[at].targets();
         let segments = targets.aliases.get(&segments).cloned().unwrap_or(segments);
-        targets
+        if targets.targets.contains_key(&segments) {
+            return Some(Page::Target(at, segments));
+        }
+        // A member's page is under its type's: `Store/read`.
+        let (name, owner) = segments.split_last()?;
+        let owner = targets
+            .aliases
+            .get(owner)
+            .cloned()
+            .unwrap_or(owner.to_vec());
+        let member = targets
             .targets
-            .contains_key(&segments)
-            .then_some(Page::Target(at, segments))
+            .get(&owner)?
+            .members
+            .iter()
+            .position(|member| member.name == *name)?;
+        Some(Page::Member(at, owner, member))
     }
 
     /// The Markdown of the page `page`.
@@ -449,21 +464,92 @@ impl Index {
                     prose.get(&id),
                 )
             }
+            Page::Member(at, path, member) => {
+                let namespace = &self.namespaces[*at];
+                let targets = namespace.targets();
+                let owner = &targets.targets[path];
+                let member = &owner.members[*member];
+                let id = format!("{}:{}::{}", namespace.name, path.join("::"), member.name);
+                render::member(self, &namespace.name, owner, member, prose.get(&id))
+            }
         }
     }
 
     /// The address of a target's page, or a member's section on it.
-    pub(crate) fn address(&self, namespace: &str, path: &[String], member: Option<&str>) -> String {
+    pub(crate) fn address(&self, namespace: &str, path: &[String]) -> String {
         let mut file = self.reference().join(namespace);
         for segment in path {
             file.push(segment);
         }
-        let mut address = self.served.url(&file).unwrap_or_default();
-        if let Some(member) = member {
-            address.push('#');
-            address.push_str(&render::member_id(member));
+        self.served.url(&file).unwrap_or_default()
+    }
+
+    /// The sidebar's tree under a Topics entry for the page at `path`: for a
+    /// namespace, its crates; under each module, its modules and types by
+    /// kind. Functions and members are left to the pages, so the tree every
+    /// page carries stays small.
+    pub fn navigator(&self, path: &Path) -> Vec<crate::nav::Group> {
+        let Some(page) = self.page(path) else {
+            return Vec::new();
+        };
+        let (at, under) = match page {
+            Page::Namespace(at) => (at, Vec::new()),
+            Page::Target(at, path) => (at, path),
+            Page::Member(..) => return Vec::new(),
+        };
+        let namespace = &self.namespaces[at];
+        let targets = namespace.targets();
+        self.nav_children(&namespace.name, &targets, &under)
+    }
+
+    fn nav_children(
+        &self,
+        namespace: &str,
+        targets: &Targets,
+        under: &[String],
+    ) -> Vec<crate::nav::Group> {
+        const SHOWN: [(&str, &str); 7] = [
+            ("module", "Modules"),
+            ("struct", "Structures"),
+            ("enum", "Enumerations"),
+            ("union", "Unions"),
+            ("trait", "Traits"),
+            ("type", "Type Aliases"),
+            ("macro", "Macros"),
+        ];
+        let children: Vec<&Target> = targets
+            .targets
+            .values()
+            .filter(|target| target.path.len() == under.len() + 1 && target.path.starts_with(under))
+            .collect();
+        let mut groups = Vec::new();
+        for (kind, title) in SHOWN {
+            let entries: Vec<crate::nav::Entry> = children
+                .iter()
+                .filter(|target| target.kind == kind)
+                .map(|target| crate::nav::Entry {
+                    label: target.path.last().cloned().unwrap_or_default(),
+                    file: {
+                        let mut file = self.reference().join(namespace);
+                        for segment in &target.path {
+                            file.push(segment);
+                        }
+                        file
+                    },
+                    children: if kind == "module" {
+                        self.nav_children(namespace, targets, &target.path)
+                    } else {
+                        Vec::new()
+                    },
+                })
+                .collect();
+            if !entries.is_empty() {
+                // A namespace's crates are one untitled group.
+                let title = (!under.is_empty()).then(|| title.to_string());
+                groups.push(crate::nav::Group { title, entries });
+            }
         }
-        address
+        groups
     }
 
     /// A source file's address and its name, for a target's "declared in".
@@ -474,14 +560,13 @@ impl Index {
     /// The ids `path`'s page holds, for a link's `#fragment`; `None` when
     /// `path` is no page of the reference.
     pub fn ids(&self, path: &Path) -> Option<Vec<String>> {
-        Some(match self.page(path)? {
-            Page::Namespace(_) => Vec::new(),
-            Page::Target(at, segments) => self.namespaces[at].targets().targets[&segments]
-                .members
-                .iter()
-                .map(|member| render::member_id(&member.name))
-                .collect(),
-        })
+        let page = self.page(path)?;
+        let rendered = crate::page::content(
+            &crate::widgets::Widgets::default(),
+            path,
+            self.markdown(&page),
+        );
+        Some(rendered.ids().into_iter().collect())
     }
 
     /// Whether `path` lies where the reference's pages are.
@@ -502,13 +587,21 @@ impl Index {
         let last = wanted.last()?;
         let targets = namespace.targets();
         let joined = wanted.join("::");
-        let best = targets.targets.keys().min_by_key(|path| {
+        // Every page: each target's, and each of its members'.
+        let pages = targets.targets.iter().flat_map(|(path, target)| {
+            std::iter::once(path.clone()).chain(target.members.iter().map(move |member| {
+                let mut path = path.clone();
+                path.push(member.name.clone());
+                path
+            }))
+        });
+        let best = pages.min_by_key(|path| {
             (
                 path.last() != Some(last),
                 distance(&path.join("::"), &joined),
             )
         })?;
-        Some(self.address(&namespace.name, best, None))
+        Some(self.address(&namespace.name, &best))
     }
 
     /// Every changed file of a namespace parsed again and the namespace

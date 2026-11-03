@@ -35,6 +35,9 @@ pub struct Declaration {
     pub line: usize,
     /// Whether it has a body of its own: a `mod x { … }`, not a `mod x;`.
     pub has_body: bool,
+    /// Whether its attributes keep it out of the reference:
+    /// `#[cfg(test)]`, `#[doc(hidden)]`.
+    pub hidden: bool,
     /// For a block whose members belong to another declaration — an
     /// `impl` — what they belong to.
     pub attach: Option<Attach>,
@@ -169,6 +172,7 @@ impl Grammar {
                         doc: self.doc(node, source),
                         line: node.start_position().row + 1,
                         has_body: node.child_by_field_name("body").is_some(),
+                        hidden: self.hidden(node, source),
                         attach: None,
                     },
                 ));
@@ -186,6 +190,7 @@ impl Grammar {
                         doc: self.doc(node, source),
                         line: node.start_position().row + 1,
                         has_body: true,
+                        hidden: self.hidden(node, source),
                         attach: Some(Attach { to, implements }),
                     },
                 ));
@@ -270,6 +275,33 @@ impl Grammar {
                 }
                 lines.reverse();
                 lines.join("\n").trim().to_string()
+            }
+        }
+    }
+
+    /// Whether an attribute just before `node` keeps it out of the
+    /// reference: code only tests build, or code its author hid.
+    fn hidden(&self, node: Node, source: &str) -> bool {
+        match self.docs {
+            Docs::Rust => {
+                let mut at = node.prev_sibling();
+                while let Some(sibling) = at {
+                    match sibling.kind() {
+                        "attribute_item" => {
+                            let text: String = source[sibling.byte_range()]
+                                .chars()
+                                .filter(|c| !c.is_whitespace())
+                                .collect();
+                            if text == "#[cfg(test)]" || text.contains("doc(hidden)") {
+                                return true;
+                            }
+                        }
+                        "line_comment" | "block_comment" => {}
+                        _ => return false,
+                    }
+                    at = sibling.prev_sibling();
+                }
+                false
             }
         }
     }

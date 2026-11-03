@@ -36,39 +36,51 @@ reference; `code` on a doc or a deck stops devpage with
 ## The pages
 
 The pages are under `reference/<namespace>/` in the site's folder, shown in the
-site's frame like its own pages:
+site's frame like its own pages, and laid out as DocC lays out a symbol page:
 
-- `reference/rust` lists the crates.
-- `reference/rust/devpage_core` is a crate, `reference/rust/devpage_core/answer`
-  a module: its doc comment and its items, grouped by kind, each with the first
-  sentence of its doc.
-- `reference/rust/devpage_core/answer/Answers` is an item: where it is declared,
-  its declaration, its doc comment, and a section for each field, variant and
-  method — `#new`, `#path` — and the traits it implements.
+- At the top, the path back up — `Rust › devpage_core › answer` — then the
+  kind (Structure, Method, Module…), the name, and the doc comment's first
+  paragraph as the abstract.
+- **Declaration**: the item as written, without its body, and the file and
+  line it is declared at.
+- **Overview**: the rest of the doc comment, and any [prose](#adding-prose)
+  that adds to it.
+- **Topics**: what it holds, grouped by kind — a module's modules, structures,
+  enumerations, traits, functions…; a type's fields, variants, associated
+  functions and methods — each a link with its declaration on one line and its
+  abstract under it.
+- **Relationships**: the traits a type implements.
+
+Every item has a page, and so does every member: `reference/rust` lists the
+crates, `reference/rust/devpage_core/answer` is a module,
+`…/answer/Answers` a structure and `…/answer/Answers/path` its method. A
+Topics entry for `reference/rust` in the site's sidebar opens the reference's
+tree: its crates, and under each module its modules and types.
 
 A doc comment reads as the page's Markdown: its headings go below the page's
 own, an unlabelled code block is Rust with rustdoc's hidden `# ` lines left
 out, and rustdoc's links to names show as the name. An item a `pub use` makes
 public in another module has its page there; its address where it is declared
-leads to the same page.
+leads to the same page. An item marked `#[cfg(test)]` or `#[doc(hidden)]` has
+none, nor does anything inside it.
 
 Nothing is on disk at these addresses. A real file there wins, as anywhere in
 the served folder.
 
 ## Linking to code
 
-Link to a page or a section like to any page of the site:
+Link to a page like to any page of the site:
 
 ```markdown
-[`Answers::path`](../reference/rust/devpage_core/answer/Answers#path)
+[`Answers::path`](../reference/rust/devpage_core/answer/Answers/path)
 ```
 
 [`devpage check`](../checking-links/README.md) and the preview check it: a
 name the code no longer has is `broken link … — no such code; did you mean …?`,
-with the closest page, and a member the item doesn't have is
+with the closest page, and a `#fragment` the page doesn't have is
 `broken link … — no section #…`. A rename in the code fails the check of every
 page that still links to the old name. A Topics entry can list a page of the
-reference: it opens like a document, with no children in the sidebar.
+reference.
 
 ## Adding prose
 

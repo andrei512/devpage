@@ -1,20 +1,23 @@
-//! Render: a reference page as Markdown, which the page pipeline then shows
-//! in its site's frame like any page of the site. A namespace's page lists
-//! its crates; a module's lists its items by kind; a type's shows its
-//! declaration, its doc, the prose that adds to it, and a section for each
-//! field, variant and method.
+//! Render: a reference page as Markdown, laid out as DocC lays out a symbol
+//! page, which the page pipeline then shows in its site's frame like any page
+//! of the site. Every page opens with where it is, its kind, its name and its
+//! abstract; then its declaration, the rest of its doc as an overview, the
+//! prose that adds to it, its Topics — what it holds, grouped by kind, each a
+//! link with its abstract — and its relationships.
+
+use std::path::Path;
 
 use super::{Index, Member, Prose, Target, Targets};
+use crate::html::escape;
 
-/// The heading a page gives each kind of item listed on a module's page,
-/// in the order they are listed.
-const GROUPS: [(&str, &str); 10] = [
+/// The Topics groups of a module's page, in order: a kind and its heading.
+const ITEMS: [(&str, &str); 10] = [
     ("module", "Modules"),
-    ("struct", "Structs"),
-    ("enum", "Enums"),
+    ("struct", "Structures"),
+    ("enum", "Enumerations"),
     ("union", "Unions"),
     ("trait", "Traits"),
-    ("type", "Type aliases"),
+    ("type", "Type Aliases"),
     ("function", "Functions"),
     ("constant", "Constants"),
     ("static", "Statics"),
@@ -23,7 +26,11 @@ const GROUPS: [(&str, &str); 10] = [
 
 /// The page of a namespace: every crate it holds.
 pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
-    let mut out = format!("# {} reference\n\n", title_case(name));
+    let mut out = format!(
+        "{}\n\n# {} reference\n\n",
+        eyebrow("Reference"),
+        title_case(name)
+    );
     let crates: Vec<&Target> = targets
         .targets
         .values()
@@ -31,19 +38,20 @@ pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
         .collect();
     if crates.is_empty() {
         out.push_str("No code matches this namespace's `files`.\n");
+        return out;
     }
+    out.push_str("## Topics\n\n### Crates\n\n");
     for krate in crates {
-        out.push_str(&format!(
-            "- [`{}`]({}){}\n",
-            krate.path[0],
-            index.address(name, &krate.path, None),
-            summary_suffix(&krate.doc)
+        out.push_str(&topic(
+            &format!("`{}`", krate.path[0]),
+            &index.address(name, &krate.path),
+            &krate.doc,
         ));
     }
     out
 }
 
-/// The page of one target.
+/// The page of a module, a type or a function.
 pub fn target(
     index: &Index,
     namespace: &str,
@@ -52,34 +60,23 @@ pub fn target(
     prose: Option<&Prose>,
 ) -> String {
     let name = target.path.last().cloned().unwrap_or_default();
-    let mut out = format!("# {name}\n\n");
-    // Where it is: its kind, the module holding it, the file declaring it.
-    let mut place = vec![kind_label(&target.kind).to_string()];
-    if target.path.len() > 1 {
-        let parent = &target.path[..target.path.len() - 1];
-        place.push(format!(
-            "in [`{}`]({})",
-            parent.join("::"),
-            index.address(namespace, parent, None)
-        ));
-    }
-    if let Some(declared) = declared_in(index, &target.file, target.line) {
-        place.push(format!("· {declared}"));
-    }
-    out.push_str(&format!("{}\n\n", place.join(" ")));
-    if !target.signature.is_empty() && target.kind != "module" {
+    let kind = if target.path.len() == 1 {
+        "Crate"
+    } else {
+        kind_label(&target.kind)
+    };
+    let mut out = breadcrumbs(index, namespace, &target.path[..target.path.len() - 1]);
+    out.push_str(&format!("{}\n\n# {name}\n\n", eyebrow(kind)));
+    let (summary, overview) = split_doc(&target.doc);
+    out.push_str(&abstract_of(&summary));
+    if target.kind != "module" && !target.signature.is_empty() {
+        out.push_str("## Declaration\n\n");
         out.push_str(&fence(&target.signature));
     }
-    if !target.doc.is_empty() {
-        out.push_str(&doc_markdown(&target.doc));
-        out.push_str("\n\n");
-    }
-    if let Some(prose) = prose
-        && !prose.body.trim().is_empty()
-    {
-        out.push_str(prose.body.trim());
-        out.push_str("\n\n");
-    }
+    out.push_str(&declared(index, &target.file, target.line));
+    out.push_str(&overview_of(&overview, prose));
+
+    let mut topics = String::new();
     if target.kind == "module" {
         let children: Vec<&Target> = targets
             .targets
@@ -88,80 +85,256 @@ pub fn target(
                 child.path.len() == target.path.len() + 1 && child.path.starts_with(&target.path)
             })
             .collect();
-        for (kind, heading) in GROUPS {
+        for (kind, heading) in ITEMS {
             let listed: Vec<&&Target> = children.iter().filter(|c| c.kind == kind).collect();
             if listed.is_empty() {
                 continue;
             }
-            out.push_str(&format!("## {heading}\n\n"));
+            topics.push_str(&format!("### {heading}\n\n"));
             for child in listed {
-                out.push_str(&format!(
-                    "- [`{}`]({}){}\n",
-                    child.path.last().unwrap(),
-                    index.address(namespace, &child.path, None),
-                    summary_suffix(&child.doc)
+                let label = if child.kind == "module" {
+                    format!("`{}`", child.path.last().unwrap())
+                } else {
+                    format!("`{}`", short(&child.signature))
+                };
+                topics.push_str(&topic(
+                    &label,
+                    &index.address(namespace, &child.path),
+                    &child.doc,
                 ));
             }
-            out.push('\n');
         }
     }
-    for (kind, heading) in [
-        ("field", "Fields"),
-        ("variant", "Variants"),
-        ("method", "Methods"),
+    for (group, heading) in [
+        (Group::Field, "Fields"),
+        (Group::Variant, "Variants"),
+        (Group::Function, "Associated Functions"),
+        (Group::Method, "Methods"),
     ] {
-        let members: Vec<&Member> = target.members.iter().filter(|m| m.kind == kind).collect();
+        let members: Vec<&Member> = target
+            .members
+            .iter()
+            .filter(|member| group_of(member) == group)
+            .collect();
         if members.is_empty() {
             continue;
         }
-        out.push_str(&format!("## {heading}\n\n"));
+        topics.push_str(&format!("### {heading}\n\n"));
         for member in members {
-            out.push_str(&format!("### {}\n\n", member.name));
-            out.push_str(&fence(&member.signature));
-            if !member.doc.is_empty() {
-                out.push_str(&doc_markdown(&member.doc));
-                out.push_str("\n\n");
-            }
-            if member.file != target.file
-                && let Some(declared) = declared_in(index, &member.file, member.line)
-            {
-                out.push_str(&format!("{declared}\n\n"));
-            }
+            let mut path = target.path.clone();
+            path.push(member.name.clone());
+            topics.push_str(&topic(
+                &format!("`{}`", short(&member.signature)),
+                &index.address(namespace, &path),
+                &member.doc,
+            ));
         }
     }
+    if !topics.is_empty() {
+        out.push_str("## Topics\n\n");
+        out.push_str(&topics);
+    }
     if !target.implements.is_empty() {
-        out.push_str("## Implements\n\n");
-        let traits: Vec<String> = target
-            .implements
-            .iter()
-            .map(|name| format!("`{name}`"))
-            .collect();
-        out.push_str(&traits.join(", "));
-        out.push_str("\n\n");
+        out.push_str("## Relationships\n\n### Implements\n\n");
+        for name in &target.implements {
+            out.push_str(&format!("- `{name}`\n"));
+        }
+        out.push('\n');
     }
     out
 }
 
-/// The id a member's section heading gets: the one comrak gives `### name`.
-pub fn member_id(name: &str) -> String {
-    comrak::Anchorizer::new().anchorize(name)
+/// The page of a field, a variant or a method of `owner`.
+pub fn member(
+    index: &Index,
+    namespace: &str,
+    owner: &Target,
+    member: &Member,
+    prose: Option<&Prose>,
+) -> String {
+    let mut out = breadcrumbs(index, namespace, &owner.path);
+    out.push_str(&format!(
+        "{}\n\n# {}\n\n",
+        eyebrow(group_of(member).label()),
+        member.name
+    ));
+    let (summary, overview) = split_doc(&member.doc);
+    out.push_str(&abstract_of(&summary));
+    out.push_str("## Declaration\n\n");
+    out.push_str(&fence(&member.signature));
+    out.push_str(&declared(index, &member.file, member.line));
+    out.push_str(&overview_of(&overview, prose));
+    out
+}
+
+/// What a member is, as a Topics group of its type's page.
+#[derive(Clone, Copy, PartialEq)]
+enum Group {
+    Field,
+    Variant,
+    /// A function of the type that takes no `self`.
+    Function,
+    Method,
+}
+
+impl Group {
+    fn label(self) -> &'static str {
+        match self {
+            Group::Field => "Field",
+            Group::Variant => "Variant",
+            Group::Function => "Associated Function",
+            Group::Method => "Method",
+        }
+    }
+}
+
+fn group_of(member: &Member) -> Group {
+    match member.kind.as_str() {
+        "field" => Group::Field,
+        "variant" => Group::Variant,
+        _ if takes_self(&member.signature) => Group::Method,
+        _ => Group::Function,
+    }
+}
+
+/// Whether a function's first parameter is `self`: `self`, `&self`,
+/// `&'a mut self`, `mut self: Box<Self>`.
+fn takes_self(signature: &str) -> bool {
+    let Some(open) = signature.find('(') else {
+        return false;
+    };
+    let mut first = signature[open + 1..].trim_start();
+    first = first.strip_prefix('&').unwrap_or(first).trim_start();
+    if first.starts_with('\'') {
+        first = first
+            .trim_start_matches(|c: char| c == '\'' || c.is_alphanumeric() || c == '_')
+            .trim_start();
+    }
+    first = first.strip_prefix("mut ").unwrap_or(first).trim_start();
+    first
+        .strip_prefix("self")
+        .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
+}
+
+/// A link back up the path: the namespace, then each module.
+fn breadcrumbs(index: &Index, namespace: &str, path: &[String]) -> String {
+    let mut links = vec![format!(
+        r#"<a href="{}">{}</a>"#,
+        escape(&index.address(namespace, &[])),
+        escape(&title_case(namespace))
+    )];
+    for at in 1..=path.len() {
+        links.push(format!(
+            r#"<a href="{}">{}</a>"#,
+            escape(&index.address(namespace, &path[..at])),
+            escape(&path[at - 1])
+        ));
+    }
+    format!(
+        "<nav class=\"code-breadcrumbs\">{}</nav>\n\n",
+        links.join(" › ")
+    )
+}
+
+fn eyebrow(kind: &str) -> String {
+    format!("<p class=\"code-eyebrow\">{}</p>", escape(kind))
+}
+
+/// The abstract under the title, larger than the text.
+fn abstract_of(summary: &str) -> String {
+    if summary.is_empty() {
+        return "<div class=\"code-abstract code-undocumented\">\n\nNo overview available.\n\n</div>\n\n"
+            .to_string();
+    }
+    format!("<div class=\"code-abstract\">\n\n{summary}\n\n</div>\n\n")
+}
+
+/// The rest of the doc, and the prose that adds to it, under Overview.
+fn overview_of(overview: &str, prose: Option<&Prose>) -> String {
+    let prose = prose.map(|prose| prose.body.trim()).unwrap_or("");
+    if overview.is_empty() && prose.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from("## Overview\n\n");
+    for part in [overview, prose] {
+        if !part.is_empty() {
+            out.push_str(part);
+            out.push_str("\n\n");
+        }
+    }
+    out
 }
 
 /// "Declared in `file`, line n", linking the file as the served folder
 /// serves it.
-fn declared_in(index: &Index, file: &std::path::Path, line: usize) -> Option<String> {
-    let (address, name) = index.source(file)?;
-    Some(format!("Declared in [{name}]({address}), line {line}"))
+fn declared(index: &Index, file: &Path, line: usize) -> String {
+    match index.source(file) {
+        Some((address, name)) => format!(
+            "<div class=\"code-declared\">\n\nDeclared in [{name}]({address}), line {line}\n\n</div>\n\n"
+        ),
+        None => String::new(),
+    }
+}
+
+/// One entry of a Topics group: its label linked, its abstract under it.
+fn topic(label: &str, address: &str, doc: &str) -> String {
+    let (summary, _) = split_doc(doc);
+    let summary = summary.split("\n").collect::<Vec<_>>().join(" ");
+    if summary.is_empty() {
+        format!("<div class=\"code-topic\">\n\n[{label}]({address})\n\n</div>\n\n")
+    } else {
+        format!("<div class=\"code-topic\">\n\n[{label}]({address})\n\n{summary}\n\n</div>\n\n")
+    }
+}
+
+/// A declaration on one line, without its visibility: what a Topics entry
+/// shows.
+fn short(signature: &str) -> String {
+    let line = signature.split_whitespace().collect::<Vec<_>>().join(" ");
+    let line = line
+        .replace("( ", "(")
+        .replace(" )", ")")
+        .replace(",)", ")");
+    match line.strip_prefix("pub") {
+        Some(rest) if rest.starts_with(' ') => rest.trim_start().to_string(),
+        Some(rest) if rest.starts_with('(') => match rest.find(')') {
+            Some(close) => rest[close + 1..].trim_start().to_string(),
+            None => line.clone(),
+        },
+        _ => line.clone(),
+    }
+}
+
+/// A doc comment as its abstract — its first paragraph — and the rest, both
+/// as page Markdown. A doc opening with a heading or code has no abstract.
+fn split_doc(doc: &str) -> (String, String) {
+    let markdown = doc_markdown(doc);
+    let mut lines = markdown.lines();
+    let mut summary = Vec::new();
+    for line in lines.by_ref() {
+        if line.trim().is_empty() {
+            if summary.is_empty() {
+                continue;
+            }
+            break;
+        }
+        if summary.is_empty() && (line.starts_with('#') || line.trim_start().starts_with("```")) {
+            return (String::new(), markdown.trim().to_string());
+        }
+        summary.push(line);
+    }
+    let rest: Vec<&str> = lines.collect();
+    (summary.join("\n"), rest.join("\n").trim().to_string())
 }
 
 fn kind_label(kind: &str) -> &str {
     match kind {
         "module" => "Module",
-        "struct" => "Struct",
-        "enum" => "Enum",
+        "struct" => "Structure",
+        "enum" => "Enumeration",
         "union" => "Union",
         "trait" => "Trait",
-        "type" => "Type alias",
+        "type" => "Type Alias",
         "function" => "Function",
         "constant" => "Constant",
         "static" => "Static",
@@ -192,24 +365,6 @@ fn longest_run(text: &str, c: char) -> usize {
         longest = longest.max(run);
     }
     longest
-}
-
-/// ` — ` and the first sentence of `doc`, for a list entry; nothing for an
-/// undocumented item.
-fn summary_suffix(doc: &str) -> String {
-    let first: Vec<&str> = doc
-        .lines()
-        .take_while(|line| !line.trim().is_empty())
-        .collect();
-    let paragraph = first.join(" ");
-    if paragraph.is_empty() || paragraph.starts_with('#') || paragraph.starts_with("```") {
-        return String::new();
-    }
-    let sentence = match paragraph.find(". ") {
-        Some(at) => &paragraph[..=at],
-        None => paragraph.as_str(),
-    };
-    format!(" — {}", intra_doc_links(sentence.trim()))
 }
 
 /// A doc comment as page Markdown: its headings below the page's own, an
@@ -306,26 +461,40 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_doc_splits_into_its_abstract_and_the_rest() {
+        assert_eq!(
+            split_doc("Holds entries.\nTwo lines.\n\n# Use\n\nMore."),
+            (
+                "Holds entries.\nTwo lines.".to_string(),
+                "### Use\n\nMore.".to_string()
+            )
+        );
+        assert_eq!(split_doc("```\nx\n```").0, "");
+    }
+
+    #[test]
+    fn a_topic_shows_a_declaration_on_one_line_without_its_visibility() {
+        assert_eq!(
+            short("pub fn new(\n    folder: &'a Folder,\n    comments: bool,\n) -> Self"),
+            "fn new(folder: &'a Folder, comments: bool) -> Self"
+        );
+        assert_eq!(short("pub(crate) struct Store<T>"), "struct Store<T>");
+    }
+
+    #[test]
+    fn a_function_taking_self_is_a_method() {
+        assert!(takes_self("pub fn read(&self) -> u8"));
+        assert!(takes_self("fn take(mut self)"));
+        assert!(takes_self("fn get(&'a mut self)"));
+        assert!(!takes_self("pub fn new(folder: Folder) -> Self"));
+    }
+
+    #[test]
     fn a_doc_comment_reads_as_page_markdown() {
         let doc = "Reads [`Store`] from [`crate::a::B`](crate::a::B).\n\n# Examples\n\n```\n# use x::y;\nlet a = 1;\n```\n\n```text\n# kept\n```";
         assert_eq!(
             doc_markdown(doc),
             "Reads `Store` from `crate::a::B`.\n\n### Examples\n\n```rust\nlet a = 1;\n```\n\n```text\n# kept\n```"
         );
-    }
-
-    #[test]
-    fn a_list_entry_takes_the_docs_first_sentence() {
-        assert_eq!(
-            summary_suffix("Holds entries. More here.\nAnd here.\n\nLater."),
-            " — Holds entries."
-        );
-        assert_eq!(summary_suffix(""), "");
-    }
-
-    #[test]
-    fn a_member_id_is_the_id_its_heading_gets() {
-        assert_eq!(member_id("from_str"), "from_str");
-        assert_eq!(member_id("Read"), "read");
     }
 }

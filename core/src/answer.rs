@@ -736,7 +736,13 @@ mod tests {
         assert!(store.contains("<title>Store · Docs</title>"), "{store}");
         assert!(store.contains(r#"class="document-title""#), "{store}");
         assert!(store.contains("Holds entries."), "{store}");
-        assert!(store.contains(r#"id="read""#), "{store}");
+        assert!(store.contains("Structure"), "{store}");
+        assert!(
+            store.contains(r#"href="/docs/reference/rust/my_lib/Store/read""#),
+            "{store}"
+        );
+        let read = html(answers.path("docs/reference/rust/my_lib/Store/read", None));
+        assert!(read.contains("Reads one."), "{read}");
         assert!(store.contains(r#"href="/lib/src/lib.rs""#), "{store}");
         let crates = html(answers.path("docs/reference/rust", None));
         assert!(

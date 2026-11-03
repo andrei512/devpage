@@ -128,6 +128,11 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                 paths.push(None);
                 continue;
             };
+            // Hidden, and everything inside it.
+            if declaration.hidden {
+                paths.push(None);
+                continue;
+            }
             match parent {
                 // Inside a function's body: local, not part of the module.
                 Some(parent) if parent.kind == "function" => paths.push(None),

@@ -272,6 +272,21 @@ table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-weight: 600; }
 
+/* A code reference page, laid out as DocC lays out a symbol: where it is,
+   its kind above its name, its abstract as the lead, and Topics entries that
+   are a declaration with its abstract under it. */
+.code-breadcrumbs { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
+.code-breadcrumbs a { color: var(--muted); }
+.code-eyebrow { font-size: 17px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
+.code-abstract p { font-size: 21px; line-height: 1.45; margin: 0 0 32px; }
+.code-undocumented p { color: var(--muted); }
+.code-declared p { font-size: 13px; color: var(--muted); margin: -8px 0 20px; }
+.code-declared a { color: var(--muted); text-decoration: underline; }
+.code-topic { margin: 0 0 18px; }
+.code-topic p { margin: 0; }
+.code-topic p:first-child code { font-size: 15px; background: none; padding: 0; color: var(--accent); }
+.code-topic p + p { font-size: 15px; color: var(--muted); margin-top: 3px; }
+
 /* Diagrams: pele draws with its own variables, mapped to the theme tokens. */
 
 .diagram {
