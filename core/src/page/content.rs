@@ -26,7 +26,8 @@ pub struct Rendered {
     expanded: String,
     /// The content's HTML, links as written.
     html: String,
-    /// Every link the content holds, in the order its HTML holds them.
+    /// Every link the content holds: each `href`, then each `src` and
+    /// extension embed, then each other design the Markdown embeds.
     links: Vec<Link>,
     /// What the content draws from other files, as written.
     embeds: Vec<String>,
@@ -85,7 +86,8 @@ impl Rendered {
         super::markdown::heading_ids(&self.html)
     }
 
-    /// Every link the content holds, in the order its HTML holds them.
+    /// Every link the content holds: each `href`, then each `src` and
+    /// extension embed, then each other design the Markdown embeds.
     pub fn links(&self) -> &[Link] {
         &self.links
     }

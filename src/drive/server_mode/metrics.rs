@@ -95,9 +95,8 @@ const BOUNDS: [f64; 14] = [
 #[derive(Default)]
 struct Histogram {
     /// How many times fell in each bucket of [`BOUNDS`], not cumulative: each
-    /// time
-    /// is in the first bucket whose bound holds it, and one over the last in
-    /// none.
+    /// time is in the first bucket whose bound holds it, and one over the last
+    /// in none.
     buckets: [AtomicU64; BOUNDS.len()],
     /// How many times were counted.
     count: AtomicU64,

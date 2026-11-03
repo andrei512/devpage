@@ -35,7 +35,7 @@ const CACHE_BYTES: usize = 64 * 1024 * 1024;
 /// Slide `n` of a deck, as drawn.
 #[derive(Clone)]
 pub struct Shot {
-    /// The PNG's bytes.
+    /// The PNG's bytes, as Chrome captured the slide; cheap to clone.
     pub png: axum::body::Bytes,
     /// A validator for the picture, so a repeat request is a 304.
     pub etag: String,
@@ -51,8 +51,8 @@ pub struct Shots(Arc<Inner>);
 /// What a server's slide PNGs share: the Chrome session, the turns to draw,
 /// the kept shots and the ones being drawn.
 struct Inner {
-    /// The Chrome session that draws the shots; `None` before the first, and once
-    /// it closed idle.
+    /// The Chrome session that draws the shots; `None` before the first, and
+    /// once it was closed, idle or by [`Shots::close`].
     session: tokio::sync::Mutex<Option<Arc<Session>>>,
     /// One permit per shot drawn at once: [`AT_ONCE`].
     turns: Semaphore,
@@ -67,7 +67,7 @@ struct Inner {
 /// What a slide's PNG is kept with: the picture and the files its deck was
 /// drawn from.
 struct Kept {
-    /// The picture.
+    /// The picture, with its etag and whether the slide was ready.
     shot: Shot,
     /// The files its deck was drawn from: a change to one forgets it.
     files: Vec<PathBuf>,
@@ -291,8 +291,8 @@ async fn close(session: Arc<Session>) {
 }
 
 impl Cache {
-    /// Keeps `kept` under `key`, in place of any shot there, then lets the oldest go
-    /// until the PNGs fit in [`CACHE_BYTES`].
+    /// Keeps `kept` under `key`, in place of any shot there, then lets the
+    /// oldest go until the PNGs fit in [`CACHE_BYTES`].
     fn insert(&mut self, key: (String, usize), kept: Kept) {
         self.remove(&key);
         self.bytes += kept.shot.png.len();

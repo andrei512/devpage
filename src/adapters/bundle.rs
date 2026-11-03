@@ -14,7 +14,7 @@ use devpage_core::folder::{Folder, slashed};
 /// A document zipped: the bytes, the document file's path inside the zip,
 /// and every path the zip holds.
 pub struct Bundle {
-    /// The zip's bytes.
+    /// The zip's bytes, whole in memory, as a publish uploads them.
     pub zip: Vec<u8>,
     /// The document file's path inside the zip, with `/`.
     pub entry: String,

@@ -61,7 +61,8 @@ pub struct Publish<'a> {
     pub entry: &'a str,
     /// The document's kind: `site`, `doc`…
     pub kind: &'a str,
-    /// The document's title.
+    /// The document's title: what the list shows and a download is named
+    /// after.
     pub title: &'a str,
     /// Who publishes it.
     pub author: &'a str,
@@ -495,7 +496,7 @@ fn add_message(connection: &Connection, document: &str, id: &str, message: &Mess
 /// The store's connection, held for one use of it: timed from asking for
 /// its lock until it is let go.
 struct Held<'a> {
-    /// The connection, locked.
+    /// The store's one connection, locked from other uses until dropped.
     connection: MutexGuard<'a, Connection>,
     /// When its lock was asked for.
     start: Instant,
@@ -528,7 +529,8 @@ impl Drop for Held<'_> {
 pub struct DocumentThreads {
     /// The store holding them.
     pub store: Arc<Sqlite>,
-    /// The document's id.
+    /// The id of the document whose threads they are — the `document` column
+    /// every row it reads and writes is keyed by.
     pub document: String,
     /// The version a thread started here is on.
     pub version: u64,

@@ -75,7 +75,8 @@ struct State {
     /// The instance's id: the first 16 hex digits of the SHA-256 of the
     /// document's path, `id` and `configuration`.
     owner: String,
-    /// The package, loaded.
+    /// The package, loaded by the installed [`Loader`]; each request names
+    /// this binding by `owner`.
     package: Arc<dyn Package>,
     /// The served folder its input and the files it shows must lie in.
     scope: ServedFolder,
@@ -89,8 +90,8 @@ struct State {
     browser: Arc<Browser>,
     /// What the package named its last preparation — empty before the first.
     revision: String,
-    /// Why the last preparation failed — `None` when it didn't. While set,
-    /// every call fails.
+    /// Why the last preparation failed — `None` when it didn't, or when the
+    /// reply only lacked a revision. While set, every call fails.
     error: Option<String>,
     /// The input last prepared from: each file's contents, by its name in the
     /// served folder.
@@ -170,8 +171,10 @@ impl Binding {
             .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(ext)))
     }
     /// Whether a new revision was prepared: the input is read again, and the
-    /// package prepares from it only when it changed. A failure is kept, and
-    /// fails every call until a preparation succeeds.
+    /// package prepares from it unless it is unchanged, the last preparation
+    /// succeeded and a revision is held. A failure to read or prepare is kept,
+    /// and fails every call until a preparation succeeds; a reply without a
+    /// revision fails only this preparation.
     pub fn prepare(&self) -> Result<bool> {
         let mut s = self.0.lock().unwrap();
         let mut sources = BTreeMap::new();

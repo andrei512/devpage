@@ -169,7 +169,8 @@ pub struct Hit {
 
 /// One scene node's own commands, in its own coordinates, and their index.
 pub struct Chunk {
-    /// Its node's transform node.
+    /// Its node's transform node, which every clip and effect it opens is
+    /// under.
     pub transform: Id,
     /// The space its coordinates are in: the design's, or a run child's.
     pub space: Space,

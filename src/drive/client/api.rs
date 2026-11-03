@@ -24,7 +24,7 @@ pub struct Api {
 pub struct Refused {
     /// What was asked, as the error names it.
     pub what: String,
-    /// The server asked.
+    /// The server asked, by its base URL without a trailing `/`.
     pub server: String,
     /// How the server refused it.
     pub refusal: Refusal,
@@ -77,7 +77,8 @@ impl Api {
         format!("{}{path}", self.server)
     }
 
-    /// A `method` request for `path` on this server, with the token when there is one.
+    /// A `method` request for `path` on this server, with the token when there
+    /// is one.
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         let request = self.http.request(method, self.link(path));
         match &self.token {
@@ -110,7 +111,8 @@ impl Api {
         .into())
     }
 
-    /// `path`'s answer to a `GET`, read as JSON; `what` names the request in any error.
+    /// `path`'s answer to a `GET`, read as JSON; `what` names the request in
+    /// any error.
     async fn json<T: for<'de> Deserialize<'de>>(&self, path: &str, what: &str) -> Result<T> {
         let response = self.send(self.request(Method::GET, path), what).await?;
         let bytes = response.bytes().await?;

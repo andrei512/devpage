@@ -59,7 +59,8 @@ pub(super) struct Fields {
     pub(super) prose: Field,
     /// The section's code, each identifier whole and in its parts, for matching.
     pub(super) code: Field,
-    /// The section's code as written; stored only.
+    /// The section's code, whitespace squeezed, for spelling out the words a
+    /// result matched; stored only.
     pub(super) code_text: Field,
     /// A slide's speaker notes, ranked.
     pub(super) notes: Field,
@@ -71,8 +72,8 @@ pub(super) struct Fields {
     pub(super) heading_words: Field,
     /// The section's prose unstemmed, for near and prefix matches.
     pub(super) prose_words: Field,
-    /// The page's kept words as one term, stemmed and as typed: what a query naming
-    /// the whole title matches.
+    /// The page's kept words as one term, stemmed and as typed: what a query
+    /// naming the whole title matches.
     pub(super) title_exact: Field,
     /// The section's kept words as one term, stemmed and as typed: what a query
     /// naming the whole heading matches.
@@ -105,9 +106,10 @@ pub(super) struct Entry<'a> {
     pub(super) depth: u8,
     /// Its place on its page, from 0.
     pub(super) order: usize,
-    /// The section's prose.
+    /// The section's prose, whitespace squeezed: a slide's headings and text
+    /// together; a code page's doc comment and the prose that adds to it.
     pub(super) prose: &'a str,
-    /// The section's code, as written.
+    /// The section's code, whitespace squeezed; a code page's declaration.
     pub(super) code: &'a str,
     /// A slide's speaker notes; empty for any other page.
     pub(super) notes: &'a str,
@@ -482,7 +484,9 @@ impl Search {
                 continue;
             }
             writer.delete_term(Term::from_field_text(self.fields.page, &found.url));
-            let prose = squeeze(&found.prose);
+            // Its doc as its page reads it: Markdown as text, code fences
+            // as code.
+            let prose = squeeze(&strip_tags(&crate::page::markdown::markdown(&found.prose)));
             let page = Page {
                 title: found.title.clone(),
                 url: found.url.clone(),
@@ -521,8 +525,8 @@ impl Search {
         *known = now;
     }
 
-    /// Adds `entry` as one tantivy document through `writer`, its fields filled and
-    /// its place in reading order set.
+    /// Adds `entry` as one tantivy document through `writer`, its fields filled
+    /// and its place in reading order set.
     pub(super) fn add_entry(&self, writer: &IndexWriter, entry: Entry) {
         let fields = self.fields;
         let schema = writer.index().schema();

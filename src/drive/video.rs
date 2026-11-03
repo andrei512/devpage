@@ -22,9 +22,10 @@ use silence::{RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
 const RECORDER: &str = include_str!("../../assets/video.js");
-/// The size of the recording, and of the page it captures.
+/// The width of the recording and of the page it captures, in pixels: the
+/// window is grown until the page reads it.
 const WIDTH: i64 = 1920;
-/// The height of the recording and of the page it captures, in pixels.
+/// The height to match [`WIDTH`]: a 16:9 frame, 1080p.
 const HEIGHT: i64 = 1080;
 /// How often new voice is handed to the player while a slide plays.
 const PUSH_EVERY: Duration = Duration::from_millis(100);

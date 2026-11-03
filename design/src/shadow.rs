@@ -1066,10 +1066,10 @@ mod tests {
         }
     }
 
-    /// A random outline that fits the test's 360 × 220 area with its blur,
-    /// and one image of its shadow's samples, and its σ, from `seed`: a box with square, sampled, nearly-disc,
-    /// pill-round or random corners — all alike or each its own — or an
-    /// ellipse, blurred by σ from half a pixel to six.
+    /// A random outline that fits the test's 360 × 220 area with its blur, and
+    /// one image of its shadow's samples, and its σ, from `seed`: a box with
+    /// square, sampled, nearly-disc, pill-round or random corners — all alike
+    /// or each its own — or an ellipse, blurred by σ from half a pixel to six.
     fn random(seed: &mut u64) -> (Outline, f64) {
         let mut next = || {
             *seed = seed

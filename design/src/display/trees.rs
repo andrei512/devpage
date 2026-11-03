@@ -128,8 +128,8 @@ impl<T> Arena<T> {
 pub struct Trees {
     /// Each scene node's place.
     pub transforms: Arena<Transform>,
-    /// The clipping shapes.
+    /// Every clipping shape, each in its transform node's coordinates.
     pub clips: Arena<Clip>,
-    /// The layers.
+    /// Every layer: its blend, its bound and the clip it is drawn inside.
     pub effects: Arena<Effect>,
 }

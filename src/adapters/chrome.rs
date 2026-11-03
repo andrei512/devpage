@@ -205,7 +205,7 @@ impl Drop for Launched {
 /// One Chrome, and the router its tabs load pages from, served on a free
 /// port on `127.0.0.1`. Dropped, Chrome is killed and the router stops.
 pub(crate) struct Session {
-    /// The running Chrome.
+    /// The running Chrome, killed when the session is dropped.
     chrome: Launched,
     /// The task serving the router.
     server: JoinHandle<()>,

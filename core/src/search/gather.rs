@@ -48,7 +48,8 @@ pub(super) struct Unit {
 /// The document a page's content is rendered by, and its widgets folder.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Shown {
-    /// The document file.
+    /// The document file, which the widgets its pages are rendered with are
+    /// loaded by, once a pass.
     pub(super) file: PathBuf,
     /// Its project widgets folder; `None` when it has none.
     pub(super) widgets: Option<PathBuf>,
@@ -289,7 +290,8 @@ pub(super) struct Section {
 
 /// A Markdown file read for search: its sections and its first paragraph.
 pub(super) struct Read {
-    /// Its sections in order, the one before the first heading first.
+    /// Its sections in order, the one before the first heading first — left
+    /// out when it has no text.
     pub(super) sections: Vec<Section>,
     /// Its first paragraph's text, squeezed; empty when it has none.
     pub(super) lede: String,
@@ -429,8 +431,8 @@ struct Walk<'p, 'a> {
 }
 
 impl Walk<'_, '_> {
-    /// Whether `file` is in sight: not inside `.git` or `.devpage`, nor
-    /// excluded by a `.gitignore`.
+    /// Whether `file` is in sight: in the served folder, not inside `.git` or
+    /// `.devpage`, nor excluded by a `.gitignore`.
     fn in_sight(&self, file: &Path) -> bool {
         !self.pass.folder.ignored(file, false)
     }

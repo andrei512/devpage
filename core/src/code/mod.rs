@@ -14,8 +14,8 @@
 //! ```
 //!
 //! Each file is parsed by its namespace's grammar and query ([`extract`]),
-//! every file's declarations are linked into targets ([`rust`]), and a
-//! target's page is rendered on request ([`render`]) at
+//! every file's declarations are linked into items ([`rust`]), and a
+//! item's page is rendered on request ([`render`]) at
 //! `<site folder>/reference/<namespace>/<path>`. A save re-parses that one
 //! file and links again in memory; nothing is cached on disk.
 
@@ -31,14 +31,14 @@ use anyhow::{Context, Result, bail};
 use globset::{GlobSet, GlobSetBuilder};
 use serde::Deserialize;
 
-use crate::folder::{ServedFolder, lexical, slashed};
+use crate::folder::{ServedFolder, lexical};
 
 pub use extract::{Declaration, Extracted, Grammar, Visibility};
 
 /// One thing of the code, after every file is linked: a module, a type, a
 /// function — what a reference page is about.
 #[derive(Debug, Clone, Default)]
-pub struct Target {
+pub struct Item {
     /// Its path as the language names it: crate, modules, item.
     pub path: Vec<String>,
     /// What it is, as the query names it: `module`, `struct`, `function`….
@@ -59,10 +59,11 @@ pub struct Target {
     pub implements: Vec<String>,
 }
 
-/// A part of a target shown on its page: a field, a variant, a method.
+/// A part of an item shown on its page: a field, a variant, a method.
 #[derive(Debug, Clone)]
 pub struct Member {
-    /// Its name.
+    /// Its name as declared: the last part of its id,
+    /// `namespace:path::name`.
     pub name: String,
     /// What it is: `field`, `variant`, `method`….
     pub kind: String,
@@ -78,13 +79,13 @@ pub struct Member {
     pub public: bool,
 }
 
-/// Every target of a namespace, by path, and the paths `pub use` makes
+/// Every item of a namespace, by path, and the paths `pub use` makes
 /// another name for.
 #[derive(Debug, Default)]
-pub struct Targets {
-    /// Every target, by its path.
-    pub targets: BTreeMap<Vec<String>, Target>,
-    /// Each other name a `pub use` gives a target, to the path it stands for.
+pub struct Items {
+    /// Every item, by its path.
+    pub items: BTreeMap<Vec<String>, Item>,
+    /// Each other name a `pub use` gives an item, to the path it stands for.
     pub aliases: BTreeMap<Vec<String>, Vec<String>>,
 }
 
@@ -109,7 +110,7 @@ struct NamespaceConfig {
     private: bool,
 }
 
-/// One namespace: its files, its parser and the targets they make now.
+/// One namespace: its files, its parser and the items they make now.
 struct Namespace {
     /// Its name in the configuration, and in its pages' addresses.
     name: String,
@@ -128,8 +129,11 @@ struct Namespace {
     private: bool,
     /// Each of its files' declarations, by path.
     files: Mutex<BTreeMap<PathBuf, Arc<Extracted>>>,
-    /// Its targets, as its files were last linked.
-    targets: RwLock<Arc<Targets>>,
+    /// Its items, as its files were last linked.
+    items: RwLock<Arc<Items>>,
+    /// Why its query file, saved while devpage runs, doesn't compile: its
+    /// line and the error. `None` while the query in use is the file's.
+    query_error: RwLock<Option<(usize, String)>>,
 }
 
 /// The code reference of one site.
@@ -142,16 +146,21 @@ pub struct Index {
     configuration: String,
     /// Its namespaces, in the order of their names.
     namespaces: Vec<Namespace>,
-    /// Markdown that adds to a target's page, by `namespace:path`.
+    /// Markdown that adds to an item's page, by `namespace:path`.
     prose: RwLock<BTreeMap<String, Prose>>,
+    /// Prose files for an id another prose file already adds to: each with
+    /// its id and the file that adds to it first.
+    twice: RwLock<Vec<(Prose, String, PathBuf)>>,
 }
 
 /// A Markdown file headed ``# ``rust:path`` ``: what it adds to that
-/// target's page.
+/// item's page.
 #[derive(Debug, Clone)]
 pub struct Prose {
-    /// The Markdown file.
+    /// The Markdown file it is read from.
     pub file: PathBuf,
+    /// The line of its heading, from 1.
+    pub line: usize,
     /// What follows its heading.
     pub body: String,
 }
@@ -185,6 +194,9 @@ pub fn configure(
         return Ok(());
     }
     let Config(namespaces) = serde_yaml::from_value(config.clone()).context("extensions: code")?;
+    if namespaces.is_empty() {
+        bail!("extensions: code: config lists no namespaces");
+    }
     let mut built = Vec::new();
     for (name, namespace) in namespaces {
         built.push(
@@ -198,6 +210,7 @@ pub fn configure(
         configuration,
         namespaces: built,
         prose: RwLock::default(),
+        twice: RwLock::default(),
     };
     for namespace in &index.namespaces {
         namespace.parse_all();
@@ -294,7 +307,7 @@ impl Namespace {
             if !served.contains(&absolute) {
                 bail!("files {pattern} is outside the served folder");
             }
-            let text = slashed(&absolute);
+            let text = glob_path(&absolute);
             patterns.add(
                 globset::GlobBuilder::new(&text)
                     .literal_separator(true)
@@ -312,13 +325,14 @@ impl Namespace {
             query: query_file,
             private: config.private,
             files: Mutex::default(),
-            targets: RwLock::default(),
+            items: RwLock::default(),
+            query_error: RwLock::default(),
         })
     }
 
     /// Whether `file` is one of the namespace's files.
     fn includes(&self, file: &Path) -> bool {
-        self.patterns.is_match(slashed(file))
+        self.patterns.is_match(glob_path(file))
     }
 
     /// Every file of the namespace parsed, across the machine's cores, then
@@ -326,7 +340,10 @@ impl Namespace {
     fn parse_all(&self) {
         let mut found = Vec::new();
         for root in &self.roots {
-            let walk = ignore::WalkBuilder::new(root).hidden(true).build();
+            let walk = ignore::WalkBuilder::new(root)
+                .hidden(true)
+                .require_git(false)
+                .build();
             for entry in walk.flatten() {
                 let path = entry.path();
                 if entry.file_type().is_some_and(|t| t.is_file()) && self.includes(path) {
@@ -364,7 +381,7 @@ impl Namespace {
         self.link();
     }
 
-    /// Every file's declarations linked into targets.
+    /// Every file's declarations linked into items.
     fn link(&self) {
         let files = self.files.lock().unwrap().clone();
         let mut crates = HashMap::new();
@@ -377,13 +394,13 @@ impl Namespace {
                 ))
             })
             .collect();
-        let targets = rust::link(&units, self.private);
-        *self.targets.write().unwrap() = Arc::new(targets);
+        let items = rust::link(&units, self.private);
+        *self.items.write().unwrap() = Arc::new(items);
     }
 
-    /// The targets now.
-    fn targets(&self) -> Arc<Targets> {
-        self.targets.read().unwrap().clone()
+    /// The items now.
+    fn items(&self) -> Arc<Items> {
+        self.items.read().unwrap().clone()
     }
 }
 
@@ -408,6 +425,12 @@ fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
         Some(file) => error.context(format!("query {}", file.display())),
         None => error,
     })
+}
+
+/// An absolute path as a glob pattern matches it: `/` between its parts on
+/// every platform.
+fn glob_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
 }
 
 /// The part of an absolute pattern before its first glob character: the
@@ -447,9 +470,9 @@ const NAVIGATED: [&str; 7] = [
 pub enum Page {
     /// A namespace's root: every crate it holds.
     Namespace(usize),
-    /// A target, by its path.
-    Target(usize, Vec<String>),
-    /// A member of the target at the path, by its index.
+    /// An item, by its path.
+    Item(usize, Vec<String>),
+    /// A member of the item at the path, by its index.
     Member(usize, Vec<String>, usize),
 }
 
@@ -460,7 +483,7 @@ impl Index {
     }
 
     /// The page at `path` — a lexical path in the served folder — if it is
-    /// one of the reference's. An alias names the target it stands for.
+    /// one of the reference's. An alias names the item it stands for.
     pub fn page(&self, path: &Path) -> Option<Page> {
         let relative = path.strip_prefix(self.reference()).ok()?;
         let mut parts = relative
@@ -472,20 +495,16 @@ impl Index {
         if segments.is_empty() {
             return Some(Page::Namespace(at));
         }
-        let targets = self.namespaces[at].targets();
-        let segments = targets.aliases.get(&segments).cloned().unwrap_or(segments);
-        if targets.targets.contains_key(&segments) {
-            return Some(Page::Target(at, segments));
+        let items = self.namespaces[at].items();
+        let segments = items.aliases.get(&segments).cloned().unwrap_or(segments);
+        if items.items.contains_key(&segments) {
+            return Some(Page::Item(at, segments));
         }
         // A member's page is under its type's: `Store/read`.
         let (name, owner) = segments.split_last()?;
-        let owner = targets
-            .aliases
-            .get(owner)
-            .cloned()
-            .unwrap_or(owner.to_vec());
-        let member = targets
-            .targets
+        let owner = items.aliases.get(owner).cloned().unwrap_or(owner.to_vec());
+        let member = items
+            .items
             .get(&owner)?
             .members
             .iter()
@@ -499,24 +518,24 @@ impl Index {
         match page {
             Page::Namespace(at) => {
                 let namespace = &self.namespaces[*at];
-                render::namespace(self, &namespace.name, &namespace.targets())
+                render::namespace(self, &namespace.name, &namespace.items())
             }
-            Page::Target(at, path) => {
+            Page::Item(at, path) => {
                 let namespace = &self.namespaces[*at];
-                let targets = namespace.targets();
+                let items = namespace.items();
                 let id = format!("{}:{}", namespace.name, path.join("::"));
-                render::target(
+                render::item(
                     self,
                     &namespace.name,
-                    &targets,
-                    &targets.targets[path],
+                    &items,
+                    &items.items[path],
                     prose.get(&id),
                 )
             }
             Page::Member(at, path, member) => {
                 let namespace = &self.namespaces[*at];
-                let targets = namespace.targets();
-                let owner = &targets.targets[path];
+                let items = namespace.items();
+                let owner = &items.items[path];
                 let member = &owner.members[*member];
                 let id = format!("{}:{}::{}", namespace.name, path.join("::"), member.name);
                 render::member(self, &namespace.name, owner, member, prose.get(&id))
@@ -524,7 +543,8 @@ impl Index {
         }
     }
 
-    /// The address of a target's page, or a member's section on it.
+    /// The address of a page: a namespace's with no `path`, an item's, or a
+    /// member's under its type's.
     pub(crate) fn address(&self, namespace: &str, path: &[String]) -> String {
         let mut file = self.reference().join(namespace);
         for segment in path {
@@ -538,12 +558,12 @@ impl Index {
     pub fn listed(&self, page: &Page) -> PathBuf {
         let (at, mut path) = match page {
             Page::Namespace(at) => (*at, &[][..]),
-            Page::Target(at, path) | Page::Member(at, path, _) => (*at, &path[..]),
+            Page::Item(at, path) | Page::Member(at, path, _) => (*at, &path[..]),
         };
         // A function, a constant: the sidebar lists its module.
-        let targets = self.namespaces[at].targets();
-        if let Some(target) = targets.targets.get(path)
-            && !NAVIGATED.contains(&target.kind.as_str())
+        let items = self.namespaces[at].items();
+        if let Some(item) = items.items.get(path)
+            && !NAVIGATED.contains(&item.kind.as_str())
         {
             path = &path[..path.len() - 1];
         }
@@ -554,37 +574,41 @@ impl Index {
         file
     }
 
-    /// Every page of the reference as search reads it: each target's and
+    /// Every page of the reference as search reads it: each item's and
     /// each member's, in path order.
     pub fn searched(&self) -> Vec<Searched> {
         let prose = self.prose.read().unwrap();
         let mut out = Vec::new();
         for namespace in &self.namespaces {
-            let targets = namespace.targets();
+            let items = namespace.items();
             let reference = format!("{} reference", render::title_case(&namespace.name));
             let added = |path: &[String]| {
                 let id = format!("{}:{}", namespace.name, path.join("::"));
                 prose.get(&id).map(|p| p.body.clone()).unwrap_or_default()
             };
-            for (path, target) in &targets.targets {
+            for (path, item) in &items.items {
                 let mut trail = vec![reference.clone()];
                 trail.extend(path[..path.len() - 1].iter().cloned());
                 out.push(Searched {
                     url: self.address(&namespace.name, path),
                     title: path.last().cloned().unwrap_or_default(),
                     trail: trail.clone(),
-                    prose: format!("{}\n\n{}", target.doc, added(path)),
-                    code: target.signature.clone(),
+                    prose: format!("{}\n\n{}", render::doc_markdown(&item.doc), added(path)),
+                    code: item.signature.clone(),
                 });
                 trail.push(path.last().cloned().unwrap_or_default());
-                for member in &target.members {
+                for member in &item.members {
                     let mut member_path = path.clone();
                     member_path.push(member.name.clone());
                     out.push(Searched {
                         url: self.address(&namespace.name, &member_path),
                         title: member.name.clone(),
                         trail: trail.clone(),
-                        prose: format!("{}\n\n{}", member.doc, added(&member_path)),
+                        prose: format!(
+                            "{}\n\n{}",
+                            render::doc_markdown(&member.doc),
+                            added(&member_path)
+                        ),
                         code: member.signature.clone(),
                     });
                 }
@@ -603,20 +627,20 @@ impl Index {
         };
         let (at, under) = match page {
             Page::Namespace(at) => (at, Vec::new()),
-            Page::Target(at, path) => (at, path),
+            Page::Item(at, path) => (at, path),
             Page::Member(..) => return Vec::new(),
         };
         let namespace = &self.namespaces[at];
-        let targets = namespace.targets();
-        self.nav_children(&namespace.name, &targets, &under)
+        let items = namespace.items();
+        self.nav_children(&namespace.name, &items, &under)
     }
 
-    /// The sidebar's groups for the targets directly under `under`: its
+    /// The sidebar's groups for the items directly under `under`: its
     /// modules, each with its own, and its types, by kind.
     fn nav_children(
         &self,
         namespace: &str,
-        targets: &Targets,
+        items: &Items,
         under: &[String],
     ) -> Vec<crate::nav::Group> {
         const SHOWN: [(&str, &str); 7] = [
@@ -628,27 +652,27 @@ impl Index {
             ("type", "Type Aliases"),
             ("macro", "Macros"),
         ];
-        let children: Vec<&Target> = targets
-            .targets
+        let children: Vec<&Item> = items
+            .items
             .values()
-            .filter(|target| target.path.len() == under.len() + 1 && target.path.starts_with(under))
+            .filter(|item| item.path.len() == under.len() + 1 && item.path.starts_with(under))
             .collect();
         let mut groups = Vec::new();
         for (kind, title) in SHOWN {
             let entries: Vec<crate::nav::Entry> = children
                 .iter()
-                .filter(|target| target.kind == kind)
-                .map(|target| crate::nav::Entry {
-                    label: target.path.last().cloned().unwrap_or_default(),
+                .filter(|item| item.kind == kind)
+                .map(|item| crate::nav::Entry {
+                    label: item.path.last().cloned().unwrap_or_default(),
                     file: {
                         let mut file = self.reference().join(namespace);
-                        for segment in &target.path {
+                        for segment in &item.path {
                             file.push(segment);
                         }
                         file
                     },
                     children: if kind == "module" {
-                        self.nav_children(namespace, targets, &target.path)
+                        self.nav_children(namespace, items, &item.path)
                     } else {
                         Vec::new()
                     },
@@ -663,7 +687,7 @@ impl Index {
         groups
     }
 
-    /// A source file's address and its name, for a target's "declared in".
+    /// A source file's address and its name, for an item's "declared in".
     pub(crate) fn source(&self, file: &Path) -> Option<(String, String)> {
         Some((self.served.url(file)?, self.served.name(file)?))
     }
@@ -685,7 +709,7 @@ impl Index {
         path.starts_with(self.reference())
     }
 
-    /// The page nearest to `path`, which names none: the target of the same
+    /// The page nearest to `path`, which names none: the item of the same
     /// last name, else the closest path by edit distance.
     pub fn closest(&self, path: &Path) -> Option<String> {
         let relative = path.strip_prefix(self.reference()).ok()?;
@@ -696,11 +720,11 @@ impl Index {
         let namespace = self.namespaces.iter().find(|n| n.name == name)?;
         let wanted: Vec<String> = parts.collect();
         let last = wanted.last()?;
-        let targets = namespace.targets();
+        let items = namespace.items();
         let joined = wanted.join("::");
-        // Every page: each target's, and each of its members'.
-        let pages = targets.targets.iter().flat_map(|(path, target)| {
-            std::iter::once(path.clone()).chain(target.members.iter().map(move |member| {
+        // Every page: each item's, and each of its members'.
+        let pages = items.items.iter().flat_map(|(path, item)| {
+            std::iter::once(path.clone()).chain(item.members.iter().map(move |member| {
                 let mut path = path.clone();
                 path.push(member.name.clone());
                 path
@@ -721,25 +745,54 @@ impl Index {
         let mut any = false;
         for namespace in &self.namespaces {
             // A new query reads every file anew; one that doesn't compile
-            // keeps the last that did.
+            // is a problem, and the last that did keeps reading.
             if namespace
                 .query
                 .as_ref()
                 .is_some_and(|query| files.iter().any(|f| f == query))
-                && let Ok(grammar) = grammar(&namespace.language, namespace.query.as_deref())
             {
-                *namespace.grammar.write().unwrap() = Arc::new(grammar);
+                match grammar(&namespace.language, namespace.query.as_deref()) {
+                    Ok(grammar) => {
+                        *namespace.grammar.write().unwrap() = Arc::new(grammar);
+                        *namespace.query_error.write().unwrap() = None;
+                        namespace.parse_all();
+                    }
+                    Err(error) => {
+                        let message = error.root_cause().to_string();
+                        let line = message
+                            .strip_prefix("line ")
+                            .and_then(|rest| rest.split(':').next())
+                            .and_then(|line| line.parse().ok())
+                            .unwrap_or(1);
+                        let message = message
+                            .split_once(": ")
+                            .map_or(message.clone(), |(_, rest)| rest.to_string());
+                        *namespace.query_error.write().unwrap() = Some((line, message));
+                    }
+                }
+                any = true;
+                continue;
+            }
+            // A file new to the namespace walks its folders again, so a
+            // `.gitignore`d one is still left out.
+            if files.iter().any(|file| {
+                namespace.includes(file)
+                    && file.is_file()
+                    && !namespace.files.lock().unwrap().contains_key(file)
+            }) {
                 namespace.parse_all();
                 any = true;
                 continue;
             }
             let mut touched = false;
             for file in files {
-                let rs = file.extension().is_some_and(|ext| ext == "rs");
-                if !rs || !namespace.includes(file) {
+                if !namespace.includes(file) {
                     continue;
                 }
                 let mut parsed = namespace.files.lock().unwrap();
+                if !parsed.contains_key(file) {
+                    continue;
+                }
                 match std::fs::read_to_string(file) {
                     Ok(source) => {
                         let grammar = namespace.grammar.read().unwrap().clone();
@@ -767,27 +820,39 @@ impl Index {
     /// Every Markdown file of the site headed ``# ``<namespace>:<path>`` ``:
     /// whether what they add changed.
     fn read_prose(&self) -> bool {
-        let mut found = BTreeMap::new();
-        let walk = ignore::WalkBuilder::new(&self.base).hidden(true).build();
-        for entry in walk.flatten() {
-            let path = entry.path();
-            if !path.extension().is_some_and(|ext| ext == "md") {
+        let mut found: BTreeMap<String, Prose> = BTreeMap::new();
+        let mut twice = Vec::new();
+        let walk = ignore::WalkBuilder::new(&self.base)
+            .hidden(true)
+            .require_git(false)
+            .build();
+        let mut files: Vec<PathBuf> = walk
+            .flatten()
+            .map(|entry| entry.into_path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "md"))
+            .collect();
+        // In path order, so the first of two for one id is always the same.
+        files.sort();
+        for path in files {
+            let Ok(source) = std::fs::read_to_string(&path) else {
                 continue;
+            };
+            let Some((id, line, body)) = prose_of(&source) else {
+                continue;
+            };
+            let added = Prose {
+                file: path,
+                line,
+                body,
+            };
+            match found.get(&id) {
+                Some(first) => twice.push((added, id, first.file.clone())),
+                None => {
+                    found.insert(id, added);
+                }
             }
-            let Ok(source) = std::fs::read_to_string(path) else {
-                continue;
-            };
-            let Some((id, body)) = prose_of(&source) else {
-                continue;
-            };
-            found.insert(
-                id,
-                Prose {
-                    file: path.to_path_buf(),
-                    body,
-                },
-            );
         }
+        *self.twice.write().unwrap() = twice;
         let mut prose = self.prose.write().unwrap();
         let same = prose.len() == found.len()
             && prose
@@ -798,8 +863,51 @@ impl Index {
         !same
     }
 
-    /// Every prose file whose id names no target: `(file, id)`.
-    pub fn orphans(&self) -> Vec<(PathBuf, String)> {
+    /// What is wrong with the reference, for its pages to list and
+    /// `devpage check` to report: a prose file whose id names nothing, and
+    /// a query saved while devpage runs that doesn't compile.
+    pub fn problems(&self) -> Vec<crate::problem::Problem> {
+        let mut problems: Vec<crate::problem::Problem> = self
+            .orphans()
+            .into_iter()
+            .map(|(prose, id)| crate::problem::Problem {
+                file: self.served.name(&prose.file).unwrap_or_default(),
+                line: Some(prose.line),
+                column: None,
+                message: format!("``{id}`` names no code"),
+                target: None,
+            })
+            .collect();
+        for (prose, id, first) in self.twice.read().unwrap().iter() {
+            problems.push(crate::problem::Problem {
+                file: self.served.name(&prose.file).unwrap_or_default(),
+                line: Some(prose.line),
+                column: None,
+                message: format!(
+                    "``{id}`` is added to by {} already",
+                    self.served.name(first).unwrap_or_default()
+                ),
+                target: None,
+            });
+        }
+        for namespace in &self.namespaces {
+            if let Some((line, message)) = namespace.query_error.read().unwrap().clone()
+                && let Some(query) = &namespace.query
+            {
+                problems.push(crate::problem::Problem {
+                    file: self.served.name(query).unwrap_or_default(),
+                    line: Some(line),
+                    column: None,
+                    message: format!("query doesn't compile: {message}"),
+                    target: None,
+                });
+            }
+        }
+        problems
+    }
+
+    /// Every prose file whose id names no item: `(file, id)`.
+    pub fn orphans(&self) -> Vec<(Prose, String)> {
         let prose = self.prose.read().unwrap();
         prose
             .iter()
@@ -807,30 +915,33 @@ impl Index {
                 let Some((name, path)) = id.split_once(':') else {
                     return true;
                 };
-                let path: Vec<String> = path.split("::").map(str::to_string).collect();
-                !self
-                    .namespaces
-                    .iter()
-                    .any(|n| n.name == name && n.targets().targets.contains_key(&path))
+                // An item's id, or a member's under its type's.
+                let mut file = self.reference().join(name);
+                for segment in path.split("::") {
+                    file.push(segment);
+                }
+                self.page(&file).is_none()
             })
-            .map(|(id, prose)| (prose.file.clone(), id.clone()))
+            .map(|(id, prose)| (prose.clone(), id.clone()))
             .collect()
     }
 }
 
 /// A prose file's id and what it adds: the file's first line is
 /// ``# ``<id>`` ``; the rest is the body.
-fn prose_of(source: &str) -> Option<(String, String)> {
-    let mut lines = source.lines();
-    let first = lines.find(|line| !line.trim().is_empty())?;
+fn prose_of(source: &str) -> Option<(String, usize, String)> {
+    let mut lines = source.lines().enumerate();
+    let (at, first) = lines.find(|(_, line)| !line.trim().is_empty())?;
     let id = first
         .trim()
         .strip_prefix("# ``")?
         .strip_suffix("``")?
         .trim()
         .to_string();
-    id.contains(':')
-        .then(|| (id, lines.collect::<Vec<_>>().join("\n")))
+    id.contains(':').then(|| {
+        let body = lines.map(|(_, line)| line).collect::<Vec<_>>().join("\n");
+        (id, at + 1, body)
+    })
 }
 
 /// The edit distance between two names.
@@ -868,22 +979,18 @@ mod tests {
         let index = super::for_document(&doc.path()).unwrap();
         let mut undocumented = Vec::new();
         for namespace in &index.namespaces {
-            for target in namespace.targets().targets.values() {
-                let file = served.name(&target.file).unwrap_or_default();
-                if target.doc.trim().is_empty() {
-                    undocumented.push(format!(
-                        "{file}:{}: {}",
-                        target.line,
-                        target.path.join("::")
-                    ));
+            for item in namespace.items().items.values() {
+                let file = served.name(&item.file).unwrap_or_default();
+                if item.doc.trim().is_empty() {
+                    undocumented.push(format!("{file}:{}: {}", item.line, item.path.join("::")));
                 }
-                for member in &target.members {
+                for member in &item.members {
                     if member.doc.trim().is_empty() {
                         let file = served.name(&member.file).unwrap_or_default();
                         undocumented.push(format!(
                             "{file}:{}: {}::{}",
                             member.line,
-                            target.path.join("::"),
+                            item.path.join("::"),
                             member.name
                         ));
                     }

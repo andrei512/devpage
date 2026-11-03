@@ -38,7 +38,8 @@ impl Parses {
 /// `files`, with each design file parsed matched against its last parse in
 /// [`Parses`] — and remembered there as its last.
 pub struct Remembering<F> {
-    /// The files read through.
+    /// The files every read goes to; only a design file's parse is
+    /// remembered on the way.
     pub files: F,
     /// Where each design file's last parse is remembered.
     parses: Parses,

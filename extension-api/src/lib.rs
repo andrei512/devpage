@@ -7,9 +7,10 @@ pub const API: u32 = 1;
 /// so their producer can release them.
 #[repr(C)]
 pub struct Buffer {
-    /// The first byte; null when nothing was returned.
+    /// The first byte. [`export_extension`] never sets it null; devpage treats
+    /// a null reply as an error.
     pub ptr: *mut u8,
-    /// The number of bytes.
+    /// How many bytes from `ptr` hold the JSON — the `Vec`'s length.
     pub len: usize,
     /// The capacity of the producer's allocation, needed to free it.
     pub capacity: usize,

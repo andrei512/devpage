@@ -23,10 +23,12 @@ pub struct Modules {
     inner: Arc<Caches>,
 }
 
-/// The module cache's contents: each file as last read, and each module as compiled.
+/// The module cache's contents: each file as last read, and each module as
+/// compiled.
 #[derive(Default)]
 struct Caches {
-    /// Each module file as last read, by its path. Cleared whole once it holds more than 4096.
+    /// Each module file as last read, by its path. Cleared whole once it holds
+    /// more than 4096.
     read: Mutex<HashMap<PathBuf, Read>>,
     /// Compiled modules, by a hash of what went into them.
     compiled: Mutex<HashMap<u64, Result<String, String>>>,
@@ -43,7 +45,8 @@ impl std::fmt::Debug for Modules {
 /// it — or a file one of its imports could name — changed.
 #[derive(Clone, Debug)]
 struct Read {
-    /// The file's modification time when read; `None` when the platform doesn't report one.
+    /// The file's modification time when read; `None` when the platform doesn't
+    /// report one.
     changed: Option<std::time::SystemTime>,
     /// The file's size in bytes when read.
     len: u64,

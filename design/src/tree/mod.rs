@@ -149,7 +149,7 @@ impl<T> Children<T> {
         self.0.iter()
     }
 
-    /// The child under `key`.
+    /// The child under `key`; `None` when no child has it.
     pub fn get(&self, key: &OrderKey) -> Option<&T> {
         self.0.get(key)
     }
@@ -218,7 +218,8 @@ impl<T> Children<T> {
         self.0.insert(key, t);
     }
 
-    /// Takes out the child under `key`, leaving every other child's key as it was.
+    /// Takes out the child under `key`, leaving every other child's key as it
+    /// was.
     pub fn remove(&mut self, key: &OrderKey) -> Option<T> {
         self.0.remove(key)
     }

@@ -52,17 +52,17 @@ pub struct Element {
     pub pos: Pos,
 }
 
-/// What an element holds: an element, or a run of text.
+/// What an element holds: an element, or the text between two tags.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Child {
     /// An element inside it.
     Element(Element),
-    /// A run of text and the props written in it, collapsed as JSX does, and where
-    /// it starts.
+    /// The text between two tags and the props written in it, collapsed as
+    /// JSX does, and where it starts.
     Text(Vec<TextPart>, Pos),
 }
 
-/// A piece of a run of text.
+/// A piece of the text between two tags.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextPart {
     /// Text as written.
@@ -223,7 +223,8 @@ impl Parser {
         self.chars.get(self.at + n).copied()
     }
 
-    /// Takes the next char, moving the line and column past it; `None` at the end.
+    /// Takes the next char, moving the line and column past it; `None` at the
+    /// end.
     fn bump(&mut self) -> Option<char> {
         let c = self.peek()?;
         self.at += 1;
@@ -339,8 +340,8 @@ impl Parser {
         element
     }
 
-    /// An element from its `<`, which is at `pos`: its name, its attributes — a bare
-    /// one `true` — and its children, unless it closes itself.
+    /// An element from its `<`, which is at `pos`: its name, its attributes — a
+    /// bare one `true` — and its children, unless it closes itself.
     fn element_inner(&mut self, pos: Pos) -> Result<Element, Problem> {
         self.expect('<')?;
         let name = self.ident()?;

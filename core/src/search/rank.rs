@@ -70,7 +70,8 @@ pub(super) fn sentence_end(text: &str, at: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-/// Whether `text` ends a sentence: its last character but trailing whitespace is `.`, `!` or `?`.
+/// Whether `text` ends a sentence: its last character but trailing whitespace
+/// is `.`, `!` or `?`.
 pub(super) fn ends_sentence(text: &str) -> bool {
     text.trim_end().ends_with(['.', '!', '?'])
 }

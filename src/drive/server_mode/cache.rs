@@ -1,9 +1,10 @@
 //! The cache on the PVC: versions unpacked from their zips, each with the
-//! router that serves it and the downloads rendered from it, bounded by a limit past which the eviction policy
-//! chooses what goes. Everything in it is a copy of a version in the bucket,
-//! and a version never changes, so nothing in it is ever stale. Memory is a
-//! cache of its own over it: at most so many versions hold a router, and past
-//! that the same policy chooses whose routers go, their files staying.
+//! router that serves it and the downloads rendered from it, bounded by a limit
+//! past which the eviction policy chooses what goes. Everything in it is a copy
+//! of a version in the bucket, and a version never changes, so nothing in it is
+//! ever stale. Memory is a cache of its own over it: at most so many versions
+//! hold a router, and past that the same policy chooses whose routers go, their
+//! files staying.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -266,8 +267,9 @@ impl Cache {
     }
 
     /// Makes version `key`'s router under `mount`, holding the version's lock:
-    /// from its folder on disk, or else from the zip `fetch` gives. A version over
-    /// the limit is served from a folder of its own, deleted after the request.
+    /// from its folder on disk, or else from the zip `fetch` gives. A version
+    /// over the limit is served from a folder of its own, deleted after the
+    /// request.
     async fn make<F>(
         self: &Arc<Self>,
         key: &Key,

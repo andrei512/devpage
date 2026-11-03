@@ -82,7 +82,8 @@ const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage
 struct SidebarData {
     /// The document's address, which keys what the reader opened.
     document: String,
-    /// The address of the document's file, which a search hit names the document by.
+    /// The address of the document's file, which a search hit names the
+    /// document by.
     document_path: String,
     /// The address of the page shown.
     current: String,
@@ -95,11 +96,12 @@ struct SidebarData {
 /// The link at the top of the sidebar to the document's entry page.
 #[derive(serde::Serialize)]
 struct SidebarTitle {
-    /// The document's title.
+    /// The link's text: the document's title.
     label: String,
     /// The address of the document's entry page.
     href: String,
-    /// The logo's address; `None` when the document has none.
+    /// The logo's address; `None` when the document has none, or its file
+    /// is missing from the served folder.
     logo: Option<String>,
 }
 
@@ -115,9 +117,9 @@ struct SidebarGroup {
 /// One entry of the tree: a page's link and the groups nested under it.
 #[derive(serde::Serialize)]
 struct SidebarEntry {
-    /// The text shown.
+    /// The link's text: the entry's label in the Topics tree.
     label: String,
-    /// The page's address.
+    /// The page's address; an entry whose file has none is left out.
     href: String,
     /// The groups nested under the entry; empty for a leaf.
     children: Vec<SidebarGroup>,

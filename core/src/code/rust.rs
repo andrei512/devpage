@@ -1,4 +1,4 @@
-//! Link for Rust: every file's declarations into the targets they make,
+//! Link for Rust: every file's declarations into the items they make,
 //! named as Rust names them — crate, modules, item. Resolves what no single
 //! file can: the crate and module a file is (`Cargo.toml`, `lib.rs`, `mod.rs`),
 //! the type an `impl` in another file belongs to, what `pub use` makes
@@ -8,11 +8,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use super::extract::{Declaration, Extracted, Visibility};
-use super::{Member, Target, Targets};
+use super::{Item, Items, Member};
 
 /// One file of a crate, with what it declares.
 pub struct Unit<'a> {
-    /// The file's path.
+    /// The file's path: what each item and member declared in it records
+    /// as its file.
     pub file: &'a Path,
     /// The declarations extraction found in it.
     pub extracted: &'a Extracted,
@@ -88,10 +89,10 @@ fn is_type(kind: &str) -> bool {
     matches!(kind, "struct" | "enum" | "union" | "trait")
 }
 
-/// The targets of `units`: every module and item, with members on their
+/// The items of `units`: every module and item, with members on their
 /// types. With `private`, an item no `pub` path reaches is kept too.
-pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
-    let mut targets: BTreeMap<Vec<String>, Target> = BTreeMap::new();
+pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
+    let mut items: BTreeMap<Vec<String>, Item> = BTreeMap::new();
     // Whether each module's own declaration makes it public; a crate root is.
     let mut module_public: HashMap<Vec<String>, bool> = HashMap::new();
     // Modules declared hidden — `#[cfg(test)] mod tests;` — whose files,
@@ -102,12 +103,12 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
     let mut attached = Vec::new();
 
     for (module, unit) in units {
-        let entry = targets.entry(module.clone()).or_insert_with(|| Target {
+        let entry = items.entry(module.clone()).or_insert_with(|| Item {
             path: module.clone(),
             kind: "module".into(),
             file: unit.file.to_path_buf(),
             line: 1,
-            ..Target::default()
+            ..Item::default()
         });
         // A file's `//!` documents the module it is; a `mod x;` may document
         // it instead, whichever is read first.
@@ -147,7 +148,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                 // Inside a function's body: local, not part of the module.
                 Some(parent) if parent.kind == "function" => paths.push(None),
                 Some(parent) if is_type(&parent.kind) => {
-                    if let Some(target) = targets.get_mut(&inside) {
+                    if let Some(item) = items.get_mut(&inside) {
                         let kind = if declaration.kind == "function" {
                             "method".to_string()
                         } else {
@@ -158,8 +159,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                         let public = declaration.visibility == Visibility::Public
                             || parent.kind == "trait"
                             || declaration.kind == "variant";
-                        target
-                            .members
+                        item.members
                             .push(member(declaration, &kind, unit.file, public));
                     }
                     paths.push(None);
@@ -194,26 +194,26 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                     if declaration.kind == "module" {
                         module_public
                             .insert(path.clone(), declaration.visibility == Visibility::Public);
-                        let target = targets.entry(path.clone()).or_insert_with(|| Target {
+                        let item = items.entry(path.clone()).or_insert_with(|| Item {
                             path: path.clone(),
                             kind: "module".into(),
                             file: unit.file.to_path_buf(),
                             line: declaration.line,
-                            ..Target::default()
+                            ..Item::default()
                         });
                         // `mod x;` documents the module its own file is.
-                        if !declaration.doc.is_empty() && target.doc.is_empty() {
-                            target.doc = declaration.doc.clone();
+                        if !declaration.doc.is_empty() && item.doc.is_empty() {
+                            item.doc = declaration.doc.clone();
                         }
                         if declaration.has_body {
-                            target.file = unit.file.to_path_buf();
-                            target.line = declaration.line;
-                            target.doc = declaration.doc.clone();
+                            item.file = unit.file.to_path_buf();
+                            item.line = declaration.line;
+                            item.doc = declaration.doc.clone();
                         }
                     } else {
-                        targets.insert(
+                        items.insert(
                             path.clone(),
-                            Target {
+                            Item {
                                 path: path.clone(),
                                 kind: declaration.kind.clone(),
                                 signature: declaration.signature.clone(),
@@ -221,7 +221,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                                 file: unit.file.to_path_buf(),
                                 line: declaration.line,
                                 public: declaration.visibility == Visibility::Public,
-                                ..Target::default()
+                                ..Item::default()
                             },
                         );
                     }
@@ -231,22 +231,22 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
         }
     }
 
-    targets.retain(|path, _| !hidden.iter().any(|module| path.starts_with(module)));
+    items.retain(|path, _| !hidden.iter().any(|module| path.starts_with(module)));
 
     // `impl` members onto the types they name: in the same module first,
     // then the one type of that name in the crate.
     for (module, attach, declaration, file) in attached {
         let Some(attach) = attach else { continue };
         let name = type_name(&attach.to);
-        let Some(target) = find_type(&targets, &module, &name) else {
+        let Some(item) = find_type(&items, &module, &name) else {
             continue;
         };
-        let target = targets.get_mut(&target).unwrap();
+        let item = items.get_mut(&item).unwrap();
         if declaration.kind == "attach" {
             if let Some(implements) = &attach.implements {
                 let implements = type_name(implements);
-                if !target.implements.contains(&implements) {
-                    target.implements.push(implements);
+                if !item.implements.contains(&implements) {
+                    item.implements.push(implements);
                 }
             }
         } else if attach.implements.is_none() {
@@ -256,9 +256,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                 declaration.kind.as_str()
             };
             let public = declaration.visibility == Visibility::Public;
-            target
-                .members
-                .push(member(&declaration, kind, &file, public));
+            item.members.push(member(&declaration, kind, &file, public));
         }
     }
 
@@ -266,24 +264,24 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
     let reachable = |path: &[String]| {
         (1..=path.len()).all(|at| {
             let module = &path[..at];
-            match targets.get(module) {
-                Some(target) if target.kind == "module" => {
+            match items.get(module) {
+                Some(item) if item.kind == "module" => {
                     module_public.get(module).copied().unwrap_or(false)
                 }
                 _ => true,
             }
         })
     };
-    let public: Vec<Vec<String>> = targets
+    let public: Vec<Vec<String>> = items
         .iter()
-        .filter(|(path, target)| reachable(path) && (target.kind == "module" || target.public))
+        .filter(|(path, item)| reachable(path) && (item.kind == "module" || item.public))
         .map(|(path, _)| path.clone())
         .collect();
-    for target in targets.values_mut() {
-        target.public = false;
+    for item in items.values_mut() {
+        item.public = false;
     }
     for path in &public {
-        targets.get_mut(path).unwrap().public = true;
+        items.get_mut(path).unwrap().public = true;
     }
 
     // `pub use` makes an item reachable where it is written: an alias, and
@@ -295,7 +293,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                 continue;
             }
             for (path, alias) in use_paths(&reexport.path) {
-                let Some(resolved) = resolve(&targets, module, &path) else {
+                let Some(resolved) = resolve(&items, module, &path) else {
                     continue;
                 };
                 let mut at = module.clone();
@@ -303,13 +301,13 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
                 if at == resolved {
                     continue;
                 }
-                let module_reachable = targets.get(module).is_some_and(|t| t.public);
-                let target = &targets[&resolved];
-                if module_reachable && !target.public && target.kind != "module" {
-                    let mut moved = targets.remove(&resolved).unwrap();
+                let module_reachable = items.get(module).is_some_and(|t| t.public);
+                let item = &items[&resolved];
+                if module_reachable && !item.public && item.kind != "module" {
+                    let mut moved = items.remove(&resolved).unwrap();
                     moved.path = at.clone();
                     moved.public = true;
-                    targets.insert(at.clone(), moved);
+                    items.insert(at.clone(), moved);
                     aliases.insert(resolved, at);
                 } else {
                     aliases.insert(at, resolved);
@@ -319,16 +317,16 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
     }
 
     if !private {
-        targets.retain(|_, target| target.public);
-        for target in targets.values_mut() {
-            target.members.retain(|member| member.public);
+        items.retain(|_, item| item.public);
+        for item in items.values_mut() {
+            item.members.retain(|member| member.public);
         }
-        aliases.retain(|_, to| targets.contains_key(to));
+        aliases.retain(|_, to| items.contains_key(to));
     }
-    Targets { targets, aliases }
+    Items { items, aliases }
 }
 
-/// A declaration as a member of its target: `kind` names what it is, `public`
+/// A declaration as a member of its item: `kind` names what it is, `public`
 /// whether it is reachable.
 fn member(declaration: &Declaration, kind: &str, file: &Path, public: bool) -> Member {
     Member {
@@ -352,21 +350,21 @@ fn type_name(written: &str) -> String {
 /// The type named `name` that code in `module` means: one in the module,
 /// or the only one of that name in the crate.
 fn find_type(
-    targets: &BTreeMap<Vec<String>, Target>,
+    items: &BTreeMap<Vec<String>, Item>,
     module: &[String],
     name: &str,
 ) -> Option<Vec<String>> {
     let mut here = module.to_vec();
     here.push(name.to_string());
-    if targets.get(&here).is_some_and(|t| is_type(&t.kind)) {
+    if items.get(&here).is_some_and(|t| is_type(&t.kind)) {
         return Some(here);
     }
-    let mut found = targets
+    let mut found = items
         .iter()
-        .filter(|(path, target)| {
+        .filter(|(path, item)| {
             path.first() == module.first()
                 && path.last().is_some_and(|last| last == name)
-                && is_type(&target.kind)
+                && is_type(&item.kind)
         })
         .map(|(path, _)| path.clone());
     let first = found.next()?;
@@ -428,11 +426,11 @@ fn expand(written: &str, prefix: &[String], out: &mut Vec<(Vec<String>, String)>
     }
 }
 
-/// The target `path`, written in `module`, names: from the crate root
+/// The item `path`, written in `module`, names: from the crate root
 /// (`crate::`), the module (`self::`), its parent (`super::`), another
 /// crate by name, or the module itself.
 fn resolve(
-    targets: &BTreeMap<Vec<String>, Target>,
+    items: &BTreeMap<Vec<String>, Item>,
     module: &[String],
     path: &[String],
 ) -> Option<Vec<String>> {
@@ -444,16 +442,16 @@ fn resolve(
         _ => {
             let mut here = module.to_vec();
             here.extend(path.iter().cloned());
-            if targets.contains_key(&here) {
+            if items.contains_key(&here) {
                 return Some(here);
             }
             let other = path.to_vec();
-            return targets.contains_key(&other).then_some(other);
+            return items.contains_key(&other).then_some(other);
         }
     };
     let mut full = start;
     full.extend(rest.iter().cloned());
-    targets.contains_key(&full).then_some(full)
+    items.contains_key(&full).then_some(full)
 }
 
 #[cfg(test)]
@@ -487,7 +485,7 @@ mod tests {
         dir
     }
 
-    fn linked(dir: &Path, files: &[&str], private: bool) -> Targets {
+    fn linked(dir: &Path, files: &[&str], private: bool) -> Items {
         let grammar = grammar();
         let mut crates = HashMap::new();
         let extracted: Vec<(PathBuf, Extracted)> = files
@@ -525,8 +523,8 @@ mod tests {
                 ("hidden.rs", "pub fn secret() {}\n"),
             ],
         );
-        let targets = linked(&dir, &["lib.rs", "a/mod.rs", "a/b.rs", "hidden.rs"], false);
-        let paths: Vec<String> = targets.targets.keys().map(|p| p.join("::")).collect();
+        let items = linked(&dir, &["lib.rs", "a/mod.rs", "a/b.rs", "hidden.rs"], false);
+        let paths: Vec<String> = items.items.keys().map(|p| p.join("::")).collect();
         assert_eq!(
             paths,
             [
@@ -537,10 +535,10 @@ mod tests {
                 "my_crate::a::top"
             ]
         );
-        assert_eq!(targets.targets[&path("my_crate")].doc, "The crate.");
-        assert_eq!(targets.targets[&path("my_crate::a")].doc, "A.");
+        assert_eq!(items.items[&path("my_crate")].doc, "The crate.");
+        assert_eq!(items.items[&path("my_crate::a")].doc, "A.");
         let all = linked(&dir, &["lib.rs", "a/mod.rs", "a/b.rs", "hidden.rs"], true);
-        assert!(all.targets.contains_key(&path("my_crate::hidden::secret")));
+        assert!(all.items.contains_key(&path("my_crate::hidden::secret")));
     }
 
     #[test]
@@ -553,8 +551,8 @@ mod tests {
                 ("tests.rs", "pub fn hidden() {}\n"),
             ],
         );
-        let targets = linked(&dir, &["lib.rs", "a.rs", "tests.rs"], true);
-        let paths: Vec<String> = targets.targets.keys().map(|p| p.join("::")).collect();
+        let items = linked(&dir, &["lib.rs", "a.rs", "tests.rs"], true);
+        let paths: Vec<String> = items.items.keys().map(|p| p.join("::")).collect();
         assert_eq!(paths, ["my_crate", "my_crate::a", "my_crate::a::shown"]);
     }
 
@@ -574,8 +572,8 @@ mod tests {
                 ),
             ],
         );
-        let targets = linked(&dir, &["lib.rs", "store.rs", "read.rs"], false);
-        let store = &targets.targets[&path("my_crate::store::Store")];
+        let items = linked(&dir, &["lib.rs", "store.rs", "read.rs"], false);
+        let store = &items.items[&path("my_crate::store::Store")];
         let members: Vec<(&str, &str)> = store
             .members
             .iter()
@@ -600,20 +598,16 @@ mod tests {
                 ("open.rs", "pub struct Open;\n"),
             ],
         );
-        let targets = linked(&dir, &["lib.rs", "decimal.rs", "open.rs"], false);
-        assert!(targets.targets.contains_key(&path("my_crate::Decimal")));
+        let items = linked(&dir, &["lib.rs", "decimal.rs", "open.rs"], false);
+        assert!(items.items.contains_key(&path("my_crate::Decimal")));
+        assert!(items.items.contains_key(&path("my_crate::parse_decimal")));
         assert!(
-            targets
-                .targets
-                .contains_key(&path("my_crate::parse_decimal"))
-        );
-        assert!(
-            !targets
-                .targets
+            !items
+                .items
                 .contains_key(&path("my_crate::decimal::Decimal"))
         );
         assert_eq!(
-            targets.aliases.get(&path("my_crate::decimal::Decimal")),
+            items.aliases.get(&path("my_crate::decimal::Decimal")),
             Some(&path("my_crate::Decimal"))
         );
     }

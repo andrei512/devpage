@@ -71,7 +71,7 @@ impl AppState {
             .ok_or_else(|| (StatusCode::NOT_FOUND, "comments are off").into_response())
     }
 
-    /// Whether comments are on.
+    /// Whether comments are on; when off, every comment route answers 404.
     fn comments_on(&self) -> bool {
         self.comments.is_some()
     }
@@ -740,7 +740,8 @@ pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
 /// `?page=` of a request for a page's threads.
 #[derive(Deserialize)]
 struct PageQuery {
-    /// The page's address.
+    /// The page's address — its file's name in the served folder, a leading
+    /// `/` optional.
     page: String,
 }
 
@@ -751,7 +752,7 @@ struct NewThread {
     page: String,
     /// The rendered text it is attached to.
     anchor: Anchor,
-    /// The thread's first comment.
+    /// The thread's first comment, by the request's author.
     text: String,
 }
 
@@ -759,7 +760,7 @@ struct NewThread {
 /// is all that finds it.
 #[derive(Deserialize)]
 struct Reply {
-    /// The thread's id.
+    /// The thread's id, unique in the document, so no page is needed.
     id: String,
     /// The reply; empty when resolving.
     #[serde(default)]

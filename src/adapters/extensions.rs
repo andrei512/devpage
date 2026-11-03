@@ -11,8 +11,8 @@ use std::{path::Path, sync::Arc};
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
-    /// The package's id, of ASCII letters, digits and `-`; it must match the
-    /// configuration key that names it.
+    /// The package's id, of ASCII letters, digits and `-`; a `create` request
+    /// under another configuration key is refused.
     id: String,
     /// The package's version; must not be empty.
     version: String,

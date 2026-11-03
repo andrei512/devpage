@@ -177,7 +177,7 @@ struct Instance {
     /// Where it is used and what is laid over its root; `None` for the root
     /// design.
     caller: Option<Caller>,
-    /// Its root node's id.
+    /// Its root node's id: the key of its use, then its root element's id.
     root: NodeId,
 }
 
@@ -266,7 +266,8 @@ const MAX_DEPTH: usize = parse::MAX_DEPTH;
 /// relative to.
 #[derive(Debug, Clone)]
 struct Given {
-    /// The value, as given.
+    /// The value, as the caller or the default gives it; a path in it is
+    /// still relative to `by`.
     value: Value,
     /// The design file that wrote it.
     by: String,
@@ -1724,8 +1725,8 @@ fn written_at(path: &str, by: &str, attr: &parse::Attr, value: &Value) -> (Strin
     }
 }
 
-/// `v` as a problem names it: a string quoted, a number or bool as written, a
-/// prop or theme color by name.
+/// `v` as a problem names it: a string quoted, a number as Rust prints it
+/// (`1.50` as `1.5`), a bool as written, a prop or theme color by name.
 fn show(v: &Value) -> String {
     match v {
         Value::Str(s, _) => format!("\"{s}\""),
@@ -1976,8 +1977,8 @@ fn has_theme(v: &Value) -> bool {
     }
 }
 
-/// A shadow: `{ x, y, blur, spread, color }`, each optional — none of them by
-/// default, in black at a quarter alpha.
+/// A shadow: `{ x, y, blur, spread, color }`, each optional — `x`, `y`,
+/// `blur` and `spread` 0 by default, the color black at a quarter alpha.
 fn shadow(v: &Value) -> Result<Shadow, String> {
     let Value::Object(fields) = v else {
         return Err("expected { x, y, blur, spread, color }".into());

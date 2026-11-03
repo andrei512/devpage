@@ -99,7 +99,7 @@ impl Carry {
 /// when its text is gone.
 #[derive(Debug, PartialEq)]
 pub struct Moved {
-    /// The thread's id.
+    /// The thread's id, the same on the new version.
     pub id: String,
     /// Its anchor in the new version; `None` when it is detached.
     pub anchor: Option<Anchor>,

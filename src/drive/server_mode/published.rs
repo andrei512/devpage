@@ -63,9 +63,9 @@ pub enum Deletion {
 
 /// A version held from the cache while it answers: never evicted meanwhile.
 pub struct Version {
-    /// The document's id.
+    /// The id of the document it is a version of.
     pub id: String,
-    /// The version's number.
+    /// The version's number, from 1.
     pub number: u64,
     /// The mount it answers under.
     pub mount: Mount,
@@ -82,9 +82,9 @@ impl Version {
 
 /// A version's download: its bytes, media type and file name.
 pub struct Download {
-    /// The file's bytes.
+    /// The rendered PDF or PNG, whole, as the cache keeps it.
     pub bytes: Vec<u8>,
-    /// The file's media type.
+    /// The file's media type: `application/pdf` or `image/png`.
     pub media: &'static str,
     /// The file name it downloads as, from the version's title.
     pub name: String,
@@ -554,7 +554,8 @@ struct Locks(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
 struct Held<'a> {
     /// The locks it was taken from.
     locks: &'a Locks,
-    /// The document's id.
+    /// The id of the document locked — its key in `locks`, forgotten on drop
+    /// when no one else waits.
     id: String,
     /// The lock, held; `None` only while it is let go on drop.
     guard: Option<tokio::sync::OwnedMutexGuard<()>>,

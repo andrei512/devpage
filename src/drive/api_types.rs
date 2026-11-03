@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 /// `POST /api/documents/<id>/versions`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Published {
-    /// The document's id.
+    /// The document's id: a hyphenated UUID, given on its first publish.
     pub id: String,
     /// The number the publish was given, from 1.
     pub version: u64,
@@ -25,7 +25,7 @@ pub struct Published {
 /// A document as `GET /api/documents` lists it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Listed {
-    /// The document's id.
+    /// The document's id: a hyphenated UUID, the `<id>` in its links.
     pub id: String,
     /// The latest version's kind: `site`, `doc`, `slides`….
     pub kind: String,
@@ -38,7 +38,7 @@ pub struct Listed {
 /// A document and its versions, as `GET /api/documents/<id>` answers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Described {
-    /// The document's id.
+    /// The document's id: a hyphenated UUID, the `<id>` in its links.
     pub id: String,
     /// The latest version's kind: `site`, `doc`, `slides`….
     pub kind: String,
@@ -76,7 +76,7 @@ pub struct Version {
 /// version, the version it left, its anchor and its messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Thread {
-    /// The thread's id.
+    /// The thread's id, which a reply to it is posted under.
     pub id: String,
     /// The page it is on: a file's path from the top of the document.
     pub page: String,
@@ -99,14 +99,14 @@ pub struct NewThread {
     pub page: String,
     /// The text to attach it to.
     pub anchor: Anchor,
-    /// The first message.
+    /// The thread's first message, by the request's author.
     pub text: String,
 }
 
 /// What starting a thread answers: its id and the version it is on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Started {
-    /// The new thread's id.
+    /// The new thread's id, which replies to it are posted under.
     pub id: String,
     /// The latest version, which it was started on.
     pub version: u64,
@@ -115,7 +115,7 @@ pub struct Started {
 /// A reply: `POST /api/documents/<id>/comments/<thread>/replies`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reply {
-    /// The reply's message.
+    /// The message added to the thread, by the request's author.
     pub text: String,
 }
 
@@ -145,8 +145,8 @@ impl Refusal {
         }
     }
 
-    /// The HTTP status the refusal is answered with; an unknown `Failed`
-    /// status becomes `500`.
+    /// The HTTP status the refusal is answered with; a `Failed` status outside
+    /// 100–999 becomes `500`.
     pub fn status(&self) -> StatusCode {
         match self {
             Refusal::NotFound => StatusCode::NOT_FOUND,

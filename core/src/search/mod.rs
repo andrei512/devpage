@@ -31,8 +31,7 @@ use index::*;
 use query::*;
 use rank::*;
 
-/// How many pages a search answers, and how many of each page's sections
-/// it shows.
+/// The most pages a search answers.
 const MAX_PAGES: usize = 10;
 /// How many of a page's sections a search shows.
 const SECTIONS_PER_PAGE: usize = 3;
@@ -77,7 +76,9 @@ pub struct SectionResult {
     pub heading: String,
     /// The page's title and the headings down to this one.
     pub path: Vec<String>,
-    /// The page's address with the heading's anchor.
+    /// The page's address and the section's anchor: none before a page's
+    /// first heading; in a doc of several chapters, `name--id`, or the
+    /// chapter's `name` before its first heading.
     pub url: String,
     /// HTML: a part of the section's prose, escaped, its matched words in `<mark>`.
     pub snippet: String,
@@ -90,18 +91,20 @@ pub struct SectionResult {
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PageKind {
-    /// A site's page.
+    /// A site's page, a section per heading; or a code reference's page,
+    /// one section.
     Page,
-    /// A doc's chapter.
+    /// A doc's chapter: a section per heading, anchored by the chapter's
+    /// name when the doc has several.
     Chapter,
-    /// A deck's slide.
+    /// A deck's slide: one section, its notes searched with it.
     Slide,
 }
 
 /// The document a page belongs to: its title and its document file's address.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Owner {
-    /// The document's title.
+    /// The document's title, which each of its pages' results names it by.
     pub title: String,
     /// The address of its document file.
     pub path: String,
@@ -199,7 +202,9 @@ impl Bm25StatisticsProvider for Snapshot {
 /// The page record: what a page result shows besides its sections.
 #[derive(Debug, Clone)]
 struct Page {
-    /// Its title.
+    /// The title its result heads: a slide's own, a Markdown file's first
+    /// heading — its file name without one — or the name a code page is
+    /// about.
     title: String,
     /// Its address, where its result opens.
     url: String,
@@ -209,12 +214,11 @@ struct Page {
     document: Owner,
     /// What it is: a site's page, a doc's chapter or a deck's slide.
     kind: PageKind,
-    /// Its first paragraph.
+    /// Its first paragraph, whitespace squeezed; a code page's first sentence.
     lede: String,
     /// Its place in the nav, counted from the top in reading order.
     nav: u64,
-    /// The stems of its title, and of its front matter's description and
-    /// keywords.
+    /// The stems of its title.
     title_stems: BTreeSet<String>,
     /// The stems of its front matter's description and keywords.
     meta_stems: BTreeSet<String>,
@@ -229,11 +233,14 @@ struct Found {
     heading: String,
     /// The page's title and the headings down to this one.
     path: Vec<String>,
-    /// The page's address with the heading's anchor.
+    /// The page's address and the section's anchor: none before a page's
+    /// first heading; in a doc of several chapters, `name--id`, or the
+    /// chapter's `name` before its first heading.
     url: String,
     /// Its prose, with a diagram's labels and a widget's text.
     prose: String,
-    /// Its code.
+    /// Its code, whitespace squeezed: searched with its heading and prose for
+    /// how the words matched are spelled.
     code: String,
 }
 

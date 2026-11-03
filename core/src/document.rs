@@ -20,8 +20,8 @@ thread_local! {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 enum Config {
-    /// A site: pages reached from its `root` page, with a navbar and the Topics
-    /// sidebar if it asks for them.
+    /// A site: pages reached from its `root` page, with a navbar if it names
+    /// one, and the Topics sidebar unless `sidebar` turns it off.
     Site {
         title: String,
         root: String,
@@ -242,7 +242,7 @@ pub struct Narration {
 /// `<Notes>`, if it has one — and that `<Notes>`' `delivery`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Slide {
-    /// The slide's Markdown file.
+    /// The slide's Markdown file: what it shows and its notes are read from.
     pub file: PathBuf,
     /// The text of its first `<Notes>`; `None` when it has none.
     pub notes: Option<String>,
@@ -270,11 +270,12 @@ impl Slide {
 /// Which kind a document file names, read without loading the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KindName {
-    /// A site.
+    /// `kind: site` — the nearest one above a page is the site it belongs to.
     Site,
-    /// A doc.
+    /// `kind: doc` — chapters shown, and printed, as one document.
     Doc,
-    /// A deck of slides.
+    /// `kind: slides` — a deck, whose `<deck>/<n>.png` addresses are drawn
+    /// from it.
     Slides,
 }
 
@@ -283,8 +284,8 @@ pub enum KindName {
 pub struct Document {
     /// The extensions the document file configures, bound to it.
     pub extensions: Vec<crate::extensions::Binding>,
-    /// The title it shows: as written, or a Markdown file's first heading, or a
-    /// design's file name.
+    /// The title it shows: as written, or a Markdown file's first heading —
+    /// its file name when it has none — or a design's file name.
     pub title: String,
     /// The folder of the document file, which its paths are relative to.
     pub base: PathBuf,

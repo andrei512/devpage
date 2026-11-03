@@ -202,9 +202,9 @@ pub(super) struct Laid {
 pub(super) struct Sens {
     /// Whether its width or its height depends on its room.
     pub(super) me: bool,
-    /// Whether its width does.
+    /// Whether its width depends on its room; `me` is this or `h`.
     pub(super) w: bool,
-    /// Whether its height does.
+    /// Whether its height depends on its room.
     pub(super) h: bool,
     /// How many of its children's widths do.
     pub(super) kids_w: usize,

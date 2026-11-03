@@ -51,8 +51,8 @@ pub struct Config {
     /// The folder the server keeps its SQLite store and its cache in:
     /// `DEVPAGE_DATA_DIR`, which must exist.
     pub data_dir: PathBuf,
-    /// The bucket every version's zip is kept in: `DEVPAGE_BUCKET_URL`, as
-    /// written.
+    /// The bucket every version's zip is kept in: `DEVPAGE_BUCKET_URL`,
+    /// trimmed.
     pub bucket_url: String,
     /// The cache's limit: `DEVPAGE_CACHE_MAX_BYTES`, or 80% of the volume.
     pub cache_max_bytes: u64,

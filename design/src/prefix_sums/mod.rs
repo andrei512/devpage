@@ -27,7 +27,7 @@ type Link = Option<u32>;
 struct Node<K, V: Item> {
     /// The item's key, which orders the tree.
     key: K,
-    /// The item.
+    /// The item stored under `key`; its summary is folded into `sum`.
     value: V,
     /// The node's heap priority: a parent's is greater than its children's.
     priority: u64,
@@ -317,7 +317,7 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
 
 /// An iterator over the items of a [`Sums`] in key order.
 struct Walk<'a, K, V: Item> {
-    /// The items walked.
+    /// The tree walked, whose arena `stack` indexes.
     sums: &'a Sums<K, V>,
     /// The nodes still to yield, the next on top, each before its right subtree.
     stack: Vec<u32>,
@@ -339,7 +339,7 @@ impl<'a, K: Ord + Clone, V: Item> Iterator for Walk<'a, K, V> {
 
 /// An iterator over the items of a [`Sums`], last first.
 struct Back<'a, K, V: Item> {
-    /// The items walked.
+    /// The tree walked, whose arena `stack` indexes.
     sums: &'a Sums<K, V>,
     /// The nodes still to yield, the next on top, each before its left subtree.
     stack: Vec<u32>,

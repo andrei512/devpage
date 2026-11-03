@@ -7,7 +7,7 @@
 
 use std::path::Path;
 
-use super::{Index, Member, Prose, Target, Targets};
+use super::{Index, Item, Items, Member, Prose};
 use crate::html::escape;
 
 /// The groups of a module's page, in order: a kind and its heading.
@@ -25,12 +25,12 @@ const ITEMS: [(&str, &str); 10] = [
 ];
 
 /// The page of a namespace: every crate it holds.
-pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
+pub fn namespace(index: &Index, name: &str, items: &Items) -> String {
     let mut out = hero("Reference", &title_case(name), "");
-    let crates: Vec<&Target> = targets
-        .targets
+    let crates: Vec<&Item> = items
+        .items
         .values()
-        .filter(|target| target.path.len() == 1)
+        .filter(|item| item.path.len() == 1)
         .collect();
     if crates.is_empty() {
         out.push_str("No code matches this namespace's `files`.\n");
@@ -51,44 +51,39 @@ pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
 }
 
 /// The page of a module, a type or a function.
-pub fn target(
+pub fn item(
     index: &Index,
     namespace: &str,
-    targets: &Targets,
-    target: &Target,
+    items: &Items,
+    item: &Item,
     prose: Option<&Prose>,
 ) -> String {
-    let name = target.path.last().cloned().unwrap_or_default();
-    let kind = if target.path.len() == 1 {
+    let name = item.path.last().cloned().unwrap_or_default();
+    let kind = if item.path.len() == 1 {
         "Crate"
     } else {
-        kind_label(&target.kind)
+        kind_label(&item.kind)
     };
-    let (summary, overview) = split_doc(&target.doc);
+    let (summary, overview) = split_doc(&item.doc);
     let mut out = hero(kind, &name, &summary);
-    if target.kind != "module" && !target.signature.is_empty() {
-        out.push_str(&declaration(
-            index,
-            &target.signature,
-            &target.file,
-            target.line,
-        ));
+    if item.kind != "module" && !item.signature.is_empty() {
+        out.push_str(&declaration(index, &item.signature, &item.file, item.line));
     } else {
-        out.push_str(&source(index, &target.file, None));
+        out.push_str(&source(index, &item.file, None));
     }
     out.push_str(&overview_of(&overview, prose));
 
     let mut groups = String::new();
-    if target.kind == "module" {
-        let children: Vec<&Target> = targets
-            .targets
+    if item.kind == "module" {
+        let children: Vec<&Item> = items
+            .items
             .values()
             .filter(|child| {
-                child.path.len() == target.path.len() + 1 && child.path.starts_with(&target.path)
+                child.path.len() == item.path.len() + 1 && child.path.starts_with(&item.path)
             })
             .collect();
         for (kind, heading) in ITEMS {
-            let listed: Vec<&&Target> = children.iter().filter(|c| c.kind == kind).collect();
+            let listed: Vec<&&Item> = children.iter().filter(|c| c.kind == kind).collect();
             if listed.is_empty() {
                 continue;
             }
@@ -116,7 +111,7 @@ pub fn target(
         (Group::Function, "Associated Functions"),
         (Group::Method, "Methods"),
     ] {
-        let members: Vec<&Member> = target
+        let members: Vec<&Member> = item
             .members
             .iter()
             .filter(|member| group_of(member) == group)
@@ -126,7 +121,7 @@ pub fn target(
         }
         groups.push_str(&format!("### {heading}\n\n"));
         for member in members {
-            let mut path = target.path.clone();
+            let mut path = item.path.clone();
             path.push(member.name.clone());
             groups.push_str(&topic(
                 &short(&member.signature),
@@ -137,9 +132,9 @@ pub fn target(
             ));
         }
     }
-    if !target.implements.is_empty() {
+    if !item.implements.is_empty() {
         groups.push_str("### Implements\n\n");
-        let chips: Vec<String> = target
+        let chips: Vec<String> = item
             .implements
             .iter()
             .map(|name| format!("<code>{}</code>", escape(name)))
@@ -157,7 +152,7 @@ pub fn target(
 pub fn member(
     index: &Index,
     namespace: &str,
-    owner: &Target,
+    owner: &Item,
     member: &Member,
     prose: Option<&Prose>,
 ) -> String {
@@ -435,7 +430,7 @@ fn longest_run(text: &str, c: char) -> usize {
 /// A doc comment as page Markdown: its headings below the page's own, an
 /// unlabelled code block as Rust with rustdoc's hidden `# ` lines left out,
 /// and rustdoc's links to names shown as the name.
-fn doc_markdown(doc: &str) -> String {
+pub(super) fn doc_markdown(doc: &str) -> String {
     let mut out = Vec::new();
     let mut fence: Option<(String, bool)> = None;
     for line in doc.lines() {
@@ -496,13 +491,13 @@ fn intra_doc_links(line: &str) -> String {
         let name = &rest[open + 2..close];
         let after = &rest[close + 2..];
         out.push_str(&rest[..open]);
-        if let Some(target) = after.strip_prefix('(')
-            && let Some(end) = target.find(')')
+        if let Some(item) = after.strip_prefix('(')
+            && let Some(end) = item.find(')')
         {
-            let href = &target[..end];
+            let href = &item[..end];
             if href.contains("::") || !href.contains(['/', '.', '#']) {
                 out.push_str(&format!("`{name}`"));
-                rest = &target[end + 1..];
+                rest = &item[end + 1..];
                 continue;
             }
             out.push_str(&rest[open..close + 2]);

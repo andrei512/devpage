@@ -64,7 +64,7 @@ fn unsize(v: f32) -> Size {
     }
 }
 
-/// An alignment for the wire.
+/// `a` as the wire's enum, one value for each.
 fn align(a: Align) -> proto::Align {
     match a {
         Align::Start => proto::Align::Start,
@@ -172,7 +172,8 @@ pub fn encode_own(n: &Node) -> proto::Node {
     encode(&own)
 }
 
-/// A node's id for the wire.
+/// `id` for the wire: its path of element ids, from the root through each
+/// instance, copied as is.
 fn node_id(id: &NodeId) -> proto::NodeId {
     proto::NodeId { path: id.0.clone() }
 }
@@ -183,8 +184,8 @@ fn unnode_id(id: Option<&proto::NodeId>) -> Result<NodeId, String> {
         .ok_or_else(|| "a node with no id".to_string())
 }
 
-/// An image file's id from the wire's `bytes`, or why it isn't one: it is 32
-/// bytes.
+/// An image file's id from the wire's `bytes` — its SHA-256, so 32 of them;
+/// any other length is an error naming it.
 fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
     bytes
         .try_into()
@@ -192,8 +193,8 @@ fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
         .map_err(|_| format!("an image file id of {} bytes, not 32", bytes.len()))
 }
 
-/// A font file's id from the wire's `bytes`, or why it isn't one: it is 32
-/// bytes.
+/// A font file's id from the wire's `bytes` — its SHA-256, so 32 of them;
+/// any other length is an error naming it.
 fn font_id(bytes: &[u8]) -> Result<FontId, String> {
     bytes
         .try_into()

@@ -23,7 +23,8 @@ pub type RunId = u32;
 /// whose origin is the child's box's top-left.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Space {
-    /// The design's own coordinates.
+    /// The design's own coordinates: those of every chunk not inside a run's
+    /// child.
     Root,
     /// The coordinates of the child at this key of this run, from its box's
     /// top-left.
@@ -313,10 +314,10 @@ impl Run {
         )
     }
 
-    /// Where the run places a child `before` along it and `across` from its line's
-    /// start: its unrounded top-left in the run's space, and its rounded one —
-    /// each edge where taffy's rounding pass puts it, measured from the run's
-    /// node, a box in the flow.
+    /// Where the run places a child `before` along it and `across` from its
+    /// line's start: its unrounded top-left in the run's space, and its rounded
+    /// one — each edge where taffy's rounding pass puts it, measured from the
+    /// run's node, a box in the flow.
     pub fn place(&self, before: f64, across: f64) -> (Vec2, Vec2) {
         // In single precision, as taffy places a box and its rounding pass
         // rounds it: the child's place within the run, then the run's.

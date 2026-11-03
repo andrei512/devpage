@@ -26,7 +26,7 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Context {
-    /// The server's base URL.
+    /// The server's base URL; a trailing `/` is ignored.
     pub server: String,
     /// A shell command that prints a bearer token for the proxy; `None` when
     /// the server needs none.

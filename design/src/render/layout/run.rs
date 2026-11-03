@@ -28,7 +28,7 @@ mod free;
 /// Which layout tree a node is in: the drawing's own, or a run's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(in crate::render) enum Owner {
-    /// The drawing's own tree.
+    /// The drawing's own tree: every node not inside a run's child.
     Top,
     /// The tree of the run in this slot.
     Run(u32),
@@ -45,7 +45,7 @@ pub(in crate::render) fn is_run(node: &Node) -> bool {
 pub(in crate::render) struct Child {
     /// The one-item container it is laid out in.
     pub(in crate::render) wrap: NodeId,
-    /// Its own layout node.
+    /// Its own layout node, the one item of `wrap`.
     pub(in crate::render) node: NodeId,
     /// Whether it stretches across the line.
     pub(in crate::render) stretch: bool,
@@ -162,7 +162,7 @@ const ASKS: usize = 4;
 pub(in crate::render) struct RunLayout {
     /// Its own layout tree: each child in its one-item container.
     pub(in crate::render) tree: TaffyTree<Option<Leaf>>,
-    /// Its node's paint order.
+    /// Its node's order: the order keys from the scene's root down to it.
     pub(in crate::render) order: Order,
     /// The tree its leaf is in, the leaf, and — in a run's tree — the key of
     /// that run's child it is inside.
@@ -212,8 +212,8 @@ pub(in crate::render) struct RunLayout {
     base: Sums<OrderKey, Sized>,
     /// The base's own breadths, counted, so the broadest is at hand.
     base_owns: BTreeMap<u32, usize>,
-    /// The children that stretch across, and those whose size an ask can
-    /// change — the children an ask lays out.
+    /// The children that stretch across: laid out again across the line once
+    /// an ask knows its breadth.
     stretched: BTreeSet<OrderKey>,
     /// The children whose sizes are kept per ask rather than in the base:
     /// those that stretch, those the room can change, and the `"fill"` ones.
@@ -261,7 +261,8 @@ impl Runs {
         }
     }
 
-    /// Puts `run` in slot `id`.
+    /// Puts `run` in slot `id` — one [`reserve`](Self::reserve) gave, or one
+    /// it was [`take`](Self::take)n from — replacing whatever is there.
     pub(in crate::render) fn put(&mut self, id: u32, run: RunLayout) {
         self.slots[id as usize] = Some(run);
     }

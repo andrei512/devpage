@@ -38,7 +38,8 @@ static NEXT: AtomicU32 = AtomicU32::new(1);
 
 /// A tile asked for and not yet arrived.
 struct Asked {
-    /// Which tile.
+    /// The tile asked for — its theme, level, column and row — which damage
+    /// is checked against.
     key: Key,
     /// Damage reached it after it was asked for: what arrives is stale.
     stale: bool,
@@ -67,7 +68,8 @@ pub struct Work {
     pub draw: Vec<(Ticket, KRect)>,
     /// The tiles to paint next, each under its ticket.
     pub request: Vec<(Ticket, Key)>,
-    /// The paintings to free.
+    /// The paintings to free: let go since the last frame, their tickets
+    /// never given again.
     pub evict: Vec<Ticket>,
     /// How many tiles of the view at its own level are missing or stale: 0 when
     /// the frame shows the view current.

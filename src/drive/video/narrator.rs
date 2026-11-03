@@ -21,7 +21,8 @@ use super::silence::RATE;
 
 use devpage_core::document::Narration;
 
-/// The variable holding an OpenAI API key, which selects OpenAI.
+/// The variable holding an OpenAI API key, which selects OpenAI unless the
+/// Azure endpoint is set.
 pub const OPENAI_API_KEY: &str = "DEVPAGE_OPENAI_API_KEY";
 /// The variable naming an Azure endpoint, which selects Azure.
 pub const AZURE_ENDPOINT: &str = "DEVPAGE_AZURE_OPENAI_ENDPOINT";
@@ -39,9 +40,17 @@ const VOICE: &str = "marin";
 #[derive(PartialEq)]
 pub enum Provider {
     /// OpenAI's own API, with an API key.
-    OpenAi { key: String },
+    OpenAi {
+        /// The API key, sent as a bearer token.
+        key: String,
+    },
     /// An Azure Foundry resource, by its host name.
-    Azure { host: String, key: String },
+    Azure {
+        /// The resource's host, and its port if the endpoint names one.
+        host: String,
+        /// The resource's key, sent in the `api-key` header.
+        key: String,
+    },
 }
 
 /// The provider and the model a run narrates with. It holds a key, so it is
@@ -49,7 +58,7 @@ pub enum Provider {
 pub struct Config {
     /// Where the session runs, with its key.
     pub provider: Provider,
-    /// On Azure, the deployment's name.
+    /// The model's name — on Azure, the deployment's.
     pub model: String,
 }
 

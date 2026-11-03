@@ -40,9 +40,10 @@ pub(super) fn html_open(served: &ServedFolder) -> String {
 }
 
 /// The page script's tag, for the head: deferred, so it is fetched with
-/// everything else the head names and runs once the page is parsed. In print mode it keeps no live connection and shows
-/// no controls; with comments off (`devpage --no-comments`) it shows no
-/// comment threads and offers no way to start one.
+/// everything else the head names and runs once the page is parsed. In print
+/// mode it keeps no live connection and shows no controls; with comments off
+/// (`devpage --no-comments`) it shows no comment threads and offers no way to
+/// start one.
 fn page_script(print: bool, comments: bool) -> String {
     let setting = if print {
         " data-print"
@@ -103,13 +104,14 @@ pub fn missing(document: &Document, widgets: &Widgets, rendered: &Rendered) -> O
 /// A page the site `document` makes from something other than a file of its
 /// own — a code reference's — `rendered` at the address it is shown at, and
 /// the sidebar open at `current`: the page itself, or the nearest page above
-/// it the sidebar lists. It shows no comments, which belong to files, and
-/// lists no problems.
+/// it the sidebar lists — listing `found` above it. It shows no comments,
+/// which belong to files.
 pub fn generated(
     document: &Document,
     widgets: &Widgets,
     rendered: &Rendered,
     current: &Path,
+    found: &[Problem],
 ) -> Option<String> {
     let page = title(rendered.source(), rendered.file());
     let html = framed(
@@ -119,7 +121,7 @@ pub fn generated(
         &page,
         rendered.html(),
         false,
-        &[],
+        found,
     )?;
     // The page's own address, not the one the sidebar is open at.
     let shown = document.url(current)?;

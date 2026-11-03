@@ -57,8 +57,8 @@ pub struct Renderer {
     /// from in it, and every image it paints, in the order it first does,
     /// with the attribute that asked for it.
     blobs: HashMap<ImageId, ImageData>,
-    /// Every image the display list being made paints, in the order it first does,
-    /// with the attribute that asked for it.
+    /// Every image the display list being made paints, in the order it first
+    /// does, with the attribute that asked for it.
     painted: Vec<(Painted, Origin)>,
 }
 

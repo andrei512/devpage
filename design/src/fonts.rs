@@ -80,14 +80,14 @@ impl Weights {
 pub struct FontFile {
     /// Its identity: the SHA-256 of its bytes.
     pub id: FontId,
-    /// Its bytes, as read.
+    /// Its bytes, as read: what the wire carries.
     pub bytes: Arc<Vec<u8>>,
     /// The bytes as parley and both backends take them: one blob for the
     /// file's life, so every cache keyed by it keeps working.
     pub blob: Blob<u8>,
     /// Its family's name, as its own tables give it.
     pub family: String,
-    /// The weights it has.
+    /// The weights it has: a static font's one, or a variable font's axis.
     pub weights: Weights,
     /// Whether it is upright: neither italic nor oblique.
     pub upright: bool,

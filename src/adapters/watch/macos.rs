@@ -178,7 +178,7 @@ fn raise_open_files_limit() {
 /// One FSEvents stream over a deep folder: file events, coalesced by
 /// fseventsd for [`BURST`], handed to the handler on `queue`.
 struct Stream {
-    /// The stream, started.
+    /// The stream, started; stopped and released on `queue` when dropped.
     stream: fs::FSEventStreamRef,
     /// The serial queue it calls back on, and is stopped on.
     queue: DispatchRetained<DispatchQueue>,
@@ -335,7 +335,8 @@ fn kinds(flags: u32) -> Vec<EventKind> {
 /// file directly in it for writes. A thread waits for events and hands them
 /// to the handler; it ends when the kqueue is dropped.
 struct Kqueue {
-    /// The kqueue's descriptor.
+    /// The kqueue's descriptor, shared with the waiting thread and the
+    /// watches; dropping the kqueue tells the thread to stop through it.
     queue: Arc<OwnedFd>,
     /// Every open watch, shared with the thread that waits for their events.
     watches: Arc<Mutex<Watches>>,
@@ -481,7 +482,8 @@ fn wait(queue: &OwnedFd, watches: &Mutex<Watches>, handler: &Handler) {
 /// reused, so an event for a watch closed in the meantime is recognised as
 /// stale even when its descriptor number is taken again.
 struct Watches {
-    /// The kqueue's descriptor, which each watch is added to.
+    /// The kqueue's descriptor, the one [`Kqueue`] holds, which each watch
+    /// opened is registered on.
     queue: Arc<OwnedFd>,
     /// The id the next watch takes.
     next: usize,

@@ -30,17 +30,18 @@ pub struct Rgba {
     pub g: u8,
     /// The blue channel, 0 to 255.
     pub b: u8,
-    /// The alpha, 0 transparent to 255 opaque; the other channels are not multiplied by it.
+    /// The alpha, 0 transparent to 255 opaque; the other channels are not
+    /// multiplied by it.
     pub a: u8,
 }
 
 /// Which of a design's two themes it is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Theme {
-    /// The light theme, the default.
+    /// The light theme, the default: each color's `light` value.
     #[default]
     Light,
-    /// The dark theme.
+    /// The dark theme: each color's `dark` value.
     Dark,
 }
 
@@ -88,7 +89,7 @@ pub enum Size {
     /// As large as the node's content.
     Hug,
     /// The room its parent's auto layout gives it: the free space along the
-    /// layout, the whole breadth across it.
+    /// layout, the whole breadth across it. A root, with no parent, hugs.
     Fill,
 }
 
@@ -122,7 +123,7 @@ pub enum Align {
 pub enum Kind {
     /// A box that holds children and may lay them out.
     Frame,
-    /// A run of text.
+    /// Text, set in one style.
     Text,
     /// A rectangle.
     Rect,
@@ -137,7 +138,7 @@ pub enum Kind {
 /// How a box is filled: one color, or a CSS-style linear gradient.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Fill {
-    /// One color.
+    /// One color over the whole fill, with a value for each theme.
     Solid(Color),
     /// `angle` in degrees, CSS's: 0 points up, 90 right, 180 down. Each stop
     /// is a color at an offset from 0 to 1 along the gradient line.
@@ -200,7 +201,7 @@ pub const MAX_IMAGE_SIDE: u32 = 4096;
 /// from — the file's own, or resampled to at most [`MAX_IMAGE_SIDE`] a side.
 #[derive(Debug)]
 pub struct ImageFile {
-    /// The file's identity.
+    /// Its identity: the SHA-256 of its bytes.
     pub id: ImageId,
     /// The file's bytes, as read.
     pub bytes: Vec<u8>,
@@ -325,7 +326,8 @@ pub fn fit(rgba: &[u8], width: u32, height: u32, max: u32) -> (Vec<u8>, u32, u32
 /// that differ only in it are equal, and it doesn't travel on the wire.
 #[derive(Debug, Clone)]
 pub struct Origin {
-    /// The design file it was written in, by its path from the top of the served folder.
+    /// The design file it was written in, by its path from the top of the
+    /// served folder.
     pub file: String,
     /// Where in that file it was written.
     pub pos: Pos,
@@ -352,7 +354,7 @@ impl PartialEq for Origin {
 pub struct Image {
     /// The image file's path from the top of the served folder.
     pub src: String,
-    /// The [`ImageFile`] it shows.
+    /// The [`ImageFile`] it shows, by its id in the scene's `images`.
     pub id: ImageId,
     /// Where `src` was written.
     pub at: Origin,
@@ -423,9 +425,11 @@ pub struct Shadow {
     pub x: f32,
     /// How far down from the box the shadow is, in pixels.
     pub y: f32,
-    /// How far the shadow blurs, in pixels: twice the Gaussian's standard deviation.
+    /// How far the shadow blurs, in pixels: twice the Gaussian's standard
+    /// deviation.
     pub blur: f32,
-    /// How far the shadow grows past the box on every side before it blurs, in pixels.
+    /// How far the shadow grows past the box on every side before it blurs,
+    /// in pixels; a negative spread shrinks it.
     pub spread: f32,
     /// The shadow's color.
     pub color: Color,
@@ -439,7 +443,8 @@ pub struct TextStyle {
     /// The font file the text is set in, the face its weight picked; `None`
     /// for Inter.
     pub font: Option<FontId>,
-    /// The text.
+    /// What the text says: the element's text, each `{prop}` in it filled
+    /// in — a number as Rust prints it.
     pub content: String,
     /// The font size, in pixels.
     pub size: f32,
@@ -461,7 +466,8 @@ pub struct Node {
     pub id: NodeId,
     /// What the node is.
     pub kind: Kind,
-    /// The node's name: its `name` attribute, or else its element's, as problems call it.
+    /// The node's name: its `name` attribute, or else its element's, as
+    /// problems call it.
     pub name: String,
     /// How far right of its parent's top-left the node sits, in pixels; only a
     /// parent with no auto layout places it by this.
@@ -485,11 +491,13 @@ pub struct Node {
     pub stroke: Option<Color>,
     /// How wide the outline is, in pixels.
     pub stroke_width: f32,
-    /// Each corner's radius, in pixels: top-left, top-right, bottom-right, bottom-left.
+    /// Each corner's radius, in pixels: top-left, top-right, bottom-right,
+    /// bottom-left.
     pub radius: [f32; 4],
     /// The node's drop shadow; `None` for none.
     pub shadow: Option<Shadow>,
-    /// Whether a frame's children are cut off at its box.
+    /// Whether a frame's children are cut off at its box, rounded corners
+    /// and all.
     pub clip: bool,
     /// How a frame places its children.
     pub layout: Layout,
@@ -657,18 +665,19 @@ impl Files for HashMap<String, String> {
     }
 }
 
-/// A resolved design: its tree, each distinct image file its `Image`s show
-/// and font file its texts are set in, and whether it is **themed** — whether any `theme.` reference reached its
-/// nodes.
+/// A resolved design: its tree, each distinct image file its `Image`s show and
+/// font file its texts are set in, and whether it is **themed** — whether any
+/// `theme.` reference reached its nodes.
 #[derive(Debug, Clone)]
 pub struct Scene {
-    /// The tree's root node.
+    /// The tree's root node: the root design's `Frame`.
     pub root: Node,
     /// Each distinct image file the scene's `Image`s show, by id.
     pub images: ImageFiles,
     /// Each font file the scene's texts are set in, by id.
     pub fonts: FontFiles,
-    /// Whether any `theme.` reference reached the scene's nodes, so its two themes can differ.
+    /// Whether any `theme.` reference reached the scene's nodes, so its two
+    /// themes can differ.
     pub themed: bool,
     /// Where each node is, by its id: what a patch finds its nodes by.
     pub ids: Ids,

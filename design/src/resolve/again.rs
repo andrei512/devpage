@@ -312,7 +312,8 @@ struct Work<'a, 'r> {
     /// Nodes resolved again whole, or removed, this update: nothing more to
     /// do for them.
     covered: HashSet<NodeId>,
-    /// Instances removed this update, by their id prefix: nothing more to do for anything in them.
+    /// Instances removed this update, by their id prefix: nothing more to do
+    /// for anything in them.
     covered_instances: Vec<Vec<u32>>,
     /// The own attributes of the nodes resolved again this update.
     own: HashMap<NodeId, Node>,
@@ -333,7 +334,8 @@ enum Act<'p> {
     Own(&'p Element, bool),
     /// It, with its subtree, resolved again in place of the old one.
     Whole(&'p Element, &'p Element),
-    /// A new element, with its subtree, under `parent`: after `after`, or first when `None`.
+    /// A new element, with its subtree, under `parent`: after `after`, or first
+    /// when `None`.
     Insert {
         parent: &'p Element,
         after: Option<&'p Element>,
@@ -341,7 +343,8 @@ enum Act<'p> {
     },
     /// An element gone from the file, with its subtree.
     Remove(&'p Element),
-    /// A kept element in a new place under `parent`: after `after`, or first when `None`.
+    /// A kept element in a new place under `parent`: after `after`, or first
+    /// when `None`.
     Move {
         parent: &'p Element,
         after: Option<&'p Element>,

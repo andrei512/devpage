@@ -883,12 +883,12 @@ impl Designs {
         Some(crate::addresses::hash(text.as_bytes()))
     }
 
-    /// The design at `path` as a PNG in `theme`, written to `out` band by
-    /// band — each band at most 16 MB of pixels: one row of tiles at 1×, from
-    /// the store's cache, only the missing and stale ones painted, or for a
-    /// drawing too wide for that, shorter strips painted and not cached — or its problems one per line,
-    /// before anything is written. Painting blocks; a writer that fails — a
-    /// client gone — stops it.
+    /// The design at `path` as a PNG in `theme`, written to `out` band by band
+    /// — each band at most 16 MB of pixels: one row of tiles at 1×, from the
+    /// store's cache, only the missing and stale ones painted, or for a drawing
+    /// too wide for that, shorter strips painted and not cached — or its
+    /// problems one per line, before anything is written. Painting blocks; a
+    /// writer that fails — a client gone — stops it.
     ///
     /// No lock of the store's is held while `out` is written to, so a client
     /// that stops reading holds up nothing but its own PNG. A save that
@@ -1067,7 +1067,8 @@ pub mod testing {
   <Text color="#ffffff">{label}</Text>
 </Frame>
 "##;
-    /// A screen design that imports [`BUTTON`] and shows it, at `app/screen.design`.
+    /// A screen design that imports [`BUTTON`] and shows it, at
+    /// `app/screen.design`.
     pub const SCREEN: &str = r##"import Button from "./button.design"
 
 <Frame width={200} height={120} layout="column" gap={8} padding={16} fill="#f8fafc">

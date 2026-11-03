@@ -75,7 +75,8 @@ pub struct Answers<'a> {
     designs: &'a Designs,
     /// `None` for the Chrome that shoots slides: its pages list no problems.
     preview: Option<&'a Preview>,
-    /// Whether pages show comments.
+    /// Whether pages show comment threads and offer to start one; off with
+    /// `devpage --no-comments`.
     comments: bool,
 }
 
@@ -316,7 +317,14 @@ impl<'a> Answers<'a> {
         };
         let widgets = Widgets::of(&site, self.modules);
         let rendered = page::content(&widgets, &would_be, index.markdown(&page));
-        page::generated(&site, &widgets, &rendered, &index.listed(&page)).map(Answer::Html)
+        page::generated(
+            &site,
+            &widgets,
+            &rendered,
+            &index.listed(&page),
+            &index.problems(),
+        )
+        .map(Answer::Html)
     }
 
     /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
@@ -769,6 +777,55 @@ mod tests {
         assert!(crate::code::changed(served.folder.served(), &[file]));
         let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
         assert!(store.contains("Keeps entries."), "{store}");
+    }
+
+    #[test]
+    fn a_saved_gitignored_file_stays_out_of_the_code_reference() {
+        let dir = with_code("code-ignored");
+        std::fs::write(dir.join("lib/.gitignore"), "src/ignored.rs\n").unwrap();
+        let lib = dir.join("lib/src/lib.rs");
+        let source = std::fs::read_to_string(&lib).unwrap();
+        std::fs::write(&lib, format!("{source}pub mod ignored;\n")).unwrap();
+        let ignored = dir.join("lib/src/ignored.rs");
+        std::fs::write(&ignored, "pub fn hidden() {}\n").unwrap();
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        let address = "docs/reference/rust/my_lib/ignored/hidden";
+        assert!(matches!(
+            answers.path(address, None),
+            Answer::Missing { .. }
+        ));
+        std::fs::write(&ignored, "pub fn hidden() {}\npub fn more() {}\n").unwrap();
+        crate::code::changed(served.folder.served(), std::slice::from_ref(&ignored));
+        assert!(matches!(
+            answers.path(address, None),
+            Answer::Missing { .. }
+        ));
+    }
+
+    #[test]
+    fn a_query_saved_broken_is_a_problem_and_the_last_that_compiled_keeps_reading() {
+        let dir = with_code("code-query");
+        let query = dir.join("docs/rust.scm");
+        std::fs::write(&query, include_str!("code/rust.scm")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n        query: rust.scm\n",
+        )
+        .unwrap();
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        std::fs::write(&query, "(function_item) @item.function\n(bogus) @x\n").unwrap();
+        assert!(crate::code::changed(
+            served.folder.served(),
+            std::slice::from_ref(&query)
+        ));
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("Holds entries."), "{store}");
+        assert!(
+            store.contains("docs/rust.scm:2: query doesn't compile: NodeType error"),
+            "{store}"
+        );
     }
 
     #[test]

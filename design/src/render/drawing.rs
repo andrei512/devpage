@@ -18,7 +18,8 @@ use super::*;
 /// its id, or a shadow's pixels.
 #[derive(Clone)]
 pub(super) struct Painted {
-    /// Its pixels.
+    /// The decoded pixels the list draws: an image file's, at its own pixel
+    /// size, or a shadow's, blurred — compared byte by byte only for a shadow.
     pub(super) data: ImageData,
     /// The image file it shows; `None` for a shadow's pixels.
     pub(super) file: Option<ImageId>,
@@ -99,7 +100,7 @@ pub enum Damage {
 /// effect and its clip — and the images its own commands paint, in order.
 #[derive(Clone)]
 pub(super) struct Rec {
-    /// The scene node's id.
+    /// The scene node's id, under which `orders` finds the node's order.
     pub(super) node: SceneId,
     /// The space its box and chunk are in.
     pub(super) space: Space,
@@ -1116,7 +1117,7 @@ impl Renderer {
 /// Its places are in its space's coordinates.
 #[derive(Clone)]
 pub(super) struct RunContext {
-    /// The run's node's order.
+    /// The run's node's order: where the scene finds the node again.
     pub(super) order: Order,
     /// The layout tree the run's node is in.
     pub(super) owner: Owner,

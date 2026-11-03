@@ -217,8 +217,8 @@ impl Engine {
         }
     }
 
-    /// Draws each diagram of `sources`, in order: from the cache when it was drawn
-    /// before, the rest sent to the diagram thread as one job.
+    /// Draws each diagram of `sources`, in order: from the cache when it was
+    /// drawn before, the rest sent to the diagram thread as one job.
     pub(crate) fn draw_all(&self, sources: &[String]) -> Vec<Drawn> {
         let mut drawn: Vec<Option<Drawn>> = {
             let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());

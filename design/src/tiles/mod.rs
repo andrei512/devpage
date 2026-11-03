@@ -85,7 +85,7 @@ impl Key {
 /// What a cache keys its tiles by: a tile's [`Key`], with whatever else
 /// tells the cache's tiles apart — a server's design, say.
 pub trait Tiled: Copy + Eq + std::hash::Hash {
-    /// The tile's [`Key`].
+    /// The tile's [`Key`], without what else tells it apart.
     fn key(&self) -> Key;
 }
 

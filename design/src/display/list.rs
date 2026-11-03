@@ -40,7 +40,7 @@ impl RTreeObject for Entry {
 /// A chunk a query found: its order, where its space's origin is in the
 /// design's coordinates, and what cuts it from outside its space.
 pub(super) struct Found<'a> {
-    /// The chunk's paint order.
+    /// The chunk's paint order: its node's order keys from the root.
     pub(super) order: &'a Order,
     /// Where the chunk's space's origin is, in the design's coordinates.
     pub(super) at: Vec2,

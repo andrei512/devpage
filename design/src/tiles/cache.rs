@@ -38,7 +38,8 @@ pub struct Cache<T, K: Tiled = Key> {
     clock: u64,
     /// Every tile held, by key.
     entries: HashMap<K, Entry<T>>,
-    /// Every tile's key by when it was last used, oldest first: what to drop next.
+    /// Every tile's key by when it was last used, oldest first: what to drop
+    /// next.
     by_use: BTreeMap<u64, K>,
 }
 
