@@ -1,16 +1,16 @@
-//! Render: a reference page as Markdown, laid out as DocC lays out a symbol
-//! page, which the page pipeline then shows in its site's frame like any page
-//! of the site. Every page opens with where it is, its kind, its name and its
-//! abstract; then its declaration, the rest of its doc as an overview, the
-//! prose that adds to it, its Topics — what it holds, grouped by kind, each a
-//! link with its abstract — and its relationships.
+//! Render: a reference page as Markdown, laid out as Apple lays out a
+//! symbol page, which the page pipeline then shows in its site's frame like
+//! any page of the site. A page opens with a hero — the kind, the name, the
+//! abstract — then the declaration with the file it is in, the rest of the
+//! doc, and what it holds, grouped by kind, each a declaration with its
+//! abstract. No label is shown that the layout already says.
 
 use std::path::Path;
 
 use super::{Index, Member, Prose, Target, Targets};
 use crate::html::escape;
 
-/// The Topics groups of a module's page, in order: a kind and its heading.
+/// The groups of a module's page, in order: a kind and its heading.
 const ITEMS: [(&str, &str); 10] = [
     ("module", "Modules"),
     ("struct", "Structures"),
@@ -26,10 +26,10 @@ const ITEMS: [(&str, &str); 10] = [
 
 /// The page of a namespace: every crate it holds.
 pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
-    let mut out = format!(
-        "{}\n\n# {} reference\n\n",
-        eyebrow("Reference"),
-        title_case(name)
+    let mut out = hero(
+        "Reference",
+        &title_case(name),
+        "Every crate, module, type and function of the code, read from the code as it is now.",
     );
     let crates: Vec<&Target> = targets
         .targets
@@ -40,14 +40,17 @@ pub fn namespace(index: &Index, name: &str, targets: &Targets) -> String {
         out.push_str("No code matches this namespace's `files`.\n");
         return out;
     }
-    out.push_str("## Topics\n\n### Crates\n\n");
+    let mut groups = String::from("### Crates\n\n");
     for krate in crates {
-        out.push_str(&topic(
-            &format!("`{}`", krate.path[0]),
+        groups.push_str(&topic(
+            &krate.path[0],
+            "",
+            &krate.path[0],
             &index.address(name, &krate.path),
             &krate.doc,
         ));
     }
+    out.push_str(&topics(&groups));
     out
 }
 
@@ -65,18 +68,21 @@ pub fn target(
     } else {
         kind_label(&target.kind)
     };
-    let mut out = breadcrumbs(index, namespace, &target.path[..target.path.len() - 1]);
-    out.push_str(&format!("{}\n\n# {name}\n\n", eyebrow(kind)));
     let (summary, overview) = split_doc(&target.doc);
-    out.push_str(&abstract_of(&summary));
+    let mut out = hero(kind, &name, &summary);
     if target.kind != "module" && !target.signature.is_empty() {
-        out.push_str("## Declaration\n\n");
-        out.push_str(&fence(&target.signature));
+        out.push_str(&declaration(
+            index,
+            &target.signature,
+            &target.file,
+            target.line,
+        ));
+    } else {
+        out.push_str(&source(index, &target.file, None));
     }
-    out.push_str(&declared(index, &target.file, target.line));
     out.push_str(&overview_of(&overview, prose));
 
-    let mut topics = String::new();
+    let mut groups = String::new();
     if target.kind == "module" {
         let children: Vec<&Target> = targets
             .targets
@@ -90,15 +96,18 @@ pub fn target(
             if listed.is_empty() {
                 continue;
             }
-            topics.push_str(&format!("### {heading}\n\n"));
+            groups.push_str(&format!("### {heading}\n\n"));
             for child in listed {
-                let label = if child.kind == "module" {
-                    format!("`{}`", child.path.last().unwrap())
+                let name = child.path.last().unwrap();
+                let shown = if child.kind == "module" {
+                    name.clone()
                 } else {
-                    format!("`{}`", short(&child.signature))
+                    short(&child.signature)
                 };
-                topics.push_str(&topic(
-                    &label,
+                groups.push_str(&topic(
+                    &shown,
+                    if child.kind == "module" { "" } else { "rust" },
+                    name,
                     &index.address(namespace, &child.path),
                     &child.doc,
                 ));
@@ -119,28 +128,32 @@ pub fn target(
         if members.is_empty() {
             continue;
         }
-        topics.push_str(&format!("### {heading}\n\n"));
+        groups.push_str(&format!("### {heading}\n\n"));
         for member in members {
             let mut path = target.path.clone();
             path.push(member.name.clone());
-            topics.push_str(&topic(
-                &format!("`{}`", short(&member.signature)),
+            groups.push_str(&topic(
+                &short(&member.signature),
+                "rust",
+                &member.name,
                 &index.address(namespace, &path),
                 &member.doc,
             ));
         }
     }
-    if !topics.is_empty() {
-        out.push_str("## Topics\n\n");
-        out.push_str(&topics);
-    }
     if !target.implements.is_empty() {
-        out.push_str("## Relationships\n\n### Implements\n\n");
-        for name in &target.implements {
-            out.push_str(&format!("- `{name}`\n"));
-        }
-        out.push('\n');
+        groups.push_str("### Implements\n\n");
+        let chips: Vec<String> = target
+            .implements
+            .iter()
+            .map(|name| format!("<code>{}</code>", escape(name)))
+            .collect();
+        groups.push_str(&format!(
+            "<p class=\"code-chips\">{}</p>\n\n",
+            chips.join(" ")
+        ));
     }
+    out.push_str(&topics(&groups));
     out
 }
 
@@ -152,17 +165,20 @@ pub fn member(
     member: &Member,
     prose: Option<&Prose>,
 ) -> String {
-    let mut out = breadcrumbs(index, namespace, &owner.path);
-    out.push_str(&format!(
-        "{}\n\n# {}\n\n",
-        eyebrow(group_of(member).label()),
-        member.name
-    ));
     let (summary, overview) = split_doc(&member.doc);
-    out.push_str(&abstract_of(&summary));
-    out.push_str("## Declaration\n\n");
-    out.push_str(&fence(&member.signature));
-    out.push_str(&declared(index, &member.file, member.line));
+    let kind = format!(
+        "{} of <a href=\"{}\">{}</a>",
+        group_of(member).label(),
+        escape(&index.address(namespace, &owner.path)),
+        escape(owner.path.last().map(String::as_str).unwrap_or(""))
+    );
+    let mut out = hero_html(&kind, &member.name, &summary);
+    out.push_str(&declaration(
+        index,
+        &member.signature,
+        &member.file,
+        member.line,
+    ));
     out.push_str(&overview_of(&overview, prose));
     out
 }
@@ -216,74 +232,117 @@ fn takes_self(signature: &str) -> bool {
         .is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
 }
 
-/// A link back up the path: the namespace, then each module.
-fn breadcrumbs(index: &Index, namespace: &str, path: &[String]) -> String {
-    let mut links = vec![format!(
-        r#"<a href="{}">{}</a>"#,
-        escape(&index.address(namespace, &[])),
-        escape(&title_case(namespace))
-    )];
-    for at in 1..=path.len() {
-        links.push(format!(
-            r#"<a href="{}">{}</a>"#,
-            escape(&index.address(namespace, &path[..at])),
-            escape(&path[at - 1])
-        ));
-    }
+/// The top of a page: its kind, its name and its abstract.
+fn hero(kind: &str, name: &str, summary: &str) -> String {
+    hero_html(&escape(kind), name, summary)
+}
+
+/// [`hero`], its kind already HTML.
+fn hero_html(kind: &str, name: &str, summary: &str) -> String {
+    let summary = if summary.is_empty() {
+        String::new()
+    } else {
+        format!("{summary}\n\n")
+    };
     format!(
-        "<nav class=\"code-breadcrumbs\">{}</nav>\n\n",
-        links.join(" › ")
+        "<div class=\"code-hero\">\n\n<p class=\"code-eyebrow\">{kind}</p>\n\n# {name}\n\n{summary}</div>\n\n"
     )
 }
 
-fn eyebrow(kind: &str) -> String {
-    format!("<p class=\"code-eyebrow\">{}</p>", escape(kind))
+/// The declaration as written, and under it the file and line it is in.
+fn declaration(index: &Index, signature: &str, file: &Path, line: usize) -> String {
+    format!(
+        "<div class=\"code-declaration\">\n\n{}</div>\n\n{}",
+        fence(signature),
+        source(index, file, Some(line))
+    )
 }
 
-/// The abstract under the title, larger than the text.
-fn abstract_of(summary: &str) -> String {
-    if summary.is_empty() {
-        return "<div class=\"code-abstract code-undocumented\">\n\nNo overview available.\n\n</div>\n\n"
-            .to_string();
+/// The file — and line — something is declared at, linked as the served
+/// folder serves it.
+fn source(index: &Index, file: &Path, line: Option<usize>) -> String {
+    match index.source(file) {
+        Some((address, name)) => {
+            let shown = match line {
+                Some(line) => format!("{name}:{line}"),
+                None => name,
+            };
+            format!(
+                "<p class=\"code-source\"><a href=\"{}\">{}</a></p>\n\n",
+                escape(&address),
+                escape(&shown)
+            )
+        }
+        None => String::new(),
     }
-    format!("<div class=\"code-abstract\">\n\n{summary}\n\n</div>\n\n")
 }
 
-/// The rest of the doc, and the prose that adds to it, under Overview.
+/// The rest of the doc, and the prose that adds to it.
 fn overview_of(overview: &str, prose: Option<&Prose>) -> String {
     let prose = prose.map(|prose| prose.body.trim()).unwrap_or("");
-    if overview.is_empty() && prose.is_empty() {
-        return String::new();
-    }
-    let mut out = String::from("## Overview\n\n");
+    let mut out = String::new();
     for part in [overview, prose] {
         if !part.is_empty() {
             out.push_str(part);
             out.push_str("\n\n");
         }
     }
+    if out.is_empty() {
+        return out;
+    }
+    format!("<div class=\"code-overview\">\n\n{out}</div>\n\n")
+}
+
+/// What a page holds, its groups headed by kind.
+fn topics(groups: &str) -> String {
+    if groups.is_empty() {
+        return String::new();
+    }
+    format!("<div class=\"code-topics\">\n\n{groups}</div>\n\n")
+}
+
+/// One entry of a group: `shown` — a declaration in `language`, or a bare
+/// name — linked, its `name` in bold, and its abstract under it.
+fn topic(shown: &str, language: &str, name: &str, address: &str, doc: &str) -> String {
+    let (summary, _) = split_doc(doc);
+    let summary = summary.split('\n').collect::<Vec<_>>().join(" ");
+    let label = emphasized(shown, name);
+    let class = if language.is_empty() {
+        "code-topic-name"
+    } else {
+        "code-topic-declaration"
+    };
+    let mut out = format!(
+        "<div class=\"code-topic\">\n\n<a class=\"{class}\" href=\"{}\"><code>{label}</code></a>\n\n",
+        escape(address)
+    );
+    if !summary.is_empty() {
+        out.push_str(&summary);
+        out.push_str("\n\n");
+    }
+    out.push_str("</div>\n\n");
     out
 }
 
-/// "Declared in `file`, line n", linking the file as the served folder
-/// serves it.
-fn declared(index: &Index, file: &Path, line: usize) -> String {
-    match index.source(file) {
-        Some((address, name)) => format!(
-            "<div class=\"code-declared\">\n\nDeclared in [{name}]({address}), line {line}\n\n</div>\n\n"
+/// `shown`, escaped, with the first `name` in it in bold.
+fn emphasized(shown: &str, name: &str) -> String {
+    let at = shown
+        .match_indices(name)
+        .find(|(at, _)| {
+            let before = shown[..*at].chars().last();
+            let after = shown[at + name.len()..].chars().next();
+            !before.is_some_and(|c| c.is_alphanumeric() || c == '_')
+                && !after.is_some_and(|c| c.is_alphanumeric() || c == '_')
+        })
+        .map(|(at, _)| at);
+    match at {
+        Some(at) => format!(
+            "{}<b>{}</b>{}",
+            escape(&shown[..at]),
+            escape(name),
+            escape(&shown[at + name.len()..])
         ),
-        None => String::new(),
-    }
-}
-
-/// One entry of a Topics group: its label linked, its abstract under it.
-fn topic(label: &str, address: &str, doc: &str) -> String {
-    let (summary, _) = split_doc(doc);
-    let summary = summary.split("\n").collect::<Vec<_>>().join(" ");
-    if summary.is_empty() {
-        format!("<div class=\"code-topic\">\n\n[{label}]({address})\n\n</div>\n\n")
-    } else {
-        format!("<div class=\"code-topic\">\n\n[{label}]({address})\n\n{summary}\n\n</div>\n\n")
+        None => escape(shown),
     }
 }
 
@@ -479,6 +538,14 @@ mod tests {
             "fn new(folder: &'a Folder, comments: bool) -> Self"
         );
         assert_eq!(short("pub(crate) struct Store<T>"), "struct Store<T>");
+    }
+
+    #[test]
+    fn a_topic_shows_its_name_in_bold() {
+        assert_eq!(
+            emphasized("fn read(&self, reader: R) -> u8", "read"),
+            "fn <b>read</b>(&amp;self, reader: R) -&gt; u8"
+        );
     }
 
     #[test]

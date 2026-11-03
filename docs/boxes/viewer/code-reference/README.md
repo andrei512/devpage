@@ -36,26 +36,25 @@ reference; `code` on a doc or a deck stops devpage with
 ## The pages
 
 The pages are under `reference/<namespace>/` in the site's folder, shown in the
-site's frame like its own pages, and laid out as DocC lays out a symbol page:
+site's frame like its own pages, and laid out as Apple lays out a symbol page,
+with no label the layout already says:
 
-- At the top, the path back up — `Rust › devpage_core › answer` — then the
-  kind (Structure, Method, Module…), the name, and the doc comment's first
-  paragraph as the abstract.
-- **Declaration**: the item as written, without its body, and the file and
-  line it is declared at.
-- **Overview**: the rest of the doc comment, and any [prose](#adding-prose)
-  that adds to it.
-- **Topics**: what it holds, grouped by kind — a module's modules, structures,
+- The kind — Structure, Method of `Answers`, Module… — above the name, and the
+  doc comment's first paragraph as the abstract.
+- The declaration, as written without its body, on a card, with the file and
+  line it is in under it.
+- The rest of the doc comment, and any [prose](#adding-prose) that adds to it.
+- What it holds, grouped by kind — a module's modules, structures,
   enumerations, traits, functions…; a type's fields, variants, associated
-  functions and methods — each a link with its declaration on one line and its
-  abstract under it.
-- **Relationships**: the traits a type implements.
+  functions and methods — each its declaration on one line with its name in
+  bold, linked, and its abstract under it. A type's traits close the page.
 
 Every item has a page, and so does every member: `reference/rust` lists the
 crates, `reference/rust/devpage_core/answer` is a module,
 `…/answer/Answers` a structure and `…/answer/Answers/path` its method. A
 Topics entry for `reference/rust` in the site's sidebar opens the reference's
-tree: its crates, and under each module its modules and types.
+tree: its crates, and under each module its modules and types. A function's
+or a member's page keeps its module or its type open there.
 
 A doc comment reads as the page's Markdown: its headings go below the page's
 own, an unlabelled code block is Rust with rustdoc's hidden `# ` lines left

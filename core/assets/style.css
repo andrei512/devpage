@@ -272,20 +272,29 @@ table { border-collapse: collapse; width: 100%; font-size: 15px; }
 th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
 th { font-weight: 600; }
 
-/* A code reference page, laid out as DocC lays out a symbol: where it is,
-   its kind above its name, its abstract as the lead, and Topics entries that
-   are a declaration with its abstract under it. */
-.code-breadcrumbs { font-size: 13px; color: var(--muted); margin: 0 0 20px; }
-.code-breadcrumbs a { color: var(--muted); }
-.code-eyebrow { font-size: 17px; font-weight: 600; color: var(--muted); margin: 0 0 6px; }
-.code-abstract p { font-size: 21px; line-height: 1.45; margin: 0 0 32px; }
-.code-undocumented p { color: var(--muted); }
-.code-declared p { font-size: 13px; color: var(--muted); margin: -8px 0 20px; }
-.code-declared a { color: var(--muted); text-decoration: underline; }
-.code-topic { margin: 0 0 18px; }
+/* A code reference page, as Apple lays out a symbol: a hero with the kind,
+   the name and the abstract; the declaration on a card with its file under
+   it; then what it holds, each entry a declaration with its name in bold and
+   its abstract under it, between hairlines. */
+.code-hero { margin: 8px 0 36px; }
+.code-eyebrow { font-size: 17px; font-weight: 600; color: var(--muted); margin: 0 0 8px; letter-spacing: -0.01em; }
+.code-eyebrow a { color: inherit; text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.code-hero h1 { font-size: 48px; font-weight: 700; letter-spacing: -0.025em; margin: 0 0 16px; word-break: break-word; }
+.code-hero p:not(.code-eyebrow) { font-size: 22px; line-height: 1.42; letter-spacing: -0.01em; margin: 0; }
+.code-declaration pre { background: var(--background); border: 1px solid var(--border); border-radius: 14px; padding: 18px 22px; margin: 0; }
+.code-declaration pre code { font-size: 15px; line-height: 1.6; }
+.code-source { font-size: 13px; margin: 10px 2px 40px; }
+.code-source a { color: var(--muted); }
+.code-overview { margin: 0 0 8px; }
+.code-topics h3 { font-size: 24px; font-weight: 600; letter-spacing: -0.015em; margin: 56px 0 4px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+.code-topic { padding: 14px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 .code-topic p { margin: 0; }
-.code-topic p:first-child code { font-size: 15px; background: none; padding: 0; color: var(--accent); }
-.code-topic p + p { font-size: 15px; color: var(--muted); margin-top: 3px; }
+.code-topic a code { background: none; padding: 0; font-size: 15px; color: var(--accent); line-height: 1.5; }
+.code-topic a code b { font-weight: 600; }
+.code-topic-name code { font-family: var(--font); font-size: 17px; font-weight: 600; }
+.code-topic p + p { font-size: 15px; line-height: 1.45; color: var(--muted); margin-top: 4px; }
+.code-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 0; }
+.code-chips code { font-size: 14px; padding: 4px 10px; border-radius: 8px; }
 
 /* Diagrams: pele draws with its own variables, mapped to the theme tokens. */
 

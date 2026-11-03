@@ -310,7 +310,7 @@ impl<'a> Answers<'a> {
         };
         let widgets = Widgets::of(&site, self.modules);
         let rendered = page::content(&widgets, &would_be, index.markdown(&page));
-        page::generated(&site, &widgets, &rendered).map(Answer::Html)
+        page::generated(&site, &widgets, &rendered, &index.listed(&page)).map(Answer::Html)
     }
 
     /// `/__devpage/system-widgets/<name>`: a system widget, compiled from

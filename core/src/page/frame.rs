@@ -101,19 +101,34 @@ pub fn missing(document: &Document, widgets: &Widgets, rendered: &Rendered) -> O
 }
 
 /// A page the site `document` makes from something other than a file of its
-/// own — a code reference's — `rendered` at the address it is shown at. It
-/// shows no comments, which belong to files, and lists no problems.
-pub fn generated(document: &Document, widgets: &Widgets, rendered: &Rendered) -> Option<String> {
+/// own — a code reference's — `rendered` at the address it is shown at, and
+/// the sidebar open at `current`: the page itself, or the nearest page above
+/// it the sidebar lists. It shows no comments, which belong to files, and
+/// lists no problems.
+pub fn generated(
+    document: &Document,
+    widgets: &Widgets,
+    rendered: &Rendered,
+    current: &Path,
+) -> Option<String> {
     let page = title(rendered.source(), rendered.file());
-    framed(
+    let html = framed(
         document,
         widgets,
-        rendered.file(),
+        current,
         &page,
         rendered.html(),
         false,
         &[],
-    )
+    )?;
+    // The page's own address, not the one the sidebar is open at.
+    let shown = document.url(current)?;
+    let own = document.url(rendered.file())?;
+    Some(html.replacen(
+        &format!("<article data-source=\"{}\">", escape(&shown)),
+        &format!("<article data-source=\"{}\">", escape(&own)),
+        1,
+    ))
 }
 
 /// devpage's own page for `address`, with nothing at it, when the site

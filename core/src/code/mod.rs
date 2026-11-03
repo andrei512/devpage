@@ -394,6 +394,11 @@ fn literal_prefix(pattern: &Path) -> PathBuf {
     prefix
 }
 
+/// The kinds the sidebar's tree lists; the rest are left to their pages.
+const NAVIGATED: [&str; 7] = [
+    "module", "struct", "enum", "union", "trait", "type", "macro",
+];
+
 /// What a page address of the code reference names.
 pub enum Page {
     /// A namespace's root: every crate it holds.
@@ -482,6 +487,27 @@ impl Index {
             file.push(segment);
         }
         self.served.url(&file).unwrap_or_default()
+    }
+
+    /// The page the sidebar lists for `page`: its own, or — for a member,
+    /// which the sidebar leaves to its type's page — its type's.
+    pub fn listed(&self, page: &Page) -> PathBuf {
+        let (at, mut path) = match page {
+            Page::Namespace(at) => (*at, &[][..]),
+            Page::Target(at, path) | Page::Member(at, path, _) => (*at, &path[..]),
+        };
+        // A function, a constant: the sidebar lists its module.
+        let targets = self.namespaces[at].targets();
+        if let Some(target) = targets.targets.get(path)
+            && !NAVIGATED.contains(&target.kind.as_str())
+        {
+            path = &path[..path.len() - 1];
+        }
+        let mut file = self.reference().join(&self.namespaces[at].name);
+        for segment in path {
+            file.push(segment);
+        }
+        file
     }
 
     /// The sidebar's tree under a Topics entry for the page at `path`: for a

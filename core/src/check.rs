@@ -1015,7 +1015,7 @@ mod external {
     async fn a_link_into_the_code_reference_is_checked_against_the_code() {
         let doc = folder(
             "code-links",
-            "# Home\n\n[Store](reference/rust/my_lib/Store/read#declaration)\n[Gone](reference/rust/my_lib/Gone)\n[No member](reference/rust/my_lib/Store/write)\n[No section](reference/rust/my_lib/Store#nope)\n",
+            "# Home\n\n[Store](reference/rust/my_lib/Store/read)\n[Gone](reference/rust/my_lib/Gone)\n[No member](reference/rust/my_lib/Store/write)\n[No section](reference/rust/my_lib/Store#nope)\n",
         );
         std::fs::create_dir_all(doc.base.join("lib/src")).unwrap();
         std::fs::write(
