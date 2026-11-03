@@ -12,6 +12,7 @@ pub mod answer;
 pub mod cache;
 pub mod changes;
 pub mod check;
+pub mod code;
 pub mod comments;
 pub mod designs;
 pub mod diagrams;

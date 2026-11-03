@@ -420,6 +420,32 @@ fn page_links_with(
                 .file(&page.parent().unwrap_or(Path::new(".")).join(design))
         });
         let Some(resolved) = resolved else {
+            // A page of a code reference: there when the code has it, and
+            // its `#fragment` one of the page's sections.
+            let would_be =
+                crate::folder::lexical(&page.parent().unwrap_or(Path::new(".")).join(path));
+            if let Some(index) = crate::code::at(folder, &would_be) {
+                let problem = match index.ids(&would_be) {
+                    Some(ids) if fragment.is_empty() || ids.iter().any(|id| id == fragment) => None,
+                    Some(_) => Some(format!("broken link {target} — no section #{fragment}")),
+                    None => Some(match index.closest(&would_be) {
+                        Some(meant) => {
+                            format!("broken link {target} — no such code; did you mean {meant}?")
+                        }
+                        None => format!("broken link {target} — no such code"),
+                    }),
+                };
+                if let Some(message) = problem {
+                    problems.push(Problem {
+                        file: file.clone(),
+                        line,
+                        column: None,
+                        message,
+                        target: Some(target.clone()),
+                    });
+                }
+                continue;
+            }
             problems.push(Problem {
                 file: file.clone(),
                 line,
@@ -983,6 +1009,43 @@ mod external {
         )
         .unwrap();
         Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_link_into_the_code_reference_is_checked_against_the_code() {
+        let doc = folder(
+            "code-links",
+            "# Home\n\n[Store](reference/rust/my_lib/Store#read)\n[Gone](reference/rust/my_lib/Gone)\n[No member](reference/rust/my_lib/Store#write)\n",
+        );
+        std::fs::create_dir_all(doc.base.join("lib/src")).unwrap();
+        std::fs::write(
+            doc.base.join("lib/Cargo.toml"),
+            "[package]\nname = \"my-lib\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("lib/src/lib.rs"),
+            "pub struct Store;\nimpl Store {\n    pub fn read(&self) {}\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "README.md:4: broken link reference/rust/my_lib/Gone — no such code; did you mean /reference/rust/my_lib/Store?",
+                "README.md:5: broken link reference/rust/my_lib/Store#write — no section #write",
+            ]
+        );
     }
 
     #[tokio::test]

@@ -100,6 +100,22 @@ pub fn missing(document: &Document, widgets: &Widgets, rendered: &Rendered) -> O
     )
 }
 
+/// A page the site `document` makes from something other than a file of its
+/// own — a code reference's — `rendered` at the address it is shown at. It
+/// shows no comments, which belong to files, and lists no problems.
+pub fn generated(document: &Document, widgets: &Widgets, rendered: &Rendered) -> Option<String> {
+    let page = title(rendered.source(), rendered.file());
+    framed(
+        document,
+        widgets,
+        rendered.file(),
+        &page,
+        rendered.html(),
+        false,
+        &[],
+    )
+}
+
 /// devpage's own page for `address`, with nothing at it, when the site
 /// `document` has no `404.md`: in the site's frame, as its `404.md` would be,
 /// offering `meant` — the address it most likely meant — and the site's root.

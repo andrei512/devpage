@@ -165,7 +165,7 @@ impl<'a> Answers<'a> {
             return self.slide(deck, &file, n);
         }
         let Some(file) = real else {
-            return outside();
+            return self.code(path).unwrap_or_else(outside);
         };
         if path.ends_with(".design") {
             // An address that names a theme shows it; any other `theme` is
@@ -264,8 +264,10 @@ impl<'a> Answers<'a> {
         let entry = self.folder.entry();
         let served = &entry.served;
         let address = format!("{}/{}", served.mount(), path.trim_start_matches('/'));
-        let meant = meant(served, path).and_then(|file| entry.url(&file));
         let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let meant = meant(served, path)
+            .and_then(|file| entry.url(&file))
+            .or_else(|| crate::code::at(self.folder, &would_be)?.closest(&would_be));
         let site = served
             .contains(&would_be)
             .then(|| self.folder.owner(&would_be))
@@ -291,6 +293,24 @@ impl<'a> Answers<'a> {
             None => format!("nothing at {address}"),
         };
         Answer::Missing { why, page }
+    }
+
+    /// `path`'s page of a code reference, in its site's frame: `None` when
+    /// no code reference has a page there.
+    fn code(&self, path: &str) -> Option<Answer> {
+        let served = self.folder.served();
+        let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let index = crate::code::at(self.folder, &would_be)?;
+        let page = index.page(&would_be)?;
+        let Owner {
+            document: Ok(site), ..
+        } = self.folder.owner(&would_be)?
+        else {
+            return None;
+        };
+        let widgets = Widgets::of(&site, self.modules);
+        let rendered = page::content(&widgets, &would_be, index.markdown(&page));
+        page::generated(&site, &widgets, &rendered).map(Answer::Html)
     }
 
     /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
@@ -686,6 +706,57 @@ mod tests {
         let (_, page) = missing(answers.path("docs/<b>x", None));
         assert!(page.contains("/docs/&lt;b&gt;x"), "{page}");
         assert!(!page.contains("<b>x"), "{page}");
+    }
+
+    /// A served folder with a crate beside a site whose code reference reads
+    /// it.
+    fn with_code(name: &str) -> PathBuf {
+        let dir = served(name);
+        std::fs::create_dir_all(dir.join("lib/src")).unwrap();
+        std::fs::write(dir.join("lib/Cargo.toml"), "[package]\nname = \"my-lib\"\n").unwrap();
+        std::fs::write(
+            dir.join("lib/src/lib.rs"),
+            "//! The library.\n\n/// Holds entries.\npub struct Store {\n    /// How many.\n    pub count: usize,\n}\n\nimpl Store {\n    /// Reads one.\n    pub fn read(&self) -> u8 { 0 }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_code_reference_page_is_shown_in_its_sites_frame_from_the_code_now() {
+        let dir = with_code("code-page");
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("<title>Store · Docs</title>"), "{store}");
+        assert!(store.contains(r#"class="document-title""#), "{store}");
+        assert!(store.contains("Holds entries."), "{store}");
+        assert!(store.contains(r#"id="read""#), "{store}");
+        assert!(store.contains(r#"href="/lib/src/lib.rs""#), "{store}");
+        let crates = html(answers.path("docs/reference/rust", None));
+        assert!(
+            crates.contains(r#"href="/docs/reference/rust/my_lib""#),
+            "{crates}"
+        );
+
+        let (why, _) = missing(answers.path("docs/reference/rust/my_lib/Stor", None));
+        assert!(
+            why.ends_with("did you mean /docs/reference/rust/my_lib/Store?"),
+            "{why}"
+        );
+
+        // A save is read again: the page says what the code says now.
+        let file = dir.join("lib/src/lib.rs");
+        let source = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, source.replace("Holds entries.", "Keeps entries.")).unwrap();
+        assert!(crate::code::changed(served.folder.served(), &[file]));
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("Keeps entries."), "{store}");
     }
 
     #[test]

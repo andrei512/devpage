@@ -144,6 +144,9 @@ Each card opens the page that explains it.
 - [Designs](designs/README.md) — writing a design as code, props and
   instances, prototypes, embedding one in a page, and its PNG.
 
+- [Code reference](code-reference/README.md) — a page for every module, type
+  and function of a site's code, read with tree-sitter, live, and checked when
+  prose links to it.
 - [Extensions](extensions/README.md) — Enabling a local Rust package without assembling another executable.
 
 ### Mechanisms

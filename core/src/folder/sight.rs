@@ -113,6 +113,7 @@ fn watch_roots(folder: &Folder) -> Vec<PathBuf> {
         roots.extend_from_slice(site.watch_roots());
     }
     roots.extend(crate::extensions::input_roots(folder.served()));
+    roots.extend(crate::code::input_roots(folder.served()));
     roots
 }
 
@@ -137,6 +138,7 @@ impl Folder {
         }
         crate::extensions::input_roots(self.served())
             .iter()
+            .chain(&crate::code::input_roots(self.served()))
             .any(|r| path.starts_with(r) || r.starts_with(path))
             || !self.ignored(path, is_dir)
             || self.named_by_watch(path)

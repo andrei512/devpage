@@ -476,6 +476,19 @@ impl Document {
             },
             None => None,
         };
+        let mut extension_configs = extension_configs;
+        // `code` with no package is the system extension: the code reference,
+        // which only a site has pages for.
+        let code = match extension_configs.get("code") {
+            Some(config) if config.package.is_none() => {
+                if !matches!(kind, Kind::Site { .. }) {
+                    bail!("extensions: code: only a site has a code reference");
+                }
+                extension_configs.remove("code").map(|config| config.config)
+            }
+            _ => None,
+        };
+        crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
         Ok(Self {
             extensions: crate::extensions::for_document(&base.join(&file_name)),

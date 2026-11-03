@@ -163,6 +163,8 @@ default.
 
 ### Extensions
 
+A site's `extensions` may hold `code`, with no `package`: the system extension that gives the site a [code reference](../code-reference/README.md#enabling-it).
+
 Every document kind accepts an optional `extensions` mapping. Each entry selects a local native bundle with `package` and supplies its extension-specific `config`. Paths are relative to this document file. The [package reference](../extensions/reference/README.md#configuration) defines validation, ownership, API compatibility, and errors. Enabling an extension does not compile or install it.
 
 Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.

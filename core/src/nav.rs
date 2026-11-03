@@ -189,6 +189,13 @@ pub fn resolve(document: &Document, page: &Path, href: &str) -> Target {
         .parent()
         .and_then(|folder| document.served.file(&folder.join(path)))
     else {
+        // A page of the site's code reference opens like a document.
+        let would_be = crate::folder::lexical(&page.parent().unwrap_or(Path::new(".")).join(path));
+        if crate::code::for_document(&document.path())
+            .is_some_and(|index| index.page(&would_be).is_some())
+        {
+            return Target::Document(would_be);
+        }
         return Target::Problem(format!("Topics entry {href} — no such file"));
     };
     if target.extension().is_some_and(|ext| ext == "md") {

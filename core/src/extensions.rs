@@ -28,7 +28,9 @@ fn instances() -> &'static Mutex<BTreeMap<PathBuf, Vec<Binding>>> {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
-    pub package: String,
+    /// The package's bundle; left out only for a system extension such as
+    /// [`code`](crate::code).
+    pub package: Option<String>,
     #[serde(default)]
     pub config: serde_yaml::Value,
 }
@@ -254,8 +256,11 @@ pub fn configure(
         .map(String::from)
         .collect();
     for (id, config) in configs {
+        let Some(path) = &config.package else {
+            bail!("extensions: {id}: package is required — {id} is not a system extension");
+        };
         let package = loader
-            .load(&base.join(&config.package))
+            .load(&base.join(path))
             .map_err(|e| anyhow!("Extension {id}: {e:#}"))?;
         let owner = format!(
             "{:x}",
