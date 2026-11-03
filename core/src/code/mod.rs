@@ -317,14 +317,28 @@ impl Namespace {
             if !served.contains(&absolute) {
                 bail!("files {pattern} is outside the served folder");
             }
-            let text = glob_path(&absolute);
+            // The folder before the first glob character is matched as
+            // written — on Windows it starts `\\?\` — and the rest as the
+            // pattern.
+            let root = literal_prefix(&absolute);
+            let rest = absolute.strip_prefix(&root).unwrap_or(&absolute);
+            let text = if rest.as_os_str().is_empty() {
+                // A pattern naming one file.
+                globset::escape(&glob_path(&root))
+            } else {
+                format!(
+                    "{}/{}",
+                    globset::escape(glob_path(&root).trim_end_matches('/')),
+                    glob_path(rest)
+                )
+            };
             patterns.add(
                 globset::GlobBuilder::new(&text)
                     .literal_separator(true)
                     .build()
                     .with_context(|| format!("files {pattern}"))?,
             );
-            roots.push(literal_prefix(&absolute));
+            roots.push(root);
         }
         Ok(Self {
             name: name.to_string(),
@@ -448,8 +462,9 @@ fn glob_path(path: &Path) -> String {
 fn literal_prefix(pattern: &Path) -> PathBuf {
     let mut prefix = PathBuf::new();
     for part in pattern.components() {
+        // A drive or a `\\?\` prefix is never part of the glob.
         let text = part.as_os_str().to_string_lossy();
-        if text.contains(['*', '?', '[', '{']) {
+        if matches!(part, std::path::Component::Normal(_)) && text.contains(['*', '?', '[', '{']) {
             break;
         }
         prefix.push(part);
