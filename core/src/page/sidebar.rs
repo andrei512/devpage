@@ -80,34 +80,52 @@ const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage
 /// has one, and the tree.
 #[derive(serde::Serialize)]
 struct SidebarData {
+    /// The document's address, which keys what the reader opened.
     document: String,
+    /// The address of the document's file, which a search hit names the document by.
     document_path: String,
+    /// The address of the page shown.
     current: String,
+    /// The title link; `None` when the navbar shows the title instead.
     title: Option<SidebarTitle>,
+    /// The tree the Topics sections form.
     groups: Vec<SidebarGroup>,
 }
 
+/// The link at the top of the sidebar to the document's entry page.
 #[derive(serde::Serialize)]
 struct SidebarTitle {
+    /// The document's title.
     label: String,
+    /// The address of the document's entry page.
     href: String,
+    /// The logo's address; `None` when the document has none.
     logo: Option<String>,
 }
 
+/// One group of the tree: its entries under an optional heading.
 #[derive(serde::Serialize)]
 struct SidebarGroup {
+    /// The group's heading; `None` when it has none.
     title: Option<String>,
+    /// The group's entries, in order.
     entries: Vec<SidebarEntry>,
 }
 
+/// One entry of the tree: a page's link and the groups nested under it.
 #[derive(serde::Serialize)]
 struct SidebarEntry {
+    /// The text shown.
     label: String,
+    /// The page's address.
     href: String,
+    /// The groups nested under the entry; empty for a leaf.
     children: Vec<SidebarGroup>,
 }
 
 impl SidebarGroup {
+    /// `group` of `document`'s Topics as the sidebar shows it, with each file as
+    /// its address. An entry whose file has no address is left out.
     fn of(document: &Document, group: &nav::Group) -> Self {
         Self {
             title: group.title.clone(),

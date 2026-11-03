@@ -15,6 +15,7 @@ pub fn patch(edits: &Edits) -> proto::Patch {
     }
 }
 
+/// `edit` for the wire: a change carries the node's own attributes alone.
 fn op(edit: &Edit) -> proto::Op {
     let op = match edit {
         Edit::Change(n) => Kind::Change(encode_own(n)),

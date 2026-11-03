@@ -44,6 +44,8 @@ pub enum Stage {
     Download,
 }
 
+/// Every stage, in the order `/metrics` lists them; a stage's histogram is at
+/// its place here.
 const STAGES: [Stage; 10] = [
     Stage::Store,
     Stage::Fetch,
@@ -58,6 +60,8 @@ const STAGES: [Stage; 10] = [
 ];
 
 impl Stage {
+    /// The stage's label on `/metrics`, and the name of the core span that
+    /// times it.
     fn name(self) -> &'static str {
         match self {
             Stage::Store => "store",
@@ -87,14 +91,22 @@ const BOUNDS: [f64; 14] = [
     0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0,
 ];
 
+/// The times counted against one stage or route, as Prometheus buckets.
 #[derive(Default)]
 struct Histogram {
+    /// How many times fell in each bucket of [`BOUNDS`], not cumulative: each
+    /// time
+    /// is in the first bucket whose bound holds it, and one over the last in
+    /// none.
     buckets: [AtomicU64; BOUNDS.len()],
+    /// How many times were counted.
     count: AtomicU64,
+    /// Their total, in microseconds.
     micros: AtomicU64,
 }
 
 impl Histogram {
+    /// Counts `took`.
     fn observe(&self, took: Duration) {
         let seconds = took.as_secs_f64();
         if let Some(at) = BOUNDS.iter().position(|bound| seconds <= *bound) {
@@ -108,8 +120,10 @@ impl Histogram {
     }
 }
 
+/// Each stage's histogram, in the order of [`STAGES`].
 static HISTOGRAMS: LazyLock<[Histogram; STAGES.len()]> = LazyLock::new(Default::default);
 
+/// The histogram `stage` is counted in.
 fn histogram(stage: Stage) -> &'static Histogram {
     let at = STAGES.iter().position(|s| *s == stage).unwrap_or(0);
     &HISTOGRAMS[at]
@@ -140,11 +154,15 @@ pub async fn timed<T>(stage: Stage, work: impl Future<Output = T>) -> T {
 /// What the cache did, counted since the server started.
 #[derive(Clone, Copy)]
 pub enum Cache {
+    /// A version or download read from the cache.
     Hit,
+    /// A version or download not in the cache.
     Miss,
+    /// A version evicted from the cache.
     Eviction,
 }
 
+/// How often each [`Cache`] event happened, by its discriminant.
 static COUNTS: [AtomicU64; 3] = [AtomicU64::new(0), AtomicU64::new(0), AtomicU64::new(0)];
 
 /// Counts one `count`.
@@ -266,6 +284,8 @@ pub fn text(totals: &Totals) -> String {
     out
 }
 
+/// Writes `histogram` to `out` as the Prometheus series `name` with `labels`:
+/// its cumulative buckets, sum in seconds and count.
 fn write_histogram(out: &mut String, name: &str, labels: &str, histogram: &Histogram) {
     let mut cumulative = 0;
     for (bound, bucket) in BOUNDS.iter().zip(&histogram.buckets) {
@@ -371,7 +391,9 @@ fn process() -> (u64, u64) {
 /// event is ignored.
 #[derive(Default)]
 pub struct Stages {
+    /// The id the last span was given; ids start at 1.
     next: AtomicU64,
+    /// Each stage span not yet closed, by id: its stage and when it was made.
     open: Mutex<HashMap<u64, (Stage, Instant)>>,
 }
 

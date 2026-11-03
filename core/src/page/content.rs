@@ -17,12 +17,21 @@ use super::markdown::markdown;
 
 /// One file's content as its page shows it.
 pub struct Rendered {
+    /// The file the content is read from.
     file: PathBuf,
+    /// The Markdown as written.
     source: String,
+    /// The Markdown its HTML is made from: the source transformed by the
+    /// extensions, its widgets' tags expanded.
     expanded: String,
+    /// The content's HTML, links as written.
     html: String,
+    /// Every link the content holds, in the order its HTML holds them.
     links: Vec<Link>,
+    /// What the content draws from other files, as written.
     embeds: Vec<String>,
+    /// What the extensions and expanding the widgets' tags found wrong, each as
+    /// a message.
     tags: Vec<String>,
 }
 
@@ -31,8 +40,12 @@ pub struct Rendered {
 /// the line, when its text is found in the file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Link {
+    /// The file it is written in.
     pub file: PathBuf,
+    /// The line it is on, counting from 1; `None` when its text isn't found in
+    /// the file.
     pub line: Option<usize>,
+    /// What it names, as written.
     pub target: String,
 }
 

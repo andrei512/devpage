@@ -15,14 +15,18 @@ use super::*;
 /// whose children are spaces of their own.
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum What {
+    /// A chunk, by its paint order.
     Chunk(Order),
+    /// A run, whose children's spaces are searched in turn.
     Run(RunId),
 }
 
 /// An entry in a space's index.
 #[derive(Clone, PartialEq)]
 pub(super) struct Entry {
+    /// The chunk or run it stands for.
     pub(super) what: What,
+    /// What it reaches, in its space's coordinates.
     pub(super) bounds: KRect,
 }
 
@@ -36,8 +40,12 @@ impl RTreeObject for Entry {
 /// A chunk a query found: its order, where its space's origin is in the
 /// design's coordinates, and what cuts it from outside its space.
 pub(super) struct Found<'a> {
+    /// The chunk's paint order.
     pub(super) order: &'a Order,
+    /// Where the chunk's space's origin is, in the design's coordinates.
     pub(super) at: Vec2,
+    /// What cuts the chunk from outside its space, in the design's
+    /// coordinates; `None` when nothing does.
     pub(super) cut: Option<KRect>,
 }
 
@@ -45,9 +53,13 @@ pub(super) struct Found<'a> {
 /// drawing's area kept from its chunks' covers as they come and go.
 #[derive(Default)]
 pub(super) struct Extent {
+    /// How many rectangles have each left edge.
     x0: BTreeMap<i64, usize>,
+    /// How many rectangles have each top edge.
     y0: BTreeMap<i64, usize>,
+    /// How many rectangles have each right edge.
     x1: BTreeMap<i64, usize>,
+    /// How many rectangles have each bottom edge.
     y1: BTreeMap<i64, usize>,
 }
 
@@ -57,6 +69,7 @@ pub(super) fn key(v: f64) -> i64 {
 }
 
 impl Extent {
+    /// Counts `r`'s edges in.
     pub(super) fn add(&mut self, r: KRect) {
         for (m, v) in [
             (&mut self.x0, r.x0),
@@ -68,6 +81,7 @@ impl Extent {
         }
     }
 
+    /// Counts `r`'s edges out; an edge never counted in is left alone.
     pub(super) fn remove(&mut self, r: KRect) {
         for (m, v) in [
             (&mut self.x0, r.x0),
@@ -85,6 +99,8 @@ impl Extent {
         }
     }
 
+    /// The least rectangle holding every one counted in; `None` when there is
+    /// none.
     pub(super) fn rect(&self) -> Option<KRect> {
         let low = |m: &BTreeMap<i64, usize>| m.keys().next().map(|k| *k as f64 / 1e6);
         let high = |m: &BTreeMap<i64, usize>| m.keys().next_back().map(|k| *k as f64 / 1e6);
@@ -101,10 +117,15 @@ impl Extent {
 /// index over the chunks — the design's own space, and a space for each
 /// child of each run.
 pub struct List {
+    /// The transform, clip and effect trees its chunks are drawn under.
     pub trees: Trees,
+    /// Every chunk, by its paint order.
     pub(super) chunks: BTreeMap<Order, Chunk>,
+    /// The index of the design's own space.
     pub(super) root: SpaceIndex,
+    /// Every run, by its slot; `None` for a slot freed and not yet reused.
     pub(super) runs: Vec<Option<Run>>,
+    /// The slots of `runs` free to reuse.
     pub(super) free_runs: Vec<RunId>,
     /// Children whose spaces changed since their runs last summed them.
     pub(super) stale: std::collections::BTreeSet<(RunId, crate::tree::OrderKey)>,
@@ -206,6 +227,7 @@ impl List {
         self.root.covers.rect()
     }
 
+    /// The chunk at `order`, if there is one.
     pub fn chunk(&self, order: &Order) -> Option<&Chunk> {
         self.chunks.get(order)
     }
@@ -265,6 +287,8 @@ impl List {
         self.chunks.insert(order, chunk);
     }
 
+    /// Whether `space` is still there: the design's own, or a child's of a run
+    /// not removed.
     fn space_lives(&self, space: &Space) -> bool {
         match space {
             Space::Root => true,
@@ -294,10 +318,12 @@ impl List {
         }
     }
 
+    /// The run `id`; it must be live.
     pub fn run(&self, id: RunId) -> &Run {
         self.runs[id as usize].as_ref().expect("a live run")
     }
 
+    /// The run `id`, to change; it must be live.
     pub fn run_mut(&mut self, id: RunId) -> &mut Run {
         self.runs[id as usize].as_mut().expect("a live run")
     }
@@ -335,6 +361,8 @@ impl List {
         self.place_run(id, reach, cover);
     }
 
+    /// Puts run `id`'s entry and cover in its space's index as `reach` and
+    /// `cover`, in place of what it had there.
     fn place_run(&mut self, id: RunId, reach: Option<KRect>, cover: Option<KRect>) {
         let (space, old_reach, old_cover) = {
             let run = self.run(id);
@@ -403,6 +431,8 @@ impl List {
         out
     }
 
+    /// The chunks [`found`](Self::found) reaches from `local`, a space whose
+    /// origin is at `at` and which `cut` cuts from outside, added to `out`.
     fn found_in<'a>(
         &'a self,
         local: &'a SpaceIndex,
@@ -453,6 +483,8 @@ impl List {
         out
     }
 
+    /// The run children [`unrounded`](Self::unrounded) finds from `local`, a
+    /// space whose origin is at `at`, added to `out`.
     fn unrounded_in(
         &self,
         local: &SpaceIndex,
@@ -545,6 +577,7 @@ impl List {
     }
 }
 
+/// `f` as a rectangle.
 pub(super) fn frame_rect(f: Frame) -> KRect {
     KRect::new(
         f.x as f64,

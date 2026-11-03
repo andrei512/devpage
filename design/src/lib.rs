@@ -54,8 +54,11 @@ pub use scene::{Files, Scene, Theme};
 /// Something wrong with a design, at a place in one of its files.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Problem {
+    /// The design file it is in, by its path.
     pub file: String,
+    /// Where in the file: its line and column.
     pub pos: parse::Pos,
+    /// What is wrong, for a reader.
     pub message: String,
 }
 

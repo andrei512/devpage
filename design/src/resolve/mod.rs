@@ -39,6 +39,7 @@ fn resolved(files: &dyn Files, path: &str) -> Result<(Scene, Record, Vec<String>
 }
 
 impl<'a> Resolver<'a> {
+    /// A resolver reading from `files`, with nothing resolved yet.
     fn new(files: &'a dyn Files) -> Resolver<'a> {
         Resolver {
             files,
@@ -62,10 +63,18 @@ impl<'a> Resolver<'a> {
     }
 }
 
+/// What resolving one design reads and finds: the files it reads through, the
+/// problems found, and the record of what each node came from.
 struct Resolver<'a> {
+    /// Where design files and what they name are read from.
     files: &'a dyn Files,
+    /// Every problem found so far.
     problems: Vec<Problem>,
+    /// Every file read so far, each once, in the order first read: what the
+    /// design is made from.
     read: Vec<String>,
+    /// The design files being resolved, outermost first: one that uses itself
+    /// is among them.
     stack: Vec<String>,
     /// Imports already reported as `no such file`, so a use of one isn't
     /// reported a second time.
@@ -155,11 +164,20 @@ impl Record {
 /// over its root, and its root node's id.
 #[derive(Debug, Clone)]
 struct Instance {
+    /// The design file it uses.
     file: String,
+    /// Its props, by name: the defaults its root declares, under what its
+    /// caller gives.
     props: Arc<Props>,
+    /// Its file's imports: each element name's design file, from the top of the
+    /// served folder.
     imports: Arc<HashMap<String, String>>,
+    /// The layout of the frame it sits in; `None` for the root design.
     parent: Option<Layout>,
+    /// Where it is used and what is laid over its root; `None` for the root
+    /// design.
     caller: Option<Caller>,
+    /// Its root node's id.
     root: NodeId,
 }
 
@@ -167,7 +185,10 @@ struct Instance {
 /// instance's root — `x`, `y`, `width` and the like — as given there.
 #[derive(Debug, Clone)]
 struct Caller {
+    /// The design file the instance is used in.
     file: String,
+    /// The attributes laid over the instance's root, each with the file that
+    /// wrote its value.
     overrides: Vec<(parse::Attr, String)>,
 }
 
@@ -202,7 +223,9 @@ fn themes_chain(path: &str) -> Vec<String> {
 struct Themes {
     /// Whether any such file was found.
     found: bool,
+    /// The light theme's colors, by name.
     light: BTreeMap<String, Rgba>,
+    /// The dark theme's colors, by name.
     dark: BTreeMap<String, Rgba>,
     /// The fonts the files name, by name, a lower file's over a higher one's.
     fonts: BTreeMap<String, ThemesFont>,
@@ -212,16 +235,23 @@ struct Themes {
 /// `None` when it leaves the served folder — and where it is written.
 #[derive(Debug, Clone)]
 struct ThemesFont {
+    /// Its path, as written.
     written: String,
+    /// Its address, from the top of the served folder; `None` when it leaves
+    /// the served folder.
     at: Option<String>,
+    /// Where in the `themes.yml` it is written.
     origin: Origin,
 }
 
 /// One `themes.yml`'s two themes and the fonts it names, as far as they are
 /// valid.
 struct ThemesFile {
+    /// Its light theme's colors, by name.
     light: BTreeMap<String, Rgba>,
+    /// Its dark theme's colors, by name.
     dark: BTreeMap<String, Rgba>,
+    /// The fonts it names, by name.
     fonts: BTreeMap<String, ThemesFont>,
 }
 
@@ -236,10 +266,13 @@ const MAX_DEPTH: usize = parse::MAX_DEPTH;
 /// relative to.
 #[derive(Debug, Clone)]
 struct Given {
+    /// The value, as given.
     value: Value,
+    /// The design file that wrote it.
     by: String,
 }
 
+/// The props an instance's elements are resolved in, by name.
 type Props = HashMap<String, Given>;
 
 /// A font a `font` names: its family, or why it can't be used; `None` when
@@ -256,6 +289,7 @@ impl Resolver<'_> {
         }
     }
 
+    /// Reports `message` at `pos` in `file`.
     fn problem(&mut self, file: &str, pos: Pos, message: String) {
         self.problems.push(Problem {
             file: file.to_string(),
@@ -837,6 +871,9 @@ impl Resolver<'_> {
         root
     }
 
+    /// The node `el`, written in `path`, resolves to with `props` and `imports`
+    /// — a design's root when `root` — in a frame whose layout is `parent`;
+    /// `None` when it can't, or nests past [`MAX_DEPTH`].
     fn element(
         &mut self,
         path: &str,
@@ -857,6 +894,8 @@ impl Resolver<'_> {
         node
     }
 
+    /// [`Resolver::element`] once the depth is counted: an instance resolved as
+    /// its design, or a built-in element with its attributes and children.
     fn element_inner(
         &mut self,
         path: &str,
@@ -1093,6 +1132,8 @@ impl Resolver<'_> {
     }
 
     // Each arm sets a field and says whether the value fit: `Ok(field = v)`.
+    /// Sets the field of `node` that `attr`, written in `path`, names to
+    /// `value`, which `by` wrote, reporting a value that doesn't fit.
     #[allow(clippy::unit_arg)]
     fn attribute(
         &mut self,
@@ -1479,6 +1520,9 @@ impl Resolver<'_> {
         true
     }
 
+    /// Sets the attribute every element takes — `x`, `y`, `width`, `height`,
+    /// `name`, `opacity` or `onClick` — that `attr`, written in `path`, names
+    /// to `value`, which `by` wrote, reporting a value that doesn't fit.
     fn common(&mut self, path: &str, by: &str, node: &mut Node, attr: &parse::Attr, value: Value) {
         let (at_file, at_pos) = written_at(path, by, attr, &value);
         let ok = match attr.name.as_str() {
@@ -1523,6 +1567,8 @@ impl Resolver<'_> {
     }
 }
 
+/// The style a `Text` starts from: 14 px at weight 400, `#0f172a` in both
+/// themes, a line height of 1.4, left-aligned, in no `font`.
 fn default_text() -> TextStyle {
     TextStyle {
         font: None,
@@ -1540,6 +1586,8 @@ fn default_text() -> TextStyle {
     }
 }
 
+/// A `viewBox`: `minX minY width height`, by spaces or commas, its width and
+/// height above 0.
 fn view_box(s: &str) -> Result<[f32; 4], String> {
     let v: Vec<f32> = s
         .split([' ', ','])
@@ -1627,6 +1675,8 @@ fn bounds(d: &str) -> [f32; 4] {
     ]
 }
 
+/// Whether `s` is an `onClick` interaction: `back`, `close`, or `navigate` or
+/// `overlay` with a path.
 fn interaction_ok(s: &str) -> bool {
     s == "back"
         || s == "close"
@@ -1674,6 +1724,8 @@ fn written_at(path: &str, by: &str, attr: &parse::Attr, value: &Value) -> (Strin
     }
 }
 
+/// `v` as a problem names it: a string quoted, a number or bool as written, a
+/// prop or theme color by name.
 fn show(v: &Value) -> String {
     match v {
         Value::Str(s, _) => format!("\"{s}\""),
@@ -1687,6 +1739,7 @@ fn show(v: &Value) -> String {
     }
 }
 
+/// The string `v` is; `None` when it is no string.
 fn str_of(v: &Value) -> Option<String> {
     match v {
         Value::Str(s, _) => Some(s.clone()),
@@ -1733,6 +1786,7 @@ fn key_pos(text: &str, under: Option<&str>, key: &str) -> Option<Pos> {
 /// The built-in elements; an import can't take one of their names.
 const ELEMENTS: [&str; 6] = ["Frame", "Text", "Rect", "Ellipse", "Vector", "Image"];
 
+/// A number, of any sign.
 fn num(v: &Value) -> Result<f32, String> {
     match v {
         Value::Num(n) => Ok(*n as f32),
@@ -1749,10 +1803,12 @@ fn px(v: &Value) -> Result<f32, String> {
     }
 }
 
+/// A list of lengths that can't be negative, as [`px`] reads each.
 fn pxs(a: &[Value]) -> Result<Vec<f32>, String> {
     a.iter().map(px).collect()
 }
 
+/// A width or height: pixels of 0 or more, `"hug"` or `"fill"`.
 fn size(v: &Value) -> Result<Size, String> {
     match v {
         Value::Num(n) if *n >= 0.0 => Ok(Size::Px(*n as f32)),
@@ -1766,6 +1822,8 @@ fn size(v: &Value) -> Result<Size, String> {
     }
 }
 
+/// An alignment: `start`, `center` or `end` — and, for `justify`,
+/// `space-between` too.
 fn align(v: &Value, justify: bool) -> Result<Align, String> {
     match str_of(v).as_deref() {
         Some("start") => Ok(Align::Start),
@@ -1839,6 +1897,8 @@ fn hex(c: Rgba) -> String {
     format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a)
 }
 
+/// A fill: a color or a `linear-gradient(…)`, the same shape in both themes
+/// when it holds theme colors.
 fn fill(v: &Value) -> Result<Fill, String> {
     match v {
         Value::Str(s, _) => fill_of(s),
@@ -1916,6 +1976,8 @@ fn has_theme(v: &Value) -> bool {
     }
 }
 
+/// A shadow: `{ x, y, blur, spread, color }`, each optional — none of them by
+/// default, in black at a quarter alpha.
 fn shadow(v: &Value) -> Result<Shadow, String> {
     let Value::Object(fields) = v else {
         return Err("expected { x, y, blur, spread, color }".into());

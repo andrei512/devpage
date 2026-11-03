@@ -28,7 +28,9 @@ pub use sight::WatchSet;
 
 /// A served folder opened on its entry document.
 pub struct Folder {
+    /// The served folder's document index.
     index: Index,
+    /// The entry document, kept current with its file.
     entry: Entry,
 }
 
@@ -37,6 +39,7 @@ pub struct Folder {
 pub struct Owner {
     /// The site's document file.
     pub file: PathBuf,
+    /// The site's document as its file reads now, or why it can't be read.
     pub document: Result<Document>,
 }
 
@@ -179,11 +182,14 @@ impl Folder {
 /// is invalid, the last valid document stays in use and the error is kept to
 /// show in its place.
 struct Entry {
+    /// The entry's file, fixed when devpage started.
     file: PathBuf,
+    /// The last valid document, and why the file can't be read now, if it can't.
     state: RwLock<(Arc<Document>, Option<String>)>,
 }
 
 impl Entry {
+    /// The entry for `document`, with no error.
     fn new(document: Arc<Document>) -> Self {
         Self {
             file: document.path(),
@@ -191,10 +197,12 @@ impl Entry {
         }
     }
 
+    /// The last valid document.
     fn document(&self) -> Arc<Document> {
         self.read().0.clone()
     }
 
+    /// Why the entry's file can't be read as a document now; `None` when it can.
     fn error(&self) -> Option<String> {
         self.read().1.clone()
     }
@@ -213,6 +221,7 @@ impl Entry {
         }
     }
 
+    /// The state for reading, even after a panic poisoned the lock.
     fn read(&self) -> std::sync::RwLockReadGuard<'_, (Arc<Document>, Option<String>)> {
         self.state
             .read()

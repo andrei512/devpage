@@ -7,21 +7,37 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{path::Path, sync::Arc};
 
+/// A package's `extension.yml`: what it is and where its library lies.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
+    /// The package's id, of ASCII letters, digits and `-`; it must match the
+    /// configuration key that names it.
     id: String,
+    /// The package's version; must not be empty.
     version: String,
+    /// The extension ABI the package was built for; must be [`API`].
     api: u32,
+    /// The platform triple the library was built for; must be the executable's
+    /// own.
     target: String,
+    /// The dynamic library's path inside the package.
     library: String,
+    /// The package's asset folder inside it, if it has one.
     assets: Option<String>,
 }
+/// A loaded native package: its library and the two entry points taken from
+/// its table.
 struct Native {
+    /// The open library, kept so `invoke` and `release` stay valid.
     _library: Library,
+    /// The package's canonical folder; a grammar it names must lie inside.
     root: std::path::PathBuf,
+    /// The package's id from its manifest.
     id: String,
+    /// The library's request entry point.
     invoke: unsafe extern "C" fn(*const u8, usize) -> devpage_extension_api::Buffer,
+    /// Frees a buffer `invoke` returned.
     release: unsafe extern "C" fn(devpage_extension_api::Buffer),
 }
 impl Package for Native {
@@ -57,6 +73,8 @@ impl Package for Native {
         Ok(value)
     }
 }
+/// Loads a package folder as a native extension, after checking its manifest
+/// and ABI.
 struct NativeLoader;
 impl Loader for NativeLoader {
     fn load(&self, path: &Path) -> Result<Arc<dyn Package>> {
@@ -107,6 +125,7 @@ impl Loader for NativeLoader {
         }
     }
 }
+/// Makes core load extension packages as native libraries.
 pub fn install() {
     devpage_core::extensions::install_loader(Arc::new(NativeLoader));
 }

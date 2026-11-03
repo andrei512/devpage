@@ -21,6 +21,8 @@ pub enum Answer {
     /// A rendered page: a document, a page of one, or a design's canvas
     /// page.
     Html(String),
+    /// A reply from an extension's route: its `body`, sent as `mime` with HTTP
+    /// `status`.
     Extension {
         body: String,
         mime: String,
@@ -65,11 +67,15 @@ pub enum Answer {
 /// Every address it answers with is under the served folder's mount, which
 /// the documents carry.
 pub struct Answers<'a> {
+    /// The served folder, with its entry document.
     folder: &'a Folder,
+    /// The served folder's widget modules, compiled.
     modules: &'a Modules,
+    /// The design store: each design resolved, with its problems and its PNG.
     designs: &'a Designs,
     /// `None` for the Chrome that shoots slides: its pages list no problems.
     preview: Option<&'a Preview>,
+    /// Whether pages show comments.
     comments: bool,
 }
 

@@ -21,18 +21,26 @@ use crate::adapters::bundle::unpack;
 /// A version: its document's id and its number.
 pub type Key = (String, u64);
 
+/// The versions on the PVC, unpacked, and the routers in memory that serve
+/// them, each bounded by its limit.
 pub struct Cache {
+    /// The folder it unpacks into: `<id>/<n>` for each version, canonical.
     dir: PathBuf,
+    /// The most bytes the versions on disk may take together.
     limit: u64,
     /// How many versions may hold a router in memory.
     memory_limit: usize,
+    /// What chooses which versions go, from disk and from memory.
     policy: Box<dyn Eviction>,
+    /// What it holds, under one lock.
     state: Mutex<State>,
     /// One lock per version being made, so misses arriving together unpack
     /// it once.
     making: Mutex<HashMap<Key, Arc<tokio::sync::Mutex<()>>>>,
 }
 
+/// What the cache holds: the versions on disk, the routers in memory, and the
+/// versions answering requests now.
 #[derive(Default)]
 struct State {
     /// Every version on disk, with when it was last read.
@@ -56,10 +64,13 @@ fn download_of(name: &str) -> Option<u64> {
 
 /// A version's router, held while it answers one request.
 pub struct Served {
+    /// What answers the request.
     pub router: Router,
     /// The version's unpacked files.
     pub folder: PathBuf,
+    /// The cache it came from, which counts it as serving until it drops.
     cache: Arc<Cache>,
+    /// Which version it is.
     key: Key,
     /// A version bigger than the cache's limit, unpacked for this request
     /// only and deleted after it.
@@ -164,12 +175,14 @@ impl Cache {
         Ok(cache)
     }
 
+    /// The state, locked — even after a panic poisoned the lock.
     fn state(&self) -> MutexGuard<'_, State> {
         self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Where version `key` is unpacked.
     fn folder(&self, key: &Key) -> PathBuf {
         self.dir.join(&key.0).join(key.1.to_string())
     }
@@ -241,6 +254,7 @@ impl Cache {
         Some(self.served(router, key))
     }
 
+    /// `router` served for version `key`, whose folder is in the cache.
     fn served(self: &Arc<Self>, router: Router, key: &Key) -> Served {
         Served {
             router,
@@ -251,6 +265,9 @@ impl Cache {
         }
     }
 
+    /// Makes version `key`'s router under `mount`, holding the version's lock:
+    /// from its folder on disk, or else from the zip `fetch` gives. A version over
+    /// the limit is served from a folder of its own, deleted after the request.
     async fn make<F>(
         self: &Arc<Self>,
         key: &Key,
@@ -487,6 +504,8 @@ impl Cache {
     }
 }
 
+/// The bytes the files under `dir` take, in every folder down; what can't be
+/// read counts as none.
 pub fn size_of(dir: &Path) -> u64 {
     std::fs::read_dir(dir)
         .into_iter()

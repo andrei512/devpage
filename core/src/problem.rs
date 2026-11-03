@@ -7,11 +7,14 @@
 pub struct Problem {
     /// The file it is in, from the top of the served folder.
     pub file: String,
+    /// The line it is on, counted from 1 — `None` when it is about the whole
+    /// file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<usize>,
     /// The column on `line`, where the problem names one: a design's.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub column: Option<usize>,
+    /// What is broken, for a reader.
     pub message: String,
     /// The link as written, so the page can mark it where it stands.
     #[serde(skip_serializing_if = "Option::is_none")]

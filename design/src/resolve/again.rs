@@ -25,7 +25,9 @@ use crate::tree::NodeId;
 /// resolving it again reads and brings across by the edits it makes.
 #[derive(Debug, Clone)]
 pub struct Resolution {
+    /// The path of the design file resolved.
     path: String,
+    /// Where each node of the scene came from and what it read.
     record: Record,
     /// The files the scene was made from.
     files: Vec<String>,
@@ -293,11 +295,15 @@ impl Record {
 /// One update's work: the parts resolved again, the edits they make, and
 /// what the nodes they replace recorded, to forget.
 struct Work<'a, 'r> {
+    /// The resolver the parts are resolved again with.
     r: Resolver<'a>,
+    /// The files as they are now.
     files: &'a dyn Files,
+    /// The resolution being updated, as it was before this update.
     res: &'r Resolution,
     /// The scene as it is held: what the edits are found against.
     scene: &'r Scene,
+    /// The edits that bring the held scene across, in order.
     edits: Vec<Edit>,
     /// Nodes whose record goes.
     forget: Vec<NodeId>,
@@ -306,6 +312,7 @@ struct Work<'a, 'r> {
     /// Nodes resolved again whole, or removed, this update: nothing more to
     /// do for them.
     covered: HashSet<NodeId>,
+    /// Instances removed this update, by their id prefix: nothing more to do for anything in them.
     covered_instances: Vec<Vec<u32>>,
     /// The own attributes of the nodes resolved again this update.
     own: HashMap<NodeId, Node>,
@@ -326,12 +333,15 @@ enum Act<'p> {
     Own(&'p Element, bool),
     /// It, with its subtree, resolved again in place of the old one.
     Whole(&'p Element, &'p Element),
+    /// A new element, with its subtree, under `parent`: after `after`, or first when `None`.
     Insert {
         parent: &'p Element,
         after: Option<&'p Element>,
         el: &'p Element,
     },
+    /// An element gone from the file, with its subtree.
     Remove(&'p Element),
+    /// A kept element in a new place under `parent`: after `after`, or first when `None`.
     Move {
         parent: &'p Element,
         after: Option<&'p Element>,
@@ -635,6 +645,7 @@ impl Work<'_, '_> {
         Some(el.clone())
     }
 
+    /// Whether the instance `i` lies in one removed this update.
     fn is_covered_instance(&self, i: &[u32]) -> bool {
         self.covered_instances.iter().any(|p| i.starts_with(p))
     }
@@ -805,6 +816,7 @@ impl Work<'_, '_> {
         }
     }
 
+    /// Whether `id` is the root node of an instance of another design.
     fn is_root_of_instance(&self, id: &NodeId) -> bool {
         let (prefix, _) = id.0.split_at(id.0.len() - 1);
         !prefix.is_empty()
@@ -832,6 +844,7 @@ fn root_id(inst: &Instance) -> u32 {
     *inst.root.0.last().expect("an id")
 }
 
+/// The id of the node `el` makes in the instance `i`: `i`, then `el`'s id.
 fn node_id(i: &[u32], el: &Element) -> NodeId {
     let mut id = i.to_vec();
     id.push(el.id);
@@ -916,6 +929,7 @@ fn moved_origin(a: &Element, b: &Element) -> bool {
     at(a) != at(b)
 }
 
+/// `el`'s child elements, in order; its text left out.
 fn children(el: &Element) -> Vec<&Element> {
     el.children
         .iter()

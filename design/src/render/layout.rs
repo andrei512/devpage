@@ -18,6 +18,8 @@ impl Renderer {
         l.frames(self, &scene.root).into_values().collect()
     }
 
+    /// Lays out `tree` from `root` in the room `available` gives it, each leaf
+    /// measured by what it is ([`Leaf`]).
     pub(super) fn compute(
         &mut self,
         runs: &mut Runs,
@@ -143,6 +145,7 @@ impl Renderer {
     }
 }
 
+/// The node at `order` under `root`; panics when there is none.
 pub(super) fn find_node<'a>(root: &'a Node, order: &[OrderKey]) -> &'a Node {
     let mut at = root;
     for k in order {
@@ -164,6 +167,8 @@ pub(super) fn remove_subtree(tree: &mut TaffyTree<Option<Leaf>>, id: NodeId) {
 pub(super) enum Leaf {
     /// A text, and whether it wraps at its width.
     Text(Box<scene::TextStyle>, bool),
+    /// A vector or an image: its own width and height, whose aspect it keeps
+    /// when it hugs.
     Intrinsic(f32, f32),
     /// A run, laid out by its own tree: [`Renderer::measure_run`].
     Run(u32),
@@ -175,8 +180,11 @@ pub(super) enum Leaf {
 /// A scene's layout kept in pieces: the drawing's own layout tree, a tree
 /// for each run's children, and where each node is in them.
 pub(super) struct Laid {
+    /// The drawing's own layout tree, laid out unrounded.
     pub(super) top: TaffyTree<Option<Leaf>>,
+    /// The scene root's node in `top`.
     pub(super) root: NodeId,
+    /// Each run's layout, with its tree for its children.
     pub(super) runs: Runs,
     /// Each node's tree and layout node, by its order.
     pub(super) nodes: BTreeMap<Order, (Owner, NodeId)>,
@@ -192,10 +200,15 @@ pub(super) struct Laid {
 /// each axis, and how many of its children's sizes can along each.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Sens {
+    /// Whether its width or its height depends on its room.
     pub(super) me: bool,
+    /// Whether its width does.
     pub(super) w: bool,
+    /// Whether its height does.
     pub(super) h: bool,
+    /// How many of its children's widths do.
     pub(super) kids_w: usize,
+    /// How many of its children's heights do.
     pub(super) kids_h: usize,
 }
 
@@ -334,6 +347,7 @@ impl Laid {
         l
     }
 
+    /// The layout tree `owner` names.
     pub(super) fn tree(&self, owner: Owner) -> &TaffyTree<Option<Leaf>> {
         match owner {
             Owner::Top => &self.top,
@@ -341,6 +355,7 @@ impl Laid {
         }
     }
 
+    /// The layout tree `owner` names, to change.
     pub(super) fn tree_mut(&mut self, owner: Owner) -> &mut TaffyTree<Option<Leaf>> {
         match owner {
             Owner::Top => &mut self.top,
@@ -484,6 +499,9 @@ impl Laid {
         out
     }
 
+    /// Puts the box of `node`, at `order` and laid out as `id` in `owner`'s
+    /// tree, into `out`, placed from `parent`, then its children's, a run's at
+    /// its places.
     #[allow(clippy::too_many_arguments)]
     fn frames_of(
         &mut self,
@@ -716,7 +734,9 @@ pub(super) fn snap(v: f32) -> f32 {
 /// parent.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) struct Place {
+    /// The parent's top-left in whole pixels.
     pub(super) at: (f32, f32),
+    /// The parent's unrounded top-left, which the node is measured from.
     pub(super) raw: (f32, f32),
 }
 

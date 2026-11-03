@@ -27,8 +27,11 @@ use crate::folder::ServedFolder;
 /// is missing.
 #[derive(Clone, PartialEq)]
 struct Resolved {
+    /// The version of the design's scene it shows.
     version: u64,
+    /// The design's problems; `None` when it has none.
     problems: Option<Vec<Problem>>,
+    /// Every file resolving it asked for, sorted, missing ones included.
     asked: Vec<String>,
     /// The design's own file doesn't exist.
     missing: bool,
@@ -38,6 +41,8 @@ struct Resolved {
 /// outside the served folder. A folder's listing is kept the same way, under
 /// its path and a `/`, as the names of its files, one per line.
 struct Source {
+    /// The file's bytes, or the folder's listing; `None` when it doesn't exist or
+    /// lies outside the served folder.
     bytes: Option<Vec<u8>>,
     /// Which read of the store's this was, counting from one: a result made
     /// from it is current only while the file is still this read.
@@ -71,14 +76,19 @@ struct Kept {
     /// The last patches, each from the version before it: what a stream that
     /// sent that version sends next.
     log: std::collections::VecDeque<(u64, Arc<proto::Patch>)>,
+    /// Every file resolving the design asked for, sorted, missing ones included:
+    /// a save to any of them resolves it again.
     asked: Vec<String>,
+    /// Whether the design's own file doesn't exist.
     missing: bool,
 }
 
 /// A design resolved and held: what resolving it again starts from, and
 /// the design holding its last valid scene — the one copy of it.
 struct Held {
+    /// Where each node of the scene came from: what resolving again starts from.
     resolution: Resolution,
+    /// The design holding the last valid scene.
     design: Design,
 }
 
@@ -87,7 +97,9 @@ struct Held {
 /// drawings brought along under the store's renderer — locked only then,
 /// never while files are read.
 struct Bringing<'a> {
+    /// The design whose scene the edits are applied to.
     design: &'a mut Design,
+    /// The store's renderer, locked only while edits are applied.
     renderer: &'a Mutex<Renderer>,
     #[cfg(test)]
     applies: &'a std::sync::atomic::AtomicUsize,
@@ -126,7 +138,9 @@ pub enum Next {
 /// A tile in the store's cache: which kept design it is of, and which tile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct Tile {
+    /// The id of the kept design the tile is of.
     design: u64,
+    /// Which tile of it: its theme, level, column and row.
     key: Key,
 }
 
@@ -150,6 +164,7 @@ type Listener = Box<dyn Fn(&str) + Send + Sync>;
 /// — which tells their tiles apart in it — and of reads, what tells this
 /// store's versions from another run's, and the folders it holds by mount.
 struct Shared {
+    /// The one renderer of every folder's designs, whose fonts load once.
     renderer: Mutex<Renderer>,
     /// How many files the store has read from disk.
     reads: std::sync::atomic::AtomicU64,
@@ -169,11 +184,15 @@ struct Shared {
 /// each design kept from it. Its tiles are in the store's shared cache, and
 /// go with it.
 struct Folder {
+    /// What the folder shares with every other folder of the store.
     shared: Arc<Shared>,
     /// What the folder's designs are told apart by in the store: their
     /// folder's mount, `""` for the one folder a local devpage serves.
     mount: String,
+    /// The folder its designs are read from.
     served: ServedFolder,
+    /// Each file as last read, by its path from the top of the folder; a folder's
+    /// listing under its path and a `/`.
     sources: Mutex<HashMap<String, Source>>,
     /// Locked before `sources` whenever both are.
     resolved: Mutex<HashMap<String, Resolved>>,
@@ -220,6 +239,7 @@ impl Drop for Folder {
 #[cfg(test)]
 type AfterRead = Box<dyn Fn(&str) + Send + Sync>;
 
+/// `mutex`, locked — even after a panic poisoned it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
@@ -229,8 +249,12 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 /// The store's files, recording every path a resolving asks for and which
 /// read of it the resolving saw.
 struct Reading<'a> {
+    /// The folder whose files are read.
     store: &'a Folder,
+    /// Every path asked for, in order, missing ones included.
     asked: RefCell<Vec<String>>,
+    /// Each path asked for with which read of it was seen, to tell whether a save
+    /// landed while resolving.
     seen: RefCell<Vec<(String, u64)>>,
 }
 
@@ -593,6 +617,8 @@ impl Folder {
 pub struct Store(Arc<Shared>);
 
 impl Store {
+    /// An empty store, its renderer's fonts loaded and its tile cache capped at
+    /// [`TILES_CAP`].
     pub fn new() -> Store {
         Store(Arc::new(Shared {
             renderer: Mutex::new(Renderer::new()),
@@ -1020,6 +1046,7 @@ pub fn guarded<T, E>(
     })
 }
 
+/// `problems`, one per line.
 fn lines(problems: &[Problem]) -> String {
     problems
         .iter()
@@ -1035,10 +1062,12 @@ pub mod testing {
 
     use super::Designs;
 
+    /// A button design with a `label` prop, at `app/button.design`.
     pub const BUTTON: &str = r##"<Frame props={{ label: "Button" }} layout="row" padding={[12, 20]} fill="#2563eb">
   <Text color="#ffffff">{label}</Text>
 </Frame>
 "##;
+    /// A screen design that imports [`BUTTON`] and shows it, at `app/screen.design`.
     pub const SCREEN: &str = r##"import Button from "./button.design"
 
 <Frame width={200} height={120} layout="column" gap={8} padding={16} fill="#f8fafc">
@@ -1046,9 +1075,12 @@ pub mod testing {
   <Button label="Pay" />
 </Frame>
 "##;
+    /// A plain black square that imports nothing, at `app/other.design`.
     pub const OTHER: &str = r##"<Frame width={50} height={50} fill="#000000" />
 "##;
 
+    /// A fresh folder in the temp dir, named after `name`, holding [`BUTTON`],
+    /// [`SCREEN`] and [`OTHER`] under `app/`: its canonical path.
     pub fn served(name: &str) -> PathBuf {
         let dir =
             std::env::temp_dir().join(format!("devpage-designs-{name}-{}", std::process::id()));
@@ -1060,6 +1092,7 @@ pub mod testing {
         dir.canonicalize().unwrap()
     }
 
+    /// A themes file with a light and a dark theme, each defining `bg`.
     pub const THEMES: &str = "kind: themes\nlight:\n  bg: \"#ffffff\"\ndark:\n  bg: \"#000000\"\n";
 
     /// Writes a file and tells the store, as the watcher does.

@@ -19,11 +19,14 @@ use crate::folder::{ServedFolder, lexical};
 /// What was read and compiled, shared by every handle to it.
 #[derive(Clone, Default)]
 pub struct Modules {
+    /// The caches every handle shares.
     inner: Arc<Caches>,
 }
 
+/// The module cache's contents: each file as last read, and each module as compiled.
 #[derive(Default)]
 struct Caches {
+    /// Each module file as last read, by its path. Cleared whole once it holds more than 4096.
     read: Mutex<HashMap<PathBuf, Read>>,
     /// Compiled modules, by a hash of what went into them.
     compiled: Mutex<HashMap<u64, Result<String, String>>>,
@@ -40,8 +43,11 @@ impl std::fmt::Debug for Modules {
 /// it — or a file one of its imports could name — changed.
 #[derive(Clone, Debug)]
 struct Read {
+    /// The file's modification time when read; `None` when the platform doesn't report one.
     changed: Option<std::time::SystemTime>,
+    /// The file's size in bytes when read.
     len: u64,
+    /// The file's source as read.
     source: Arc<str>,
     /// Each relative specifier and the file it names, when there is one.
     imports: Vec<(String, PathBuf)>,
@@ -196,7 +202,9 @@ impl Modules {
 /// between the two can't serve new bytes under the old version.
 #[derive(Debug)]
 pub struct Snapshot {
+    /// The served folder the files were read in.
     served: ServedFolder,
+    /// Each file read, by its path.
     reads: BTreeMap<PathBuf, Read>,
     /// Where its compiles are remembered.
     modules: Modules,

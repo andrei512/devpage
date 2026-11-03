@@ -35,6 +35,7 @@ const CACHE_BYTES: usize = 64 * 1024 * 1024;
 /// Slide `n` of a deck, as drawn.
 #[derive(Clone)]
 pub struct Shot {
+    /// The PNG's bytes.
     pub png: axum::body::Bytes,
     /// A validator for the picture, so a repeat request is a 304.
     pub etag: String,
@@ -47,26 +48,40 @@ pub struct Shot {
 #[derive(Clone)]
 pub struct Shots(Arc<Inner>);
 
+/// What a server's slide PNGs share: the Chrome session, the turns to draw,
+/// the kept shots and the ones being drawn.
 struct Inner {
+    /// The Chrome session that draws the shots; `None` before the first, and once
+    /// it closed idle.
     session: tokio::sync::Mutex<Option<Arc<Session>>>,
+    /// One permit per shot drawn at once: [`AT_ONCE`].
     turns: Semaphore,
+    /// The shots kept, until a file their deck is drawn from changes.
     cache: Mutex<Cache>,
     /// The shots being drawn, each told of changes as the kept ones are.
     drawing: Mutex<Vec<Weak<Drawing>>>,
+    /// When Chrome last drew, so it closes once idle for [`IDLE`].
     used: Mutex<Instant>,
 }
 
 /// What a slide's PNG is kept with: the picture and the files its deck was
 /// drawn from.
 struct Kept {
+    /// The picture.
     shot: Shot,
+    /// The files its deck was drawn from: a change to one forgets it.
     files: Vec<PathBuf>,
 }
 
+/// The shots kept, by deck and slide number, at most [`CACHE_BYTES`] of PNGs
+/// together: the oldest go first.
 #[derive(Default)]
 struct Cache {
+    /// Each shot kept, by the deck's address and the slide's number.
     shots: HashMap<(String, usize), Kept>,
+    /// The kept shots' keys, oldest first: the next to go.
     order: VecDeque<(String, usize)>,
+    /// The bytes of the kept PNGs together.
     bytes: usize,
 }
 
@@ -75,7 +90,10 @@ struct Cache {
 /// changed since it started, so its picture may be stale.
 #[derive(Default)]
 struct Drawing {
+    /// The files its deck is drawn from; `None` until they are known.
     files: Mutex<Option<Vec<PathBuf>>>,
+    /// Whether one of them — before they are known, any file — changed since it
+    /// started.
     stale: AtomicBool,
 }
 
@@ -273,6 +291,8 @@ async fn close(session: Arc<Session>) {
 }
 
 impl Cache {
+    /// Keeps `kept` under `key`, in place of any shot there, then lets the oldest go
+    /// until the PNGs fit in [`CACHE_BYTES`].
     fn insert(&mut self, key: (String, usize), kept: Kept) {
         self.remove(&key);
         self.bytes += kept.shot.png.len();
@@ -287,6 +307,7 @@ impl Cache {
         }
     }
 
+    /// Forgets the shot under `key`, if one is kept.
     fn remove(&mut self, key: &(String, usize)) {
         if let Some(old) = self.shots.remove(key) {
             self.bytes -= old.shot.png.len();

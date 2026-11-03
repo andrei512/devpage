@@ -24,8 +24,11 @@ use super::*;
 /// English stemming — their unstemmed twins', for near and prefix matches,
 /// code's, and the whole-title fields', which keep a value as one term.
 pub(super) const STEMMED: &str = "en_stem";
+/// The unstemmed twins' tokenizer: tantivy's default, lowercased.
 pub(super) const PLAIN: &str = "default";
+/// Code's tokenizer: split at whitespace, lowercased.
 pub(super) const CODE: &str = "code";
+/// The whole-title fields' tokenizer, which keeps a value as one term.
 pub(super) const RAW: &str = "raw";
 
 /// The fast field the index is sorted by: a section's place in what is
@@ -37,29 +40,51 @@ const PLACE: &str = "place";
 /// a nav can reach.
 const CODE_NAV: u64 = 1 << 40;
 
+/// The schema's fields, each a part of a section that is stored, searched, or
+/// both.
 #[derive(Clone, Copy)]
 pub(super) struct Fields {
+    /// The address of the section's page, indexed whole, so a page's sections are
+    /// deleted by it.
     pub(super) page: Field,
+    /// The section's own address, its anchor included; stored only.
     pub(super) url: Field,
+    /// The headings down to the section, its page's title first; stored only.
     pub(super) path: Field,
+    /// The page's title, ranked.
     pub(super) title: Field,
+    /// The section's heading, ranked.
     pub(super) heading: Field,
+    /// The section's prose, ranked.
     pub(super) prose: Field,
+    /// The section's code, each identifier whole and in its parts, for matching.
     pub(super) code: Field,
+    /// The section's code as written; stored only.
     pub(super) code_text: Field,
+    /// A slide's speaker notes, ranked.
     pub(super) notes: Field,
+    /// The page's `description` and `keywords`, ranked.
     pub(super) meta: Field,
+    /// The page's title unstemmed, for near and prefix matches.
     pub(super) title_words: Field,
+    /// The section's heading unstemmed, for near and prefix matches.
     pub(super) heading_words: Field,
+    /// The section's prose unstemmed, for near and prefix matches.
     pub(super) prose_words: Field,
+    /// The page's kept words as one term, stemmed and as typed: what a query naming
+    /// the whole title matches.
     pub(super) title_exact: Field,
+    /// The section's kept words as one term, stemmed and as typed: what a query
+    /// naming the whole heading matches.
     pub(super) heading_exact: Field,
 }
 
 /// The index's one writer, and what was published when it last indexed —
 /// every page, by address, read or not — once it has.
 pub(super) struct Indexer {
+    /// The writer every change goes through.
     writer: IndexWriter,
+    /// What was published when it last indexed; `None` before it has.
     published: Option<Published>,
     /// The code reference's pages indexed, by address, each with a hash of
     /// what it reads: a page is indexed again only when that changed.
@@ -68,15 +93,25 @@ pub(super) struct Indexer {
 
 /// One section, ready to be a tantivy document.
 pub(super) struct Entry<'a> {
+    /// The page the section is on.
     pub(super) page: &'a Page,
+    /// The section's heading; a slide's and a code page's is the page's title.
     pub(super) heading: &'a str,
+    /// The section's address, with its anchor when it has one.
     pub(super) url: String,
+    /// The headings down to the section, its page's title first.
     pub(super) path: Vec<String>,
+    /// Its heading's level; 0 for the text before a page's first heading.
     pub(super) depth: u8,
+    /// Its place on its page, from 0.
     pub(super) order: usize,
+    /// The section's prose.
     pub(super) prose: &'a str,
+    /// The section's code, as written.
     pub(super) code: &'a str,
+    /// A slide's speaker notes; empty for any other page.
     pub(super) notes: &'a str,
+    /// The page's `description` and `keywords` as one line of words.
     pub(super) meta: &'a str,
 }
 
@@ -486,6 +521,8 @@ impl Search {
         *known = now;
     }
 
+    /// Adds `entry` as one tantivy document through `writer`, its fields filled and
+    /// its place in reading order set.
     pub(super) fn add_entry(&self, writer: &IndexWriter, entry: Entry) {
         let fields = self.fields;
         let schema = writer.index().schema();

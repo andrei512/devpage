@@ -10,8 +10,11 @@ use crate::drive::api_types::{Described, Listed, Published, Refusal, Reply, Thre
 
 /// A server, reached with a token or without one.
 pub struct Api {
+    /// The server's address, without a trailing `/`.
     server: String,
+    /// The bearer token each request carries; `None` to send none.
     token: Option<String>,
+    /// The HTTP client every request goes through.
     http: reqwest::Client,
 }
 
@@ -19,8 +22,11 @@ pub struct Api {
 /// refusal it answered.
 #[derive(Debug)]
 pub struct Refused {
+    /// What was asked, as the error names it.
     pub what: String,
+    /// The server asked.
     pub server: String,
+    /// How the server refused it.
     pub refusal: Refusal,
 }
 
@@ -71,6 +77,7 @@ impl Api {
         format!("{}{path}", self.server)
     }
 
+    /// A `method` request for `path` on this server, with the token when there is one.
     fn request(&self, method: Method, path: &str) -> reqwest::RequestBuilder {
         let request = self.http.request(method, self.link(path));
         match &self.token {
@@ -79,6 +86,8 @@ impl Api {
         }
     }
 
+    /// Sends `request`, named `what` in any error. A [`Refused`] when the server
+    /// answers with anything but success.
     async fn send(
         &self,
         request: reqwest::RequestBuilder,
@@ -101,6 +110,7 @@ impl Api {
         .into())
     }
 
+    /// `path`'s answer to a `GET`, read as JSON; `what` names the request in any error.
     async fn json<T: for<'de> Deserialize<'de>>(&self, path: &str, what: &str) -> Result<T> {
         let response = self.send(self.request(Method::GET, path), what).await?;
         let bytes = response.bytes().await?;
@@ -124,19 +134,23 @@ impl Api {
         serde_json::from_slice(&bytes).context("publish: reading the answer")
     }
 
+    /// Every document on the server.
     pub async fn list(&self) -> Result<Vec<Listed>> {
         self.json("/api/documents", "list").await
     }
 
+    /// Document `id` and its versions.
     pub async fn describe(&self, id: &str) -> Result<Described> {
         self.json(&format!("/api/documents/{id}"), id).await
     }
 
+    /// Document `id`'s comment threads.
     pub async fn comments(&self, id: &str) -> Result<Vec<Thread>> {
         self.json(&format!("/api/documents/{id}/comments"), id)
             .await
     }
 
+    /// Adds `text` as a reply to the comment thread `thread` on document `id`.
     pub async fn reply(&self, id: &str, thread: &str, text: &str) -> Result<()> {
         let request = self
             .request(
@@ -150,6 +164,7 @@ impl Api {
         self.send(request, thread).await.map(drop)
     }
 
+    /// Resolves the comment thread `thread` on document `id`.
     pub async fn resolve(&self, id: &str, thread: &str) -> Result<()> {
         let request = self.request(
             Method::DELETE,

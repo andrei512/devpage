@@ -21,11 +21,16 @@ use crate::html::escape;
 /// besides syntect's defaults. Loaded once, on first use.
 static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_newlines);
 
+/// The language of a Mermaid block, which is left unhighlighted for `diagrams`
+/// to draw.
 const MERMAID: &str = "mermaid";
 
 thread_local! {
     static CUSTOM: std::cell::RefCell<Option<Arc<SyntaxSet>>> = const { std::cell::RefCell::new(None) };
 }
+/// Runs `render` with the extensions' `grammars` — Sublime syntax definitions —
+/// highlighting beside the built-in languages, on this thread only. A grammar
+/// that doesn't load is left out.
 pub fn with_grammars<T>(grammars: &[String], render: impl FnOnce() -> T) -> T {
     if grammars.is_empty() {
         return render();
@@ -59,9 +64,12 @@ pub fn with_grammars<T>(grammars: &[String], render: impl FnOnce() -> T) -> T {
     let _restore = Restore(CUSTOM.with(|c| c.replace(Some(syntaxes))));
     render()
 }
+/// Whether `token` names a language devpage highlights without an extension.
 pub(crate) fn builtin_language(token: &str) -> bool {
     SYNTAXES.find_syntax_by_token(token).is_some()
 }
+/// The highlighter comrak calls for each fenced code block: scope classes for a
+/// language it knows, escaped plain text for any other.
 pub struct Highlighter;
 
 /// `code` highlighted as `lang`, as the HTML that goes inside a `<code>`.

@@ -42,6 +42,7 @@ type Handler = Arc<dyn Fn(notify::Result<notify::Event>) + Send + Sync>;
 /// A running watch. Dropping it stops the platform's watcher, and with it
 /// the thread handling its events.
 pub struct Watch {
+    /// The platform's watcher, held so it runs until the watch is dropped.
     _platform: Arc<Mutex<Platform>>,
 }
 

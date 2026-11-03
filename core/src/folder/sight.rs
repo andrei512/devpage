@@ -42,7 +42,10 @@ impl WatchSet {
 
 /// What decides whether a folder is in sight.
 struct Sight<'a> {
+    /// The served folder's path: where the walk starts, and what nothing
+    /// outside is in sight of.
     served: &'a Path,
+    /// The folder whose `.gitignore` rules say what is ignored.
     folder: &'a Folder,
     /// Where any site's `watch` list can name a file.
     roots: Vec<PathBuf>,

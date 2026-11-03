@@ -17,6 +17,7 @@ use devpage_core::designs::{self, Designs, Next};
 /// problems. A deleted design stays watched: its `no such file` is a problem
 /// like any other, and writing it again brings it back.
 pub struct Watch {
+    /// The design store each design's scene, patch or problems come from.
     designs: Designs,
     /// The address of each design whose scene or problems changed, as the
     /// store tells it.
@@ -46,7 +47,9 @@ pub fn hear(designs: &Designs) -> broadcast::Sender<String> {
 /// browser holds, and the problems it shows.
 #[derive(Default)]
 struct Sent {
+    /// The version of the scene the browser holds; `None` before one is sent.
     version: Option<u64>,
+    /// The problems the browser shows; `None` while it shows a scene.
     problems: Option<Vec<Problem>>,
 }
 

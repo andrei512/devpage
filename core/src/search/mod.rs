@@ -34,24 +34,29 @@ use rank::*;
 /// How many pages a search answers, and how many of each page's sections
 /// it shows.
 const MAX_PAGES: usize = 10;
+/// How many of a page's sections a search shows.
 const SECTIONS_PER_PAGE: usize = 3;
 
 /// A search's answer: the pages found, best first, each with its best
 /// sections.
 #[derive(Debug, Clone, Serialize, PartialEq, Default)]
 pub struct Answer {
+    /// The pages found, best first: at most [`MAX_PAGES`].
     pub pages: Vec<PageResult>,
 }
 
 /// One page found: where it is, what it is, and its sections that matched.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PageResult {
+    /// The page's title, as its result heads it.
     pub title: String,
     /// Where the page opens: its top.
     pub url: String,
     /// The page's place in its document's nav: the labels from the top down to it.
     pub trail: Vec<String>,
+    /// The document the page belongs to.
     pub document: Owner,
+    /// What the page is: a site's page, a doc's chapter or a deck's slide.
     pub kind: PageKind,
     /// Whether the query is the page's title: it comes first, and opens at `url`.
     pub title_match: bool,
@@ -67,6 +72,8 @@ pub struct PageResult {
 /// the matched words in `<mark>`, and those words as its text spells them.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct SectionResult {
+    /// The section's heading; empty for what comes before the page's first
+    /// heading.
     pub heading: String,
     /// The page's title and the headings down to this one.
     pub path: Vec<String>,
@@ -74,6 +81,8 @@ pub struct SectionResult {
     pub url: String,
     /// HTML: a part of the section's prose, escaped, its matched words in `<mark>`.
     pub snippet: String,
+    /// The words the query matched, as the section's text spells them, for the
+    /// page to mark.
     pub words: Vec<String>,
 }
 
@@ -81,24 +90,38 @@ pub struct SectionResult {
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum PageKind {
+    /// A site's page.
     Page,
+    /// A doc's chapter.
     Chapter,
+    /// A deck's slide.
     Slide,
 }
 
 /// The document a page belongs to: its title and its document file's address.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Owner {
+    /// The document's title.
     pub title: String,
+    /// The address of its document file.
     pub path: String,
 }
 
+/// The search index of what the served document publishes: what keeps it
+/// current, and the snapshot each search reads.
 pub struct Search {
+    /// The index's fields, each holding one kind of a section's text.
     fields: Fields,
+    /// What hands out the index as of its last commit; it reloads only when
+    /// told.
     reader: IndexReader,
     /// What keeps it current; `None` once [frozen](Search::frozen).
     indexer: Mutex<Option<Indexer>>,
+    /// The tokenizer that lowercases and stems English, as the ranked fields
+    /// are indexed.
     stemmed: TextAnalyzer,
+    /// The tokenizer that lowercases without stemming, as the near and prefix
+    /// fields are indexed.
     plain: TextAnalyzer,
     /// The served document's file, where what is published starts.
     entry: PathBuf,
@@ -109,6 +132,7 @@ pub struct Search {
 /// The index as one commit left it, read together: its sections, every
 /// page's record, and the statistics BM25 scores by.
 struct Snapshot {
+    /// The sections indexed, as of the commit.
     searcher: Searcher,
     /// Every page indexed, by its address.
     pages: Pages,
@@ -118,6 +142,8 @@ struct Snapshot {
 }
 
 impl Snapshot {
+    /// The snapshot of `searcher`'s commit, with its `pages` and each field's
+    /// length summed over its sections.
     fn new(searcher: Searcher, pages: Pages) -> Self {
         let tokens = searcher
             .schema()
@@ -173,17 +199,24 @@ impl Bm25StatisticsProvider for Snapshot {
 /// The page record: what a page result shows besides its sections.
 #[derive(Debug, Clone)]
 struct Page {
+    /// Its title.
     title: String,
+    /// Its address, where its result opens.
     url: String,
+    /// Its place in its document's nav: the labels from the top down to it.
     trail: Vec<String>,
+    /// The document it belongs to.
     document: Owner,
+    /// What it is: a site's page, a doc's chapter or a deck's slide.
     kind: PageKind,
+    /// Its first paragraph.
     lede: String,
     /// Its place in the nav, counted from the top in reading order.
     nav: u64,
     /// The stems of its title, and of its front matter's description and
     /// keywords.
     title_stems: BTreeSet<String>,
+    /// The stems of its front matter's description and keywords.
     meta_stems: BTreeSet<String>,
 }
 
@@ -192,13 +225,19 @@ type Pages = BTreeMap<String, Page>;
 
 /// A section found, as stored: what its result is made of.
 struct Found {
+    /// Its heading; empty for what comes before the page's first heading.
     heading: String,
+    /// The page's title and the headings down to this one.
     path: Vec<String>,
+    /// The page's address with the heading's anchor.
     url: String,
+    /// Its prose, with a diagram's labels and a widget's text.
     prose: String,
+    /// Its code.
     code: String,
 }
 
+/// `mutex`, locked — even when a thread panicked holding it.
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()

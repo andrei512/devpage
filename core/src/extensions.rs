@@ -11,29 +11,51 @@ use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex, OnceLock},
 };
+/// An extension's package, loaded: what devpage asks, in JSON, to read its
+/// input and show its files.
 pub trait Package: Send + Sync {
+    /// The package's reply to `request`, a JSON object whose `op` names what is
+    /// asked: `create`, `prepare`, `view`, `augment`, `embed`, `targets` or
+    /// `route`.
     fn invoke(&self, request: Value) -> Result<Value>;
 }
+/// What loads an extension's package from its bundle; the executable installs
+/// the native one.
 pub trait Loader: Send + Sync {
+    /// The package bundled at `path`.
     fn load(&self, path: &Path) -> Result<Arc<dyn Package>>;
 }
+/// The loader the executable installed; until it does, no extension can be
+/// configured.
 static LOADER: OnceLock<Arc<dyn Loader>> = OnceLock::new();
+/// Installs `loader` as the one every package is loaded with; a second call is
+/// ignored.
 pub fn install_loader(loader: Arc<dyn Loader>) {
     let _ = LOADER.set(loader);
 }
+/// Every configured document's extensions, by the document's file.
 static INSTANCES: OnceLock<Mutex<BTreeMap<PathBuf, Vec<Binding>>>> = OnceLock::new();
+/// Every configured document's extensions, by the document's file — empty at
+/// first.
 fn instances() -> &'static Mutex<BTreeMap<PathBuf, Vec<Binding>>> {
     INSTANCES.get_or_init(Default::default)
 }
+/// An extension as a document's `extensions:` names it: its package and what it
+/// is configured with.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// The package's bundle; left out only for a system extension such as
     /// [`code`](crate::code).
     pub package: Option<String>,
+    /// What the package is created with, as written under `config:`; null when
+    /// left out.
     #[serde(default)]
     pub config: serde_yaml::Value,
 }
+/// An extension bound to a document: its package, the input it reads and what
+/// it last prepared from it. Clones share one state; a
+/// [`snapshot`](Self::snapshot) does not.
 #[derive(Clone)]
 pub struct Binding(Arc<Mutex<State>>);
 impl std::fmt::Debug for Binding {
@@ -41,21 +63,42 @@ impl std::fmt::Debug for Binding {
         f.write_str("ExtensionBinding")
     }
 }
+/// What a binding holds: its package, how it was configured and what it last
+/// prepared.
 #[derive(Clone)]
 struct State {
+    /// The extension's name under the document's `extensions:`.
     id: String,
+    /// The document's whole `extensions:`, as JSON — what tells a changed
+    /// configuration from the bound one.
     configuration: String,
+    /// The instance's id: the first 16 hex digits of the SHA-256 of the
+    /// document's path, `id` and `configuration`.
     owner: String,
+    /// The package, loaded.
     package: Arc<dyn Package>,
+    /// The served folder its input and the files it shows must lie in.
     scope: ServedFolder,
+    /// The file or folder it reads, as the package's `create` reply names it.
     input: PathBuf,
+    /// The package's reply to `create`: the suffixes it owns, its input and the
+    /// suffixes read there, its grammar, widgets and styles.
     descriptor: Value,
+    /// The modules, widgets and stylesheets the package ships for the browser,
+    /// compiled.
     browser: Arc<Browser>,
+    /// What the package named its last preparation — empty before the first.
     revision: String,
+    /// Why the last preparation failed — `None` when it didn't. While set,
+    /// every call fails.
     error: Option<String>,
+    /// The input last prepared from: each file's contents, by its name in the
+    /// served folder.
     sources: BTreeMap<String, String>,
 }
 impl Binding {
+    /// The address the binding of `s` answers under:
+    /// `<mount>/__devpage/extensions/<owner>/<id>/`.
     fn base(s: &State) -> String {
         format!(
             "{}/__devpage/extensions/{}/{}/",
@@ -64,14 +107,18 @@ impl Binding {
             s.id
         )
     }
+    /// The address of each of the package's widgets' modules, by widget name.
     pub fn widget_urls(&self) -> BTreeMap<String, String> {
         let s = self.0.lock().unwrap();
         s.browser.widgets(&Self::base(&s))
     }
+    /// The addresses of the package's stylesheets.
     pub fn style_urls(&self) -> Vec<String> {
         let s = self.0.lock().unwrap();
         s.browser.styles(&Self::base(&s))
     }
+    /// The package's view of `file`, a file it owns: its `layout`, `title` and
+    /// `content`.
     pub fn view(&self, file: &Path) -> Result<Value> {
         let s = self.0.lock().unwrap();
         let path = s
@@ -86,6 +133,8 @@ impl Binding {
     pub fn snapshot(&self) -> Self {
         Self(Arc::new(Mutex::new(self.0.lock().unwrap().clone())))
     }
+    /// The package's reply to `op`, asked with `extra` and the instance, its
+    /// base address and revision. An error while the last preparation failed.
     fn call(&self, op: &str, extra: Value) -> Result<Value> {
         let s = self.0.lock().unwrap();
         if let Some(error) = &s.error {
@@ -104,9 +153,12 @@ impl Binding {
         request["revision"] = s.revision.clone().into();
         s.package.invoke(request)
     }
+    /// The file or folder the extension reads.
     pub fn input(&self) -> PathBuf {
         self.0.lock().unwrap().input.clone()
     }
+    /// Whether `file` is one the extension shows: its suffix is one the package
+    /// declared and, when `file` is absolute, it lies in the input.
     pub fn owns(&self, file: &Path) -> bool {
         let s = self.0.lock().unwrap();
         if file.is_absolute() && !file.starts_with(&s.input) {
@@ -117,6 +169,9 @@ impl Binding {
             .as_array()
             .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(ext)))
     }
+    /// Whether a new revision was prepared: the input is read again, and the
+    /// package prepares from it only when it changed. A failure is kept, and
+    /// fails every call until a preparation succeeds.
     pub fn prepare(&self) -> Result<bool> {
         let mut s = self.0.lock().unwrap();
         let mut sources = BTreeMap::new();
@@ -182,11 +237,15 @@ impl Binding {
         s.error = None;
         Ok(true)
     }
+    /// The syntax definition the package highlights its language with — `None`
+    /// when it brings none.
     pub fn grammar(&self) -> Option<String> {
         self.0.lock().unwrap().descriptor["grammar"]
             .as_str()
             .map(String::from)
     }
+    /// `source`, the page at `file`, as the package augments it — unchanged
+    /// when the reply has no `source`.
     pub fn transform(&self, file: &Path, source: &str) -> Result<String> {
         let s = self.0.lock().unwrap();
         let path = s
@@ -197,6 +256,8 @@ impl Binding {
         let reply = self.call("augment", json!({"path":path,"source":source}))?;
         Ok(reply["source"].as_str().unwrap_or(source).into())
     }
+    /// The HTML the package shows `target` as in the page at `file`, with
+    /// `label`; `identity` is its place among the page's `src` targets.
     pub fn embed(&self, file: &Path, target: &str, label: &str, identity: usize) -> Result<String> {
         let s = self.0.lock().unwrap();
         let path = s
@@ -212,6 +273,7 @@ impl Binding {
             .ok_or_else(|| anyhow!("Missing embed HTML"))?
             .into())
     }
+    /// The ids a link may point at inside `file`, a file the extension owns.
     pub fn ids(&self, file: &Path) -> Result<Vec<String>> {
         let s = self.0.lock().unwrap();
         let path = s
@@ -227,6 +289,9 @@ impl Binding {
             .collect())
     }
 }
+/// Binds the extensions `configs` to the document at `doc`, each package loaded
+/// from its bundle under `base`, and prepares each; no `configs` unbinds it. A
+/// configuration already bound in `scope` is kept as it is.
 pub fn configure(
     doc: &Path,
     base: &Path,
@@ -323,6 +388,7 @@ pub fn configure(
     guard.insert(doc.to_path_buf(), bindings);
     Ok(())
 }
+/// The extensions bound to the document at `doc` — none when it has none.
 pub fn for_document(doc: &Path) -> Vec<Binding> {
     instances()
         .lock()
@@ -331,6 +397,7 @@ pub fn for_document(doc: &Path) -> Vec<Binding> {
         .cloned()
         .unwrap_or_default()
 }
+/// The input of every extension bound in `scope`, for the watcher to watch.
 pub fn input_roots(scope: &ServedFolder) -> Vec<PathBuf> {
     instances()
         .lock()
@@ -341,6 +408,9 @@ pub fn input_roots(scope: &ServedFolder) -> Vec<PathBuf> {
         .map(Binding::input)
         .collect()
 }
+/// Whether an extension in `scope` prepared anew after `files` changed: each
+/// whose input holds one of them, or lies in one, prepares again. A failed
+/// preparation counts as a change.
 pub fn changed(scope: &ServedFolder, files: &[PathBuf]) -> bool {
     let all: Vec<_> = instances()
         .lock()
@@ -362,6 +432,8 @@ pub fn changed(scope: &ServedFolder, files: &[PathBuf]) -> bool {
     }
     changed
 }
+/// The extensions of the document that owns `file` in `folder` — the entry
+/// document's when none does.
 pub fn for_file(file: &Path, folder: &crate::folder::Folder) -> Vec<Binding> {
     let path = folder
         .owner(file)
@@ -370,6 +442,9 @@ pub fn for_file(file: &Path, folder: &crate::folder::Folder) -> Vec<Binding> {
         .unwrap_or_else(|| folder.entry().path());
     for_document(&path)
 }
+/// The reply to `path` when it is an extension's address in `scope`: a browser
+/// file the package ships, or else what the package routes it to. `None` when
+/// it is no extension's.
 pub fn route(path: &str, scope: &ServedFolder) -> Option<Result<Value>> {
     let suffix = path
         .trim_start_matches('/')

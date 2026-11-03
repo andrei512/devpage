@@ -149,8 +149,11 @@ fn sandboxed(chrome: BrowserConfigBuilder, setting: Option<&str>) -> Result<Brow
 /// and its profile folder. Dropped, the browser's process is killed and the
 /// folder deleted.
 struct Launched {
+    /// The browser, driven over DevTools.
     browser: Browser,
+    /// The loop that carries its DevTools events: finished once Chrome is gone.
     events: JoinHandle<()>,
+    /// Its profile folder, deleted after Chrome is killed.
     _folder: Folder,
 }
 
@@ -202,9 +205,13 @@ impl Drop for Launched {
 /// One Chrome, and the router its tabs load pages from, served on a free
 /// port on `127.0.0.1`. Dropped, Chrome is killed and the router stops.
 pub(crate) struct Session {
+    /// The running Chrome.
     chrome: Launched,
+    /// The task serving the router.
     server: JoinHandle<()>,
+    /// Where the router is served, on `127.0.0.1`.
     address: SocketAddr,
+    /// How Chrome was launched, which decides how it is closed.
     profile: Profile,
 }
 
@@ -317,7 +324,9 @@ impl Drop for Session {
 
 /// A tab of a [`Session`], its page opened.
 pub(crate) struct Tab {
+    /// The tab's page, driven over DevTools.
     page: Page,
+    /// Whether the page was [`READY`] in time.
     ready: bool,
 }
 
@@ -443,6 +452,8 @@ async fn serve(router: Router) -> Result<(SocketAddr, JoinHandle<()>)> {
 struct Folder(PathBuf);
 
 impl Folder {
+    /// A profile folder named for this process and a count of the Chromes it
+    /// started, not made yet: Chrome makes it.
     fn new() -> Self {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static RUNS: AtomicUsize = AtomicUsize::new(0);

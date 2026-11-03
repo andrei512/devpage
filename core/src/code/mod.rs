@@ -41,11 +41,15 @@ pub use extract::{Declaration, Extracted, Grammar, Visibility};
 pub struct Target {
     /// Its path as the language names it: crate, modules, item.
     pub path: Vec<String>,
+    /// What it is, as the query names it: `module`, `struct`, `function`….
     pub kind: String,
+    /// Its declaration as written, without its body.
     pub signature: String,
+    /// Its doc comment, as Markdown.
     pub doc: String,
     /// Where it is declared.
     pub file: PathBuf,
+    /// The line it is declared on, from 1.
     pub line: usize,
     /// Whether a `pub` path reaches it from its crate's root.
     pub public: bool,
@@ -58,12 +62,19 @@ pub struct Target {
 /// A part of a target shown on its page: a field, a variant, a method.
 #[derive(Debug, Clone)]
 pub struct Member {
+    /// Its name.
     pub name: String,
+    /// What it is: `field`, `variant`, `method`….
     pub kind: String,
+    /// Its declaration as written, without its body.
     pub signature: String,
+    /// Its doc comment, as Markdown.
     pub doc: String,
+    /// Where it is declared.
     pub file: PathBuf,
+    /// The line it is declared on, from 1.
     pub line: usize,
+    /// Whether it is reachable: `pub`, or a trait's item or an enum's variant.
     pub public: bool,
 }
 
@@ -71,7 +82,9 @@ pub struct Member {
 /// another name for.
 #[derive(Debug, Default)]
 pub struct Targets {
+    /// Every target, by its path.
     pub targets: BTreeMap<Vec<String>, Target>,
+    /// Each other name a `pub use` gives a target, to the path it stands for.
     pub aliases: BTreeMap<Vec<String>, Vec<String>>,
 }
 
@@ -98,16 +111,24 @@ struct NamespaceConfig {
 
 /// One namespace: its files, its parser and the targets they make now.
 struct Namespace {
+    /// Its name in the configuration, and in its pages' addresses.
     name: String,
+    /// The language its files are written in.
     language: String,
+    /// The parser of its files, replaced when its query file changes.
     grammar: RwLock<Arc<Grammar>>,
+    /// Its `files` patterns, made absolute.
     patterns: GlobSet,
+    /// The folder each pattern's files are under: its literal prefix.
     roots: Vec<PathBuf>,
     /// The query file, when the project wrote its own; a change to it
     /// re-parses every file.
     query: Option<PathBuf>,
+    /// Whether items no `pub` path reaches get pages too.
     private: bool,
+    /// Each of its files' declarations, by path.
     files: Mutex<BTreeMap<PathBuf, Arc<Extracted>>>,
+    /// Its targets, as its files were last linked.
     targets: RwLock<Arc<Targets>>,
 }
 
@@ -115,9 +136,11 @@ struct Namespace {
 pub struct Index {
     /// The site's folder: pages are under its `reference/`.
     base: PathBuf,
+    /// The served folder the site is in, which page addresses are made from.
     served: ServedFolder,
     /// The configuration it was made from, to tell a reload from a change.
     configuration: String,
+    /// Its namespaces, in the order of their names.
     namespaces: Vec<Namespace>,
     /// Markdown that adds to a target's page, by `namespace:path`.
     prose: RwLock<BTreeMap<String, Prose>>,
@@ -127,12 +150,16 @@ pub struct Index {
 /// target's page.
 #[derive(Debug, Clone)]
 pub struct Prose {
+    /// The Markdown file.
     pub file: PathBuf,
+    /// What follows its heading.
     pub body: String,
 }
 
+/// Every site's code reference, by its document file.
 static INDEXES: OnceLock<Mutex<BTreeMap<PathBuf, Arc<Index>>>> = OnceLock::new();
 
+/// Every site's code reference, by its document file, made empty on first use.
 fn indexes() -> &'static Mutex<BTreeMap<PathBuf, Arc<Index>>> {
     INDEXES.get_or_init(Default::default)
 }
@@ -239,6 +266,9 @@ pub fn changed(served: &ServedFolder, files: &[PathBuf]) -> bool {
 }
 
 impl Namespace {
+    /// The namespace `name` as `config` writes it, its patterns relative to
+    /// `base`, with no file parsed yet; an error when its language, query or a
+    /// pattern is wrong.
     fn new(
         name: &str,
         config: NamespaceConfig,
@@ -396,7 +426,9 @@ fn literal_prefix(pattern: &Path) -> PathBuf {
 
 /// One page of a code reference, as search reads it.
 pub struct Searched {
+    /// The address of its page, or of its section on its type's page.
     pub url: String,
+    /// The name of what it is about.
     pub title: String,
     /// Where it is: the reference, then each module above it.
     pub trail: Vec<String>,
@@ -579,6 +611,8 @@ impl Index {
         self.nav_children(&namespace.name, &targets, &under)
     }
 
+    /// The sidebar's groups for the targets directly under `under`: its
+    /// modules, each with its own, and its types, by kind.
     fn nav_children(
         &self,
         namespace: &str,
@@ -815,4 +849,51 @@ fn distance(a: &str, b: &str) -> usize {
         }
     }
     row[b.len()]
+}
+
+#[cfg(test)]
+mod tests {
+    /// devpage's own code, as its docs' code reference reads it: every
+    /// item, field, variant and method has a doc comment, so every page of
+    /// the reference says what it is.
+    #[test]
+    fn every_item_of_devpages_code_is_documented() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let served = crate::folder::ServedFolder::new(&root).unwrap();
+        let doc = crate::document::Document::load(&root.join("docs/devpage.yml"), &served).unwrap();
+        let index = super::for_document(&doc.path()).unwrap();
+        let mut undocumented = Vec::new();
+        for namespace in &index.namespaces {
+            for target in namespace.targets().targets.values() {
+                let file = served.name(&target.file).unwrap_or_default();
+                if target.doc.trim().is_empty() {
+                    undocumented.push(format!(
+                        "{file}:{}: {}",
+                        target.line,
+                        target.path.join("::")
+                    ));
+                }
+                for member in &target.members {
+                    if member.doc.trim().is_empty() {
+                        let file = served.name(&member.file).unwrap_or_default();
+                        undocumented.push(format!(
+                            "{file}:{}: {}::{}",
+                            member.line,
+                            target.path.join("::"),
+                            member.name
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            undocumented.is_empty(),
+            "undocumented:\n{}",
+            undocumented.join("\n")
+        );
+    }
 }

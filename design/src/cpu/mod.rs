@@ -16,8 +16,12 @@ use crate::tiles::{TILE, tile_rect};
 
 /// The `vello_cpu` backend of [`crate::display::paint`].
 pub struct Cpu<'a> {
+    /// The context it draws into.
     pub ctx: &'a mut RenderContext,
+    /// Each image painted so far, by its blob's id, so an image drawn twice is
+    /// converted once.
     pub sources: HashMap<u64, vello_cpu::ImageSource>,
+    /// What `vello_cpu` keeps while it draws glyphs and renders: its caches.
     pub resources: Resources,
 }
 

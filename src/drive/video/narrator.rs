@@ -21,9 +21,14 @@ use super::silence::RATE;
 
 use devpage_core::document::Narration;
 
+/// The variable holding an OpenAI API key, which selects OpenAI.
 pub const OPENAI_API_KEY: &str = "DEVPAGE_OPENAI_API_KEY";
+/// The variable naming an Azure endpoint, which selects Azure.
 pub const AZURE_ENDPOINT: &str = "DEVPAGE_AZURE_OPENAI_ENDPOINT";
+/// The variable holding the Azure resource's key, needed when the endpoint is
+/// set.
 pub const AZURE_API_KEY: &str = "DEVPAGE_AZURE_OPENAI_API_KEY";
+/// The variable naming the model, or on Azure the deployment.
 pub const MODEL: &str = "DEVPAGE_VIDEO_MODEL";
 /// The model when `DEVPAGE_VIDEO_MODEL` names none.
 pub const DEFAULT_MODEL: &str = "gpt-live-1";
@@ -33,19 +38,16 @@ const VOICE: &str = "marin";
 /// Where GPT-Live runs, and the key it takes.
 #[derive(PartialEq)]
 pub enum Provider {
-    OpenAi {
-        key: String,
-    },
+    /// OpenAI's own API, with an API key.
+    OpenAi { key: String },
     /// An Azure Foundry resource, by its host name.
-    Azure {
-        host: String,
-        key: String,
-    },
+    Azure { host: String, key: String },
 }
 
 /// The provider and the model a run narrates with. It holds a key, so it is
 /// never printed.
 pub struct Config {
+    /// Where the session runs, with its key.
     pub provider: Provider,
     /// On Azure, the deployment's name.
     pub model: String,
@@ -59,6 +61,8 @@ impl Config {
         Self::from_vars(|name| std::env::var(name).ok())
     }
 
+    /// The config [`from_env`](Self::from_env) reads, with each variable
+    /// looked up by `var`; a blank one counts as unset.
     fn from_vars(var: impl Fn(&str) -> Option<String>) -> Result<Self> {
         let var = |name: &str| var(name).filter(|value| !value.trim().is_empty());
         let model = var(MODEL).unwrap_or_else(|| DEFAULT_MODEL.to_string());
@@ -298,6 +302,7 @@ impl Live {
         Ok(live)
     }
 
+    /// Queues `event` for the socket; dropped once the session is closing.
     fn send(&self, event: Value) {
         if let Some(out) = &self.out {
             out.send(Message::text(event.to_string())).ok();

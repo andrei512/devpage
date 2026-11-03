@@ -16,35 +16,47 @@ pub const BUDGET: u64 = 256 << 20;
 /// A version's index: its document's id and its number.
 pub type Key = (String, u64);
 
+/// The search indexes of published versions, kept the most recently searched
+/// first within a budget of bytes.
 pub struct Searches {
+    /// The most bytes the kept indexes may hold together.
     budget: u64,
+    /// The indexes kept, and the clock that orders their searches.
     state: Mutex<State>,
     /// One lock per index being built, so searches arriving together build
     /// it once.
     building: Mutex<HashMap<Key, Arc<Mutex<()>>>>,
 }
 
+/// The indexes kept, and the clock their searches are stamped by.
 #[derive(Default)]
 struct State {
+    /// Each index kept, by its version.
     kept: HashMap<Key, Kept>,
     /// Bumped by every search: the larger, the more recent.
     clock: u64,
 }
 
+/// One version's index, kept: where it was built, its size and its last search.
 struct Kept {
+    /// The index, frozen.
     search: Arc<Search>,
     /// Where the version was served when its index was built: every address
     /// in it starts here.
     mount: Arc<str>,
+    /// The bytes its segments hold in memory.
     bytes: u64,
+    /// The clock at its last search.
     searched: u64,
 }
 
+/// `mutex`, locked — even when a thread panicked holding it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }
 
 impl Searches {
+    /// No indexes yet, to be kept within `budget` bytes.
     pub fn new(budget: u64) -> Self {
         Searches {
             budget,
@@ -118,6 +130,8 @@ impl Searches {
         lock(&self.state).kept.len()
     }
 
+    /// `key`'s index and where it was built, when it is kept — marked searched
+    /// now. `None` when it isn't.
     fn kept(&self, key: &Key) -> Option<(Arc<Search>, Arc<str>)> {
         let mut state = lock(&self.state);
         state.clock += 1;

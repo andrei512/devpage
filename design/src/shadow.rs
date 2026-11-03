@@ -34,6 +34,7 @@ use crate::scene::Rgba;
 const REACH: usize = 6;
 /// The most samples a shadow drawn as one image may have, and its longest side.
 pub const SINGLE: usize = 1 << 16;
+/// The longest side, in samples, of a shadow drawn as one image.
 const SINGLE_SIDE: usize = 1024;
 /// A corner at least this many standard deviations round is drawn as a disc's
 /// blurred edge, within 0.1 of 255 of the exact blur; a tighter one is sampled.
@@ -49,7 +50,11 @@ const MARGIN: f64 = 128.0;
 /// kurbo clamps it — or an ellipse.
 #[derive(Clone, Copy)]
 pub enum Outline {
+    /// A rounded rectangle and its radii, `[top-left, top-right, bottom-right,
+    /// bottom-left]`, each as kurbo clamps it.
     Rounded(Rect, [f64; 4]),
+    /// The ellipse that fills a rectangle; never a circle, which is
+    /// [`Rounded`](Self::Rounded).
     Ellipse(Rect),
 }
 
@@ -64,6 +69,8 @@ impl Outline {
         )
     }
 
+    /// The ellipse that fills `rect`: a rounded rectangle when `rect` is a
+    /// square.
     pub fn ellipse(rect: Rect) -> Outline {
         if rect.width() == rect.height() {
             Outline::rounded(rect, [rect.width() / 2.0; 4])
@@ -72,6 +79,7 @@ impl Outline {
         }
     }
 
+    /// The outline as a path, within 0.1 of it.
     pub fn path(&self) -> BezPath {
         match *self {
             Outline::Rounded(r, [tl, tr, br, bl]) => {
@@ -97,6 +105,7 @@ impl Outline {
         out
     }
 
+    /// The rectangle the outline fills.
     fn rect(&self) -> Rect {
         match *self {
             Outline::Rounded(r, _) | Outline::Ellipse(r) => r,
@@ -162,17 +171,24 @@ fn kernel() -> [f32; 2 * REACH + 1] {
 /// `step` whose top-left is `origin + (i, j) × step`.
 #[derive(Clone, Copy)]
 struct Grid {
+    /// The top-left of sample `(0, 0)`, in the design's coordinates.
     origin: Point,
+    /// The side of a sample, in the design's coordinates: half the blur's
+    /// standard deviation.
     step: f64,
 }
 
 impl Grid {
+    /// The left edge of the samples in column `i`.
     fn x(&self, i: isize) -> f64 {
         self.origin.x + i as f64 * self.step
     }
+    /// The top edge of the samples in row `j`.
     fn y(&self, j: isize) -> f64 {
         self.origin.y + j as f64 * self.step
     }
+    /// The rectangle the samples from `(i0, j0)` up to, not through, `(i1, j1)`
+    /// cover.
     fn rect(&self, i0: isize, j0: isize, i1: isize, j1: isize) -> Rect {
         Rect::new(self.x(i0), self.y(j0), self.x(i1), self.y(j1))
     }

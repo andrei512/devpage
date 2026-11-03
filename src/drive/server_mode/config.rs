@@ -42,18 +42,27 @@ const VOLUME_SHARE_PERCENT: u64 = 80;
 /// What `devpage server` reads from the environment.
 #[derive(Debug, PartialEq)]
 pub struct Config {
+    /// The address the server listens on: `DEVPAGE_HOST`, or `127.0.0.1`.
     pub host: IpAddr,
+    /// The port pages and the API are served on: `DEVPAGE_PORT`, or 3030.
     pub port: u16,
     /// The port `/metrics` is served on: `DEVPAGE_METRICS_PORT`, or 9030.
     pub metrics_port: u16,
+    /// The folder the server keeps its SQLite store and its cache in:
+    /// `DEVPAGE_DATA_DIR`, which must exist.
     pub data_dir: PathBuf,
+    /// The bucket every version's zip is kept in: `DEVPAGE_BUCKET_URL`, as
+    /// written.
     pub bucket_url: String,
     /// The cache's limit: `DEVPAGE_CACHE_MAX_BYTES`, or 80% of the volume.
     pub cache_max_bytes: u64,
+    /// Which versions the cache evicts first: `DEVPAGE_CACHE_POLICY`, or `lru`.
     pub cache_policy: Policy,
     /// How many versions hold their router in memory:
     /// `DEVPAGE_MEMORY_CACHE_VERSIONS`, or 2,000.
     pub memory_cache_versions: usize,
+    /// The largest publish's zip accepted: `DEVPAGE_MAX_UPLOAD_BYTES`, or 100
+    /// MiB.
     pub max_upload_bytes: u64,
     /// The header naming each write's author; none, and writes are
     /// `anonymous`.
@@ -63,10 +72,12 @@ pub struct Config {
 /// The eviction policies `DEVPAGE_CACHE_POLICY` names.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Policy {
+    /// `lru`: the least recently used version first.
     Lru,
 }
 
 impl Policy {
+    /// The eviction that carries the policy out.
     pub fn eviction(self) -> Box<dyn Eviction> {
         match self {
             Policy::Lru => Box::new(Lru),

@@ -13,11 +13,18 @@ use crate::{icons, nav};
 /// as written, or a file in the served folder by its address. `file` is set
 /// for the latter, whether or not it exists; `web` for an address on the web.
 struct Target {
+    /// What the link's `href` is: the file's address with its fragment, or the
+    /// target as written.
     href: String,
+    /// The file it names, whether or not it exists; `None` for any address with
+    /// a scheme.
     file: Option<PathBuf>,
+    /// Whether it is an address on the web, which the link checker follows.
     web: bool,
 }
 
+/// Where a navbar link whose target is `written`, relative to `document`'s
+/// file, goes.
 fn target(document: &Document, written: &str) -> Target {
     let (path, fragment) = match Link::classify(written) {
         Link::File { path, fragment } => (path, fragment),
@@ -168,6 +175,8 @@ fn active(document: &Document, tree: &[nav::Group], current: &str) -> Option<Str
     trail.into_iter().rev().find(|url| targets.contains(url))
 }
 
+/// The icon `name` names as inline SVG; empty when there is none or no such
+/// icon.
 fn icon(name: &Option<String>) -> String {
     name.as_deref().and_then(icons::svg).unwrap_or_default()
 }

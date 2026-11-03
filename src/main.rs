@@ -38,14 +38,18 @@ With --json, a result is JSON on standard output and an error JSON on standard e
 
 Docs: https://devpage.ai/docs/README.md";
 
+/// devpage's command line: a command, or a document to serve and how to
+/// serve it.
 #[derive(Parser)]
 #[command(version, about, after_help = EXAMPLES)]
 struct Cli {
+    /// What to do; `None` serves `path`.
     #[command(subcommand)]
     command: Option<Command>,
     /// What to serve: a Markdown file, a design (.design), a folder holding
     /// devpage.yml, or a document file. The current folder by default.
     path: Option<PathBuf>,
+    /// The served folder: nothing outside it is served.
     #[command(flatten)]
     root: drive::client::Root,
     /// The address to listen on; any non-loopback address means deployed.
@@ -62,6 +66,7 @@ struct Cli {
     no_comments: bool,
 }
 
+/// The commands besides serving a document.
 #[derive(Subcommand)]
 enum Command {
     /// Check every link; exit 1 if one is broken.
@@ -150,8 +155,11 @@ impl Command {
 /// devpage's exit codes: 0 done, 1 the document has problems, 2 devpage
 /// couldn't run — as clap exits on a command line it can't read.
 const PROBLEMS: u8 = 1;
+/// The exit code when devpage couldn't run.
 const FAILED: u8 = 2;
 
+/// Runs the command line, exiting as [`run`] says, or with [`FAILED`] after
+/// printing its error — as JSON when the command answers in JSON.
 #[tokio::main]
 async fn main() -> ExitCode {
     adapters::extensions::install();
@@ -191,6 +199,8 @@ fn reported(problems: &[devpage_core::problem::Problem], json: bool) -> ExitCode
     }
 }
 
+/// Runs `cli`'s command, or serves its document: the composition root, where
+/// the core's ports meet their adapters.
 async fn run(mut cli: Cli) -> Result<ExitCode> {
     // The composition root's own names, kept to it: every other module names
     // the core's and the binary's modules by their paths.

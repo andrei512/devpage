@@ -34,6 +34,7 @@ pub enum Outcome {
 
 /// Asks an address once, giving it `wait` to answer.
 pub trait Ask: Send + Sync {
+    /// What asking `address` once found, given `wait` to answer.
     fn ask<'a>(&'a self, address: &'a str, wait: Duration) -> BoxFuture<'a, Outcome>;
 }
 
@@ -51,6 +52,7 @@ pub trait Background: Send + Sync {
 /// didn't.
 #[derive(Debug, Clone, Copy)]
 pub struct Waits {
+    /// How long an address gets to answer the first time it is asked.
     pub first: Duration,
     /// `devpage check`'s second, longer try.
     pub retry: Duration,
@@ -74,8 +76,11 @@ const FAILURES_BEFORE_A_PROBLEM: u32 = 3;
 
 /// What the preview knows about each external address.
 enum Answer {
+    /// Being asked for the first time; no answer yet.
     Pending,
+    /// A status below 400, following redirects.
     Fine,
+    /// A definite answer of 400 or above, and what it was.
     Broken(String),
     /// Not reached this many times in a row; still being retried.
     Unreachable(u32, String),
@@ -83,8 +88,12 @@ enum Answer {
 
 /// The external-link checker: one per devpage process, shared by every page.
 pub struct External {
+    /// How an address is asked.
     ask: Arc<dyn Ask>,
+    /// Where the preview's background asking runs.
     background: Arc<dyn Background>,
+    /// How long an address gets to answer, and how the preview retries one that
+    /// didn't.
     waits: Waits,
     /// Every address the preview has asked about, for as long as it lives.
     answers: Mutex<HashMap<String, Answer>>,
@@ -94,6 +103,9 @@ pub struct External {
 }
 
 impl External {
+    /// The checker that asks with `ask`, runs the preview's asking on
+    /// `background` with `waits`, and announces changes on `changes` — or
+    /// nowhere.
     pub fn new(
         ask: Arc<dyn Ask>,
         background: Arc<dyn Background>,

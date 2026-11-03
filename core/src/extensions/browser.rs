@@ -7,13 +7,23 @@ use std::{
     path::{Component, Path},
 };
 
+/// An extension package's browser side: its modules compiled to JavaScript, its
+/// widgets and its styles, served under an address that changes with their
+/// content.
 #[derive(Clone, Default)]
 pub(super) struct Browser {
+    /// The hash of the build and the package's sources, widgets and styles: the
+    /// address segment that changes whenever any of them does.
     digest: String,
+    /// Each module's compiled JavaScript, by its path in the package.
     modules: BTreeMap<String, String>,
+    /// Each widget's module path, by widget name.
     widgets: BTreeMap<String, String>,
+    /// Each stylesheet's CSS, by its path in the package.
     styles: BTreeMap<String, String>,
 }
+/// `path` with `.` and `..` resolved, as `/`-joined parts. An error when it
+/// climbs out of the package or isn't relative.
 fn normalized(path: &Path) -> Result<String> {
     let mut parts = Vec::new();
     for part in path.components() {
@@ -31,6 +41,10 @@ fn normalized(path: &Path) -> Result<String> {
     Ok(parts.join("/"))
 }
 impl Browser {
+    /// The package `descriptor` describes, with every module compiled and its
+    /// relative imports rewritten to addresses under `base`. An error when a
+    /// path is noncanonical, an import is missing, or a widget is misnamed,
+    /// missing or replaces a built-in.
     pub fn new(descriptor: &Value, base: &str) -> Result<Self> {
         let sources: BTreeMap<String, String> =
             serde_json::from_value(descriptor.get("modules").cloned().unwrap_or(json!({})))?;
@@ -88,6 +102,7 @@ impl Browser {
             styles,
         })
     }
+    /// Each widget's module address under `base`, by widget name.
     pub fn widgets(&self, base: &str) -> BTreeMap<String, String> {
         self.widgets
             .iter()
@@ -99,12 +114,16 @@ impl Browser {
             })
             .collect()
     }
+    /// Every stylesheet's address under `base`.
     pub fn styles(&self, base: &str) -> Vec<String> {
         self.styles
             .keys()
             .map(|p| format!("{base}browser/{}/styles/{p}", self.digest))
             .collect()
     }
+    /// The response to `path`, relative to the extension's base: a compiled
+    /// module or a stylesheet. `None` when `path` names neither, or an older
+    /// digest.
     pub fn response(&self, path: &str) -> Option<Value> {
         let path = path.strip_prefix(&format!("browser/{}/", self.digest))?;
         let (source, mime) = if let Some(name) = path.strip_prefix("modules/") {

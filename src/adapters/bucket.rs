@@ -9,9 +9,13 @@ use object_store::azure::MicrosoftAzureBuilder;
 use object_store::local::LocalFileSystem;
 use object_store::{ObjectStore, ObjectStoreExt, PutPayload, path::Path};
 
+/// Where every version's zip is kept: an object store, and the prefix its keys
+/// are under.
 #[derive(Clone)]
 pub struct Bucket {
+    /// The store the URL names: S3, Azure Blob or a folder.
     store: Arc<dyn ObjectStore>,
+    /// The path every key starts with: the URL's path, or none for a folder.
     prefix: Path,
 }
 
@@ -57,6 +61,8 @@ impl Bucket {
         Ok(Bucket { store, prefix })
     }
 
+    /// The key of `document`'s zip of `version`:
+    /// `documents/<document>/versions/<version>.zip` under the prefix.
     fn version(&self, document: &str, version: u64) -> Path {
         self.prefix
             .clone()

@@ -32,15 +32,22 @@ use devpage_core::document::Document;
 use devpage_core::folder::Folder;
 use devpage_core::search::Search;
 
+/// What every route answers from: one [`App`]'s parts, cloned into each handler.
 #[derive(Clone)]
 struct AppState {
+    /// The served folder, opened on the entry document.
     folder: Arc<Folder>,
+    /// What was read and compiled of the served folder's widgets.
     modules: devpage_core::widgets::Modules,
+    /// The search index; `None` when the server holds none, and a search goes to
+    /// `search_on_demand` or finds nothing.
     search: Option<Arc<Search>>,
+    /// What tells open pages there is something new to show.
     changes: Changes,
     /// `None` when comments are off: the pages show none and every comment
     /// route answers 404.
     comments: Option<Arc<Commenting>>,
+    /// The design store the served folder's designs are resolved and kept in.
     designs: Designs,
     /// The design store's changes, as the watch streams hear them.
     design_updates: tokio::sync::broadcast::Sender<String>,
@@ -64,6 +71,7 @@ impl AppState {
             .ok_or_else(|| (StatusCode::NOT_FOUND, "comments are off").into_response())
     }
 
+    /// Whether comments are on.
     fn comments_on(&self) -> bool {
         self.comments.is_some()
     }
@@ -91,11 +99,14 @@ fn refused(refused: comments::Refused) -> Response {
 /// Comments on: the threads, announced as they are written, and who writes
 /// them.
 pub struct Commenting {
+    /// The comment threads, written through and announced as they are.
     threads: Comments,
+    /// How a write's author is named from its request.
     identity: Identity,
 }
 
 impl Commenting {
+    /// Comments on `threads`, their writers named by `identity`.
     pub fn new(threads: Comments, identity: Identity) -> Self {
         Self { threads, identity }
     }
@@ -115,6 +126,7 @@ pub struct App {
     /// The search index of what the entry document publishes, or `None`:
     /// every search then finds nothing.
     search: Option<Arc<Search>>,
+    /// The design store the served folder's designs are resolved and kept in.
     designs: Designs,
     /// What tells open pages there is something new to show.
     changes: Changes,
@@ -235,6 +247,9 @@ impl App {
         Self { designs, ..self }
     }
 
+    /// The parts every constructor shares: `document`'s folder opened, with
+    /// `designs`, `changes`, `preview` and `comments` as given, and no search
+    /// index.
     fn of(
         document: Arc<Document>,
         designs: Designs,
@@ -668,6 +683,7 @@ pub fn open_pages() -> u64 {
 struct Listening;
 
 impl Listening {
+    /// One more page listening, counted until it is dropped.
     fn new() -> Self {
         OPEN_PAGES.fetch_add(1, Ordering::Relaxed);
         Listening
@@ -721,15 +737,21 @@ pub async fn asset(Path(name): Path<String>, headers: HeaderMap) -> Response {
     response
 }
 
+/// `?page=` of a request for a page's threads.
 #[derive(Deserialize)]
 struct PageQuery {
+    /// The page's address.
     page: String,
 }
 
+/// A thread to start, as a page posts it.
 #[derive(Deserialize)]
 struct NewThread {
+    /// The address of the page it is on.
     page: String,
+    /// The rendered text it is attached to.
     anchor: Anchor,
+    /// The thread's first comment.
     text: String,
 }
 
@@ -737,7 +759,9 @@ struct NewThread {
 /// is all that finds it.
 #[derive(Deserialize)]
 struct Reply {
+    /// The thread's id.
     id: String,
+    /// The reply; empty when resolving.
     #[serde(default)]
     text: String,
 }
@@ -745,6 +769,7 @@ struct Reply {
 /// `?q=` of a search; none is an empty query.
 #[derive(Deserialize)]
 struct SearchQuery {
+    /// The query, as typed.
     #[serde(default)]
     q: String,
 }
@@ -770,6 +795,7 @@ async fn search(State(state): State<AppState>, Query(query): Query<SearchQuery>)
     Json(answer).into_response()
 }
 
+/// `GET /__devpage/comments?page=`: the page's threads as JSON, oldest first.
 async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQuery>) -> Response {
     let comments = match state.comments() {
         Ok(comments) => comments,
@@ -781,6 +807,8 @@ async fn list_comments(State(state): State<AppState>, Query(query): Query<PageQu
     }
 }
 
+/// `POST /__devpage/comments`: starts a thread by the request's author and
+/// answers its id as JSON, `{"id": ...}`.
 async fn create_comment(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -801,6 +829,8 @@ async fn create_comment(
     }
 }
 
+/// `POST /__devpage/comments/reply`: appends the request author's reply to a
+/// thread; `204` once written.
 async fn reply_comment(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -818,6 +848,8 @@ async fn reply_comment(
     }
 }
 
+/// `POST /__devpage/comments/resolve`: resolves a thread, for any identified
+/// author; `204` once it is gone.
 async fn resolve_comment(
     State(state): State<AppState>,
     headers: HeaderMap,

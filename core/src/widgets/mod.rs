@@ -73,12 +73,16 @@ thread_local! {
 /// served at.
 #[derive(Debug, Default)]
 pub struct Widgets {
+    /// The extensions bound to the document, whose widgets are among `modules`.
     pub(crate) extensions: Vec<crate::extensions::Binding>,
+    /// Every widget by name — system, extension and project alike — with the
+    /// address its module is served at.
     pub modules: BTreeMap<String, String>,
     /// Where its modules are read and compiled.
     cache: Modules,
     /// The served folder, and each project widget's file, by name.
     served: ServedFolder,
+    /// Each project widget's file, by name.
     files: BTreeMap<String, PathBuf>,
     /// Every name in `modules`: what a project widget can render by name.
     known: Vec<String>,

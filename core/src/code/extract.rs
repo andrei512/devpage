@@ -23,7 +23,10 @@ pub enum Visibility {
 pub struct Declaration {
     /// The query's kind: `function`, `struct`, `field`…
     pub kind: String,
+    /// Its name, as the query's `@name` captures it; for an `impl`, the type
+    /// it names.
     pub name: String,
+    /// How it is visible where it is written.
     pub visibility: Visibility,
     /// The declaration it is written inside, by index in the file's list.
     pub parent: Option<usize>,
@@ -55,6 +58,7 @@ pub struct Attach {
 /// A statement making a name reachable where it is written: `pub use`.
 #[derive(Debug, Clone)]
 pub struct Reexport {
+    /// How the `use` is visible where it is written.
     pub visibility: Visibility,
     /// The path as written: `a::b::C`, `crate::a::{B, C as D}`.
     pub path: String,
@@ -66,8 +70,11 @@ pub struct Reexport {
 /// order they are written.
 #[derive(Debug, Clone, Default)]
 pub struct Extracted {
+    /// The file's own doc comment, as Markdown.
     pub doc: String,
+    /// Its declarations, in the order they are written.
     pub declarations: Vec<Declaration>,
+    /// Its `pub use` statements, in the order they are written.
     pub reexports: Vec<Reexport>,
     /// The lines where the file doesn't parse; declarations elsewhere are
     /// kept.
@@ -77,8 +84,11 @@ pub struct Extracted {
 /// A language's parser: its grammar, the query that finds declarations, and
 /// how its doc comments read.
 pub struct Grammar {
+    /// The tree-sitter language files are parsed with.
     language: Language,
+    /// The query that captures declarations and reexports.
     query: Query,
+    /// How the language's doc comments read.
     docs: Docs,
 }
 

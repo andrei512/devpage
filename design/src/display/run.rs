@@ -23,7 +23,10 @@ pub type RunId = u32;
 /// whose origin is the child's box's top-left.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Space {
+    /// The design's own coordinates.
     Root,
+    /// The coordinates of the child at this key of this run, from its box's
+    /// top-left.
     Item(RunId, OrderKey),
 }
 
@@ -33,6 +36,7 @@ pub struct Run {
     pub space: Space,
     /// Its node's unrounded top-left and its rounded one, in its space.
     pub raw: Vec2,
+    /// Its node's rounded top-left, in its space.
     pub at: Vec2,
     /// Where its space's origin was in the design's coordinates when it was
     /// last placed: its children are placed in single precision there, as
@@ -43,8 +47,14 @@ pub struct Run {
     /// A frame with no layout: each child at a place of its own, found by
     /// an R-tree of their boxes rather than by the sums.
     pub free: bool,
+    /// In a free run, what each child reaches, by bounds: what finds the children
+    /// that touch a rectangle.
     pub(super) boxes: rstar::RTree<Boxed>,
+    /// In a free run, the left, top, right and bottom edges of what its children
+    /// reach, as counted sets, from its node's unrounded top-left.
     pub(super) free_reach: [Counted; 4],
+    /// In a free run, the left, top, right and bottom edges of what its children
+    /// cover, as counted sets, from its node's unrounded top-left.
     pub(super) free_cover: [Counted; 4],
     /// Where its first child starts along the run, from its node's unrounded
     /// top-left: the padding and any `justify` offset.
@@ -59,15 +69,21 @@ pub struct Run {
     pub line: f64,
     /// What cuts it in its space: its clipping frames' boxes.
     pub cut: Option<KRect>,
+    /// Its children in order, each as the sums see it: the sums place them.
     pub(super) items: Sums<OrderKey, Placed>,
+    /// Each child's own space's index, by the child's key.
     pub(super) spaces: HashMap<OrderKey, SpaceIndex>,
     /// The furthest any child reaches past its box along the run, and each
     /// child's reach and cover across, from the line's start: counted sets.
     pub(super) overhang: Counted,
+    /// Where each child's reach starts and ends across, from the line's start.
     pub(super) reach_across: (Counted, Counted),
+    /// Where each child's cover starts and ends across, from the line's start.
     pub(super) cover_across: (Counted, Counted),
     /// Its entry in its space's index, and what it adds to its space's cover.
     pub(super) entry: Option<KRect>,
+    /// What it adds to its space's cover: what its children cover, cut to its
+    /// clipping frames.
     pub(super) cover: Option<KRect>,
 }
 
@@ -75,7 +91,9 @@ pub struct Run {
 /// coordinates, and the extent of what its chunks cover.
 #[derive(Default)]
 pub struct SpaceIndex {
+    /// Its chunks and runs, by their bounds in its own coordinates.
     pub(super) index: rstar::RTree<Entry>,
+    /// The extent of what its chunks cover.
     pub(super) covers: Extent,
 }
 
@@ -84,18 +102,24 @@ pub struct SpaceIndex {
 /// unrounded start.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Placed {
+    /// Its size along the run.
     pub size: f64,
     /// In a free run, its unrounded top-left from the run's node's.
     pub at: Option<Vec2>,
     /// In a free run, what it reaches and covers in the run's space.
     pub(super) boxed: Option<KRect>,
+    /// In a free run, what it covers, from the run's node's unrounded top-left.
     pub(super) cover_box: Option<KRect>,
     /// Its unrounded place across, from the line's start.
     pub across: f64,
     /// Its rounded top-left less its unrounded one: fixed while what the
     /// run places it at keeps its fraction of a pixel.
     pub delta: Vec2,
+    /// Where what it reaches starts and ends along the run, from its unrounded
+    /// start; `None` when its space holds nothing.
     pub(super) reach: Option<(f64, f64)>,
+    /// Where what it covers starts and ends along the run, from its unrounded
+    /// start; `None` when it covers nothing.
     pub(super) covered: Option<(f64, f64)>,
     /// What it put in the run's counted sets, to take out again.
     pub(super) counted: Counts,
@@ -104,8 +128,11 @@ pub struct Placed {
 /// A child's entries in its run's counted sets.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Counts {
+    /// How far it reaches past its box along the run, in the run's `overhang`.
     overhang: Option<f64>,
+    /// Where its reach starts and ends across, in the run's `reach_across`.
     reach: Option<(f64, f64)>,
+    /// Where its cover starts and ends across, in the run's `cover_across`.
     cover: Option<(f64, f64)>,
 }
 
@@ -118,6 +145,8 @@ impl Placed {
         }
     }
 
+    /// A child of a run in the flow: `size` along it, `across` from the line's
+    /// start, its rounded top-left `delta` from its unrounded one.
     pub fn new(size: f64, across: f64, delta: Vec2) -> Placed {
         Placed {
             at: None,
@@ -137,7 +166,9 @@ impl Placed {
 /// how far they advance less the gaps, which are the run's.
 #[derive(Clone, Debug, Default)]
 pub struct Span {
+    /// How many children.
     pub n: usize,
+    /// The sum of their sizes along the run, gaps left out.
     pub length: f64,
 }
 
@@ -163,7 +194,9 @@ impl Item for Placed {
 /// A free run's child's entry in the run's R-tree: what it reaches.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct Boxed {
+    /// The child's key in the run.
     pub(super) key: OrderKey,
+    /// What it reaches, from the run's node's unrounded top-left.
     pub(super) bounds: KRect,
 }
 
@@ -182,9 +215,11 @@ impl rstar::RTreeObject for Boxed {
 pub struct Counted(BTreeMap<i64, usize>);
 
 impl Counted {
+    /// Counts `v` once more, to the millionth.
     pub(super) fn add(&mut self, v: f64) {
         *self.0.entry(key(v)).or_default() += 1;
     }
+    /// Counts `v` once less; a `v` not in the set is ignored.
     pub(super) fn remove(&mut self, v: f64) {
         let k = key(v);
         if let Some(n) = self.0.get_mut(&k) {
@@ -194,9 +229,11 @@ impl Counted {
             }
         }
     }
+    /// The least number in the set; `None` when it is empty.
     pub(super) fn least(&self) -> Option<f64> {
         self.0.keys().next().map(|k| *k as f64 / 1e6)
     }
+    /// The greatest number in the set; `None` when it is empty.
     pub(super) fn greatest(&self) -> Option<f64> {
         self.0.keys().next_back().map(|k| *k as f64 / 1e6)
     }
@@ -211,6 +248,7 @@ fn spans(row: bool, r: KRect) -> ((f64, f64), (f64, f64)) {
     }
 }
 
+/// The rectangle spanning `along` the run and `across` it: [`spans`] undone.
 fn rect(row: bool, along: (f64, f64), across: (f64, f64)) -> KRect {
     if row {
         KRect::new(along.0, across.0, along.1, across.1)
@@ -220,6 +258,7 @@ fn rect(row: bool, along: (f64, f64), across: (f64, f64)) -> KRect {
 }
 
 impl Run {
+    /// An empty run in `space`, along y, its node at the space's origin.
     pub fn new(space: Space) -> Run {
         Run {
             space,
@@ -246,17 +285,16 @@ impl Run {
         }
     }
 
+    /// How many children it has.
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
+    /// Whether it has no children.
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    /// Where the run places a child: its unrounded top-left in the run's
-    /// space, and its rounded one — each edge where taffy's pass puts it,
-    /// measured from the run's node, a box in the flow.
     /// Where a free run places a child at `at` from its node: its unrounded
     /// top-left and its rounded one, measured from the run's node, as taffy
     /// rounds a box placed in its parent.
@@ -275,6 +313,10 @@ impl Run {
         )
     }
 
+    /// Where the run places a child `before` along it and `across` from its line's
+    /// start: its unrounded top-left in the run's space, and its rounded one —
+    /// each edge where taffy's rounding pass puts it, measured from the run's
+    /// node, a box in the flow.
     pub fn place(&self, before: f64, across: f64) -> (Vec2, Vec2) {
         // In single precision, as taffy places a box and its rounding pass
         // rounds it: the child's place within the run, then the run's.

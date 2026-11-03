@@ -12,6 +12,7 @@ use parley::fontique::{Blob, Collection, CollectionOptions, FontStyle};
 pub struct FontId(pub [u8; 32]);
 
 impl FontId {
+    /// The identity of the font file of `bytes`.
     pub fn of(bytes: &[u8]) -> FontId {
         use sha2::Digest;
         FontId(sha2::Sha256::digest(bytes).into())
@@ -47,6 +48,7 @@ pub const MAX_FONT_BYTES: usize = 4 * 1024 * 1024;
 
 /// The family name of the embedded font, and its weights.
 pub const INTER: &str = "Inter";
+/// The weights the engine embeds Inter in.
 pub const INTER_WEIGHTS: [u16; 4] = [400, 500, 600, 700];
 
 /// The weights a text may ask for: 100 to 900 in steps of 100.
@@ -62,6 +64,8 @@ pub enum Weights {
 }
 
 impl Weights {
+    /// Whether a text of `weight` can be set in the file: its one weight, or a
+    /// weight on its axis.
     pub fn has(&self, weight: u16) -> bool {
         let w = weight as f32;
         match *self {
@@ -74,13 +78,18 @@ impl Weights {
 /// A font file, checked: its bytes, its family's name as its own tables give
 /// it, its weights, and whether it is upright.
 pub struct FontFile {
+    /// Its identity: the SHA-256 of its bytes.
     pub id: FontId,
+    /// Its bytes, as read.
     pub bytes: Arc<Vec<u8>>,
     /// The bytes as parley and both backends take them: one blob for the
     /// file's life, so every cache keyed by it keeps working.
     pub blob: Blob<u8>,
+    /// Its family's name, as its own tables give it.
     pub family: String,
+    /// The weights it has.
     pub weights: Weights,
+    /// Whether it is upright: neither italic nor oblique.
     pub upright: bool,
 }
 
@@ -181,7 +190,9 @@ impl FontFile {
 /// weight picks from.
 #[derive(Debug)]
 pub struct Family {
+    /// The family's name, as its files' own tables give it.
     pub name: String,
+    /// Its upright faces, at most one of each weight.
     pub faces: Vec<Arc<FontFile>>,
 }
 

@@ -20,7 +20,9 @@ pub const BAND_BYTES: usize = 16 << 20;
 /// straight RGBA pixels, `TILE` wide, row after row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Piece {
+    /// The whole tile at column `col`, tile row `row`.
     Tile { col: u32, row: u32 },
+    /// A strip of column `col`, `rows` tall from pixel row `y`.
     Strip { col: u32, y: u32, rows: u32 },
 }
 
@@ -65,7 +67,9 @@ pub fn write(list: &List, out: impl Write) -> Result<(), png::EncodingError> {
 /// or a piece couldn't be had.
 #[derive(Debug)]
 pub enum Band<E> {
+    /// The encoder or its writer failed.
     Encoding(png::EncodingError),
+    /// A piece couldn't be had.
     Tile(E),
 }
 

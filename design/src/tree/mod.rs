@@ -107,6 +107,7 @@ impl<T: PartialEq> PartialEq for Children<T> {
 }
 
 impl<T> Children<T> {
+    /// No children.
     pub fn new() -> Self {
         Children(BTreeMap::new())
     }
@@ -123,10 +124,12 @@ impl<T> Children<T> {
         )
     }
 
+    /// How many children there are.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Whether there are no children.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -136,6 +139,7 @@ impl<T> Children<T> {
         self.0.values()
     }
 
+    /// The children in order, to change.
     pub fn iter_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut T> + ExactSizeIterator {
         self.0.values_mut()
     }
@@ -145,10 +149,12 @@ impl<T> Children<T> {
         self.0.iter()
     }
 
+    /// The child under `key`.
     pub fn get(&self, key: &OrderKey) -> Option<&T> {
         self.0.get(key)
     }
 
+    /// The child under `key`, to change.
     pub fn get_mut(&mut self, key: &OrderKey) -> Option<&mut T> {
         self.0.get_mut(key)
     }
@@ -164,10 +170,12 @@ impl<T> Children<T> {
         self.0.values_mut().nth(at)
     }
 
+    /// The first child's key; `None` when there are no children.
     pub fn first_key(&self) -> Option<&OrderKey> {
         self.0.keys().next()
     }
 
+    /// The last child's key; `None` when there are no children.
     pub fn last_key(&self) -> Option<&OrderKey> {
         self.0.keys().next_back()
     }
@@ -210,10 +218,12 @@ impl<T> Children<T> {
         self.0.insert(key, t);
     }
 
+    /// Takes out the child under `key`, leaving every other child's key as it was.
     pub fn remove(&mut self, key: &OrderKey) -> Option<T> {
         self.0.remove(key)
     }
 
+    /// Takes out every child.
     pub fn clear(&mut self) {
         self.0.clear()
     }

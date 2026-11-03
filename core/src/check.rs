@@ -100,6 +100,9 @@ pub fn drawn_from(
     files.into_iter().collect()
 }
 
+/// Adds to `files` what [`drawn_from`] names for the deck at `deck`, and for
+/// each deck whose slide PNG it embeds; a deck already in `files` adds
+/// nothing.
 fn deck_drawn_from(
     deck: &Path,
     served: &ServedFolder,
@@ -215,6 +218,9 @@ fn follow(
     }
 }
 
+/// The problems of `document` and of every page and document its links reach
+/// inside the served folder, its external links collected in `external`; with
+/// `files`, every file the walk follows is recorded there.
 fn internal(
     folder: &Folder,
     designs: &Designs,
@@ -613,9 +619,6 @@ fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
         .collect()
 }
 
-/// The problems of a document's widgets folder, once per document rather than
-/// once per page: a file with a system widget's name, and every widget or
-/// helper that doesn't compile.
 /// The project widget files directly in `folder`, sorted.
 fn widget_files(folder: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
@@ -629,6 +632,9 @@ fn widget_files(folder: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// The problems of a document's widgets folder, once per document rather than
+/// once per page: a file with a system widget's name, and every widget or
+/// helper that doesn't compile.
 fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let mut problems: Vec<Problem> = widgets
         .problems
@@ -677,6 +683,7 @@ fn relative(text: &str, served: &Path) -> String {
 /// Where the preview tells someone about a problem it has just found: the
 /// terminal in `devpage`, a recorder in tests.
 pub trait Report: Send + Sync {
+    /// Tells someone about `problem`.
     fn problem(&self, problem: &Problem);
 }
 
@@ -684,7 +691,9 @@ pub trait Report: Send + Sync {
 /// One per devpage process, shared by every page — or, in server mode, one
 /// per version.
 pub struct Preview {
+    /// The checker that asks the pages' external addresses.
     external: Arc<External>,
+    /// Where each problem is told the first time it is found.
     report: Arc<dyn Report>,
     /// Every problem reported so far: each is reported once.
     reported: Mutex<HashSet<Problem>>,

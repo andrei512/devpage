@@ -9,33 +9,47 @@ use std::cmp::Ordering;
 /// What a stretch of items adds up to: `then` is the stretch followed by
 /// `next`, and `Default` is the empty stretch.
 pub trait Summary: Clone + Default {
+    /// The summary of this stretch followed by `next`.
     fn then(&self, next: &Self) -> Self;
 }
 
 /// An item of a [`Sums`] and what it adds up to by itself.
 pub trait Item {
     type Sum: Summary;
+    /// What the item adds up to by itself.
     fn summary(&self) -> Self::Sum;
 }
 
+/// A node's index in the arena; `None` for an empty subtree.
 type Link = Option<u32>;
 
+/// One item of the treap, and the summary and size of the subtree it roots.
 struct Node<K, V: Item> {
+    /// The item's key, which orders the tree.
     key: K,
+    /// The item.
     value: V,
+    /// The node's heap priority: a parent's is greater than its children's.
     priority: u64,
+    /// The subtree of keys before this one.
     left: Link,
+    /// The subtree of keys after this one.
     right: Link,
     /// The summary of this subtree, in key order.
     sum: V::Sum,
+    /// How many items this subtree holds.
     count: usize,
 }
 
 /// Items by key, each prefix's summary in log time.
 pub struct Sums<K, V: Item> {
+    /// The arena every node lives in, by index; `None` at a freed slot.
     nodes: Vec<Option<Node<K, V>>>,
+    /// The freed slots of `nodes`, reused before the arena grows.
     free: Vec<u32>,
+    /// The root of the tree; `None` when it holds no items.
     root: Link,
+    /// The state of the generator that draws each new node's priority.
     seed: u64,
 }
 
@@ -46,6 +60,7 @@ impl<K: Ord + Clone, V: Item> Default for Sums<K, V> {
 }
 
 impl<K: Ord + Clone, V: Item> Sums<K, V> {
+    /// No items.
     pub fn new() -> Self {
         Sums {
             nodes: Vec::new(),
@@ -55,10 +70,12 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         }
     }
 
+    /// How many items there are.
     pub fn len(&self) -> usize {
         self.root.map_or(0, |r| self.node(r).count)
     }
 
+    /// Whether there are no items.
     pub fn is_empty(&self) -> bool {
         self.root.is_none()
     }
@@ -68,6 +85,7 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         self.sum(self.root)
     }
 
+    /// The item at `key`; `None` when there is none.
     pub fn get(&self, key: &K) -> Option<&V> {
         let mut at = self.root;
         while let Some(i) = at {
@@ -188,22 +206,27 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         Back { sums: self, stack }
     }
 
+    /// The live node at index `i`.
     fn node(&self, i: u32) -> &Node<K, V> {
         self.nodes[i as usize].as_ref().expect("a live node")
     }
 
+    /// The live node at index `i`, to change.
     fn node_mut(&mut self, i: u32) -> &mut Node<K, V> {
         self.nodes[i as usize].as_mut().expect("a live node")
     }
 
+    /// The summary of the subtree at `at`; the empty summary when there is none.
     fn sum(&self, at: Link) -> V::Sum {
         at.map_or_else(V::Sum::default, |i| self.node(i).sum.clone())
     }
 
+    /// How many items the subtree at `at` holds.
     fn count(&self, at: Link) -> usize {
         at.map_or(0, |i| self.node(i).count)
     }
 
+    /// A fresh pseudo-random priority for a new node.
     fn next_priority(&mut self) -> u64 {
         // xorshift64*: priorities need only be unpredictable to the keys.
         self.seed ^= self.seed >> 12;
@@ -212,6 +235,7 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         self.seed.wrapping_mul(0x2545_f491_4f6c_dd1d)
     }
 
+    /// Stores `node` in a freed slot, or a new one; returns its index.
     fn alloc(&mut self, node: Node<K, V>) -> u32 {
         match self.free.pop() {
             Some(i) => {
@@ -225,6 +249,7 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
         }
     }
 
+    /// Recomputes the summary and size of node `i` from its children's.
     fn fix(&mut self, i: u32) {
         let (l, r) = {
             let n = self.node(i);
@@ -290,8 +315,11 @@ impl<K: Ord + Clone, V: Item> Sums<K, V> {
     }
 }
 
+/// An iterator over the items of a [`Sums`] in key order.
 struct Walk<'a, K, V: Item> {
+    /// The items walked.
     sums: &'a Sums<K, V>,
+    /// The nodes still to yield, the next on top, each before its right subtree.
     stack: Vec<u32>,
 }
 
@@ -309,8 +337,11 @@ impl<'a, K: Ord + Clone, V: Item> Iterator for Walk<'a, K, V> {
     }
 }
 
+/// An iterator over the items of a [`Sums`], last first.
 struct Back<'a, K, V: Item> {
+    /// The items walked.
     sums: &'a Sums<K, V>,
+    /// The nodes still to yield, the next on top, each before its left subtree.
     stack: Vec<u32>,
 }
 

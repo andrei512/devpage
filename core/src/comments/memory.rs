@@ -11,18 +11,23 @@ use super::{Anchor, Listed, Message, Store, Thread, new_id};
 
 /// A kept thread: its page, the thread, and whether it is detached.
 struct Kept {
+    /// The key of the page the thread is on.
     page: String,
+    /// The thread itself, with its anchor and messages.
     thread: Thread,
+    /// Whether the thread lost its text to a publish.
     detached: bool,
 }
 
 /// Threads by id — so they list oldest first.
 #[derive(Default)]
 pub struct Memory {
+    /// Every thread, by id.
     threads: Mutex<BTreeMap<String, Kept>>,
 }
 
 impl Memory {
+    /// The threads, locked — even after a panic poisoned the lock.
     fn threads(&self) -> MutexGuard<'_, BTreeMap<String, Kept>> {
         self.threads.lock().unwrap_or_else(|p| p.into_inner())
     }
@@ -35,6 +40,7 @@ impl Memory {
     }
 }
 
+/// Thread `id` as a page receives it.
 fn listed(id: &str, kept: &Kept) -> Listed {
     Listed {
         id: id.into(),

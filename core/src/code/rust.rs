@@ -12,7 +12,9 @@ use super::{Member, Target, Targets};
 
 /// One file of a crate, with what it declares.
 pub struct Unit<'a> {
+    /// The file's path.
     pub file: &'a Path,
+    /// The declarations extraction found in it.
     pub extracted: &'a Extracted,
 }
 
@@ -326,6 +328,8 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Targets {
     Targets { targets, aliases }
 }
 
+/// A declaration as a member of its target: `kind` names what it is, `public`
+/// whether it is reachable.
 fn member(declaration: &Declaration, kind: &str, file: &Path, public: bool) -> Member {
     Member {
         name: declaration.name.clone(),
@@ -379,6 +383,8 @@ fn use_paths(written: &str) -> Vec<(Vec<String>, String)> {
     out
 }
 
+/// Adds to `out` the paths one `use` tree names under `prefix`, each with its
+/// alias: a `{…}` group is expanded part by part, at its own depth.
 fn expand(written: &str, prefix: &[String], out: &mut Vec<(Vec<String>, String)>) {
     let written = written.trim();
     if let Some(open) = written.find('{') {

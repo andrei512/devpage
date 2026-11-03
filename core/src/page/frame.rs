@@ -408,6 +408,8 @@ pub(super) fn chapter_names(chapters: &[PathBuf], served: &ServedFolder) -> Vec<
         .collect()
 }
 
+/// `chapter`'s name among `names`, as [`chapter_names`] made them; empty when
+/// it is not one of them.
 fn chapter_name(chapter: &Path, names: &[(PathBuf, String)], served: &ServedFolder) -> String {
     let canonical = served
         .inside(chapter)
@@ -638,6 +640,7 @@ fn headings(html: &str) -> Vec<(u8, String, String)> {
     found
 }
 
+/// `html`'s text with every tag left out, trimmed; entities stay as written.
 fn strip_tags(html: &str) -> String {
     let mut text = String::new();
     let mut in_tag = false;

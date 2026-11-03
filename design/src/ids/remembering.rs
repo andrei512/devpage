@@ -17,6 +17,7 @@ use crate::scene::{Files, ImageFile};
 pub struct Parses(Arc<Mutex<HashMap<String, Arc<File>>>>);
 
 impl Parses {
+    /// The parses, locked, even after a panic poisoned the lock.
     fn lock(&self) -> MutexGuard<'_, HashMap<String, Arc<File>>> {
         self.0
             .lock()
@@ -37,7 +38,9 @@ impl Parses {
 /// `files`, with each design file parsed matched against its last parse in
 /// [`Parses`] — and remembered there as its last.
 pub struct Remembering<F> {
+    /// The files read through.
     pub files: F,
+    /// Where each design file's last parse is remembered.
     parses: Parses,
 }
 

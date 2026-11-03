@@ -4,6 +4,8 @@
 use devpage_core::check::Report;
 use devpage_core::problem::Problem;
 
+/// The preview's reporter: each problem it is told of printed on standard
+/// error.
 pub struct Terminal;
 
 impl Report for Terminal {

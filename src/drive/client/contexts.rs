@@ -13,8 +13,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Config {
+    /// The context commands use when none is chosen; `None` until `devpage
+    /// context use` sets one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub current_context: Option<String>,
+    /// Every context, by name.
     #[serde(default)]
     pub contexts: BTreeMap<String, Context>,
 }
@@ -23,7 +26,10 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub struct Context {
+    /// The server's base URL.
     pub server: String,
+    /// A shell command that prints a bearer token for the proxy; `None` when
+    /// the server needs none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_command: Option<String>,
 }
@@ -40,10 +46,12 @@ impl Home {
         Ok(Home(home.join(".devpage")))
     }
 
+    /// `~/.devpage/config.yml`.
     fn config_file(&self) -> PathBuf {
         self.0.join("config.yml")
     }
 
+    /// `~/.devpage/contexts/<context>/published.yml`.
     fn published_file(&self, context: &str) -> PathBuf {
         self.0.join("contexts").join(context).join("published.yml")
     }
@@ -53,6 +61,8 @@ impl Home {
         read_yaml(&self.config_file())
     }
 
+    /// Writes `config` to `~/.devpage/config.yml`, making the folder if it is
+    /// missing.
     pub fn save_config(&self, config: &Config) -> Result<()> {
         write_yaml(&self.config_file(), config)
     }
@@ -63,6 +73,7 @@ impl Home {
         read_yaml(&self.published_file(name))
     }
 
+    /// Writes which document each published file is on the context `name`.
     pub fn save_published(&self, name: &str, published: &BTreeMap<PathBuf, String>) -> Result<()> {
         write_yaml(&self.published_file(name), published)
     }
@@ -125,6 +136,7 @@ impl Context {
     }
 }
 
+/// The YAML in `file`; the default when it is missing or empty.
 fn read_yaml<T: Default + for<'de> Deserialize<'de>>(file: &Path) -> Result<T> {
     match std::fs::read_to_string(file) {
         Ok(text) if text.trim().is_empty() => Ok(T::default()),
@@ -136,6 +148,7 @@ fn read_yaml<T: Default + for<'de> Deserialize<'de>>(file: &Path) -> Result<T> {
     }
 }
 
+/// Writes `value` to `file` as YAML, making its folder if it is missing.
 fn write_yaml<T: Serialize>(file: &Path, value: &T) -> Result<()> {
     if let Some(parent) = file.parent() {
         std::fs::create_dir_all(parent)

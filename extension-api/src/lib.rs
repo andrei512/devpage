@@ -1,22 +1,42 @@
 //! In-process extension ABI. Returned buffers are released by their producer.
 pub use serde_json;
+/// The ABI version this crate speaks; a package's manifest and its table must
+/// both name it.
 pub const API: u32 = 1;
+/// Bytes handed across the boundary, laid out as the `Vec<u8>` they came from
+/// so their producer can release them.
 #[repr(C)]
 pub struct Buffer {
+    /// The first byte; null when nothing was returned.
     pub ptr: *mut u8,
+    /// The number of bytes.
     pub len: usize,
+    /// The capacity of the producer's allocation, needed to free it.
     pub capacity: usize,
 }
+/// What an extension library exports from `devpage_extension_v1`: its ABI
+/// version and the two functions devpage calls.
 #[repr(C)]
 pub struct VTable {
+    /// The [`API`] the library was built against.
     pub version: u32,
+    /// The table's size in bytes, so a layout mismatch is caught before any
+    /// call.
     pub size: usize,
+    /// Answers a JSON request, given as bytes, with a JSON reply `{"ok": true,
+    /// "value": …}` or `{"ok": false, "error": …}`.
     pub invoke: unsafe extern "C" fn(*const u8, usize) -> Buffer,
+    /// Frees a [`Buffer`] that `invoke` returned.
     pub release: unsafe extern "C" fn(Buffer),
 }
+/// A native extension: one instance per library, created on its first request.
 pub trait Extension: Default {
+    /// The answer to a JSON `request`, or an error message for devpage to
+    /// report.
     fn invoke(&mut self, request: serde_json::Value) -> Result<serde_json::Value, String>;
 }
+/// Exports `$kind`, an [`Extension`], as the library's [`VTable`], catching
+/// panics and turning them into errors.
 #[macro_export]
 macro_rules! export_extension {
  ($kind:ty) => {

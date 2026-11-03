@@ -182,14 +182,19 @@ pub fn member(
 /// What a member is, as a Topics group of its type's page.
 #[derive(Clone, Copy, PartialEq)]
 enum Group {
+    /// A field of a struct.
     Field,
+    /// A variant of an enum.
     Variant,
     /// A function of the type that takes no `self`.
     Function,
+    /// A function of the type that takes `self`.
     Method,
 }
 
 impl Group {
+    /// A member's kind as its page names it, before "of" and its type:
+    /// `"Associated Function"`.
     fn label(self) -> &'static str {
         match self {
             Group::Field => "Field",
@@ -200,6 +205,7 @@ impl Group {
     }
 }
 
+/// The group `member` is listed under on its type's page.
 fn group_of(member: &Member) -> Group {
     match member.kind.as_str() {
         "field" => Group::Field,
@@ -382,6 +388,8 @@ fn split_doc(doc: &str) -> (String, String) {
     (summary.join("\n"), rest.join("\n").trim().to_string())
 }
 
+/// How an item's `kind` is named on its page: `"struct"` is `"Structure"`; a
+/// kind not known is shown as it is.
 fn kind_label(kind: &str) -> &str {
     match kind {
         "module" => "Module",
@@ -398,6 +406,7 @@ fn kind_label(kind: &str) -> &str {
     }
 }
 
+/// `name` with its first letter in upper case.
 pub(super) fn title_case(name: &str) -> String {
     let mut chars = name.chars();
     chars
@@ -412,6 +421,7 @@ fn fence(code: &str) -> String {
     format!("{ticks}rust\n{code}\n{ticks}\n\n")
 }
 
+/// The length of the longest run of `c` in `text`.
 fn longest_run(text: &str, c: char) -> usize {
     let mut longest = 0;
     let mut run = 0;

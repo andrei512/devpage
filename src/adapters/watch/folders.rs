@@ -14,6 +14,7 @@ use super::{Handler, WatchSet};
 
 /// The platform's watcher over a watch set. Stops when dropped.
 pub struct Platform {
+    /// `notify`'s platform watcher, one non-recursive watch per folder.
     watcher: RecommendedWatcher,
     /// Every folder watched now: the shallow ones and every folder of the
     /// deep ones, less any deleted or renamed since its watch was added — a
@@ -23,6 +24,7 @@ pub struct Platform {
 }
 
 impl Platform {
+    /// A watcher that hands `handler` every event and watches no folder yet.
     pub fn new(_served: &Path, handler: Handler) -> Result<Self> {
         let folders = Arc::new(Mutex::new(BTreeSet::new()));
         let watched = folders.clone();
@@ -143,6 +145,7 @@ fn lost(folders: &Mutex<BTreeSet<PathBuf>>, event: &notify::Event) {
     }
 }
 
+/// `folders`, locked, even after a panic poisoned the lock.
 fn lock(folders: &Mutex<BTreeSet<PathBuf>>) -> MutexGuard<'_, BTreeSet<PathBuf>> {
     folders
         .lock()

@@ -14,6 +14,7 @@ use crate::folder::Folder;
 /// A widget module, compiled, as a request for it is answered.
 #[derive(Debug, PartialEq)]
 pub struct Compiled {
+    /// The module as JavaScript.
     pub js: String,
     /// Asked for at its current address: what answers it never changes.
     pub current: bool,
