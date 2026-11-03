@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
 
 use comrak::adapters::SyntaxHighlighterAdapter;
 use syntect::html::{ClassStyle, ClassedHTMLGenerator};
@@ -23,6 +23,45 @@ static SYNTAXES: LazyLock<SyntaxSet> = LazyLock::new(two_face::syntax::extra_new
 
 const MERMAID: &str = "mermaid";
 
+thread_local! {
+    static CUSTOM: std::cell::RefCell<Option<Arc<SyntaxSet>>> = const { std::cell::RefCell::new(None) };
+}
+pub fn with_grammars<T>(grammars: &[String], render: impl FnOnce() -> T) -> T {
+    if grammars.is_empty() {
+        return render();
+    }
+    static REGISTERED: LazyLock<Mutex<std::collections::BTreeMap<Vec<String>, Arc<SyntaxSet>>>> =
+        LazyLock::new(Default::default);
+    let mut cache = REGISTERED.lock().unwrap();
+    let syntaxes = cache
+        .entry(grammars.to_vec())
+        .or_insert_with(|| {
+            let mut builder = SYNTAXES.clone().into_builder();
+            for grammar in grammars {
+                if let Ok(syntax) =
+                    syntect::parsing::SyntaxDefinition::load_from_str(grammar, true, None)
+                {
+                    builder.add(syntax);
+                }
+            }
+            Arc::new(builder.build())
+        })
+        .clone();
+    drop(cache);
+    struct Restore(Option<Arc<SyntaxSet>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CUSTOM.with(|c| {
+                c.replace(self.0.take());
+            });
+        }
+    }
+    let _restore = Restore(CUSTOM.with(|c| c.replace(Some(syntaxes))));
+    render()
+}
+pub(crate) fn builtin_language(token: &str) -> bool {
+    SYNTAXES.find_syntax_by_token(token).is_some()
+}
 pub struct Highlighter;
 
 /// `code` highlighted as `lang`, as the HTML that goes inside a `<code>`.
@@ -42,28 +81,32 @@ impl SyntaxHighlighterAdapter for Highlighter {
         let lang = lang
             .and_then(|info| info.split_whitespace().next())
             .unwrap_or("");
-        match SYNTAXES
-            .find_syntax_by_token(lang)
-            .filter(|_| lang != MERMAID)
-        {
-            Some(syntax) => {
-                let mut html = ClassedHTMLGenerator::new_with_class_style(
-                    syntax,
-                    &SYNTAXES,
-                    ClassStyle::SpacedPrefixed { prefix: "hl-" },
-                );
-                for line in LinesWithEndings::from(code) {
-                    if html
-                        .parse_html_for_line_which_includes_newline(line)
-                        .is_err()
-                    {
-                        return output.write_str(&escape(code));
+        CUSTOM.with(|custom| {
+            let custom = custom.borrow();
+            let syntaxes = custom.as_deref().unwrap_or(&SYNTAXES);
+            match syntaxes
+                .find_syntax_by_token(lang)
+                .filter(|_| lang != MERMAID)
+            {
+                Some(syntax) => {
+                    let mut html = ClassedHTMLGenerator::new_with_class_style(
+                        syntax,
+                        syntaxes,
+                        ClassStyle::SpacedPrefixed { prefix: "hl-" },
+                    );
+                    for line in LinesWithEndings::from(code) {
+                        if html
+                            .parse_html_for_line_which_includes_newline(line)
+                            .is_err()
+                        {
+                            return output.write_str(&escape(code));
+                        }
                     }
+                    output.write_str(&html.finalize())
                 }
-                output.write_str(&html.finalize())
+                None => output.write_str(&escape(code)),
             }
-            None => output.write_str(&escape(code)),
-        }
+        })
     }
 
     /// Only Mermaid blocks keep their language, so `diagrams` can find them; other

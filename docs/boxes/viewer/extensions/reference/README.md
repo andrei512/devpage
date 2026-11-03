@@ -2,6 +2,8 @@
 
 This page specifies the local native extension package and the operations devpage exposes to it. It is the contract reference for [extensions](../README.md); the [local test](../local-test/README.md) exercises each capability with a consumer.
 
+The [local runtime protocol](runtime.md) describes the implemented adapter and its limits. This reference defines the broader package contract.
+
 ## Configuration
 
 `extensions` is an optional mapping on site, doc, and slides configurations. Each key is a package ID. Its value has exactly `package`, a path to a local bundle, and `config`, the extension-specific mapping (empty by default). Unknown host fields fail like other unknown document fields. Extension configuration errors retain the YAML path, instance ID, and the extension's explanation.

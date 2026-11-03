@@ -112,6 +112,7 @@ fn watch_roots(folder: &Folder) -> Vec<PathBuf> {
     for site in folder.sites() {
         roots.extend_from_slice(site.watch_roots());
     }
+    roots.extend(crate::extensions::input_roots(folder.served()));
     roots
 }
 
@@ -134,7 +135,11 @@ impl Folder {
         {
             return false;
         }
-        !self.ignored(path, is_dir) || self.named_by_watch(path)
+        crate::extensions::input_roots(self.served())
+            .iter()
+            .any(|r| path.starts_with(r) || r.starts_with(path))
+            || !self.ignored(path, is_dir)
+            || self.named_by_watch(path)
     }
 
     /// Whether a change to `path`, which is in sight, refreshes open pages.

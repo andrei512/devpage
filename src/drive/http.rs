@@ -436,6 +436,15 @@ async fn project_widget(
 async fn respond(state: &AppState, headers: &HeaderMap, answer: Answer) -> Response {
     match answer {
         Answer::Html(html) => Html(html).into_response(),
+        Answer::Extension { body, mime, status } => (
+            StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR),
+            [
+                (header::CONTENT_TYPE, mime),
+                (header::CACHE_CONTROL, "no-store".into()),
+            ],
+            body,
+        )
+            .into_response(),
         Answer::Module { js, immutable } => javascript(js, immutable),
         // A module that throws is never kept: the next request may compile.
         Answer::ModuleError(js) => javascript(js, false),

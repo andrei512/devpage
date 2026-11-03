@@ -42,3 +42,26 @@ Keep comments on authored paragraphs attached after content additions. Check tha
 ## Prototype result
 
 The spike reports which host contracts actually moved, where the native SDK or rendering seams were costly, contradictions found, and the cases still untested. It records commands and observations; it does not turn this acceptance list into a claim that the integration already works. Implementation tickets follow that measured result.
+
+## Run the local implementation
+
+In this checkout:
+
+```sh
+cargo test -p devpage-core extensions::tests
+cargo test -p devpage-extension-api
+cargo build --bin devpage
+```
+
+The core fixture uses a toy language to exercise capture, highlighting, content additions, embeds, target lookup, watch inputs, failed preparation, and recovery. The SDK test exercises native buffers, errors, and caught panics.
+
+From the sibling egraph checkout:
+
+```sh
+./scripts/build-devpage-extension.sh
+../devpage/target/debug/devpage . --port 3040
+```
+
+When building devpage with a different target directory, use its actual binary path. Visit `/docs/language/types.md` for highlighting, `/docs/modeling.md` for an SVG embed, and `/system/project.eg#root` for the viewer. Saving a model source must update the embed through the host watcher. The [runtime protocol](../reference/runtime.md) lists the supported subset of the broader acceptance contract.
+
+The egraph frontend uses the same React viewer in standalone and devpage hosts. In egraph, install its frontend dependencies once with `npm ci --prefix web`, then use `npm run --prefix web test:browser` while both local servers run. These checks cover host React mounting, canvas size during selection, authored drill-down, trackpad pan/pinch behavior, embedded SVG, article layout, and fragment navigation.

@@ -25,6 +25,9 @@ pub struct Bundle {
 /// folder, unless it links to a file beside it.
 pub fn pack(folder: &Folder, designs: &Designs) -> Result<Bundle> {
     let document = folder.entry();
+    if !devpage_core::extensions::for_document(&document.path()).is_empty() {
+        bail!("Publishing native extensions is not supported; serve this project locally");
+    }
     let files = check::files(folder, designs);
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {

@@ -30,6 +30,8 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
     Doc {
         title: String,
@@ -40,6 +42,8 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
     Slides {
         title: String,
@@ -52,6 +56,8 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
 }
 
@@ -246,6 +252,7 @@ pub enum KindName {
 /// A loaded document: its title, its folder, what it is, and where it is served.
 #[derive(Debug)]
 pub struct Document {
+    pub extensions: Vec<crate::extensions::Binding>,
     pub title: String,
     pub base: PathBuf,
     pub kind: Kind,
@@ -309,6 +316,7 @@ impl Document {
             .into_owned();
         if file.extension().is_some_and(|ext| ext == "design") {
             return Ok(Self {
+                extensions: Vec::new(),
                 served: served.clone(),
                 title: file
                     .file_stem()
@@ -329,6 +337,7 @@ impl Document {
         }
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
+                extensions: Vec::new(),
                 served: served.clone(),
                 title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
@@ -368,6 +377,7 @@ impl Document {
         let mut show_sidebar = true;
         let show_selector;
         let logo_path;
+        let extension_configs;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
@@ -378,7 +388,9 @@ impl Document {
                 sidebar,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -410,7 +422,9 @@ impl Document {
                 widgets,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -433,7 +447,9 @@ impl Document {
                 widgets,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -460,7 +476,9 @@ impl Document {
             },
             None => None,
         };
+        crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
         Ok(Self {
+            extensions: crate::extensions::for_document(&base.join(&file_name)),
             title,
             base,
             kind,

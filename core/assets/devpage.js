@@ -359,7 +359,7 @@ const seeded = print ? Promise.resolve() : fetch(location.href, { cache: "only-i
 // engine's wasm — here, so they download together before mounting asks for
 // them. A link this page has already is not added twice.
 function adoptPreloads(next) {
-  for (const link of next.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"]')) {
+  for (const link of next.head.querySelectorAll('link[rel="modulepreload"], link[rel="preload"], link[rel="stylesheet"]')) {
     const href = link.getAttribute("href");
     const known = [...document.head.querySelectorAll(`link[rel="${link.rel}"]`)].some((have) => have.getAttribute("href") === href);
     if (!known) document.head.append(document.importNode(link, true));
@@ -1167,8 +1167,8 @@ document.addEventListener("keydown", (event) => {
   else return;
   event.preventDefault();
 });
-window.addEventListener("hashchange", showSlide);
-window.addEventListener("resize", showSlide);
+window.addEventListener("hashchange", () => showSlide());
+window.addEventListener("resize", () => showSlide());
 
 // A doc's outline follows the reader: the section in view is marked current.
 function followOutline() {

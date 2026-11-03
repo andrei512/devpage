@@ -20,7 +20,8 @@ RUN test -n "$DEVPAGE_VERSION" \
 # install` reads from the repository, given as the build context `source`.
 FROM rust:1.98.1-slim-bookworm AS checkout
 WORKDIR /src
-COPY --from=source Cargo.toml Cargo.lock ./
+COPY --from=source Cargo.toml Cargo.lock build.rs ./
+COPY --from=source extension-api extension-api
 COPY --from=source src src
 COPY --from=source core core
 COPY --from=source design design

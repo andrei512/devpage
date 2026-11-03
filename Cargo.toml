@@ -13,6 +13,8 @@ categories = ["command-line-utilities", "development-tools"]
 exclude = ["deploy/", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
+devpage-extension-api = { path = "extension-api" }
+libloading = "0.8"
 anyhow = "1.0.104"
 async-tungstenite = { version = "0.32.1", features = ["tokio-runtime", "tokio-rustls-native-certs"] }
 base64 = "0.22.1"
@@ -82,7 +84,7 @@ codegen-units = 1
 strip = true
 
 [workspace]
-members = [".", "core", "design", "design/wasm", "design/module", "bench"]
+members = ["extension-api", ".", "core", "design", "design/wasm", "design/module", "bench"]
 default-members = [".", "core", "design", "design/wasm", "design/module", "bench"]
 
 # The core's build.rs compresses the built-in assets with brotli at its best, which is

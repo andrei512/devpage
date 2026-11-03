@@ -12,3 +12,5 @@ pub mod git;
 pub mod sqlite;
 pub mod terminal;
 pub mod watch;
+
+pub mod extensions;

@@ -435,6 +435,20 @@ fn page_links_with(
             target: Some(target.clone()),
         };
         if !fragment.is_empty()
+            && let Some(binding) = crate::extensions::for_file(&resolved, folder)
+                .iter()
+                .find(|b| b.owns(&resolved))
+        {
+            match binding.ids(&resolved) {
+                Ok(ids) if ids.iter().any(|id| id == fragment) => {}
+                Ok(_) => problems.push(no_heading()),
+                Err(error) => problems.push(Problem {
+                    message: format!("extension target {target}: {error:#}"),
+                    ..no_heading()
+                }),
+            }
+        }
+        if !fragment.is_empty()
             && resolved.extension().is_some_and(|ext| ext == "md")
             && fragment.parse::<usize>().is_err()
             && !if path.is_empty() {

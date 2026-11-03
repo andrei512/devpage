@@ -21,6 +21,11 @@ pub enum Answer {
     /// A rendered page: a document, a page of one, or a design's canvas
     /// page.
     Html(String),
+    Extension {
+        body: String,
+        mime: String,
+        status: u16,
+    },
     /// Elsewhere: an address, mount prefix included.
     Redirect(String),
     /// A file of the served folder, sent as it is.
@@ -103,6 +108,16 @@ impl<'a> Answers<'a> {
     /// `<deck>/<n>.png` name PNGs, unless a real file of that name is there;
     /// anything else in the served folder is sent as it is.
     pub fn path(&self, path: &str, query: Option<&str>) -> Answer {
+        if let Some(reply) = crate::extensions::route(path, self.folder.served()) {
+            return match reply {
+                Ok(value) => Answer::Extension {
+                    body: value["body"].as_str().unwrap_or_default().into(),
+                    mime: value["mime"].as_str().unwrap_or("text/plain").into(),
+                    status: value["status"].as_u64().unwrap_or(200) as u16,
+                },
+                Err(error) => Answer::Failed(format!("{error:#}")),
+            };
+        }
         let pairs = || query.into_iter().flat_map(|query| query.split('&'));
         let print = pairs().any(|pair| pair == "print");
         // A design's theme, as `?theme=` names it.
@@ -165,6 +180,34 @@ impl<'a> Answers<'a> {
                     .map_or_else(outside, Answer::Html),
             };
         }
+        if let Some(binding) = crate::extensions::for_file(&file, self.folder)
+            .iter()
+            .find(|b| b.owns(&file))
+        {
+            return match binding.view(&file) {
+                Ok(view) if view["layout"] == "workspace" => {
+                    let document = self
+                        .folder
+                        .owner(&file)
+                        .and_then(|o| o.document.ok())
+                        .map(std::sync::Arc::new)
+                        .unwrap_or_else(|| self.folder.entry());
+                    let widgets = Widgets::of(&document, self.modules);
+                    Answer::Html(page::workspace(
+                        &document,
+                        &widgets,
+                        &file,
+                        view["title"].as_str().unwrap_or("Workspace"),
+                        view["content"].as_str().unwrap_or_default(),
+                        self.comments,
+                    ))
+                }
+                Ok(_) => {
+                    Answer::Failed("Extension file views must use the host workspace layout".into())
+                }
+                Err(e) => Answer::Failed(format!("{e:#}")),
+            };
+        }
         if file.extension().is_none_or(|ext| ext != "md") {
             return Answer::File(file);
         }
@@ -199,6 +242,7 @@ impl<'a> Answers<'a> {
                     }) = owner
                     {
                         doc.widgets = site.widgets;
+                        doc.extensions = site.extensions;
                     }
                     self.show(&doc, print)
                 }

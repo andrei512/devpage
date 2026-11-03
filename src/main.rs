@@ -154,6 +154,7 @@ const FAILED: u8 = 2;
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    adapters::extensions::install();
     let cli = Cli::parse();
     let json = cli.command.as_ref().is_some_and(Command::json);
     match run(cli).await {

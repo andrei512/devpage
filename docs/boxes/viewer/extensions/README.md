@@ -29,6 +29,8 @@ A model extension can provide all three experiences from the same captured state
 - An embedded diagram selected through an ordinary Markdown image reference, such as `![System](../system/project.eg#root)` from a page under `docs/`.
 - A full viewer at the source file's URL, such as `/system/project.eg#root`.
 
+The full viewer uses a devpage workspace page, with theme handling and the package’s own toolbar around its React widget. Packages register modules with the ordinary widget compiler and runtime instead of supplying a separate HTML application.
+
 The `.eg` code-fence language highlights source; it does not turn every source example into a diagram. Image references ask for an embed. Links ask for the file view. This follows the existing distinction between source and embedded `.design` views without adding another capitalized widget namespace.
 
 The host's extension points are source inputs, content contributions, file views, namespaced read-only routes, language definitions, and reference resolution. Browser assets and print behavior travel with the contributions that need them. The [reference](reference/README.md) defines the contracts; the [local test](local-test/README.md) supplies their first consumer and acceptance path.

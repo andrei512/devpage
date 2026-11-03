@@ -121,6 +121,11 @@ impl Listeners {
             slide_pngs.changed(&files);
         }
         heard.extend(folder.changes);
+        if crate::extensions::changed(self.folder.served(), &files)
+            && !heard.contains(&crate::changes::Change::Refresh)
+        {
+            heard.push(crate::changes::Change::Refresh);
+        }
         for change in heard {
             self.changes.publish(change);
         }

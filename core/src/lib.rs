@@ -16,6 +16,7 @@ pub mod comments;
 pub mod designs;
 pub mod diagrams;
 pub mod document;
+pub mod extensions;
 pub mod external;
 pub mod folder;
 pub mod page;

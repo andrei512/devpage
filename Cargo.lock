@@ -937,10 +937,12 @@ dependencies = [
  "clap",
  "devpage-core",
  "devpage-design",
+ "devpage-extension-api",
  "dispatch2",
  "flate2",
  "futures",
  "libc",
+ "libloading",
  "mime_guess",
  "notify",
  "objc2-core-foundation",
@@ -1044,6 +1046,13 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "devpage-extension-api"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
 ]
 
 [[package]]

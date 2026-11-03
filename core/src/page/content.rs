@@ -95,10 +95,43 @@ impl Rendered {
 pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     let _render = tracing::info_span!("render").entered();
     let mut tags = Vec::new();
-    let expanded = crate::widgets::expand(&source, widgets.names(), &mut tags);
-    let html = markdown(&expanded);
+
+    let extensions: Vec<_> = widgets.extensions.iter().map(|b| b.snapshot()).collect();
+    let mut augmented = source.clone();
+    for binding in &extensions {
+        match binding.transform(file, &augmented) {
+            Ok(text) => augmented = text,
+            Err(error) => tags.push(format!("Extension: {error:#}")),
+        }
+    }
+    let expanded = crate::widgets::expand(&augmented, widgets.names(), &mut tags);
+    let grammars: Vec<_> = extensions.iter().filter_map(|b| b.grammar()).collect();
+    let mut extension_embeds = Vec::new();
+    let mut html = crate::highlight::with_grammars(&grammars, || markdown(&expanded));
+    for (identity, target) in crate::html::values(&html, "src").into_iter().enumerate() {
+        let path = target.split('#').next().unwrap_or(&target);
+        if let Some(binding) = extensions.iter().find(|b| b.owns(Path::new(path))) {
+            extension_embeds.push(target.clone());
+            match binding.embed(file, &target, "", identity) {
+                Ok(embed) => {
+                    let needle = format!("src=\"{}\"", crate::html::escape(&target));
+                    while let Some(at) = html.find(&needle) {
+                        let Some(start) = html[..at].rfind("<img ") else {
+                            break;
+                        };
+                        let Some(end) = html[at..].find('>') else {
+                            break;
+                        };
+                        html.replace_range(start..at + end + 1, &embed);
+                    }
+                }
+                Err(error) => tags.push(format!("Extension embed: {error:#}")),
+            }
+        }
+    }
     let mut targets = html::values(&html, "href");
     let mut embeds = html::values(&html, "src");
+    embeds.extend(extension_embeds);
     targets.extend(embeds.iter().cloned());
     // A design embedded with `![…](x.design)`, read from the Markdown itself,
     // whatever HTML the page renders it as.

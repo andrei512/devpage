@@ -124,6 +124,32 @@ pub fn page(
     ))
 }
 
+/// A package workspace uses the ordinary site frame and React lifecycle, with
+/// the available content area allocated to the tool instead of an article.
+pub fn workspace(
+    document: &Document,
+    widgets: &Widgets,
+    _file: &Path,
+    title: &str,
+    content: &str,
+    comments: bool,
+) -> String {
+    format!(
+        r#"<!doctype html>
+{html}<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>{theme}<link rel="stylesheet" href="{style}">{script}{widgets}</head>
+<body class="site no-sidebar devpage-workspace" data-build="{build}">
+<main id="devpage-page">{content}</main></body></html>"#,
+        html = html_open(&document.served),
+        title = escape(&tab_title(title, &document.title)),
+        theme = navbar::head(document),
+        style = address(Owned::Asset("style.css")),
+        script = page_script(false, comments),
+        widgets = widgets.head(content, &[]),
+        build = crate::addresses::BUILD,
+    )
+}
+
 /// A doc: every chapter's `rendered` content on one page, in order, with an
 /// outline of the chapters' headings beside them. In print mode the outline
 /// and the live connection are left out and the page size is the doc's paper.
