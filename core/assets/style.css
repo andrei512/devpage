@@ -231,6 +231,11 @@ body {
   font-size: 13px;
   color: var(--muted);
 }
+/* Muted text on the selected result's background falls below readable contrast. */
+#devpage-nav a.hit.selected .hit-place,
+#devpage-nav a.hit.selected .hit-snippet,
+#devpage-nav a.hit.selected .hit-lede,
+#devpage-nav a.hit.selected .hit-label { color: var(--text); }
 #devpage-nav .hit-snippet mark {
   padding: 0 1px;
   border-radius: 2px;
