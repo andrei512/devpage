@@ -82,6 +82,7 @@ impl Drop for Served {
     fn drop(&mut self) {
         match &self.uncached {
             Some(dir) => {
+                devpage_core::code::forget(dir);
                 let _ = std::fs::remove_dir_all(dir);
             }
             None => {
@@ -362,6 +363,7 @@ impl Cache {
                 continue;
             }
             state.routers.retain(|(routed, _), _| *routed != key);
+            devpage_core::code::forget(&self.folder(&key));
             if let Some(entry) = state.entries.remove(&key) {
                 self.delete(&key);
                 metrics::count(metrics::Cache::Eviction);
@@ -403,6 +405,9 @@ impl Cache {
                 continue;
             }
             state.routers.retain(|(routed, _), _| *routed != key);
+            // Its code reference goes with its router; the next read makes
+            // both again.
+            devpage_core::code::forget(&self.folder(&key));
         }
     }
 
@@ -410,6 +415,7 @@ impl Cache {
     pub fn remove(&self, key: &Key) {
         let mut state = self.state();
         state.routers.retain(|(routed, _), _| routed != key);
+        devpage_core::code::forget(&self.folder(key));
         state.entries.remove(key);
         self.delete(key);
     }
@@ -501,6 +507,7 @@ impl Cache {
     pub fn remove_document(&self, document: &str) {
         let mut state = self.state();
         state.routers.retain(|(key, _), _| key.0 != document);
+        devpage_core::code::forget(&self.dir.join(document));
         state.entries.retain(|key, _| key.0 != document);
         let _ = std::fs::remove_dir_all(self.dir.join(document));
     }

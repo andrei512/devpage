@@ -135,8 +135,17 @@ query that did keeps reading the code.
 It reads the code as written, not as compiled: no macro output, no `#[cfg]`
 evaluation, no `#[path]` attributes, no inferred types, and no links a doc
 comment writes to a Rust path. A file outside its crate's `src/` — a test, a
-bench, `build.rs` — is no module. `devpage publish` doesn't publish a code
-reference.
+bench, `build.rs` — is no module.
+
+## Publishing it
+
+A code reference is meant to be read by running `devpage` in the repository,
+where it reads the code as it is now. A site that enables it can still be
+[published](../server/publishing/README.md): the publish carries each
+namespace's files, the `Cargo.toml` naming their crate, its query file and its
+prose files, and the server builds the version's reference from them as
+`devpage` does locally. Only code inside the published folder can be carried,
+as for any file a publish holds.
 
 ## Topics
 

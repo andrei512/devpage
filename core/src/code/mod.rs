@@ -223,6 +223,16 @@ pub fn configure(
     Ok(())
 }
 
+/// Forgets every code reference of a document under `folder`: for server
+/// mode, a version it no longer holds, whose items would otherwise stay in
+/// memory for good.
+pub fn forget(folder: &Path) {
+    let canonical = folder.canonicalize().ok();
+    indexes().lock().unwrap().retain(|doc, _| {
+        !doc.starts_with(folder) && canonical.as_ref().is_none_or(|c| !doc.starts_with(c))
+    });
+}
+
 /// The code reference of the site whose document file is `doc`, if it has
 /// one.
 pub fn for_document(doc: &Path) -> Option<Arc<Index>> {
@@ -863,6 +873,41 @@ impl Index {
         !same
     }
 
+    /// Every file the reference is made from, for a publish to carry: each
+    /// namespace's source files, the `Cargo.toml` that names each one's
+    /// crate, its query file, and every prose file.
+    pub fn files(&self) -> Vec<PathBuf> {
+        let mut files = std::collections::BTreeSet::new();
+        for namespace in &self.namespaces {
+            for file in namespace.files.lock().unwrap().keys() {
+                files.insert(file.clone());
+                let mut at = file.parent();
+                while let Some(folder) = at {
+                    let manifest = folder.join("Cargo.toml");
+                    if manifest.is_file() {
+                        files.insert(manifest);
+                        break;
+                    }
+                    at = folder.parent();
+                }
+            }
+            files.extend(namespace.query.clone());
+        }
+        let prose = self.prose.read().unwrap();
+        files.extend(prose.values().map(|prose| prose.file.clone()));
+        files.extend(
+            self.twice
+                .read()
+                .unwrap()
+                .iter()
+                .map(|(prose, ..)| prose.file.clone()),
+        );
+        files
+            .into_iter()
+            .filter(|file| self.served.contains(file))
+            .collect()
+    }
+
     /// What is wrong with the reference, for its pages to list and
     /// `devpage check` to report: a prose file whose id names nothing, and
     /// a query saved while devpage runs that doesn't compile.
@@ -964,6 +1009,27 @@ fn distance(a: &str, b: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    /// A version server mode drops takes its code reference with it.
+    #[test]
+    fn a_forgotten_folder_holds_no_code_reference() {
+        let dir = std::env::temp_dir().join(format!("devpage-code-forget-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("lib/src")).unwrap();
+        std::fs::write(dir.join("lib/Cargo.toml"), "[package]\nname = \"a\"\n").unwrap();
+        std::fs::write(dir.join("lib/src/lib.rs"), "pub struct A;\n").unwrap();
+        std::fs::write(dir.join("README.md"), "# A\n").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: A\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        let served = crate::folder::ServedFolder::new(&dir).unwrap();
+        let doc = crate::document::Document::load(&dir.join("devpage.yml"), &served).unwrap();
+        assert!(super::for_document(&doc.path()).is_some());
+        super::forget(&dir);
+        assert!(super::for_document(&doc.path()).is_none());
+    }
+
     /// devpage's own code, as its docs' code reference reads it: every
     /// item, field, variant and method has a doc comment, so every page of
     /// the reference says what it is.

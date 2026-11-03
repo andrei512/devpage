@@ -54,8 +54,11 @@ Exactly what the document is made of — the same files
 its pages, chapters or slides, the project widgets they use, every local
 image they link to, and every file a link reaches — the check follows links
 from page to page, so a document that links into the rest of a repository's
-docs carries them too. Drafts or secrets lying in the same folder that nothing
-links to are never sent.
+docs carries them too. A site with a
+[code reference](../../code-reference/README.md#publishing-it) carries the code
+it is made from: each namespace's files, the `Cargo.toml` naming their crate,
+its query file and its prose files. Drafts or secrets lying in the same folder
+that nothing links to are never sent.
 
 If a link is broken, the publish stops before uploading anything and lists the
 problems. A publish lands whole or not at all: the new version and its

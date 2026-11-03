@@ -68,8 +68,9 @@ pub async fn document(
 /// and in path order: the document file, its pages, chapters or slides and every page
 /// and document they reach, the images and files their links name, a design's
 /// imports, images, themes and fonts, the logo, and the project widgets with
-/// every module they import — what the document is made of, and nothing else
-/// beside it. External addresses are not followed. A design's files are the
+/// every module they import, and the files its code reference is made from
+/// ([`crate::code::Index::files`]) — what the document is made of, and
+/// nothing else beside it. External addresses are not followed. A design's files are the
 /// ones `designs`, the folder's design store, resolved it from.
 pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
     let mut files = BTreeSet::new();
@@ -80,6 +81,10 @@ pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
         &mut Vec::new(),
         Some(&mut files),
     );
+    // A code reference is made from its code: a version carries it.
+    if let Some(code) = crate::code::for_document(&folder.entry().path()) {
+        files.extend(code.files());
+    }
     files.into_iter().collect()
 }
 

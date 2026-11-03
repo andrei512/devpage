@@ -541,6 +541,7 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
+        devpage_core::code::forget(&self.0);
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
