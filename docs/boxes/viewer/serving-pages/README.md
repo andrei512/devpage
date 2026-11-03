@@ -103,9 +103,20 @@ flowchart LR
 
 Canonicalizing resolves `..` and symbolic links, and fails if the file doesn't
 exist. Anything that fails — a path escaping with `..`, a symbolic link
-pointing outside, a missing file, a folder — gets `404` with the body
-`<path> is not part of the served folder`. A file that exists but can't be read
-gets `500` with the error's text.
+pointing outside, a missing file, a folder — gets `404`. Its body depends on
+who asks. A request that accepts `text/html` — a browser's — gets a page: the
+`404.md` beside the nearest site's document file, or devpage's own page saying
+nothing is there, in that site's frame; outside any site, devpage's own page
+alone, in the served document's theme. Any other request gets
+`nothing at <address>` as plain text. Both offer the file the address most
+likely meant, when there is one: the address with `.md` added, or with `.html`
+replaced by `.md`, or the `README.md` of the folder it names —
+`nothing at /guide/install — did you mean /guide/install.md?`. A site's
+`404.md` is shown at the missing address, so its relative links are rewritten
+to their served addresses; it shows no comments and lists no problems
+(`devpage check` reports them). Nothing outside the served folder is ever on
+the page: the address is shown as it was asked for, escaped. A file that
+exists but can't be read gets `500` with the error's text.
 
 A path outside the served folder has no address, so a page never carries one:
 a link in a page, chapter, slide or navbar that leads out keeps its target as

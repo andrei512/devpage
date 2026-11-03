@@ -73,6 +73,24 @@ is on [Organizing navigation](../organizing-navigation/README.md).
   ([choosing a theme](../themes/README.md#choosing-a-theme),
   [Comments](../comments/README.md)).
 
+## A page for missing addresses
+
+An address with nothing at it — a typo, a page that moved — answers `404`. A
+browser is shown a page in the site's frame, navbar and sidebar included, that
+says nothing is there, offers the page the address most likely meant
+(`/guide/install` → `/guide/install.md`) and links to the root page. An agent
+or `curl` gets one line of text instead:
+
+```text
+nothing at /guide/install — did you mean /guide/install.md?
+```
+
+To write the page yourself, put a `404.md` beside `devpage.yml`. It is shown at
+every missing address in the site — its relative links work from any of them —
+and is a page like any other at its own address, `/404.md`. `devpage check`
+checks it with the site. In a nested site, the nearest site's `404.md` is
+shown.
+
 ## A real site to copy
 
 These docs are a site: [`docs/devpage.yml`](../../../devpage.yml) with a navbar,

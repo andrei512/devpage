@@ -144,7 +144,8 @@ Markdown file (`devpage check design.md`), or one design
 `<file>:<line>:<column>: <message>`.
 
 `devpage check` takes the same argument as `devpage`, checks that document and
-every page and document reachable from it by links within the served folder,
+every page and document reachable from it by links within the served folder
+— and each site's `404.md`, shown wherever the site has nothing —
 prints every problem in the same `file:line: problem` form, and exits with `1`
 if there was any and `0` if there were none. An external address that doesn't
 answer within 10 seconds, or can't be connected to, is asked once more with 30
