@@ -14,6 +14,7 @@ pub(super) const RANKED: usize = 200;
 /// How many words a snippet shows when it can't end at a sentence's end, and
 /// the most it shows when it can.
 pub(super) const SNIPPET_WORDS: usize = 24;
+/// The most words a snippet shows when it can end at a sentence's end.
 pub(super) const SENTENCE_WORDS: usize = 40;
 
 /// How much a section's place adds to its score: a little for a shallower
@@ -26,8 +27,12 @@ pub(super) fn structure(depth: u64, order: u64, nav: u64) -> Score {
 /// How well a query is a page's title.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum TitleMatch {
+    /// The query is the title, word for word but stopwords.
     Whole,
+    /// The query is the title but for its last word, still being typed: the
+    /// start of the title's last word.
     Start,
+    /// The query is not the title.
     None,
 }
 
@@ -65,6 +70,8 @@ pub(super) fn sentence_end(text: &str, at: usize) -> usize {
         .unwrap_or(text.len())
 }
 
+/// Whether `text` ends a sentence: its last character but trailing whitespace
+/// is `.`, `!` or `?`.
 pub(super) fn ends_sentence(text: &str) -> bool {
     text.trim_end().ends_with(['.', '!', '?'])
 }

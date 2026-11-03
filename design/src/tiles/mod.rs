@@ -45,6 +45,7 @@ impl Level {
         Level((scale * 1024.0).round().max(1.0) as i64)
     }
 
+    /// The scale the level paints at.
     pub fn scale(self) -> f64 {
         self.0 as f64 / 1024.0
     }
@@ -54,9 +55,13 @@ impl Level {
 /// top-left.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub struct Key {
+    /// The theme the tile is painted in.
     pub theme: Theme,
+    /// The scale the tile is painted at.
     pub level: Level,
+    /// The tile's column from the drawing's left, counting from 0.
     pub col: u32,
+    /// The tile's row from the drawing's top, counting from 0.
     pub row: u32,
 }
 
@@ -80,6 +85,7 @@ impl Key {
 /// What a cache keys its tiles by: a tile's [`Key`], with whatever else
 /// tells the cache's tiles apart — a server's design, say.
 pub trait Tiled: Copy + Eq + std::hash::Hash {
+    /// The tile's [`Key`], without what else tells it apart.
     fn key(&self) -> Key;
 }
 
@@ -93,9 +99,13 @@ impl Tiled for Key {
 /// drawing scaled by `zoom`, its top-left at `origin`, a whole device pixel.
 #[derive(Clone, Copy, Debug)]
 pub struct View {
+    /// The view's width, in device pixels.
     pub width: f64,
+    /// The view's height, in device pixels.
     pub height: f64,
+    /// The scale the drawing is shown at.
     pub zoom: f64,
+    /// Where the drawing's top-left lands in the view, in device pixels.
     pub origin: (f64, f64),
 }
 

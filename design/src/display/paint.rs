@@ -12,18 +12,24 @@ use super::*;
 /// under the transform from its coordinates to the target's pixels. A
 /// backend translates each into its library's call and decides nothing.
 pub trait Target {
+    /// Paints `draw` under `t`.
     fn draw(&mut self, draw: &Draw, t: Affine);
+    /// Opens a clip to `path` under `t`.
     fn push_clip(&mut self, path: &BezPath, t: Affine);
     /// A layer with `blend`, bounded by `bounds` under `t` — or, when
     /// `None`, by `area`, the whole of what is painted, in the target's
     /// pixels.
     fn push_layer(&mut self, blend: Blend, bounds: Option<&BezPath>, t: Affine, area: KRect);
+    /// Closes the last clip or layer opened.
     fn pop(&mut self);
 }
 
+/// A layer open on the target, by the property-tree node that opened it.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Layer {
+    /// A clip, by its node in the clip tree.
     Clip(Id),
+    /// An effect's layer, by its node in the effect tree.
     Effect(Id),
 }
 

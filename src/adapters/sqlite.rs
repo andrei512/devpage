@@ -10,7 +10,10 @@ use anyhow::{Result, bail};
 use devpage_core::comments::{self, Anchor, Carry, Listed, Message, Thread};
 use rusqlite::{Connection, OptionalExtension, params};
 
+/// The store: documents, their versions and their comment threads in one SQLite
+/// file, used by one caller at a time.
 pub struct Sqlite {
+    /// The connection to the file, locked for each use.
     connection: Mutex<Connection>,
     /// Told how long each use of the store took — waiting for its lock, and
     /// the query — once it is done.
@@ -20,22 +23,34 @@ pub struct Sqlite {
 /// A document as the store records it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DocumentRow {
+    /// Its id, as its links name it.
     pub id: String,
+    /// The kind of its latest version: `site`, `doc`…
     pub kind: String,
+    /// The title of its latest version.
     pub title: String,
+    /// The number of its latest version.
     pub latest: u64,
+    /// When it was first published, in UTC: `2025-01-31T12:00:00Z`.
     pub created: String,
 }
 
 /// One publish of a document.
 #[derive(Debug, Clone, PartialEq)]
 pub struct VersionRow {
+    /// Its number, from 1; a deleted version's number is never given again.
     pub number: u64,
+    /// The document's kind in this version: `site`, `doc`…
     pub kind: String,
+    /// The document's title in this version.
     pub title: String,
+    /// Who published it.
     pub author: String,
+    /// When it was published, in UTC: `2025-01-31T12:00:00Z`.
     pub published: String,
+    /// The size of its zip, in bytes.
     pub size: u64,
+    /// The SHA-256 of its zip, in hex.
     pub sha256: String,
 }
 
@@ -44,10 +59,16 @@ pub struct Publish<'a> {
     /// The document file, from the top of the zip: `devpage.yml`,
     /// `talk.yml`, `notes.md`, `screen.design`…
     pub entry: &'a str,
+    /// The document's kind: `site`, `doc`…
     pub kind: &'a str,
+    /// The document's title: what the list shows and a download is named
+    /// after.
     pub title: &'a str,
+    /// Who publishes it.
     pub author: &'a str,
+    /// The size of the zip, in bytes.
     pub size: u64,
+    /// The SHA-256 of the zip, in hex.
     pub sha256: &'a str,
 }
 
@@ -63,6 +84,8 @@ pub enum Deleted {
 }
 
 impl Sqlite {
+    /// The store in `file`, its tables made where they are missing; its uses
+    /// untimed.
     pub fn open(file: &Path) -> Result<Sqlite> {
         let connection = Connection::open(file)?;
         connection.execute_batch(
@@ -114,6 +137,7 @@ impl Sqlite {
         Sqlite { took, ..self }
     }
 
+    /// The connection, held for one use, timed from now.
     fn connection(&self) -> Held<'_> {
         let start = Instant::now();
         Held {
@@ -326,13 +350,19 @@ impl Sqlite {
 /// version, and the version it left.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ThreadRow {
+    /// Its id, unique within its document.
     pub id: String,
+    /// The Markdown file it is on, from the top of the document.
     pub page: String,
+    /// The version it was started on.
     pub version: u64,
+    /// Whether its text is gone from the latest version.
     pub detached: bool,
     /// The version whose publish found its text gone; `None` while attached.
     pub detached_in: Option<u64>,
+    /// The text it is on.
     pub anchor: Anchor,
+    /// Its messages, oldest first.
     pub thread: Vec<Message>,
 }
 
@@ -451,6 +481,7 @@ fn page_of(connection: &Connection, document: &str, id: &str) -> Result<Option<S
         .optional()?)
 }
 
+/// Adds `message` to the end of thread `id` of `document`.
 fn add_message(connection: &Connection, document: &str, id: &str, message: &Message) -> Result<()> {
     connection.execute(
         "INSERT INTO messages (document, thread, seq, author, at, text)
@@ -465,8 +496,11 @@ fn add_message(connection: &Connection, document: &str, id: &str, message: &Mess
 /// The store's connection, held for one use of it: timed from asking for
 /// its lock until it is let go.
 struct Held<'a> {
+    /// The store's one connection, locked from other uses until dropped.
     connection: MutexGuard<'a, Connection>,
+    /// When its lock was asked for.
     start: Instant,
+    /// Told how long the use took, once it is let go.
     took: fn(Duration),
 }
 
@@ -493,11 +527,16 @@ impl Drop for Held<'_> {
 /// One document's threads as a comment store: what the comments of a
 /// version write through. A thread started here is on `version`.
 pub struct DocumentThreads {
+    /// The store holding them.
     pub store: Arc<Sqlite>,
+    /// The id of the document whose threads they are — the `document` column
+    /// every row it reads and writes is keyed by.
     pub document: String,
+    /// The version a thread started here is on.
     pub version: u64,
 }
 
+/// A stored thread as the comment store lists it.
 fn listed(row: ThreadRow) -> Listed {
     Listed {
         id: row.id,
@@ -548,6 +587,8 @@ impl comments::Store for DocumentThreads {
     }
 }
 
+/// A row of `documents` as a [`DocumentRow`]: its id, kind, title, latest and
+/// created, in that order.
 fn document_row(row: &rusqlite::Row) -> rusqlite::Result<DocumentRow> {
     Ok(DocumentRow {
         id: row.get(0)?,
@@ -558,6 +599,7 @@ fn document_row(row: &rusqlite::Row) -> rusqlite::Result<DocumentRow> {
     })
 }
 
+/// The numbers of document `id`'s versions, lowest first.
 fn numbers(connection: &Connection, id: &str) -> Result<Vec<u64>> {
     let mut statement =
         connection.prepare("SELECT number FROM versions WHERE document = ?1 ORDER BY number")?;

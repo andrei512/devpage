@@ -16,11 +16,17 @@ use super::*;
 /// What one word counts in each kind of text, against prose. A word scores
 /// in its best field only, plus [`TIE_BREAKER`] of what it scores elsewhere.
 pub(super) const TITLE_BOOST: f32 = 4.0;
+/// What a word counts in a section's heading.
 pub(super) const HEADING_BOOST: f32 = 2.0;
+/// What a word counts in prose: the measure of the others.
 pub(super) const PROSE_BOOST: f32 = 1.0;
+/// What a word counts in code.
 pub(super) const CODE_BOOST: f32 = 0.5;
+/// What a word counts in a slide's notes.
 pub(super) const NOTES_BOOST: f32 = 0.5;
+/// What a word counts in front matter's description and keywords.
 pub(super) const META_BOOST: f32 = 3.0;
+/// The share of what a word scores outside its best field that it adds.
 pub(super) const TIE_BREAKER: f32 = 0.1;
 
 /// What a near match — a typo, or the word being typed — counts, against an
@@ -30,15 +36,23 @@ pub(super) const NEAR: f32 = 0.5;
 /// What the query's words in a row add — in a heading and in prose, exactly
 /// and within [`SLOP`] words of each other — and a whole code identifier.
 pub(super) const PHRASE_HEADING: f32 = 2.0;
+/// What the query's words in a row in prose add.
 pub(super) const PHRASE_PROSE: f32 = 1.5;
+/// What the words within [`SLOP`] words of each other count, against the words
+/// exactly in a row.
 pub(super) const NEAR_PHRASE: f32 = 0.5;
+/// How many words apart the query's words may be and still count as in a row.
 pub(super) const SLOP: u32 = 3;
+/// What a whole code identifier of the query adds where the code holds it.
 pub(super) const IDENTIFIER: f32 = 3.0;
 
 /// What a query that is a whole heading, or a whole title, adds — and one
 /// that is the start of either, its last word being typed.
 pub(super) const WHOLE_HEADING: f32 = 3.0;
+/// What a query that is a page's whole title adds.
 pub(super) const WHOLE_TITLE: f32 = 8.0;
+/// What a query that is the start of a heading, its last word being typed,
+/// adds.
 pub(super) const HEADING_START: f32 = 1.5;
 
 /// Words that never have to match: a query of only these still finds them.
@@ -50,9 +64,13 @@ pub(super) const STOPWORDS: &[&str] = &[
 /// A query, read: its words, phrases, excluded words, and code identifiers.
 #[derive(Default)]
 pub(super) struct Parsed {
+    /// Its words, outside its quoted phrases and `-excluded` words.
     pub(super) words: Vec<Word>,
+    /// Its quoted phrases, each a run of words that must match in a row.
     pub(super) phrases: Vec<Vec<Word>>,
+    /// Its `-excluded` words: a section holding one is left out.
     pub(super) excluded: Vec<Word>,
+    /// Its code identifiers, each whole and lowercased.
     pub(super) identifiers: Vec<String>,
 }
 
@@ -91,7 +109,9 @@ impl Parsed {
 /// One word of a query: as typed, lowercased, and stemmed as the index is.
 #[derive(Debug, Clone)]
 pub(super) struct Word {
+    /// The word as typed, lowercased.
     pub(super) typed: String,
+    /// The word stemmed, as the index's ranked fields hold it.
     pub(super) stem: String,
     /// A stopword need not match.
     pub(super) stop: bool,
@@ -121,6 +141,7 @@ pub(super) fn kept(words: &[Word]) -> Vec<&Word> {
     }
 }
 
+/// `part` of each of `words`, joined by spaces.
 pub(super) fn joined(words: &[&Word], part: impl Fn(&Word) -> &String) -> String {
     words
         .iter()
@@ -129,10 +150,12 @@ pub(super) fn joined(words: &[&Word], part: impl Fn(&Word) -> &String) -> String
         .join(" ")
 }
 
+/// A query for `term` alone, scored by how often a section holds it.
 pub(super) fn term_query(term: Term) -> Box<dyn Query> {
     Box::new(TermQuery::new(term, IndexRecordOption::WithFreqs))
 }
 
+/// `query`, its score multiplied by `boost`.
 pub(super) fn boosted(query: Box<dyn Query>, boost: f32) -> Box<dyn Query> {
     Box::new(BoostQuery::new(query, boost))
 }
@@ -162,6 +185,7 @@ pub(super) fn is_identifier(chunk: &str) -> bool {
             .any(|pair| pair[0].is_lowercase() && pair[1].is_uppercase())
 }
 
+/// Whether `c` can be part of a code identifier: a letter, a digit, `_` or `:`.
 pub(super) fn is_code_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == ':'
 }
@@ -184,6 +208,8 @@ pub(super) fn expand_code(code: &str) -> String {
     out.join(" ")
 }
 
+/// The parts of `identifier`, lowercased: split at `_`, `::` and a change to
+/// upper case — `HTTPServer` is `http` and `server`.
 pub(super) fn identifier_parts(identifier: &str) -> Vec<String> {
     let mut parts = Vec::new();
     for piece in identifier.split(['_', ':']).filter(|p| !p.is_empty()) {
@@ -320,6 +346,7 @@ impl Search {
             .collect()
     }
 
+    /// `word` stemmed as the index's ranked fields stem it.
     pub(super) fn stem(&self, word: &str) -> String {
         let mut stemmed = self.stemmed.clone();
         let mut stem = word.to_string();

@@ -18,7 +18,10 @@ use super::*;
 /// its id, or a shadow's pixels.
 #[derive(Clone)]
 pub(super) struct Painted {
+    /// The decoded pixels the list draws: an image file's, at its own pixel
+    /// size, or a shadow's, blurred — compared byte by byte only for a shadow.
     pub(super) data: ImageData,
+    /// The image file it shows; `None` for a shadow's pixels.
     pub(super) file: Option<ImageId>,
 }
 
@@ -43,9 +46,11 @@ impl Painted {
 pub struct Drawing {
     /// The layout: the drawing's own tree and each run's.
     pub(super) laid: Laid,
+    /// The theme it is drawn in.
     pub(super) theme: Theme,
     /// Every node's box, in its space's coordinates.
     pub(super) frames: BTreeMap<Order, Frame>,
+    /// What each node made, by its order.
     pub(super) recs: BTreeMap<Order, Rec>,
     /// Each run's place in the list, by its layout's slot.
     pub(super) shown: HashMap<u32, RunId>,
@@ -95,12 +100,18 @@ pub enum Damage {
 /// effect and its clip — and the images its own commands paint, in order.
 #[derive(Clone)]
 pub(super) struct Rec {
+    /// The scene node's id, under which `orders` finds the node's order.
     pub(super) node: SceneId,
     /// The space its box and chunk are in.
     pub(super) space: Space,
+    /// Its transform node.
     pub(super) transform: Id,
+    /// Its opacity's effect; `None` when it makes none.
     pub(super) effect: Option<Id>,
+    /// Its clip; `None` when it makes none.
     pub(super) clip: Option<Id>,
+    /// The images its own commands paint, in order, each with where it was
+    /// written, for a problem.
     pub(super) painted: Vec<(Painted, Origin)>,
 }
 
@@ -126,6 +137,7 @@ impl Drawing {
             .collect()
     }
 
+    /// The theme the drawing is drawn in.
     pub fn theme(&self) -> Theme {
         self.theme
     }
@@ -315,6 +327,9 @@ impl Renderer {
         d.fits.clone()
     }
 
+    /// Gathers the images `d` paints — its painters', in paint order, each
+    /// image file once — and whether they fit the GPU's atlas together: refused
+    /// at the first that doesn't.
     pub(super) fn fit_images(&mut self, d: &mut Drawing) -> Result<(), Undrawable> {
         let mut files = BTreeSet::new();
         let mut painted: Vec<(Painted, Origin)> = Vec::new();
@@ -1102,14 +1117,23 @@ impl Renderer {
 /// Its places are in its space's coordinates.
 #[derive(Clone)]
 pub(super) struct RunContext {
+    /// The run's node's order: where the scene finds the node again.
     pub(super) order: Order,
+    /// The layout tree the run's node is in.
     pub(super) owner: Owner,
+    /// The run's node in that tree.
     pub(super) id: NodeId,
+    /// The run's layout, by its slot.
     pub(super) rid: u32,
+    /// The transform node its children are under.
     pub(super) transform: Id,
+    /// The run's node's place, which its children are measured from.
     pub(super) place: Place,
+    /// The space the run is in.
     pub(super) space: Space,
+    /// The clip its children are drawn inside.
     pub(super) clip: Id,
+    /// The layer its children are drawn in; `None` outside any.
     pub(super) effect: Option<Id>,
     /// The run's `align` when its children were last placed.
     pub(super) align: crate::scene::Align,
@@ -1117,18 +1141,29 @@ pub(super) struct RunContext {
 
 /// What a node's children are visited under.
 pub(super) struct Down<'a> {
+    /// The transform node they are under.
     pub(super) transform: Id,
+    /// The node's place, which they are measured from, in the design's
+    /// coordinates.
     pub(super) place: Place,
+    /// The space they are in.
     pub(super) space: &'a Space,
+    /// Where that space's origin is, in the design's coordinates.
     pub(super) space_at: Vec2,
+    /// The clip they are drawn inside.
     pub(super) clip: Id,
+    /// What the clipping frames above them cut them to; `None` when none does.
     pub(super) cut: Option<KRect>,
+    /// The layer they are drawn in; `None` outside any.
     pub(super) effect: Option<Id>,
+    /// Whether the node's clip or effect was made anew, which their own
+    /// commands are under.
     pub(super) remade: bool,
 }
 
 /// What a [`Renderer::sync`] walk reads and adds to.
 pub(super) struct Walk<'a> {
+    /// The scene being drawn.
     pub(super) scene: &'a Scene,
     /// Whether a node's own attributes changed.
     pub(super) dirty: &'a dyn Fn(&Order) -> bool,
@@ -1140,6 +1175,8 @@ pub(super) struct Walk<'a> {
     /// For an update, the children of each node on a changed node's path
     /// that lead to one; `None` walks every node.
     pub(super) path: Option<&'a HashMap<Order, BTreeSet<OrderKey>>>,
+    /// For an update, where each chunk made again was and is, in the design's
+    /// coordinates; `None` gathers none.
     pub(super) damage: Option<&'a mut Vec<KRect>>,
     /// For a new drawing, the chunks made, to bulk-load the index with.
     pub(super) fresh: Option<&'a mut Vec<(Order, Chunk)>>,

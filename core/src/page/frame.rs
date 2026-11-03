@@ -40,9 +40,10 @@ pub(super) fn html_open(served: &ServedFolder) -> String {
 }
 
 /// The page script's tag, for the head: deferred, so it is fetched with
-/// everything else the head names and runs once the page is parsed. In print mode it keeps no live connection and shows
-/// no controls; with comments off (`devpage --no-comments`) it shows no
-/// comment threads and offers no way to start one.
+/// everything else the head names and runs once the page is parsed. In print
+/// mode it keeps no live connection and shows no controls; with comments off
+/// (`devpage --no-comments`) it shows no comment threads and offers no way to
+/// start one.
 fn page_script(print: bool, comments: bool) -> String {
     let setting = if print {
         " data-print"
@@ -98,6 +99,38 @@ pub fn missing(document: &Document, widgets: &Widgets, rendered: &Rendered) -> O
         false,
         &[],
     )
+}
+
+/// A page the site `document` makes from something other than a file of its
+/// own — a code reference's — `rendered` at the address it is shown at, and
+/// the sidebar open at `current`: the page itself, or the nearest page above
+/// it the sidebar lists — listing `found` above it. It shows no comments,
+/// which belong to files.
+pub fn generated(
+    document: &Document,
+    widgets: &Widgets,
+    rendered: &Rendered,
+    current: &Path,
+    found: &[Problem],
+) -> Option<String> {
+    let page = title(rendered.source(), rendered.file());
+    let html = framed(
+        document,
+        widgets,
+        current,
+        &page,
+        rendered.html(),
+        false,
+        found,
+    )?;
+    // The page's own address, not the one the sidebar is open at.
+    let shown = document.url(current)?;
+    let own = document.url(rendered.file())?;
+    Some(html.replacen(
+        &format!("<article data-source=\"{}\">", escape(&shown)),
+        &format!("<article data-source=\"{}\">", escape(&own)),
+        1,
+    ))
 }
 
 /// devpage's own page for `address`, with nothing at it, when the site
@@ -230,6 +263,32 @@ fn framed(
     ))
 }
 
+/// A package workspace uses the ordinary site frame and React lifecycle, with
+/// the available content area allocated to the tool instead of an article.
+pub fn workspace(
+    document: &Document,
+    widgets: &Widgets,
+    _file: &Path,
+    title: &str,
+    content: &str,
+    comments: bool,
+) -> String {
+    format!(
+        r#"<!doctype html>
+{html}<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title>{theme}<link rel="stylesheet" href="{style}">{script}{widgets}</head>
+<body class="site no-sidebar devpage-workspace" data-build="{build}">
+<main id="devpage-page">{content}</main></body></html>"#,
+        html = html_open(&document.served),
+        title = escape(&tab_title(title, &document.title)),
+        theme = navbar::head(document),
+        style = address(Owned::Asset("style.css")),
+        script = page_script(false, comments),
+        widgets = widgets.head(content, &[]),
+        build = crate::addresses::BUILD,
+    )
+}
+
 /// A doc: every chapter's `rendered` content on one page, in order, with an
 /// outline of the chapters' headings beside them. In print mode the outline
 /// and the live connection are left out and the page size is the doc's paper.
@@ -351,6 +410,8 @@ pub(super) fn chapter_names(chapters: &[PathBuf], served: &ServedFolder) -> Vec<
         .collect()
 }
 
+/// `chapter`'s name among `names`, as [`chapter_names`] made them; empty when
+/// it is not one of them.
 fn chapter_name(chapter: &Path, names: &[(PathBuf, String)], served: &ServedFolder) -> String {
     let canonical = served
         .inside(chapter)
@@ -581,6 +642,7 @@ fn headings(html: &str) -> Vec<(u8, String, String)> {
     found
 }
 
+/// `html`'s text with every tag left out, trimmed; entities stay as written.
 fn strip_tags(html: &str) -> String {
     let mut text = String::new();
     let mut in_tag = false;

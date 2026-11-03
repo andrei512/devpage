@@ -254,6 +254,19 @@ written into a new folder of the comment store at once.
 Every platform hands the same handler `notify` events, so sifting, bursts
 and the listeners are the same everywhere.
 
+## Code reference inputs
+
+A [code reference](../code-reference/README.md)'s namespaces declare the
+folders their `files` patterns start from; they are watched whatever the site's
+`watch` list says, and a saved file in one is read and linked again before the
+refresh is announced ([Staying current](../code-reference/reading-the-code/README.md#staying-current)).
+
+## Extension inputs
+
+Enabled [extensions](../extensions/README.md) declare bounded source inputs before filesystem filtering and watch planning. Creation and removal matter as well as edits; document authors do not repeat those inputs in a site's `watch` list. The host captures and prepares changed extension state before announcing the existing refresh notification. Failed capture or preparation remains visible rather than silently presenting an old revision as current.
+
+This preserves the one ordered response to a saved batch. Extensions do not start another watcher. The first extension contract retains the global refresh event; it does not introduce page-targeted event delivery. Search reindexing still follows the refresh.
+
 ## The bus and the stream
 
 The change bus (`Changes` in `src/adapters/changes.rs`) carries typed changes: a

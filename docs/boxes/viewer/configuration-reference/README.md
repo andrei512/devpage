@@ -119,6 +119,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
 | `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../themes/README.md#choosing-a-theme)). Default: `true`. |
 | `logo` | path | no | An image — usually an SVG — shown before the title in the navbar (or the sidebar heading when there is no navbar) and used as the browser tab's icon. Default: none. |
+| `extensions` | map | no | [Extensions](#extensions) the site enables: native packages, and [`code`](#code), its code reference. Default: none. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
@@ -139,6 +140,7 @@ the site's frame, at every address in its folder with nothing at it
 | `widgets` | path | no | none | The folder of this doc's [project widgets](../widgets/project-widgets/README.md). |
 | `theme-selector` | boolean | no | `true` | Whether the light/dark switch shows. |
 | `logo` | path | no | none | The browser tab's icon, and an image before the title. |
+| `extensions` | map | no | none | Native [extension](#extensions) packages the doc enables. |
 
 In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
@@ -160,6 +162,28 @@ default.
 | `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
+| `extensions` | map | no | Native [extension](#extensions) packages the deck enables; default none. |
+
+### Extensions
+
+Every document kind accepts an optional `extensions` mapping. Each entry selects a local native bundle with `package` and supplies its extension-specific `config`. Paths are relative to this document file. The [package reference](../extensions/reference/README.md#configuration) defines validation, ownership, API compatibility, and errors. Enabling an extension does not compile or install it.
+
+Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.
+
+### `code`
+
+A site's `extensions` may hold `code` with no `package`: the
+[system extension](../glossary/README.md#system-extension) that gives the site a
+[code reference](../code-reference/README.md). Its `config` maps each
+[namespace](../glossary/README.md#namespace)'s name — the first part of its
+items' ids and addresses, `reference/<namespace>/` — to these fields:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `files` | list of glob patterns | yes | The namespace's files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
+| `language` | string | no | The language they are written in. devpage knows `rust`. Default: the namespace's name. |
+| `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
+| `private` | boolean | no | Whether items no `pub` path reaches get pages too. Default: `false`. |
 
 ## Front matter
 
@@ -209,6 +233,16 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
 | A `navbar` key has neither a label nor an `(icon)` | `in <file>` — `navbar has an entry with neither a label nor an icon` |
+| `extensions: code` on a doc or slides | `in <file>` — `extensions: code: only a site has a code reference` |
+| An extension other than `code` without `package` | `in <file>` — `extensions: <id>: package is required — <id> is not a system extension` |
+| `extensions: code` with no namespace in its `config` | `in <file>` — `extensions: code: config lists no namespaces` |
+| A `code` namespace's field the namespace doesn't have | `in <file>` — `extensions: code`, then ``unknown field `bogus`, expected one of `language`, `files`, `query`, `private` `` |
+| A namespace's `files` is an empty list | `in <file>` — `extensions: code: <namespace>`, then `files lists no patterns` |
+| A `files` pattern reaches outside the served folder | `in <file>` — `extensions: code: <namespace>`, then `files <pattern> is outside the served folder` |
+| A `files` pattern isn't a valid glob | `in <file>` — `extensions: code: <namespace>`, then `files <pattern>` and the glob error |
+| A `language` devpage doesn't know | `in <file>` — `extensions: code: <namespace>`, then `language <language> is not one devpage knows: rust` |
+| `query` names no file | `in <file>` — `extensions: code: <namespace>`, then `query <path> does not exist` |
+| `query` doesn't compile against the grammar | `in <file>` — `extensions: code: <namespace>`, then `query <file>` and `line <n>: <kind> error: <what>` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
 
 ### Binding the address

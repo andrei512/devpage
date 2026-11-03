@@ -42,7 +42,10 @@ impl WatchSet {
 
 /// What decides whether a folder is in sight.
 struct Sight<'a> {
+    /// The served folder's path: where the walk starts, and what nothing
+    /// outside is in sight of.
     served: &'a Path,
+    /// The folder whose `.gitignore` rules say what is ignored.
     folder: &'a Folder,
     /// Where any site's `watch` list can name a file.
     roots: Vec<PathBuf>,
@@ -112,6 +115,8 @@ fn watch_roots(folder: &Folder) -> Vec<PathBuf> {
     for site in folder.sites() {
         roots.extend_from_slice(site.watch_roots());
     }
+    roots.extend(crate::extensions::input_roots(folder.served()));
+    roots.extend(crate::code::input_roots(folder.served()));
     roots
 }
 
@@ -134,7 +139,12 @@ impl Folder {
         {
             return false;
         }
-        !self.ignored(path, is_dir) || self.named_by_watch(path)
+        crate::extensions::input_roots(self.served())
+            .iter()
+            .chain(&crate::code::input_roots(self.served()))
+            .any(|r| path.starts_with(r) || r.starts_with(path))
+            || !self.ignored(path, is_dir)
+            || self.named_by_watch(path)
     }
 
     /// Whether a change to `path`, which is in sight, refreshes open pages.

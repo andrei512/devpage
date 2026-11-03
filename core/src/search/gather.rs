@@ -22,9 +22,14 @@ use super::*;
 /// text, so a page whose unit and file are as they were is indexed as it was.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Unit {
+    /// The Markdown file it is read from.
     pub(super) file: PathBuf,
+    /// What it is: a site's page, a doc's chapter or a deck's slide.
     pub(super) kind: PageKind,
+    /// Its place in its document's nav: the labels from the top down to it.
+    /// Empty for a slide, and for the chapter of a one-chapter doc.
     pub(super) trail: Vec<String>,
+    /// The document it belongs to.
     pub(super) document: Owner,
     /// The address of what holds it: the page itself, or the doc or deck.
     pub(super) address: String,
@@ -43,11 +48,15 @@ pub(super) struct Unit {
 /// The document a page's content is rendered by, and its widgets folder.
 #[derive(Debug, Clone, PartialEq)]
 pub(super) struct Shown {
+    /// The document file, which the widgets its pages are rendered with are
+    /// loaded by, once a pass.
     pub(super) file: PathBuf,
+    /// Its project widgets folder; `None` when it has none.
     pub(super) widgets: Option<PathBuf>,
 }
 
 impl Shown {
+    /// How `document` renders the pages it shows.
     fn of(document: &Document) -> Self {
         Self {
             file: document.path(),
@@ -79,8 +88,11 @@ fn markdown(file: &Path) -> Option<String> {
 /// Markdown file in sight. Kept from one pass to the next, so a save that
 /// leaves every footprint and document file as it was leaves it as it was.
 pub(super) struct Published {
+    /// Every page published, by its address in the index.
     pub(super) units: BTreeMap<String, Unit>,
+    /// The documents loaded finding them.
     pub(super) documents: Documents,
+    /// The footprint of every Markdown file in sight, by file.
     footprints: HashMap<PathBuf, Footprint>,
 }
 
@@ -92,9 +104,16 @@ pub(super) struct Published {
 /// rest of the file is its content, which only its page shows.
 #[derive(Debug, Default, PartialEq)]
 struct Footprint {
+    /// Its Topics; `None` when no site's nav read them.
     topics: Option<Vec<crate::nav::Topic>>,
+    /// The trail it gives its chapter: its title; `None` when it is no chapter
+    /// of a doc of several.
     trail: Option<Vec<String>>,
+    /// Its front matter's `search`, unset or not; `None` when the walk reached
+    /// it, so it was never asked.
     search: Option<Option<bool>>,
+    /// The title it names its own document by; `None` unless it is published
+    /// out of every site.
     title: Option<String>,
 }
 
@@ -163,15 +182,18 @@ impl Published {
 /// document file loaded once, however many of its pages the pass meets,
 /// and each document's widgets read once, only when a page it shows is read.
 pub(super) struct Pass<'a> {
+    /// The folder what is published is found in.
     pub(super) folder: &'a Folder,
     /// Each document file loaded, `None` when it can't be.
     documents: Documents,
     /// Each document's widgets, by its file.
     widgets: HashMap<PathBuf, Option<Widgets>>,
+    /// What its widgets read and compiled, shared by every document's.
     modules: Modules,
 }
 
 impl<'a> Pass<'a> {
+    /// A pass over `folder` with nothing loaded yet.
     pub(super) fn new(folder: &'a Folder) -> Self {
         Self::with(folder, HashMap::new())
     }
@@ -254,16 +276,24 @@ impl Unit {
 /// and 0 for what comes before the first heading), and its text by kind.
 #[derive(Debug, PartialEq, Default)]
 pub(super) struct Section {
+    /// The heading's text, trimmed; empty before the first heading.
     pub(super) heading: String,
+    /// The id the page gives the heading; `None` before the first heading.
     pub(super) id: Option<String>,
+    /// The heading's level, 1 to 6; 0 before the first heading.
     pub(super) level: u8,
+    /// Its prose, with a diagram's labels, a widget's text and inline code.
     pub(super) prose: String,
+    /// Its code: code blocks other than diagrams, and inline code.
     pub(super) code: String,
 }
 
 /// A Markdown file read for search: its sections and its first paragraph.
 pub(super) struct Read {
+    /// Its sections in order, the one before the first heading first — left
+    /// out when it has no text.
     pub(super) sections: Vec<Section>,
+    /// Its first paragraph's text, squeezed; empty when it has none.
     pub(super) lede: String,
 }
 
@@ -271,11 +301,17 @@ pub(super) struct Read {
 /// its `description` and `keywords`.
 #[derive(Default)]
 pub(super) struct FrontMatter {
+    /// Its `search`: `Some(true)` publishes a page out of reach; `None` when it
+    /// is not set.
     pub(super) search: Option<bool>,
+    /// Its `description` and `keywords` as one line of words; a list's items
+    /// are joined.
     pub(super) meta: String,
 }
 
 impl FrontMatter {
+    /// The front matter of `source`; none of it when it has none or it isn't a
+    /// YAML map.
     pub(super) fn read(source: &str) -> Self {
         let Some(yaml) = crate::page::markdown::front_matter(source) else {
             return Self::default();
@@ -383,18 +419,27 @@ fn scope(pass: &mut Pass, entry: &Path) -> (Vec<Unit>, HashMap<PathBuf, Footprin
 
 /// The walk from the served document through what it reaches.
 struct Walk<'p, 'a> {
+    /// The pass it loads documents through.
     pass: &'p mut Pass<'a>,
+    /// Each document file it has reached, so each is walked once.
     documents: BTreeSet<PathBuf>,
+    /// Every page it found, in reading order, a page reached twice listed
+    /// twice.
     units: Vec<Unit>,
     /// What of each Markdown file it read decides what it found.
     footprints: HashMap<PathBuf, Footprint>,
 }
 
 impl Walk<'_, '_> {
+    /// Whether `file` is in sight: in the served folder, not inside `.git` or
+    /// `.devpage`, nor excluded by a `.gitignore`.
     fn in_sight(&self, file: &Path) -> bool {
         !self.pass.folder.ignored(file, false)
     }
 
+    /// Walks the document file `file` once, if in sight: a site's root page,
+    /// the pages its Topics tree and navbar reach and the documents they reach;
+    /// a doc's chapters; a deck's slides.
     fn document(&mut self, file: &Path) {
         if !self.documents.insert(file.to_path_buf()) || !self.in_sight(file) {
             return;
@@ -949,6 +994,7 @@ pub(super) fn widget_text(html: &str) -> String {
     squeeze(&text)
 }
 
+/// `html` with its tags taken out, a space in place of each.
 pub(super) fn strip_tags(html: &str) -> String {
     let mut text = String::new();
     let mut in_tag = false;

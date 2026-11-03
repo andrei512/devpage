@@ -34,12 +34,16 @@ pub trait SlidePngs: Send + Sync {
 /// Who hears about the files that change in the served folder, and the bus
 /// open pages hear it on.
 pub struct Listeners {
+    /// The served folder, which follows the paths first.
     folder: Arc<Folder>,
+    /// The design store, which forgets what it read of each changed file.
     designs: Designs,
+    /// The widget modules, which forget each changed file they compiled.
     modules: Modules,
     /// The comments the server writes through, which know the thread files
     /// they wrote — and announced — themselves; `None` with comments off.
     comments: Option<Comments>,
+    /// The bus open pages hear what changed on.
     changes: Arc<dyn Publish>,
     /// The search index, when this devpage answers searches.
     search: Option<Arc<Search>>,
@@ -121,6 +125,12 @@ impl Listeners {
             slide_pngs.changed(&files);
         }
         heard.extend(folder.changes);
+        let code = crate::code::changed(self.folder.served(), &files);
+        if (crate::extensions::changed(self.folder.served(), &files) || code)
+            && !heard.contains(&crate::changes::Change::Refresh)
+        {
+            heard.push(crate::changes::Change::Refresh);
+        }
         for change in heard {
             self.changes.publish(change);
         }

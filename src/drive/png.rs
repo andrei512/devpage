@@ -16,7 +16,9 @@ use devpage_core::document::{Document, Kind};
 /// What drawing gave: the picture, or a design whose problems stop it —
 /// `devpage check` names them.
 pub enum Drawn {
+    /// The PNG's bytes, as the server's route answers them.
     Png(Vec<u8>),
+    /// A design with problems, not drawn.
     Broken,
 }
 

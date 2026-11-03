@@ -56,6 +56,7 @@ pub fn key(el: &Element) -> Option<&str> {
     })
 }
 
+/// Gives `el` and every element in it a fresh id, from `next` on.
 fn fresh(el: &mut Element, next: &mut u32) {
     el.id = *next;
     *next += 1;
@@ -66,6 +67,9 @@ fn fresh(el: &mut Element, next: &mut u32) {
     }
 }
 
+/// Gives `new` the id of `old`, which it matched, and its children those of the
+/// children of `old` they match — fresh ones, from `next` on, where they match
+/// none.
 fn pair(new: &mut Element, old: &Element, next: &mut u32) {
     new.id = old.id;
     let olds: Vec<&Element> = elements(&old.children).collect();
@@ -86,6 +90,7 @@ fn pair(new: &mut Element, old: &Element, next: &mut u32) {
     }
 }
 
+/// The elements among `children`, in order; text is passed over.
 fn elements(children: &[Child]) -> impl Iterator<Item = &Element> {
     children.iter().filter_map(|c| match c {
         Child::Element(e) => Some(e),
@@ -447,10 +452,13 @@ pub(crate) fn same_own(a: &Element, b: &Element) -> bool {
         && a.attrs.iter().zip(&b.attrs).all(|(x, y)| same_attr(x, y))
 }
 
+/// Whether two attributes are the same but for where they are written: the same
+/// name and the same value.
 fn same_attr(a: &Attr, b: &Attr) -> bool {
     a.name == b.name && same_value(&a.value, &b.value)
 }
 
+/// Whether two values are the same but for where they are written.
 pub(crate) fn same_value(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Str(x, _), Value::Str(y, _)) => x == y,

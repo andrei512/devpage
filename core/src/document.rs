@@ -20,6 +20,8 @@ thread_local! {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase", deny_unknown_fields)]
 enum Config {
+    /// A site: pages reached from its `root` page, with a navbar if it names
+    /// one, and the Topics sidebar unless `sidebar` turns it off.
     Site {
         title: String,
         root: String,
@@ -30,7 +32,10 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
+    /// A doc: its `chapters` in order, and its settings on paper.
     Doc {
         title: String,
         chapters: Vec<String>,
@@ -40,7 +45,11 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
+    /// A deck: its `slides` in order, and what its narrator is told about the
+    /// talk.
     Slides {
         title: String,
         slides: Vec<String>,
@@ -52,6 +61,8 @@ enum Config {
         #[serde(rename = "theme-selector")]
         theme_selector: Option<bool>,
         logo: Option<String>,
+        #[serde(default)]
+        extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
 }
 
@@ -59,15 +70,21 @@ enum Config {
 /// target — a path relative to the document file, or an address on the web.
 #[derive(Debug, Clone, PartialEq)]
 pub struct NavLink {
+    /// Its text; `None` when it shows only its icon.
     pub label: Option<String>,
+    /// The name of its icon, from the key's `(icon)`; `None` when it has none.
     pub icon: Option<String>,
+    /// Where it leads, as written: a path relative to the document file, or an
+    /// address on the web.
     pub target: String,
 }
 
 /// An entry of a site's navbar: a link, or a dropdown of links.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NavItem {
+    /// A link on the navbar itself.
     Link(NavLink),
+    /// A dropdown, with its own label or icon, of `items`.
     Menu {
         label: Option<String>,
         icon: Option<String>,
@@ -151,9 +168,14 @@ fn navbar(map: &serde_yaml::Mapping) -> Result<Vec<NavItem>> {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct Pdf {
+    /// The paper size each page is printed on.
     #[serde(default)]
     pub paper: Paper,
+    /// The text at the top of every page, where `{page}` and `{pages}` become
+    /// page numbers; `None` leaves it blank.
     pub header: Option<String>,
+    /// The text at the bottom of every page, numbered as `header` is: `{page} /
+    /// {pages}` unless set.
     #[serde(default = "default_footer")]
     pub footer: String,
 }
@@ -168,27 +190,30 @@ impl Default for Pdf {
     }
 }
 
+/// The footer a doc gets when it sets none: `{page} / {pages}`.
 fn default_footer() -> String {
     "{page} / {pages}".into()
 }
 
+/// The paper size a doc is printed on.
 #[derive(Debug, Clone, Copy, Default, Deserialize, PartialEq)]
 pub enum Paper {
+    /// ISO A4: 210 × 297 mm, the default.
     #[default]
     A4,
+    /// US Letter: 8.5 × 11 in.
     Letter,
 }
 
 /// What a document is, with its parts resolved to files.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
-    Site {
-        root: String,
-    },
-    Doc {
-        chapters: Vec<PathBuf>,
-        pdf: Pdf,
-    },
+    /// A site, whose `/` leads to `root`: its page as written, relative to the
+    /// document's folder.
+    Site { root: String },
+    /// A doc: its chapter files in order, and its settings on paper.
+    Doc { chapters: Vec<PathBuf>, pdf: Pdf },
+    /// A deck: its slides in order.
     Slides {
         slides: Vec<Slide>,
         /// Who the talk is for and how it should sound, for its narrator.
@@ -203,9 +228,13 @@ pub enum Kind {
 /// sound, and how to say words a voice gets wrong.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Narration {
+    /// Who the talk is for.
     pub audience: Option<String>,
+    /// What the talk should achieve.
     pub goal: Option<String>,
+    /// How the talk should sound; `None` leaves the narrator's default tone.
     pub tone: Option<String>,
+    /// How to say the words a voice gets wrong, one instruction each.
     pub pronounce: Vec<String>,
 }
 
@@ -213,8 +242,11 @@ pub struct Narration {
 /// `<Notes>`, if it has one — and that `<Notes>`' `delivery`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Slide {
+    /// The slide's Markdown file: what it shows and its notes are read from.
     pub file: PathBuf,
+    /// The text of its first `<Notes>`; `None` when it has none.
     pub notes: Option<String>,
+    /// That `<Notes>`' `delivery`: how the narrator should say it.
     pub delivery: Option<String>,
 }
 
@@ -238,16 +270,27 @@ impl Slide {
 /// Which kind a document file names, read without loading the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KindName {
+    /// `kind: site` — the nearest one above a page is the site it belongs to.
     Site,
+    /// `kind: doc` — chapters shown, and printed, as one document.
     Doc,
+    /// `kind: slides` — a deck, whose `<deck>/<n>.png` addresses are drawn
+    /// from it.
     Slides,
 }
 
 /// A loaded document: its title, its folder, what it is, and where it is served.
 #[derive(Debug)]
 pub struct Document {
+    /// The extensions the document file configures, bound to it.
+    pub extensions: Vec<crate::extensions::Binding>,
+    /// The title it shows: as written, or a Markdown file's first heading —
+    /// its file name when it has none — or a design's file name.
     pub title: String,
+    /// The folder of the document file, which its paths are relative to.
     pub base: PathBuf,
+    /// What it is — a site, a doc, slides or a design — with its parts
+    /// resolved.
     pub kind: Kind,
     /// The document file's name inside `base`.
     pub file_name: String,
@@ -309,6 +352,7 @@ impl Document {
             .into_owned();
         if file.extension().is_some_and(|ext| ext == "design") {
             return Ok(Self {
+                extensions: Vec::new(),
                 served: served.clone(),
                 title: file
                     .file_stem()
@@ -329,6 +373,7 @@ impl Document {
         }
         if file.extension().is_some_and(|ext| ext == "md") {
             return Ok(Self {
+                extensions: Vec::new(),
                 served: served.clone(),
                 title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
@@ -353,6 +398,8 @@ impl Document {
         Self::parse(&text, base, file_name, served.clone()).with_context(|| format!("in {named}"))
     }
 
+    /// Reads a document file's YAML `text`, whose paths are relative to `base`,
+    /// checking each part is an existing file in `served`.
     fn parse(text: &str, base: PathBuf, file_name: String, served: ServedFolder) -> Result<Self> {
         // A part must be an existing file inside the served folder.
         let existing = |field: &str, path: &str| -> Result<PathBuf> {
@@ -368,6 +415,7 @@ impl Document {
         let mut show_sidebar = true;
         let show_selector;
         let logo_path;
+        let extension_configs;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
@@ -378,7 +426,9 @@ impl Document {
                 sidebar,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -410,7 +460,9 @@ impl Document {
                 widgets,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -433,7 +485,9 @@ impl Document {
                 widgets,
                 theme_selector,
                 logo,
+                extensions,
             } => {
+                extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -460,7 +514,22 @@ impl Document {
             },
             None => None,
         };
+        let mut extension_configs = extension_configs;
+        // `code` with no package is the system extension: the code reference,
+        // which only a site has pages for.
+        let code = match extension_configs.get("code") {
+            Some(config) if config.package.is_none() => {
+                if !matches!(kind, Kind::Site { .. }) {
+                    bail!("extensions: code: only a site has a code reference");
+                }
+                extension_configs.remove("code").map(|config| config.config)
+            }
+            _ => None,
+        };
+        crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
+        crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
         Ok(Self {
+            extensions: crate::extensions::for_document(&base.join(&file_name)),
             title,
             base,
             kind,
@@ -500,6 +569,8 @@ impl Document {
         self.part(part, self.name(part))
     }
 
+    /// Unwraps `named`, the address or name of `part`: panics when it is
+    /// `None`, as [`Document::part_url`] says.
     fn part(&self, part: &Path, named: Option<String>) -> String {
         named.unwrap_or_else(|| {
             panic!(

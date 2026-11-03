@@ -17,12 +17,22 @@ use super::markdown::markdown;
 
 /// One file's content as its page shows it.
 pub struct Rendered {
+    /// The file the content is read from.
     file: PathBuf,
+    /// The Markdown as written.
     source: String,
+    /// The Markdown its HTML is made from: the source transformed by the
+    /// extensions, its widgets' tags expanded.
     expanded: String,
+    /// The content's HTML, links as written.
     html: String,
+    /// Every link the content holds: each `href`, then each `src` and
+    /// extension embed, then each other design the Markdown embeds.
     links: Vec<Link>,
+    /// What the content draws from other files, as written.
     embeds: Vec<String>,
+    /// What the extensions and expanding the widgets' tags found wrong, each as
+    /// a message.
     tags: Vec<String>,
 }
 
@@ -31,8 +41,12 @@ pub struct Rendered {
 /// the line, when its text is found in the file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Link {
+    /// The file it is written in.
     pub file: PathBuf,
+    /// The line it is on, counting from 1; `None` when its text isn't found in
+    /// the file.
     pub line: Option<usize>,
+    /// What it names, as written.
     pub target: String,
 }
 
@@ -72,7 +86,8 @@ impl Rendered {
         super::markdown::heading_ids(&self.html)
     }
 
-    /// Every link the content holds, in the order its HTML holds them.
+    /// Every link the content holds: each `href`, then each `src` and
+    /// extension embed, then each other design the Markdown embeds.
     pub fn links(&self) -> &[Link] {
         &self.links
     }
@@ -95,10 +110,43 @@ impl Rendered {
 pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     let _render = tracing::info_span!("render").entered();
     let mut tags = Vec::new();
-    let expanded = crate::widgets::expand(&source, widgets.names(), &mut tags);
-    let html = markdown(&expanded);
+
+    let extensions: Vec<_> = widgets.extensions.iter().map(|b| b.snapshot()).collect();
+    let mut augmented = source.clone();
+    for binding in &extensions {
+        match binding.transform(file, &augmented) {
+            Ok(text) => augmented = text,
+            Err(error) => tags.push(format!("Extension: {error:#}")),
+        }
+    }
+    let expanded = crate::widgets::expand(&augmented, widgets.names(), &mut tags);
+    let grammars: Vec<_> = extensions.iter().filter_map(|b| b.grammar()).collect();
+    let mut extension_embeds = Vec::new();
+    let mut html = crate::highlight::with_grammars(&grammars, || markdown(&expanded));
+    for (identity, target) in crate::html::values(&html, "src").into_iter().enumerate() {
+        let path = target.split('#').next().unwrap_or(&target);
+        if let Some(binding) = extensions.iter().find(|b| b.owns(Path::new(path))) {
+            extension_embeds.push(target.clone());
+            match binding.embed(file, &target, "", identity) {
+                Ok(embed) => {
+                    let needle = format!("src=\"{}\"", crate::html::escape(&target));
+                    while let Some(at) = html.find(&needle) {
+                        let Some(start) = html[..at].rfind("<img ") else {
+                            break;
+                        };
+                        let Some(end) = html[at..].find('>') else {
+                            break;
+                        };
+                        html.replace_range(start..at + end + 1, &embed);
+                    }
+                }
+                Err(error) => tags.push(format!("Extension embed: {error:#}")),
+            }
+        }
+    }
     let mut targets = html::values(&html, "href");
     let mut embeds = html::values(&html, "src");
+    embeds.extend(extension_embeds);
     targets.extend(embeds.iter().cloned());
     // A design embedded with `![…](x.design)`, read from the Markdown itself,
     // whatever HTML the page renders it as.

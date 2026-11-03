@@ -15,15 +15,19 @@ use crate::scene::{
 };
 use crate::tree::{Children, NodeId};
 
+/// A color for the wire: its red, green, blue and alpha as one word, red the
+/// highest byte.
 fn word(c: Rgba) -> u32 {
     u32::from_be_bytes([c.r, c.g, c.b, c.a])
 }
 
+/// A color from the wire's word, red its highest byte.
 fn unword(v: u32) -> Rgba {
     let [r, g, b, a] = v.to_be_bytes();
     Rgba { r, g, b, a }
 }
 
+/// A color for the wire: its light and its dark value.
 fn rgba(c: Color) -> proto::Color {
     proto::Color {
         light: word(c.light),
@@ -40,6 +44,7 @@ fn color(c: Option<proto::Color>) -> Color {
     }
 }
 
+/// A size for the wire: pixels as they are, `-1` for hug and `-2` for fill.
 fn size(s: Size) -> f32 {
     match s {
         Size::Px(v) => v,
@@ -48,6 +53,7 @@ fn size(s: Size) -> f32 {
     }
 }
 
+/// A size from the wire: `-1` is hug, `-2` fill and anything else pixels.
 fn unsize(v: f32) -> Size {
     if v == -1.0 {
         Size::Hug
@@ -58,6 +64,7 @@ fn unsize(v: f32) -> Size {
     }
 }
 
+/// `a` as the wire's enum, one value for each.
 fn align(a: Align) -> proto::Align {
     match a {
         Align::Start => proto::Align::Start,
@@ -67,6 +74,7 @@ fn align(a: Align) -> proto::Align {
     }
 }
 
+/// An alignment from the wire; one it doesn't know is the start.
 fn unalign(a: i32) -> Align {
     match proto::Align::try_from(a).unwrap_or(proto::Align::Start) {
         proto::Align::Start => Align::Start,
@@ -76,6 +84,7 @@ fn unalign(a: i32) -> Align {
     }
 }
 
+/// A node for the wire, with everything under it.
 pub fn encode(n: &Node) -> proto::Node {
     proto::Node {
         kind: match n.kind {
@@ -163,15 +172,20 @@ pub fn encode_own(n: &Node) -> proto::Node {
     encode(&own)
 }
 
+/// `id` for the wire: its path of element ids, from the root through each
+/// instance, copied as is.
 fn node_id(id: &NodeId) -> proto::NodeId {
     proto::NodeId { path: id.0.clone() }
 }
 
+/// A node's id from the wire, or that the node has none.
 fn unnode_id(id: Option<&proto::NodeId>) -> Result<NodeId, String> {
     id.map(|i| NodeId(i.path.clone()))
         .ok_or_else(|| "a node with no id".to_string())
 }
 
+/// An image file's id from the wire's `bytes` — its SHA-256, so 32 of them;
+/// any other length is an error naming it.
 fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
     bytes
         .try_into()
@@ -179,6 +193,8 @@ fn image_id(bytes: &[u8]) -> Result<ImageId, String> {
         .map_err(|_| format!("an image file id of {} bytes, not 32", bytes.len()))
 }
 
+/// A font file's id from the wire's `bytes` — its SHA-256, so 32 of them;
+/// any other length is an error naming it.
 fn font_id(bytes: &[u8]) -> Result<FontId, String> {
     bytes
         .try_into()
@@ -281,6 +297,7 @@ pub fn scene(scene: &Scene) -> proto::Scene {
     }
 }
 
+/// A font file for the wire: its id and its bytes.
 fn font_file(f: &FontFile) -> proto::FontFile {
     proto::FontFile {
         id: f.id.0.to_vec(),
@@ -288,6 +305,7 @@ fn font_file(f: &FontFile) -> proto::FontFile {
     }
 }
 
+/// An image file for the wire: its id and its bytes.
 fn file(f: &ImageFile) -> proto::ImageFile {
     proto::ImageFile {
         id: f.id.0.to_vec(),
@@ -375,6 +393,7 @@ pub fn decode_scene(
     Ok(scene)
 }
 
+/// How many nodes the subtree of `n` holds, `n` included.
 fn count(n: &Node) -> usize {
     1 + n.children.iter().map(count).sum::<usize>()
 }

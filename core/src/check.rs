@@ -38,6 +38,10 @@ pub async fn document(
     let document = &*folder.entry();
     let mut external = Vec::new();
     let mut problems = internal(folder, designs, document, &mut external, None);
+    // Its code reference: prose naming nothing, a query that doesn't compile.
+    if let Some(code) = crate::code::for_document(&document.path()) {
+        problems.extend(code.problems());
+    }
     if let Kind::Design = document.kind {
         let address = document.part_name(&document.path());
         problems.extend(
@@ -64,8 +68,9 @@ pub async fn document(
 /// and in path order: the document file, its pages, chapters or slides and every page
 /// and document they reach, the images and files their links name, a design's
 /// imports, images, themes and fonts, the logo, and the project widgets with
-/// every module they import — what the document is made of, and nothing else
-/// beside it. External addresses are not followed. A design's files are the
+/// every module they import, and the files its code reference is made from
+/// ([`crate::code::Index::files`]) — what the document is made of, and
+/// nothing else beside it. External addresses are not followed. A design's files are the
 /// ones `designs`, the folder's design store, resolved it from.
 pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
     let mut files = BTreeSet::new();
@@ -76,19 +81,24 @@ pub fn files(folder: &Folder, designs: &Designs) -> Vec<PathBuf> {
         &mut Vec::new(),
         Some(&mut files),
     );
+    // A code reference is made from its code: a version carries it.
+    if let Some(code) = crate::code::for_document(&folder.entry().path()) {
+        files.extend(code.files());
+    }
     files.into_iter().collect()
 }
 
-/// Every file a slide of the deck at `deck` is drawn from, in path order:
-/// the deck's file, its slides, what each slide embeds — an image, a design
-/// and everything `designs` resolved it from, a font folder it listed among
-/// them, another deck's slide PNG and that deck's files in turn — and the
-/// deck's widgets folder with every widget in it and every module they
-/// import. Each folder itself is among them: a font added to a design's
-/// font folder changes the design, and a widget added, renamed or removed
-/// changes which tags on a slide are widgets. An embedded file that isn't there yet is named as it would
-/// be, so its arrival reaches the deck. A link a slide only points at is not
-/// what it is drawn from. A deck that can't be loaded is drawn from its file.
+/// Every file a slide of the deck at `deck` is drawn from, in path order: the
+/// deck's file, its slides, what each slide embeds — an image, a design and
+/// everything `designs` resolved it from, a font folder it listed among them,
+/// another deck's slide PNG and that deck's files in turn — and the deck's
+/// widgets folder with every widget in it and every module they import. Each
+/// folder itself is among them: a font added to a design's font folder changes
+/// the design, and a widget added, renamed or removed changes which tags on a
+/// slide are widgets. An embedded file that isn't there yet is named as it
+/// would be, so its arrival reaches the deck. A link a slide only points at is
+/// not what it is drawn from. A deck that can't be loaded is drawn from its
+/// file.
 pub fn drawn_from(
     deck: &Path,
     served: &ServedFolder,
@@ -100,6 +110,9 @@ pub fn drawn_from(
     files.into_iter().collect()
 }
 
+/// Adds to `files` what [`drawn_from`] names for the deck at `deck`, and for
+/// each deck whose slide PNG it embeds; a deck already in `files` adds
+/// nothing.
 fn deck_drawn_from(
     deck: &Path,
     served: &ServedFolder,
@@ -215,6 +228,9 @@ fn follow(
     }
 }
 
+/// The problems of `document` and of every page and document its links reach
+/// inside the served folder, its external links collected in `external`; with
+/// `files`, every file the walk follows is recorded there.
 fn internal(
     folder: &Folder,
     designs: &Designs,
@@ -420,6 +436,32 @@ fn page_links_with(
                 .file(&page.parent().unwrap_or(Path::new(".")).join(design))
         });
         let Some(resolved) = resolved else {
+            // A page of a code reference: there when the code has it, and
+            // its `#fragment` one of the page's sections.
+            let would_be =
+                crate::folder::lexical(&page.parent().unwrap_or(Path::new(".")).join(path));
+            if let Some(index) = crate::code::at(folder, &would_be) {
+                let problem = match index.ids(&would_be) {
+                    Some(ids) if fragment.is_empty() || ids.iter().any(|id| id == fragment) => None,
+                    Some(_) => Some(format!("broken link {target} — no section #{fragment}")),
+                    None => Some(match index.closest(&would_be) {
+                        Some(meant) => {
+                            format!("broken link {target} — no such code; did you mean {meant}?")
+                        }
+                        None => format!("broken link {target} — no such code"),
+                    }),
+                };
+                if let Some(message) = problem {
+                    problems.push(Problem {
+                        file: file.clone(),
+                        line,
+                        column: None,
+                        message,
+                        target: Some(target.clone()),
+                    });
+                }
+                continue;
+            }
             problems.push(Problem {
                 file: file.clone(),
                 line,
@@ -438,6 +480,20 @@ fn page_links_with(
             message: format!("broken link {target} — no heading #{fragment}"),
             target: Some(target.clone()),
         };
+        if !fragment.is_empty()
+            && let Some(binding) = crate::extensions::for_file(&resolved, folder)
+                .iter()
+                .find(|b| b.owns(&resolved))
+        {
+            match binding.ids(&resolved) {
+                Ok(ids) if ids.iter().any(|id| id == fragment) => {}
+                Ok(_) => problems.push(no_heading()),
+                Err(error) => problems.push(Problem {
+                    message: format!("extension target {target}: {error:#}"),
+                    ..no_heading()
+                }),
+            }
+        }
         if !fragment.is_empty()
             && resolved.extension().is_some_and(|ext| ext == "md")
             && fragment.parse::<usize>().is_err()
@@ -573,9 +629,6 @@ fn diagram_problems(source: &str, file: &str) -> Vec<Problem> {
         .collect()
 }
 
-/// The problems of a document's widgets folder, once per document rather than
-/// once per page: a file with a system widget's name, and every widget or
-/// helper that doesn't compile.
 /// The project widget files directly in `folder`, sorted.
 fn widget_files(folder: &Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
@@ -589,6 +642,9 @@ fn widget_files(folder: &Path) -> Vec<PathBuf> {
     files
 }
 
+/// The problems of a document's widgets folder, once per document rather than
+/// once per page: a file with a system widget's name, and every widget or
+/// helper that doesn't compile.
 fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let mut problems: Vec<Problem> = widgets
         .problems
@@ -637,6 +693,7 @@ fn relative(text: &str, served: &Path) -> String {
 /// Where the preview tells someone about a problem it has just found: the
 /// terminal in `devpage`, a recorder in tests.
 pub trait Report: Send + Sync {
+    /// Tells someone about `problem`.
     fn problem(&self, problem: &Problem);
 }
 
@@ -644,7 +701,9 @@ pub trait Report: Send + Sync {
 /// One per devpage process, shared by every page — or, in server mode, one
 /// per version.
 pub struct Preview {
+    /// The checker that asks the pages' external addresses.
     external: Arc<External>,
+    /// Where each problem is told the first time it is found.
     report: Arc<dyn Report>,
     /// Every problem reported so far: each is reported once.
     reported: Mutex<HashSet<Problem>>,
@@ -969,6 +1028,93 @@ mod external {
         )
         .unwrap();
         Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_link_into_the_code_reference_is_checked_against_the_code() {
+        let doc = folder(
+            "code-links",
+            "# Home\n\n[Store](reference/rust/my_lib/Store/read)\n[Gone](reference/rust/my_lib/Gone)\n[No member](reference/rust/my_lib/Store/write)\n[No section](reference/rust/my_lib/Store#nope)\n",
+        );
+        std::fs::create_dir_all(doc.base.join("lib/src")).unwrap();
+        std::fs::write(
+            doc.base.join("lib/Cargo.toml"),
+            "[package]\nname = \"my-lib\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("lib/src/lib.rs"),
+            "pub struct Store;\nimpl Store {\n    pub fn read(&self) {}\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "README.md:4: broken link reference/rust/my_lib/Gone — no such code; did you mean /reference/rust/my_lib/Store?",
+                "README.md:5: broken link reference/rust/my_lib/Store/write — no such code; did you mean /reference/rust/my_lib/Store/read?",
+                "README.md:6: broken link reference/rust/my_lib/Store#nope — no section #nope",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_prose_file_naming_no_code_is_a_problem() {
+        let doc = folder("code-prose", "# Home\n");
+        std::fs::create_dir_all(doc.base.join("lib/src")).unwrap();
+        std::fs::write(
+            doc.base.join("lib/Cargo.toml"),
+            "[package]\nname = \"my-lib\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("lib/src/lib.rs"),
+            "pub struct Store;\nimpl Store {\n    pub fn read(&self) {}\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("store.md"),
+            "# ``rust:my_lib::Store::read``\n\nMore.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("gone.md"),
+            "\n# ``rust:my_lib::Gone``\n\nMore.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("store_too.md"),
+            "# ``rust:my_lib::Store::read``\n\nAgain.\n",
+        )
+        .unwrap();
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found: Vec<String> = document(&opened(&doc), &designs_of(&doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        assert_eq!(
+            found,
+            [
+                "gone.md:2: ``rust:my_lib::Gone`` names no code",
+                "store_too.md:1: ``rust:my_lib::Store::read`` is added to by store.md already",
+            ]
+        );
     }
 
     #[tokio::test]

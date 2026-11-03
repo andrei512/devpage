@@ -21,7 +21,10 @@ use crate::folder::{ServedFolder, slashed};
 /// Thread files that don't parse, each with its error.
 type Unparsable = Vec<(PathBuf, String)>;
 
+/// The comment store as YAML files, one per thread, under the served folder's
+/// `.devpage/comments/`.
 pub struct Yaml {
+    /// The served folder whose threads it keeps.
     served: ServedFolder,
     /// Each thread file's bytes as open pages last heard of them — `None`
     /// once it is gone. Held while writing, so the watcher never reads a
@@ -30,6 +33,7 @@ pub struct Yaml {
 }
 
 impl Yaml {
+    /// The store of the threads in `served`, none of them heard of yet.
     pub fn new(served: &ServedFolder) -> Self {
         Self {
             served: served.clone(),
@@ -37,10 +41,12 @@ impl Yaml {
         }
     }
 
+    /// The served folder's `.devpage/`, the only folder the store writes in.
     fn root(&self) -> PathBuf {
         self.served.path().join(".devpage")
     }
 
+    /// The folder holding every page's threads: `.devpage/comments/`.
     fn comments(&self) -> PathBuf {
         self.root().join("comments")
     }
@@ -143,6 +149,7 @@ impl Yaml {
     }
 }
 
+/// The thread in the YAML file `file`.
 fn parse(file: &Path) -> Result<Thread> {
     Ok(serde_yaml::from_str(&std::fs::read_to_string(file)?)?)
 }

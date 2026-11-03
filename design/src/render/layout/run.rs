@@ -28,7 +28,9 @@ mod free;
 /// Which layout tree a node is in: the drawing's own, or a run's.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(in crate::render) enum Owner {
+    /// The drawing's own tree: every node not inside a run's child.
     Top,
+    /// The tree of the run in this slot.
     Run(u32),
 }
 
@@ -41,8 +43,11 @@ pub(in crate::render) fn is_run(node: &Node) -> bool {
 /// in, its own layout node, whether it stretches across, and the frames in
 /// it that hug their children.
 pub(in crate::render) struct Child {
+    /// The one-item container it is laid out in.
     pub(in crate::render) wrap: NodeId,
+    /// Its own layout node, the one item of `wrap`.
     pub(in crate::render) node: NodeId,
+    /// Whether it stretches across the line.
     pub(in crate::render) stretch: bool,
     /// Whether what it lays out to can depend on the room it is given —
     /// see [`sensitive`]; a child that can't is laid out once, whatever the
@@ -59,9 +64,15 @@ pub(in crate::render) struct Child {
 /// the line stretched it, as flexbox keeps a hypothetical main size.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Shape {
+    /// The room the ask offers across.
     room: AvailableSpace,
+    /// Whether along it is sized at its least: min-content rather than
+    /// max-content.
     least: bool,
+    /// The line's breadth it is laid out across; `None` when that is not
+    /// definite.
     line: Option<f32>,
+    /// The length along it is held to; `None` when it takes its own.
     basis: Option<f32>,
     /// The length along a `"fill"` child is given.
     main: Option<f32>,
@@ -72,8 +83,13 @@ struct Shape {
 /// along it is sized at its least.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::render) struct Ask {
+    /// The breadth its line takes, less the run's padding, when the ask fixes
+    /// it; `None` when the children set it.
     line: Option<f32>,
+    /// The room the run offers its children across, less its padding.
     room: AvailableSpace,
+    /// Whether along it is sized at its least: min-content rather than
+    /// max-content.
     least: bool,
     /// The run's length along, less its padding, when its ask fixes it and
     /// it has `"fill"` children, which share what its other children leave
@@ -89,14 +105,18 @@ pub(in crate::render) struct Ask {
 /// greatest of.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(in crate::render) struct Sized {
+    /// Its length along the run.
     pub(in crate::render) along: f32,
+    /// Its breadth across the run, as laid out.
     pub(in crate::render) across: f32,
+    /// Its breadth across before the line stretched it.
     pub(in crate::render) own: f32,
     /// Its length along before the line was known: what a stretched child
     /// keeps.
     pub(in crate::render) first: f32,
 }
 
+/// A length along a run: what its children's prefix sums add up.
 #[derive(Clone, Default, Debug)]
 pub(in crate::render) struct Length(pub(in crate::render) f64);
 
@@ -118,9 +138,16 @@ impl Item for Sized {
 /// the room they are given — and the line's breadth. Every other child takes
 /// one size under every ask: the run's `base`.
 pub(in crate::render) struct Asked {
+    /// The ask the sizes were laid out under.
     ask: Ask,
+    /// The line's breadth: the ask's when it fixes one, else what the children
+    /// set — the broadest one's own breadth, or what flexbox found for the
+    /// `"fill"` children.
     pub(in crate::render) line: f32,
+    /// The sizes of the children an ask can change, by key, summed along the
+    /// run.
     sizes: Sums<OrderKey, Sized>,
+    /// Those children's own breadths, counted, so the broadest is at hand.
     owns: BTreeMap<u32, usize>,
     /// With `"fill"` children, the run's length along as flexbox sizes the
     /// container — each fill child counting its basis, not its size.
@@ -133,13 +160,19 @@ const ASKS: usize = 4;
 /// A run's layout: its own tree of its children, how it sets them, and their
 /// sizes under each ask it keeps.
 pub(in crate::render) struct RunLayout {
+    /// Its own layout tree: each child in its one-item container.
     pub(in crate::render) tree: TaffyTree<Option<Leaf>>,
+    /// Its node's order: the order keys from the scene's root down to it.
     pub(in crate::render) order: Order,
     /// The tree its leaf is in, the leaf, and — in a run's tree — the key of
     /// that run's child it is inside.
     pub(in crate::render) owner: Owner,
+    /// Its leaf in the tree it sits in.
     pub(in crate::render) leaf: NodeId,
+    /// The key of the child it is inside, when its leaf is in a run's tree;
+    /// `None` otherwise.
     pub(in crate::render) inside: Option<OrderKey>,
+    /// Whether its children go along x; else along y.
     pub(in crate::render) row: bool,
     /// A frame with no layout: its children placed at their own `x` and `y`
     /// — each laid out alone against the frame's box, which hugs the
@@ -153,24 +186,37 @@ pub(in crate::render) struct RunLayout {
     /// on a root. Along any other its size is what it is given, or its
     /// padding — what taffy gives a box whose children are all placed.
     pub(in crate::render) hug: (bool, bool),
+    /// For a free run: each child's unrounded box, as `[x, y, width, height]`.
     boxes: BTreeMap<OrderKey, [f32; 4]>,
+    /// For a free run: how far right each child reaches, counted.
     rights: BTreeMap<u32, usize>,
+    /// For a free run: how far down each child reaches, counted.
     bottoms: BTreeMap<u32, usize>,
     /// Top, right, bottom, left.
     pub(in crate::render) padding: [f32; 4],
+    /// The room between one child and the next.
     pub(in crate::render) gap: f32,
+    /// Where the children sit along the run in the room they leave free.
     pub(in crate::render) justify: Align,
+    /// Where a child that doesn't stretch sits across its line.
     pub(in crate::render) align: Align,
+    /// Every child, by its key.
     pub(in crate::render) children: BTreeMap<OrderKey, Child>,
+    /// The children that changed since the run was last asked: laid out again
+    /// when it next is.
     stale: BTreeSet<OrderKey>,
+    /// The sizes under each ask kept, the latest asked last: at most [`ASKS`].
     asked: Vec<Asked>,
     /// The size of each child whose size is the same under every ask, and
     /// their breadths before any stretch, counted.
     base: Sums<OrderKey, Sized>,
+    /// The base's own breadths, counted, so the broadest is at hand.
     base_owns: BTreeMap<u32, usize>,
-    /// The children that stretch across, and those whose size an ask can
-    /// change — the children an ask lays out.
+    /// The children that stretch across: laid out again across the line once
+    /// an ask knows its breadth.
     stretched: BTreeSet<OrderKey>,
+    /// The children whose sizes are kept per ask rather than in the base:
+    /// those that stretch, those the room can change, and the `"fill"` ones.
     overs: BTreeSet<OrderKey>,
     /// The children laid out since the drawing last read the run: what it
     /// visits.
@@ -182,8 +228,12 @@ pub(in crate::render) struct RunLayout {
     /// children against exactly the room the others leave, over the fill
     /// children alone.
     fills: BTreeMap<OrderKey, NodeId>,
+    /// The tree the `"fill"` children's share of the free room is found in.
     flex: TaffyTree<Option<Leaf>>,
+    /// The flex tree's one-line container.
     flexer: NodeId,
+    /// The flex tree's spacer, as long as every child but the `"fill"` ones
+    /// and every gap together.
     spacer: NodeId,
     /// Whether a child was taken out since the run was last asked.
     gone: bool,
@@ -192,11 +242,15 @@ pub(in crate::render) struct RunLayout {
 /// Every run's layout, by its slot.
 #[derive(Default)]
 pub(in crate::render) struct Runs {
+    /// Each slot's run; `None` while it is reserved, taken out or free.
     slots: Vec<Option<RunLayout>>,
+    /// The slots freed, to reuse.
     free: Vec<u32>,
 }
 
 impl Runs {
+    /// A slot for a new run, a freed one first; empty until the run is
+    /// [`put`](Self::put) in it.
     pub(in crate::render) fn reserve(&mut self) -> u32 {
         match self.free.pop() {
             Some(id) => id,
@@ -207,18 +261,23 @@ impl Runs {
         }
     }
 
+    /// Puts `run` in slot `id` — one [`reserve`](Self::reserve) gave, or one
+    /// it was [`take`](Self::take)n from — replacing whatever is there.
     pub(in crate::render) fn put(&mut self, id: u32, run: RunLayout) {
         self.slots[id as usize] = Some(run);
     }
 
+    /// Takes the run out of slot `id`, to be put back; it must be there.
     pub(in crate::render) fn take(&mut self, id: u32) -> RunLayout {
         self.slots[id as usize].take().expect("a run in its slot")
     }
 
+    /// The run in slot `id`; it must be there.
     pub(in crate::render) fn get(&self, id: u32) -> &RunLayout {
         self.slots[id as usize].as_ref().expect("a run in its slot")
     }
 
+    /// The run in slot `id`, to change; it must be there.
     pub(in crate::render) fn get_mut(&mut self, id: u32) -> &mut RunLayout {
         self.slots[id as usize].as_mut().expect("a run in its slot")
     }
@@ -263,6 +322,8 @@ impl Runs {
 }
 
 impl RunLayout {
+    /// The layout of `node`'s run, with no children yet: `leaf` in `owner`'s
+    /// tree, inside its child `inside`.
     pub(in crate::render) fn new(
         node: &Node,
         order: Order,
@@ -458,6 +519,8 @@ impl RunLayout {
         self.overs.remove(key);
     }
 
+    /// The style of a child's one-item container: a flex line in the run's
+    /// direction, or for a free run the frame's box.
     fn wrap_style(&self) -> Style {
         if self.free {
             // The frame itself, as its children see it: the box they are
@@ -479,11 +542,13 @@ impl RunLayout {
         }
     }
 
+    /// The padding before and after the children along the run.
     pub(in crate::render) fn padding_along(&self) -> (f32, f32) {
         let [t, r, b, l] = self.padding;
         if self.row { (l, r) } else { (t, b) }
     }
 
+    /// The padding before and after the line across the run.
     pub(in crate::render) fn padding_across(&self) -> (f32, f32) {
         let [t, r, b, l] = self.padding;
         if self.row { (t, b) } else { (l, r) }
@@ -549,14 +614,17 @@ impl RunLayout {
     }
 }
 
+/// `v` as a key that orders as it does: its bits, a negative one taken as 0.
 fn own_key(v: f32) -> u32 {
     v.max(0.0).to_bits()
 }
 
+/// Counts `v` into `owns`.
 fn count(owns: &mut BTreeMap<u32, usize>, v: f32) {
     *owns.entry(own_key(v)).or_default() += 1;
 }
 
+/// Counts `v` out of `owns`; a value never counted in is left alone.
 fn uncount(owns: &mut BTreeMap<u32, usize>, v: f32) {
     let k = own_key(v);
     if let Some(n) = owns.get_mut(&k) {
@@ -567,6 +635,7 @@ fn uncount(owns: &mut BTreeMap<u32, usize>, v: f32) {
     }
 }
 
+/// The greatest value counted in `owns`; 0 when there is none.
 fn greatest(owns: &BTreeMap<u32, usize>) -> f32 {
     owns.keys().next_back().map_or(0.0, |k| f32::from_bits(*k))
 }

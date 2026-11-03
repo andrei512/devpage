@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 /// `POST /api/documents/<id>/versions`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Published {
+    /// The document's id: a hyphenated UUID, given on its first publish.
     pub id: String,
+    /// The number the publish was given, from 1.
     pub version: u64,
     /// The latest version's link, from the top of the server: `/d/<id>`.
     pub url: String,
@@ -23,32 +25,49 @@ pub struct Published {
 /// A document as `GET /api/documents` lists it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Listed {
+    /// The document's id: a hyphenated UUID, the `<id>` in its links.
     pub id: String,
+    /// The latest version's kind: `site`, `doc`, `slides`….
     pub kind: String,
+    /// The latest version's title.
     pub title: String,
+    /// The latest version's number.
     pub latest: u64,
 }
 
 /// A document and its versions, as `GET /api/documents/<id>` answers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Described {
+    /// The document's id: a hyphenated UUID, the `<id>` in its links.
     pub id: String,
+    /// The latest version's kind: `site`, `doc`, `slides`….
     pub kind: String,
+    /// The latest version's title.
     pub title: String,
+    /// The latest version's number.
     pub latest: u64,
+    /// When its first version was published, in UTC as `YYYY-MM-DDTHH:MM:SSZ`.
     pub created: String,
+    /// Every version still kept, oldest first.
     pub versions: Vec<Version>,
 }
 
 /// One publish of a document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Version {
+    /// The version's number, from 1.
     pub number: u64,
+    /// The kind of document this version is.
     pub kind: String,
+    /// This version's title.
     pub title: String,
+    /// Who published it, as the author header named them.
     pub author: String,
+    /// When it was published, in UTC as `YYYY-MM-DDTHH:MM:SSZ`.
     pub published: String,
+    /// The zip's size in bytes.
     pub size: u64,
+    /// The zip's SHA-256, in lowercase hex.
     pub sha256: String,
 }
 
@@ -57,34 +76,46 @@ pub struct Version {
 /// version, the version it left, its anchor and its messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Thread {
+    /// The thread's id, which a reply to it is posted under.
     pub id: String,
+    /// The page it is on: a file's path from the top of the document.
     pub page: String,
+    /// The version it was started on.
     pub version: u64,
+    /// Whether its text is gone from the latest version.
     pub detached: bool,
     /// The version whose publish found its text gone; `None` while attached.
     pub detached_in: Option<u64>,
+    /// The text it is attached to.
     pub anchor: Anchor,
+    /// Its messages, oldest first.
     pub thread: Vec<Message>,
 }
 
 /// A thread to start: `POST /api/documents/<id>/comments`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NewThread {
+    /// The page to start it on: a file's path from the top of the document.
     pub page: String,
+    /// The text to attach it to.
     pub anchor: Anchor,
+    /// The thread's first message, by the request's author.
     pub text: String,
 }
 
 /// What starting a thread answers: its id and the version it is on.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Started {
+    /// The new thread's id, which replies to it are posted under.
     pub id: String,
+    /// The latest version, which it was started on.
     pub version: u64,
 }
 
 /// A reply: `POST /api/documents/<id>/comments/<thread>/replies`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Reply {
+    /// The message added to the thread, by the request's author.
     pub text: String,
 }
 
@@ -114,6 +145,8 @@ impl Refusal {
         }
     }
 
+    /// The HTTP status the refusal is answered with; a `Failed` status outside
+    /// 100–999 becomes `500`.
     pub fn status(&self) -> StatusCode {
         match self {
             Refusal::NotFound => StatusCode::NOT_FOUND,
@@ -125,6 +158,7 @@ impl Refusal {
         }
     }
 
+    /// The refusal's text; empty for `NotFound`.
     fn text(&self) -> &str {
         match self {
             Refusal::NotFound => "",

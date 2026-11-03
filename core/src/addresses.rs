@@ -30,11 +30,13 @@ pub struct Asset {
     pub hashed: &'static str,
     /// The first 16 hex digits of the SHA-256 of its bytes.
     pub hash: &'static str,
+    /// Its media type, sent as `Content-Type`: `text/javascript`.
     pub mime: &'static str,
     /// Its bytes, its references to other assets already content-addressed.
     pub identity: &'static [u8],
     /// The same bytes, compressed — `None` when that is no smaller.
     pub brotli: Option<&'static [u8]>,
+    /// The same bytes, gzipped — `None` when that is no smaller.
     pub gzip: Option<&'static [u8]>,
 }
 

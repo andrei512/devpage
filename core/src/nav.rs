@@ -19,8 +19,12 @@ use crate::html::Link;
 /// among them — is left out of the tree.
 #[derive(Debug, PartialEq)]
 pub struct Entry {
+    /// The text of the link that lists it.
     pub label: String,
+    /// The page or document file it opens.
     pub file: PathBuf,
+    /// Its own children: a page's Topics, a code reference's crates, modules
+    /// and types, or none for any other document.
     pub children: Vec<Group>,
 }
 
@@ -28,15 +32,20 @@ pub struct Entry {
 /// links listed before any group heading.
 #[derive(Debug, PartialEq)]
 pub struct Group {
+    /// The `###` heading; `None` for links listed before any.
     pub title: Option<String>,
+    /// Its entries, in list order.
     pub entries: Vec<Entry>,
 }
 
 /// A link listed in a Topics section, before it is resolved to a file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Topic {
+    /// The `###` heading it is listed under; `None` before any.
     pub group: Option<String>,
+    /// The link's text, trimmed.
     pub label: String,
+    /// The link's target, as written.
     pub href: String,
 }
 
@@ -53,6 +62,8 @@ thread_local! {
 struct Read(HashMap<PathBuf, Option<Vec<Topic>>>);
 
 impl Read {
+    /// `page`'s Topics, read the first time it is asked for; `None` when it
+    /// can't be read.
     fn topics(&mut self, page: &Path) -> Option<Vec<Topic>> {
         self.0
             .entry(page.to_path_buf())
@@ -124,6 +135,8 @@ fn homes(document: &Document, root: &Path, read: &mut Read) -> HashMap<PathBuf, 
     homes
 }
 
+/// The groups of entries `page` lists, recursively: each listed page whose
+/// position, by `homes`, is this listing.
 fn children(
     document: &Document,
     page: &Path,
@@ -151,7 +164,11 @@ fn children(
             children: if page_target {
                 children(document, &file, homes, read)
             } else {
-                Vec::new()
+                // A code reference lists its crates, modules and types, as
+                // DocC's navigator does.
+                crate::code::for_document(&document.path())
+                    .map(|index| index.navigator(&file))
+                    .unwrap_or_default()
             },
             file,
         };
@@ -189,6 +206,13 @@ pub fn resolve(document: &Document, page: &Path, href: &str) -> Target {
         .parent()
         .and_then(|folder| document.served.file(&folder.join(path)))
     else {
+        // A page of the site's code reference opens like a document.
+        let would_be = crate::folder::lexical(&page.parent().unwrap_or(Path::new(".")).join(path));
+        if crate::code::for_document(&document.path())
+            .is_some_and(|index| index.page(&would_be).is_some())
+        {
+            return Target::Document(would_be);
+        }
         return Target::Problem(format!("Topics entry {href} — no such file"));
     };
     if target.extension().is_some_and(|ext| ext == "md") {
@@ -238,6 +262,8 @@ pub fn topics(source: &str) -> Vec<Topic> {
     topics
 }
 
+/// The text and target of the first link inside `node`; `None` when it has
+/// none.
 fn first_link<'a>(node: &'a AstNode<'a>) -> Option<(String, String)> {
     node.descendants()
         .find_map(|descendant| match &descendant.data.borrow().value {
@@ -246,6 +272,7 @@ fn first_link<'a>(node: &'a AstNode<'a>) -> Option<(String, String)> {
         })
 }
 
+/// The text of `node`: its text and inline code, without the markup.
 fn text<'a>(node: &'a AstNode<'a>) -> String {
     node.descendants()
         .filter_map(|descendant| match &descendant.data.borrow().value {

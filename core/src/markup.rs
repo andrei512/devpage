@@ -42,8 +42,11 @@ pub fn title(source: &str, path: &Path) -> String {
 /// and its `delivery` attribute — how the narrator should sound saying it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Note {
+    /// The line the `<Notes>` starts on, counting from 1.
     pub line: usize,
+    /// What it says: the text between its tags, trimmed.
     pub text: String,
+    /// Its `delivery` attribute; `None` when it has none.
     pub delivery: Option<String>,
 }
 
@@ -94,11 +97,16 @@ pub fn notes(source: &str) -> Vec<Note> {
     found
 }
 
+/// An open tag at the start of some text, `<Name a="x" b={expr}>` or `<Name …
+/// />`, as [`parse_open`] reads it.
 pub(crate) struct OpenTag {
+    /// The tag's name: the letters and digits after `<`.
     pub(crate) name: String,
     /// The props as a JavaScript object literal.
     pub(crate) props: String,
+    /// Its length in bytes, through its `>`.
     pub(crate) len: usize,
+    /// Whether it ends `/>`, so it has no content and no close tag.
     pub(crate) self_closing: bool,
 }
 

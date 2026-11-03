@@ -5,69 +5,101 @@ use crate::Problem;
 /// A line and column, both from 1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Pos {
+    /// The line, counting from 1.
     pub line: u32,
+    /// The column, counting from 1, in chars.
     pub col: u32,
 }
 
+/// A parsed `.design` file: its imports, then its one root element.
 #[derive(Debug, Clone, PartialEq)]
 pub struct File {
+    /// Its imports, in the order written.
     pub imports: Vec<Import>,
+    /// The root element, which holds every other.
     pub root: Element,
     /// The id the file's next new element takes: one past every id its
     /// elements have, or ever had (see [`crate::ids`]).
     pub next_id: u32,
 }
 
+/// An import: `import Name from "path"`, which makes another design file usable
+/// as an element.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Import {
+    /// The name the imported design is used under, as an element's name.
     pub name: String,
+    /// The imported file's path, as written.
     pub path: String,
+    /// Where `import` starts.
     pub pos: Pos,
 }
 
+/// An element: `<Name attr={…}>children</Name>`, or one that closes itself.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Element {
     /// The element's id, unique in its file and kept across edits: numbered
     /// in order by [`parse`], matched against the last parse by
     /// [`crate::ids::matched`].
     pub id: u32,
+    /// Its tag name: a built-in like `Frame` or `Text`, or an import's name.
     pub name: String,
+    /// Its attributes, in the order written.
     pub attrs: Vec<Attr>,
+    /// What it holds, in order: elements and runs of text.
     pub children: Vec<Child>,
+    /// Where its `<` is.
     pub pos: Pos,
 }
 
+/// What an element holds: an element, or the text between two tags.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Child {
+    /// An element inside it.
     Element(Element),
+    /// The text between two tags and the props written in it, collapsed as
+    /// JSX does, and where it starts.
     Text(Vec<TextPart>, Pos),
 }
 
+/// A piece of the text between two tags.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TextPart {
+    /// Text as written.
     Literal(String),
+    /// `{name}`: the value of prop `name`.
     Prop(String),
     /// `{theme.name}`, which is a color and so never text: written where it
     /// is, so the resolver can say so there.
     Theme(String, Pos),
 }
 
+/// An attribute: `name="…"`, `name={…}`, or a bare `name`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attr {
+    /// What it sets, like `fill`, or a prop an imported design takes.
     pub name: String,
+    /// Its value: `true` for a bare attribute.
     pub value: Value,
+    /// Where its name starts.
     pub pos: Pos,
 }
 
+/// An attribute's value, or a part of one.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     /// A string, and where its opening quote is: a gradient names theme
     /// colors inside one.
     Str(String, Pos),
+    /// A number, within ±[`MAX_NUMBER`].
     Num(f64),
+    /// `true` or `false`.
     Bool(bool),
+    /// `[…]`: values in order.
     Array(Vec<Value>),
+    /// `{ key: … }`: each key with its value, in the order written.
     Object(Vec<(String, Value)>),
+    /// A bare name: the value of the prop it names.
     Prop(String),
     /// `theme.name`, a color from the themes of the file it is written in,
     /// and where `theme` starts.
@@ -136,10 +168,15 @@ pub(crate) fn number_all(el: &mut Element, next: &mut u32) {
     }
 }
 
+/// The parser's place in a file's text as it reads it.
 struct Parser {
+    /// The whole text, as chars.
     chars: Vec<char>,
+    /// The index in `chars` of the next char.
     at: usize,
+    /// The line of the next char, from 1.
     line: u32,
+    /// The column of the next char, from 1.
     col: u32,
     /// How many elements, arrays and objects enclose the current place.
     depth: usize,
@@ -158,6 +195,7 @@ pub const THEME: &str = "theme";
 pub const MAX_NUMBER: f64 = 1_000_000.0;
 
 impl Parser {
+    /// Where the next char is.
     fn pos(&self) -> Pos {
         Pos {
             line: self.line,
@@ -165,6 +203,8 @@ impl Parser {
         }
     }
 
+    /// A problem saying `message` at the next char, its file left empty for the
+    /// caller to name.
     fn problem(&self, message: &str) -> Problem {
         Problem {
             file: String::new(),
@@ -173,14 +213,18 @@ impl Parser {
         }
     }
 
+    /// The next char; `None` at the end of the text.
     fn peek(&self) -> Option<char> {
         self.chars.get(self.at).copied()
     }
 
+    /// The char `n` past the next one; `None` past the end.
     fn peek_at(&self, n: usize) -> Option<char> {
         self.chars.get(self.at + n).copied()
     }
 
+    /// Takes the next char, moving the line and column past it; `None` at the
+    /// end.
     fn bump(&mut self) -> Option<char> {
         let c = self.peek()?;
         self.at += 1;
@@ -210,6 +254,7 @@ impl Parser {
         }
     }
 
+    /// Whether `word` comes next as a whole word, not the start of a longer name.
     fn peek_word(&self, word: &str) -> bool {
         word.chars()
             .enumerate()
@@ -219,6 +264,7 @@ impl Parser {
                 .is_some_and(|c| c.is_alphanumeric() || c == '_')
     }
 
+    /// Takes `word` as a whole word, or says it was expected.
     fn expect_word(&mut self, word: &str) -> Result<(), Problem> {
         if !self.peek_word(word) {
             return Err(self.problem(&format!("expected `{word}`")));
@@ -229,6 +275,7 @@ impl Parser {
         Ok(())
     }
 
+    /// Takes `c`, or says it was expected.
     fn expect(&mut self, c: char) -> Result<(), Problem> {
         if self.peek() != Some(c) {
             return Err(self.problem(&format!("expected `{c}`")));
@@ -237,6 +284,8 @@ impl Parser {
         Ok(())
     }
 
+    /// A name: letters, digits, `_`, and `-` after the first char; never one that
+    /// starts with a digit.
     fn ident(&mut self) -> Result<String, Problem> {
         let mut s = String::new();
         while let Some(c) = self.peek() {
@@ -282,6 +331,7 @@ impl Parser {
         }
     }
 
+    /// An element and everything in it, one level of nesting deeper.
     fn element(&mut self) -> Result<Element, Problem> {
         let pos = self.pos();
         self.deeper()?;
@@ -290,6 +340,8 @@ impl Parser {
         element
     }
 
+    /// An element from its `<`, which is at `pos`: its name, its attributes — a
+    /// bare one `true` — and its children, unless it closes itself.
     fn element_inner(&mut self, pos: Pos) -> Result<Element, Problem> {
         self.expect('<')?;
         let name = self.ident()?;
@@ -341,6 +393,8 @@ impl Parser {
         })
     }
 
+    /// What element `parent` holds, up to and through its closing tag: elements,
+    /// and runs of text with `{prop}` and `{theme.name}` in them.
     fn children(&mut self, parent: &str) -> Result<Vec<Child>, Problem> {
         let mut children = Vec::new();
         let mut text: Vec<TextPart> = Vec::new();
@@ -397,6 +451,7 @@ impl Parser {
         }
     }
 
+    /// An attribute's value after its `=`: a quoted string, or a value in braces.
     fn attr_value(&mut self) -> Result<Value, Problem> {
         match self.peek() {
             Some('"' | '\'') => {
@@ -415,6 +470,7 @@ impl Parser {
         }
     }
 
+    /// A value inside braces; an array or object is one level of nesting deeper.
     fn value(&mut self) -> Result<Value, Problem> {
         // Only arrays and objects nest, so only they count toward the limit.
         let nests = matches!(self.peek(), Some('[' | '{'));
@@ -428,6 +484,8 @@ impl Parser {
         value
     }
 
+    /// A value inside braces: a string, array, object, number, `true` or `false`,
+    /// `theme.name`, or a prop's name.
     fn value_inner(&mut self) -> Result<Value, Problem> {
         match self.peek() {
             Some('"' | '\'') => {
@@ -565,6 +623,8 @@ fn flush_text(literal: &mut String, text: &mut Vec<TextPart>, children: &mut Vec
     }
 }
 
+/// Literal text as JSX keeps it: on one line, as written; across lines, each
+/// line trimmed, blank ones dropped, and the rest joined with one space.
 fn collapse(s: &str) -> String {
     let lines: Vec<&str> = s.split('\n').collect();
     if lines.len() == 1 {

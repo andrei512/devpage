@@ -1,7 +1,8 @@
-//! The document index: which files of the served folder are document files
-//! and of what kind, and which paths its `.gitignore` files exclude. Built
-//! once when the folder is opened and kept current by [`Folder::changed`](super::Folder::changed),
-//! so answering a request never scans folders.
+//! The document index: which files of the served folder are document files and
+//! of what kind, and which paths its `.gitignore` files exclude. Built once
+//! when the folder is opened and kept current by
+//! [`Folder::changed`](super::Folder::changed), so answering a request never
+//! scans folders.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -13,11 +14,17 @@ use ignore::gitignore::Gitignore;
 use super::ServedFolder;
 use crate::document::{KindName, kind_of};
 
+/// The document index of one served folder, safe to read and update from any
+/// thread.
 pub(super) struct Index {
+    /// The served folder indexed; a path outside it is out of sight.
     served: ServedFolder,
+    /// The document files and `.gitignore` rules found so far.
     inner: RwLock<Inner>,
 }
 
+/// What the index has found: the served folder's document files and
+/// `.gitignore` rules.
 #[derive(Default)]
 struct Inner {
     /// Every document file, by its canonical path.
@@ -179,12 +186,14 @@ impl Index {
         inner.ignores.extend(ignores);
     }
 
+    /// The index for reading, even after a panic poisoned the lock.
     fn read(&self) -> std::sync::RwLockReadGuard<'_, Inner> {
         self.inner
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// The index for writing, even after a panic poisoned the lock.
     fn write(&self) -> std::sync::RwLockWriteGuard<'_, Inner> {
         self.inner
             .write()

@@ -14,9 +14,13 @@ use super::*;
 /// A cached tile: what it holds, what it costs, whether damage made it
 /// stale, and when it was last used.
 struct Entry<T> {
+    /// What the tile holds.
     value: T,
+    /// What it counts against the cache's cap.
     cost: usize,
+    /// Whether damage overlapped it since it was painted.
     stale: bool,
+    /// The cache's clock when it was last used: its key in `by_use`.
     used: u64,
 }
 
@@ -26,14 +30,21 @@ struct Entry<T> {
 /// still there, and says so, until it is painted again. What a tile holds is
 /// the cache's user's: pixels in the server, a texture on the GPU.
 pub struct Cache<T, K: Tiled = Key> {
+    /// The most the tiles may cost together.
     cap: usize,
+    /// What the tiles held cost together.
     cost: usize,
+    /// Counts each use, so the latest has the highest number.
     clock: u64,
+    /// Every tile held, by key.
     entries: HashMap<K, Entry<T>>,
+    /// Every tile's key by when it was last used, oldest first: what to drop
+    /// next.
     by_use: BTreeMap<u64, K>,
 }
 
 impl<T, K: Tiled> Cache<T, K> {
+    /// An empty cache whose tiles may cost `cap` together.
     pub fn new(cap: usize) -> Cache<T, K> {
         Cache {
             cap,
@@ -156,10 +167,12 @@ impl<T, K: Tiled> Cache<T, K> {
         self.entries.drain().map(|(_, e)| e.value).collect()
     }
 
+    /// How many tiles it holds.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Whether it holds no tiles.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

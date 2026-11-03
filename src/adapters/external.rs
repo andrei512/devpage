@@ -72,6 +72,7 @@ impl Background for Tokio {
 pub struct Http(reqwest::Client);
 
 impl Http {
+    /// A client that names itself `devpage/<version>` and accepts HTML first.
     pub fn new() -> Self {
         Http(
             reqwest::Client::builder()
@@ -108,6 +109,8 @@ impl Ask for Http {
     }
 }
 
+/// `wait` as a reader says it: whole seconds when it is a whole number of
+/// them, milliseconds otherwise.
 fn seconds(wait: Duration) -> String {
     let millis = wait.as_millis();
     if millis.is_multiple_of(1000) {

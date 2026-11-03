@@ -412,3 +412,32 @@ A site's bar across the top: its title, then the links, dropdowns and icons its 
 ## token
 
 A CSS custom property in `core/assets/style.css` — `--accent`, `--syntax-string` — that the page, its code and its diagrams take their colors and fonts from.
+
+## code reference
+
+A page for every module, type and function of the code a site names, made from the code when it is asked for and never written to disk. A site enables it as the system extension `code` ([Code reference](../code-reference/README.md)).
+
+## system extension
+
+An extension built into devpage, enabled under `extensions:` with no `package`: `code`.
+
+## namespace
+
+One language's files in a code reference, under one name: the first part of its items' ids (`rust:…`) and of their addresses (`reference/rust/…`). The code calls it `Namespace`.
+
+## item
+
+A module, type, function, constant, static or macro of a code reference: what has a page of its own and is listed on its module's page. The code calls it `Item`.
+
+## member
+
+A field, variant, associated function or method of an item, with a page under its type's — `Answers/path` — and listed on the type's page. The code calls it `Member`.
+
+## id
+
+An item's or a member's name in a code reference, `<namespace>:<path>` with the language's separator: `rust:devpage_core::answer::Answers`. A prose file names what it adds to by it.
+
+## prose file
+
+A Markdown file of a site whose first non-blank line is a heading of an id between double backticks, ``# ``rust:devpage_core::answer::Answers`` ``: what follows is added to that item's or member's page.
+

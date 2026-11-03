@@ -61,6 +61,8 @@ Each card opens the page that explains it.
 - (file-text) [Writing a doc](writing-a-doc/README.md) — Chapters, the outline, and the PDF's paper, header and footer.
 - (presentation) [Making slides](making-slides/README.md) — One file per slide on a 16:9 stage.
 - (puzzle) [Widgets](widgets/README.md) — React components as tags in Markdown, devpage's and your own.
+- (puzzle) [Extensions](extensions/README.md) — Local Rust packages adding watched knowledge, rendering and full document views.
+- (braces) [Code reference](code-reference/README.md) — A page for every module, type and function of the code, read with tree-sitter.
 - (workflow) [Diagrams](diagrams/README.md) — Mermaid fences drawn as SVG, with nodes that are links.
 - (frame) [Designs](designs/README.md) — A UI as a `.design` file: a canvas to click through, an embed in any page, a PNG for the agent.
 
@@ -142,6 +144,10 @@ Each card opens the page that explains it.
   them, the system widgets, and writing a project's own.
 - [Designs](designs/README.md) — writing a design as code, props and
   instances, prototypes, embedding one in a page, and its PNG.
+- [Code reference](code-reference/README.md) — a page for every module, type
+  and function of a site's code, read with tree-sitter, live, and checked when
+  prose links to it.
+- [Extensions](extensions/README.md) — Enabling a local Rust package without assembling another executable.
 
 ### Mechanisms
 

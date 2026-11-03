@@ -18,6 +18,7 @@ use crate::drive::server_mode::published::{Deletion, Mount, Published};
 /// `devpage.yml` when it is left out.
 #[derive(serde::Deserialize)]
 pub struct Entry {
+    /// The entry's path in the zip; `None` means `devpage.yml`.
     entry: Option<String>,
 }
 
@@ -69,6 +70,8 @@ pub async fn add_version(
     Ok(answer(id, version))
 }
 
+/// The `201` a publish answers: the document's id, the version's number and
+/// the latest version's link.
 fn answer(id: String, version: u64) -> Response {
     let url = Mount::Latest.path(&id);
     (StatusCode::CREATED, Json(Answer { id, version, url })).into_response()
@@ -89,6 +92,7 @@ pub async fn get_one(
     Ok(Json(described(document, versions)).into_response())
 }
 
+/// A stored document as `GET /api/documents` lists it.
 fn listed(row: DocumentRow) -> Listed {
     Listed {
         id: row.id,
@@ -98,6 +102,8 @@ fn listed(row: DocumentRow) -> Listed {
     }
 }
 
+/// A stored document and its versions as `GET /api/documents/<id>` answers
+/// them.
 fn described(row: DocumentRow, versions: Vec<VersionRow>) -> Described {
     Described {
         id: row.id,

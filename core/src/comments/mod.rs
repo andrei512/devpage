@@ -32,31 +32,42 @@ use crate::widgets::{Modules, Widgets};
 /// What a thread is attached to: rendered text, with a little context.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Anchor {
+    /// The text the thread is attached to, as the page shows it.
     pub quote: String,
+    /// The text just before `quote`, which tells repeats of it apart.
     #[serde(default)]
     pub prefix: String,
+    /// The text just after `quote`, which tells repeats of it apart.
     #[serde(default)]
     pub suffix: String,
 }
 
+/// One message in a thread: who wrote it, when, and what.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Message {
+    /// Who wrote it, as [`Identity::author`] named them.
     pub author: String,
+    /// When it was written: RFC 3339 UTC, to the second.
     pub at: String,
+    /// What it says, as written.
     pub text: String,
 }
 
 /// A thread as stored: its anchor and its messages, oldest first.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Thread {
+    /// What the thread is attached to.
     pub anchor: Anchor,
+    /// Its messages, oldest first.
     pub thread: Vec<Message>,
 }
 
 /// A thread with its id, as the page receives it.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct Listed {
+    /// The thread's id, which replies and resolves go by.
     pub id: String,
+    /// The thread itself; its fields sit beside `id` on the wire.
     #[serde(flatten)]
     pub thread: Thread,
     /// Its text is gone from the version shown: the page lists it among the
@@ -70,7 +81,10 @@ pub struct Listed {
 /// the pages they are on. Made by [`Comments::carry`].
 #[derive(Debug, Default, PartialEq)]
 pub struct Carry {
+    /// Each thread that moves, once.
     moved: Vec<Moved>,
+    /// The page key of each page a moved thread is on: what
+    /// [`Comments::carried`] announces.
     pages: std::collections::BTreeSet<String>,
 }
 
@@ -85,7 +99,9 @@ impl Carry {
 /// when its text is gone.
 #[derive(Debug, PartialEq)]
 pub struct Moved {
+    /// The thread's id, the same on the new version.
     pub id: String,
+    /// Its anchor in the new version; `None` when it is detached.
     pub anchor: Option<Anchor>,
 }
 
@@ -151,7 +167,9 @@ impl From<anyhow::Error> for Refused {
 /// header. devpage authenticates no one itself.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Identity {
+    /// One local author for every write: their name.
     Local(String),
+    /// Whoever the auth proxy names in a request: the header's name.
     Header(String),
 }
 
@@ -180,12 +198,17 @@ impl Identity {
 /// new thread's page must be a file in.
 #[derive(Clone)]
 pub struct Comments {
+    /// Where the threads are kept.
     store: Arc<dyn Store>,
+    /// The bus each successful write is announced on.
     changes: Arc<dyn Publish>,
+    /// The folder a new thread's page must be a file in.
     folder: ServedFolder,
 }
 
 impl Comments {
+    /// The comments kept by `store`, announced on `changes`, for the pages of
+    /// `folder`.
     pub fn new(store: Arc<dyn Store>, changes: Arc<dyn Publish>, folder: ServedFolder) -> Self {
         Self {
             store,
@@ -311,6 +334,7 @@ impl Comments {
         )
     }
 
+    /// Announces that `page`'s threads changed: `comments <page>` on the bus.
     fn announce(&self, page: String) {
         self.changes.publish(Change::Comments(page));
     }

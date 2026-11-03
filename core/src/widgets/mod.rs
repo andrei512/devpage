@@ -11,6 +11,7 @@
 //! modules answers ([`request`]).
 
 mod compile;
+pub(crate) use compile::{compile as compile_extension, relative_imports as extension_imports};
 mod modules;
 mod request;
 mod tags;
@@ -72,11 +73,16 @@ thread_local! {
 /// served at.
 #[derive(Debug, Default)]
 pub struct Widgets {
+    /// The extensions bound to the document, whose widgets are among `modules`.
+    pub(crate) extensions: Vec<crate::extensions::Binding>,
+    /// Every widget by name — system, extension and project alike — with the
+    /// address its module is served at.
     pub modules: BTreeMap<String, String>,
     /// Where its modules are read and compiled.
     cache: Modules,
     /// The served folder, and each project widget's file, by name.
     served: ServedFolder,
+    /// Each project widget's file, by name.
     files: BTreeMap<String, PathBuf>,
     /// Every name in `modules`: what a project widget can render by name.
     known: Vec<String>,
@@ -103,6 +109,16 @@ impl Widgets {
                 .insert(name.to_string(), system_address(name, mount));
         }
         widgets.served = document.served.clone();
+        widgets.extensions = document.extensions.clone();
+        for binding in &widgets.extensions {
+            for (name, url) in binding.widget_urls() {
+                if widgets.modules.insert(name.clone(), url).is_some() {
+                    widgets
+                        .problems
+                        .push(format!("Extension widget {name} is already registered"));
+                }
+            }
+        }
         widgets.known = widgets.modules.keys().cloned().collect();
         let Some(folder) = &document.widgets else {
             return widgets;
@@ -133,7 +149,7 @@ impl Widgets {
                 // A lowercase .tsx is a helper a widget imports, not a widget.
                 continue;
             }
-            if SYSTEM.iter().any(|(system, _)| *system == name) {
+            if widgets.modules.contains_key(&name) {
                 widgets
                     .problems
                     .push(format!("{} — {name} is a system widget's name", label));
@@ -206,6 +222,14 @@ impl Widgets {
             links.push_str(&format!(
                 "\n<link rel=\"preload\" href=\"{fetch}\" as=\"fetch\" crossorigin fetchpriority=\"low\">"
             ));
+        }
+        for binding in &self.extensions {
+            for style in binding.style_urls() {
+                links.push_str(&format!(
+                    "\n<link rel=\"stylesheet\" href=\"{}\">",
+                    crate::html::escape(&style)
+                ));
+            }
         }
         format!(
             r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}"}}}}</script>

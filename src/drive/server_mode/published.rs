@@ -35,7 +35,9 @@ use crate::drive::http::{self, App, Commenting};
 /// `/d/<id>`, or version `n` at its own `/d/<id>/v/<n>`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mount {
+    /// The latest version, at `/d/<id>`.
     Latest,
+    /// Version `n`, at `/d/<id>/v/<n>`.
     Pinned(u64),
 }
 
@@ -53,15 +55,21 @@ impl Mount {
 /// What deleting takes: the whole document, or one version of it.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Deletion {
+    /// The whole document, every version with it.
     Document,
+    /// Version `n` alone.
     Version(u64),
 }
 
 /// A version held from the cache while it answers: never evicted meanwhile.
 pub struct Version {
+    /// The id of the document it is a version of.
     pub id: String,
+    /// The version's number, from 1.
     pub number: u64,
+    /// The mount it answers under.
     pub mount: Mount,
+    /// Its router, held from the cache.
     served: Served,
 }
 
@@ -74,8 +82,11 @@ impl Version {
 
 /// A version's download: its bytes, media type and file name.
 pub struct Download {
+    /// The rendered PDF or PNG, whole, as the cache keeps it.
     pub bytes: Vec<u8>,
+    /// The file's media type: `application/pdf` or `image/png`.
     pub media: &'static str,
+    /// The file name it downloads as, from the version's title.
     pub name: String,
 }
 
@@ -85,8 +96,11 @@ pub struct Published(Arc<Parts>);
 
 /// What [`Published`] is made of, shared by every clone of it.
 struct Parts {
+    /// The store of documents, versions and comment threads.
     store: Arc<Sqlite>,
+    /// Where every version's zip is kept, durable.
     bucket: Bucket,
+    /// The versions unpacked on the PVC, and the routers that serve them.
     cache: Arc<Cache>,
     /// Where a publish unpacks its zip to check it, on the PVC.
     scratch: PathBuf,
@@ -517,6 +531,7 @@ async fn check(
 struct Scratch(PathBuf);
 
 impl Scratch {
+    /// A fresh, uniquely named folder, made under `under`.
     fn new(under: &Path) -> Result<Scratch> {
         let folder = under.join(uuid::Uuid::new_v4().simple().to_string());
         std::fs::create_dir_all(&folder)?;
@@ -526,6 +541,7 @@ impl Scratch {
 
 impl Drop for Scratch {
     fn drop(&mut self) {
+        devpage_core::code::forget(&self.0);
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
@@ -537,12 +553,17 @@ struct Locks(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
 /// A document's lock, held: let go — and forgotten when no one else wants
 /// it — when dropped.
 struct Held<'a> {
+    /// The locks it was taken from.
     locks: &'a Locks,
+    /// The id of the document locked — its key in `locks`, forgotten on drop
+    /// when no one else waits.
     id: String,
+    /// The lock, held; `None` only while it is let go on drop.
     guard: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 
 impl Locks {
+    /// Document `id`'s lock, once no one else holds it.
     async fn hold(&self, id: &str) -> Held<'_> {
         let mutex = lock(&self.0).entry(id.to_string()).or_default().clone();
         Held {
@@ -568,6 +589,7 @@ impl Drop for Held<'_> {
     }
 }
 
+/// `mutex`, locked, even after a panic poisoned it.
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|p| p.into_inner())
 }

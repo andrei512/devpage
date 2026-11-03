@@ -59,6 +59,12 @@ name before it when it has more than one, as
 lands links on them and [search](../search/README.md#what-is-indexed) names
 its sections by them.
 
+## Extension contributions
+
+The owning document's [extensions](../extensions/README.md) prepare their declared source inputs before contributing content. A page, its additions, and owned embed references use one bound extension revision. Page additions enter expanded content with source origins before links, IDs, and search content are collected; they are not patches applied after checking or after the frame is built. Authored text keeps its own comment origins.
+
+Registered file-view targets are resolved by the same provider state that opens them, including targets not initially visible in the highest-level view. Markdown heading targets still come from `Rendered::ids`. Extension browser assets and print-readiness obligations accompany the contributed content, so printing one page retains its owning extension context.
+
 ## Markdown to HTML
 
 `page::markdown` runs comrak with these options
@@ -97,7 +103,7 @@ image is left as it is.
 - takes the first word of the info string as the language and looks it up
   with syntect's `find_syntax_by_token` (name or file extension) in
   `two_face::syntax::extra_newlines()` — the syntax set `bat` ships, loaded
-  once on first use through a `LazyLock`;
+  once on first use through a `LazyLock`, with non-conflicting syntax definitions from the owning document's enabled extension packages added to that context;
 - if found, and the language isn't `mermaid`, emits syntect's class-based
   HTML (`ClassStyle::SpacedPrefixed { prefix: "hl-" }`): nested spans such
   as `<span class="hl-keyword hl-operator hl-arithmetic hl-rust">`, colored by the

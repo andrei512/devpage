@@ -14,8 +14,11 @@ use devpage_core::folder::{Folder, slashed};
 /// A document zipped: the bytes, the document file's path inside the zip,
 /// and every path the zip holds.
 pub struct Bundle {
+    /// The zip's bytes, whole in memory, as a publish uploads them.
     pub zip: Vec<u8>,
+    /// The document file's path inside the zip, with `/`.
     pub entry: String,
+    /// Every path the zip holds, with `/`, in the order packed.
     pub files: Vec<String>,
 }
 
@@ -25,6 +28,9 @@ pub struct Bundle {
 /// folder, unless it links to a file beside it.
 pub fn pack(folder: &Folder, designs: &Designs) -> Result<Bundle> {
     let document = folder.entry();
+    if !devpage_core::extensions::for_document(&document.path()).is_empty() {
+        bail!("Publishing native extensions is not supported; serve this project locally");
+    }
     let files = check::files(folder, designs);
     let root = common_folder(&files).unwrap_or_else(|| document.base.clone());
     let relative = |file: &Path| -> String {
@@ -230,5 +236,49 @@ mod tests {
             "# Notes\n\n![p](img/p.png)\n"
         );
         assert_eq!(std::fs::read(out.join("img/p.png")).unwrap(), b"png");
+    }
+
+    /// A site with a code reference carries its code: the namespace's files,
+    /// the manifest naming their crate and its prose files — and the
+    /// version, unzipped, has the same reference.
+    #[test]
+    fn a_code_reference_travels_with_its_code() {
+        let dir = folder("code");
+        let write = |path: &str, text: &str| {
+            let file = dir.join(path);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        };
+        write("lib/Cargo.toml", "[package]\nname = \"my-lib\"\n");
+        write("lib/src/lib.rs", "/// Holds entries.\npub struct Store;\n");
+        write("lib/notes.txt", "not code\n");
+        write("docs/README.md", "# Home\n");
+        write("docs/store.md", "# ``rust:my_lib::Store``\n\nMore.\n");
+        write(
+            "docs/devpage.yml",
+            "kind: site\ntitle: T\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n",
+        );
+        let served = ServedFolder::new(&dir).unwrap();
+        let bundle = packed(Document::load(&dir.join("docs/devpage.yml"), &served).unwrap());
+        assert_eq!(
+            names(&bundle.zip),
+            [
+                "docs/README.md",
+                "docs/devpage.yml",
+                "docs/store.md",
+                "lib/Cargo.toml",
+                "lib/src/lib.rs",
+            ]
+        );
+
+        let version = folder("code-version");
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bundle.zip)).unwrap();
+        archive.extract(&version).unwrap();
+        let served = ServedFolder::new(&version).unwrap();
+        let document = Document::load(&version.join("docs/devpage.yml"), &served).unwrap();
+        let index = devpage_core::code::for_document(&document.path()).unwrap();
+        let store = version.join("docs/reference/rust/my_lib/Store");
+        let page = index.page(&store).unwrap();
+        assert!(index.markdown(&page).contains("More."));
     }
 }

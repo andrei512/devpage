@@ -45,16 +45,21 @@ globalThis.URL = class URL {
 };
 "#;
 
+/// Defines the one function the engine calls: `__devpageDraw`, a diagram's
+/// source to its SVG.
 const DRAW: &str = "globalThis.__devpageDraw = (source) => pele.render(source).svg;";
 
 /// How long one drawing may take, and how much memory the runtime may hold.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Limits {
+    /// How long one drawing may take.
     pub time: Duration,
+    /// The most bytes the runtime may hold.
     pub memory: usize,
 }
 
 impl Limits {
+    /// The server's limits: 2 seconds a drawing, 128 MB a runtime.
     pub const SERVER: Limits = Limits {
         time: Duration::from_secs(2),
         memory: 128 << 20,
@@ -78,26 +83,36 @@ enum Failure {
 
 /// One page's diagrams, sent to the diagram thread at once.
 struct Job {
+    /// The diagrams' sources, in the page's order.
     sources: Vec<String>,
+    /// Where each diagram's SVG, or its failure, is sent back, in the same order.
     reply: mpsc::Sender<Vec<Result<String, Failure>>>,
 }
 
 /// The diagram thread, and the cache in front of it.
 pub(crate) struct Engine {
+    /// Where jobs go to the diagram thread.
     jobs: mpsc::Sender<Job>,
+    /// The drawings so far, by source.
     cache: Mutex<Cache>,
     /// How many diagrams were sent to the thread: those the cache didn't have.
     #[cfg(test)]
     sent: std::sync::atomic::AtomicUsize,
 }
 
+/// The drawings kept, by the diagram's source, at most [`CACHE_SIZE`]: the
+/// oldest goes first. A failure of the engine is never kept, so it is tried
+/// again.
 #[derive(Default)]
 struct Cache {
+    /// Each drawing kept, by its diagram's source.
     drawn: HashMap<String, Drawn>,
+    /// The kept sources, oldest first: the next to go.
     order: VecDeque<String>,
 }
 
 impl Cache {
+    /// Keeps `drawn` for `source`, then lets the oldest go past [`CACHE_SIZE`].
     fn insert(&mut self, source: String, drawn: Drawn) {
         if self.drawn.insert(source.clone(), drawn).is_none() {
             self.order.push_back(source);
@@ -138,9 +153,12 @@ pub fn draw_fences(html: &str) -> String {
     draw_fences_with(&ENGINE, html)
 }
 
+/// What a Mermaid block of rendered HTML opens with.
 const OPEN: &str = "<pre lang=\"mermaid\"><code>";
+/// What a Mermaid block of rendered HTML closes with.
 const CLOSE: &str = "</code></pre>";
 
+/// [`draw_fences`] with `engine` drawing.
 fn draw_fences_with(engine: &Engine, html: &str) -> String {
     if !html.contains(OPEN) {
         return html.to_string();
@@ -199,6 +217,8 @@ impl Engine {
         }
     }
 
+    /// Draws each diagram of `sources`, in order: from the cache when it was
+    /// drawn before, the rest sent to the diagram thread as one job.
     pub(crate) fn draw_all(&self, sources: &[String]) -> Vec<Drawn> {
         let mut drawn: Vec<Option<Drawn>> = {
             let cache = self.cache.lock().unwrap_or_else(|p| p.into_inner());
@@ -282,9 +302,12 @@ fn serve(limits: Limits, jobs: mpsc::Receiver<Job>) {
 
 /// A QuickJS runtime with pele loaded.
 struct Pele {
-    // Dropped before the runtime it lives in.
+    /// The context pele is loaded in and draws in. Dropped before the
+    /// runtime it lives in.
     context: Context,
+    /// The runtime the context lives in, held until the context is dropped.
     _runtime: Runtime,
+    /// How long each drawing may take, and how much memory the runtime may hold.
     limits: Limits,
     /// When the drawing under way must stop, if one is.
     deadline: Rc<Cell<Option<Instant>>>,
@@ -293,6 +316,8 @@ struct Pele {
 }
 
 impl Pele {
+    /// A fresh runtime held to `limits`, with pele loaded and `__devpageDraw`
+    /// defined; loading has no time limit.
     fn load(limits: Limits) -> Result<Pele, Failure> {
         let fail = |what: &str, error: rquickjs::Error| {
             Failure::Engine(format!("the diagram engine couldn't {what}: {error}"))
@@ -333,6 +358,7 @@ impl Pele {
         Ok(pele)
     }
 
+    /// `source` drawn to SVG by pele, within the time limit.
     fn draw(&self, source: &str) -> Result<String, Failure> {
         self.run(Some(self.limits.time), |ctx| {
             let draw: Function = ctx.globals().get("__devpageDraw")?;
@@ -383,6 +409,8 @@ impl Pele {
     }
 }
 
+/// `time` in words, for a message: `2 seconds`, or in milliseconds when it is
+/// not whole seconds.
 fn seconds(time: Duration) -> String {
     match time.as_secs() {
         1 if time.subsec_nanos() == 0 => "1 second".into(),

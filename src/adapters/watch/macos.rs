@@ -26,15 +26,21 @@ use super::{BURST, Handler, WatchSet};
 
 /// The platform's watcher over a watch set. Stops when dropped.
 pub struct Platform {
+    /// What every watch reports its events to.
     handler: Handler,
+    /// The watch set watched now.
     set: WatchSet,
     /// The serial queue every stream calls back on.
     queue: DispatchRetained<DispatchQueue>,
+    /// The FSEvents stream over each deep folder, by the folder.
     streams: BTreeMap<PathBuf, Stream>,
+    /// The kqueue over the shallow folders.
     kqueue: Kqueue,
 }
 
 impl Platform {
+    /// A watcher reporting to `handler`, watching nothing until a watch set is
+    /// applied.
     pub fn new(_served: &Path, handler: Handler) -> Result<Self> {
         raise_open_files_limit();
         Ok(Self {
@@ -172,7 +178,9 @@ fn raise_open_files_limit() {
 /// One FSEvents stream over a deep folder: file events, coalesced by
 /// fseventsd for [`BURST`], handed to the handler on `queue`.
 struct Stream {
+    /// The stream, started; stopped and released on `queue` when dropped.
     stream: fs::FSEventStreamRef,
+    /// The serial queue it calls back on, and is stopped on.
     queue: DispatchRetained<DispatchQueue>,
 }
 
@@ -180,6 +188,8 @@ struct Stream {
 unsafe impl Send for Stream {}
 
 impl Stream {
+    /// The stream over `folder`, started and calling `handler` on `queue`;
+    /// `None` when FSEvents won't make or start it.
     fn start(
         folder: &Path,
         handler: &Handler,
@@ -325,8 +335,12 @@ fn kinds(flags: u32) -> Vec<EventKind> {
 /// file directly in it for writes. A thread waits for events and hands them
 /// to the handler; it ends when the kqueue is dropped.
 struct Kqueue {
+    /// The kqueue's descriptor, shared with the waiting thread and the
+    /// watches; dropping the kqueue tells the thread to stop through it.
     queue: Arc<OwnedFd>,
+    /// Every open watch, shared with the thread that waits for their events.
     watches: Arc<Mutex<Watches>>,
+    /// The thread waiting for events; `None` once it was joined.
     thread: Option<JoinHandle<()>>,
 }
 
@@ -334,6 +348,8 @@ struct Kqueue {
 const STOP: usize = 0;
 
 impl Kqueue {
+    /// A kqueue watching nothing yet, its thread waiting to hand events to
+    /// `handler`.
     fn new(handler: Handler) -> Result<Self> {
         // SAFETY: `kqueue` returns a new descriptor or -1.
         let fd = unsafe { libc::kqueue() };
@@ -380,6 +396,7 @@ impl Kqueue {
         lock(&self.watches).folders.contains_key(folder)
     }
 
+    /// Stops watching a shallow folder and the files directly in it.
     fn unwatch(&self, folder: &Path) {
         lock(&self.watches).forget(folder);
     }
@@ -465,20 +482,28 @@ fn wait(queue: &OwnedFd, watches: &Mutex<Watches>, handler: &Handler) {
 /// reused, so an event for a watch closed in the meantime is recognised as
 /// stale even when its descriptor number is taken again.
 struct Watches {
+    /// The kqueue's descriptor, the one [`Kqueue`] holds, which each watch
+    /// opened is registered on.
     queue: Arc<OwnedFd>,
+    /// The id the next watch takes.
     next: usize,
+    /// Every open watch, by its id.
     by_id: HashMap<usize, Watched>,
     /// Each shallow folder's watch id.
     folders: BTreeMap<PathBuf, usize>,
 }
 
+/// One open kqueue watch: the path it is on and what is there.
 struct Watched {
     /// Closing it removes the watch from the kqueue.
     _fd: OwnedFd,
+    /// The path it was opened on.
     path: PathBuf,
+    /// What it watches: a shallow folder, or a file directly in one.
     what: What,
 }
 
+/// What a kqueue watch is on: a shallow folder, or a file directly in one.
 enum What {
     /// A shallow folder, with what it held when last read.
     Folder(HashMap<OsString, Held>),
@@ -489,12 +514,19 @@ enum What {
 /// An entry of a shallow folder: its inode, whether it is a folder, and the
 /// id of its watch while a file is watched.
 struct Held {
+    /// Its inode, so an entry replaced under the same name counts as created.
     inode: u64,
+    /// Whether it is a folder.
     folder: bool,
+    /// The id of its watch while it is a file watched; `None` otherwise.
     watch: Option<usize>,
 }
 
+/// The events a shallow folder is watched for: its entries written, it deleted
+/// or renamed.
 const FOLDER_NOTES: u32 = libc::NOTE_WRITE | libc::NOTE_DELETE | libc::NOTE_RENAME;
+/// The events a file is watched for: written, extended, its attributes changed,
+/// deleted or renamed.
 const FILE_NOTES: u32 = libc::NOTE_WRITE
     | libc::NOTE_EXTEND
     | libc::NOTE_ATTRIB
@@ -689,6 +721,7 @@ impl Watches {
     }
 }
 
+/// The event that `path` was created: a folder or a file.
 fn created(path: &Path, folder: bool) -> notify::Event {
     let kind = if folder {
         CreateKind::Folder
@@ -721,6 +754,7 @@ fn register(queue: &OwnedFd, ident: usize, filter: i16, flags: u16, fflags: u32,
     }
 }
 
+/// `watches`, locked — even when a thread panicked holding them.
 fn lock(watches: &Mutex<Watches>) -> std::sync::MutexGuard<'_, Watches> {
     watches
         .lock()

@@ -12,8 +12,11 @@ use super::*;
 /// A drawing command and the property state it is drawn under: its clip and
 /// its effect, if any. Its transform is its chunk's.
 pub struct Command {
+    /// What it paints, in its chunk's coordinates.
     pub draw: Draw,
+    /// The clip node it is drawn inside.
     pub clip: Id,
+    /// The effect node whose layer it is drawn in; `None` when it is in none.
     pub effect: Option<Id>,
     /// Every pixel it can touch, in its chunk's coordinates.
     pub bounds: KRect,
@@ -22,9 +25,15 @@ pub struct Command {
 /// Builds one chunk's commands, turning the layers they are drawn in into
 /// property-tree nodes under the chunk's transform.
 pub struct Builder<'a> {
+    /// The property trees its layers' clip and effect nodes are added to.
     pub(super) trees: &'a mut Trees,
+    /// The chunk's transform node, which every clip and effect it opens is
+    /// placed by.
     pub(super) transform: Id,
+    /// The clip and effect a command is drawn under, innermost last; the first
+    /// is the chunk's own and is never popped.
     pub(super) stack: Vec<(Id, Option<Id>)>,
+    /// The commands drawn so far, in paint order.
     pub(super) commands: Vec<Command>,
     /// The property-tree nodes made for layers, to be freed with the chunk.
     pub(super) made: Made,
@@ -33,7 +42,9 @@ pub struct Builder<'a> {
 /// The property-tree nodes a chunk's own layers made.
 #[derive(Default, Clone)]
 pub struct Made {
+    /// The clip nodes, in the order they were opened.
     pub clips: Vec<Id>,
+    /// The effect nodes, in the order they were opened.
     pub effects: Vec<Id>,
 }
 
@@ -102,6 +113,8 @@ impl<'a> Builder<'a> {
         }
     }
 
+    /// The commands drawn, in paint order, and the property-tree nodes their
+    /// layers made.
     pub fn finish(self) -> (Vec<Command>, Made) {
         (self.commands, self.made)
     }
@@ -122,7 +135,9 @@ pub(super) fn glyph_bounds(size: f32, glyphs: &[super::Glyph]) -> KRect {
 
 /// A command's entry in its chunk's index.
 pub(super) struct Local {
+    /// The command's place in its chunk's `commands`.
     pub(super) at: usize,
+    /// The command's bounds, in its chunk's coordinates.
     pub(super) bounds: KRect,
 }
 
@@ -133,6 +148,7 @@ impl RTreeObject for Local {
     }
 }
 
+/// `r` as an R-tree envelope.
 pub(super) fn aabb(r: KRect) -> AABB<[f64; 2]> {
     AABB::from_corners([r.x0, r.y0], [r.x1, r.y1])
 }
@@ -145,18 +161,24 @@ pub use crate::tree::Order;
 /// coordinates, cut by its clipping frames.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
+    /// The action the node's `on_click` names.
     pub action: String,
+    /// Where the click lands, in the design's coordinates.
     pub area: KRect,
 }
 
 /// One scene node's own commands, in its own coordinates, and their index.
 pub struct Chunk {
+    /// Its node's transform node, which every clip and effect it opens is
+    /// under.
     pub transform: Id,
     /// The space its coordinates are in: the design's, or a run child's.
     pub space: Space,
     /// Where its coordinates' origin is in its space's.
     pub origin: Vec2,
+    /// Its node's own commands, in paint order and in its own coordinates.
     pub commands: Vec<Command>,
+    /// The R-tree over `commands`' bounds.
     pub(super) index: RTree<Local>,
     /// What cuts it in its space's coordinates: its clipping frames' boxes,
     /// those inside its space.
@@ -175,6 +197,8 @@ pub struct Chunk {
 }
 
 impl Chunk {
+    /// The chunk of `commands`, placed at `origin` in `space` and cut by
+    /// `cut`.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         transform: Id,
@@ -217,6 +241,8 @@ impl Chunk {
         self
     }
 
+    /// Moves the chunk's origin to `origin` and its cut to `cut`, and works
+    /// out its `bounds` again.
     pub(super) fn place(&mut self, origin: Vec2, cut: Option<KRect>) {
         let local = self
             .commands

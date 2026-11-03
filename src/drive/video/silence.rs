@@ -25,6 +25,7 @@ const WINDOW: usize = RATE / 100;
 /// 5 ms of fade on each side of a cut.
 const FADE: usize = RATE / 200;
 
+/// How many samples of the voice last `seconds`, at [`RATE`].
 fn samples(seconds: f64) -> usize {
     (seconds * RATE as f64).round() as usize
 }

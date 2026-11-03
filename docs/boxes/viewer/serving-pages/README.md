@@ -74,6 +74,12 @@ A site is never printed, so on a Markdown file `?print` always renders it as a
 doc of one chapter in print mode, even when the file is a page of a site — which
 is how `devpage pdf` prints one Markdown file.
 
+## Extension file views and routes
+
+An enabled [extension](../extensions/README.md) can render an existing served file as a full view after normal path validation. Its resolver validates that format's fragments; raw-file fallback does not make arbitrary fragments valid. Additional read-only routes and browser assets are confined to `<mount>/__devpage/extensions/<owner>/<id>/`, retain the served document's mount, and cannot override built-in or another extension's addresses. Package directories are not added as public file roots.
+
+The answer boundary delegates registered views and routes through the extension port; the HTTP adapter still converts typed answers to responses. The [package reference](../extensions/reference/README.md#file-views-routes-and-references) defines target resolution and the [local acceptance test](../extensions/local-test/README.md) covers mounted links and assets.
+
 ## The URL is the file path
 
 A URL path is joined to the [served folder](../writing-a-document/README.md#the-served-folder)
@@ -96,7 +102,10 @@ flowchart LR
 ```
 
 Canonicalizing resolves `..` and symbolic links, and fails if the file doesn't
-exist. Anything that fails — a path escaping with `..`, a symbolic link
+exist. A path with no file under a site's `reference/`, when the site has a
+[code reference](../code-reference/README.md), is a page of it if the code
+has one ([Answering an address](../code-reference/reading-the-code/README.md#answering-an-address)).
+Anything else that fails — a path escaping with `..`, a symbolic link
 pointing outside, a missing file, a folder — gets `404`. Its body depends on
 who asks. A request that accepts `text/html` — a browser's — gets a page: the
 `404.md` beside the nearest site's document file, or devpage's own page saying
@@ -105,7 +114,8 @@ alone, in the served document's theme. Any other request gets
 `nothing at <address>` as plain text. Both offer the file the address most
 likely meant, when there is one: the address with `.md` added, or with `.html`
 replaced by `.md`, or the `README.md` of the folder it names —
-`nothing at /guide/install — did you mean /guide/install.md?`. A site's
+`nothing at /guide/install — did you mean /guide/install.md?`; under a code
+reference, the closest name it has. A site's
 `404.md` is shown at the missing address, so its relative links are rewritten
 to their served addresses; it shows no comments and lists no problems
 (`devpage check` reports them). Nothing outside the served folder is ever on

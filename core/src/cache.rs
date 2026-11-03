@@ -28,6 +28,8 @@ impl Entry {
 /// which entries to delete. It decides and never acts — the cache deletes
 /// them, skipping any being served.
 pub trait Eviction: Send + Sync {
+    /// The keys of the entries to delete from `entries` so the cache fits
+    /// `limit` bytes; empty when it already does.
     fn choose(&self, entries: &[Entry], limit: u64) -> Vec<(String, u64)>;
 }
 

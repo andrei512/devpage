@@ -121,7 +121,7 @@ fn rewrite_imports<'a>(
 
 /// The relative specifiers (`./x`, `../x`) a module imports or re-exports
 /// from, as the parser sees them — the same statements [`compile`] rewrites.
-pub(super) fn relative_imports(path: &Path, source: &str) -> Vec<String> {
+pub(crate) fn relative_imports(path: &Path, source: &str) -> Vec<String> {
     use oxc::ast::ast::Statement;
     let allocator = Allocator::default();
     let source_type = SourceType::from_path(path).unwrap_or_else(|_| SourceType::tsx());

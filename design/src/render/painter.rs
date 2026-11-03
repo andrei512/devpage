@@ -173,6 +173,7 @@ pub(super) fn node_shape(node: &Node, rect: KRect, inset: f64) -> BezPath {
     }
 }
 
+/// `c` as a peniko color.
 pub(super) fn color(c: Rgba) -> PColor {
     PColor::from_rgba8(c.r, c.g, c.b, c.a)
 }

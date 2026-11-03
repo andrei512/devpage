@@ -11,6 +11,9 @@ use crate::tree::OrderKey;
 
 use super::*;
 impl Renderer {
+    /// The damage of bringing the drawing `d` to `new` by `applied`, the patch
+    /// that made it — only what the patch touched laid out and painted again —
+    /// or why `new` can't be painted.
     pub(super) fn update(
         &mut self,
         d: &mut Drawing,
@@ -143,8 +146,11 @@ impl Renderer {
 /// one — where they were, and subtrees placed where they are now.
 #[derive(Default, Debug)]
 pub(super) struct Changes {
+    /// The nodes whose own attributes changed, by their order in `new`.
     pub(super) attrs: Vec<Order>,
+    /// The roots of the subtrees placed, where they are now.
     pub(super) added: Vec<Order>,
+    /// The roots of the subtrees that went, where they were.
     pub(super) removed: Vec<Order>,
 }
 

@@ -82,6 +82,7 @@ pub enum Command {
     },
 }
 
+/// What `devpage context` does to the contexts the CLI remembers.
 #[derive(Subcommand, Debug)]
 pub enum ContextAction {
     /// Add a context: a name for a server.
@@ -107,17 +108,21 @@ pub enum ContextAction {
     },
 }
 
+/// `devpage comments`: a document's open threads listed, or one acted on.
 #[derive(Args, Debug)]
 #[command(args_conflicts_with_subcommands = true)]
 pub struct CommentsArgs {
+    /// What to do to a thread; `None` lists the document's open threads.
     #[command(subcommand)]
     action: Option<CommentAction>,
     /// The document's id, as `devpage list` shows it.
     id: Option<String>,
+    /// Which server to list them on, and how to answer.
     #[command(flatten)]
     remote: Remote,
 }
 
+/// What `devpage comments` does to one of a document's threads.
 #[derive(Subcommand, Debug)]
 pub enum CommentAction {
     /// Reply to a thread.
@@ -196,11 +201,14 @@ impl Command {
 /// What a command prints, and the code it exits with.
 #[derive(Debug, PartialEq)]
 pub struct Output {
+    /// What it prints.
     pub text: String,
+    /// The code it exits with.
     pub code: u8,
 }
 
 impl Output {
+    /// `text`, exiting 0.
     fn ok(text: String) -> Output {
         Output { text, code: 0 }
     }
@@ -298,15 +306,19 @@ pub async fn run(command: Command, home: &Home, context: Option<String>) -> Resu
     }
 }
 
+/// `value` as one line of JSON, exiting 0.
 fn json<T: serde::Serialize>(value: &T) -> Result<Output> {
     Ok(Output::ok(format!("{}\n", serde_json::to_string(value)?)))
 }
 
+/// The API of the server of context `context` — the current one when `None` —
+/// and the context's name.
 fn connect(home: &Home, context: &Option<String>) -> Result<(Api, String)> {
     let (name, context) = home.context(context.as_deref())?;
     Ok((Api::connect(&context)?, name))
 }
 
+/// Runs `devpage context`'s `action` on the contexts saved in `home`.
 fn contexts_command(action: ContextAction, home: &Home) -> Result<Output> {
     let mut config = home.config()?;
     match action {
@@ -418,6 +430,8 @@ async fn publish(
     )))
 }
 
+/// Runs `devpage comments` with the CLI's files in `home`; `context` is
+/// `DEVPAGE_CONTEXT`, when set.
 async fn comments(home: &Home, args: CommentsArgs, context: &Option<String>) -> Result<Output> {
     let chosen = |remote: &Remote| remote.context.clone().or_else(|| context.clone());
     match args.action {

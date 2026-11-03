@@ -36,8 +36,11 @@ pub enum Edit {
 /// — each travels once.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Edits {
+    /// The edits, in the order they apply.
     pub list: Vec<Edit>,
+    /// The image files they bring that the scene before didn't hold.
     pub images: ImageFiles,
+    /// The font files they bring that the scene before didn't hold.
     pub fonts: FontFiles,
     /// Whether the scene they make is themed.
     pub themed: bool,
@@ -247,8 +250,12 @@ fn longest_run(ranks: &[Option<usize>]) -> Vec<bool> {
 /// place and took new own attributes, with the ones they had.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Applied {
+    /// The roots of the subtrees that left their place: removed, or moved away.
     pub removed: Vec<NodeId>,
+    /// The roots of the subtrees placed: inserted, or moved here.
     pub placed: Vec<NodeId>,
+    /// The nodes that kept their place and took new own attributes, each with
+    /// the node it was.
     pub changed: Vec<(NodeId, Node)>,
 }
 
@@ -350,9 +357,13 @@ pub fn applied(
 /// undone, last first, the files they let go held again, and whether it was
 /// themed.
 pub struct Undo {
+    /// Each operation done, in the order it was done.
     steps: Vec<Step>,
+    /// The image files the edits let go.
     images: ImageFiles,
+    /// The font files the edits let go.
     fonts: FontFiles,
+    /// Whether the scene was themed before the edits.
     themed: bool,
 }
 
@@ -417,6 +428,9 @@ impl Holder for Bare {
     }
 }
 
+/// Applies `ops` to `scene` in order, counting their files in `uses` and
+/// recording each step in `undo` and what it did in `applied`; stops at the
+/// first that doesn't apply, saying why.
 fn run(
     scene: &mut Scene,
     uses: &mut Uses,
@@ -506,10 +520,12 @@ fn run(
     Ok(())
 }
 
+/// How many nodes the subtree of `n` holds, `n` included.
 fn count(n: &Node) -> usize {
     1 + n.children.iter().map(count).sum::<usize>()
 }
 
+/// Where in `scene` the node `id` is, or that there is none.
 fn order_of(scene: &Scene, id: &NodeId) -> Result<Order, String> {
     scene
         .ids
@@ -586,6 +602,7 @@ fn take(scene: &mut Scene, order: &Order) -> Node {
     node
 }
 
+/// Undoes the step `u` on `scene`, counting the files it changes in `uses`.
 fn revert(scene: &mut Scene, uses: &mut Uses, u: Step) {
     match u {
         Step::Own(order, mut own) => {
@@ -629,7 +646,9 @@ fn revert(scene: &mut Scene, uses: &mut Uses, u: Step) {
 /// walking the scene.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Uses {
+    /// How many nodes show each image file.
     images: std::collections::HashMap<ImageId, usize>,
+    /// How many nodes are set in each font file.
     fonts: std::collections::HashMap<FontId, usize>,
 }
 
@@ -641,6 +660,7 @@ impl Uses {
         uses
     }
 
+    /// Counts the files `n` and every node under it use.
     fn add(&mut self, n: &Node) {
         self.add_own(n);
         for c in &n.children {
@@ -648,6 +668,7 @@ impl Uses {
         }
     }
 
+    /// Counts the files `n` itself uses, not the nodes under it.
     fn add_own(&mut self, n: &Node) {
         if let Some(i) = &n.image {
             *self.images.entry(i.id).or_default() += 1;
@@ -657,6 +678,8 @@ impl Uses {
         }
     }
 
+    /// Uncounts the files `n` and every node under it use; a file left at none
+    /// stays until [`settle`](Self::settle).
     fn take(&mut self, n: &Node) {
         self.take_own(n);
         for c in &n.children {
@@ -664,6 +687,7 @@ impl Uses {
         }
     }
 
+    /// Uncounts the files `n` itself uses, not the nodes under it.
     fn take_own(&mut self, n: &Node) {
         let less = |count: Option<&mut usize>| {
             if let Some(c) = count {

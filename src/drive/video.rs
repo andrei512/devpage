@@ -22,8 +22,10 @@ use silence::{RATE, SLIDE_LEAD_SECONDS, Trimmer};
 
 /// The recorder and player, evaluated into the deck's page.
 const RECORDER: &str = include_str!("../../assets/video.js");
-/// The size of the recording, and of the page it captures.
+/// The width of the recording and of the page it captures, in pixels: the
+/// window is grown until the page reads it.
 const WIDTH: i64 = 1920;
+/// The height to match [`WIDTH`]: a 16:9 frame, 1080p.
 const HEIGHT: i64 = 1080;
 /// How often new voice is handed to the player while a slide plays.
 const PUSH_EVERY: Duration = Duration::from_millis(100);
@@ -134,6 +136,7 @@ pub async fn record(
 pub(crate) trait Voice {
     /// Asks for slide `n` with its [`narrator::request`].
     fn say(&self, n: usize, request: &str);
+    /// Ends the voice's session, once every slide is said.
     async fn close(self);
 }
 
@@ -150,22 +153,29 @@ impl Voice for narrator::Live {
 /// was last heard, and why the voice failed, if it did.
 #[derive(Default)]
 pub struct Heard {
+    /// The voice trimmed of long silences, waiting to be played.
     trimmer: Trimmer,
+    /// When speech was last heard; `None` before any.
     last_loud: Option<Instant>,
+    /// Why the voice failed, the first reason given; `None` while it hasn't.
     failed: Option<String>,
 }
 
 impl Heard {
+    /// Takes the next stretch of the voice, 24 kHz mono PCM16, noting the
+    /// moment when it holds speech.
     pub fn take(&mut self, pcm: &[i16]) {
         if self.trimmer.take(pcm) {
             self.last_loud = Some(Instant::now());
         }
     }
 
+    /// Notes that the voice failed for `why`; only the first reason is kept.
     pub fn fail(&mut self, why: String) {
         self.failed.get_or_insert(why);
     }
 
+    /// Refused with the reason the voice failed, if it did.
     fn check(&self) -> Result<()> {
         match &self.failed {
             Some(why) => bail!("{why}"),
@@ -205,6 +215,9 @@ pub(super) async fn film<V: Voice>(
     result
 }
 
+/// The recording of the deck open in `tab`, as its bytes: each slide's `notes`
+/// said by `voice` and played as it arrives, paced by `pacing`, the slide
+/// changed between them.
 async fn narrate<V: Voice>(
     tab: &Tab,
     notes: &[String],

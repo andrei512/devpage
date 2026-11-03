@@ -24,17 +24,24 @@ use crate::tree::{Children, NodeId, Order, OrderKey};
 /// One color's value: straight-alpha RGBA.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Rgba {
+    /// The red channel, 0 to 255.
     pub r: u8,
+    /// The green channel, 0 to 255.
     pub g: u8,
+    /// The blue channel, 0 to 255.
     pub b: u8,
+    /// The alpha, 0 transparent to 255 opaque; the other channels are not
+    /// multiplied by it.
     pub a: u8,
 }
 
 /// Which of a design's two themes it is drawn in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Theme {
+    /// The light theme, the default: each color's `light` value.
     #[default]
     Light,
+    /// The dark theme: each color's `dark` value.
     Dark,
 }
 
@@ -53,7 +60,9 @@ impl Theme {
 /// the same value in both; `theme.name` has the themes' two.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Color {
+    /// The value in the light theme.
     pub light: Rgba,
+    /// The value in the dark theme.
     pub dark: Rgba,
 }
 
@@ -72,41 +81,64 @@ impl Color {
     }
 }
 
+/// How a node's width or height is set.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Size {
+    /// A fixed size, in pixels.
     Px(f32),
+    /// As large as the node's content.
     Hug,
+    /// The room its parent's auto layout gives it: the free space along the
+    /// layout, the whole breadth across it. A root, with no parent, hugs.
     Fill,
 }
 
+/// How a frame places its children.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Layout {
+    /// Each child where its `x` and `y` say.
     None,
+    /// Side by side, left to right.
     Row,
+    /// One under another, top to bottom.
     Column,
 }
 
+/// Where a frame's auto layout puts its children along one axis.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Align {
+    /// At the start.
     Start,
+    /// In the middle.
     Center,
+    /// At the end.
     End,
+    /// The first at the start, the last at the end, and the free space shared
+    /// between them; `justify` only.
     SpaceBetween,
 }
 
+/// What a node is: the element that made it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
+    /// A box that holds children and may lay them out.
     Frame,
+    /// Text, set in one style.
     Text,
+    /// A rectangle.
     Rect,
+    /// An ellipse filling the node's box.
     Ellipse,
+    /// An SVG path.
     Vector,
+    /// A PNG or JPEG file.
     Image,
 }
 
 /// How a box is filled: one color, or a CSS-style linear gradient.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Fill {
+    /// One color over the whole fill, with a value for each theme.
     Solid(Color),
     /// `angle` in degrees, CSS's: 0 points up, 90 right, 180 down. Each stop
     /// is a color at an offset from 0 to 1 along the gradient line.
@@ -116,16 +148,21 @@ pub enum Fill {
     },
 }
 
+/// How each line of a text sits across its box.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TextAlign {
+    /// Against the left edge.
     Left,
+    /// In the middle.
     Center,
+    /// Against the right edge.
     Right,
 }
 
 /// A `Vector`'s path and the box of path coordinates it is drawn from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Vector {
+    /// The path, as SVG path data.
     pub d: String,
     /// `[minX, minY, width, height]`.
     pub view_box: [f32; 4],
@@ -138,6 +175,7 @@ pub struct Vector {
 pub struct ImageId(pub [u8; 32]);
 
 impl ImageId {
+    /// The identity of the file whose bytes are `bytes`.
     pub fn of(bytes: &[u8]) -> ImageId {
         use sha2::Digest;
         ImageId(sha2::Sha256::digest(bytes).into())
@@ -163,14 +201,19 @@ pub const MAX_IMAGE_SIDE: u32 = 4096;
 /// from — the file's own, or resampled to at most [`MAX_IMAGE_SIDE`] a side.
 #[derive(Debug)]
 pub struct ImageFile {
+    /// Its identity: the SHA-256 of its bytes.
     pub id: ImageId,
+    /// The file's bytes, as read.
     pub bytes: Vec<u8>,
     /// The file's size in pixels: what an `Image` hugs by.
     pub width: u32,
+    /// The file's height in pixels.
     pub height: u32,
     /// Straight-alpha RGBA, `pixels_width` × `pixels_height`.
     pub pixels: Arc<Vec<u8>>,
+    /// The width of `pixels`, in pixels.
     pub pixels_width: u32,
+    /// The height of `pixels`, in pixels.
     pub pixels_height: u32,
 }
 
@@ -283,7 +326,10 @@ pub fn fit(rgba: &[u8], width: u32, height: u32, max: u32) -> (Vec<u8>, u32, u32
 /// that differ only in it are equal, and it doesn't travel on the wire.
 #[derive(Debug, Clone)]
 pub struct Origin {
+    /// The design file it was written in, by its path from the top of the
+    /// served folder.
     pub file: String,
+    /// Where in that file it was written.
     pub pos: Pos,
 }
 
@@ -306,7 +352,9 @@ impl PartialEq for Origin {
 /// [`ImageFile`] in the scene it shows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Image {
+    /// The image file's path from the top of the served folder.
     pub src: String,
+    /// The [`ImageFile`] it shows, by its id in the scene's `images`.
     pub id: ImageId,
     /// Where `src` was written.
     pub at: Origin,
@@ -369,27 +417,44 @@ pub fn decode(data: &[u8]) -> Result<ImageData, String> {
     })
 }
 
+/// A box's drop shadow, as CSS's `box-shadow` draws one: an offset, a blur and a
+/// spread, in pixels, and a color.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Shadow {
+    /// How far right of the box the shadow is, in pixels.
     pub x: f32,
+    /// How far down from the box the shadow is, in pixels.
     pub y: f32,
+    /// How far the shadow blurs, in pixels: twice the Gaussian's standard
+    /// deviation.
     pub blur: f32,
+    /// How far the shadow grows past the box on every side before it blurs,
+    /// in pixels; a negative spread shrinks it.
     pub spread: f32,
+    /// The shadow's color.
     pub color: Color,
     /// Where `shadow` was written.
     pub at: Origin,
 }
 
+/// A `Text`'s text and how it is set.
 #[derive(Debug, Clone, PartialEq)]
 pub struct TextStyle {
     /// The font file the text is set in, the face its weight picked; `None`
     /// for Inter.
     pub font: Option<FontId>,
+    /// What the text says: the element's text, each `{prop}` in it filled
+    /// in — a number as Rust prints it.
     pub content: String,
+    /// The font size, in pixels.
     pub size: f32,
+    /// The font weight: 100 to 900, in steps of 100.
     pub weight: u16,
+    /// The text's color.
     pub color: Color,
+    /// The height of a line, as a multiple of `size`.
     pub line_height: f32,
+    /// How each line sits across the text's box.
     pub align: TextAlign,
 }
 
@@ -399,28 +464,58 @@ pub struct Node {
     /// Where the node came from — see [`NodeId`] — which no edit around it
     /// changes.
     pub id: NodeId,
+    /// What the node is.
     pub kind: Kind,
+    /// The node's name: its `name` attribute, or else its element's, as
+    /// problems call it.
     pub name: String,
+    /// How far right of its parent's top-left the node sits, in pixels; only a
+    /// parent with no auto layout places it by this.
     pub x: f32,
+    /// How far down from its parent's top-left the node sits, in pixels; only a
+    /// parent with no auto layout places it by this.
     pub y: f32,
+    /// How the node's width is set.
     pub width: Size,
+    /// How the node's height is set.
     pub height: Size,
+    /// How opaque the node and everything in it is, from 0 to 1.
     pub opacity: f32,
+    /// What a click on the node does: `navigate <path>`, `back`, `overlay
+    /// <path>` or `close`, each path from the top of the served folder. `None`
+    /// when a click does nothing.
     pub on_click: Option<String>,
+    /// What the node's box is filled with; `None` for nothing.
     pub fill: Option<Fill>,
+    /// The color of the node's outline; `None` for no outline.
     pub stroke: Option<Color>,
+    /// How wide the outline is, in pixels.
     pub stroke_width: f32,
+    /// Each corner's radius, in pixels: top-left, top-right, bottom-right,
+    /// bottom-left.
     pub radius: [f32; 4],
+    /// The node's drop shadow; `None` for none.
     pub shadow: Option<Shadow>,
+    /// Whether a frame's children are cut off at its box, rounded corners
+    /// and all.
     pub clip: bool,
+    /// How a frame places its children.
     pub layout: Layout,
+    /// The space between a frame's children in its auto layout, in pixels.
     pub gap: f32,
+    /// The space inside a frame's edges, in pixels: top, right, bottom, left.
     pub padding: [f32; 4],
+    /// Where a frame's auto layout puts its children across its direction.
     pub align: Align,
+    /// Where a frame's auto layout puts its children along its direction.
     pub justify: Align,
+    /// A `Text`'s text and how it is set; `None` for any other kind.
     pub text: Option<TextStyle>,
+    /// A `Vector`'s path; `None` for any other kind.
     pub vector: Option<Vector>,
+    /// An `Image`'s file; `None` for any other kind.
     pub image: Option<Image>,
+    /// The node's children, in order.
     pub children: Children<Node>,
 }
 
@@ -570,14 +665,19 @@ impl Files for HashMap<String, String> {
     }
 }
 
-/// A resolved design: its tree, each distinct image file its `Image`s show
-/// and font file its texts are set in, and whether it is **themed** — whether any `theme.` reference reached its
-/// nodes.
+/// A resolved design: its tree, each distinct image file its `Image`s show and
+/// font file its texts are set in, and whether it is **themed** — whether any
+/// `theme.` reference reached its nodes.
 #[derive(Debug, Clone)]
 pub struct Scene {
+    /// The tree's root node: the root design's `Frame`.
     pub root: Node,
+    /// Each distinct image file the scene's `Image`s show, by id.
     pub images: ImageFiles,
+    /// Each font file the scene's texts are set in, by id.
     pub fonts: FontFiles,
+    /// Whether any `theme.` reference reached the scene's nodes, so its two
+    /// themes can differ.
     pub themed: bool,
     /// Where each node is, by its id: what a patch finds its nodes by.
     pub ids: Ids,
@@ -662,18 +762,22 @@ impl Ids {
         }
     }
 
+    /// Where the node `id` is; `None` when the scene has no such node.
     pub fn get(&self, id: &NodeId) -> Option<&Order> {
         self.0.get(id)
     }
 
+    /// Whether the scene has a node `id`.
     pub fn contains(&self, id: &NodeId) -> bool {
         self.0.contains_key(id)
     }
 
+    /// How many nodes the scene has.
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
+    /// Whether the scene has no nodes.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

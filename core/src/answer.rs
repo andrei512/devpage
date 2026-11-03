@@ -21,6 +21,13 @@ pub enum Answer {
     /// A rendered page: a document, a page of one, or a design's canvas
     /// page.
     Html(String),
+    /// A reply from an extension's route: its `body`, sent as `mime` with HTTP
+    /// `status`.
+    Extension {
+        body: String,
+        mime: String,
+        status: u16,
+    },
     /// Elsewhere: an address, mount prefix included.
     Redirect(String),
     /// A file of the served folder, sent as it is.
@@ -60,11 +67,16 @@ pub enum Answer {
 /// Every address it answers with is under the served folder's mount, which
 /// the documents carry.
 pub struct Answers<'a> {
+    /// The served folder, with its entry document.
     folder: &'a Folder,
+    /// The served folder's widget modules, compiled.
     modules: &'a Modules,
+    /// The design store: each design resolved, with its problems and its PNG.
     designs: &'a Designs,
     /// `None` for the Chrome that shoots slides: its pages list no problems.
     preview: Option<&'a Preview>,
+    /// Whether pages show comment threads and offer to start one; off with
+    /// `devpage --no-comments`.
     comments: bool,
 }
 
@@ -107,6 +119,16 @@ impl<'a> Answers<'a> {
     /// `<deck>/<n>.png` name PNGs, unless a real file of that name is there;
     /// anything else in the served folder is sent as it is.
     pub fn path(&self, path: &str, query: Option<&str>) -> Answer {
+        if let Some(reply) = crate::extensions::route(path, self.folder.served()) {
+            return match reply {
+                Ok(value) => Answer::Extension {
+                    body: value["body"].as_str().unwrap_or_default().into(),
+                    mime: value["mime"].as_str().unwrap_or("text/plain").into(),
+                    status: value["status"].as_u64().unwrap_or(200) as u16,
+                },
+                Err(error) => Answer::Failed(format!("{error:#}")),
+            };
+        }
         let pairs = || query.into_iter().flat_map(|query| query.split('&'));
         let print = pairs().any(|pair| pair == "print");
         // A design's theme, as `?theme=` names it.
@@ -150,7 +172,7 @@ impl<'a> Answers<'a> {
             return self.slide(deck, &file, n);
         }
         let Some(file) = real else {
-            return outside();
+            return self.code(path).unwrap_or_else(outside);
         };
         if path.ends_with(".design") {
             // An address that names a theme shows it; any other `theme` is
@@ -167,6 +189,34 @@ impl<'a> Answers<'a> {
                 Ok(document) => self.show(&document, print),
                 Err(error) => page::invalid(&entry, &file, &format!("{error:#}"))
                     .map_or_else(outside, Answer::Html),
+            };
+        }
+        if let Some(binding) = crate::extensions::for_file(&file, self.folder)
+            .iter()
+            .find(|b| b.owns(&file))
+        {
+            return match binding.view(&file) {
+                Ok(view) if view["layout"] == "workspace" => {
+                    let document = self
+                        .folder
+                        .owner(&file)
+                        .and_then(|o| o.document.ok())
+                        .map(std::sync::Arc::new)
+                        .unwrap_or_else(|| self.folder.entry());
+                    let widgets = Widgets::of(&document, self.modules);
+                    Answer::Html(page::workspace(
+                        &document,
+                        &widgets,
+                        &file,
+                        view["title"].as_str().unwrap_or("Workspace"),
+                        view["content"].as_str().unwrap_or_default(),
+                        self.comments,
+                    ))
+                }
+                Ok(_) => {
+                    Answer::Failed("Extension file views must use the host workspace layout".into())
+                }
+                Err(e) => Answer::Failed(format!("{e:#}")),
             };
         }
         if file.extension().is_none_or(|ext| ext != "md") {
@@ -203,6 +253,7 @@ impl<'a> Answers<'a> {
                     }) = owner
                     {
                         doc.widgets = site.widgets;
+                        doc.extensions = site.extensions;
                     }
                     self.show(&doc, print)
                 }
@@ -220,8 +271,10 @@ impl<'a> Answers<'a> {
         let entry = self.folder.entry();
         let served = &entry.served;
         let address = format!("{}/{}", served.mount(), path.trim_start_matches('/'));
-        let meant = meant(served, path).and_then(|file| entry.url(&file));
         let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let meant = meant(served, path)
+            .and_then(|file| entry.url(&file))
+            .or_else(|| crate::code::at(self.folder, &would_be)?.closest(&would_be));
         let site = served
             .contains(&would_be)
             .then(|| self.folder.owner(&would_be))
@@ -247,6 +300,31 @@ impl<'a> Answers<'a> {
             None => format!("nothing at {address}"),
         };
         Answer::Missing { why, page }
+    }
+
+    /// `path`'s page of a code reference, in its site's frame: `None` when
+    /// no code reference has a page there.
+    fn code(&self, path: &str) -> Option<Answer> {
+        let served = self.folder.served();
+        let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let index = crate::code::at(self.folder, &would_be)?;
+        let page = index.page(&would_be)?;
+        let Owner {
+            document: Ok(site), ..
+        } = self.folder.owner(&would_be)?
+        else {
+            return None;
+        };
+        let widgets = Widgets::of(&site, self.modules);
+        let rendered = page::content(&widgets, &would_be, index.markdown(&page));
+        page::generated(
+            &site,
+            &widgets,
+            &rendered,
+            &index.listed(&page),
+            &index.problems(),
+        )
+        .map(Answer::Html)
     }
 
     /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
@@ -642,6 +720,112 @@ mod tests {
         let (_, page) = missing(answers.path("docs/<b>x", None));
         assert!(page.contains("/docs/&lt;b&gt;x"), "{page}");
         assert!(!page.contains("<b>x"), "{page}");
+    }
+
+    /// A served folder with a crate beside a site whose code reference reads
+    /// it.
+    fn with_code(name: &str) -> PathBuf {
+        let dir = served(name);
+        std::fs::create_dir_all(dir.join("lib/src")).unwrap();
+        std::fs::write(dir.join("lib/Cargo.toml"), "[package]\nname = \"my-lib\"\n").unwrap();
+        std::fs::write(
+            dir.join("lib/src/lib.rs"),
+            "//! The library.\n\n/// Holds entries.\npub struct Store {\n    /// How many.\n    pub count: usize,\n}\n\nimpl Store {\n    /// Reads one.\n    pub fn read(&self) -> u8 { 0 }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n",
+        )
+        .unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_code_reference_page_is_shown_in_its_sites_frame_from_the_code_now() {
+        let dir = with_code("code-page");
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("<title>Store · Docs</title>"), "{store}");
+        assert!(store.contains(r#"class="document-title""#), "{store}");
+        assert!(store.contains("Holds entries."), "{store}");
+        assert!(store.contains("Structure"), "{store}");
+        assert!(
+            store.contains(r#"href="/docs/reference/rust/my_lib/Store/read""#),
+            "{store}"
+        );
+        let read = html(answers.path("docs/reference/rust/my_lib/Store/read", None));
+        assert!(read.contains("Reads one."), "{read}");
+        assert!(store.contains(r#"href="/lib/src/lib.rs""#), "{store}");
+        let crates = html(answers.path("docs/reference/rust", None));
+        assert!(
+            crates.contains(r#"href="/docs/reference/rust/my_lib""#),
+            "{crates}"
+        );
+
+        let (why, _) = missing(answers.path("docs/reference/rust/my_lib/Stor", None));
+        assert!(
+            why.ends_with("did you mean /docs/reference/rust/my_lib/Store?"),
+            "{why}"
+        );
+
+        // A save is read again: the page says what the code says now.
+        let file = dir.join("lib/src/lib.rs");
+        let source = std::fs::read_to_string(&file).unwrap();
+        std::fs::write(&file, source.replace("Holds entries.", "Keeps entries.")).unwrap();
+        assert!(crate::code::changed(served.folder.served(), &[file]));
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("Keeps entries."), "{store}");
+    }
+
+    #[test]
+    fn a_saved_gitignored_file_stays_out_of_the_code_reference() {
+        let dir = with_code("code-ignored");
+        std::fs::write(dir.join("lib/.gitignore"), "src/ignored.rs\n").unwrap();
+        let lib = dir.join("lib/src/lib.rs");
+        let source = std::fs::read_to_string(&lib).unwrap();
+        std::fs::write(&lib, format!("{source}pub mod ignored;\n")).unwrap();
+        let ignored = dir.join("lib/src/ignored.rs");
+        std::fs::write(&ignored, "pub fn hidden() {}\n").unwrap();
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        let address = "docs/reference/rust/my_lib/ignored/hidden";
+        assert!(matches!(
+            answers.path(address, None),
+            Answer::Missing { .. }
+        ));
+        std::fs::write(&ignored, "pub fn hidden() {}\npub fn more() {}\n").unwrap();
+        crate::code::changed(served.folder.served(), std::slice::from_ref(&ignored));
+        assert!(matches!(
+            answers.path(address, None),
+            Answer::Missing { .. }
+        ));
+    }
+
+    #[test]
+    fn a_query_saved_broken_is_a_problem_and_the_last_that_compiled_keeps_reading() {
+        let dir = with_code("code-query");
+        let query = dir.join("docs/rust.scm");
+        std::fs::write(&query, include_str!("code/rust.scm")).unwrap();
+        std::fs::write(
+            dir.join("docs/devpage.yml"),
+            "kind: site\ntitle: Docs\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"../lib/src/**/*.rs\"]\n        query: rust.scm\n",
+        )
+        .unwrap();
+        let served = Served::new(&dir, "docs/devpage.yml");
+        let answers = served.at();
+        std::fs::write(&query, "(function_item) @item.function\n(bogus) @x\n").unwrap();
+        assert!(crate::code::changed(
+            served.folder.served(),
+            std::slice::from_ref(&query)
+        ));
+        let store = html(answers.path("docs/reference/rust/my_lib/Store", None));
+        assert!(store.contains("Holds entries."), "{store}");
+        assert!(
+            store.contains("docs/rust.scm:2: query doesn't compile: NodeType error"),
+            "{store}"
+        );
     }
 
     #[test]

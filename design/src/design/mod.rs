@@ -33,7 +33,10 @@ use crate::tiles::{self, Level, View};
 /// A design's scene — its one copy — the files it uses, and its drawing in
 /// each theme it was asked to draw in.
 pub struct Design {
+    /// The scene, the design's one copy of it.
     scene: Scene,
+    /// How many nodes use each image and font file, kept in step with `scene`
+    /// by every edit.
     uses: Uses,
     /// Light, then dark.
     themes: [Shown; 2],
@@ -60,8 +63,10 @@ struct Shown {
     good: Option<Drawing>,
 }
 
+/// Every theme, in the order `themes` holds them.
 const THEMES: [Theme; 2] = [Theme::Light, Theme::Dark];
 
+/// Where `theme` sits in [`THEMES`] and in a design's `themes`.
 fn index(theme: Theme) -> usize {
     match theme {
         Theme::Light => 0,

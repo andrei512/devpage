@@ -33,6 +33,7 @@ pub use drawing::{Damage, Drawing};
 use layout::*;
 use painter::*;
 
+/// The embedded Inter faces: regular, medium, semibold and bold.
 const FONTS: [&[u8]; 4] = [
     include_bytes!("../../fonts/Inter-Regular.ttf"),
     include_bytes!("../../fonts/Inter-Medium.ttf"),
@@ -42,17 +43,22 @@ const FONTS: [&[u8]; 4] = [
 
 /// The fonts and text layout state a renderer keeps between paints.
 pub struct Renderer {
+    /// The font collection layout finds fonts in: Inter, and the scene's own font
+    /// files.
     fonts: FontContext,
     /// The embedded Inter faces, each under one blob for the renderer's life.
     inter: Vec<parley::fontique::Blob<u8>>,
     /// The font files registered besides Inter — those of a scene laid out —
     /// or `None` before anything is.
     registered: Option<BTreeSet<FontId>>,
+    /// Parley's scratch state for laying text out, kept between layouts.
     layouts: LayoutContext<()>,
     /// While a display list is made: the image each image file is painted
     /// from in it, and every image it paints, in the order it first does,
     /// with the attribute that asked for it.
     blobs: HashMap<ImageId, ImageData>,
+    /// Every image the display list being made paints, in the order it first
+    /// does, with the attribute that asked for it.
     painted: Vec<(Painted, Origin)>,
 }
 
@@ -66,7 +72,9 @@ impl Default for Renderer {
 /// atlas — `at` the attribute that broke it, when one did.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Undrawable {
+    /// What went wrong, in words.
     pub message: String,
+    /// The attribute that broke it; `None` when none did.
     pub at: Option<Origin>,
 }
 
@@ -77,6 +85,7 @@ impl std::fmt::Display for Undrawable {
 }
 
 impl Renderer {
+    /// A renderer with only the embedded Inter faces registered; no system fonts.
     pub fn new() -> Renderer {
         let fonts = FontContext {
             collection: parley::fontique::Collection::new(parley::fontique::CollectionOptions {
@@ -128,6 +137,8 @@ impl Renderer {
         self.registered = Some(files.keys().copied().collect());
     }
 
+    /// `text` laid out: shaped in its font, size, weight and line height, broken
+    /// into lines at `width` — none when `None` — and aligned.
     fn text_layout(&mut self, text: &scene::TextStyle, width: Option<f32>) -> Text<()> {
         let mut builder = self
             .layouts
@@ -156,6 +167,7 @@ impl Renderer {
     }
 }
 
+/// `f`'s box as a kurbo rectangle.
 fn frame_rect(f: Frame) -> KRect {
     KRect::new(
         f.x as f64,

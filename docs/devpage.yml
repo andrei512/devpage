@@ -17,3 +17,13 @@ watch:
   - "**/*.md"
   - "**/*.yml"
   - "**/*.design"
+extensions:
+  code:
+    config:
+      rust:
+        files:
+          - "../core/src/**/*.rs"
+          - "../design/src/**/*.rs"
+          - "../src/**/*.rs"
+          - "../extension-api/src/**/*.rs"
+        private: true
