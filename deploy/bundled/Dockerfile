@@ -3,10 +3,14 @@
 # It reads nothing from the build context: docker build deploy/bundled
 FROM rust:1.98.1-slim-bookworm AS build
 ARG DEVPAGE_VERSION=0.3.0
-# The docs, licence and changelog come from the published crate's own source, so they
-# always match the binary.
+# The docs, licence, changelog and the code their reference reads come from
+# the published crates' own source, so they always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \
- && cp -r "$CARGO_HOME"/registry/src/*/devpage-"$DEVPAGE_VERSION" /devpage-src
+ && cd "$CARGO_HOME"/registry/src/* \
+ && cp -r devpage-"$DEVPAGE_VERSION" /devpage-src \
+ && cp -r devpage-core-"$DEVPAGE_VERSION" /devpage-src/core \
+ && cp -r devpage-design-"$DEVPAGE_VERSION" /devpage-src/design \
+ && cp -r devpage-extension-api-"$DEVPAGE_VERSION" /devpage-src/extension-api
 
 FROM debian:bookworm-slim
 # ca-certificates: the link checker fetches https links.
@@ -14,9 +18,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
-COPY --from=build /devpage-src/docs /srv/docs
-COPY --from=build /devpage-src/LICENSE /srv/LICENSE
-COPY --from=build /devpage-src/CHANGELOG.md /srv/CHANGELOG.md
+COPY --from=build /devpage-src /srv
 WORKDIR /srv
 EXPOSE 3030
 CMD ["devpage", "docs", "--host", "0.0.0.0", "--port", "3030"]
