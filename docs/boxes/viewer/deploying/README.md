@@ -110,9 +110,13 @@ RUN apt-get update \
 COPY --from=build /usr/local/cargo/bin/devpage /usr/local/bin/devpage
 COPY --from=build /devpage-src/docs /srv/docs
 COPY --from=build /devpage-src/src /srv/src
+COPY --from=build /devpage-src/Cargo.toml /srv/Cargo.toml
 COPY --from=build /devpage-src/core/src /srv/core/src
+COPY --from=build /devpage-src/core/Cargo.toml /srv/core/Cargo.toml
 COPY --from=build /devpage-src/design/src /srv/design/src
+COPY --from=build /devpage-src/design/Cargo.toml /srv/design/Cargo.toml
 COPY --from=build /devpage-src/extension-api/src /srv/extension-api/src
+COPY --from=build /devpage-src/extension-api/Cargo.toml /srv/extension-api/Cargo.toml
 COPY --from=build /devpage-src/LICENSE /srv/LICENSE
 COPY --from=build /devpage-src/CHANGELOG.md /srv/CHANGELOG.md
 WORKDIR /srv
