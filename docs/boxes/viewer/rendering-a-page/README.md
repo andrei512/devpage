@@ -158,8 +158,10 @@ has this shape:
 <html data-theme="light">
   <head>  <!-- icon, theme script, stylesheet, devpage.js, import map, load set -->
   <body class="site with-navbar" data-build="…">
-    <header id="devpage-navbar">  <!-- logo, title, links, switches -->
-    <nav id="devpage-nav">        <!-- the sidebar tree -->
+    <header id="devpage-navbar">  <!-- menu button, logo, title, links, switches -->
+    <div id="devpage-navigator">  <!-- the narrow screen's one menu -->
+      <nav class="navigator-links"> <!-- the navbar's links, again -->
+      <nav id="devpage-nav">      <!-- the sidebar tree -->
     <main id="devpage-page">
       <article>                   <!-- the rendered Markdown -->
 ```
@@ -178,15 +180,21 @@ In detail:
 - `<header id="devpage-navbar">`, when the site has a navbar: its logo and
   title, its links and dropdowns with their icons drawn as inline SVG, then
   the comment-mode switch (unless comments are off) and the theme selector ([the navbar](../organizing-navigation/README.md#the-navbar));
+- `<div id="devpage-navigator">` holds the navbar's links again
+  (`<nav class="navigator-links">`) and the sidebar: on a wide screen it lays
+  out as if it weren't there and the links copy is hidden; on one 860px wide
+  or less it is the one menu the menu button at the start of the navbar, or of
+  the corner, slides in ([the navigator](../page-script/README.md#the-navigator));
 - `<nav id="devpage-nav">`, unless `sidebar: false`, holds the tree — after a link
   to the site's root page with its logo and title when there is no navbar
   to hold it — and is followed by the tree as JSON
   (`<script type="application/json" id="devpage-sidebar">`) and a small
   script that opens, before the page paints, the branches the reader opened
   ([Rendering the sidebar](../navigation-tree/README.md#rendering-the-sidebar));
-- with no navbar, the comment-mode switch (unless comments are off) and the
-  theme selector (unless `theme-selector: false`) in
-  `<div id="devpage-corner">`, top right;
+- with no navbar, the menu button, the comment-mode switch (unless comments
+  are off) and the theme selector (unless `theme-selector: false`) in
+  `<div id="devpage-corner">`, top right — across the top on a narrow
+  screen;
 - `<main id="devpage-page"><article>` holds the rendered Markdown;
 - in `<head>`, the stylesheet and the page script, `devpage.js` — `defer`, so
   it is fetched with everything else the head names and runs once the page is
@@ -232,7 +240,7 @@ only; a doc's or deck's page with none of these, or a site's with
 nothing to the load set: it is drawn already.
 
 Every id the frame uses starts with `devpage-` — `devpage-page`,
-`devpage-nav`, `devpage-sidebar`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
+`devpage-navigator`, `devpage-nav`, `devpage-sidebar`, `devpage-navbar`, `devpage-corner`, `devpage-comments` and
 `devpage-comments-toggle` — and a heading whose text would give it one of
 them gets `-heading` added to its id. So a page can have a heading called
 *Comments*, *Page* or *Navigation* and it stays an ordinary heading, never

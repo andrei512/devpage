@@ -27,13 +27,14 @@ pub(crate) fn options() -> Options<'static> {
     options
 }
 
-/// The ids of devpage's own frame — the page, the sidebar and its tree, the
-/// navbar, the theme corner and the comments — used by `assets/style.css` and
+/// The ids of devpage's own frame — the page, the navigator, the sidebar and
+/// its tree, the navbar, the theme corner and the comments — used by `assets/style.css` and
 /// `assets/devpage.js`. They all start with `devpage-`, so a heading's id,
 /// taken from its text, matches one only if the heading spells it out; such a
 /// heading's id gets `-heading` added, so a frame id is never a heading's.
-pub(crate) const FRAME_IDS: [&str; 8] = [
+pub(crate) const FRAME_IDS: [&str; 9] = [
     "devpage-page",
+    "devpage-navigator",
     "devpage-nav",
     "devpage-sidebar",
     "devpage-navbar",

@@ -193,15 +193,17 @@ blocked `localStorage` leaves the switch working for that page.
 
 A click on a dropdown's button opens it; ↓ opens it and
 focuses its first link, ↑ and ↓ move between links, and Escape, a click
-elsewhere or a followed link closes it. On a narrow screen the menu button
-shows and hides the links.
+elsewhere or a followed link closes it. On a narrow screen the links leave
+the bar for the [navigator](#the-navigator).
 
 ## The navigator
 
-On a screen 860px wide or less, the sidebar of a site, or a doc's outline, is
-a **navigator**: it is hidden, and a toggle at the top left — in the navbar
-before the title, or in a bar across the top when there is no navbar — slides
-it in over the page, scrolled so the current entry is in view. A followed link
+On a screen 860px wide or less, a page has one menu: the **navigator**, the
+navbar's links — each dropdown's entries listed under its label — above the
+sidebar of a site, or a doc's outline. It is hidden, and the menu button at
+the top left — in the navbar before the title, or in a bar across the top
+when there is no navbar — slides it in over the page, scrolled so the
+sidebar's current entry is in view. A followed link
 in it, a touch on the page beside it, or Escape closes it; that touch only
 closes it, so a link under it isn't followed, and Escape puts the focus back
 on the toggle. `/` and ⌘K bring it in before focusing its search box. A screen

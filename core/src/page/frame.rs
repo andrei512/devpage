@@ -233,7 +233,7 @@ fn framed(
 {widgets}
 </head>
 <body class="{body_class}" data-build="{build}">
-{navbar}{sidebar}{corner}
+{navbar}{navigator}{corner}
 <main id="devpage-page">{problems}<article data-source="{current}">{content}</article></main>
 </body>
 </html>"#,
@@ -244,7 +244,7 @@ fn framed(
         theme = navbar::head(document),
         body_class = site_class(document),
         navbar = navbar::render(document, &tree, &current, comments),
-        sidebar = sidebar(document, &tree, &current),
+        navigator = navigator(document, &tree, &current),
         script = page_script(false, comments),
         corner = if document.navbar.is_empty() {
             navbar::corner(document, comments)
@@ -261,6 +261,20 @@ fn framed(
             }
         ),
     ))
+}
+
+/// A site page's navigator: the sidebar, and the navbar's links that a narrow
+/// screen shows above it. On a wide screen the wrapper lays out as if it
+/// weren't there, the sidebar beside the page and the links in the navbar;
+/// on a narrow one it is what the toggle slides in. Nothing when the site has
+/// neither.
+fn navigator(document: &Document, tree: &[nav::Group], current: &str) -> String {
+    let links = navbar::navigator_links(document, tree, current);
+    let sidebar = sidebar(document, tree, current);
+    if links.is_empty() && sidebar.is_empty() {
+        return String::new();
+    }
+    format!("<div id=\"devpage-navigator\" class=\"navigator\">{links}{sidebar}</div>")
 }
 
 /// A package workspace uses the ordinary site frame and React lifecycle, with
@@ -342,7 +356,7 @@ pub fn doc(
         String::new()
     } else {
         format!(
-            "<nav id=\"devpage-nav\" class=\"outline\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
+            "<nav id=\"devpage-nav\" class=\"outline navigator\"><a class=\"document-title current\" href=\"#\">{}{}</a><ul>{outline}</ul></nav>",
             navbar::logo(document),
             escape(&document.title)
         )

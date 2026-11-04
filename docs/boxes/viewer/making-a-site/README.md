@@ -61,9 +61,10 @@ Links anywhere else in a page work as ordinary links and never change the
 sidebar. How Topics shape the tree — groups, order, labels, repeated pages —
 is on [Organizing navigation](../organizing-navigation/README.md).
 
-On a narrow screen — a phone — the page comes first: the sidebar is hidden
-until the button at the top left slides it in over the page, with the page
-you are on in view ([the navigator](../page-script/README.md#the-navigator)).
+On a narrow screen — a phone — the page comes first: the navbar's links and
+the sidebar are hidden until the one menu button at the top left slides them
+in over the page, the links above the sidebar and the page you are on in view
+([the navigator](../page-script/README.md#the-navigator)).
 
 ## The navbar, the logo and the theme switch
 

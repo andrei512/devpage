@@ -582,28 +582,8 @@ body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
 .navbar-entry .icon { color: var(--muted); }
 .navbar-entry.current { background: var(--surface); font-weight: 600; }
 .navbar-end { display: flex; align-items: center; gap: 8px; padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border); height: 24px; }
-.navbar-toggle { display: none; background: none; border: 0; color: var(--text); padding: 6px; border-radius: 8px; cursor: pointer; }
-.navbar-toggle:hover { background: var(--surface); }
 
 body.with-navbar #devpage-nav { top: 52px; height: calc(100vh - 52px); }
-
-@media (max-width: 760px) {
-  .navbar-inner { padding: 0 8px 0 20px; }
-  .navbar-end { margin-left: auto; border-left: 0; padding-left: 0; }
-  .navbar-toggle { display: inline-flex; }
-  .navbar-links {
-    display: none; position: absolute; top: 52px; left: 0; right: 0;
-    flex-direction: column; align-items: stretch; gap: 2px; padding: 8px 12px 14px;
-    background: var(--background); border-bottom: 1px solid var(--border);
-    box-shadow: 0 16px 30px -20px color-mix(in srgb, var(--text) 40%, transparent);
-  }
-  #devpage-navbar.open .navbar-links { display: flex; }
-  .navbar-link, .navbar-entry { font-size: 16px; padding: 10px 12px; }
-  .navbar-link.icon-only::after { content: attr(title); }
-  .navbar-menu > .navbar-link { width: 100%; }
-  .navbar-dropdown { display: grid; position: static; box-shadow: none; border: 0; padding: 0 0 0 14px; min-width: 0; }
-  .navbar-menu > .navbar-link .icon:last-child:not(:first-child) { display: none; }
-}
 
 /* The theme selector: one quiet icon button, the size of the navbar's icons,
    showing the theme a click switches to — a moon in light, a sun in dark. In
@@ -687,28 +667,39 @@ body.devpage-workspace {height:100dvh;overflow:hidden;display:flex;flex-directio
 body.devpage-workspace > #devpage-page {flex:1;min-width:0;min-height:0;width:100%;max-width:none;margin:0;padding:0;overflow:hidden;}
 body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min-height:0;margin:0;}
 
-/* A phone or a narrow window: the page comes first. The sidebar, or a doc's
-   outline, is a navigator that slides in over it from the toggle at the top
-   left and goes when a link in it is followed, the page beside it is touched
-   or Escape is pressed. Type, code and tables take the narrow width. Screens
-   only: a printed page is as narrow, and prints as the wide layout does. Last
-   in the sheet, so it wins over the rules it narrows. */
-.nav-toggle { display: none; }
+/* A phone or a narrow window: the page comes first. The navigator — the
+   navbar's links, then the sidebar, or a doc's outline — slides in over it
+   from the one toggle at the top left, and goes when a link in it is
+   followed, the page beside it is touched or Escape is pressed. On a wide
+   screen the wrapper lays out as if it weren't there. Type, code and tables
+   take the narrow width. Screens only: a printed page is as narrow, and
+   prints as the wide layout does. Last in the sheet, so it wins over the
+   rules it narrows. */
+#devpage-navigator { display: contents; }
+.navigator-links, .nav-toggle { display: none; }
 @media screen and (max-width: 860px) {
   body { display: block; }
-  #devpage-nav, body.with-navbar #devpage-nav {
+  #devpage-navigator, #devpage-nav.navigator {
+    display: block;
     position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
     width: min(86vw, 340px); height: auto; align-self: stretch;
+    overflow-y: auto; overscroll-behavior: contain;
     padding: calc(20px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
-    font-size: 16px;
-    overscroll-behavior: contain;
+    border-right: 1px solid var(--border);
+    background: var(--surface);
+    font-size: 16px; line-height: 1.4;
     transform: translateX(-100%);
     visibility: hidden;
     transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s 0.28s;
   }
-  body.nav-open #devpage-nav {
+  body.nav-open #devpage-navigator, body.nav-open #devpage-nav.navigator {
     transform: none; visibility: visible; transition-delay: 0s;
     box-shadow: 0 0 40px color-mix(in srgb, #000 22%, transparent);
+  }
+  /* The sidebar inside it is one more block of the navigator. */
+  #devpage-navigator #devpage-nav {
+    position: static; width: auto; height: auto; overflow: visible;
+    padding: 0; border: 0; background: none; font-size: inherit;
   }
   body.nav-open { overflow: hidden; }
   body.nav-open::before { content: ""; position: fixed; inset: 0; z-index: 39; background: color-mix(in srgb, #000 30%, transparent); }
@@ -717,16 +708,27 @@ body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min
   #devpage-nav .search input { height: 40px; font-size: 16px; }
   #devpage-nav .search kbd { display: none; }
 
-  body:has(> #devpage-nav) .nav-toggle {
+  /* The navbar's links leave the bar for the navigator's top, each
+     dropdown's entries listed under its label. */
+  #devpage-navbar .navbar-links { display: none; }
+  .navbar-inner { padding: 0 8px 0 12px; gap: 8px; }
+  .navbar-end { margin-left: auto; border-left: 0; padding-left: 0; }
+  .navigator-links { display: grid; gap: 2px; margin: 0 0 16px; padding: 0 0 16px; border-bottom: 1px solid var(--border); }
+  .navigator-links .navbar-link, .navigator-links .navbar-entry { display: flex; font-size: 16px; padding: 9px 10px; color: var(--text); white-space: normal; }
+  .navigator-links .navbar-link.current, .navigator-links .navbar-entry.current { background: var(--border); font-weight: 600; }
+  .navigator-links .navbar-link.icon-only::after { content: attr(title); }
+  .navigator-links .navbar-menu > .navbar-link { width: 100%; color: var(--muted); font-size: 13px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; pointer-events: none; padding-bottom: 4px; }
+  .navigator-links .navbar-menu > .navbar-link .icon { display: none; }
+  .navigator-links .navbar-dropdown { display: grid; gap: 2px; position: static; box-shadow: none; border: 0; padding: 0; min-width: 0; background: none; }
+
+  body:has(.navigator) .nav-toggle {
     display: inline-flex; align-items: center; justify-content: center;
     width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px;
     background: none; color: var(--text); cursor: pointer;
   }
-  #devpage-navbar .navbar-inner { gap: 8px; }
-  .navbar-inner > .nav-toggle { margin-left: -8px; }
   /* With no navbar, the corner becomes a bar across the top that holds the
      toggle at its start and the page's controls at its end. */
-  body:not(.with-navbar):has(> #devpage-nav) #devpage-corner {
+  body:not(.with-navbar):has(.navigator) #devpage-corner {
     top: 0; left: 0; right: 0; height: 52px; padding: 0 12px;
     align-items: center;
     background: color-mix(in srgb, var(--background) 82%, transparent);
@@ -734,8 +736,8 @@ body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min
     backdrop-filter: saturate(180%) blur(20px);
     border-bottom: 1px solid var(--border);
   }
-  body:not(.with-navbar):has(> #devpage-nav) #devpage-corner > .nav-toggle { margin-right: auto; }
-  body:not(.with-navbar):has(> #devpage-nav) main { padding-top: 76px; }
+  body:not(.with-navbar):has(.navigator) #devpage-corner > .nav-toggle { margin-right: auto; }
+  body:not(.with-navbar):has(.navigator) main { padding-top: 76px; }
 
   main { padding: 24px 16px 72px; }
   h1 { font-size: 32px; margin-bottom: 18px; }

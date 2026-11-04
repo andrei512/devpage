@@ -146,7 +146,8 @@ navbar:
   highlighted: of the navbar's links, the one nearest the page in the sidebar
   tree, so a page under *Guide* lights *Guide*, and any other lights the link to
   the root page. A dropdown holding the link is highlighted too. On a narrow
-  screen the links fold into a menu button.
+  screen the links move to the top of the
+  [navigator](../page-script/README.md#the-navigator), the one menu.
 - A dropdown opens on a click, or with ↓ from the keyboard, and closes on
   Escape, a click elsewhere, or a followed link. Links to pages of the site load
   in place, like links in the text.
