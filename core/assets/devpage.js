@@ -259,6 +259,28 @@ function markBroken(root) {
   }
 }
 
+// A diagram fits the width it is shown in. On a narrow screen one wider than
+// that is shrunk no further than DIAGRAM_SCALE of its own size, so its text
+// stays readable, and scrolls sideways in its box.
+const DIAGRAM_SCALE = 0.65;
+const narrow = matchMedia("screen and (max-width: 860px)");
+// A slide's diagrams fill the stage instead, and one out of sight (a hidden
+// tab) has no width to fit and keeps its size.
+function fitDiagrams(root = document) {
+  for (const svg of root.querySelectorAll("article .diagram > svg[width]")) {
+    const own = parseFloat(svg.getAttribute("width"));
+    const room = svg.parentElement.clientWidth - 32;
+    if (room <= 0) continue;
+    svg.style.width = narrow.matches && own > room ? `${Math.max(room, own * DIAGRAM_SCALE)}px` : "";
+  }
+}
+// A screen grown wide shows the sidebar beside the page: the navigator is
+// closed, so nothing waits for a touch that would close it.
+narrow.addEventListener("change", () => {
+  fitDiagrams();
+  if (!narrow.matches) setNavigator(false);
+});
+
 // Embedded designs are drawn by the design script, loaded only once a page
 // has one: it starts every canvas not yet drawn and stops those gone — on
 // every page after that, so leaving the last design closes its stream.
@@ -509,11 +531,13 @@ async function swap(url, how, generation, signal) {
   if (how === "push") history.pushState(null, "", url);
   shownPath = pathOf(url);
   document.getElementById("devpage-navbar")?.classList.remove("open");
+  if (how !== "live") setNavigator(false);
   applyTheme();
   applyCommentMode();
   document.title = next.title;
   showSlide();
   markBroken(page);
+  fitDiagrams(page);
   if (how === "live") scrollTo(scrollX, scroll);
   else if (how === "traverse" && typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
   else if (!toFragment(url.hash)) scrollTo(0, 0);
@@ -1167,8 +1191,38 @@ document.addEventListener("keydown", (event) => {
   else return;
   event.preventDefault();
 });
+// On a touch screen a swipe left or a tap on the right of a slide goes on; a
+// swipe right or a tap on its left third goes back. A tap on a link, a
+// button, a field, a design or a comment is theirs, and a long press or one
+// that leaves text selected is selecting, not turning.
+const TAP_MS = 400;
+let touchStart = null;
+document.addEventListener("touchstart", (event) => {
+  touchStart = event.touches.length === 1 ? { x: event.touches[0].clientX, y: event.touches[0].clientY, at: event.timeStamp } : null;
+}, { passive: true });
+document.addEventListener("touchend", (event) => {
+  const start = touchStart;
+  touchStart = null;
+  if (!start || event.target.closest?.("a, button, input, textarea, select, summary, canvas, .design-embed, mark.comment, .comment-button, #devpage-comments, #devpage-corner")) return;
+  const selection = document.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  const state = showSlide();
+  if (!state) return;
+  const touch = event.changedTouches[0];
+  const dx = touch.clientX - start.x, dy = touch.clientY - start.y;
+  let step = 0;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy)) step = dx < 0 ? 1 : -1;
+  else if (Math.abs(dx) < 10 && Math.abs(dy) < 10 && event.timeStamp - start.at < TAP_MS) step = touch.clientX < innerWidth / 3 ? -1 : 1;
+  if (!step) return;
+  const next = Math.min(Math.max(state.index + step, 1), state.count);
+  if (next !== state.index) location.hash = `#${next}`;
+  event.preventDefault();
+});
 window.addEventListener("hashchange", () => showSlide());
-window.addEventListener("resize", () => showSlide());
+window.addEventListener("resize", () => {
+  showSlide();
+  fitDiagrams();
+});
 
 // A doc's outline follows the reader: the section in view is marked current.
 function followOutline() {
@@ -1189,6 +1243,7 @@ Promise.all([mountWidgets(document).catch((error) => console.error(error)), side
   // A widget's content mounts with it: designs it embeds exist only now.
   drawDesigns();
   markBroken(document);
+  fitDiagrams();
   showSlide();
   if (!print && typeof history.state?.scrollY === "number") scrollTo(0, history.state.scrollY);
   if (!print) landHandedOver();
@@ -1247,6 +1302,37 @@ document.addEventListener("click", (event) => {
 // Dropdowns open on click or from the keyboard and close on Escape, on a click
 // elsewhere, or when a link in them is followed. On a narrow screen the links
 // fold into a menu the toggle opens.
+
+// On a narrow screen the sidebar, or a doc's outline, is a navigator over the
+// page: its toggle opens it with the current entry in view; a followed link,
+// a touch beside it or Escape closes it.
+function setNavigator(open) {
+  document.body.classList.toggle("nav-open", open);
+  for (const toggle of document.querySelectorAll(".nav-toggle")) toggle.setAttribute("aria-expanded", String(open));
+  if (open) document.querySelector("#devpage-nav a.current")?.scrollIntoView({ block: "center" });
+}
+
+document.addEventListener("click", (event) => {
+  if (event.target.closest?.(".nav-toggle")) {
+    setNavigator(!document.body.classList.contains("nav-open"));
+    return;
+  }
+  if (!document.body.classList.contains("nav-open")) return;
+  const inside = event.target.closest?.("#devpage-nav");
+  if (inside && !event.target.closest("a")) return;
+  // The touch beside the navigator only closes it; a link in it is followed.
+  if (!inside) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  setNavigator(false);
+}, true);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !document.body.classList.contains("nav-open")) return;
+  setNavigator(false);
+  [...document.querySelectorAll(".nav-toggle")].find((toggle) => toggle.offsetParent)?.focus();
+});
 
 function closeMenus(except) {
   for (const menu of document.querySelectorAll(".navbar-menu.open")) {

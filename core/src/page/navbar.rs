@@ -260,7 +260,7 @@ pub(super) fn render(
         }
     }
     format!(
-        "<header id=\"devpage-navbar\"><div class=\"navbar-inner\"><a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
+        "<header id=\"devpage-navbar\"><div class=\"navbar-inner\">{toggle}<a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
         root = if current == document.entry() {
             " current"
         } else {
@@ -271,6 +271,17 @@ pub(super) fn render(
         title = escape(&document.title),
         selector = controls(document, comments),
         menu = icons::svg("menu").unwrap_or_default(),
+        toggle = nav_toggle(),
+    )
+}
+
+/// The button that opens the sidebar, or a doc's outline, over the page on a
+/// narrow screen. The stylesheet shows it only there, and only on a page that
+/// has one.
+pub(super) fn nav_toggle() -> String {
+    format!(
+        "<button type=\"button\" class=\"nav-toggle\" aria-label=\"Navigation\" aria-expanded=\"false\">{}</button>",
+        icons::svg("panel-left").unwrap_or_default()
     )
 }
 
@@ -357,10 +368,12 @@ fn controls(document: &Document, comments: bool) -> String {
     format!("{mode}{}", selector(document))
 }
 
-/// The controls for a page with no navbar to hold them: the top-right corner.
+/// The controls for a page with no navbar to hold them: the top-right corner,
+/// and the navigator's toggle, which a narrow screen shows at the start of it.
 pub(super) fn corner(document: &Document, comments: bool) -> String {
     format!(
-        "<div id=\"devpage-corner\">{}</div>",
+        "<div id=\"devpage-corner\">{}{}</div>",
+        nav_toggle(),
         controls(document, comments)
     )
 }
@@ -445,8 +458,15 @@ mod tests {
         assert!(html.contains("href=\"/talk.yml\""), "{html}");
         assert!(html.contains("aria-haspopup=\"true\""), "{html}");
         assert!(html.contains("class=\"navbar-link icon-only\" href=\"https://github.com/someone/garden\" title=\"github.com\""), "{html}");
-        // house, layout-grid, chevron, presentation, github, menu, and the switch's moon and sun.
-        assert_eq!(html.matches("<svg class=\"icon\"").count(), 8, "{html}");
+        // The navigator's toggle, house, layout-grid, chevron, presentation,
+        // github, menu, and the switch's moon and sun.
+        assert_eq!(html.matches("<svg class=\"icon\"").count(), 9, "{html}");
+        assert!(
+            html.contains(
+                "<div class=\"navbar-inner\"><button type=\"button\" class=\"nav-toggle\""
+            ),
+            "{html}"
+        );
     }
 
     #[test]

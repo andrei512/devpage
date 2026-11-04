@@ -2,7 +2,8 @@
 
 What `core/assets/devpage.js` does in every open page: swapping a page in place,
 mounting widgets, keeping a site's sidebar mounted, listening to the live-update stream, following links without
-reloading, keeping the theme, driving the navbar, and letting hidden tabs go
+reloading, keeping the theme, driving the navbar and, on a narrow screen, the
+navigator, and letting hidden tabs go
 quiet. It is a mechanism page under [Live updates](../live-updates/README.md),
 for someone about to change the script.
 
@@ -75,8 +76,10 @@ elements take their places, the fresh content replaces the children of
 `#devpage-page`, the mounted [sidebar](#the-sidebar) is given the fresh
 page's tree and address, the fresh children replace those of `#devpage-navbar`
 — so the navbar's highlight follows the page — and of a doc's outline, a link's
-address is pushed onto the history, the title is set, the slide is shown,
-broken links are marked, and the scroll is put where it belongs: kept for a
+address is pushed onto the history, the [navigator](#the-navigator) closes
+unless the swap is a live update,
+the title is set, the slide is shown, broken links are marked, the diagrams
+are fitted to a narrow screen, and the scroll is put where it belongs: kept for a
 live update, the reader's for back and forward, and the `#fragment` or the
 top for a link. Then every React root no longer in the page is unmounted —
 its effects and timers stop — the design script starts the designs the page
@@ -192,6 +195,17 @@ A click on a dropdown's button opens it; ↓ opens it and
 focuses its first link, ↑ and ↓ move between links, and Escape, a click
 elsewhere or a followed link closes it. On a narrow screen the menu button
 shows and hides the links.
+
+## The navigator
+
+On a screen 860px wide or less, the sidebar of a site, or a doc's outline, is
+a **navigator**: it is hidden, and a toggle at the top left — in the navbar
+before the title, or in a bar across the top when there is no navbar — slides
+it in over the page, scrolled so the current entry is in view. A followed link
+in it, a touch on the page beside it, or Escape closes it; that touch only
+closes it, so a link under it isn't followed, and Escape puts the focus back
+on the toggle. `/` and ⌘K bring it in before focusing its search box. A screen
+widened past 860px closes it.
 
 ## Hidden tabs
 

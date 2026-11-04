@@ -107,10 +107,14 @@ function Tree({ groups, current, open, toggle, hidden = false }: { groups: Group
 // while typing, long enough that a word typed fast is one request.
 const DEBOUNCE_MS = 60;
 
-// Each page's rows: its own, its sections', then the rest's.
+// Each page's rows: its own, its sections', then the rest's. A page found by
+// its title shows its lede, so its top section — the one under no heading of
+// its own — would say the same twice and is left out.
 const rowsOf = (page: FoundPage): Row[] => [
   { kind: "page", page },
-  ...page.sections.map((section): Row => ({ kind: "section", page, section })),
+  ...page.sections
+    .filter((section) => !(page.title_match && (!section.heading || section.heading === page.title)))
+    .map((section): Row => ({ kind: "section", page, section })),
   ...(page.more ? [{ kind: "more", page } as Row] : []),
 ];
 
@@ -184,6 +188,11 @@ function useSearch() {
       const slash = event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !typing(event.target);
       if (!commandK && !slash) return;
       event.preventDefault();
+      // On a narrow screen the sidebar is a navigator out of sight: its toggle
+      // brings it in first.
+      if (input.current && getComputedStyle(input.current).visibility === "hidden") {
+        document.querySelector<HTMLButtonElement>(".nav-toggle")?.click();
+      }
       input.current?.focus();
       input.current?.select();
     };

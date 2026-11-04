@@ -225,6 +225,10 @@ The HTML a page's content is wrapped in: the stylesheet, the scripts, the proble
 
 A doc's navigation: its chapters' headings, beside the text, following the reader as they scroll.
 
+## navigator
+
+A site's sidebar, or a doc's outline, on a screen 860px wide or less: hidden until its toggle at the top left slides it in over the page. See [The navigator](../page-script/README.md#the-navigator).
+
 ## Topics
 
 A page's `## Topics` section. The first link of each top-level list item names a child of the page in a site's sidebar.

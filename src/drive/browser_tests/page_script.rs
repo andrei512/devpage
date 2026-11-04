@@ -191,7 +191,7 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
-async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
+async fn on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text() {
     use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(
@@ -210,7 +210,10 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
     let address = testing::serve(router).await;
     let mut browser = testing::browser().await;
     let page = browser.new_page("about:blank").await.unwrap();
-    let layout = |width: i64| {
+    // Where the outline is against the text: beside it, shown over it, or
+    // out of sight with the text at the top.
+    let layout = "(() => { const n = document.getElementById('devpage-nav'), r = n.getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); if (getComputedStyle(n).visibility === 'hidden') return a.top < 120 ? 'hidden' : 'hidden, text pushed down'; return r.right <= a.left ? 'beside' : 'over'; })()";
+    let open = |width: i64| {
         let page = page.clone();
         let url = format!("{address}{url}");
         async move {
@@ -219,17 +222,29 @@ async fn a_docs_outline_moves_above_the_text_on_a_narrow_screen() {
                 .unwrap();
             page.goto(url.as_str()).await.unwrap();
             testing::loaded(&page).await;
-            let value: String = page
-                    .evaluate("(() => { const n = document.getElementById('devpage-nav').getBoundingClientRect(), a = document.querySelector('article').getBoundingClientRect(); return n.bottom <= a.top ? 'above' : n.right <= a.left ? 'beside' : 'overlap'; })()")
-                    .await
-                    .unwrap()
-                    .into_value()
-                    .unwrap();
-            value
         }
     };
-    assert_eq!(layout(1300).await, "beside");
-    assert_eq!(layout(600).await, "above");
+    open(1300).await;
+    assert_eq!(text(&page, layout).await, "beside");
+    open(600).await;
+    assert_eq!(text(&page, layout).await, "hidden");
+    page.evaluate("document.querySelector('.nav-toggle').click()")
+        .await
+        .unwrap();
+    testing::next_frames(&page).await;
+    assert_eq!(text(&page, layout).await, "over");
+    // Escape closes it.
+    page.evaluate("document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))")
+        .await
+        .unwrap();
+    assert_eq!(
+        text(
+            &page,
+            "String(document.body.classList.contains('nav-open'))"
+        )
+        .await,
+        "false"
+    );
     browser.close().await.ok();
 }
 

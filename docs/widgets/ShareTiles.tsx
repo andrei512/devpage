@@ -1,6 +1,7 @@
-// Three ways to share: a PDF, a video, a site for the team.
+// Four ways to share: a PDF, a video, a site for the team, and that site on
+// a phone, its sidebar behind the button at the top left.
 export const css = `
-  .sh { display: grid; grid-template-columns: repeat(3, 460px); gap: 48px; }
+  .sh { display: grid; grid-template-columns: repeat(4, 400px); gap: 40px; }
   .sh-tile { background: var(--surface); border: 1px solid var(--border); border-radius: 28px; padding: 44px 40px 40px; display: flex; flex-direction: column; gap: 14px; }
   .sh-pic { height: 230px; display: grid; place-items: center; margin-bottom: 16px; }
   .sh-name { font-size: 56px; font-weight: 700; letter-spacing: -0.03em; }
@@ -41,10 +42,28 @@ function Team() {
   );
 }
 
+function Phone() {
+  return (
+    <div className="sk2" style={{ width: "124px", height: "224px", borderRadius: "24px", padding: "7px", boxSizing: "border-box" }}>
+      <div style={{ height: "100%", borderRadius: "18px", border: "1px solid var(--border)", overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        <div style={{ height: "28px", background: "var(--surface)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: "7px", padding: "0 9px" }}>
+          <div style={{ width: "13px", height: "11px", border: "2px solid var(--muted)", borderRadius: "3px", boxSizing: "border-box", borderLeftWidth: "5px" }} />
+          <div className="sk2-line" style={{ width: "40px", height: "6px" }} />
+        </div>
+        <div style={{ padding: "14px 10px", display: "grid", gap: "9px" }}>
+          <div className="sk2-line" style={{ width: "70%", height: "9px", background: "var(--accent)" }} />
+          {[1, 2, 3, 4, 5, 6].map((i) => <div className="sk2-line" style={{ width: i % 3 ? "100%" : "60%", height: "6px" }} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const ways = [
   { name: "PDF", cmd: "devpage pdf", Pic: Pdf },
   { name: "Video", cmd: "devpage video", Pic: Video },
   { name: "Team site", cmd: "behind your login", Pic: Team },
+  { name: "Phone", cmd: "the same link", Pic: Phone },
 ];
 
 export default function ShareTiles() {

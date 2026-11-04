@@ -326,11 +326,6 @@ th { font-weight: 600; }
 
 .diagram-error { color: #d70015; text-align: left; white-space: pre-wrap; font: 13px var(--font-mono); }
 
-@media (max-width: 860px) {
-  body { display: block; }
-  #devpage-nav { position: static; width: auto; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
-  main { padding: 32px 20px 80px; }
-}
 
 /* Sidebar groups: the ### headings of a Topics section. */
 #devpage-nav li.group { margin: 14px 0 4px; padding: 0 8px; }
@@ -691,3 +686,77 @@ body.with-version-banner { flex-wrap: wrap; align-content: flex-start; }
 body.devpage-workspace {height:100dvh;overflow:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;align-content:normal;}
 body.devpage-workspace > #devpage-page {flex:1;min-width:0;min-height:0;width:100%;max-width:none;margin:0;padding:0;overflow:hidden;}
 body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min-height:0;margin:0;}
+
+/* A phone or a narrow window: the page comes first. The sidebar, or a doc's
+   outline, is a navigator that slides in over it from the toggle at the top
+   left and goes when a link in it is followed, the page beside it is touched
+   or Escape is pressed. Type, code and tables take the narrow width. Screens
+   only: a printed page is as narrow, and prints as the wide layout does. Last
+   in the sheet, so it wins over the rules it narrows. */
+.nav-toggle { display: none; }
+@media screen and (max-width: 860px) {
+  body { display: block; }
+  #devpage-nav, body.with-navbar #devpage-nav {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 40;
+    width: min(86vw, 340px); height: auto; align-self: stretch;
+    padding: calc(20px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+    font-size: 16px;
+    overscroll-behavior: contain;
+    transform: translateX(-100%);
+    visibility: hidden;
+    transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), visibility 0s 0.28s;
+  }
+  body.nav-open #devpage-nav {
+    transform: none; visibility: visible; transition-delay: 0s;
+    box-shadow: 0 0 40px color-mix(in srgb, #000 22%, transparent);
+  }
+  body.nav-open { overflow: hidden; }
+  body.nav-open::before { content: ""; position: fixed; inset: 0; z-index: 39; background: color-mix(in srgb, #000 30%, transparent); }
+  #devpage-nav a { padding: 7px 10px; }
+  #devpage-nav .chevron { width: 36px; height: 36px; }
+  #devpage-nav .search input { height: 40px; font-size: 16px; }
+  #devpage-nav .search kbd { display: none; }
+
+  body:has(> #devpage-nav) .nav-toggle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 36px; height: 36px; padding: 0; border: 0; border-radius: 8px;
+    background: none; color: var(--text); cursor: pointer;
+  }
+  #devpage-navbar .navbar-inner { gap: 8px; }
+  .navbar-inner > .nav-toggle { margin-left: -8px; }
+  /* With no navbar, the corner becomes a bar across the top that holds the
+     toggle at its start and the page's controls at its end. */
+  body:not(.with-navbar):has(> #devpage-nav) #devpage-corner {
+    top: 0; left: 0; right: 0; height: 52px; padding: 0 12px;
+    align-items: center;
+    background: color-mix(in srgb, var(--background) 82%, transparent);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--border);
+  }
+  body:not(.with-navbar):has(> #devpage-nav) #devpage-corner > .nav-toggle { margin-right: auto; }
+  body:not(.with-navbar):has(> #devpage-nav) main { padding-top: 76px; }
+
+  main { padding: 24px 16px 72px; }
+  h1 { font-size: 32px; margin-bottom: 18px; }
+  h2 { font-size: 24px; margin: 40px 0 14px; }
+  h3 { font-size: 19px; margin: 28px 0 10px; }
+  pre { padding: 12px 14px; border-radius: 8px; }
+  pre code { font-size: 13px; }
+  table { font-size: 14px; }
+  th, td { padding: 8px 10px; }
+  /* A cell's code stays whole: the table scrolls in its box instead. */
+  td code, th code { white-space: nowrap; }
+  /* A diagram keeps a size its text can be read at, and scrolls in its box. */
+  article .diagram { overflow-x: auto; margin-inline: -16px; padding-inline: 16px; }
+  article .diagram svg { display: block; margin: 0 auto; max-width: none !important; }
+  .code-hero { margin-bottom: 28px; }
+  .code-eyebrow { font-size: 15px; }
+  .code-hero h1 { font-size: 34px; }
+  .code-hero p:not(.code-eyebrow) { font-size: 19px; }
+  .code-declaration pre { padding: 14px 16px; border-radius: 12px; }
+  .code-declaration pre code { font-size: 13px; }
+  .code-source { margin-bottom: 28px; }
+  .code-topics h3 { font-size: 20px; margin-top: 40px; }
+  .code-topic a code { font-size: 14px; }
+}

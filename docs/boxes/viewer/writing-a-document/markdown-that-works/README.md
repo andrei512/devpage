@@ -40,6 +40,10 @@ Pages are GitHub-flavoured Markdown:
 Whatever a page contains, including `<script>`, goes into the page as written.
 </Callout>
 
+On a screen 860px wide or less, headings, code blocks and tables are sized for
+the narrow width. Code in a table's cell stays on one line, and a table too
+wide for the screen scrolls sideways in its box.
+
 ## Code blocks
 
 A fenced code block is syntax-highlighted when its language is one devpage
