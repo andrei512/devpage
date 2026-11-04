@@ -92,7 +92,7 @@ devpage deployed:
 
 ```dockerfile
 FROM rust:1.98.1-slim-bookworm AS build
-ARG DEVPAGE_VERSION=0.3.0
+ARG DEVPAGE_VERSION=0.3.1
 # The docs, licence, changelog and the code their reference reads come from
 # the published crates' own source, so they always match the binary.
 RUN cargo install devpage --version "$DEVPAGE_VERSION" --locked \

@@ -4,6 +4,17 @@ What changed in each released version of devpage, newest first. The four
 crates — `devpage`, `devpage-core`, `devpage-design` and
 `devpage-extension-api` — are released together at the same version.
 
+## 0.3.1 — 2026-11-04
+
+- **devpage on a phone.** On a screen 860px wide or less every page opens on
+  its content: the sidebar, or a doc's outline, slides in from a toggle at the
+  top left and closes on a followed link, a touch beside it or Escape; `/` and
+  ⌘K open it to search. Type, code and tables fit the width, a diagram stays
+  readable and scrolls sideways, and a deck turns on a swipe or a tap. Print
+  and PDF are unchanged.
+- **Search lists a page once.** A page found by its title no longer repeats
+  its top section as a second hit.
+
 ## 0.3.0 — 2026-11-04
 
 - **Code reference.** A site with `extensions: code:` gets pages
