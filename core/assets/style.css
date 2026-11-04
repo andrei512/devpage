@@ -9,6 +9,7 @@
   --muted: #6e6e73;
   --border: #d2d2d7;
   --accent: #0066cc;
+  --on-accent: #fff;
   --code: #f5f5f7;
   --syntax-keyword: #9b2393;
   --syntax-string: #c41a16;
@@ -31,6 +32,7 @@
     --muted: #a1a1a6;
     --border: #424245;
     --accent: #2997ff;
+    --on-accent: #0b0b0c;
     --code: #1d1d1f;
     --syntax-keyword: #ff7ab2;
     --syntax-string: #ff8170;
@@ -48,6 +50,7 @@
     --muted: #a1a1a6;
     --border: #424245;
     --accent: #2997ff;
+    --on-accent: #0b0b0c;
     --code: #1d1d1f;
     --syntax-keyword: #ff7ab2;
     --syntax-string: #ff8170;
@@ -105,7 +108,7 @@ body {
 #devpage-nav li { margin: 0; }
 #devpage-nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
 #devpage-nav a:hover { background: var(--border); }
-#devpage-nav a.current { background: var(--accent); color: #fff; }
+#devpage-nav a.current { background: var(--accent); color: var(--on-accent); }
 
 /* A sidebar entry with children: its link and a chevron on one row, its
    children shown while it is open. */
@@ -228,6 +231,11 @@ body {
   font-size: 13px;
   color: var(--muted);
 }
+/* Muted text on the selected result's background falls below readable contrast. */
+#devpage-nav a.hit.selected .hit-place,
+#devpage-nav a.hit.selected .hit-snippet,
+#devpage-nav a.hit.selected .hit-lede,
+#devpage-nav a.hit.selected .hit-label { color: var(--text); }
 #devpage-nav .hit-snippet mark {
   padding: 0 1px;
   border-radius: 2px;
