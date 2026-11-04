@@ -60,7 +60,9 @@ Beside the text, the doc shows its **outline**: each chapter's heading and the
 `##` headings under it. It stays in view as the reader scrolls and highlights
 the section they are in; clicking an entry scrolls there. The outline is the
 doc's table of contents — there is no other one to write. On a narrow screen it
-moves above the text.
+is hidden until the reader opens it with the button at the top left; it slides
+in over the text and closes when an entry is followed
+([the navigator](../page-script/README.md#the-navigator)).
 
 ## Links between chapters
 

@@ -77,6 +77,11 @@ to read from the back of a room.
 Keys pressed with <Keys>⌘</Keys>, <Keys>Ctrl</Keys> or <Keys>Alt</Keys> are left to the browser, so copying and
 finding work as usual; F and C work in either case.
 
+On a touch screen, a swipe left or a tap on the right two thirds of the screen
+goes to the next slide, and a swipe right or a tap on the left third goes back.
+A tap on a link, a button, a field, a design or a comment does what it does
+there instead, and a long press selects text as usual.
+
 The slide's number is in the address — `/talks/launch/devpage.yml#3` is the
 third slide — so a reload stays put and a link can point at one slide. A
 change to a slide's file swaps it in place, on the slide you are on.

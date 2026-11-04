@@ -347,7 +347,7 @@ one. An answer of no pages says so.
 | Row | Shows | Opens |
 | --- | --- | --- |
 | the page's | where it is — its document's title when that isn't this sidebar's, then its trail without its own label — and its title; its lede too when it was found by its title (`title_match`) | the page, at its top |
-| a section's, under it | its heading — the page's title for the text before the first heading — and its snippet, the matched words marked | the page, at the section's first matched word ([Landing on the match](#landing-on-the-match)) |
+| a section's, under it | its heading — the page's title for the text before the first heading — and its snippet, the matched words marked; left out for a page found by its title when the section is the page's top one — the text under no heading, or under a heading that is the page's title — since the lede already says it | the page, at the section's first matched word ([Landing on the match](#landing-on-the-match)) |
 | *N more in this page*, last, when the page has `more` | | the page, at its top |
 
 A page's sections and its more row stand indented under its row, on a rule, as

@@ -36,6 +36,11 @@ pele detects the diagram type from the first line — `flowchart`/`graph`,
 others. It sizes each label from its own table of character widths, not from
 the reader's fonts, so a diagram is the same in every browser.
 
+A diagram shrinks to fit the page's width. On a screen 860px wide or less it
+shrinks no further than 65% of its own size, so its text stays readable, and
+one still too wide scrolls sideways in its box. A printed page and a slide fit
+their diagrams whole.
+
 ## Clickable diagrams
 
 A node becomes a link with a Mermaid `click` line naming its id, the target and

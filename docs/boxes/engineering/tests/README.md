@@ -542,7 +542,7 @@ In Chrome:
 - A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
 - A doc's outline click scrolling without a fetch.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.
-- A doc's outline above the text on a narrow screen.
+- A doc's outline, on a narrow screen, hidden until its toggle shows it over the text, and closed by Escape.
 - Every system widget rendering, long lines scrolling, task lists without bullets and an inline widget keeping its paragraph.
 - Widgets in a doc and a deck, a page loading only the widgets it uses.
 - A plain page fetching no widget but its sidebar; on a cold load of a page with widgets, a helper, a diagram and a design, every module asked for by the head, none by a script, each once, and nothing fetched for the diagram; a page loaded in place bringing its preloads.

@@ -150,7 +150,9 @@ async fn a_published_document_asks_only_under_its_mount() {
     let base = testing::serve(router).await;
     let id = publish(&base, None, site()).await;
 
-    let browser = testing::browser().await;
+    // Wide enough that the sidebar, whose search box it types in, is beside
+    // the page.
+    let browser = testing::browser_on(1280, 800).await;
 
     // The latest, in place at the link, and the same version at its own
     // address.
