@@ -4,7 +4,8 @@ A site gets a sidebar from its pages' Topics sections and, optionally, a
 navbar of links, dropdowns and icons; every page has a light/dark switch, and a
 `logo` puts an image before the title and in the browser tab. Links between
 pages open in place, and back and forward return to where you were on each
-page.
+page. An address with nothing at it shows a page in the site's frame offering
+the page it most likely meant — or the site's own `404.md`.
 
 ```yaml
 logo: logo.svg
@@ -14,5 +15,6 @@ navbar:
 ```
 
 Teaches it: [Making a site](../boxes/viewer/making-a-site/README.md),
+[A page for missing addresses](../boxes/viewer/making-a-site/README.md#a-page-for-missing-addresses),
 [Organizing navigation](../boxes/viewer/organizing-navigation/README.md),
 [Choosing a theme](../boxes/viewer/themes/README.md#choosing-a-theme).

@@ -441,3 +441,6 @@ An item's or a member's name in a code reference, `<namespace>:<path>` with the 
 
 A Markdown file of a site whose first non-blank line is a heading of an id between double backticks, ``# ``rust:devpage_core::answer::Answers`` ``: what follows is added to that item's or member's page.
 
+## 404 page
+
+What a browser is shown, with `404`, at an address with nothing at it: the nearest site's `404.md` in that site's frame, else devpage's own page saying nothing is there and offering the address most likely meant. A request that doesn't accept HTML gets one line, `nothing at <address>`, instead (`Answer::Missing`). See [A page for missing addresses](../making-a-site/README.md#a-page-for-missing-addresses).

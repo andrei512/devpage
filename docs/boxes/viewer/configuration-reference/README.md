@@ -57,7 +57,7 @@ devpage --version
 | `-o, --output <file>` | `devpage png` | `<title>.png`, or `<title> <n>.png` for a slide, in the current folder | Where to write the PNG. |
 | `--slide <n>` | `devpage png` | none | The slide to draw, from 1. A deck needs one; a design takes none. |
 | `--theme light\|dark` | `devpage png` | `light` | The theme a design is drawn in. A slide takes none. |
-| `--json` | `devpage check`, `devpage png`, the server commands | text | Answer in JSON, one line: the problems as `{"problems": [{"file", "line", "column", "message", "target"}]}` (a field with no value left out), `png`'s file as `{"png": "<file>"}`, and an error as `{"error", "causes"}` on standard error. |
+| `--json` | `devpage check`, `devpage png`, `devpage context list`, the server commands | text | Answer in JSON, one line: the problems as `{"problems": [{"file", "line", "column", "message", "target"}]}` (a field with no value left out), `png`'s file as `{"png": "<file>"}`, and an error as `{"error", "causes"}` on standard error. |
 
 ### Exit codes
 
@@ -166,7 +166,7 @@ default.
 
 ### Extensions
 
-Every document kind accepts an optional `extensions` mapping. Each entry selects a local native bundle with `package` and supplies its extension-specific `config`. Paths are relative to this document file. The [package reference](../extensions/reference/README.md#configuration) defines validation, ownership, API compatibility, and errors. Enabling an extension does not compile or install it.
+A site, doc or deck accepts an optional `extensions` mapping. Each key is an extension ID; its entry names a built bundle with `package`, relative to this document file, and passes `config` to the package unread. The [package reference](../extensions/reference/README.md#configuration) gives the bundle's rules and errors. Enabling an extension does not compile or install it.
 
 Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.
 
@@ -264,6 +264,13 @@ error `downloading chrome-headless-shell <version> for <platform> from <address>
 when the first download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
 with `chrome-headless-shell <version> has no build for <os> on <arch>` on a
 platform that has none, and with `pdf prints a doc or slides, not a design` when given a design.
+
+`devpage png` stops with
+``png draws a design or a slide of a deck; print a doc with `devpage pdf` `` when
+given a doc or a site, `which slide? --slide <n>, from 1` for a deck without
+`--slide`, `--slide is for a deck; a design is one picture`, and
+`--theme is for a design; a slide is drawn as the deck is`. A slide that isn't
+ready after 20 seconds is drawn as it was, with a warning on standard error.
 
 `devpage video` stops, before it starts Chrome, with
 `video needs GPT-Live: set DEVPAGE_OPENAI_API_KEY, or DEVPAGE_AZURE_OPENAI_ENDPOINT and DEVPAGE_AZURE_OPENAI_API_KEY`

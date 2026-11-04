@@ -12,7 +12,7 @@ every environment variable. It is the reference page of
 | --- | --- |
 | `devpage context add <name> <server> [--token-command '<cmd>']` | Adds a context. |
 | `devpage context use <name>` | Makes it the current context. |
-| `devpage context list` | Lists the contexts, the current one marked. |
+| `devpage context list [--json]` | Lists the contexts, the current one marked. |
 | `devpage publish <path> [--id <uuid>] [--new] [--root <folder>]` | Creates the document, or adds a version. Prints its link. `--root` is the [served folder](../../writing-a-document/README.md#the-served-folder) the document is read in. |
 | `devpage list` | The documents on the server: id, kind, title, latest version, link. |
 | `devpage versions <id>` | A document's versions: number, when, who. |

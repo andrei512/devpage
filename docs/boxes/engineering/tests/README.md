@@ -8,19 +8,20 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 607 tests in the six crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 118 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                  # 644 tests in seven crates; needs no network and no Chrome
+$ cargo test -- --ignored     # the 119 tests that drive Chrome or Docker, call GPT-Live, or time the engine
 ```
 
 </Terminal>
 
 ## How they are written
 
-`cargo test` runs every crate in the workspace: 182 in `devpage`, three of
-them in `tests/`, 243 in its
+`cargo test` runs every default member of the workspace: 190 in `devpage`, six of
+them in `tests/`, 271 in its
 core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-design-wasm`, whose tests run natively, 2 in
-`devpage-design-module` and 16 in `devpage-bench`. Tests are written as `#[cfg(test)]` modules beside
+`devpage-design-module`, 16 in `devpage-bench` and 1 in
+`devpage-extension-api`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
 `canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
@@ -52,7 +53,7 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 118 tests marked `#[ignore]`, 109 drive Chrome, and one of them also
+Of the 119 tests marked `#[ignore]`, 110 drive Chrome, and one of them also
 calls GPT-Live; two run the server deploy example in Docker, one at a time,
 since they share its compose project; six time the engine in a release build —
 a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
@@ -205,6 +206,9 @@ Chrome — takes about 50 s.
 - A served folder reached through a symbolic link.
 - Nothing outside the served folder answered.
 - Every address it answers with carrying the mount prefix.
+- A missing page shown in its site's frame, offering the page it most likely meant, and an agent told why in a line; in no site, devpage's own page; the address asked for never markup.
+- A site's `404.md` shown wherever the site has nothing, its links at their own addresses, and at `/404.md` a page like any other; outside the site, devpage's own page.
+- A code reference page shown in its site's frame from the code as it is now, a save read again; a saved `.gitignore`d file kept out of it; a query saved broken a problem on the page while the last that compiled keeps reading.
 
 ### `adapters::bucket`
 
@@ -214,6 +218,7 @@ Chrome — takes about 50 s.
 
 - The zip holding exactly what the check follows — the document, its pages, linked images, a design and its import, the logo, the project widgets and their imports — and not a draft or a secret in the same folder; a link beside the document's folder widening the zip to hold it.
 - What is packed unpacking file for file.
+- A code reference travelling with its code: the code files it reads and their crate's `Cargo.toml` zipped with the document and its prose, nothing else beside them, and the unpacked version's reference reading its prose.
 
 ### `adapters::changes`
 
@@ -284,6 +289,17 @@ On the network:
 - A design checked and its files followed through the design store the check is given, resolved there once; a page's problems naming an embedded design as the server's store holds it, a save the store is told of clearing them.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
 - What a deck is drawn from: its file, its slides, what they embed — a design's PNG by its design, an image not there yet, a path from the top, another deck's slide PNG and that deck in turn, once however they embed each other — and never a page a slide only links to or an address on the web.
+- A link into the code reference checked against the code: no such item or member, with the nearest offered, and no such section.
+- A prose file naming no code, and a second prose file adding to an item one already adds to, as problems.
+- A site's `404.md` checked with it, and in the files the check follows.
+
+### `code`
+
+- One Rust file's declarations — what each is, inside what, with its doc comment — read with tree-sitter; a query that doesn't compile naming its line; a file that doesn't parse keeping what does.
+- A crate named by its `Cargo.toml` and its files its modules; a test module in its own file left out; an `impl` in another file adding its methods and traits to the type; `pub use` giving an item in a private module its public address; `use` lists expanded to each name and alias.
+- A page's parts: a doc comment split into its abstract and the rest and read as page Markdown, a topic's declaration on one line without its visibility and its name in bold, a function taking `self` a method.
+- A folder forgotten holding no code reference.
+- Every item, field, variant and method of devpage's own code with a doc comment, so every page of its reference says what it is.
 
 ### `comments`
 
@@ -385,6 +401,7 @@ In Chrome:
 - A deck's audience, goal, tone and pronounce, each slide's notes and delivery; those fields refused on the other kinds, and `context` refused.
 - A navbar read in order with its icons and dropdowns, `sidebar` and `theme-selector`, and its bad shapes refused.
 - Bad kinds, fields and missing files rejected.
+- A folder without a document file refused with what to run instead.
 - A Markdown file as a one-chapter doc.
 - The served folder as boundary and address root.
 - A document outside it refused.
@@ -392,6 +409,13 @@ In Chrome:
 - Only YAML with a devpage `kind` is a document file.
 - What a kind downloads as: a doc or slides a PDF, a design a PNG, a site nothing.
 - The download name — what `devpage pdf` and `devpage video` write, and what a version downloads as — the title made safe, with its extension.
+
+### `extensions`
+
+*Of the unfinished extension contract, with a package in the test.*
+
+- A second language through the same contract as the code reference: its fence highlighted, its file embedded by an image reference and its ids linkable, a new file in its input mattering to the watcher, a save prepared again, and a removed input failing every view until it is back.
+- A package's browser modules compiled by the widget compiler, its relative imports at their own addresses, a module outside the package refused, and a missing widget module an error.
 
 ### `external`
 
@@ -584,6 +608,7 @@ In Chrome:
 - Edits, a page dropped from the Topics, a deleted chapter and a new `.gitignore` rule reflected.
 - A save reading again only the pages it touches, a page changed unheard keeping its old text. An index kept current answering every query as one built fresh: after an edit, a page added first in the Topics, a chapter's new title, front matter changed, a rule excluding a deck and lifted, a chapter deleted and back, a folder deleted — and on the frozen docs after every page is saved in turn; and through random edits and bursts of them — text, titles, Topics, front matter, pages added and deleted, folders deleted, `.gitignore` rules, a doc's chapters — publishing the same pages as one built fresh and answering every query alike.
 - What is published kept between saves: a save of a page's text loading no document and reading no page's Topics, only the page saved — and nothing at all when nothing in it decides what is published, as in a slide; a page's Topics, a chapter's title and a page out of the nav given `search: true` finding it again. A rescan loading each document once however many pages it shows, and reading only the widgets of the document of the page read again.
+- The code reference searched, with its trail, and a save to the code found at once, the old text gone.
 - Sections keeping the rendered ids — every one an id the check lets a link land on, inline code, a duplicate, a frame id, a link and a footnote in a heading among them — their text sorted into prose and code; snippets cut at sentences; code split into identifiers and parts; near matches counting a swap as one edit.
 
 ### The search's quality
@@ -741,6 +766,7 @@ The design tests through the server — a PNG, its `304`, its theme, the watch s
 - With comments off, every comment request answering `404`, no `.devpage/` created, and the page carrying the setting.
 - Nothing outside the served folder served, through HTTP's percent-decoding.
 - On a published document, a thread made on the page listed by the API on the page's own path; one started through the API marked on the open page; after a publish that removes its quote, that thread listed under *Detached comments* and the other still marked.
+- Where there is nothing, `404`: a browser shown a page, an agent the reason as text.
 
 ### `drive::server_mode`
 
@@ -939,6 +965,12 @@ Local mode's response to a burst of saved paths, `Listeners::changed`, ported fr
 - The vendored module built from the sources as they are.
 - The fingerprint changing with an engine source, the `wasm` profile and a locked version in the module's tree, but not with a package outside it.
 
+## `devpage-extension-api`
+
+*`cargo test -p devpage-extension-api` runs it alone.*
+
+- A library built with `export_extension!` exporting the table at the ABI version and size, answering a request, and an unknown operation, a request that isn't JSON and a panic each as an error.
+
 ## What has no test
 
 <Callout kind="note" title="Not covered by any test">
@@ -947,7 +979,7 @@ syntax highlighting except through the `page` tests; a canvas reopening
 its stream after devpage restarts, closing streams in a hidden tab, and
 drag-to-pan and pinch on the canvas; chrome-headless-shell's and Chrome for
 Testing's first download (it needs an empty cache folder); GPT-Live on Azure;
-`devpage video` stopping on a signal; fullscreen on a deck (headless Chrome refuses it without a real user
+`devpage video` stopping on a signal; the native extension loader (`adapters::extensions`), which no test loads a library through; fullscreen on a deck (headless Chrome refuses it without a real user
 gesture); and how the light and dark themes look, which is checked by eye.
 
 </Callout>

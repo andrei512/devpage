@@ -57,7 +57,10 @@ from page to page, so a document that links into the rest of a repository's
 docs carries them too. A site with a
 [code reference](../../code-reference/README.md#publishing-it) carries the code
 it is made from: each namespace's files, the `Cargo.toml` naming their crate,
-its query file and its prose files. Drafts or secrets lying in the same folder
+its query file and its prose files. A document that enables a native
+[extension](../../extensions/README.md) can't be published: the CLI stops with
+`Publishing native extensions is not supported; serve this project locally`.
+Drafts or secrets lying in the same folder
 that nothing links to are never sent.
 
 If a link is broken, the publish stops before uploading anything and lists the

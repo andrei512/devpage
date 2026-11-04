@@ -1,73 +1,80 @@
 # Extensions
 
-Extensions add document knowledge and views to devpage while authors keep running the normal `devpage` command. A local package supplies Rust behavior, syntax definitions, and browser assets. Devpage owns configuration, source capture, watching, rendering, checking, and the live-update lifecycle. This box belongs to the [viewer](../README.md).
+An extension is a separately built Rust library that a document enables in its `devpage.yml`. Devpage loads it into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
 
-## Use one project workspace
+## Enable a package
 
-A project's entry document can bring explanatory pages and engineering sources together without copying them. For example, a root `devpage.yml` can select `docs/README.md` as its landing page and enable a model extension:
+A site, doc or deck lists its extensions under `extensions`. Each key is the package's ID; `package` is the path of a built bundle, relative to the YAML file; `config` is passed to the package as written:
 
 ```yaml
 kind: site
-title: Project
-root: docs/README.md
+title: Toy
+root: README.md
 extensions:
-  egraph:
-    package: ./extensions/egraph
+  toy:
+    package: ./pkg
     config:
-      model: system/project.eg
+      input: model
 ```
 
-Run it from that project with `devpage .`. `package` names a local extension bundle, not a crate devpage must compile. All configuration paths are relative to the YAML file. `config` belongs to the extension, which validates it; devpage interprets only the host fields. The package's manifest ID must match the mapping key.
+The bundle holds `extension.yml` and the library. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: only [`code`](../code-reference/README.md) exists.
 
-A package developer builds the Rust crate into that bundle. Document authors neither assemble a custom executable nor rebuild devpage to enable a package. A missing or incompatible package is a located configuration error. The host does not install, download, or compile packages as a side effect of opening a document.
+## What a package can do
 
-## One extension, several presentations
+```mermaid
+flowchart LR
+  yml["devpage.yml"] --> load["Load bundle"]
+  load --> create["create: declare input, suffixes, grammar, widgets"]
+  create --> prepare["prepare: captured files → revision"]
+  watch["Host watcher"] --> prepare
+  prepare --> page["augment and embed in pages"]
+  prepare --> view["view: page for an owned file"]
+  prepare --> route["route: namespaced GET"]
+  prepare --> targets["targets: checked fragments"]
+  click load href "./reference/README.md#bundle" "Bundle"
+  click create href "./reference/README.md#create" "create"
+  click prepare href "./reference/README.md#capture-and-prepare" "Capture and prepare"
+  click page href "./reference/README.md#pages-and-embeds" "Pages and embeds"
+  click view href "./reference/README.md#file-views" "File views"
+  click route href "./reference/README.md#addresses-and-routes" "Routes"
+  click targets href "./reference/README.md#checked-targets" "Targets"
+  click watch href "../live-updates/README.md#extension-inputs" "Extension inputs"
+```
 
-A model extension can provide all three experiences from the same captured state:
+With the toy package above enabled:
 
-- A normal Markdown requirement or decision page, enriched with relevant context.
-- An embedded diagram selected through an ordinary Markdown image reference, such as `![System](../system/project.eg#root)` from a page under `docs/`.
-- A full viewer at the source file's URL, such as `/system/project.eg#root`.
+- Every page of the site is passed to the package, which may return it with Markdown added; added headings and links are rendered, checked and searched like authored ones.
+- A fenced `toy` block is highlighted with the package's grammar.
+- `![A](model/a.toy#main)` is replaced by the HTML the package returns for that target.
+- Opening `/model/a.toy` shows the package's view of the file inside a devpage workspace page.
+- `[link](model/a.toy#main)` is checked against the fragments the package lists for that file.
 
-The full viewer uses a devpage workspace page, with theme handling and the package’s own toolbar around its React widget. Packages register modules with the ordinary widget compiler and runtime instead of supplying a separate HTML application.
+## From a save to a refreshed page
 
-The `.eg` code-fence language highlights source; it does not turn every source example into a diagram. Image references ask for an embed. Links ask for the file view. This follows the existing distinction between source and embedded `.design` views without adding another capitalized widget namespace.
+1. On load, the package's `create` reply names one input file or folder inside the served folder. Devpage watches it even when the site's `watch` list would exclude it.
+2. Devpage reads the input's matching files itself and sends their contents in `prepare`. The package replies with a revision name.
+3. A saved, added or removed file under the input is read again in the same change burst. If the contents changed, the package prepares again before devpage sends its usual refresh to open pages.
+4. A page render carries the revision current when it began in every request it makes.
+5. When reading or preparing fails, every later request to that package fails with the reason, shown on the page and reported by `devpage check`, until a preparation succeeds.
 
-The host's extension points are source inputs, content contributions, file views, namespaced read-only routes, language definitions, and reference resolution. Browser assets and print behavior travel with the contributions that need them. The [reference](reference/README.md) defines the contracts; the [local test](local-test/README.md) supplies their first consumer and acceptance path.
+## Trust and limits
 
-## From a save to a rendered view
+A package is trusted native code in the devpage process. Its panics are caught and reported as errors; a crash or memory fault ends devpage. The package gets file contents only from devpage's capture, but nothing stops native code reading files itself.
 
-An instance belongs to the document that enables it: a site, doc, or deck. Its package library can be shared, but its configuration and derived state are not global mutable settings.
-
-1. The host loads the package, validates configuration, and asks it to declare inputs and capabilities.
-2. Those inputs join the host's watch set before events are filtered. The host captures their contents and supplies them to the extension.
-3. The extension prepares a revision of its derived state. A render uses one published revision for its contributions and referenced data.
-4. A saved input is handled in the existing ordered change burst. Extension state is updated before a refresh is announced.
-5. Existing open pages refresh through devpage's global refresh event. This design does not claim page-targeted event delivery.
-
-A published revision is a consistent interpretation of captured bytes, not a filesystem transaction across an editor's separate writes. Each preparation reports its diagnostics. An inspectable model with issues can be published as such; a failed capture or preparation cannot silently masquerade as a current successful revision.
-
-## The host stays general
-
-Devpage knows input paths, revisions, rendered contributions, links, and asset addresses. It does not know model requirements, processes, telemetry, or evaluation semantics. Egraph supplies those meanings through a separate adapter crate. A generic fixture package must exercise the same interfaces without depending on egraph.
-
-The native package boundary uses a versioned C-compatible entry point and owned byte buffers. A Rust SDK exposes typed operations to extension authors. There is no second server or IPC. Native packages are trusted code in the host process; this is not a sandbox or crash-isolation boundary. The API supplies no document-write or command-execution capability.
-
-## Reach and remaining scope
-
-The first implementation supports local serve, check, and PDF through the same extension context. A Markdown page printed on its own keeps the extensions of its owning document, just as it keeps its widgets. Existing documents with no `extensions` field retain their behavior.
-
-Publishing an extension-enabled document is rejected explicitly until package availability and captured-input packaging are supported by server mode. Registry installation, automatic package builds, library hot reload, arbitrary YAML document kinds, model-node search independent of rendered pages, and comments on generated model shapes are outside this change. Existing comments on authored Markdown must keep their source associations.
-
-Implementation reaches document configuration, the served-folder/watch boundary, the ordered change pipeline, content rendering, highlighting, request answers, link checking, rendered-page search, and PDF readiness. Package discovery and native loading belong to binary adapters; the core keeps its runtime-independent ports. The showcase deck must gain a working extension example when the feature is built.
+`devpage check` and `devpage pdf` use the same extensions as serving; a Markdown page printed on its own uses its site's. Publishing a document that enables a package fails with "Publishing native extensions is not supported; serve this project locally". Changing a package's library needs a devpage restart. Devpage never tells a package to dispose of an instance; a library is closed once no binding holds it.
 
 ## Topics
 
-- [Package and host reference](reference/README.md) — Bundle format, lifecycle, contribution and resolution contracts.
-- [Local acceptance test](local-test/README.md) — One normal command exercising the complete integration path.
+### Tasks
+
+- [Test an extension](local-test/README.md) — The repository's tests, and building a package and running it with devpage.
+
+### Reference
+
+- [Package and protocol reference](reference/README.md) — Bundle, native boundary, every request and reply, capture rules and addresses.
 
 ### Constraints
 
-- [Extensions use the host watch](constraints/host-watch.md) — inputs enter filtering and updates precede refresh.
-- [A render uses one extension revision](constraints/one-revision.md) — source, derived content, and references cannot silently mix revisions.
-- [The native boundary is versioned](constraints/native-boundary.md) — Rust implementation layouts and allocator ownership never cross an unspecified ABI.
+- [Extensions use the host watch](constraints/host-watch.md) — Inputs join devpage's watch, and preparation precedes refresh.
+- [A render uses one extension revision](constraints/one-revision.md) — A render names its revision, and a failed preparation is never served as current.
+- [The native boundary is versioned](constraints/native-boundary.md) — Only the C table and owned JSON buffers cross between devpage and a package.

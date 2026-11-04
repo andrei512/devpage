@@ -263,9 +263,7 @@ refresh is announced ([Staying current](../code-reference/reading-the-code/READM
 
 ## Extension inputs
 
-Enabled [extensions](../extensions/README.md) declare bounded source inputs before filesystem filtering and watch planning. Creation and removal matter as well as edits; document authors do not repeat those inputs in a site's `watch` list. The host captures and prepares changed extension state before announcing the existing refresh notification. Failed capture or preparation remains visible rather than silently presenting an old revision as current.
-
-This preserves the one ordered response to a saved batch. Extensions do not start another watcher. The first extension contract retains the global refresh event; it does not introduce page-targeted event delivery. Search reindexing still follows the refresh.
+Each enabled [extension](../extensions/README.md) names one input file or folder when it is created. `matters` and the watch roots always include it, whatever the site's `watch` list says, so additions and removals under it arrive too. For each change burst, `extensions::changed` captures every input the burst touched and has its package prepare again when the contents differ, before the burst's `Refresh` is published; a preparation, or a failed one, adds at most one `Refresh`. A failure stays visible on the pages until a later capture prepares. Extensions do not start a watcher, and search reindexing still follows the refresh.
 
 ## The bus and the stream
 

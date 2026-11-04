@@ -3,7 +3,8 @@
 How to make a site — a project's documentation as many pages, with a sidebar
 built from their Topics sections and, if you want one, a navbar across the
 top. It covers the site's document file, its root page, how pages join the
-sidebar, and the navbar, logo and theme switch. It is a task article under the
+sidebar, the navbar, logo and theme switch, and the page shown at a missing
+address. It is a task article under the
 [viewer](../README.md); the document file in general is on
 [Writing a document](../writing-a-document/README.md).
 

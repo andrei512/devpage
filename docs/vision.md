@@ -24,6 +24,8 @@ description of the program.
 - Comments on text or paragraphs, kept as files outside git, so people and
   agents iterate on a design through the docs themselves.
 - Checked links, in the preview and as `devpage check`.
+- A code reference: pages for a site's code, read live with
+  tree-sitter.
 - PDF printing of a doc or a deck, identical to the screen.
 - Light and dark themes from one set of color tokens.
 - Installed with `cargo install devpage`; run locally, or deployed for a team
@@ -32,7 +34,7 @@ description of the program.
 ## Not built yet
 
 - **Extension distribution beyond local bundles.** The [local extension contract](boxes/viewer/extensions/README.md) covers Rust packages selected by configuration; registries, automatic builds, and extension-enabled publishing remain separate work.
-- **No reference extractors.** No page is generated from code.
+- **Code reference beyond Rust.** Rust is the one language the code reference reads.
 - **No theme overrides.** The themes are built into the binary.
 - **No static export.** Pages exist only while devpage is running.
 

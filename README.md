@@ -43,6 +43,9 @@ Linux and Windows ([Installing](https://devpage.ai/docs/installing.md)).
 - [**Diagrams**](https://devpage.ai/docs/boxes/viewer/diagrams/README.md) and
   [**widgets**](https://devpage.ai/docs/boxes/viewer/widgets/README.md):
   `mermaid` fences drawn as diagrams, and React components used as tags.
+- [**Code reference**](https://devpage.ai/docs/boxes/viewer/code-reference/README.md):
+  a page for every module, type and function of a site's Rust code, read
+  from the code as it is now, with links to it checked.
 - [**Comments**](https://devpage.ai/docs/boxes/viewer/comments/README.md):
   threads on selected text, kept as files in `.devpage/` that an agent can
   read and resolve.

@@ -24,6 +24,7 @@ started](getting-started.md) goes from there.
 - (palette) [Light and dark](boxes/viewer/themes/README.md) — A light and a dark theme the reader can switch between.
 - (puzzle) [Widgets](boxes/viewer/widgets/README.md) — React components used as HTML tags in Markdown: callouts, tabs, file trees, examples, terminals, keycaps, steps and cards ship with devpage; a project adds its own as `.tsx` files.
 - (frame) [Designs](boxes/viewer/designs/README.md) — A UI an agent writes as code, a `.design` file in JSX syntax over Figma's node model: drawn on a canvas, clicked through as a prototype, embedded in any page, and fetched as a PNG so the agent can see its work.
+- (braces) [Code reference](boxes/viewer/code-reference/README.md) — A page for every module, type and function of a site's Rust code, read from the code as it is now: live as you save, searched, and checked when prose links to it.
 - (refresh-cw) [Live updates](boxes/viewer/live-updates/README.md) — A file's change refreshes every open page in place, without a reload.
 - (message-square) [Comments](boxes/viewer/comments/README.md) — Turn on comment mode, then select text or hover a paragraph; threads are files in a `.devpage/` folder git ignores, so an agent can read and resolve them.
 - (link) [Checked links](boxes/viewer/checking-links/README.md) — Broken links show on the page while you write, and `devpage check` fails a test on them.

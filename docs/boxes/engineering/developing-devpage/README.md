@@ -78,7 +78,7 @@ What you edit decides what you have to do to see it:
 <Terminal>
 
 ```text
-$ cargo test                  # all four crates; needs no network and no Chrome
+$ cargo test                  # every crate; needs no network and no Chrome
 $ cargo test -- --ignored     # the tests that drive Chrome
 ```
 
@@ -114,7 +114,8 @@ devpage is one binary, `src/`, built on its core, `core/` — the documents,
 rendering, checking, comments and designs, with the built-in assets and the
 system widgets, and no I/O runtime — and the
 [design engine](../../viewer/design-engine/README.md) in three more workspace
-crates beside them. Which module does what, and how `main` wires them
+crates beside them, the extension ABI in `extension-api/`, and the server's
+benchmark in `bench/`. Which module does what, and how `main` wires them
 together, is on the [Code map](../code-map/README.md); what each crate does is
 in [Dependencies](../dependencies/README.md).
 

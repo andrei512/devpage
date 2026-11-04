@@ -71,8 +71,9 @@ devpage → http://localhost:3030
 </Terminal>
 
 Open that address in a browser; stop devpage with <Keys>Ctrl C</Keys>. `devpage --help`
-lists the commands — `check`, `pdf` and `video` beside serving — and the flags; the
-exact rules are in the
+lists the commands — `check`, `pdf`, `png` and `video` beside serving,
+`server`, and the commands that publish to a server and read it back — the
+flags, examples and exit codes; the exact rules are in the
 [configuration reference](boxes/viewer/configuration-reference/README.md#command-line).
 
 To serve the docs of another repository, give it a document file — see
@@ -95,7 +96,9 @@ To serve docs to a team, see [Deploying devpage](boxes/viewer/deploying/README.m
 
 devpage needs a C compiler because the JavaScript engine that draws diagrams
 is built from its C source
-([Dependencies](boxes/engineering/dependencies/README.md#diagrams)).
+([Dependencies](boxes/engineering/dependencies/README.md#diagrams)), and so are
+SQLite, which server mode keeps its store in, and tree-sitter, which reads
+code for a [code reference](boxes/viewer/code-reference/README.md).
 
 <Callout kind="note" title="Why 1.97">
 The locked `oxc 0.153.0`, which compiles widgets, declares

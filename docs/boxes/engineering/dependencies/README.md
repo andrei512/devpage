@@ -6,15 +6,19 @@ embeds. It is a reference page under
 [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
 
-devpage is a Cargo workspace of five crates: `devpage`, the binary, at the
+devpage is a Cargo workspace of seven crates: `devpage`, the binary, at the
 top; `devpage-core`, its [core](../code-map/README.md), in `core/`, which
 depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/design-engine/README.md),
-in `design/`; `devpage-design-wasm`, the engine built for the browser, in
-`design/wasm/`; and `devpage-design-module`, which builds that module into
-`core/assets/vendor/`, in `design/module/`. `devpage-design`, `devpage-core`
-and `devpage` are the three that are published, together and in that order,
-at a release ([Release](../sdlc/stages/README.md#release)); the other two
-never are. The tables below list `devpage`'s and `devpage-core`'s
+in `design/`; `devpage-extension-api`, the ABI a native
+[extension](../../viewer/extensions/README.md) library exports, in
+`extension-api/`; `devpage-design-wasm`, the engine built for the browser, in
+`design/wasm/`; `devpage-design-module`, which builds that module into
+`core/assets/vendor/`, in `design/module/`; and `devpage-bench`,
+[the server's benchmark](../tests/README.md#the-servers-benchmark), in
+`bench/`. `devpage-design`, `devpage-extension-api`, `devpage-core` and
+`devpage` are the four that are published, together, at a release
+([Release](../sdlc/stages/README.md#release)); the other three never are, and
+the benchmark's dependencies are not listed here. The tables below list `devpage`'s and `devpage-core`'s
 dependencies together: a path under `core/` is the core's, any other the
 binary's. Each crate's list is its `[dependencies]` and
 `[build-dependencies]`, and its `[dev-dependencies]`, marked below. The roles below say
@@ -28,7 +32,7 @@ except where a code comment says so, and this page doesn't guess.
 | `axum` | 0.8.9 | MIT | The HTTP server: the router and its routes, the handlers, `Json` for the comment requests, the request-logging middleware, the server-sent event response (`axum::response::sse`) and `axum::serve` — also for the server `devpage pdf` and the Chrome tests start internally. | `src/drive/http.rs`, `src/main.rs`, `src/adapters/chrome.rs` |
 | `tokio` (feature `full`; the core's only as a dev dependency) | 1.54.1 | MIT | The async runtime (`#[tokio::main]`), binding the address (`TcpListener`), the `broadcast` channels the change bus and the watch stream are made of, running background external-link checks and painting designs off the async threads, and reading files in handlers (`tokio::fs`); the runtime the core's async tests run on. | `src/main.rs`, `src/drive/http.rs`, `src/adapters/changes.rs`, `src/adapters/watch.rs`, `src/adapters/external.rs`, `src/drive/http/watch_stream.rs`, `src/adapters/chrome.rs`, `core/src/` (tests) |
 | `tokio-stream` (feature `sync`) | 0.1.19 | MIT | `ReceiverStream` and the `Stream` trait, which make the design store's changes the watch stream's response, and the `Stream` the event route answers with. | `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
-| `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving, `check` and `pdf`, their flags, `--help` and `--version`. | `src/main.rs` |
+| `clap` (feature `derive`) | 4.6.7 | MIT or Apache-2.0 | The command line: serving and every command, their flags, `--help` with its examples, and `--version`. | `src/main.rs`, `src/drive/client/` |
 
 ## Markdown and code
 
@@ -37,6 +41,9 @@ except where a code comment says so, and this page doesn't guess.
 | `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/page/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
+| `tree-sitter` | 0.27.1 | MIT | The [code reference](../../viewer/code-reference/README.md)'s reading: parsing a code file and running a query (`rust.scm`, or the site's own) over it to capture its declarations; a query that doesn't compile is a problem at its line. Its runtime is C, built from source by its build script. | `core/src/code/extract.rs` |
+| `tree-sitter-rust` | 0.24.2 | MIT | The Rust grammar the code reference parses with, built from its C source. | `core/src/code/` |
+| `streaming-iterator` | 0.1.9 | MIT or Apache-2.0 | The `StreamingIterator` trait tree-sitter's query matches are walked with. | `core/src/code/extract.rs` |
 
 ## Widgets
 
@@ -58,7 +65,7 @@ except where a code comment says so, and this page doesn't guess.
 | `objc2-core-services` (macOS only; features `FSEvents`, `dispatch2`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The FSEvents binding: an FSEvents stream per deep folder, on a dispatch queue. `notify`'s own FSEvents watcher can't leave a subtree out (it filters in its callback, after fseventsd has delivered every event), so devpage drives FSEvents itself. Already in the tree through `notify`. | `src/adapters/watch/macos.rs` |
 | `objc2-core-foundation` (macOS only; features `CFArray`, `CFString`) | 0.3.2 | Zlib or Apache-2.0 or MIT | The array of one path an FSEvents stream is created with. Already in the tree through `notify`. | `src/adapters/watch/macos.rs` |
 | `dispatch2` (macOS only) | 0.3.1 | Zlib or Apache-2.0 or MIT | The dispatch queue the FSEvents streams call back on, so no run-loop thread is needed. Already in the tree through `objc2-core-services`. | `src/adapters/watch/macos.rs` |
-| `libc` (macOS only) | 0.2.191 | MIT or Apache-2.0 | kqueue (`EVFILT_VNODE`) on the shallow folders and the files directly in them, and raising the open-files limit kqueue's descriptors count against; in the Chrome tests, killing the run's one Chrome as the run exits. Already in the tree. | `src/adapters/watch/macos.rs`, `src/adapters/chrome.rs` (tests) |
+| `libc` (Unix only) | 0.2.191 | MIT or Apache-2.0 | On macOS, kqueue (`EVFILT_VNODE`) on the shallow folders and the files directly in them, and raising the open-files limit kqueue's descriptors count against; `statvfs`, the size of the volume server mode's cache is on; on macOS, `proc_pidinfo`, the server's threads and resident bytes for its metrics; in the Chrome tests, killing the run's one Chrome as the run exits. Already in the tree. | `src/adapters/watch/macos.rs`, `src/drive/server_mode/config.rs`, `src/drive/server_mode/metrics.rs`, `src/adapters/chrome.rs` (tests) |
 | `windows-sys` (Windows only; features `Win32_Foundation`, `Win32_Storage_FileSystem`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_ProcessStatus`, `Win32_System_Threading`) | 0.61.2 | MIT or Apache-2.0 | `GetDiskFreeSpaceExW`: the size of the volume server mode's cache is on, as `statvfs` gives it on Unix; a thread snapshot and `GetProcessMemoryInfo`: the server's threads and resident bytes for its metrics, as `/proc` and `proc_pidinfo` give them. Already in the tree through `tokio` and others. | `src/drive/server_mode/config.rs`, `src/drive/server_mode/metrics.rs` |
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/folder/index.rs`, `core/src/search/gather.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
@@ -70,7 +77,7 @@ except where a code comment says so, and this page doesn't guess.
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
 | `serde` (feature `derive`) | 1.0.229 | MIT or Apache-2.0 | Deserializing document files into the kind-tagged config with `deny_unknown_fields`, comment threads, and the comment requests' bodies. | `core/src/document.rs`, `core/src/comments/`, `src/drive/http.rs` |
-| `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs` |
+| `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Parsing document files and writing and reading comment thread files; its messages, with line and column, are what a bad document file prints; an extension's `config`, and a package's `extension.yml`; the CLI's contexts in `~/.devpage/config.yml`. The published version is marked `+deprecated` and its README says the project is no longer maintained. | `core/src/document.rs`, `core/src/comments/yaml.rs`, `core/src/extensions.rs`, `core/src/code/`, `src/adapters/extensions.rs`, `src/drive/client/contexts.rs` |
 | `serde_json` | 1.0.154 | MIT or Apache-2.0 | The comment requests' JSON answers, the list of broken links the problems bar carries for the page script to mark, the widgets' props, widget lists and `__devpageUses`, and the message a module that throws carries. | `src/drive/http.rs`, `core/src/page/frame.rs`, `core/src/page/sidebar.rs`, `core/src/widgets/`, `core/src/answer.rs` |
 
 ## Links and Chrome
@@ -92,7 +99,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server` in the binary only) | 0.2.5 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
+| `devpage-design` (feature `server` in the binary only) | 0.3.0 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/http/watch_stream.rs`, `src/drive/http.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/http.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/http.rs` |
@@ -102,7 +109,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `sha2` (core; and its build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, and the ETag of a response or a design's scene. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `src/drive/validators.rs` |
+| `sha2` (both; and the core's build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, an extension's instance id and the address of its browser files, and the ETag of a response or a design's scene; a published version's sha-256. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `core/src/extensions.rs`, `src/drive/validators.rs`, `src/drive/server_mode/published.rs` |
 | `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/http.rs` (tests) |
 | `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/http.rs` (tests) |
 
@@ -116,12 +123,35 @@ checkout that is the core's sources, assets and `Cargo.toml`, the binary's
 sources, assets, `Cargo.toml` and `Cargo.lock`, and the design crate's
 sources. A published `devpage-core` package holds only its own files, so a
 crates.io build hashes the core's sources, assets and `Cargo.toml` — whose
-version is devpage's, since the three crates are released at one version — and
+version is devpage's, since the published crates are released at one version — and
 skips the rest.
 `core/src/addresses.rs` includes the manifest. devpage builds no WebAssembly: the
 binary embeds the vendored `core/assets/vendor/design-engine.wasm` and
 `core/assets/vendor/design-engine.js` as the built-in assets `design-engine.wasm`
 and `design-engine.js`.
+
+## Server mode
+
+| Crate | Locked version | Licence | What devpage uses it for | Where |
+| --- | --- | --- | --- | --- |
+| `rusqlite` (feature `bundled`) | 0.41.0 | MIT | The store: documents, versions and comment threads in one SQLite file. `bundled` builds SQLite from its C source, so no system SQLite is needed. | `src/adapters/sqlite.rs` |
+| `object_store` (features `aws`, `azure`) | 0.14.2 | MIT or Apache-2.0 | The bucket every version's zip is kept in: S3, Azure Blob or a local folder, with credentials read from the environment. | `src/adapters/bucket.rs` |
+| `zip` (default features off; `deflate`) | 8.6.0 | MIT | A publish's zip: packed by the client, unpacked by the server for its check and its cache. | `src/adapters/bundle.rs` |
+| `uuid` (feature `v4`) | 1.29.0 | Apache-2.0 or MIT | A new document's id, the names of the cache's temporary folders, and an id in an address read as one, so anything else names no document. | `src/drive/server_mode/published.rs`, `src/drive/server_mode/cache.rs`, `src/drive/server_mode/routes/mod.rs` |
+| `url` | 2.5.8 | MIT or Apache-2.0 | Parsing `DEVPAGE_BUCKET_URL`, and encoding the document file's name in a publish request. | `src/adapters/bucket.rs`, `src/drive/server_mode/config.rs`, `src/drive/client/api.rs` |
+| `tracing` (both) | 0.1.44 | MIT | The core's `check`, `nav` and `render` spans, and the listener server mode's metrics time them with. | `core/src/check.rs`, `core/src/nav.rs`, `core/src/page/`, `src/drive/server_mode/metrics.rs` |
+
+## Extensions
+
+The [extension](../../viewer/extensions/README.md) loader is unfinished.
+
+| Crate | Locked version | Licence | What devpage uses it for | Where |
+| --- | --- | --- | --- | --- |
+| `devpage-extension-api` | 0.3.0 (path `extension-api/`) | MIT | The ABI a native package's library exports and devpage calls: its version, the table of `invoke` and `release`, the buffer they pass JSON in, and `export_extension!`, which a package builds its library with. Its own dependency is `serde_json`, which it re-exports. | `src/adapters/extensions.rs`, `extension-api/src/lib.rs` |
+| `libloading` | 0.8.9 | ISC | Opening a package's dynamic library and taking its `devpage_extension_v1` table. | `src/adapters/extensions.rs` |
+
+The binary's build script, `build.rs`, sets `NATIVE_EXTENSION_TARGET` to the
+target it is built for; a package's manifest must name the same.
 
 ## Errors
 
@@ -154,6 +184,7 @@ Debug assertions and overflow checks stay on.
 | `parley` (feature `std` only) | 0.12.0 | Apache-2.0 or MIT | Text: shaping, measuring and line breaking over the embedded Inter faces and a scene's font files, and the glyph runs the display list draws; through its `fontique`, reading a font file's family, weights and weight axis to check it. Its default `system` feature is off: the engine never loads system fonts, and with it on, building on Linux would need fontconfig. | `design/src/render/`, `design/src/fonts.rs` |
 | `kurbo` | 0.13.1 | Apache-2.0 or MIT | The core's geometry: paths, rectangles and transforms — a node's shape, a command's bounds, a tile's square. Depended on directly, the version both backends use, so their values pass between them unconverted. | `design/src/` |
 | `peniko` | 0.6.1 | Apache-2.0 or MIT | The core's colours, gradients, images and font data, as the display list holds them; depended on directly like `kurbo`. | `design/src/` |
+| `guillotiere` | 0.7.0 | MIT or Apache-2.0 | The GPU's image atlas: placing a scene's images in it in the order a frame first uses them, and finding the first that doesn't fit. | `design/src/atlas.rs` |
 | `rstar` | 0.12.2 | MIT or Apache-2.0 | The index: the R-tree over a drawing's chunks and the one inside each chunk over its commands, bulk-loaded for a new drawing and updated chunk by chunk. Not 0.13, which panics inserting into a tree it bulk-loaded and then removed from. | `design/src/display/` |
 | `vello_cpu` | 0.3.0 | Apache-2.0 or MIT | The CPU backend, an adapter of the paint port: an area of the display list into an RGBA buffer, for the server's tiles and PNG and for a canvas without WebGPU. Only `design/src/cpu/` names it; a test holds the core to that. | `design/src/cpu/` |
 | `png` | 0.18.1 | MIT or Apache-2.0 | Decoding PNG images a design uses, while resolving; writing a design's PNG band by band through its streaming encoder; encoding test images. | `design/src/scene/`, `design/src/png/` |
@@ -161,6 +192,8 @@ Debug assertions and overflow checks stay on.
 | `prost` | 0.14.4 | Apache-2.0 | The watch stream's messages: encoding a scene and its patches, and decoding them in the module. | `design/src/proto.rs`, `design/src/wire/` |
 | `tonic` (feature `codegen`; only with `server`) | 0.14.6 | MIT | What the generated `Designs` server is written against. | generated into `design/src/proto.rs` |
 | `tonic-prost` (only with `server`) | 0.14.6 | MIT | The protobuf codec the generated service encodes its messages with. | generated into `design/src/proto.rs` |
+| `serde_yaml` | 0.9.34 (+deprecated) | MIT or Apache-2.0 | Reading a `themes.yml`: its colours and its `fonts`. | `design/src/resolve/` |
+| `sha2` | 0.10.9 | MIT or Apache-2.0 | An image's and a font file's id: the SHA-256 of its bytes. | `design/src/scene/`, `design/src/fonts.rs` |
 | `protox` (build) | 0.10.0 | MIT or Apache-2.0 | Compiling `design/proto/design.proto` in Rust, so building needs no `protoc`. | `design/build.rs` |
 | `tonic-prost-build` (build) | 0.14.6 | MIT | Generating the messages, and with `server` the service, from the descriptors `protox` compiled. | `design/build.rs` |
 
@@ -170,7 +203,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` | 0.2.5 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `devpage-design` | 0.3.0 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
 | `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: an area of the display list replayed into a vello scene and rendered into a tile's texture with WebGPU through `wgpu`, which also runs the compositor's pass. | `design/wasm/src/vello_backend.rs`, `design/wasm/src/compositor/` |
 | `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/compositor/` |

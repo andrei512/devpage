@@ -61,9 +61,22 @@ its sections by them.
 
 ## Extension contributions
 
-The owning document's [extensions](../extensions/README.md) prepare their declared source inputs before contributing content. A page, its additions, and owned embed references use one bound extension revision. Page additions enter expanded content with source origins before links, IDs, and search content are collected; they are not patches applied after checking or after the frame is built. Authored text keeps its own comment origins.
+The owning document's [extensions](../extensions/README.md) take part in the
+content phase (`page::content`), each pinned to the revision it last prepared
+for the whole render. In turn, each package's `augment` rewrites the page's
+Markdown before the widgets' tags are expanded, so what it adds is in the
+content the links, ids and search are read from. The syntax definitions the
+packages bring are added to highlighting for that render. After Markdown to
+HTML, an `<img>` whose `src` is a file an extension owns is replaced by the
+package's `embed` HTML, and the target stays among the page's embeds, so the
+check follows it. A package that fails is a problem on the page —
+`Extension: …` or `Extension embed: …` — and the page renders without it.
 
-Registered file-view targets are resolved by the same provider state that opens them, including targets not initially visible in the highest-level view. Markdown heading targets still come from `Rendered::ids`. Extension browser assets and print-readiness obligations accompany the contributed content, so printing one page retains its owning extension context.
+A link's `#fragment` into a file an extension owns is checked against the ids
+its package's `targets` lists; Markdown heading targets still come from
+`Rendered::ids`. The widgets and stylesheets a package ships join the page's
+widget list and `<head>`. Printing one Markdown page uses the extensions of the
+site that owns it.
 
 ## Markdown to HTML
 

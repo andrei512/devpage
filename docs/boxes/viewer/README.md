@@ -57,7 +57,7 @@ Each card opens the page that explains it.
 <Cards>
 
 - (pen-line) [Writing a document](writing-a-document/README.md) — The four kinds, the document file and the served folder.
-- (layout-grid) [Making a site](making-a-site/README.md) — Root page, sidebar, navbar, logo and theme switch.
+- (layout-grid) [Making a site](making-a-site/README.md) — Root page, sidebar, navbar, logo, theme switch and 404 page.
 - (file-text) [Writing a doc](writing-a-doc/README.md) — Chapters, the outline, and the PDF's paper, header and footer.
 - (presentation) [Making slides](making-slides/README.md) — One file per slide on a 16:9 stage.
 - (puzzle) [Widgets](widgets/README.md) — React components as tags in Markdown, devpage's and your own.
@@ -114,7 +114,7 @@ Each card opens the page that explains it.
   document file, the served folder, links between pages and documents, and the
   Markdown that works.
 - [Making a site](making-a-site/README.md) — a site's document file, root page,
-  sidebar, navbar, logo and theme switch.
+  sidebar, navbar, logo, theme switch and `404.md`.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the

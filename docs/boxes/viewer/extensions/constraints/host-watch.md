@@ -1,7 +1,24 @@
 # Extensions use the host watch
 
-An extension declares its document inputs before the host filters filesystem events. It receives captured change batches from devpage and does not run another watcher or polling loop. Preparation of a changed instance finishes before the host announces its refresh.
+<Callout kind="tip" title="A review rule, written for the AI reviewer">
 
-Otherwise an input can be filtered out before its extension hears it, or a page can refresh against old derived state. Input declarations cover additions and removals, not just files present at startup.
+This file is a constraint for automated AI code review. On every change to this box or to anything inside it, the
+reviewer reads it and checks the diff against the rule below; a change that
+breaks it is a finding. People can read it too, but it is written to be
+checked: the rule, why it holds, and how a breach shows.
 
-Check a declared input excluded by the ordinary site's watch patterns, a newly created nested folder, and a removed source. Each must reach preparation through the host pipeline, followed by at most one existing refresh notification for the batch. No extension-specific watcher is started.
+</Callout>
+
+<Callout kind="note" title="The rule">
+
+An extension's input is watched by devpage's own watcher, whatever the site's `watch` list says, and its files reach the package only as contents devpage captured. A changed input is prepared again before the change burst's refresh is sent. No extension starts a watcher or polls.
+
+</Callout>
+
+## Why
+
+Otherwise a change can be filtered out before the extension hears of it, or an open page can refresh against the previous preparation.
+
+## Check
+
+The core test in `core/src/extensions.rs` narrows the site's `watch` to one page and still finds a new file under the input in sight, then edits a file and requires a new preparation. In `core/src/watch/mod.rs`, preparation (`extensions::changed`) runs before the burst's `Refresh` is published, and adds at most one.

@@ -38,8 +38,8 @@ never searched. Starting from its document file:
   file in its folder its [navbar](../organizing-navigation/README.md#the-navbar)
   links to — and every document either of them links to, in turn;
 - a **doc** publishes its chapters, and a **deck** its slides;
-- a site with a [code reference](../code-reference/README.md) publishes every
-  page of it too — each item and member one section: its name, its doc
+- the served site, when it has a [code reference](../code-reference/README.md),
+  publishes every page of it too — a site it links to does not — each item and member one section: its name, its doc
   comment and the prose that adds to it, and its declaration as code — after
   every page its nav reaches. A save re-indexes only the reference pages whose
   text changed.

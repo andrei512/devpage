@@ -76,9 +76,22 @@ is how `devpage pdf` prints one Markdown file.
 
 ## Extension file views and routes
 
-An enabled [extension](../extensions/README.md) can render an existing served file as a full view after normal path validation. Its resolver validates that format's fragments; raw-file fallback does not make arbitrary fragments valid. Additional read-only routes and browser assets are confined to `<mount>/__devpage/extensions/<owner>/<id>/`, retain the served document's mount, and cannot override built-in or another extension's addresses. Package directories are not added as public file roots.
+An enabled [extension](../extensions/README.md) adds two kinds of answer, both
+decided in `Answers` through its package:
 
-The answer boundary delegates registered views and routes through the extension port; the HTTP adapter still converts typed answers to responses. The [package reference](../extensions/reference/README.md#file-views-routes-and-references) defines target resolution and the [local acceptance test](../extensions/local-test/README.md) covers mounted links and assets.
+- **A file view.** A real file in the served folder whose suffix a package
+  claims, inside that package's input, is answered with the package's `view`
+  of it, in the owning document's frame; a view in any layout but `workspace`
+  is `500`. A link's `#fragment` into such a file must be one of the ids the
+  package's `targets` lists ([Checking links](../checking-links/README.md)).
+- **A route.** Any path under `<mount>/__devpage/extensions/<instance>/<id>/`
+  is the package's — a browser file it ships, or what its `route` replies with
+  its own body, type and status — and is asked before the served folder's
+  files. Its widgets and stylesheets are served there too, under the
+  document's mount.
+
+The package's own folder is never served as files. Every request and reply is
+in the [package reference](../extensions/reference/README.md#requests).
 
 ## The URL is the file path
 

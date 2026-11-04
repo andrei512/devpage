@@ -67,12 +67,14 @@ a note, not a round. (`/review`)
 The operator's call, from main. A release publishes the version in
 `Cargo.toml` to [crates.io](https://crates.io), from main's tip with the gates
 green, and tags that commit `v<version>`. devpage depends on its core,
-`devpage-core`, which depends on the design engine, `devpage-design`; both
-carry the same version and are published first, in that order —
-`cargo publish -p devpage-design`, `cargo publish -p devpage-core`, then
-`cargo publish -p devpage` — since crates.io resolves each crate's
-dependencies from the registry. A version is published once, so a release
-moves the three crates past the last published version together. Each release adds its entry to
+`devpage-core`, and on the extension ABI, `devpage-extension-api`; the core
+depends on the design engine, `devpage-design`. All carry the same version and
+the three are published first, the engine before the core —
+`cargo publish -p devpage-design`, `cargo publish -p devpage-extension-api`,
+`cargo publish -p devpage-core`, then `cargo publish -p devpage` — since
+crates.io resolves each crate's dependencies from the registry. A version is
+published once, so a release moves the four crates past the last published
+version together. Each release adds its entry to
 [`CHANGELOG.md`](../../../../../CHANGELOG.md) — what changed for a user, newest
 first — in the commit that moves the version. Publishing is permanent — a version can be yanked but never
 replaced — so it happens only when the operator says so. The
