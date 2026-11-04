@@ -478,8 +478,14 @@ async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
 #[tokio::test]
 #[ignore]
 async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
+    use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
     let dir = navbar_folder("navbar-menu");
     let (mut browser, page) = open(&dir, "/docs/README.md").await;
+    // Wide enough that the links are in the bar, not the navigator.
+    page.execute(SetDeviceMetricsOverrideParams::new(1280, 800, 1.0, false))
+        .await
+        .unwrap();
+    testing::next_frames(&page).await;
     assert_eq!(
         text(
             &page,
@@ -654,7 +660,7 @@ async fn a_diagram_comes_drawn_follows_the_theme_and_its_nodes_are_links() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
-async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
+async fn on_a_narrow_screen_the_navbar_folds_into_the_one_menu() {
     use chromiumoxide::cdp::browser_protocol::emulation::SetDeviceMetricsOverrideParams;
     let dir = navbar_folder("navbar-narrow");
     let (mut browser, page) = open(&dir, "/docs/README.md").await;
@@ -662,27 +668,17 @@ async fn on_a_narrow_screen_the_navbar_folds_into_a_menu() {
         .await
         .unwrap();
     testing::next_frames(&page).await;
-    let fits = "(() => { const t = document.querySelector('.navbar-toggle').getBoundingClientRect(), s = document.querySelector('.theme-toggle').getBoundingClientRect(); return [t.right <= innerWidth, s.right <= innerWidth, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
-    assert_eq!(text(&page, fits).await, "true true true");
-    assert_eq!(
-        text(
-            &page,
-            "getComputedStyle(document.querySelector('.navbar-links')).display"
-        )
-        .await,
-        "none"
-    );
-    page.evaluate("document.querySelector('.navbar-toggle').click()")
+    // One menu button, at the start of the bar; the bar's links are gone from
+    // it, and nothing overflows the screen.
+    let bar = "(() => { const shown = [...document.querySelectorAll('button')].filter((b) => b.offsetParent && b.closest('#devpage-navbar')).map((b) => b.className); const t = document.querySelector('.nav-toggle').getBoundingClientRect(), s = document.querySelector('.theme-toggle').getBoundingClientRect(); return [shown.filter((c) => c === 'nav-toggle').length, t.left < 40, s.right <= innerWidth, getComputedStyle(document.querySelector('.navbar-links')).display, document.documentElement.scrollWidth <= innerWidth].join(' '); })()";
+    assert_eq!(text(&page, bar).await, "1 true true none true");
+    page.evaluate("document.querySelector('.nav-toggle').click()")
         .await
         .unwrap();
-    assert_eq!(
-        text(
-            &page,
-            "getComputedStyle(document.querySelector('.navbar-links')).display"
-        )
-        .await,
-        "flex"
-    );
+    testing::next_frames(&page).await;
+    // The menu holds the navbar's links, shown.
+    let links = "(() => { const n = document.querySelector('.navigator-links'); return [getComputedStyle(n).display, getComputedStyle(n).visibility, n.querySelectorAll('a').length > 0].join(' '); })()";
+    assert_eq!(text(&page, links).await, "grid visible true");
     browser.close().await.ok();
 }
 

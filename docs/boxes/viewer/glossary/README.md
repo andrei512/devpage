@@ -227,7 +227,7 @@ A doc's navigation: its chapters' headings, beside the text, following the reade
 
 ## navigator
 
-A site's sidebar, or a doc's outline, on a screen 860px wide or less: hidden until its toggle at the top left slides it in over the page. See [The navigator](../page-script/README.md#the-navigator).
+A page's one menu on a screen 860px wide or less: the navbar's links above the site's sidebar, or a doc's outline, hidden until the menu button at the top left slides it in over the page. See [The navigator](../page-script/README.md#the-navigator).
 
 ## Topics
 

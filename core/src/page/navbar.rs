@@ -219,18 +219,10 @@ fn link(document: &Document, link: &NavLink, active: Option<&str>, class: &str) 
     )
 }
 
-/// The bar across the top of a site's pages, when its document file sets
-/// `navbar`; `tree` is the site's navigation tree, `current` the page's
-/// address, and `comments` whether comments are on.
-pub(super) fn render(
-    document: &Document,
-    tree: &[nav::Group],
-    current: &str,
-    comments: bool,
-) -> String {
-    if document.navbar.is_empty() {
-        return String::new();
-    }
+/// The links, dropdowns and icons the document file's `navbar` lists, in
+/// order, with the one holding the page shown marked: `tree` is the site's
+/// navigation tree, `current` the page's address.
+fn items(document: &Document, tree: &[nav::Group], current: &str) -> String {
     let active = active(document, tree, current);
     let active = active.as_deref();
     let mut items = String::new();
@@ -259,8 +251,25 @@ pub(super) fn render(
             }
         }
     }
+    items
+}
+
+/// The bar across the top of a site's pages, when its document file sets
+/// `navbar`; `tree` is the site's navigation tree, `current` the page's
+/// address, and `comments` whether comments are on. On a narrow screen its
+/// links are left to the navigator ([`navigator_links`]), opened from the
+/// toggle before the title.
+pub(super) fn render(
+    document: &Document,
+    tree: &[nav::Group],
+    current: &str,
+    comments: bool,
+) -> String {
+    if document.navbar.is_empty() {
+        return String::new();
+    }
     format!(
-        "<header id=\"devpage-navbar\"><div class=\"navbar-inner\">{toggle}<a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}<button type=\"button\" class=\"navbar-toggle\" aria-expanded=\"false\" aria-label=\"Menu\">{menu}</button></div></div></header>",
+        "<header id=\"devpage-navbar\"><div class=\"navbar-inner\">{toggle}<a class=\"navbar-title{root}\" href=\"{home}\">{logo}{title}</a><nav class=\"navbar-links\" aria-label=\"{title}\">{items}</nav><div class=\"navbar-end\">{selector}</div></div></header>",
         root = if current == document.entry() {
             " current"
         } else {
@@ -269,19 +278,33 @@ pub(super) fn render(
         home = escape(&document.entry()),
         logo = logo(document),
         title = escape(&document.title),
+        items = items(document, tree, current),
         selector = controls(document, comments),
-        menu = icons::svg("menu").unwrap_or_default(),
         toggle = nav_toggle(),
     )
 }
 
-/// The button that opens the sidebar, or a doc's outline, over the page on a
-/// narrow screen. The stylesheet shows it only there, and only on a page that
-/// has one.
+/// The navbar's links as the navigator shows them on a narrow screen, above
+/// the sidebar: the same links, each dropdown's entries listed under its
+/// label. Nothing when the document has no navbar.
+pub(super) fn navigator_links(document: &Document, tree: &[nav::Group], current: &str) -> String {
+    if document.navbar.is_empty() {
+        return String::new();
+    }
+    format!(
+        "<nav class=\"navigator-links\" aria-label=\"{}\">{}</nav>",
+        escape(&document.title),
+        items(document, tree, current)
+    )
+}
+
+/// The one button that opens the navigator on a narrow screen: the sidebar,
+/// or a doc's outline, with the navbar's links above it. The stylesheet shows
+/// it only there, and only on a page that has a navigator.
 pub(super) fn nav_toggle() -> String {
     format!(
-        "<button type=\"button\" class=\"nav-toggle\" aria-label=\"Navigation\" aria-expanded=\"false\">{}</button>",
-        icons::svg("panel-left").unwrap_or_default()
+        "<button type=\"button\" class=\"nav-toggle\" aria-label=\"Menu\" aria-expanded=\"false\">{}</button>",
+        icons::svg("menu").unwrap_or_default()
     )
 }
 
@@ -459,13 +482,41 @@ mod tests {
         assert!(html.contains("aria-haspopup=\"true\""), "{html}");
         assert!(html.contains("class=\"navbar-link icon-only\" href=\"https://github.com/someone/garden\" title=\"github.com\""), "{html}");
         // The navigator's toggle, house, layout-grid, chevron, presentation,
-        // github, menu, and the switch's moon and sun.
-        assert_eq!(html.matches("<svg class=\"icon\"").count(), 9, "{html}");
+        // github, and the switch's moon and sun: one menu button.
+        assert_eq!(html.matches("<svg class=\"icon\"").count(), 8, "{html}");
+        assert_eq!(
+            html.matches("<button type=\"button\" class=\"nav-toggle\"")
+                .count(),
+            1,
+            "{html}"
+        );
         assert!(
             html.contains(
                 "<div class=\"navbar-inner\"><button type=\"button\" class=\"nav-toggle\""
             ),
             "{html}"
+        );
+    }
+
+    #[test]
+    fn the_navigator_lists_the_navbars_links_and_only_when_there_is_a_navbar() {
+        let dir = folder("navigator");
+        let document = site(&dir, NAVBAR);
+        let links = navigator_links(&document, &nav::tree(&document), "/guide/deep.md");
+        assert!(
+            links.starts_with("<nav class=\"navigator-links\""),
+            "{links}"
+        );
+        for text in ["Home", "Guide", "More", "Talk", "github.com"] {
+            assert!(links.contains(text), "{text} in {links}");
+        }
+        let plain = site(
+            &folder("navigator-none"),
+            "kind: site\ntitle: G\nroot: README.md\n",
+        );
+        assert_eq!(
+            navigator_links(&plain, &nav::tree(&plain), "/README.md"),
+            ""
         );
     }
 

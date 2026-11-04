@@ -5,8 +5,9 @@ navbar of links, dropdowns and icons; every page has a light/dark switch, and a
 `logo` puts an image before the title and in the browser tab. Links between
 pages open in place, and back and forward return to where you were on each
 page. An address with nothing at it shows a page in the site's frame offering
-the page it most likely meant — or the site's own `404.md`. On a phone the
-sidebar, or a doc's outline, slides in from a button at the top left.
+the page it most likely meant — or the site's own `404.md`. On a phone one
+menu button at the top left slides in the navbar's links, then the sidebar,
+or a doc's outline.
 
 ```yaml
 logo: logo.svg

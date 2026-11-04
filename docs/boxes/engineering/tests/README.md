@@ -538,7 +538,7 @@ In Chrome:
 - The navbar's dropdown by click and keyboard, its highlight following an in-place link.
 - The theme selector following the system until clicked, then switching every token and remembering the theme across a reload.
 - A diagram, served drawn, its shapes taking the theme's `--surface` in light and again in dark after the switch, and its node's link opening the page in place.
-- The navbar folding into a menu on a narrow screen.
+- The navbar's links moving into the one menu, the navigator, on a narrow screen.
 - A deck's keys; a slide change, and back, fetching nothing with a slide shown in every frame.
 - A doc's outline click scrolling without a fetch.
 - A deck served with comments off showing no comment UI, even with comment mode remembered on, and <Keys>C</Keys> doing nothing.

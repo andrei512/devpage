@@ -530,7 +530,10 @@ async function swap(url, how, generation, signal) {
   shown = { url: pageKey(url), etag };
   if (how === "push") history.pushState(null, "", url);
   shownPath = pathOf(url);
-  document.getElementById("devpage-navbar")?.classList.remove("open");
+  // The navigator's copy of the navbar's links marks the page shown, as the
+  // navbar does.
+  const links = next.querySelector(".navigator-links");
+  if (links) document.querySelector(".navigator-links")?.replaceChildren(...links.childNodes);
   if (how !== "live") setNavigator(false);
   applyTheme();
   applyCommentMode();
@@ -1303,9 +1306,10 @@ document.addEventListener("click", (event) => {
 // elsewhere, or when a link in them is followed. On a narrow screen the links
 // fold into a menu the toggle opens.
 
-// On a narrow screen the sidebar, or a doc's outline, is a navigator over the
-// page: its toggle opens it with the current entry in view; a followed link,
-// a touch beside it or Escape closes it.
+// On a narrow screen the navigator — the navbar's links, then the sidebar, or
+// a doc's outline — slides in over the page: its toggle opens it with the
+// sidebar's current entry in view; a followed link, a touch beside it or
+// Escape closes it.
 function setNavigator(open) {
   document.body.classList.toggle("nav-open", open);
   for (const toggle of document.querySelectorAll(".nav-toggle")) toggle.setAttribute("aria-expanded", String(open));
@@ -1318,7 +1322,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   if (!document.body.classList.contains("nav-open")) return;
-  const inside = event.target.closest?.("#devpage-nav");
+  const inside = event.target.closest?.(".navigator");
   if (inside && !event.target.closest("a")) return;
   // The touch beside the navigator only closes it; a link in it is followed.
   if (!inside) {
@@ -1350,13 +1354,6 @@ function openMenu(menu, focusFirst) {
 }
 
 document.addEventListener("click", (event) => {
-  const toggle = event.target.closest?.(".navbar-toggle");
-  if (toggle) {
-    const bar = document.getElementById("devpage-navbar");
-    const open = bar.classList.toggle("open");
-    toggle.setAttribute("aria-expanded", String(open));
-    return;
-  }
   const button = event.target.closest?.(".navbar-menu > button");
   if (button) {
     const menu = button.parentElement;
@@ -1366,7 +1363,6 @@ document.addEventListener("click", (event) => {
   }
   // Anywhere else, or a followed link, closes what is open.
   if (!event.target.closest?.(".navbar-dropdown") || event.target.closest("a")) closeMenus();
-  if (event.target.closest?.("#devpage-navbar a")) document.getElementById("devpage-navbar")?.classList.remove("open");
 });
 
 document.addEventListener("keydown", (event) => {
