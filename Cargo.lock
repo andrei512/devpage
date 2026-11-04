@@ -926,7 +926,7 @@ dependencies = [
 
 [[package]]
 name = "devpage"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-tungstenite",
@@ -982,7 +982,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-core"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "brotli",
@@ -1010,7 +1010,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-design"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "guillotiere",
  "kurbo",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "devpage-extension-api"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "serde_json",
 ]

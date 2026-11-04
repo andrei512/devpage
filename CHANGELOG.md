@@ -4,6 +4,12 @@ What changed in each released version of devpage, newest first. The four
 crates — `devpage`, `devpage-core`, `devpage-design` and
 `devpage-extension-api` — are released together at the same version.
 
+## 0.3.2 — 2026-11-04
+
+- **One menu on a phone.** The navbar's links join the navigator: on a screen
+  860px wide or less one menu button at the top left opens the navbar's
+  links, then search and the sidebar, or a doc's outline.
+
 ## 0.3.1 — 2026-11-04
 
 - **devpage on a phone.** On a screen 860px wide or less every page opens on
