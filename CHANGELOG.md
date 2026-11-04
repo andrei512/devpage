@@ -1,8 +1,34 @@
 # Changelog
 
-What changed in each released version of devpage, newest first. The three
-crates — `devpage`, `devpage-core` and `devpage-design` — are released
-together at the same version.
+What changed in each released version of devpage, newest first. The four
+crates — `devpage`, `devpage-core`, `devpage-design` and
+`devpage-extension-api` — are released together at the same version.
+
+## 0.3.0 — 2026-11-04
+
+- **Code reference.** A site with `extensions: code:` gets pages
+  for its code under `reference/`, read with tree-sitter: crates, modules,
+  types, functions and their members, with a sidebar navigator. Links into
+  it are checked, search finds it, a save re-reads one file, and nothing is
+  written to disk. Rust is the one language so far; a `query` file in
+  `devpage.yml` replaces the built-in query.
+- **A page for missing addresses.** A browser gets a 404 page in the site's
+  frame — the site's own `404.md` when there is one. Agents and curl get
+  `nothing at <address> — did you mean …?`. `devpage check` checks `404.md`.
+- **The CLI for agents.** Exit codes: 0 done, 1 the document has problems,
+  2 devpage couldn't run. `check --json` and `publish --json` print problems
+  as one line of JSON; with `--json` an error is JSON on stderr.
+  `devpage png` draws a design or a slide to a file with no server running.
+- **A first run that works.** A folder with no `devpage.yml` says which file
+  to name. `--help` describes every argument and ends with examples;
+  `--root` is accepted only by the commands that read documents.
+- **Readable dark theme.** The current sidebar entry and the selected search
+  result keep readable contrast.
+- **Native extensions, first cut.** A site, doc or deck can enable a
+  separately built Rust library under `extensions`; it adds to pages, draws
+  embeds, shows its own file type, answers its own address and highlights its
+  language, for serve, check and PDF. Publishing such a document is refused.
+  `devpage-extension-api` is the crate a library builds against.
 
 ## 0.2.5 — 2026-10-30
 
