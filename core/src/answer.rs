@@ -24,8 +24,11 @@ pub enum Answer {
     /// A reply from an extension's route: its `body`, sent as `mime` with HTTP
     /// `status`.
     Extension {
+        /// The extension response body, passed through without page rendering.
         body: String,
+        /// The media type sent in the HTTP Content-Type header.
         mime: String,
+        /// The HTTP status requested by the extension route.
         status: u16,
     },
     /// Elsewhere: an address, mount prefix included.
@@ -33,18 +36,31 @@ pub enum Answer {
     /// A file of the served folder, sent as it is.
     File(PathBuf),
     /// The PNG of the design at `design`, a path in the served folder.
-    DesignPng { design: String, theme: Theme },
+    DesignPng {
+        /// The design source path inside the served folder.
+        design: String,
+        /// The light or dark palette used to draw the PNG.
+        theme: Theme,
+    },
     /// Slide `n` of the deck whose page is at `page` — the deck's own
     /// address, without the mount prefix, as Chrome asks the server for it;
     /// `deck` is its file.
     SlidePng {
+        /// The deck page address without the served folder mount prefix.
         page: String,
+        /// The slide number, starting at 1 and already checked against the deck length.
         n: usize,
+        /// The resolved document file defining the deck.
         deck: PathBuf,
     },
     /// A widget's module, compiled; `immutable` when asked for at its current
     /// address, since what answers that never changes.
-    Module { js: String, immutable: bool },
+    Module {
+        /// The compiled JavaScript returned to the browser.
+        js: String,
+        /// Whether the request used the current content address and may be cached forever.
+        immutable: bool,
+    },
     /// A module that throws why a widget's module can't be had — it, or a
     /// helper it imports, doesn't compile — so the page shows it in the
     /// widget's place.
@@ -54,7 +70,12 @@ pub enum Answer {
     /// 404 for an address with nothing at it: `why`, for an agent, and the
     /// `page` a browser is shown instead — the nearest site's `404.md`, or
     /// devpage's own.
-    Missing { why: String, page: String },
+    Missing {
+        /// The missing-resource explanation used by agent clients.
+        why: String,
+        /// The rendered HTML fallback shown to a browser with HTTP status 404.
+        page: String,
+    },
     /// 400, and why.
     BadRequest(String),
     /// 500, and why.

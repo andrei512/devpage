@@ -21,9 +21,21 @@ pub const BAND_BYTES: usize = 16 << 20;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Piece {
     /// The whole tile at column `col`, tile row `row`.
-    Tile { col: u32, row: u32 },
+    Tile {
+        /// The tile column from the drawing left edge, starting at zero.
+        col: u32,
+        /// The tile row from the drawing top edge, starting at zero.
+        row: u32,
+    },
     /// A strip of column `col`, `rows` tall from pixel row `y`.
-    Strip { col: u32, y: u32, rows: u32 },
+    Strip {
+        /// The tile-width column from the drawing left edge, starting at zero.
+        col: u32,
+        /// The starting pixel row from the drawing top edge, starting at zero.
+        y: u32,
+        /// The number of pixel rows to return for this band.
+        rows: u32,
+    },
 }
 
 /// How many rows a band of a drawing `width` pixels wide holds: as many as

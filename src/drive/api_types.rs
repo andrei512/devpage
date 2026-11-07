@@ -130,7 +130,12 @@ pub enum Refusal {
     Unprocessable(String),
     /// Any other status, with its text: the server failing (`500`), an
     /// upload over the limit (`413`), or a proxy in front of the server.
-    Failed { status: u16, text: String },
+    Failed {
+        /// The HTTP status received; invalid codes become 500 when sent as a response.
+        status: u16,
+        /// The response text with surrounding whitespace removed by `read`.
+        text: String,
+    },
 }
 
 impl Refusal {

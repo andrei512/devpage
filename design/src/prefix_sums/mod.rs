@@ -15,6 +15,7 @@ pub trait Summary: Clone + Default {
 
 /// An item of a [`Sums`] and what it adds up to by itself.
 pub trait Item {
+    /// The ordered aggregate combined for each subtree and queried prefix.
     type Sum: Summary;
     /// What the item adds up to by itself.
     fn summary(&self) -> Self::Sum;

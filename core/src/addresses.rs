@@ -51,16 +51,22 @@ pub enum Owned<'a> {
     /// A system widget, by name — `"Callout"` — for the document served under
     /// `mount`, at its version `hash`.
     SystemWidget {
+        /// The built-in widget name, such as `Callout`, without the `.tsx` suffix.
         name: &'a str,
+        /// The served folder URL prefix; empty when served at the origin root.
         mount: &'a str,
+        /// The compiled widget version used as the `v` query parameter.
         hash: &'a str,
     },
     /// A project widget, or a helper a widget imports, by its `name` in the
     /// served folder under `mount`, at its version `hash` — what the
     /// [widgets](crate::widgets) say its compiled bytes are made from.
     Module {
+        /// The served folder URL prefix; empty when served at the origin root.
         mount: &'a str,
+        /// The project module path inside the served folder, including its extension.
         name: &'a str,
+        /// The module input digest used as the `v` query parameter.
         hash: &'a str,
     },
 }

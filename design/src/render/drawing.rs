@@ -91,7 +91,9 @@ pub enum Damage {
     /// drawing's area gained or lost — of a drawing whose top-left is now
     /// `origin`.
     Rects {
+        /// The drawing top-left in design coordinates after the update.
         origin: (f64, f64),
+        /// Changed areas in design coordinates, covering old and new painted bounds.
         rects: Vec<KRect>,
     },
 }

@@ -337,8 +337,11 @@ enum Act<'p> {
     /// A new element, with its subtree, under `parent`: after `after`, or first
     /// when `None`.
     Insert {
+        /// The destination parent element from the new parse.
         parent: &'p Element,
+        /// The preceding sibling in the new parse; absent inserts at the beginning.
         after: Option<&'p Element>,
+        /// The element from the new parse whose subtree is inserted or moved.
         el: &'p Element,
     },
     /// An element gone from the file, with its subtree.
@@ -346,8 +349,11 @@ enum Act<'p> {
     /// A kept element in a new place under `parent`: after `after`, or first
     /// when `None`.
     Move {
+        /// The destination parent element from the new parse.
         parent: &'p Element,
+        /// The preceding sibling in the new parse; absent inserts at the beginning.
         after: Option<&'p Element>,
+        /// The element from the new parse whose subtree is inserted or moved.
         el: &'p Element,
     },
 }

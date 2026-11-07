@@ -76,6 +76,7 @@ enum Command {
         /// Print namespaces, declarations, members and source locations as JSON.
         #[arg(long)]
         json: bool,
+        /// The served folder boundary for the document and every local dependency.
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -93,6 +94,7 @@ enum Command {
         /// Answer in JSON: `{"problems": [{"file", "line", "message"}]}`.
         #[arg(long)]
         json: bool,
+        /// The served folder boundary for the document and every local dependency.
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -104,6 +106,7 @@ enum Command {
         /// Where to write the PDF; `<title>.pdf` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// The served folder boundary for the document and every local dependency.
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -128,6 +131,7 @@ enum Command {
         /// Answer in JSON: `{"png": "<file>"}`, or `{"problems": […]}`.
         #[arg(long)]
         json: bool,
+        /// The served folder boundary for the document and every local dependency.
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -149,6 +153,7 @@ enum Command {
         /// Where to write the video; `<title>.mp4` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// The served folder boundary for the document and every local dependency.
         #[command(flatten)]
         root: drive::client::Root,
     },
