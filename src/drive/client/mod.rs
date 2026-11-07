@@ -25,6 +25,7 @@ use devpage_core::folder::{Folder, ServedFolder};
 pub enum Command {
     /// The servers the CLI talks to.
     Context {
+        /// The operation on saved server contexts: add, select, or list.
         #[command(subcommand)]
         action: ContextAction,
     },
@@ -38,13 +39,16 @@ pub enum Command {
         /// Always create a new document.
         #[arg(long)]
         new: bool,
+        /// The folder boundary within which publication may read document inputs.
         #[command(flatten)]
         root: Root,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
     /// The documents on the server.
     List {
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
@@ -52,6 +56,7 @@ pub enum Command {
     Versions {
         /// The document's id, as `devpage list` shows it.
         id: String,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
@@ -67,6 +72,7 @@ pub enum Command {
         /// Where to write it; `<title>.pdf` or `<title>.png` by default.
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
@@ -77,6 +83,7 @@ pub enum Command {
         /// Delete only this version.
         #[arg(long)]
         version: Option<u64>,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
@@ -133,6 +140,7 @@ pub enum CommentAction {
         thread: String,
         /// The reply.
         text: String,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },
@@ -142,6 +150,7 @@ pub enum CommentAction {
         id: String,
         /// The thread's id, as `devpage comments` shows it.
         thread: String,
+        /// The server context to use and whether to print its answer as JSON.
         #[command(flatten)]
         remote: Remote,
     },

@@ -23,45 +23,71 @@ enum Config {
     /// A site: pages reached from its `root` page, with a navbar if it names
     /// one, and the Topics sidebar unless `sidebar` turns it off.
     Site {
+        /// The document title shown in the page chrome and exported output.
         title: String,
+        /// The site entrance path, relative to the document file folder.
         root: String,
+        /// Optional globs restricting which changed files refresh this site.
         watch: Option<Vec<String>>,
+        /// The project widget folder, relative to the document file; absent means none.
         widgets: Option<String>,
+        /// Ordered link and dropdown entries; absent means no navbar.
         navbar: Option<serde_yaml::Mapping>,
+        /// Whether to show the Topics sidebar; enabled when omitted.
         sidebar: Option<bool>,
         #[serde(rename = "theme-selector")]
+        /// Whether to offer the light/dark selector; enabled when omitted.
         theme_selector: Option<bool>,
+        /// The image path relative to the document file, used beside the title and as its tab icon.
         logo: Option<String>,
         #[serde(default)]
+        /// Extension packages and configuration keyed by their document-local names.
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
     /// A doc: its `chapters` in order, and its settings on paper.
     Doc {
+        /// The document title shown in the page chrome and exported output.
         title: String,
+        /// Chapter file paths in reading order; an empty list is rejected.
         chapters: Vec<String>,
         #[serde(default)]
+        /// Paper, header and footer settings for PDF export; defaults when omitted.
         pdf: Pdf,
+        /// The project widget folder, relative to the document file; absent means none.
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
+        /// Whether to offer the light/dark selector; enabled when omitted.
         theme_selector: Option<bool>,
+        /// The image path relative to the document file, used beside the title and as its tab icon.
         logo: Option<String>,
         #[serde(default)]
+        /// Extension packages and configuration keyed by their document-local names.
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
     /// A deck: its `slides` in order, and what its narrator is told about the
     /// talk.
     Slides {
+        /// The document title shown in the page chrome and exported output.
         title: String,
+        /// Slide Markdown file paths in presentation order; an empty list is rejected.
         slides: Vec<String>,
+        /// Who the talk is for, supplied to the video narrator when present.
         audience: Option<String>,
+        /// What the talk should achieve, supplied to the video narrator when present.
         goal: Option<String>,
+        /// How the talk should sound; absent leaves the narrator default.
         tone: Option<String>,
+        /// Pronunciation instructions for the narrator, one instruction per entry.
         pronounce: Option<Vec<String>>,
+        /// The project widget folder, relative to the document file; absent means none.
         widgets: Option<String>,
         #[serde(rename = "theme-selector")]
+        /// Whether to offer the light/dark selector; enabled when omitted.
         theme_selector: Option<bool>,
+        /// The image path relative to the document file, used beside the title and as its tab icon.
         logo: Option<String>,
         #[serde(default)]
+        /// Extension packages and configuration keyed by their document-local names.
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
     },
 }
@@ -86,8 +112,11 @@ pub enum NavItem {
     Link(NavLink),
     /// A dropdown, with its own label or icon, of `items`.
     Menu {
+        /// The dropdown text; absent when the menu is represented by its icon alone.
         label: Option<String>,
+        /// The icon name parsed from the navbar key; absent when no icon is specified.
         icon: Option<String>,
+        /// The dropdown links in their authored order; nested dropdowns are not allowed.
         items: Vec<NavLink>,
     },
 }
@@ -210,11 +239,20 @@ pub enum Paper {
 pub enum Kind {
     /// A site, whose `/` leads to `root`: its page as written, relative to the
     /// document's folder.
-    Site { root: String },
+    Site {
+        /// The entrance page path as written, relative to the document folder.
+        root: String,
+    },
     /// A doc: its chapter files in order, and its settings on paper.
-    Doc { chapters: Vec<PathBuf>, pdf: Pdf },
+    Doc {
+        /// The resolved chapter files in reading and print order.
+        chapters: Vec<PathBuf>,
+        /// The paper size and page header/footer used when exporting the document.
+        pdf: Pdf,
+    },
     /// A deck: its slides in order.
     Slides {
+        /// The resolved slide files, notes and delivery instructions in presentation order.
         slides: Vec<Slide>,
         /// Who the talk is for and how it should sound, for its narrator.
         narration: Narration,

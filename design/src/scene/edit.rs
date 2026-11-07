@@ -17,16 +17,22 @@ pub enum Edit {
     /// This subtree goes under the node `parent`, after its child `after`
     /// or first — or, with no parent, replaces the scene.
     Insert {
+        /// The destination parent id; absent replaces the entire scene with `node`.
         parent: Option<NodeId>,
+        /// The preceding child id under the parent; absent inserts first.
         after: Option<NodeId>,
+        /// The new subtree root, including any children inserted with it.
         node: Node,
     },
     /// The subtree of this id goes.
     Remove(NodeId),
     /// The subtree of this id moves under `parent`, after `after` or first.
     Move {
+        /// The existing subtree root to move, retaining its own attributes and children.
         id: NodeId,
+        /// The existing destination parent id.
         parent: NodeId,
+        /// The preceding child id at the destination; absent moves the subtree first.
         after: Option<NodeId>,
     },
 }

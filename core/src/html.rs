@@ -134,7 +134,12 @@ pub(crate) enum Link<'a> {
     Elsewhere,
     /// A file, by its path from where the link is written and the fragment
     /// after any `#`. An empty path is the page itself.
-    File { path: &'a str, fragment: &'a str },
+    File {
+        /// The path as written before `#`; empty refers to the containing page.
+        path: &'a str,
+        /// The text after `#` without that separator; empty when no fragment is supplied.
+        fragment: &'a str,
+    },
 }
 
 impl<'a> Link<'a> {

@@ -110,8 +110,11 @@ pub enum Value {
     /// these from `Theme`, and from strings that name theme colors, as it
     /// reads a file; the parser never does.
     Themed {
+        /// The color or gradient after substituting the defining file light-theme colors.
         light: String,
+        /// The color or gradient after substituting the defining file dark-theme colors.
         dark: String,
+        /// The original value text retained for diagnostics after theme substitution.
         written: String,
     },
 }

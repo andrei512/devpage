@@ -143,7 +143,9 @@ pub enum Fill {
     /// `angle` in degrees, CSS's: 0 points up, 90 right, 180 down. Each stop
     /// is a color at an offset from 0 to 1 along the gradient line.
     Linear {
+        /// The CSS gradient direction in degrees: 0 up, 90 right, 180 down.
         angle: f32,
+        /// The theme-aware colors with offsets from 0 to 1 along the gradient line.
         stops: Vec<(Color, f32)>,
     },
 }
