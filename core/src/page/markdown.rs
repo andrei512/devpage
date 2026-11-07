@@ -1,8 +1,8 @@
 //! Markdown to HTML: comrak with devpage's extensions, fenced code
 //! highlighted, frame ids kept free, designs embedded and diagrams drawn.
 
+use comrak::Options;
 use comrak::options::Plugins;
-use comrak::{Options, markdown_to_html_with_plugins};
 
 use crate::highlight::Highlighter;
 use crate::html::{attributes, tag_end};
@@ -18,6 +18,8 @@ pub(crate) fn options() -> Options<'static> {
     options.extension.autolink = true;
     options.extension.tasklist = true;
     options.extension.footnotes = true;
+    options.extension.math_dollars = true;
+    options.extension.math_latex = true;
     options.extension.header_id_prefix = Some(String::new());
     // A page may open with YAML front matter between `---` lines; it is
     // never shown (see `front_matter`).
@@ -73,7 +75,7 @@ fn headed(source: &str) -> String {
     let mut plugins = Plugins::default();
     plugins.render.codefence_syntax_highlighter = Some(&Highlighter);
     // A wide table scrolls inside its own box rather than widening the page.
-    let mut html = markdown_to_html_with_plugins(source, &options(), &plugins)
+    let mut html = crate::math::markdown(source, &options(), &plugins)
         .replace("<table>", "<div class=\"table-scroll\"><table>")
         .replace("</table>", "</table></div>");
     for id in FRAME_IDS {

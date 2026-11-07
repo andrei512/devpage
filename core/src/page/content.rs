@@ -123,6 +123,7 @@ pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
     let grammars: Vec<_> = extensions.iter().filter_map(|b| b.grammar()).collect();
     let mut extension_embeds = Vec::new();
     let mut html = crate::highlight::with_grammars(&grammars, || markdown(&expanded));
+    tags.extend(crate::html::values(&html, "data-math-error"));
     for (identity, target) in crate::html::values(&html, "src").into_iter().enumerate() {
         let path = target.split('#').next().unwrap_or(&target);
         if let Some(binding) = extensions.iter().find(|b| b.owns(Path::new(path))) {

@@ -966,3 +966,27 @@ fn ids_are_the_ids_a_file_or_a_doc_renders() {
         assert!(html.contains(&format!("id=\"{id}\"")), "{id} in {html}");
     }
 }
+
+#[test]
+fn native_math_delimiters_typeset_while_code_and_escaped_money_stay_literal() {
+    let html = markdown(
+        r"Inline \(x_1^2\) and $y+1$.
+
+\[\frac{1}{2}\]
+
+$$\sqrt{z}$$
+
+Price \$5 and \$10. `\(not math\)`
+
+```text
+$$not math$$
+```
+",
+    );
+    assert_eq!(html.matches("<math ").count(), 4, "{html}");
+    assert!(html.contains("<mfrac>"), "{html}");
+    assert!(html.contains("<msqrt>"), "{html}");
+    assert!(html.contains("Price $5 and $10."), "{html}");
+    assert!(html.contains("<code>\\(not math\\)</code>"), "{html}");
+    assert!(!html.contains("math-error"), "{html}");
+}

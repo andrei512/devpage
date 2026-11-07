@@ -32,4 +32,5 @@ pub(crate) mod highlight;
 pub(crate) mod html;
 pub(crate) mod icons;
 pub(crate) mod markup;
+pub(crate) mod math;
 pub(crate) mod nav;

@@ -2097,3 +2097,70 @@ async fn a_comment_anchors_on_text_inside_a_widget() {
     browser.close().await.ok();
     std::fs::remove_dir_all(&dir).ok();
 }
+
+/// Native MathML keeps its layout on screen, after a live edit and in print;
+/// KaTeX itself and its fonts never become browser network dependencies.
+#[tokio::test]
+#[ignore]
+async fn native_math_typesets_without_remote_assets_and_survives_live_theme_and_print() {
+    let source = r"# Math
+
+Inline \(x_1^2\).
+
+\[\frac{1}{2} + \sqrt{z}\]
+
+Price \$5. `\(literal\)`
+";
+    let dir = widget_folder("native-math", source, &[]);
+    let (mut browser, page, answered) = open_logged(&dir, "/docs/README.md").await;
+    let layout = r#"(() => {
+        const fraction = document.querySelector('mfrac');
+        const [top, bottom] = [...fraction.children].map(e => e.getBoundingClientRect());
+        const root = document.querySelector('msqrt').getBoundingClientRect();
+        const script = document.querySelector('msubsup').getBoundingClientRect();
+        return String(document.querySelectorAll('math').length === 2 &&
+            top.bottom <= bottom.top && fraction.getBoundingClientRect().height > top.height &&
+            root.width > 0 && root.height > 0 && script.width > 0 &&
+            document.querySelector('math[display="block"]') !== null);
+    })()"#;
+    assert_eq!(text(&page, layout).await, "true");
+    let light = text(
+        &page,
+        "getComputedStyle(document.querySelector('math')).color",
+    )
+    .await;
+    page.evaluate("document.documentElement.dataset.theme = 'dark'")
+        .await
+        .unwrap();
+    let dark = text(
+        &page,
+        "getComputedStyle(document.querySelector('math')).color",
+    )
+    .await;
+    assert_ne!(light, dark);
+    assert_eq!(text(&page, layout).await, "true");
+    std::fs::write(dir.join("docs/README.md"), source.replace("x_1^2", "y_2^3")).unwrap();
+    page.evaluate("load(location.href)").await.unwrap();
+    assert_eq!(
+        text(&page, "document.querySelector('annotation').textContent").await,
+        "y_2^3"
+    );
+    assert_eq!(text(&page, layout).await, "true");
+    page.execute(
+        chromiumoxide::cdp::browser_protocol::emulation::SetEmulatedMediaParams::builder()
+            .media("print")
+            .build(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(text(&page, layout).await, "true");
+    assert_eq!(text(&page, "String(performance.getEntriesByType('resource').every(e => new URL(e.name).origin === location.origin))").await, "true");
+    let log = answered.lock().unwrap().clone();
+    assert!(
+        !log.iter()
+            .any(|(p, _)| p.contains("katex") || p.contains("woff")),
+        "{log:?}"
+    );
+    browser.close().await.ok();
+    std::fs::remove_dir_all(dir).ok();
+}

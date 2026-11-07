@@ -90,6 +90,7 @@ site that owns it.
 | `extension.autolink` | bare URLs become links |
 | `extension.tasklist` | `- [ ]` / `- [x]` items |
 | `extension.footnotes` | `[^1]` footnotes |
+| `extension.math_latex`, `extension.math_dollars` | native TeX math nodes for LaTeX and dollar delimiters |
 | `extension.header_id_prefix = ""` | every heading gets an id from its text, with no prefix |
 | `extension.front_matter_delimiter = "---"` | a page's [front matter](../configuration-reference/README.md#front-matter) is never shown |
 | `render.unsafe` | raw HTML passes through |
@@ -106,6 +107,19 @@ capitalised — becomes the design's embed (`embed_designs`): a
 its label, which the page script has the
 [design engine](../design-engine/README.md#in-the-browser) draw. Any other
 image is left as it is.
+
+## Math
+
+Comrak identifies formulas outside literal code and escaped delimiters.
+`core/src/math.rs` replaces those syntax-tree nodes with MathML from the
+vendored KaTeX bundle, executed in a bounded QuickJS context on the calling
+thread. Its source stays in the MathML annotation. Formula errors become
+visible error spans and enter `Rendered`'s diagnostics, so the preview and
+check report the same failure without parsing formulas a second time.
+
+There is no math script in the browser: native MathML follows the page color
+and the same markup is used for print. The syntax and limits are documented
+under [Math](../writing-a-document/markdown-that-works/README.md#math).
 
 ## Highlighted code
 

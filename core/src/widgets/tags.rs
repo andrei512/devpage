@@ -455,6 +455,15 @@ mod tests {
     }
 
     #[test]
+    fn math_text_cannot_become_a_widget_or_a_speakers_note() {
+        let source = r"\(\text{<Unknown> and <Notes>literal</Notes>}\)";
+        let mut problems = Vec::new();
+        assert_eq!(expand(source, &set(&[]), &mut problems), source);
+        assert!(problems.is_empty());
+        assert!(crate::markup::notes(source).is_empty());
+    }
+
+    #[test]
     fn notes_inside_code_and_comments_are_not_notes() {
         let source = "`<Notes>x</Notes>`\n\n```\n<Notes>fenced</Notes>\n```\n\n    <Notes>indented</Notes>\n\n<!-- <Notes>hidden</Notes> -->\n";
         let html = crate::page::markdown::markdown(&expand(source, &set(&[]), &mut Vec::new()));
