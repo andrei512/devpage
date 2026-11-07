@@ -253,6 +253,9 @@ fn internal(
         found
     };
     let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides).into();
+    if let Some(code) = crate::code::for_document(&document.path()) {
+        queue.extend(code.supplemented());
+    }
     // A page is checked as its nearest site's page, whichever document the
     // check started from — as the preview shows it. Widgets are read and
     // compiled once per check.
@@ -318,7 +321,13 @@ fn internal(
                 }
             }
         }
-        let rendered = page::read(&widgets, &page);
+        let rendered = crate::code::at(folder, &page)
+            .and_then(|index| {
+                index
+                    .page(&page)
+                    .map(|code_page| page::content(&widgets, &page, index.markdown(&code_page)))
+            })
+            .unwrap_or_else(|| page::read(&widgets, &page));
         let (found, reached) =
             page_links_with(folder, owner, &modules, designs, &rendered, external);
         problems.extend(found);
@@ -418,13 +427,23 @@ fn page_links_with(
             }
             html::Link::Elsewhere => continue, // mailto: and other schemes are not checked
         };
-        let resolved = if path.is_empty() {
-            Some(page.to_path_buf())
-        } else {
+        let decoded = percent_encoding::percent_decode_str(path).decode_utf8_lossy();
+        let target_path = if path.is_empty() {
+            page.to_path_buf()
+        } else if path.starts_with('/') {
+            let relative = decoded
+                .strip_prefix(document.served.mount())
+                .unwrap_or(&decoded);
             document
                 .served
-                .inside(&page.parent().unwrap_or(Path::new(".")).join(path))
+                .path()
+                .join(relative.trim_start_matches('/'))
+        } else {
+            page.parent()
+                .unwrap_or(Path::new("."))
+                .join(decoded.as_ref())
         };
+        let resolved = document.served.inside(&target_path);
         // A design's PNG address is the design drawn, when no real file of
         // that name is there: the link is as good as the design.
         let resolved = resolved.or_else(|| {
@@ -438,8 +457,7 @@ fn page_links_with(
         let Some(resolved) = resolved else {
             // A page of a code reference: there when the code has it, and
             // its `#fragment` one of the page's sections.
-            let would_be =
-                crate::folder::lexical(&page.parent().unwrap_or(Path::new(".")).join(path));
+            let would_be = crate::folder::lexical(&target_path);
             if let Some(index) = crate::code::at(folder, &would_be) {
                 let problem = match index.ids(&would_be) {
                     Some(ids) if fragment.is_empty() || ids.iter().any(|id| id == fragment) => None,
@@ -1065,6 +1083,62 @@ mod external {
                 "README.md:5: broken link reference/rust/my_lib/Store/write — no such code; did you mean /reference/rust/my_lib/Store/read?",
                 "README.md:6: broken link reference/rust/my_lib/Store#nope — no section #nope",
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn supplemental_prose_keeps_authored_links_and_is_checked_as_assembled() {
+        let doc = folder("code-prose-origin", "# Home\n");
+        std::fs::create_dir_all(doc.base.join("lib/src")).unwrap();
+        std::fs::create_dir_all(doc.base.join("notes/deep")).unwrap();
+        std::fs::write(
+            doc.base.join("lib/Cargo.toml"),
+            "[package]\nname=\"my-lib\"\n",
+        )
+        .unwrap();
+        std::fs::write(doc.base.join("lib/src/lib.rs"),"/// Stores data.\npub struct Store;\nimpl Store { /// Reads data.\n pub fn read(&self){} }\n").unwrap();
+        std::fs::write(doc.base.join("guide.md"), "# Guide\n\n## Details\n").unwrap();
+        std::fs::write(doc.base.join("notes/image.svg"), "<svg/>").unwrap();
+        std::fs::write(
+            doc.base.join("notes/deep/store.md"),
+            r#"# ``rust:my_lib::Store``
+
+## Extra
+
+[Read](../../reference/rust/my_lib/Store/read)
+[Guide](../../guide.md#details)
+[Here](#extra)
+![Diagram](../image.svg)
+<a href="../../guide.md#details">HTML guide</a>
+<img src='../image.svg'>
+"#,
+        )
+        .unwrap();
+        std::fs::write(doc.base.join("devpage.yml"),"kind: site\ntitle: T\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [\"lib/src/**/*.rs\"]\n").unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let index = crate::code::for_document(&doc.path()).unwrap();
+        let file = doc.base.join("reference/rust/my_lib/Store");
+        let code_page = index.page(&file).unwrap();
+        let rendered = page::content(&widgets_of(&doc), &file, index.markdown(&code_page));
+        let html = page::generated(&doc, &widgets_of(&doc), &rendered, &file, &[]).unwrap();
+        for expected in [
+            "href=\"/reference/rust/my_lib/Store/read\"",
+            "href=\"/guide.md#details\"",
+            "href=\"#extra\"",
+            "src=\"/notes/image.svg\"",
+        ] {
+            assert!(html.contains(expected), "missing {expected}: {html}");
+        }
+        let problems = document(&opened(&doc), &designs_of(&doc), None).await;
+        assert!(problems.is_empty(), "{problems:?}");
+        std::fs::write(doc.base.join("guide.md"), "# Guide\n").unwrap();
+        let problems = document(&opened(&doc), &designs_of(&doc), None).await;
+        assert!(
+            problems
+                .iter()
+                .any(|p| p.file == "reference/rust/my_lib/Store"
+                    && p.message.contains("no heading #details")),
+            "{problems:?}"
         );
     }
 

@@ -124,6 +124,13 @@ exits `1`, and the reference's pages list it. So is a second prose file for an
 id: `` ``<id>`` is added to by <file> already ``, the first in path order being
 the one added.
 
+Links and images in supplemental prose resolve from the Markdown file that
+owns them, even though its body appears on a generated reference page. A
+fragment-only link names a heading on that assembled page. Checking includes
+these assembled pages, so a link cannot pass solely because it works in the
+standalone source file. Python getters are grouped as Properties, separately
+from callable methods.
+
 ## Changing what is read
 
 devpage reads each file with the language's built-in tree-sitter query,

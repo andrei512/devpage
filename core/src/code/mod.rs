@@ -740,6 +740,23 @@ impl Index {
             })
             .collect()
     }
+    /// Generated pages with authored supplemental prose, checked in their assembled form.
+    pub fn supplemented(&self) -> Vec<PathBuf> {
+        self.prose
+            .read()
+            .unwrap()
+            .keys()
+            .filter_map(|id| {
+                let (namespace, path) = id.split_once(':')?;
+                let mut file = self.reference().join(namespace);
+                for part in path.split("::") {
+                    file.push(part);
+                }
+                self.page(&file).map(|_| file)
+            })
+            .collect()
+    }
+
     /// The folder the reference's pages are under.
     fn reference(&self) -> PathBuf {
         self.base.join("reference")
@@ -1577,6 +1594,15 @@ mod tests {
                 public: true,
             });
         }
+        owner.members.push(super::Member {
+            name: "root".into(),
+            kind: "property".into(),
+            signature: "root".into(),
+            doc: "The catalog root.".into(),
+            file: dir.join("cell.rs"),
+            line: 1,
+            public: true,
+        });
         items.items.insert(owner.path.clone(), owner);
         items.aliases.insert(vec!["old".into()], Vec::new());
         let path = vec!["payload_<i>".into()];
@@ -1619,6 +1645,9 @@ mod tests {
         let page = index.page(&dir.join("reference/ts/Cell")).unwrap();
         let markdown = index.markdown(&page);
         assert!(markdown.contains("/field@present") && markdown.contains("/method@present"));
+        assert!(markdown.contains("### Properties"));
+        let property = index.page(&dir.join("reference/ts/Cell/root")).unwrap();
+        assert!(index.markdown(&property).contains("Property of"));
         assert!(
             index
                 .page(&dir.join("reference/ts/payload_%3Ci%3E"))
