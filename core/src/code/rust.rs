@@ -586,6 +586,31 @@ mod tests {
     }
 
     #[test]
+    fn tuple_fields_keep_their_own_visibility_in_public_and_private_catalogs() {
+        let dir = crate_dir(
+            "tuple-visibility",
+            &[(
+                "lib.rs",
+                "/// A value with hidden representation.\npub struct Value(/** Public value. */ pub u64, u8, pub(crate) u16);\n",
+            )],
+        );
+        let public = linked(&dir, &["lib.rs"], false);
+        let fields = &public.items[&path("my_crate::Value")].members;
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "0");
+        assert_eq!(fields[0].doc, "Public value.");
+        assert!(fields[0].public);
+
+        let private = linked(&dir, &["lib.rs"], true);
+        let fields = &private.items[&path("my_crate::Value")].members;
+        assert_eq!(fields.len(), 3);
+        assert_eq!(
+            fields.iter().map(|f| f.public).collect::<Vec<_>>(),
+            [true, false, false]
+        );
+    }
+
+    #[test]
     fn pub_use_gives_an_item_in_a_private_module_its_public_address() {
         let dir = crate_dir(
             "reexports",
