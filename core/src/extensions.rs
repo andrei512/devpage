@@ -237,23 +237,30 @@ impl Binding {
         }
         let mut declarations = BTreeMap::new();
         if let Some(languages) = s.descriptor["code_languages"].as_object() {
+            let mut grammars = BTreeMap::new();
+            for (suffix, language) in languages {
+                let language = language
+                    .as_str()
+                    .ok_or_else(|| anyhow!("code_languages values must be language names"))?;
+                let mut grammar = crate::code::grammar(language, None)?;
+                if let Some(macros) = s.descriptor["code_macros"][suffix].as_array() {
+                    grammar.macros = macros
+                        .iter()
+                        .map(|name| {
+                            name.as_str()
+                                .ok_or_else(|| anyhow!("code_macros entries must be names"))
+                                .map(str::to_string)
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                }
+                grammars.insert(suffix.clone(), grammar);
+            }
             for (file, source) in &sources {
                 let suffix = Path::new(file)
                     .extension()
                     .and_then(|x| x.to_str())
                     .unwrap_or("");
-                if let Some(language) = languages.get(suffix).and_then(Value::as_str) {
-                    let mut grammar = crate::code::grammar(language, None)?;
-                    if let Some(macros) = s.descriptor["code_macros"][suffix].as_array() {
-                        grammar.macros = macros
-                            .iter()
-                            .map(|m| {
-                                m.as_str()
-                                    .ok_or_else(|| anyhow!("code_macros entries must be names"))
-                                    .map(str::to_string)
-                            })
-                            .collect::<Result<Vec<_>>>()?;
-                    }
+                if let Some(grammar) = grammars.get(suffix) {
                     declarations.insert(file.clone(), grammar.extract(source));
                 }
             }
