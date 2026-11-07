@@ -371,7 +371,7 @@ pub(crate) fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
         options.extension.math_latex = true;
         options.extension.math_dollars = true;
         options.extension.front_matter_delimiter = Some("---".into());
-        let root = comrak::parse_document(&arena, source, &options);
+        let root = crate::math::parse(&arena, source, &options);
         let mut starts = vec![0];
         starts.extend(source.match_indices('\n').map(|(at, _)| at + 1));
         for node in root.descendants() {

@@ -456,11 +456,16 @@ mod tests {
 
     #[test]
     fn math_text_cannot_become_a_widget_or_a_speakers_note() {
-        let source = r"\(\text{<Unknown> and <Notes>literal</Notes>}\)";
-        let mut problems = Vec::new();
-        assert_eq!(expand(source, &set(&[]), &mut problems), source);
-        assert!(problems.is_empty());
-        assert!(crate::markup::notes(source).is_empty());
+        for source in [
+            r"\(\text{<Unknown> and <Notes>literal</Notes>}\)",
+            r"Price $20, code `$`, then \(\text{<Unknown> and <Notes>literal</Notes>}\)",
+            "Price $20, code `$`.\n\n\\(\\text{<Unknown> and <Notes>literal</Notes>}\\)",
+        ] {
+            let mut problems = Vec::new();
+            assert_eq!(expand(source, &set(&[]), &mut problems), source);
+            assert!(problems.is_empty());
+            assert!(crate::markup::notes(source).is_empty());
+        }
     }
 
     #[test]
