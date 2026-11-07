@@ -126,3 +126,43 @@ fn internal_only_skips_network_but_keeps_reachable_local_failures() {
     assert_eq!(problems["problems"].as_array().unwrap().len(), 1);
     assert_eq!(problems["problems"][0]["target"], "missing.md");
 }
+
+#[test]
+fn references_reports_the_native_catalog_and_relative_source_paths() {
+    let dir = folder(
+        "references",
+        &[
+            (
+                "devpage.yml",
+                "kind: site\ntitle: Example\nroot: README.md\nextensions:\n  code:\n    config:\n      rust:\n        files: [src/lib.rs]\n",
+            ),
+            ("README.md", "# API\n"),
+            (
+                "Cargo.toml",
+                "[package]\nname = \"example\"\nversion = \"0.1.0\"\n",
+            ),
+        ],
+    );
+    std::fs::create_dir_all(dir.join("src")).unwrap();
+    std::fs::write(
+        dir.join("src/lib.rs"),
+        "/// A documented thing.\npub struct Thing;\n",
+    )
+    .unwrap();
+    let output = devpage(&dir, &["references", ".", "--json", "--root", "."]);
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let catalog = json(&output.stdout);
+    let items = catalog["namespaces"]["rust"].as_array().unwrap();
+    let thing = items
+        .iter()
+        .find(|item| item["path"] == serde_json::json!(["example", "Thing"]))
+        .unwrap();
+    assert_eq!(thing["file"], "src/lib.rs");
+    assert_eq!(thing["signature"], "pub struct Thing");
+    assert_eq!(thing["doc"], "A documented thing.");
+}

@@ -69,6 +69,16 @@ struct Cli {
 /// The commands besides serving a document.
 #[derive(Subcommand)]
 enum Command {
+    /// Inspect the source-owned reference catalog used by pages and checks.
+    References {
+        /// The site holding the code extension configuration.
+        path: Option<PathBuf>,
+        /// Print namespaces, declarations, members and source locations as JSON.
+        #[arg(long)]
+        json: bool,
+        #[command(flatten)]
+        root: drive::client::Root,
+    },
     /// Check every link; exit 1 if one is broken.
     ///
     /// Checks the document and every page it reaches by links, external
@@ -148,7 +158,9 @@ impl Command {
     /// Whether the command answers in JSON, and so reports an error in JSON.
     fn json(&self) -> bool {
         match self {
-            Command::Check { json, .. } | Command::Png { json, .. } => *json,
+            Command::Check { json, .. }
+            | Command::References { json, .. }
+            | Command::Png { json, .. } => *json,
             Command::Remote(command) => command.json(),
             Command::Pdf { .. } | Command::Server | Command::Video { .. } => false,
         }
@@ -230,6 +242,54 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         let problems = check::document(&folder, &designs, external.as_deref()).await;
         return Ok(reported(&problems, *json));
     }
+    if let Some(Command::References { path, json, root }) = &cli.command {
+        let document = Document::load(
+            path.as_deref().unwrap_or(std::path::Path::new(".")),
+            &root.served()?,
+        )?;
+        let index = devpage_core::code::for_document(&document.path())
+            .context("the document has no code reference extension")?;
+        let problems = index.problems();
+        if !problems.is_empty() {
+            return Ok(reported(&problems, *json));
+        }
+        let mut namespaces = index.inventory();
+        for items in namespaces.values_mut() {
+            for item in items {
+                item.file = item
+                    .file
+                    .strip_prefix(document.served.path())
+                    .context("reference source is outside the served root")?
+                    .to_path_buf();
+                for member in &mut item.members {
+                    member.file = member
+                        .file
+                        .strip_prefix(document.served.path())
+                        .context("reference member source is outside the served root")?
+                        .to_path_buf();
+                }
+            }
+        }
+        if *json {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({"namespaces": namespaces}))?
+            );
+        } else {
+            for (namespace, items) in namespaces {
+                for item in items {
+                    println!(
+                        "{}:{} {}:{}",
+                        namespace,
+                        item.path.join("::"),
+                        item.file.display(),
+                        item.line
+                    );
+                }
+            }
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     match cli.command.take() {
         Some(Command::Pdf { path, output, root }) => {
             let document = Arc::new(Document::load(&path, &root.served()?)?);
@@ -304,7 +364,7 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
             print!("{}", output.text);
             return Ok(ExitCode::from(output.code));
         }
-        Some(Command::Check { .. }) | None => {}
+        Some(Command::Check { .. } | Command::References { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
     let document = Arc::new(Document::load(&path, &cli.root.served()?)?);

@@ -20,3 +20,10 @@ For a reproducible build that must not depend on external sites, run
 `devpage check docs --internal-only`. It still checks local links, anchors and
 extension references; it skips only requests to external URLs. Normal `check`
 continues to check those URLs too.
+
+`devpage references docs --json` inspects the same source-owned catalog used
+by generated pages, checking and search. Its `namespaces` object lists each
+namespace's declarations, signatures, documentation and members, with source
+paths relative to the served root. Invalid reference contracts fail the command.
+Coverage tests can compare this catalog to a compiled public API without parsing
+source files a second time.
