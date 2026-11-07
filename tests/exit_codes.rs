@@ -96,3 +96,33 @@ fn what_cannot_run_exits_2_and_says_so_in_json_when_asked() {
     let unreadable = devpage(&dir, &["check", "--bogus"]);
     assert_eq!(unreadable.status.code(), Some(2));
 }
+
+#[test]
+fn internal_only_skips_network_but_keeps_reachable_local_failures() {
+    let dir = folder(
+        "internal-only",
+        &[
+            (
+                "ok.md",
+                "# Good\n\n[Offline](http://127.0.0.1:1/unavailable)\n",
+            ),
+            (
+                "bad.md",
+                "# Bad\n\n[Offline](http://127.0.0.1:1/unavailable)\n[Missing](missing.md)\n",
+            ),
+        ],
+    );
+    let good = devpage(&dir, &["check", "ok.md", "--internal-only", "--json"]);
+    assert_eq!(
+        good.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&good.stderr)
+    );
+    assert_eq!(json(&good.stdout), serde_json::json!({"problems": []}));
+    let bad = devpage(&dir, &["check", "bad.md", "--internal-only", "--json"]);
+    assert_eq!(bad.status.code(), Some(1));
+    let problems = json(&bad.stdout);
+    assert_eq!(problems["problems"].as_array().unwrap().len(), 1);
+    assert_eq!(problems["problems"][0]["target"], "missing.md");
+}
