@@ -17,6 +17,7 @@ Pages are GitHub-flavoured Markdown:
 | Strikethrough | `~~gone~~` |
 | Raw HTML | any HTML, passed through unchanged |
 | Highlighted code | a fenced block with a language — see [Code blocks](#code-blocks) |
+| Math | `\(x^2\)` or `$x^2$` inline; `\[x^2\]` or `$$x^2$$` displayed — see [Math](#math) |
 | Diagrams | a fenced block with language `mermaid` — see [Diagrams](../../diagrams/README.md) |
 | Widgets | a capitalized HTML tag, `<Callout kind="tip">…</Callout>` — see [Widgets](../../widgets/README.md) |
 
@@ -43,6 +44,37 @@ Whatever a page contains, including `<script>`, goes into the page as written.
 On a screen 860px wide or less, headings, code blocks and tables are sized for
 the narrow width. Code in a table's cell stays on one line, and a table too
 wide for the screen scrolls sideways in its box.
+
+## Math
+
+Write TeX inside `\(...\)` or `$...$` for an inline expression. Use `\[...\]`
+or `$$...$$` for display math; these delimiters may span lines.
+
+<Example title="A formula remains part of the explanation">
+
+For a standard normal variable, \(\sigma^2=1\):
+
+\[
+f(x)=\frac{1}{\sqrt{2\pi}}e^{-x^2/2}
+\]
+
+</Example>
+
+The server converts formulas to native MathML using bundled KaTeX 0.16.11.
+The browser lays out the result, in its math font, and print uses the same
+markup. No CDN, font download or client-side typesetter is required. The
+original TeX remains in the MathML annotation for assistive tools.
+
+Code spans and fenced code remain literal. Escape a currency delimiter as
+`\$5` when it could otherwise start a formula. A malformed or unsupported TeX
+command shows a math error on the page and fails `devpage check`, with its
+source line. Unpaired delimiters remain Markdown text.
+
+Each formula has its own macro scope. Rendering allows at most 16 KiB of TeX,
+1,000 macro expansions and one second of execution in a runtime limited to
+64 MiB; explicit sizes are capped at 20 em. TeX commands cannot fetch images,
+create trusted links or inject HTML. These limits apply equally to preview,
+checking and export.
 
 ## Code blocks
 

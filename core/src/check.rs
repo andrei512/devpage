@@ -1031,6 +1031,23 @@ mod external {
     }
 
     #[tokio::test]
+    async fn invalid_math_is_the_same_failure_on_the_page_and_in_the_check() {
+        let doc = folder("invalid-math", "# Math\n\n\\(\\unknowncommand{x}\\)\n");
+        let found = document(&opened(&doc), &designs_of(&doc), None).await;
+        assert_eq!(found.len(), 1, "{found:?}");
+        assert_eq!(found[0].line, Some(3));
+        assert!(found[0].message.starts_with("Math error:"), "{found:?}");
+        let shown = rendered(&doc, &[doc.base.join("README.md")]);
+        assert!(shown[0].html().contains("math-error"));
+        std::fs::write(doc.base.join("README.md"), "# Math\n\n\\(\\frac{1}{2}\\)\n").unwrap();
+        assert!(
+            document(&opened(&doc), &designs_of(&doc), None)
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn a_link_into_the_code_reference_is_checked_against_the_code() {
         let doc = folder(
             "code-links",

@@ -275,7 +275,8 @@ pub(crate) fn find_close(
     }
 }
 
-/// Byte ranges of fenced code blocks and inline code spans.
+/// Byte ranges whose contents are literal to widget and notes scanners: code,
+/// HTML comments and native math spans.
 pub(crate) fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
     let mut ranges = Vec::new();
     let mut fence: Option<(usize, String)> = None;
@@ -362,6 +363,26 @@ pub(crate) fn code_ranges(source: &str) -> Vec<std::ops::Range<usize>> {
             .map_or(source.len(), |end| open + 4 + end + 3);
         ranges.push(open..close);
         from = close;
+    }
+    // TeX text may contain capitalized tags; these are math, never widgets.
+    if source.contains(['$', '\\']) {
+        let arena = comrak::Arena::new();
+        let mut options = comrak::Options::default();
+        options.extension.math_latex = true;
+        options.extension.math_dollars = true;
+        options.extension.front_matter_delimiter = Some("---".into());
+        let root = comrak::parse_document(&arena, source, &options);
+        let mut starts = vec![0];
+        starts.extend(source.match_indices('\n').map(|(at, _)| at + 1));
+        for node in root.descendants() {
+            let data = node.data.borrow();
+            if matches!(data.value, comrak::nodes::NodeValue::Math(_)) {
+                let pos = data.sourcepos;
+                let start = starts[pos.start.line - 1] + pos.start.column - 1;
+                let end = starts[pos.end.line - 1] + pos.end.column;
+                ranges.push(start..end);
+            }
+        }
     }
     ranges.sort_by_key(|r| r.start);
     ranges
