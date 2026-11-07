@@ -98,6 +98,19 @@ struct State {
     sources: BTreeMap<String, String>,
 }
 impl Binding {
+    /// The document-local name of this native extension.
+    pub fn id(&self) -> String {
+        self.0.lock().unwrap().id.clone()
+    }
+    /// The semantic reference declarations of a namespace at this revision.
+    pub fn references(&self, namespace: &str) -> Result<Value> {
+        self.call("references", json!({"namespace":namespace}))
+    }
+    /// The served folder of this binding, used to validate reference sources.
+    pub fn scope(&self) -> ServedFolder {
+        self.0.lock().unwrap().scope.clone()
+    }
+
     /// The address the binding of `s` answers under:
     /// `<mount>/__devpage/extensions/<owner>/<id>/`.
     fn base(s: &State) -> String {
@@ -222,9 +235,22 @@ impl Binding {
         if s.error.is_none() && s.sources == sources && !s.revision.is_empty() {
             return Ok(false);
         }
+        let mut declarations = BTreeMap::new();
+        if let Some(languages) = s.descriptor["code_languages"].as_object() {
+            for (file, source) in &sources {
+                let suffix = Path::new(file)
+                    .extension()
+                    .and_then(|x| x.to_str())
+                    .unwrap_or("");
+                if let Some(language) = languages.get(suffix).and_then(Value::as_str) {
+                    let grammar = crate::code::grammar(language, None)?;
+                    declarations.insert(file.clone(), grammar.extract(source));
+                }
+            }
+        }
         let reply = match s
             .package
-            .invoke(json!({"op":"prepare","instance":s.owner,"sources":sources}))
+            .invoke(json!({"op":"prepare","instance":s.owner,"sources":sources,"declarations":declarations}))
         {
             Ok(reply) => reply,
             Err(error) => {
@@ -494,6 +520,9 @@ mod tests {
                 "prepare" => {
                     json!({"revision":format!("{:x}",Sha256::digest(r["sources"].to_string()))})
                 }
+                "references" => {
+                    json!({"items":[{"path":["Signal"],"kind":"node","signature":"Signal(input: Price)","doc":"A signal from a price.","file":"model/nested/a.toy","line":1,"public":true}]})
+                }
                 "augment" => {
                     json!({"source":format!("{}\n\n## Extension content\n",r["source"].as_str().unwrap())})
                 }
@@ -508,6 +537,50 @@ mod tests {
                 _ => bail!("Unknown toy operation"),
             })
         }
+    }
+
+    /// Semantic declarations use ordinary pages, search, prose and checking.
+    #[test]
+    fn a_native_reference_provider_uses_the_shared_catalog() {
+        install_loader(Arc::new(Toy));
+        let dir =
+            std::env::temp_dir().join(format!("devpage-native-reference-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("model/nested")).unwrap();
+        std::fs::write(dir.join("model/nested/a.toy"), "signal\n").unwrap();
+        std::fs::write(dir.join("README.md"), "# Reference\n").unwrap();
+        std::fs::write(
+            dir.join("Signal.md"),
+            "# ``nodes:Signal``\n\nThe domain explanation.\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("devpage.yml"),"kind: site\ntitle: Native\nroot: README.md\nextensions:\n  toy:\n    package: ./package\n    config: {input: model}\n  code:\n    config:\n      nodes: {provider: toy, strict: true}\n").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let served = ServedFolder::new(&dir).unwrap();
+        let doc = crate::document::Document::load(&dir.join("devpage.yml"), &served).unwrap();
+        let index = crate::code::for_document(&doc.path()).unwrap();
+        assert!(index.problems().is_empty(), "{:?}", index.problems());
+        let page = index.page(&dir.join("reference/nodes/Signal")).unwrap();
+        let markdown = index.markdown(&page);
+        assert!(markdown.contains("A signal from a price."));
+        assert!(markdown.contains("The domain explanation."));
+        assert!(markdown.contains("model/nested/a.toy"));
+        assert!(
+            index.searched().iter().any(
+                |item| item.title == "Signal" && item.prose.contains("The domain explanation.")
+            )
+        );
+        assert_eq!(index.inventory()["nodes"].len(), 1);
+        std::fs::remove_file(dir.join("model/nested/a.toy")).unwrap();
+        crate::code::changed(&served, &[dir.join("model/nested/a.toy")]);
+        assert!(index.page(&dir.join("reference/nodes/Signal")).is_none());
+        assert!(
+            index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("source does not exist"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

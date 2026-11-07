@@ -20,6 +20,8 @@
 //! file and links again in memory; nothing is cached on disk.
 
 mod extract;
+mod languages;
+mod provider;
 mod render;
 mod rust;
 
@@ -29,7 +31,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use anyhow::{Context, Result, bail};
 use globset::{GlobSet, GlobSetBuilder};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::folder::{ServedFolder, lexical};
 
@@ -37,7 +39,8 @@ pub use extract::{Declaration, Extracted, Grammar, Visibility};
 
 /// One thing of the code, after every file is linked: a module, a type, a
 /// function — what a reference page is about.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Item {
     /// Its path as the language names it: crate, modules, item.
     pub path: Vec<String>,
@@ -60,7 +63,8 @@ pub struct Item {
 }
 
 /// A part of an item shown on its page: a field, a variant, a method.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Member {
     /// Its name as declared: the last part of its id,
     /// `namespace:path::name`.
@@ -102,12 +106,24 @@ struct NamespaceConfig {
     /// left out.
     language: Option<String>,
     /// Glob patterns of its files, relative to the document file.
+    #[serde(default)]
     files: Vec<String>,
     /// A query file replacing the language's built-in query.
     query: Option<String>,
     /// Whether items no `pub` path reaches get pages too.
     #[serde(default)]
     private: bool,
+    /// A native extension contributing this namespace's semantic declarations.
+    provider: Option<String>,
+    /// Fail checking for empty inputs, parse failures and missing abstracts.
+    #[serde(default)]
+    strict: bool,
+    /// The base for Python and TypeScript module paths, relative to the site.
+    root: Option<String>,
+    /// An optional namespace-wide module prefix, separated with `::`.
+    module: Option<String>,
+    /// `flat` uses captured names directly; `modules` uses source module paths.
+    layout: Option<String>,
 }
 
 /// One namespace: its files, its parser and the items they make now.
@@ -127,6 +143,19 @@ struct Namespace {
     query: Option<PathBuf>,
     /// Whether items no `pub` path reaches get pages too.
     private: bool,
+    /// The extension that owns this namespace, when it is not grammar-linked.
+    provider: Option<crate::extensions::Binding>,
+    /// Diagnostics produced by the last provider refresh or file read.
+    failures: RwLock<Vec<(PathBuf, usize, String)>>,
+    /// Whether checking requires complete documented inputs.
+    strict: bool,
+    /// Base folder for non-Rust module paths.
+    root: PathBuf,
+    /// Prefix for module paths.
+    module: Vec<String>,
+    /// Whether names are absolute within the namespace.
+    flat: bool,
+
     /// Each of its files' declarations, by path.
     files: Mutex<BTreeMap<PathBuf, Arc<Extracted>>>,
     /// Its items, as its files were last linked.
@@ -200,7 +229,7 @@ pub fn configure(
     let mut built = Vec::new();
     for (name, namespace) in namespaces {
         built.push(
-            Namespace::new(&name, namespace, base, served)
+            Namespace::new(&name, namespace, base, served, doc)
                 .with_context(|| format!("extensions: code: {name}"))?,
         );
     }
@@ -297,8 +326,40 @@ impl Namespace {
         config: NamespaceConfig,
         base: &Path,
         served: &ServedFolder,
+        doc: &Path,
     ) -> Result<Self> {
-        let language = config.language.as_deref().unwrap_or(name);
+        let language = config
+            .language
+            .as_deref()
+            .unwrap_or(if config.provider.is_some() {
+                "rust"
+            } else {
+                name
+            });
+        let provider = config
+            .provider
+            .as_deref()
+            .map(|id| {
+                crate::extensions::for_document(doc)
+                    .into_iter()
+                    .find(|binding| binding.id() == id)
+                    .ok_or_else(|| anyhow::anyhow!("reference provider {id} is not configured"))
+            })
+            .transpose()?;
+        if provider.is_some() && (!config.files.is_empty() || config.query.is_some()) {
+            bail!("provider cannot be combined with files or query");
+        }
+        if config
+            .layout
+            .as_deref()
+            .is_some_and(|layout| !matches!(layout, "flat" | "modules"))
+        {
+            bail!("layout must be flat or modules");
+        }
+        let root = lexical(&base.join(config.root.as_deref().unwrap_or(".")));
+        if !served.contains(&root) {
+            bail!("root is outside the served folder");
+        }
         let query_file = match &config.query {
             Some(query) => match served.file(&base.join(query)) {
                 Some(file) => Some(file),
@@ -307,7 +368,7 @@ impl Namespace {
             None => None,
         };
         let grammar = grammar(language, query_file.as_deref())?;
-        if config.files.is_empty() {
+        if config.files.is_empty() && provider.is_none() {
             bail!("files lists no patterns");
         }
         let mut patterns = GlobSetBuilder::new();
@@ -348,6 +409,16 @@ impl Namespace {
             roots,
             query: query_file,
             private: config.private,
+            provider,
+            failures: RwLock::default(),
+            strict: config.strict,
+            root,
+            module: config
+                .module
+                .as_deref()
+                .map(|m| m.split("::").map(str::to_string).collect())
+                .unwrap_or_default(),
+            flat: config.layout.as_deref() == Some("flat"),
             files: Mutex::default(),
             items: RwLock::default(),
             query_error: RwLock::default(),
@@ -362,6 +433,10 @@ impl Namespace {
     /// Every file of the namespace parsed, across the machine's cores, then
     /// linked.
     fn parse_all(&self) {
+        if self.provider.is_some() {
+            self.refresh_provider();
+            return;
+        }
         let mut found = Vec::new();
         for root in &self.roots {
             let walk = ignore::WalkBuilder::new(root)
@@ -388,9 +463,15 @@ impl Namespace {
                     scope.spawn(move || {
                         files
                             .iter()
-                            .filter_map(|file| {
-                                let source = std::fs::read_to_string(file).ok()?;
-                                Some((file.clone(), Arc::new(grammar.extract(&source))))
+                            .map(|file| {
+                                let extracted = match std::fs::read_to_string(file) {
+                                    Ok(source) => grammar.extract(&source),
+                                    Err(error) => Extracted {
+                                        failure: Some(format!("cannot read source: {error}")),
+                                        ..Extracted::default()
+                                    },
+                                };
+                                (file.clone(), Arc::new(extracted))
                             })
                             .collect::<Vec<_>>()
                     })
@@ -408,6 +489,19 @@ impl Namespace {
     /// Every file's declarations linked into items.
     fn link(&self) {
         let files = self.files.lock().unwrap().clone();
+        if self.language != "rust" || self.flat {
+            let (items, failures) = languages::link(
+                &files,
+                &self.root,
+                &self.module,
+                self.flat,
+                self.private,
+                &self.language,
+            );
+            *self.items.write().unwrap() = Arc::new(items);
+            *self.failures.write().unwrap() = failures;
+            return;
+        }
         let mut crates = HashMap::new();
         let units: Vec<(Vec<String>, rust::Unit)> = files
             .iter()
@@ -430,14 +524,36 @@ impl Namespace {
 
 /// The parser for `language`: its built-in grammar with its built-in query,
 /// or the query in `query`.
-fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
+pub(crate) fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
     let (grammar, built_in, docs) = match language {
         "rust" => (
             tree_sitter_rust::LANGUAGE.into(),
             include_str!("rust.scm"),
             extract::Docs::Rust,
         ),
-        other => bail!("language {other} is not one devpage knows: rust"),
+        "python" => (
+            tree_sitter_python::LANGUAGE.into(),
+            include_str!("python.scm"),
+            extract::Docs::Python,
+        ),
+        "typescript" => (
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            include_str!("typescript.scm"),
+            extract::Docs::TypeScript,
+        ),
+        "tsx" => (
+            tree_sitter_typescript::LANGUAGE_TSX.into(),
+            include_str!("typescript.scm"),
+            extract::Docs::TypeScript,
+        ),
+        "pyo3" => (
+            tree_sitter_rust::LANGUAGE.into(),
+            include_str!("rust.scm"),
+            extract::Docs::PyO3,
+        ),
+        other => {
+            bail!("language {other} is not one devpage knows: rust, python, typescript, tsx, pyo3")
+        }
     };
     let source = match query {
         Some(file) => {
@@ -487,8 +603,19 @@ pub struct Searched {
 }
 
 /// The kinds the sidebar's tree lists; the rest are left to their pages.
-const NAVIGATED: [&str; 7] = [
-    "module", "struct", "enum", "union", "trait", "type", "macro",
+const NAVIGATED: [&str; 12] = [
+    "module",
+    "struct",
+    "enum",
+    "union",
+    "trait",
+    "type",
+    "macro",
+    "class",
+    "interface",
+    "node",
+    "schema",
+    "rpc",
 ];
 
 /// What a page address of the code reference names.
@@ -502,6 +629,19 @@ pub enum Page {
 }
 
 impl Index {
+    /// A source-owned inventory for coverage tools, keyed by namespace.
+    /// It is the same catalog pages, search and prose validation use.
+    pub fn inventory(&self) -> BTreeMap<String, Vec<Item>> {
+        self.namespaces
+            .iter()
+            .map(|namespace| {
+                (
+                    namespace.name.clone(),
+                    namespace.items().items.values().cloned().collect(),
+                )
+            })
+            .collect()
+    }
     /// The folder the reference's pages are under.
     fn reference(&self) -> PathBuf {
         self.base.join("reference")
@@ -769,6 +909,11 @@ impl Index {
     fn changed(&self, files: &[PathBuf]) -> bool {
         let mut any = false;
         for namespace in &self.namespaces {
+            if namespace.provider.is_some() {
+                namespace.refresh_provider();
+                any = true;
+                continue;
+            }
             // A new query reads every file anew; one that doesn't compile
             // is a problem, and the last that did keeps reading.
             if namespace
@@ -951,6 +1096,64 @@ impl Index {
             });
         }
         for namespace in &self.namespaces {
+            let mut failures = namespace.failures.read().unwrap().clone();
+            for (file, extracted) in namespace.files.lock().unwrap().iter() {
+                if let Some(failure) = &extracted.failure {
+                    failures.push((file.clone(), 1, failure.clone()));
+                }
+                failures.extend(
+                    extracted
+                        .errors
+                        .iter()
+                        .map(|line| (file.clone(), *line, "source does not parse".into())),
+                );
+            }
+            if namespace.strict {
+                let items = namespace.items();
+                if items.items.is_empty() {
+                    failures.push((
+                        self.base.clone(),
+                        1,
+                        format!("{}: no reference items", namespace.name),
+                    ));
+                }
+                for item in items.items.values() {
+                    if render::split_doc(&item.doc).0.is_empty() {
+                        failures.push((
+                            item.file.clone(),
+                            item.line,
+                            format!(
+                                "{}:{} has no abstract",
+                                namespace.name,
+                                item.path.join("::")
+                            ),
+                        ));
+                    }
+                    for member in &item.members {
+                        if render::split_doc(&member.doc).0.is_empty() {
+                            failures.push((
+                                member.file.clone(),
+                                member.line,
+                                format!(
+                                    "{}:{}::{} has no abstract",
+                                    namespace.name,
+                                    item.path.join("::"),
+                                    member.name
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            problems.extend(failures.into_iter().map(|(file, line, message)| {
+                crate::problem::Problem {
+                    file: self.served.name(&file).unwrap_or_default(),
+                    line: Some(line),
+                    column: None,
+                    message,
+                    target: None,
+                }
+            }));
             if let Some((line, message)) = namespace.query_error.read().unwrap().clone()
                 && let Some(query) = &namespace.query
             {
@@ -1024,6 +1227,23 @@ fn distance(a: &str, b: &str) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use super::{Visibility, grammar};
+    /// Other language declarations enter the same native item catalog.
+    #[test]
+    fn python_and_typescript_have_native_grammars() {
+        let python = grammar("python", None).unwrap().extract("class Graph:\n    \"\"\"A graph.\"\"\"\n    def run(self):\n        \"\"\"Run it.\"\"\"\n        pass\n");
+        assert_eq!(python.declarations[0].name, "Graph");
+        assert_eq!(python.declarations[0].doc, "A graph.");
+        assert_eq!(python.declarations[1].parent, Some(0));
+        let ts = grammar("typescript", None)
+            .unwrap()
+            .extract("/** A graph. */\nexport interface Graph { /** Its id. */ id: string; }\n");
+        assert_eq!(ts.declarations[0].name, "Graph");
+        assert_eq!(ts.declarations[0].doc, "A graph.");
+        assert_eq!(ts.declarations[0].visibility, Visibility::Public);
+        assert_eq!(ts.declarations[1].parent, Some(0));
+    }
+
     /// A version server mode drops takes its code reference with it.
     #[test]
     fn a_forgotten_folder_holds_no_code_reference() {

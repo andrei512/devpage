@@ -4,11 +4,12 @@
 //! grammar's language decides how its doc comments read.
 
 use anyhow::{Result, anyhow};
+use serde::Serialize;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCursor};
 
 /// How a declaration is visible where it is written.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum Visibility {
     /// Visible to anyone that sees its container: `pub`.
     Public,
@@ -19,10 +20,12 @@ pub enum Visibility {
 }
 
 /// What one file says about one thing.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Declaration {
     /// The query's kind: `function`, `struct`, `field`…
     pub kind: String,
+    /// Attributes attached to this declaration, preserved for semantic extensions.
+    pub attributes: Vec<String>,
     /// Its name, as the query's `@name` captures it; for an `impl`, the type
     /// it names.
     pub name: String,
@@ -47,7 +50,7 @@ pub struct Declaration {
 }
 
 /// A block whose members belong to the type it names.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Attach {
     /// The type, as written: `Foo<T>`, `crate::a::Foo`.
     pub to: String,
@@ -56,7 +59,7 @@ pub struct Attach {
 }
 
 /// A statement making a name reachable where it is written: `pub use`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Reexport {
     /// How the `use` is visible where it is written.
     pub visibility: Visibility,
@@ -68,7 +71,7 @@ pub struct Reexport {
 
 /// What one file says: its own doc comment and its declarations, in the
 /// order they are written.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct Extracted {
     /// The file's own doc comment, as Markdown.
     pub doc: String,
@@ -79,6 +82,8 @@ pub struct Extracted {
     /// The lines where the file doesn't parse; declarations elsewhere are
     /// kept.
     pub errors: Vec<usize>,
+    /// A parser initialization or source-read failure, never an empty success.
+    pub failure: Option<String>,
 }
 
 /// A language's parser: its grammar, the query that finds declarations, and
@@ -97,6 +102,12 @@ pub struct Grammar {
 pub enum Docs {
     /// `///` and `/** */` before a declaration; `//!` at the top of a file.
     Rust,
+    /// Python triple-quoted docstrings and underscore visibility.
+    Python,
+    /// TypeScript exports, members and JSDoc comments.
+    TypeScript,
+    /// Rust declarations exposed through PyO3 attributes.
+    PyO3,
 }
 
 impl Grammar {
@@ -122,10 +133,16 @@ impl Grammar {
     pub fn extract(&self, source: &str) -> Extracted {
         let mut parser = Parser::new();
         if parser.set_language(&self.language).is_err() {
-            return Extracted::default();
+            return Extracted {
+                failure: Some("parser initialization failed".into()),
+                ..Extracted::default()
+            };
         }
         let Some(tree) = parser.parse(source, None) else {
-            return Extracted::default();
+            return Extracted {
+                failure: Some("parser returned no syntax tree".into()),
+                ..Extracted::default()
+            };
         };
         let root = tree.root_node();
         let names = self.query.capture_names();
@@ -144,11 +161,17 @@ impl Grammar {
             let mut implements = None;
             let mut reexport = None;
             let mut path = None;
+            let mut explicit_doc = None;
+            let mut explicit_signature = None;
+            let mut explicit_public = false;
             for capture in found_match.captures() {
                 let capture_name = names[capture.index as usize];
                 let node = capture.node;
                 match capture_name {
-                    "name" => name = Some(text(node)),
+                    "name" => name = Some(super::languages::literal(&text(node))),
+                    "doc" => explicit_doc = Some(super::languages::literal(&text(node))),
+                    "signature" => explicit_signature = Some(text(node)),
+                    "public" => explicit_public = true,
                     "visibility" => {
                         visibility = if text(node) == "pub" {
                             Visibility::Public
@@ -168,6 +191,16 @@ impl Grammar {
                     }
                 }
             }
+            for property in self.query.property_settings(found_match.pattern_index) {
+                match property.key.as_ref() {
+                    "visibility" if property.value.as_deref() == Some("public") => {
+                        explicit_public = true
+                    }
+                    "name" => name = property.value.as_deref().map(str::to_string),
+                    "doc" => explicit_doc = property.value.as_deref().map(str::to_string),
+                    _ => {}
+                }
+            }
             if let Some((node, kind)) = item
                 && let Some(name) = name
             {
@@ -175,11 +208,16 @@ impl Grammar {
                     node,
                     Declaration {
                         kind,
+                        attributes: super::languages::attributes(node, source),
                         name,
-                        visibility,
+                        visibility: if explicit_public {
+                            Visibility::Public
+                        } else {
+                            super::languages::visibility(self.docs, node, source, visibility)
+                        },
                         parent: None,
-                        signature: signature(node, source),
-                        doc: self.doc(node, source),
+                        signature: explicit_signature.unwrap_or_else(|| signature(node, source)),
+                        doc: explicit_doc.unwrap_or_else(|| self.doc(node, source)),
                         line: node.start_position().row + 1,
                         has_body: node.child_by_field_name("body").is_some(),
                         hidden: self.hidden(node, source),
@@ -193,6 +231,7 @@ impl Grammar {
                     node,
                     Declaration {
                         kind: "attach".into(),
+                        attributes: super::languages::attributes(node, source),
                         name: to.clone(),
                         visibility: Visibility::Public,
                         parent: None,
@@ -253,13 +292,16 @@ impl Grammar {
             declarations,
             reexports,
             errors,
+            failure: None,
         }
     }
 
     /// The doc comment written just before `node`, attributes skipped.
     fn doc(&self, node: Node, source: &str) -> String {
         match self.docs {
-            Docs::Rust => {
+            Docs::Python => super::languages::python_doc(node, source),
+            Docs::TypeScript => super::languages::typescript_doc(node, source),
+            Docs::Rust | Docs::PyO3 => {
                 let mut lines = Vec::new();
                 let mut at = node.prev_sibling();
                 while let Some(sibling) = at {
@@ -293,7 +335,8 @@ impl Grammar {
     /// reference: code only tests build, or code its author hid.
     fn hidden(&self, node: Node, source: &str) -> bool {
         match self.docs {
-            Docs::Rust => {
+            Docs::Python | Docs::TypeScript => false,
+            Docs::Rust | Docs::PyO3 => {
                 let mut at = node.prev_sibling();
                 while let Some(sibling) = at {
                     match sibling.kind() {
@@ -319,7 +362,9 @@ impl Grammar {
     /// The doc comment of the file itself: `//!` lines at its top.
     fn file_doc(&self, root: Node, source: &str) -> String {
         match self.docs {
-            Docs::Rust => {
+            Docs::Python => super::languages::python_doc(root, source),
+            Docs::TypeScript => String::new(),
+            Docs::Rust | Docs::PyO3 => {
                 let mut lines = Vec::new();
                 let mut walk = root.walk();
                 for child in root.children(&mut walk) {

@@ -161,3 +161,53 @@ as for any file a publish holds.
   — every field of a namespace, and the errors devpage stops with.
 - [`devpage_core::code`](../../../reference/rust/devpage_core/code) — the
   implementation, in devpage's own reference.
+
+## Language namespaces and semantic providers
+
+A namespace can select `language: python`, `typescript`, `tsx`, or `pyo3` as
+well as `rust`. `root` is the source module root relative to the site file;
+`module` adds a `::`-separated prefix. Python and TypeScript names use their
+file's path from `root`, without its suffix or terminal `__init__`/`index`,
+followed by the declaration name. `layout: flat` uses query names directly.
+Rust keeps crate/module reachability unless a flat layout is selected.
+
+Queries can capture `@doc`, `@signature`, and `@public` alongside
+`@item.<kind>` and `@name`. String names and docs are decoded as string literals.
+`#set! visibility "public"`, `#set! name "..."`, and `#set! doc "..."`
+provide constant query properties. These declarations still use the normal
+reference pages, source links, search and prose augmentation.
+
+`strict: true` requires a nonempty catalog and an abstract on every item and
+member. Source parse and read failures are always check problems. Grammar
+reading is source-based, not proof of compiler exports or runtime bindings;
+projects should compare the native inventory against their compiled API tests
+when runtime registration defines the public surface.
+
+For project-specific semantic joins, a namespace may use a native extension:
+
+```yaml
+extensions:
+  domain:
+    package: ./reference-extension
+    config: {input: ../src}
+  code:
+    config:
+      nodes: {provider: domain, strict: true}
+```
+
+A provider namespace has no `files` or `query`. The extension's `references`
+operation receives `namespace`, `instance`, and its prepared `revision`, and
+returns `items` plus optional source-located `problems`. Items use `path`
+(an array of names), `kind`, `signature`, `doc`, `file`, `line`, `public`,
+`members`, and `implements`; members use `name` instead of `path`. Sources
+are relative to the served root and must exist at the given one-based line.
+Every parent item must be present. Duplicate identities, invalid sources,
+semantic problems and failed preparations fail checking; stale catalogs are
+cleared after provider failures.
+
+The extension may declare `code_languages: {rs: rust}` in `create`. Its
+`prepare` request then receives `declarations` beside `sources`: each source's
+shared grammar result, containing docs, source signatures, attributes,
+parent indices, reexports and parse diagnostics. The extension resolves its
+own domain relationships and returns declarations; devpage owns rendering,
+search, links, supplemental prose and checking for those declarations too.
