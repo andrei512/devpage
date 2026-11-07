@@ -79,7 +79,7 @@ pub fn item(
     } else {
         out.push_str(&source(index, &item.file, None));
     }
-    out.push_str(&overview_of(&overview, prose));
+    out.push_str(&overview_of(index, &overview, prose));
 
     let mut groups = String::new();
     {
@@ -124,6 +124,7 @@ pub fn item(
     }
     for (group, heading) in [
         (Group::Field, "Fields"),
+        (Group::Property, "Properties"),
         (Group::Variant, "Variants"),
         (Group::Type, "Associated Types"),
         (Group::Function, "Associated Functions"),
@@ -189,7 +190,7 @@ pub fn member(
         &member.file,
         member.line,
     ));
-    out.push_str(&overview_of(&overview, prose));
+    out.push_str(&overview_of(index, &overview, prose));
     out
 }
 
@@ -198,6 +199,8 @@ pub fn member(
 enum Group {
     /// A field of a struct.
     Field,
+    /// A Python attribute exposed through a getter or setter.
+    Property,
     /// A variant of an enum.
     Variant,
     /// A trait-associated type.
@@ -214,6 +217,7 @@ impl Group {
     fn label(self) -> &'static str {
         match self {
             Group::Field => "Field",
+            Group::Property => "Property",
             Group::Variant => "Variant",
             Group::Type => "Associated Type",
             Group::Function => "Associated Function",
@@ -226,6 +230,7 @@ impl Group {
 fn group_of(member: &Member) -> Group {
     match member.kind.as_str() {
         "field" => Group::Field,
+        "property" => Group::Property,
         "variant" => Group::Variant,
         "type" => Group::Type,
         _ if takes_self(&member.signature) => Group::Method,
@@ -312,8 +317,11 @@ fn source(index: &Index, file: &Path, line: Option<usize>) -> String {
 }
 
 /// The rest of the doc, and the prose that adds to it.
-fn overview_of(overview: &str, prose: Option<&Prose>) -> String {
-    let prose = prose.map(|prose| prose.body.trim()).unwrap_or("");
+fn overview_of(index: &Index, overview: &str, prose: Option<&Prose>) -> String {
+    let rebased = prose
+        .map(|prose| rebase_prose(index, prose))
+        .unwrap_or_default();
+    let prose = rebased.trim();
     let mut out = String::new();
     for part in [overview, prose] {
         if !part.is_empty() {
@@ -325,6 +333,84 @@ fn overview_of(overview: &str, prose: Option<&Prose>) -> String {
         return out;
     }
     format!("<div class=\"code-overview\">\n\n{out}</div>\n\n")
+}
+
+/// Supplemental prose keeps the authored file as the base of its links and images.
+/// Fragment-only links still name headings in the assembled reference page.
+fn rebase_prose(index: &Index, prose: &Prose) -> String {
+    use comrak::nodes::NodeValue;
+    let rewrite = |url: &str| {
+        let crate::html::Link::File { path, fragment } = crate::html::Link::classify(url) else {
+            return url.to_string();
+        };
+        if path.is_empty() || path.starts_with('/') {
+            return url.to_string();
+        }
+        let file =
+            crate::folder::lexical(&prose.file.parent().unwrap_or(Path::new(".")).join(path));
+        let Some(mut address) = index.served.url(&file) else {
+            return url.to_string();
+        };
+        if url.contains('#') {
+            address.push('#');
+            address.push_str(fragment);
+        }
+        address
+    };
+    let arena = comrak::Arena::new();
+    let options = crate::page::markdown::options();
+    let root = comrak::parse_document(&arena, &prose.body, &options);
+    for node in root.descendants() {
+        match &mut node.data.borrow_mut().value {
+            NodeValue::Link(link) | NodeValue::Image(link) => link.url = rewrite(&link.url),
+            NodeValue::HtmlInline(html) => *html = rebase_html(html, &rewrite),
+            NodeValue::HtmlBlock(html) => html.literal = rebase_html(&html.literal, &rewrite),
+            _ => {}
+        }
+    }
+    let mut output = String::new();
+    comrak::format_commonmark(root, &options, &mut output).expect("writing Markdown to a string");
+    output
+}
+
+/// Rebase literal HTML link/media attributes without interpreting code fences or widgets.
+fn rebase_html(html: &str, rewrite: &impl Fn(&str) -> String) -> String {
+    let mut out = String::new();
+    let mut rest = html;
+    while let Some(at) = rest.find('<') {
+        out.push_str(&rest[..at]);
+        rest = &rest[at..];
+        let end = crate::html::tag_end(rest);
+        let tag = &rest[..end];
+        let name_end = 1 + tag[1..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric())
+            .map(char::len_utf8)
+            .sum::<usize>();
+        let name = &tag[1..name_end];
+        if matches!(name, "a" | "img" | "video" | "audio" | "source") {
+            out.push('<');
+            out.push_str(name);
+            for (key, value) in crate::html::attributes(&tag[name_end..]) {
+                let value = crate::html::unescape(&value);
+                let value = if matches!(key.as_str(), "href" | "src" | "poster") {
+                    rewrite(&value)
+                } else {
+                    value
+                };
+                out.push_str(&format!(" {key}=\"{}\"", crate::html::escape(&value)));
+            }
+            if tag.ends_with("/>") {
+                out.push('/');
+            }
+            out.push('>');
+        } else {
+            out.push_str(tag);
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// What a page holds, its groups headed by kind.
