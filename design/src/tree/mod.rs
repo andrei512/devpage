@@ -10,7 +10,7 @@ use std::fmt;
 /// every edit that keeps the element: an insert before it, a sibling moved
 /// past it, a line added above it.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
-pub struct NodeId(pub Vec<u32>);
+pub struct NodeId(/** The node’s stable component path. */ pub Vec<u32>);
 
 impl fmt::Debug for NodeId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -31,7 +31,7 @@ impl fmt::Display for NodeId {
 /// digits are bytes compared in order; the last is never zero, so there is
 /// always room between two keys.
 #[derive(Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OrderKey(Box<[u8]>);
+pub struct OrderKey(/** Bytes compared lexicographically for order. */ Box<[u8]>);
 
 impl fmt::Debug for OrderKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -90,7 +90,7 @@ impl OrderKey {
 
 /// A node's children in order, each under its order key.
 #[derive(Clone, Default)]
-pub struct Children<T>(BTreeMap<OrderKey, T>);
+pub struct Children<T>(/** Children keyed by their sibling order. */ BTreeMap<OrderKey, T>);
 
 impl<T: fmt::Debug> fmt::Debug for Children<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

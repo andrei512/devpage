@@ -614,7 +614,7 @@ impl Folder {
 /// serves, each under that version's own mount, for as long as its routers
 /// hold it.
 #[derive(Clone)]
-pub struct Store(Arc<Shared>);
+pub struct Store(/** Shared prepared-design storage. */ Arc<Shared>);
 
 impl Store {
     /// An empty store, its renderer's fonts loaded and its tile cache capped at
@@ -684,7 +684,7 @@ impl Default for Store {
 /// The designs of one folder, from a [`Store`]: every design asked for,
 /// kept resolved in memory.
 #[derive(Clone)]
-pub struct Designs(Arc<Folder>);
+pub struct Designs(/** The folder whose designs are served. */ Arc<Folder>);
 
 /// A design's address as the engine names files: from the top of the served
 /// folder, without a leading slash.

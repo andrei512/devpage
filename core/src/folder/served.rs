@@ -12,7 +12,10 @@ use std::path::{Path, PathBuf};
 /// mode. It is made once, where devpage starts serving a folder, and passed
 /// to everything loaded from it, so the mount reaches every address.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ServedFolder(PathBuf, String);
+pub struct ServedFolder(
+    /** Canonical folder root. */ PathBuf,
+    /** URL mount prefix. */ String,
+);
 
 impl ServedFolder {
     /// The served folder at `path`, made canonical; an error when it doesn't

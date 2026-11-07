@@ -14,7 +14,9 @@ use crate::scene::{Files, ImageFile};
 /// Each design file's last parse, by path. A clone shares them: a store
 /// keeps one and reads through it with whichever files each resolve uses.
 #[derive(Clone, Default)]
-pub struct Parses(Arc<Mutex<HashMap<String, Arc<File>>>>);
+pub struct Parses(
+    /** Parsed files cached by source identity. */ Arc<Mutex<HashMap<String, Arc<File>>>>,
+);
 
 impl Parses {
     /// The parses, locked, even after a panic poisoned the lock.

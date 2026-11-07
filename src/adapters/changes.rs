@@ -16,7 +16,7 @@ const CAPACITY: usize = 64;
 
 /// The bus. Cheap to clone: every clone publishes to the same subscribers.
 #[derive(Clone)]
-pub struct Changes(broadcast::Sender<Change>);
+pub struct Changes(/** The sender shared by publishers. */ broadcast::Sender<Change>);
 
 impl Default for Changes {
     fn default() -> Self {
@@ -44,7 +44,7 @@ impl Changes {
 }
 
 /// What one subscriber hears.
-pub struct Subscription(broadcast::Receiver<Change>);
+pub struct Subscription(/** This subscriber’s receiver. */ broadcast::Receiver<Change>);
 
 impl Subscription {
     /// The next change, waiting for it; a refresh when this subscriber fell

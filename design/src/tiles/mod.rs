@@ -37,7 +37,7 @@ pub fn square((x, y): (f64, f64), scale: f64, col: u32, row: u32) -> KRect {
 
 /// A scale tiles are painted at, to a 1/1024th: a level of the pyramid.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct Level(pub i64);
+pub struct Level(/** Scale quantized to units of 1/1024. */ pub i64);
 
 impl Level {
     /// The level a scale is painted at.

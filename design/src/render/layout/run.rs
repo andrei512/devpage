@@ -118,7 +118,7 @@ pub(in crate::render) struct Sized {
 
 /// A length along a run: what its children's prefix sums add up.
 #[derive(Clone, Default, Debug)]
-pub(in crate::render) struct Length(pub(in crate::render) f64);
+pub(in crate::render) struct Length(/** Length along the run. */ pub(in crate::render) f64);
 
 impl Summary for Length {
     fn then(&self, next: &Self) -> Self {

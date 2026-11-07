@@ -22,3 +22,5 @@
 (impl_item trait: (_)? @attach.trait type: (_) @attach.to) @attach
 
 (use_declaration (visibility_modifier) @visibility argument: (_) @reexport.path) @reexport
+
+(ordered_field_declaration_list type: (_) @item.field)

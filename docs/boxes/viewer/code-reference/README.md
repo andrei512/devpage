@@ -211,3 +211,23 @@ shared grammar result, containing docs, source signatures, attributes,
 parent indices, reexports and parse diagnostics. The extension resolves its
 own domain relationships and returns declarations; devpage owns rendering,
 search, links, supplemental prose and checking for those declarations too.
+
+Selected local Rust macros can be expanded with `macros: [value_type]`.
+The supported form is one rule with comma-separated `ident` and `literal`
+parameters, substituted into a source template. The normal Rust grammar reads
+its generated declarations, including `#[doc = ...]`, tuple fields and impl
+methods. Unsupported selected matchers, repetitions, unresolved parameters and
+missing local definitions are errors. This bounded reader does not evaluate
+arbitrary macros or build scripts. Source links identify the original invocation.
+
+Native providers request the same expansion with
+`code_macros: {rs: [value_type]}`. Each shared grammar result contains
+`expansions: [{source, line}]` for semantic parsing of generated fields and
+attributes. `devpage_core::code::read_source` exposes the same reader to tests.
+
+`exclude` lists source globs to omit after matching `files`; use it for tests,
+fixtures and generated bindings whose documented owner is another namespace.
+A TypeScript namespace chooses the TSX grammar for `.tsx` files, while `.ts`
+keeps TypeScript parsing. PyO3 reads explicit module registration calls,
+class/method/field attributes and exception declarations; runtime API tests
+remain the authority for registration coverage.
