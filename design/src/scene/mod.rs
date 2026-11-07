@@ -172,7 +172,7 @@ pub struct Vector {
 /// the same bytes — the same file used twice, or two copies of it — share one
 /// [`ImageFile`], decoded once and sent once.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ImageId(pub [u8; 32]);
+pub struct ImageId(/** Digest identifying the image bytes. */ pub [u8; 32]);
 
 impl ImageId {
     /// The identity of the file whose bytes are `bytes`.
@@ -734,7 +734,7 @@ impl Scene {
 /// Where each node of a scene is, by its id: what a patch finds its nodes
 /// by.
 #[derive(Clone, Debug, Default)]
-pub struct Ids(HashMap<NodeId, Order>);
+pub struct Ids(/** Scene order assigned to each node. */ HashMap<NodeId, Order>);
 
 impl Ids {
     /// Every node of the tree under `root`.

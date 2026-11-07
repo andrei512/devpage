@@ -21,7 +21,9 @@
 
 mod extract;
 mod languages;
+mod macros;
 mod provider;
+mod pyo3;
 mod render;
 mod rust;
 
@@ -60,6 +62,8 @@ pub struct Item {
     pub members: Vec<Member>,
     /// The traits it implements, by name.
     pub implements: Vec<String>,
+    /// A generated path container, not a source API requiring an abstract.
+    pub container: bool,
 }
 
 /// A part of an item shown on its page: a field, a variant, a method.
@@ -96,7 +100,9 @@ pub struct Items {
 /// The `code` extension's `config`: its namespaces.
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
-struct Config(BTreeMap<String, NamespaceConfig>);
+struct Config(
+    /** Configurations keyed by reference namespace. */ BTreeMap<String, NamespaceConfig>,
+);
 
 /// One namespace as written.
 #[derive(Debug, Deserialize)]
@@ -108,6 +114,9 @@ struct NamespaceConfig {
     /// Glob patterns of its files, relative to the document file.
     #[serde(default)]
     files: Vec<String>,
+    /// Patterns to leave out of the namespace, relative to the site.
+    #[serde(default)]
+    exclude: Vec<String>,
     /// A query file replacing the language's built-in query.
     query: Option<String>,
     /// Whether items no `pub` path reaches get pages too.
@@ -124,6 +133,9 @@ struct NamespaceConfig {
     module: Option<String>,
     /// `flat` uses captured names directly; `modules` uses source module paths.
     layout: Option<String>,
+    /// Explicit local single-rule macro templates to expand.
+    #[serde(default)]
+    macros: Vec<String>,
 }
 
 /// One namespace: its files, its parser and the items they make now.
@@ -134,8 +146,12 @@ struct Namespace {
     language: String,
     /// The parser of its files, replaced when its query file changes.
     grammar: RwLock<Arc<Grammar>>,
+    /// The JSX grammar for .tsx files in a TypeScript namespace.
+    tsx: RwLock<Option<Arc<Grammar>>>,
     /// Its `files` patterns, made absolute.
     patterns: GlobSet,
+    /// Files intentionally outside this reference surface.
+    exclusions: GlobSet,
     /// The folder each pattern's files are under: its literal prefix.
     roots: Vec<PathBuf>,
     /// The query file, when the project wrote its own; a change to it
@@ -367,13 +383,15 @@ impl Namespace {
             },
             None => None,
         };
-        let grammar = grammar(language, query_file.as_deref())?;
+        let mut grammar = grammar(language, query_file.as_deref())?;
+        grammar.macros = config.macros.clone();
         if config.files.is_empty() && provider.is_none() {
             bail!("files lists no patterns");
         }
         let mut patterns = GlobSetBuilder::new();
+        let mut exclusions = GlobSetBuilder::new();
         let mut roots = Vec::new();
-        for pattern in &config.files {
+        for (position, pattern) in config.files.iter().chain(&config.exclude).enumerate() {
             let absolute = lexical(&base.join(pattern));
             if !served.contains(&absolute) {
                 bail!("files {pattern} is outside the served folder");
@@ -393,19 +411,32 @@ impl Namespace {
                     glob_path(rest)
                 )
             };
-            patterns.add(
+            let target = if position < config.files.len() {
+                &mut patterns
+            } else {
+                &mut exclusions
+            };
+            target.add(
                 globset::GlobBuilder::new(&text)
                     .literal_separator(true)
                     .build()
                     .with_context(|| format!("files {pattern}"))?,
             );
-            roots.push(root);
+            if position < config.files.len() {
+                roots.push(root);
+            }
         }
         Ok(Self {
             name: name.to_string(),
             language: language.to_string(),
             grammar: RwLock::new(Arc::new(grammar)),
+            tsx: RwLock::new(if language == "typescript" {
+                Some(Arc::new(self::grammar("tsx", query_file.as_deref())?))
+            } else {
+                None
+            }),
             patterns: patterns.build()?,
+            exclusions: exclusions.build()?,
             roots,
             query: query_file,
             private: config.private,
@@ -427,7 +458,7 @@ impl Namespace {
 
     /// Whether `file` is one of the namespace's files.
     fn includes(&self, file: &Path) -> bool {
-        self.patterns.is_match(glob_path(file))
+        self.patterns.is_match(glob_path(file)) && !self.exclusions.is_match(glob_path(file))
     }
 
     /// Every file of the namespace parsed, across the machine's cores, then
@@ -456,6 +487,8 @@ impl Namespace {
         let chunk = found.len().div_ceil(threads).max(1);
         let grammar = self.grammar.read().unwrap().clone();
         let grammar = &*grammar;
+        let tsx = self.tsx.read().unwrap().clone();
+        let tsx = &tsx;
         let parsed: Vec<(PathBuf, Arc<Extracted>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = found
                 .chunks(chunk)
@@ -464,8 +497,13 @@ impl Namespace {
                         files
                             .iter()
                             .map(|file| {
+                                let selected = if file.extension().is_some_and(|ext| ext == "tsx") {
+                                    tsx.as_deref().unwrap_or(grammar)
+                                } else {
+                                    grammar
+                                };
                                 let extracted = match std::fs::read_to_string(file) {
-                                    Ok(source) => grammar.extract(&source),
+                                    Ok(source) => selected.extract(&source),
                                     Err(error) => Extracted {
                                         failure: Some(format!("cannot read source: {error}")),
                                         ..Extracted::default()
@@ -522,6 +560,14 @@ impl Namespace {
     }
 }
 
+/// Read one source unit with a built-in language and explicitly selected local
+/// macro templates. Native extensions and coverage tests share this reader.
+pub fn read_source(language: &str, source: &str, macros: &[String]) -> Result<Extracted> {
+    let mut grammar = grammar(language, None)?;
+    grammar.macros = macros.to_vec();
+    Ok(grammar.extract(source))
+}
+
 /// The parser for `language`: its built-in grammar with its built-in query,
 /// or the query in `query`.
 pub(crate) fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
@@ -559,6 +605,7 @@ pub(crate) fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
         Some(file) => {
             std::fs::read_to_string(file).with_context(|| format!("reading {}", file.display()))?
         }
+        None if language == "pyo3" => format!("{built_in}\n{}", include_str!("pyo3.scm")),
         None => built_in.to_string(),
     };
     Grammar::new(grammar, &source, docs).map_err(|error| match query {
@@ -922,7 +969,19 @@ impl Index {
                 .is_some_and(|query| files.iter().any(|f| f == query))
             {
                 match grammar(&namespace.language, namespace.query.as_deref()) {
-                    Ok(grammar) => {
+                    Ok(mut grammar) => {
+                        if namespace.language == "typescript" {
+                            match self::grammar("tsx", namespace.query.as_deref()) {
+                                Ok(tsx) => *namespace.tsx.write().unwrap() = Some(Arc::new(tsx)),
+                                Err(error) => {
+                                    *namespace.query_error.write().unwrap() =
+                                        Some((1, error.to_string()));
+                                    any = true;
+                                    continue;
+                                }
+                            }
+                        }
+                        grammar.macros = namespace.grammar.read().unwrap().macros.clone();
                         *namespace.grammar.write().unwrap() = Arc::new(grammar);
                         *namespace.query_error.write().unwrap() = None;
                         namespace.parse_all();
@@ -965,7 +1024,16 @@ impl Index {
                 }
                 match std::fs::read_to_string(file) {
                     Ok(source) => {
-                        let grammar = namespace.grammar.read().unwrap().clone();
+                        let grammar = if file.extension().is_some_and(|ext| ext == "tsx") {
+                            namespace
+                                .tsx
+                                .read()
+                                .unwrap()
+                                .clone()
+                                .unwrap_or_else(|| namespace.grammar.read().unwrap().clone())
+                        } else {
+                            namespace.grammar.read().unwrap().clone()
+                        };
                         parsed.insert(file.clone(), Arc::new(grammar.extract(&source)));
                     }
                     Err(_) => {
@@ -1118,7 +1186,7 @@ impl Index {
                     ));
                 }
                 for item in items.items.values() {
-                    if render::split_doc(&item.doc).0.is_empty() {
+                    if !item.container && render::split_doc(&item.doc).0.is_empty() {
                         failures.push((
                             item.file.clone(),
                             item.line,

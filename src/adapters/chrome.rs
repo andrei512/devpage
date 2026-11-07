@@ -449,7 +449,7 @@ async fn serve(router: Router) -> Result<(SocketAddr, JoinHandle<()>)> {
 
 /// A Chrome profile folder of its own for one Chrome, in the system's
 /// temporary folder. It is deleted when Chrome is done with it.
-struct Folder(PathBuf);
+struct Folder(/** Temporary folder removed when the guard drops. */ PathBuf);
 
 impl Folder {
     /// A profile folder named for this process and a count of the Chromes it

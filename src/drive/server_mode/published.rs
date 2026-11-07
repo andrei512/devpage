@@ -92,7 +92,7 @@ pub struct Download {
 
 /// Every published document.
 #[derive(Clone)]
-pub struct Published(Arc<Parts>);
+pub struct Published(/** Shared published-version state. */ Arc<Parts>);
 
 /// What [`Published`] is made of, shared by every clone of it.
 struct Parts {
@@ -528,7 +528,7 @@ async fn check(
 }
 
 /// A publish's scratch folder, removed however the publish ends.
-struct Scratch(PathBuf);
+struct Scratch(/** Temporary directory removed by this guard. */ PathBuf);
 
 impl Scratch {
     /// A fresh, uniquely named folder, made under `under`.
@@ -548,7 +548,10 @@ impl Drop for Scratch {
 
 /// One lock per document, kept only while something holds or waits for it.
 #[derive(Default)]
-struct Locks(Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>);
+struct Locks(
+    /** Exclusive locks keyed by version identity. */
+    Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>,
+);
 
 /// A document's lock, held: let go — and forgotten when no one else wants
 /// it — when dropped.
@@ -595,7 +598,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// Times a version's router as it is made, whichever way the making ends.
-struct Made(std::time::Instant);
+struct Made(/** When router construction began. */ std::time::Instant);
 
 impl Drop for Made {
     fn drop(&mut self) {

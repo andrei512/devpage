@@ -84,6 +84,12 @@ pub struct Extracted {
     pub errors: Vec<usize>,
     /// A parser initialization or source-read failure, never an empty success.
     pub failure: Option<String>,
+    /// PyO3 function registrations: source function name to Python submodule.
+    pub exports: std::collections::BTreeMap<String, String>,
+    /// PyO3 explicitly constructed submodules and their source-owned docs.
+    pub modules: std::collections::BTreeMap<String, String>,
+    /// Expanded source for selected local declarative macro invocations.
+    pub expansions: Vec<super::macros::Expansion>,
 }
 
 /// A language's parser: its grammar, the query that finds declarations, and
@@ -95,6 +101,8 @@ pub struct Grammar {
     query: Query,
     /// How the language's doc comments read.
     docs: Docs,
+    /// Explicit local declarative macros to expand through this grammar.
+    pub(crate) macros: Vec<String>,
 }
 
 /// How a language writes doc comments.
@@ -126,11 +134,43 @@ impl Grammar {
             language,
             query,
             docs,
+            macros: Vec::new(),
         })
     }
 
     /// The declarations of `source`.
     pub fn extract(&self, source: &str) -> Extracted {
+        let mut result = self.extract_source(source);
+        match super::macros::expand(source, &self.macros) {
+            Ok(expansions) => {
+                for expansion in &expansions {
+                    let mut generated = self.extract_source(&expansion.source);
+                    let offset = result.declarations.len();
+                    for declaration in &mut generated.declarations {
+                        declaration.line = expansion.line;
+                        declaration.parent = declaration.parent.map(|i| i + offset);
+                    }
+                    for reexport in &mut generated.reexports {
+                        reexport.parent = reexport.parent.map(|i| i + offset);
+                    }
+                    if !generated.errors.is_empty() || generated.failure.is_some() {
+                        result.failure = Some(format!(
+                            "macro expansion at line {} did not parse",
+                            expansion.line
+                        ));
+                    }
+                    result.declarations.extend(generated.declarations);
+                    result.reexports.extend(generated.reexports);
+                }
+                result.expansions = expansions;
+            }
+            Err(error) => result.failure = Some(format!("macro expansion: {error:#}")),
+        }
+        result
+    }
+
+    /// Read one concrete source unit without recursively expanding macros.
+    fn extract_source(&self, source: &str) -> Extracted {
         let mut parser = Parser::new();
         if parser.set_language(&self.language).is_err() {
             return Extracted {
@@ -199,6 +239,29 @@ impl Grammar {
                     "name" => name = property.value.as_deref().map(str::to_string),
                     "doc" => explicit_doc = property.value.as_deref().map(str::to_string),
                     _ => {}
+                }
+            }
+            if name.is_none()
+                && let Some((node, kind)) = &item
+                && kind == "field"
+                && let Some(parent) = node
+                    .parent()
+                    .filter(|p| p.kind() == "ordered_field_declaration_list")
+            {
+                let mut cursor = parent.walk();
+                name = parent
+                    .children_by_field_name("type", &mut cursor)
+                    .position(|n| n.id() == node.id())
+                    .map(|i| i.to_string());
+                if let Some(previous) = node
+                    .prev_named_sibling()
+                    .filter(|n| n.kind() == "visibility_modifier")
+                {
+                    visibility = if text(previous) == "pub" {
+                        Visibility::Public
+                    } else {
+                        Visibility::Restricted
+                    };
                 }
             }
             if let Some((node, kind)) = item
@@ -287,12 +350,20 @@ impl Grammar {
             .collect();
         let mut errors = Vec::new();
         errors_in(root, &mut errors);
+        let (exports, modules) = if matches!(self.docs, Docs::PyO3) {
+            super::pyo3::registrations(root, source)
+        } else {
+            Default::default()
+        };
         Extracted {
             doc: self.file_doc(root, source),
             declarations,
             reexports,
             errors,
             failure: None,
+            exports,
+            modules,
+            expansions: Vec::new(),
         }
     }
 
@@ -306,7 +377,18 @@ impl Grammar {
                 let mut at = node.prev_sibling();
                 while let Some(sibling) = at {
                     match sibling.kind() {
-                        "attribute_item" => {}
+                        "visibility_modifier" => {}
+                        "attribute_item" => {
+                            let raw = &source[sibling.byte_range()];
+                            if let Some(value) = raw
+                                .trim()
+                                .strip_prefix("#[doc")
+                                .and_then(|s| s.trim_start().strip_prefix('='))
+                                .and_then(|s| s.trim_end().strip_suffix(']'))
+                            {
+                                lines.push(super::languages::literal(value.trim()));
+                            }
+                        }
                         "line_comment" if sibling.child_by_field_name("outer").is_some() => {
                             let doc = sibling
                                 .child_by_field_name("doc")
@@ -391,6 +473,11 @@ impl Grammar {
 fn signature(node: Node, source: &str) -> String {
     let end = node
         .child_by_field_name("body")
+        .or_else(|| {
+            node.child_by_field_name("value")
+                .filter(|n| matches!(n.kind(), "arrow_function" | "function_expression"))
+                .and_then(|n| n.child_by_field_name("body"))
+        })
         .map_or(node.end_byte(), |body| body.start_byte());
     let text = source[node.start_byte()..end].trim_end();
     let text = text.strip_suffix(';').unwrap_or(text).trim_end();

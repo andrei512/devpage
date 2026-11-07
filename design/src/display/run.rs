@@ -213,7 +213,7 @@ impl rstar::RTreeObject for Boxed {
 
 /// A multiset of numbers that knows its least and greatest in log time.
 #[derive(Default)]
-pub struct Counted(BTreeMap<i64, usize>);
+pub struct Counted(/** Counts keyed by measured value. */ BTreeMap<i64, usize>);
 
 impl Counted {
     /// Counts `v` once more, to the millionth.

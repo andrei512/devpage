@@ -71,6 +71,9 @@ impl Namespace {
             let mut items = Items::default();
             let mut ids = BTreeSet::new();
             for mut item in contribution.items {
+                if item.container {
+                    bail!("providers must supply documented parent items");
+                }
                 if item.path.is_empty() || item.path.iter().any(|name| !valid_name(name)) {
                     bail!("invalid reference path {:?}", item.path);
                 }

@@ -9,7 +9,7 @@ use parley::fontique::{Blob, Collection, CollectionOptions, FontStyle};
 
 /// A font file's identity: the SHA-256 of its bytes.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FontId(pub [u8; 32]);
+pub struct FontId(/** Digest identifying the font bytes. */ pub [u8; 32]);
 
 impl FontId {
     /// The identity of the font file of `bytes`.

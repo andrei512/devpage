@@ -69,7 +69,7 @@ impl Background for Tokio {
 
 /// Asks the network. It asks for HTML as a browser does — some sites answer
 /// other requests with an error a reader never sees.
-pub struct Http(reqwest::Client);
+pub struct Http(/** The reusable HTTP client. */ reqwest::Client);
 
 impl Http {
     /// A client that names itself `devpage/<version>` and accepts HTML first.

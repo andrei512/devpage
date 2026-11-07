@@ -35,7 +35,7 @@ pub trait Publish: Send + Sync {
 /// A [`Publish`] that keeps what it was told, for tests.
 #[cfg(any(test, feature = "testing"))]
 #[derive(Default)]
-pub struct Recorder(std::sync::Mutex<Vec<Change>>);
+pub struct Recorder(/** Changes received in order. */ std::sync::Mutex<Vec<Change>>);
 
 #[cfg(any(test, feature = "testing"))]
 impl Recorder {

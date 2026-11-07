@@ -36,7 +36,7 @@ pub struct Context {
 
 /// The folder the CLI keeps its files in: `~/.devpage`.
 #[derive(Debug, Clone)]
-pub struct Home(pub PathBuf);
+pub struct Home(/** The home directory on disk. */ pub PathBuf);
 
 impl Home {
     /// `~/.devpage`, in the user's home folder: `$HOME`, or the profile

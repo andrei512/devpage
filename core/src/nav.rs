@@ -59,7 +59,7 @@ thread_local! {
 /// The Topics of every page read making one tree, each page read once:
 /// `None` for a page that can't be read.
 #[derive(Default)]
-struct Read(HashMap<PathBuf, Option<Vec<Topic>>>);
+struct Read(/** Parsed topics cached by source path. */ HashMap<PathBuf, Option<Vec<Topic>>>);
 
 impl Read {
     /// `page`'s Topics, read the first time it is asked for; `None` when it

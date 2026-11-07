@@ -57,7 +57,7 @@ pub struct Config {
 /// it last prepared from it. Clones share one state; a
 /// [`snapshot`](Self::snapshot) does not.
 #[derive(Clone)]
-pub struct Binding(Arc<Mutex<State>>);
+pub struct Binding(/** Shared extension preparation state. */ Arc<Mutex<State>>);
 impl std::fmt::Debug for Binding {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("ExtensionBinding")
@@ -243,7 +243,17 @@ impl Binding {
                     .and_then(|x| x.to_str())
                     .unwrap_or("");
                 if let Some(language) = languages.get(suffix).and_then(Value::as_str) {
-                    let grammar = crate::code::grammar(language, None)?;
+                    let mut grammar = crate::code::grammar(language, None)?;
+                    if let Some(macros) = s.descriptor["code_macros"][suffix].as_array() {
+                        grammar.macros = macros
+                            .iter()
+                            .map(|m| {
+                                m.as_str()
+                                    .ok_or_else(|| anyhow!("code_macros entries must be names"))
+                                    .map(str::to_string)
+                            })
+                            .collect::<Result<Vec<_>>>()?;
+                    }
                     declarations.insert(file.clone(), grammar.extract(source));
                 }
             }

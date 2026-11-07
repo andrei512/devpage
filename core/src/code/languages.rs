@@ -25,7 +25,9 @@ pub(super) fn attributes(node: Node<'_>, source: &str) -> Vec<String> {
 /// A captured string's content; identifiers and expressions remain unchanged.
 pub(super) fn literal(text: &str) -> String {
     if text.starts_with('"') {
-        serde_json::from_str::<String>(text).unwrap_or_else(|_| text.to_string())
+        let continued = text.replace("\\\n", "");
+        serde_json::from_str::<String>(&continued)
+            .unwrap_or_else(|_| text.trim_matches('"').to_string())
     } else {
         text.to_string()
     }
@@ -141,7 +143,7 @@ pub(super) fn typescript_doc(mut node: Node<'_>, source: &str) -> String {
 /// The value of a named string property in Rust binding attributes.
 fn property(declaration: &Declaration, key: &str) -> Option<String> {
     declaration.attributes.iter().find_map(|attribute| {
-        let (_, rest) = attribute.split_once(&format!("{key}"))?;
+        let (_, rest) = attribute.split_once(key)?;
         let rest = rest
             .trim_start()
             .strip_prefix('=')?
@@ -223,7 +225,12 @@ pub(super) fn link(
                 });
                 continue;
             }
-            if ancestor.is_some_and(|d| matches!(d.kind.as_str(), "function" | "method")) {
+            if ancestor.is_some_and(|d| {
+                !matches!(
+                    d.kind.as_str(),
+                    "class" | "struct" | "enum" | "interface" | "type" | "attach" | "module"
+                )
+            }) {
                 parents.push(None);
                 continue;
             }
@@ -231,12 +238,47 @@ pub(super) fn link(
                 && ancestor.is_none()
                 && !attribute(declaration, "pyclass")
                 && !attribute(declaration, "pyfunction")
+                && !attribute(declaration, "pymodule")
+                && declaration.kind != "exception"
             {
                 parents.push(None);
                 continue;
             }
+            if language == "pyo3"
+                && declaration.kind == "field"
+                && !declaration
+                    .attributes
+                    .iter()
+                    .any(|a| a.contains("get") || a.contains("set"))
+                && !ancestor.is_some_and(|a| {
+                    a.attributes
+                        .iter()
+                        .any(|s| s.contains("get_all") || s.contains("set_all"))
+                })
+            {
+                parents.push(None);
+                continue;
+            }
+            if language == "pyo3" && declaration.name.starts_with('_') {
+                parents.push(None);
+                continue;
+            }
+            if language == "pyo3" && attribute(declaration, "new") {
+                if let Some(parent) = &parent {
+                    if let Some(item) = items.items.get_mut(parent) {
+                        item.signature.push_str("\n");
+                        item.signature.push_str(&declaration.signature);
+                    }
+                }
+                parents.push(None);
+                continue;
+            }
             let name = if language == "pyo3" {
-                property(declaration, "name").unwrap_or_else(|| declaration.name.clone())
+                if attribute(declaration, "new") {
+                    "__init__".into()
+                } else {
+                    property(declaration, "name").unwrap_or_else(|| declaration.name.clone())
+                }
             } else {
                 declaration.name.clone()
             };
@@ -244,11 +286,17 @@ pub(super) fn link(
                 ancestor.is_some_and(|d| {
                     matches!(
                         d.kind.as_str(),
-                        "class" | "struct" | "enum" | "interface" | "attach"
+                        "class" | "struct" | "enum" | "interface" | "type" | "attach"
                     )
                 })
             }) {
-                let kind = if declaration.kind == "function" {
+                let kind = if language == "pyo3"
+                    && (attribute(declaration, "getter")
+                        || attribute(declaration, "setter")
+                        || declaration.kind == "field")
+                {
+                    "property"
+                } else if declaration.kind == "function" {
                     "method"
                 } else {
                     &declaration.kind
@@ -287,10 +335,33 @@ pub(super) fn link(
             } else {
                 parent.unwrap_or_else(|| module.clone())
             };
-            path.extend(name.split("::").map(str::to_string));
+            if language == "pyo3" && attribute(declaration, "pyfunction") {
+                if let Some(submodule) = extracted.exports.get(&declaration.name) {
+                    if !submodule.is_empty() {
+                        path.extend(submodule.split('.').map(str::to_string));
+                    }
+                } else {
+                    failures.push((
+                        file.clone(),
+                        declaration.line,
+                        format!(
+                            "PyO3 function {} has no source registration",
+                            declaration.name
+                        ),
+                    ));
+                }
+            }
+            if !(language == "pyo3"
+                && attribute(declaration, "pymodule")
+                && path.last() == Some(&name))
+            {
+                path.extend(name.split("::").map(str::to_string));
+            }
             let mut item = Item {
                 path: path.clone(),
-                kind: if language == "pyo3" && attribute(declaration, "pyclass") {
+                kind: if language == "pyo3" && attribute(declaration, "pymodule") {
+                    "module".into()
+                } else if language == "pyo3" && attribute(declaration, "pyclass") {
                     "class".into()
                 } else {
                     declaration.kind.clone()
@@ -303,7 +374,26 @@ pub(super) fn link(
                 ..Item::default()
             };
             if let Some(existing) = items.items.get(&path) {
-                if existing.file.as_os_str().is_empty() {
+                if existing.file.as_os_str().is_empty() || existing.container {
+                    item.members = existing.members.clone();
+                } else if matches!(language, "typescript" | "tsx")
+                    && existing.file == *file
+                    && matches!(
+                        (existing.kind.as_str(), item.kind.as_str()),
+                        ("type", "function")
+                            | ("function", "type")
+                            | ("function", "function")
+                            | ("interface", "interface")
+                            | ("class", "interface")
+                            | ("interface", "class")
+                    )
+                {
+                    item.signature = format!("{}\n{}", existing.signature, item.signature);
+                    if item.doc != existing.doc {
+                        item.doc = format!("{}\n\n{}", existing.doc, item.doc)
+                            .trim()
+                            .to_string();
+                    }
                     item.members = existing.members.clone();
                 } else {
                     failures.push((
@@ -316,6 +406,22 @@ pub(super) fn link(
             items.items.insert(path.clone(), item);
             parents.push(Some(path));
         }
+        for (submodule, doc) in &extracted.modules {
+            let mut path = prefix.to_vec();
+            path.extend(submodule.split('.').map(str::to_string));
+            items.items.insert(
+                path.clone(),
+                Item {
+                    path,
+                    kind: "module".into(),
+                    doc: doc.clone(),
+                    file: file.clone(),
+                    line: 1,
+                    public: true,
+                    ..Item::default()
+                },
+            );
+        }
         // Namespace navigation needs explicit intermediate module pages.
         let paths: Vec<_> = items.items.keys().cloned().collect();
         for path in paths {
@@ -324,6 +430,7 @@ pub(super) fn link(
                 items.items.entry(parent.clone()).or_insert_with(|| Item {
                     path: parent,
                     kind: "module".into(),
+                    container: true,
                     doc: if path[..length] == module {
                         extracted.doc.clone()
                     } else {

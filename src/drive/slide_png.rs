@@ -46,7 +46,7 @@ pub struct Shot {
 /// A server's slide PNGs: its Chrome session and the shots it drew. Cheap to
 /// clone.
 #[derive(Clone)]
-pub struct Shots(Arc<Inner>);
+pub struct Shots(/** Shared screenshot cache and work state. */ Arc<Inner>);
 
 /// What a server's slide PNGs share: the Chrome session, the turns to draw,
 /// the kept shots and the ones being drawn.
