@@ -990,3 +990,22 @@ $$not math$$
     assert!(html.contains("<code>\\(not math\\)</code>"), "{html}");
     assert!(!html.contains("math-error"), "{html}");
 }
+
+#[test]
+fn currency_cannot_close_math_inside_a_later_code_span() {
+    let html = markdown(
+        r#"A lone `$` is a price: sized $15
+and $20 into a formula — so `$$…$$` is math, `$` is money.
+
+A real $x+1$ remains math. Price $20, then ``literal `$` here``.
+
+Afterward \(\frac{1}{2}\) renders."#,
+    );
+    assert!(!html.contains("math-error"), "{html}");
+    assert_eq!(html.matches("<math ").count(), 2, "{html}");
+    assert!(
+        html.contains("$20 into a formula — so <code>$$…$$</code>"),
+        "{html}"
+    );
+    assert!(html.contains("<code>literal `$` here</code>"), "{html}");
+}

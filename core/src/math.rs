@@ -1,12 +1,12 @@
 //! TeX math in Markdown, rendered to native MathML by the pinned KaTeX bundle.
-//! Comrak owns delimiter parsing, including code and escapes. The same rendered
-//! errors reach the page and its check; no browser script or network is needed.
+//! Comrak parses delimiters and escapes; code spans take precedence over crossing
+//! dollar candidates. Errors reach page and check; no browser network is needed.
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use comrak::nodes::NodeValue;
+use comrak::nodes::{AstNode, LineColumn, NodeValue};
 use comrak::options::Plugins;
 use comrak::{Arena, Options, format_html_with_plugins, parse_document};
 use rquickjs::{Context, Function, Runtime};
@@ -109,11 +109,109 @@ fn typeset(source: &str, display: bool) -> Result<String, String> {
     })
 }
 
+/// Parses math without letting a dollar opener consume the closing delimiter
+/// inside a Markdown code span. Comrak's dollar scanner otherwise crosses that
+/// boundary (for example, a price followed by a code example containing `$`).
+/// Only those false openers are escaped; source positions still name the input.
+pub(crate) fn parse<'a>(
+    arena: &'a Arena<'a>,
+    source: &str,
+    options: &Options<'_>,
+) -> &'a AstNode<'a> {
+    if !source.contains('$') || !source.contains('`') {
+        return parse_document(arena, source, options);
+    }
+    let mut escapes = Vec::<usize>::new();
+    loop {
+        let mut input = String::with_capacity(source.len() + escapes.len());
+        let mut from = 0;
+        for &at in &escapes {
+            input.push_str(&source[from..at]);
+            input.push('\\');
+            from = at;
+        }
+        input.push_str(&source[from..]);
+        let starts = line_starts(&input);
+        let offset = |pos: LineColumn| starts[pos.line - 1] + pos.column - 1;
+        let original = |at: usize| {
+            at - escapes
+                .iter()
+                .enumerate()
+                .take_while(|(i, original)| **original + *i < at)
+                .count()
+        };
+        let parsed_arena = Arena::new();
+        let root = parse_document(&parsed_arena, &input, options);
+        let mut plain = options.clone();
+        plain.extension.math_dollars = false;
+        plain.extension.math_latex = false;
+        let code_arena = Arena::new();
+        let code = parse_document(&code_arena, &input, &plain);
+        let code_spans: Vec<_> = code
+            .descendants()
+            .filter_map(|node| {
+                let data = node.data.borrow();
+                matches!(data.value, NodeValue::Code(_))
+                    .then(|| offset(data.sourcepos.start)..=offset(data.sourcepos.end))
+            })
+            .collect();
+        let mut rejected = Vec::new();
+        for node in root.descendants() {
+            let data = node.data.borrow();
+            if matches!(&data.value, NodeValue::Math(math) if math.dollar_math)
+                && !code_spans
+                    .iter()
+                    .any(|span| span.contains(&offset(data.sourcepos.start)))
+                && code_spans
+                    .iter()
+                    .any(|span| span.contains(&offset(data.sourcepos.end)))
+            {
+                rejected.push(original(offset(data.sourcepos.start)));
+            }
+        }
+        if rejected.is_empty() {
+            let root = parse_document(arena, &input, options);
+            if !escapes.is_empty() {
+                let original_starts = line_starts(source);
+                let position = |pos: LineColumn| {
+                    let at = original(offset(pos));
+                    let line = original_starts.partition_point(|&start| start <= at);
+                    LineColumn {
+                        line,
+                        column: at - original_starts[line - 1] + 1,
+                    }
+                };
+                for node in root.descendants() {
+                    let mut data = node.data.borrow_mut();
+                    // Synthetic/root nodes may have the empty 0:0 position.
+                    if data.sourcepos.start.line > 0 && data.sourcepos.start.column > 0 {
+                        data.sourcepos.start = position(data.sourcepos.start);
+                    }
+                    if data.sourcepos.end.line > 0 && data.sourcepos.end.column > 0 {
+                        data.sourcepos.end = position(data.sourcepos.end);
+                    }
+                }
+            }
+            return root;
+        }
+        escapes.extend(rejected);
+        escapes.sort_unstable();
+        escapes.dedup();
+    }
+}
+
+/// Byte offsets of line starts, for mapping parser positions through escapes.
+fn line_starts(source: &str) -> Vec<usize> {
+    std::iter::once(0)
+        .chain(source.match_indices('\n').map(|(at, _)| at + 1))
+        .collect()
+}
+
 /// Formats Markdown with its native math nodes replaced by MathML or checked
 /// error spans. Code spans, fenced code, HTML and escaped delimiters stay literal.
 pub(crate) fn markdown(source: &str, options: &Options<'_>, plugins: &Plugins<'_>) -> String {
     let arena = Arena::new();
-    let root = parse_document(&arena, source, options);
+    let root = parse(&arena, source, options);
     for node in root.descendants() {
         let mut data = node.data.borrow_mut();
         if let NodeValue::Math(math) = &data.value {
