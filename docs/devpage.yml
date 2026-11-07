@@ -27,3 +27,9 @@ extensions:
           - "../src/**/*.rs"
           - "../extension-api/src/**/*.rs"
         private: true
+      python:
+        language: python
+        root: examples/reference
+        module: sample
+        files: ["examples/reference/**/*.py"]
+        strict: true

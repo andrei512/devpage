@@ -56,10 +56,10 @@ pub(super) fn registrations(
             let Some(mut value) = declaration.child_by_field_name("value") else {
                 continue;
             };
-            if value.kind() == "try_expression" {
-                if let Some(inner) = value.named_child(0) {
-                    value = inner;
-                }
+            if value.kind() == "try_expression"
+                && let Some(inner) = value.named_child(0)
+            {
+                value = inner;
             }
             if value.kind() != "call_expression"
                 || value
@@ -127,23 +127,158 @@ pub(super) fn registrations(
                     .named_child(0)
                     .is_some_and(|n| string(text(n)) == "__doc__")
                 && !module.is_empty()
+                && let Some(doc) = arguments.named_child(1)
             {
-                if let Some(doc) = arguments.named_child(1) {
-                    let doc = constants
-                        .get(text(doc))
-                        .cloned()
-                        .unwrap_or_else(|| string(text(doc)));
-                    modules.insert(module, doc);
-                }
+                let doc = constants
+                    .get(text(doc))
+                    .cloned()
+                    .unwrap_or_else(|| string(text(doc)));
+                modules.insert(module, doc);
             }
         }
     }
     (exports, modules)
 }
 
+/// The balanced parenthesized value of an attribute's `signature` property.
+/// Quoted defaults may contain delimiters; those do not close the signature.
+fn explicit_signature(attributes: &[String]) -> Option<String> {
+    for attribute in attributes {
+        let Some((_, rest)) = attribute.split_once("signature") else {
+            continue;
+        };
+        let Some(rest) = rest
+            .trim_start()
+            .strip_prefix('=')
+            .map(str::trim_start)
+            .filter(|s| s.starts_with('('))
+        else {
+            continue;
+        };
+        let mut depth = 0;
+        let mut quote = None;
+        let mut escaped = false;
+        for (offset, ch) in rest.char_indices() {
+            if escaped {
+                escaped = false;
+                continue;
+            }
+            if quote.is_some() {
+                if ch == '\\' {
+                    escaped = true;
+                } else if quote == Some(ch) {
+                    quote = None;
+                }
+                continue;
+            }
+            if ch == '"' || ch == '\'' {
+                quote = Some(ch);
+                continue;
+            }
+            if ch == '(' {
+                depth += 1;
+            } else if ch == ')' {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(rest[..=offset].into());
+                }
+            }
+        }
+    }
+    None
+}
+/// Python-visible parameters of a Rust function. PyO3's signature attribute
+/// supplies defaults and keyword-only rules; interpreter/module arguments are
+/// omitted, and an instance receiver becomes positional-only `self`.
+pub(super) fn callable(node: Node<'_>, source: &str) -> Option<String> {
+    if !matches!(node.kind(), "function_item" | "function_signature_item") {
+        return None;
+    }
+    let attributes = super::languages::attributes(node, source);
+    let parameters = node.child_by_field_name("parameters")?;
+    let text = |n: Node<'_>| &source[n.byte_range()];
+    let mut names = Vec::new();
+    let mut receiver = false;
+    let mut cursor = parameters.walk();
+    for parameter in parameters.named_children(&mut cursor) {
+        if parameter.kind() == "self_parameter" {
+            receiver = true;
+            continue;
+        }
+        if parameter.kind() != "parameter" {
+            continue;
+        }
+        let kind = parameter
+            .child_by_field_name("type")
+            .map(text)
+            .unwrap_or("");
+        if kind.starts_with("Python<") || kind.contains("::Python<") {
+            continue;
+        }
+        if kind.contains("PyModule") && attributes.iter().any(|a| a.contains("pass_module")) {
+            continue;
+        }
+        if (kind.starts_with("PyRef<") || kind.starts_with("PyRefMut<")) && kind.contains("Self") {
+            receiver = true;
+            continue;
+        }
+        let pattern = parameter.child_by_field_name("pattern")?;
+        names.push(
+            text(pattern)
+                .trim_start_matches("mut ")
+                .trim_start_matches("r#")
+                .to_string(),
+        );
+    }
+    let signature =
+        explicit_signature(&attributes).unwrap_or_else(|| format!("({})", names.join(", ")));
+    if receiver {
+        let parameters = signature
+            .trim_start_matches('(')
+            .trim_end_matches(')')
+            .trim();
+        Some(if parameters.is_empty() {
+            "(self, /)".into()
+        } else {
+            format!("(self, /, {parameters})")
+        })
+    } else {
+        Some(signature)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Python call contracts retain keyword-only defaults and omit interpreter injection.
+    #[test]
+    fn callable_parameters_match_pyo3_rules() {
+        let source = r#"#[pymethods] impl Graph {
+          #[pyo3(signature=(experiment, *, profile, record=None))]
+          fn replay(&self, py: Python<'_>, experiment: PyRef<'_, Experiment>, profile: String, record: Option<String>) {}
+          #[pyo3(signature=(**parameters))]
+          fn bind(&self, py: Python<'_>, parameters: Option<&Bound<'_,PyDict>>) {}
+          #[new]
+          #[pyo3(signature=(capital, *, accounting="netting", tolerance=10.0))]
+          fn new(py: Python<'_>, capital:f64,accounting:String,tolerance:f64)->Self {todo!()}
+        }"#;
+        let extracted = super::super::grammar("pyo3", None).unwrap().extract(source);
+        let signatures: BTreeMap<_, _> = extracted
+            .declarations
+            .iter()
+            .filter_map(|d| Some((d.name.as_str(), d.callable.as_deref()?)))
+            .collect();
+        assert_eq!(
+            signatures["replay"],
+            "(self, /, experiment, *, profile, record=None)"
+        );
+        assert_eq!(signatures["bind"], "(self, /, **parameters)");
+        assert_eq!(
+            signatures["new"],
+            "(capital, *, accounting=\"netting\", tolerance=10.0)"
+        );
+    }
+
     /// Registration decides the module; source attributes decide public fields.
     #[test]
     fn bindings_keep_runtime_names_and_registration_modules() {

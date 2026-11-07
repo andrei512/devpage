@@ -49,8 +49,13 @@ fn nodes<'a>(node: Node<'a>, out: &mut Vec<Node<'a>>) {
 }
 /// Expand selected macro calls in this file using their one local template.
 /// Missing templates, ambiguous rules and unmatched arguments are failures.
-pub(super) fn expand(source: &str, selected: &[String]) -> Result<Vec<Expansion>> {
-    if selected.is_empty() {
+pub(super) fn expand(
+    source: &str,
+    selected: &[String],
+    ignored: &[String],
+    strict: bool,
+) -> Result<Vec<Expansion>> {
+    if selected.is_empty() && !strict {
         return Ok(Vec::new());
     }
     let mut parser = Parser::new();
@@ -128,7 +133,31 @@ pub(super) fn expand(source: &str, selected: &[String]) -> Result<Vec<Expansion>
             continue;
         };
         if !selected.iter().any(|s| s == text(name)) {
+            let mut scope = call.parent();
+            if scope.is_some_and(|n| n.kind() == "expression_statement") {
+                scope = scope.and_then(|n| n.parent());
+            }
+            if strict
+                && scope.is_some_and(|n| n.kind() == "source_file")
+                && !ignored.iter().any(|s| s == text(name))
+            {
+                bail!(
+                    "unhandled item-position macro {} at line {}; select it with macros or explicitly exclude it with ignore_macros",
+                    text(name),
+                    call.start_position().row + 1
+                );
+            }
             continue;
+        }
+        let mut scope = call.parent();
+        if scope.is_some_and(|n| n.kind() == "expression_statement") {
+            scope = scope.and_then(|n| n.parent());
+        }
+        if scope.is_none_or(|n| n.kind() != "source_file") {
+            bail!(
+                "selected macro {} invocation must be at file scope",
+                text(name)
+            );
         }
         let Some((parameters, body)) = templates.get(text(name)) else {
             bail!("selected macro {} has no local definition", text(name));
@@ -143,6 +172,23 @@ pub(super) fn expand(source: &str, selected: &[String]) -> Result<Vec<Expansion>
         if values.len() != parameters.len() {
             bail!(
                 "selected macro {} argument count does not match",
+                text(name)
+            );
+        }
+        let mut residual = text(arguments).to_string();
+        for value in values.iter().rev() {
+            residual.replace_range(
+                value.start_byte() - arguments.start_byte()
+                    ..value.end_byte() - arguments.start_byte(),
+                "",
+            );
+        }
+        if residual
+            .chars()
+            .any(|c| !c.is_whitespace() && !matches!(c, '(' | ')' | '[' | ']' | '{' | '}' | ','))
+        {
+            bail!(
+                "selected macro {} has unsupported argument tokens",
                 text(name)
             );
         }
@@ -227,9 +273,23 @@ mod tests {
         assert!(
             expand(
                 "macro_rules! values { ($($name:ident),*)=>{} } values!(A,B);",
-                &["values".into()]
+                &["values".into()],
+                &[],
+                false
             )
             .is_err()
         );
+    }
+    /// A new declaration macro cannot silently shrink a strict catalog.
+    #[test]
+    fn strict_macro_coverage_is_explicit_and_ignores_function_expressions() {
+        assert!(
+            expand("new_api!(Thing);", &[], &[], true)
+                .unwrap_err()
+                .to_string()
+                .contains("unhandled item-position macro new_api")
+        );
+        assert!(expand("const_assert!(true);", &[], &["const_assert".into()], true).is_ok());
+        assert!(expand("pub fn run(){ println!(\"hello\"); }", &[], &[], true).is_ok());
     }
 }

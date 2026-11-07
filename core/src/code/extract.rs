@@ -35,6 +35,8 @@ pub struct Declaration {
     pub parent: Option<usize>,
     /// The declaration as written, without its body.
     pub signature: String,
+    /// Python-visible callable parameters for PyO3, separate from Rust source.
+    pub callable: Option<String>,
     /// Its doc comment, as Markdown.
     pub doc: String,
     /// Its first line, from 1.
@@ -65,6 +67,10 @@ pub struct Reexport {
     pub visibility: Visibility,
     /// The path as written: `a::b::C`, `crate::a::{B, C as D}`.
     pub path: String,
+    /// Relative source module for a TypeScript import or reexport.
+    pub source: Option<String>,
+    /// A TypeScript import that is only public if reexported locally.
+    pub imported: bool,
     /// The declaration it is written inside — an inline module — if any.
     pub parent: Option<usize>,
 }
@@ -103,6 +109,10 @@ pub struct Grammar {
     docs: Docs,
     /// Explicit local declarative macros to expand through this grammar.
     pub(crate) macros: Vec<String>,
+    /// Explicitly ignored declaration-position macros in strict Rust catalogs.
+    pub(crate) ignore_macros: Vec<String>,
+    /// Whether unhandled item-position macro calls fail coverage.
+    pub(crate) check_macros: bool,
 }
 
 /// How a language writes doc comments.
@@ -135,13 +145,15 @@ impl Grammar {
             query,
             docs,
             macros: Vec::new(),
+            ignore_macros: Vec::new(),
+            check_macros: false,
         })
     }
 
     /// The declarations of `source`.
     pub fn extract(&self, source: &str) -> Extracted {
         let mut result = self.extract_source(source);
-        match super::macros::expand(source, &self.macros) {
+        match super::macros::expand(source, &self.macros, &self.ignore_macros, self.check_macros) {
             Ok(expansions) => {
                 for expansion in &expansions {
                     let mut generated = self.extract_source(&expansion.source);
@@ -200,6 +212,8 @@ impl Grammar {
             let mut to = None;
             let mut implements = None;
             let mut reexport = None;
+            let mut import = false;
+            let mut reexport_source = None;
             let mut path = None;
             let mut explicit_doc = None;
             let mut explicit_signature = None;
@@ -223,6 +237,13 @@ impl Grammar {
                     "attach.to" => to = Some(text(node)),
                     "attach.trait" => implements = Some(text(node)),
                     "reexport" => reexport = Some(node),
+                    "import" => {
+                        reexport = Some(node);
+                        import = true;
+                    }
+                    "reexport.source" => {
+                        reexport_source = Some(text(node).trim_matches(['\'', '"']).to_string())
+                    }
                     "reexport.path" => path = Some(text(node)),
                     other => {
                         if let Some(kind) = other.strip_prefix("item.") {
@@ -279,6 +300,11 @@ impl Grammar {
                             super::languages::visibility(self.docs, node, source, visibility)
                         },
                         parent: None,
+                        callable: if matches!(self.docs, Docs::PyO3) {
+                            super::pyo3::callable(node, source)
+                        } else {
+                            None
+                        },
                         signature: explicit_signature.unwrap_or_else(|| signature(node, source)),
                         doc: explicit_doc.unwrap_or_else(|| self.doc(node, source)),
                         line: node.start_position().row + 1,
@@ -299,6 +325,7 @@ impl Grammar {
                         visibility: Visibility::Public,
                         parent: None,
                         signature: signature(node, source),
+                        callable: None,
                         doc: self.doc(node, source),
                         line: node.start_position().row + 1,
                         has_body: true,
@@ -312,8 +339,14 @@ impl Grammar {
                 reexports.push((
                     node,
                     Reexport {
-                        visibility,
+                        visibility: if matches!(self.docs, Docs::TypeScript) {
+                            Visibility::Public
+                        } else {
+                            visibility
+                        },
                         path,
+                        source: reexport_source,
+                        imported: import,
                         parent: None,
                     },
                 ));
@@ -417,7 +450,8 @@ impl Grammar {
     /// reference: code only tests build, or code its author hid.
     fn hidden(&self, node: Node, source: &str) -> bool {
         match self.docs {
-            Docs::Python | Docs::TypeScript => false,
+            Docs::Python => false,
+            Docs::TypeScript => super::languages::anonymous_member(node),
             Docs::Rust | Docs::PyO3 => {
                 let mut at = node.prev_sibling();
                 while let Some(sibling) = at {

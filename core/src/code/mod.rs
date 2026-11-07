@@ -136,6 +136,9 @@ struct NamespaceConfig {
     /// Explicit local single-rule macro templates to expand.
     #[serde(default)]
     macros: Vec<String>,
+    /// Item-position macros deliberately outside this reference surface.
+    #[serde(default)]
+    ignore_macros: Vec<String>,
 }
 
 /// One namespace: its files, its parser and the items they make now.
@@ -231,7 +234,14 @@ pub fn configure(
         indexes().lock().unwrap().remove(doc);
         return Ok(());
     };
-    let configuration = serde_yaml::to_string(config)?;
+    let configuration = format!(
+        "{}:{:?}",
+        serde_yaml::to_string(config)?,
+        crate::extensions::for_document(doc)
+            .iter()
+            .map(crate::extensions::Binding::identity)
+            .collect::<Vec<_>>()
+    );
     if let Some(index) = indexes().lock().unwrap().get(doc)
         && index.configuration == configuration
         && index.served == *served
@@ -385,6 +395,8 @@ impl Namespace {
         };
         let mut grammar = grammar(language, query_file.as_deref())?;
         grammar.macros = config.macros.clone();
+        grammar.ignore_macros = config.ignore_macros.clone();
+        grammar.check_macros = config.strict && language == "rust";
         if config.files.is_empty() && provider.is_none() {
             bail!("files lists no patterns");
         }
@@ -981,7 +993,12 @@ impl Index {
                                 }
                             }
                         }
-                        grammar.macros = namespace.grammar.read().unwrap().macros.clone();
+                        {
+                            let old = namespace.grammar.read().unwrap();
+                            grammar.macros = old.macros.clone();
+                            grammar.ignore_macros = old.ignore_macros.clone();
+                            grammar.check_macros = old.check_macros;
+                        }
                         *namespace.grammar.write().unwrap() = Arc::new(grammar);
                         *namespace.query_error.write().unwrap() = None;
                         namespace.parse_all();
@@ -1312,6 +1329,120 @@ mod tests {
         assert_eq!(ts.declarations[1].parent, Some(0));
     }
 
+    /// Broken syntax, empty inputs and undocumented API are concrete check failures.
+    #[test]
+    fn strict_grammar_checks_cannot_pass_an_empty_or_degraded_catalog() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-strict-reference-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let served = crate::folder::ServedFolder::new(&dir).unwrap();
+        let config:serde_yaml::Value=serde_yaml::from_str("ts: {language: typescript, files: ['*.ts', '*.tsx'], exclude: ['ignored.ts'], strict: true}").unwrap();
+        let doc = dir.join("devpage.yml");
+        super::configure(&doc, &dir, &served, Some(&config)).unwrap();
+        let index = super::for_document(&doc).unwrap();
+        assert!(
+            index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("no reference items"))
+        );
+        let file = dir.join("widget.tsx");
+        std::fs::write(
+            &file,
+            "export function Widget() { return <span>Ready</span>; }\n",
+        )
+        .unwrap();
+        index.changed(std::slice::from_ref(&file));
+        assert!(
+            index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("has no abstract"))
+        );
+        assert!(
+            !index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("does not parse"))
+        );
+        std::fs::write(
+            &file,
+            "/** A widget. */\nexport function Widget() { return <span>Ready</span>; }\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("ignored.ts"), "not valid typescript !!!").unwrap();
+        index.changed(&[file.clone(), dir.join("ignored.ts")]);
+        assert!(index.problems().is_empty(), "{:?}", index.problems());
+        std::fs::write(&file, "/** A widget. */\nexport function Widget( {\n").unwrap();
+        index.changed(std::slice::from_ref(&file));
+        assert!(
+            index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("does not parse"))
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Local exports and imported aliases are resolved from the same TypeScript files.
+    #[test]
+    fn typescript_exports_resolve_named_imports_without_copying_docs() {
+        let root = std::path::Path::new("/project");
+        let sources = [
+            (
+                "tree.ts",
+                "/** Flatten a tree. */\nexport function flatten() {}\n",
+            ),
+            (
+                "View.tsx",
+                "import {flatten} from './tree';\nexport {flatten};\n/** A view. */\nexport function View(){return <span/>;}\n",
+            ),
+            (
+                "local.ts",
+                "/** A local export. */\nfunction kept(){}\nexport {kept as publicName};\nfunction hidden(){}\n",
+            ),
+        ];
+        let files = sources
+            .into_iter()
+            .map(|(file, source)| {
+                (
+                    root.join(file),
+                    std::sync::Arc::new(
+                        grammar(
+                            if file.ends_with("tsx") {
+                                "tsx"
+                            } else {
+                                "typescript"
+                            },
+                            None,
+                        )
+                        .unwrap()
+                        .extract(source),
+                    ),
+                )
+            })
+            .collect();
+        let (items, failures) =
+            super::languages::link(&files, root, &[], false, false, "typescript");
+        assert!(failures.is_empty(), "{failures:?}");
+        assert_eq!(
+            items.items[&vec!["View".into(), "flatten".into()]].doc,
+            "Flatten a tree."
+        );
+        assert!(
+            items
+                .items
+                .contains_key(&vec!["local".into(), "publicName".into()])
+        );
+        assert!(
+            !items
+                .items
+                .contains_key(&vec!["local".into(), "hidden".into()])
+        );
+    }
+
     /// A version server mode drops takes its code reference with it.
     #[test]
     fn a_forgotten_folder_holds_no_code_reference() {
@@ -1350,7 +1481,7 @@ mod tests {
         for namespace in &index.namespaces {
             for item in namespace.items().items.values() {
                 let file = served.name(&item.file).unwrap_or_default();
-                if item.doc.trim().is_empty() {
+                if !item.container && item.doc.trim().is_empty() {
                     undocumented.push(format!("{file}:{}: {}", item.line, item.path.join("::")));
                 }
                 for member in &item.members {

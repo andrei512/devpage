@@ -71,6 +71,25 @@ pub(super) fn visibility(docs: Docs, node: Node<'_>, source: &str, rust: Visibil
         }
     }
 }
+/// Union/intersection branches have no single field identity on their alias;
+/// their fields remain in the alias's complete source declaration instead.
+pub(super) fn anonymous_member(node: Node<'_>) -> bool {
+    if !matches!(node.kind(), "property_signature" | "method_signature") {
+        return false;
+    }
+    let mut at = node.parent();
+    while let Some(parent) = at {
+        match parent.kind() {
+            "union_type" | "intersection_type" => return true,
+            "type_alias_declaration" | "interface_declaration" | "class_declaration" => {
+                return false;
+            }
+            _ => at = parent.parent(),
+        }
+    }
+    false
+}
+
 /// Python's first string expression in a module or declaration body.
 pub(super) fn python_doc(node: Node<'_>, source: &str) -> String {
     let body = node.child_by_field_name("body").unwrap_or(node);
@@ -171,6 +190,7 @@ pub(super) fn link(
 ) -> (Items, Vec<(PathBuf, usize, String)>) {
     let mut items = Items::default();
     let mut failures = Vec::new();
+    let mut pending_exports = Vec::new();
     for (file, extracted) in files {
         let mut module = prefix.to_vec();
         if !flat && language != "pyo3" {
@@ -190,6 +210,75 @@ pub(super) fn link(
                 components.pop();
             }
             module.extend(components);
+        }
+        let exports: BTreeMap<String, String> = if matches!(language, "typescript" | "tsx") {
+            extracted
+                .reexports
+                .iter()
+                .filter(|e| !e.imported && e.source.is_none())
+                .map(|e| {
+                    let (source, alias) = e.path.split_once(" as ").unwrap_or((&e.path, &e.path));
+                    (source.trim().to_string(), alias.trim().to_string())
+                })
+                .collect()
+        } else {
+            BTreeMap::new()
+        };
+        for export in extracted.reexports.iter().filter(|e| !e.imported) {
+            let (original, alias) = export
+                .path
+                .split_once(" as ")
+                .unwrap_or((&export.path, &export.path));
+            let original = original.trim().trim_start_matches("type ");
+            let source = export
+                .source
+                .clone()
+                .map(|s| (s, original.to_string()))
+                .or_else(|| {
+                    if extracted
+                        .declarations
+                        .iter()
+                        .any(|d| d.parent.is_none() && d.name == original)
+                    {
+                        return None;
+                    }
+                    extracted
+                        .reexports
+                        .iter()
+                        .filter(|e| e.imported)
+                        .find_map(|import| {
+                            let (from, local) = import
+                                .path
+                                .split_once(" as ")
+                                .unwrap_or((&import.path, &import.path));
+                            if local.trim() != original {
+                                return None;
+                            }
+                            Some((
+                                import.source.clone()?,
+                                from.trim().trim_start_matches("type ").to_string(),
+                            ))
+                        })
+                });
+            if let Some((source, original)) = source {
+                pending_exports.push((
+                    module.clone(),
+                    file.clone(),
+                    source,
+                    original,
+                    alias.trim().to_string(),
+                ));
+            } else if !extracted
+                .declarations
+                .iter()
+                .any(|d| d.parent.is_none() && d.name == original)
+            {
+                failures.push((
+                    file.clone(),
+                    1,
+                    format!("cannot resolve exported name {original}"),
+                ));
+            }
         }
         let mut parents: Vec<Option<Vec<String>>> = Vec::new();
         let mut classes = BTreeMap::new();
@@ -211,7 +300,9 @@ pub(super) fn link(
                 .flatten();
             let ancestor = declaration.parent.map(|i| &extracted.declarations[i]);
             if declaration.hidden
-                || (!private && declaration.visibility != Visibility::Public)
+                || (!private
+                    && declaration.visibility != Visibility::Public
+                    && !(declaration.parent.is_none() && exports.contains_key(&declaration.name)))
                 || (declaration.parent.is_some() && parent.is_none())
             {
                 parents.push(None);
@@ -264,11 +355,11 @@ pub(super) fn link(
                 continue;
             }
             if language == "pyo3" && attribute(declaration, "new") {
-                if let Some(parent) = &parent {
-                    if let Some(item) = items.items.get_mut(parent) {
-                        item.signature.push_str("\n");
-                        item.signature.push_str(&declaration.signature);
-                    }
+                if let Some(parent) = &parent
+                    && let Some(item) = items.items.get_mut(parent)
+                    && let Some(parameters) = &declaration.callable
+                {
+                    item.signature = format!("{}{parameters}", parent.last().unwrap());
                 }
                 parents.push(None);
                 continue;
@@ -280,7 +371,10 @@ pub(super) fn link(
                     property(declaration, "name").unwrap_or_else(|| declaration.name.clone())
                 }
             } else {
-                declaration.name.clone()
+                exports
+                    .get(&declaration.name)
+                    .cloned()
+                    .unwrap_or_else(|| declaration.name.clone())
             };
             if let Some(parent) = parent.as_ref().filter(|_| {
                 ancestor.is_some_and(|d| {
@@ -302,9 +396,17 @@ pub(super) fn link(
                     &declaration.kind
                 };
                 let member = Member {
-                    name,
+                    name: name.clone(),
                     kind: kind.into(),
-                    signature: declaration.signature.clone(),
+                    signature: if language == "pyo3" {
+                        if kind == "property" {
+                            name.clone()
+                        } else {
+                            format!("{}{}", name, declaration.callable.as_deref().unwrap_or(""))
+                        }
+                    } else {
+                        declaration.signature.clone()
+                    },
                     doc: declaration.doc.clone(),
                     file: file.clone(),
                     line: declaration.line,
@@ -366,11 +468,20 @@ pub(super) fn link(
                 } else {
                     declaration.kind.clone()
                 },
-                signature: declaration.signature.clone(),
+                signature: if language == "pyo3" {
+                    if let Some(parameters) = &declaration.callable {
+                        format!("{name}{parameters}")
+                    } else {
+                        format!("class {name}")
+                    }
+                } else {
+                    declaration.signature.clone()
+                },
                 doc: declaration.doc.clone(),
                 file: file.clone(),
                 line: declaration.line,
-                public: declaration.visibility == Visibility::Public,
+                public: declaration.visibility == Visibility::Public
+                    || exports.contains_key(&declaration.name),
                 ..Item::default()
             };
             if let Some(existing) = items.items.get(&path) {
@@ -443,6 +554,52 @@ pub(super) fn link(
                 });
             }
         }
+    }
+    for _ in 0..pending_exports.len().max(1) {
+        if pending_exports.is_empty() {
+            break;
+        }
+        let mut unresolved = Vec::new();
+        for (module, file, source, original, alias) in pending_exports {
+            let mut candidates = Vec::new();
+            let target = crate::folder::lexical(&file.parent().unwrap_or(root).join(&source));
+            for extension in ["ts", "tsx"] {
+                candidates.push(target.with_extension(extension));
+                candidates.push(target.join(format!("index.{extension}")));
+            }
+            let resolved = candidates
+                .into_iter()
+                .filter(|p| files.contains_key(p))
+                .find_map(|p| {
+                    let relative = p.strip_prefix(root).ok()?;
+                    let mut path = prefix.to_vec();
+                    let mut parts: Vec<String> = relative
+                        .with_extension("")
+                        .components()
+                        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                        .collect();
+                    if parts.last().is_some_and(|p| p == "index") {
+                        parts.pop();
+                    }
+                    path.extend(parts);
+                    path.push(original.clone());
+                    items.items.get(&path).cloned()
+                });
+            if let Some(mut item) = resolved {
+                let mut path = module;
+                path.push(alias);
+                item.path = path.clone();
+                if items.items.insert(path.clone(), item).is_some() {
+                    failures.push((file, 1, format!("duplicate reexport {}", path.join("::"))));
+                }
+            } else {
+                unresolved.push((module, file, source, original, alias));
+            }
+        }
+        pending_exports = unresolved;
+    }
+    for (_, file, source, name, _) in pending_exports {
+        failures.push((file, 1, format!("cannot resolve {name} from {source}")));
     }
     (items, failures)
 }

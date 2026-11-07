@@ -180,10 +180,19 @@ items' ids and addresses, `reference/<namespace>/` — to these fields:
 
 | Field | Type | Required | Meaning |
 | --- | --- | --- | --- |
-| `files` | list of glob patterns | yes | The namespace's files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
-| `language` | string | no | The language they are written in. devpage knows `rust`. Default: the namespace's name. |
+| `files` | list of glob patterns | unless `provider` | Source files relative to the site file, inside the served folder. Ignored and hidden files are left out. |
+| `language` | string | no | The language they are written in. `rust`, `python`, `pyo3`, `typescript` or `tsx`. TypeScript selects the JSX grammar for `.tsx`. Default: the namespace's name; `rust` for providers. |
 | `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
 | `private` | boolean | no | Whether items no `pub` path reaches get pages too. Default: `false`. |
+| `exclude` | list of glob patterns | no | Matching files to leave out after `files`, relative to the site. |
+| `root` | path | no | Module-path base for Python/TypeScript, relative to the site. Default: `.`. |
+| `module` | string | no | `::`-separated module prefix, such as `odin` for PyO3. |
+| `layout` | `modules` or `flat` | no | `flat` uses captured names without file modules. Default: `modules`. |
+| `strict` | boolean | no | Require nonempty reference input, source abstracts, and explicit coverage of file-scope Rust macros. Parse/read failures always fail checking. Default: `false`. |
+| `macros` | list of names | no | Selected local single-rule Rust `ident`/`literal` templates to expand. Unsupported selected shapes fail. |
+| `ignore_macros` | list of names | no | File-scope macros explicitly outside a strict Rust reference. |
+| `provider` | extension ID | no | A configured native extension supplying semantic declarations through `references`; cannot combine with `files` or `query`. |
+
 
 ## Front matter
 
