@@ -69,7 +69,13 @@ pub fn item(
     let (summary, overview) = split_doc(&item.doc);
     let mut out = hero(kind, &name, &summary);
     if item.kind != "module" && !item.signature.is_empty() {
-        out.push_str(&declaration(index, &item.signature, &item.file, item.line));
+        out.push_str(&declaration(
+            index,
+            namespace,
+            &item.signature,
+            &item.file,
+            item.line,
+        ));
     } else {
         out.push_str(&source(index, &item.file, None));
     }
@@ -177,6 +183,7 @@ pub fn member(
     let mut out = hero_html(&kind, &member.name, &summary);
     out.push_str(&declaration(
         index,
+        namespace,
         &member.signature,
         &member.file,
         member.line,
@@ -258,10 +265,24 @@ fn hero_html(kind: &str, name: &str, summary: &str) -> String {
 }
 
 /// The declaration as written, and under it the file and line it is in.
-fn declaration(index: &Index, signature: &str, file: &Path, line: usize) -> String {
+fn declaration(
+    index: &Index,
+    namespace: &str,
+    signature: &str,
+    file: &Path,
+    line: usize,
+) -> String {
     format!(
         "<div class=\"code-declaration\">\n\n{}</div>\n\n{}",
-        fence(signature, file),
+        fence(
+            signature,
+            file,
+            index
+                .namespaces
+                .iter()
+                .find(|n| n.name == namespace)
+                .is_some_and(|n| n.language == "pyo3")
+        ),
         source(index, file, Some(line))
     )
 }
@@ -422,12 +443,16 @@ pub(super) fn title_case(name: &str) -> String {
 }
 
 /// A Rust code block of `code`, long enough to hold any backticks in it.
-fn fence(code: &str, file: &Path) -> String {
-    let language = match file.extension().and_then(|s| s.to_str()).unwrap_or("") {
-        "py" => "python",
-        "ts" | "tsx" => "typescript",
-        "sql" => "sql",
-        _ => "rust",
+fn fence(code: &str, file: &Path, python: bool) -> String {
+    let language = if python {
+        "python"
+    } else {
+        match file.extension().and_then(|s| s.to_str()).unwrap_or("") {
+            "py" => "python",
+            "ts" | "tsx" => "typescript",
+            "sql" => "sql",
+            _ => "rust",
+        }
     };
     let ticks = "`".repeat(longest_run(code, '`').max(2) + 1);
     format!("{ticks}{language}\n{code}\n{ticks}\n\n")

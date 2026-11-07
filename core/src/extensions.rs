@@ -102,6 +102,10 @@ impl Binding {
     pub fn id(&self) -> String {
         self.0.lock().unwrap().id.clone()
     }
+    /// This configured instance's identity, including native package settings.
+    pub(crate) fn identity(&self) -> String {
+        self.0.lock().unwrap().owner.clone()
+    }
     /// The semantic reference declarations of a namespace at this revision.
     pub fn references(&self, namespace: &str) -> Result<Value> {
         self.call("references", json!({"namespace":namespace}))
@@ -593,6 +597,18 @@ mod tests {
             )
         );
         assert_eq!(index.inventory()["nodes"].len(), 1);
+        let site = dir.join("docs/devpage.yml");
+        let configuration = std::fs::read_to_string(&site)
+            .unwrap()
+            .replace("input: ../model", "input: ../model, revision_tag: changed");
+        std::fs::write(&site, configuration).unwrap();
+        crate::document::Document::load(&site, &served).unwrap();
+        let rebound = crate::code::for_document(&site).unwrap();
+        assert!(
+            !Arc::ptr_eq(&index, &rebound),
+            "code must not retain an obsolete provider binding"
+        );
+        let index = rebound;
         std::fs::remove_file(dir.join("model/nested/a.toy")).unwrap();
         crate::code::changed(&served, &[dir.join("model/nested/a.toy")]);
         assert!(

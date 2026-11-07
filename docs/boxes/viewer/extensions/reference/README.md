@@ -51,12 +51,13 @@ Every request has `op` and `instance`, the binding's ID: the first 16 hex digits
 | `op` | Also sent | Reply |
 | --- | --- | --- |
 | `create` | `id`, `config` | The [declaration](#create). |
-| `prepare` | `sources` | `revision`: a non-empty string. |
+| `prepare` | `sources`, optional shared `declarations` | `revision`: a non-empty string. |
 | `augment` | `path`, `source` | `source`: the page's Markdown. Left unchanged when missing. |
 | `embed` | `page`, `target`, `label`, `identity` | `html` |
 | `view` | `path` | `layout`, `title`, `content` |
 | `targets` | `path` | `ids`: list of strings |
 | `route` | `path` | `body`, `mime`, `status` |
+| `references` | `namespace` | `items`, optional source-located `problems` for a code namespace using this provider. |
 
 Paths are relative to the served folder, with `/`. An unknown `op` should be an error; devpage sends no others.
 
@@ -73,6 +74,8 @@ Sent once per binding when the document loads. The reply declares:
 | `modules` | Optional. Module path → TypeScript, TSX or JavaScript source. |
 | `widgets` | Optional. Widget name → module path whose default export is the widget. |
 | `styles` | Optional. Stylesheet path → CSS source. |
+| `code_languages` | Optional. Source suffix → built-in language name; `prepare` receives the shared grammar results. |
+| `code_macros` | Optional. Source suffix → selected local Rust macro names to expand in those grammar results. |
 
 Any violation makes the document invalid.
 
@@ -81,6 +84,27 @@ Any violation makes the document invalid.
 Devpage reads `input` recursively: names starting with `.` are skipped, a symlink or a path outside the served folder fails the capture, and only files with an `input_extensions` suffix are read, as UTF-8. `sources` maps each file's served-folder path to its contents, sorted.
 
 Preparation runs once on load and again whenever a change under `input` arrives. It is skipped when the captured contents equal the last prepared ones. A failed capture or a failed `prepare` is kept: until a preparation succeeds, every other request fails with `Extension preparation failed: <reason>`. A reply without `revision` fails only that preparation.
+
+### Reference declarations
+
+A code namespace configured with `provider: <id>` asks `references` at the
+prepared revision. It returns `items`, each with `path` (name array), `kind`,
+`signature`, `doc`, served-root-relative `file`, one-based `line`, `public`,
+`members` and `implements`. Members use `name`, `kind`, `signature`, `doc`,
+`file`, `line`, and `public`. Every parent item must exist. Duplicate identities,
+invalid source locations and returned `problems: [{file, line, message}]`
+fail checking. Failed provider revisions clear their catalog rather than expose
+stale declarations. Provider items use devpage's ordinary pages, search, source
+links, checked addresses and supplemental prose.
+
+`code_languages` requests shared parsed `declarations` beside `sources` in
+`prepare`. Each file yields `doc`, declaration records, `reexports`, parse
+`errors`, optional `failure`, and selected macro `expansions: [{source, line}]`.
+A declaration carries `kind`, `name`, `attributes`, `visibility`, `parent`,
+`signature`, `doc`, `line`, `has_body`, `hidden` and optional `attach`. `parent`
+is an index in that file's declarations. PyO3 also supplies its visible
+`callable` parameters. Extensions resolve domain relationships from this
+source-owned information; they do not render reference pages themselves.
 
 ### Pages and embeds
 

@@ -10,3 +10,7 @@
 (method_signature name: (property_identifier) @name) @item.method
 (property_signature name: (property_identifier) @name) @item.field
 (public_field_definition name: (property_identifier) @name) @item.field
+
+(export_statement (export_clause (export_specifier) @reexport.path @reexport) source: (string)? @reexport.source)
+
+(import_statement (import_clause (named_imports (import_specifier) @reexport.path @import)) source: (string) @reexport.source)

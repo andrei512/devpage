@@ -50,11 +50,12 @@ action. Each row is one slide.
 | 7 | Comment like Google Docs. | a highlighted phrase and a comment; read → fixed → closed | review goes straight to the agent |
 | 8 | An Office suite for developers. | four tiles: site, doc, slides, design, each "like" its office app | every kind of document, as files |
 | 9 | Designs, as code. | one real line of `checkout.design` beside the live prototype, in its own fonts, light or dark with the deck | screens the agent writes and you click |
-| 10 | Your agent sees its work. | slide 5 as a PNG, and the agent saying what it fixed | every slide and design is an image; links and diagrams are checked |
-| 11 | Share it anywhere. | PDF, video, team-site and phone tiles, the phone showing a page with its sidebar behind a button | people outside the repo get it too, on any screen |
-| 12 | Publish. Get a link. | `devpage publish` twice beside the link's page, showing version 2 | a document with no repository gets a link that always shows its latest version, and keeps every old one |
-| 13 | One more thing. | the deck's folder and `devpage video` | this talk is files, and so is its video |
-| 14 | Try it today. | the two commands | the action |
+| 10 | The code is the reference. | a Python declaration beside its reference card, linked to the real method page | Rust, Python, TypeScript and semantic providers share checked pages and search |
+| 11 | Your agent sees its work. | slide 5 as a PNG, and the agent saying what it fixed | every slide and design is an image; links and diagrams are checked |
+| 12 | Share it anywhere. | PDF, video, team-site and phone tiles, the phone showing a page with its sidebar behind a button | people outside the repo get it too, on any screen |
+| 13 | Publish. Get a link. | `devpage publish` twice beside the link's page, showing version 2 | a document with no repository gets a link that always shows its latest version, and keeps every old one |
+| 14 | One more thing. | the deck's folder and `devpage video` | this talk is files, and so is its video |
+| 15 | Try it today. | the two commands | the action |
 
 ## Rules for every slide
 

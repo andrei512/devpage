@@ -11,7 +11,7 @@ page, for someone about to change `core/src/code/`
 flowchart LR
   files["A namespace's files"] --> extract["Extract, per file<br/>extract.rs"]
   extract --> declarations["Declarations"]
-  declarations --> link["Link, per namespace<br/>rust.rs"]
+  declarations --> link["Link, per namespace<br/>language rules"]
   link --> items["Items and members<br/>in memory"]
   items --> render["Render, per request<br/>render.rs"]
   items --> searched["Search's index"]
@@ -31,8 +31,9 @@ declaration is; devpage reads these captures:
 
 | Capture | What it marks |
 | --- | --- |
-| `@item.<kind>` | A declaration of that kind — `function`, `struct`, `field`… The kinds a page groups by are Rust's: `module`, `struct`, `enum`, `union`, `trait`, `type`, `function`, `constant`, `static`, `macro`, `field`, `variant`. |
-| `@name` | Its name, in the same match. |
+| `@item.<kind>` | A declaration of that kind — `function`, `struct`, `field`… Known kinds include: `module`, `struct`, `enum`, `union`, `trait`, `type`, `function`, `constant`, `static`, `macro`, `field`, `variant`, `class`, `interface`; provider kinds also form groups. |
+| `@name` | Its name, in the same match; string literals are decoded. |
+| `@doc`, `@signature`, `@public` | Explicit documentation, source signature and public visibility for custom declaration patterns. |
 | `@visibility` | Its visibility when written: `pub` is public, anything else (`pub(crate)`) restricted; none is private. |
 | `@attach` | A block whose members belong to another declaration — an `impl` — with `@attach.to`, the type it names, and `@attach.trait`, the trait when it implements one. |
 | `@reexport` | A statement making a name reachable where it is written — `pub use` — with `@reexport.path` and its `@visibility`. |
@@ -43,8 +44,14 @@ signature is its text up to its `body` field, or all of it; its doc comment is
 the `///` or `/** */` comments just before it, attributes skipped, and a
 file's own doc is its `//!` lines. `#[cfg(test)]` or `#[doc(hidden)]` just
 before a declaration leaves it out. Where a file doesn't parse, the parts that
-do are kept. Extracting knows nothing of any other file, so it runs on every
+do are kept, but parse failures remain check problems. Python uses docstrings,
+TypeScript JSDoc, and PyO3 attributes plus explicit registration.
+Extracting knows nothing of any other file, so it runs on every
 core at once.
+
+Selected local Rust templates are expanded before linking and parsed through
+the same reader. Their expanded source and original invocation lines are also
+passed to native semantic providers, preserving fields and attributes for joins.
 
 ## Linking the files
 
@@ -66,6 +73,12 @@ What no one file can say, the Rust linker resolves across all of them:
   `pub` path reaches otherwise, gets its page at the `pub use`'s path; its
   declared path becomes an alias of it. `crate::`, `self::`, `super::`,
   another crate's name and `{…}` lists resolve; a glob makes no alias.
+
+Python and TypeScript use file modules below the configured `root`, plus an
+optional `module` prefix. Named TypeScript reexports resolve source declarations.
+PyO3 binding attributes and module registrations supply Python identities and
+callable signatures; interpreter arguments never appear as user parameters.
+Native providers contribute validated items directly to this same catalog.
 
 A namespace is linked again, whole and in memory, whenever one of its files
 changes: linking is a pass over every file's declarations, which stay as they
@@ -100,6 +113,5 @@ member's page as one section — its name, its doc comment and prose as text,
 its declaration as code — and after a save indexes again only the pages whose
 text changed.
 
-Nothing is written to disk. Measured on devpage's own 71,000 lines of Rust, a
-release build's `devpage check docs` takes between 1.0 and 1.3 seconds with the
-code reference and without it.
+Nothing is written to disk. Native capture compiles each configured language
+query once per preparation and reuses it for every matching source file.

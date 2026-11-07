@@ -1,7 +1,7 @@
 # Code reference
 
 A site's [code reference](../glossary/README.md#code-reference) is a page for
-every module, type and function of the code it names, in the style of DocC:
+every module, type and function of the code it names:
 made from the code as it is now, live as you save, checked when prose links
 to it, and never written to disk. This page is how to use it; how devpage
 reads the code is in [Reading the code](reading-the-code/README.md). It
@@ -44,7 +44,8 @@ extensions:
 
 `files` are glob patterns relative to the document file, inside the served
 folder. `private: true` gives items no `pub` path reaches pages too; without
-it the reference is the public API. Every field, and the errors a wrong one
+it the reference is the source-visible API. Python/PyO3 and TypeScript
+namespaces use their own export and module conventions. Every field, and the errors a wrong one
 stops devpage with, are in the
 [configuration reference](../configuration-reference/README.md#code). Only a
 site has a code reference.
@@ -73,7 +74,7 @@ structure and `…/answer/Answers/path` its method. A Topics entry for
 under each module its modules and types. A function's or a member's page keeps
 its module or its type open there.
 
-A doc comment reads as the page's Markdown: its headings go below the page's
+Rust doc comments read as the page's Markdown: its headings go below the page's
 own, an unlabelled code block is Rust with rustdoc's hidden `# ` lines left
 out, and rustdoc's links to names show as the name. An item a `pub use` makes
 public in another module has its page there; its address where it is declared
@@ -132,35 +133,24 @@ query that did keeps reading the code.
 
 ## What it doesn't see
 
-It reads the code as written, not as compiled: no macro output, no `#[cfg]`
-evaluation, no `#[path]` attributes, no inferred types, and no links a doc
-comment writes to a Rust path. A file outside its crate's `src/` — a test, a
-bench, `build.rs` — is no module.
+It reads source declarations, not compiler output: it does not evaluate arbitrary
+macros, `#[cfg]`, `#[path]`, build scripts or inferred types. Selected simple
+Rust templates are expanded as described below; strict Rust namespaces refuse
+unhandled item-position macros. A Rust file outside its crate's `src/` — a
+test, bench or `build.rs` — is not a module. Runtime and compiler inventory
+comparisons remain separate checks when they define the published surface.
 
 ## Publishing it
 
 A code reference is meant to be read by running `devpage` in the repository,
 where it reads the code as it is now. A site that enables it can still be
 [published](../server/publishing/README.md): the publish carries each
-namespace's files, the `Cargo.toml` naming their crate, its query file and its
+grammar namespace's files, the `Cargo.toml` naming their crate, its query file and its
 prose files, and the server builds the version's reference from them as
 `devpage` does locally. Only code inside the published folder can be carried,
-as for any file a publish holds.
-
-## Topics
-
-### Mechanisms
-
-- [Reading the code](reading-the-code/README.md) — how one file is read with a
-  query, how the files are linked into items, and how the reference stays live
-  and searched.
-
-### Reference
-
-- [The `code` extension's fields and errors](../configuration-reference/README.md#code)
-  — every field of a namespace, and the errors devpage stops with.
-- [`devpage_core::code`](../../../reference/rust/devpage_core/code) — the
-  implementation, in devpage's own reference.
+as for any file a publish holds. Native semantic providers currently require
+serving an immutable source/package snapshot; native-extension publishing is
+not supported.
 
 ## Language namespaces and semantic providers
 
@@ -170,6 +160,12 @@ well as `rust`. `root` is the source module root relative to the site file;
 file's path from `root`, without its suffix or terminal `__init__`/`index`,
 followed by the declaration name. `layout: flat` uses query names directly.
 Rust keeps crate/module reachability unless a flat layout is selected.
+TypeScript named local exports and relative named reexports resolve to their
+source declarations. Union/intersection field branches stay in their whole
+type declaration, because they have no single field identity. Python reads
+classes/functions and their docstrings; leading-underscore names are private.
+PyO3 displays Python-visible callable parameters, including explicit defaults
+and keyword-only rules, while links lead to their Rust binding source.
 
 Queries can capture `@doc`, `@signature`, and `@public` alongside
 `@item.<kind>` and `@name`. String names and docs are decoded as string literals.
@@ -177,8 +173,9 @@ Queries can capture `@doc`, `@signature`, and `@public` alongside
 provide constant query properties. These declarations still use the normal
 reference pages, source links, search and prose augmentation.
 
-`strict: true` requires a nonempty catalog and an abstract on every item and
-member. Source parse and read failures are always check problems. Grammar
+`strict: true` requires a nonempty catalog and an abstract on every source
+item and member. Automatically generated folder containers are navigation,
+not source declarations, and do not require abstracts. Source parse and read failures are always check problems. Grammar
 reading is source-based, not proof of compiler exports or runtime bindings;
 projects should compare the native inventory against their compiled API tests
 when runtime registration defines the public surface.
@@ -217,7 +214,10 @@ The supported form is one rule with comma-separated `ident` and `literal`
 parameters, substituted into a source template. The normal Rust grammar reads
 its generated declarations, including `#[doc = ...]`, tuple fields and impl
 methods. Unsupported selected matchers, repetitions, unresolved parameters and
-missing local definitions are errors. This bounded reader does not evaluate
+missing local definitions are errors. In strict Rust namespaces, a new
+unhandled file-scope invocation is also an error; `ignore_macros` explicitly
+lists declaration-position macros outside the reference surface. Expression
+macros inside function bodies do not affect this check. This bounded reader does not evaluate
 arbitrary macros or build scripts. Source links identify the original invocation.
 
 Native providers request the same expansion with
@@ -231,3 +231,22 @@ A TypeScript namespace chooses the TSX grammar for `.tsx` files, while `.ts`
 keeps TypeScript parsing. PyO3 reads explicit module registration calls,
 class/method/field attributes and exception declarations; runtime API tests
 remain the authority for registration coverage.
+
+## Topics
+
+### Mechanisms
+
+- [Reading the code](reading-the-code/README.md) — how one file is read with a
+  query, how the files are linked into items, and how the reference stays live
+  and searched.
+
+### Reference
+
+- [Language namespaces and semantic providers](#language-namespaces-and-semantic-providers)
+  — grammars, strict coverage and native domain declarations.
+
+- [The `code` extension's fields and errors](../configuration-reference/README.md#code)
+  — every field of a namespace, and the errors devpage stops with.
+- [`devpage_core::code`](../../../reference/rust/devpage_core/code) — the
+  implementation, in devpage's own reference.
+
