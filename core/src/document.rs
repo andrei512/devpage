@@ -526,8 +526,8 @@ impl Document {
             }
             _ => None,
         };
-        crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
+        crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         Ok(Self {
             extensions: crate::extensions::for_document(&base.join(&file_name)),
             title,

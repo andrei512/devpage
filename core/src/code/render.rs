@@ -11,9 +11,11 @@ use super::{Index, Item, Items, Member, Prose};
 use crate::html::escape;
 
 /// The groups of a module's page, in order: a kind and its heading.
-const ITEMS: [(&str, &str); 10] = [
+const ITEMS: [(&str, &str); 12] = [
     ("module", "Modules"),
     ("struct", "Structures"),
+    ("class", "Classes"),
+    ("interface", "Interfaces"),
     ("enum", "Enumerations"),
     ("union", "Unions"),
     ("trait", "Traits"),
@@ -36,7 +38,7 @@ pub fn namespace(index: &Index, name: &str, items: &Items) -> String {
         out.push_str("No code matches this namespace's `files`.\n");
         return out;
     }
-    let mut groups = String::from("### Crates\n\n");
+    let mut groups = String::from("### Topics\n\n");
     for krate in crates {
         groups.push_str(&topic(
             &krate.path[0],
@@ -59,7 +61,7 @@ pub fn item(
     prose: Option<&Prose>,
 ) -> String {
     let name = item.path.last().cloned().unwrap_or_default();
-    let kind = if item.path.len() == 1 {
+    let kind = if item.path.len() == 1 && item.kind == "module" && namespace == "rust" {
         "Crate"
     } else {
         kind_label(&item.kind)
@@ -74,7 +76,7 @@ pub fn item(
     out.push_str(&overview_of(&overview, prose));
 
     let mut groups = String::new();
-    if item.kind == "module" {
+    {
         let children: Vec<&Item> = items
             .items
             .values()
@@ -82,7 +84,16 @@ pub fn item(
                 child.path.len() == item.path.len() + 1 && child.path.starts_with(&item.path)
             })
             .collect();
-        for (kind, heading) in ITEMS {
+        let mut kinds: Vec<(String, String)> = ITEMS
+            .iter()
+            .map(|(kind, heading)| (kind.to_string(), heading.to_string()))
+            .collect();
+        for child in &children {
+            if !kinds.iter().any(|(kind, _)| kind == &child.kind) {
+                kinds.push((child.kind.clone(), title_case(&child.kind)));
+            }
+        }
+        for (kind, heading) in kinds {
             let listed: Vec<&&Item> = children.iter().filter(|c| c.kind == kind).collect();
             if listed.is_empty() {
                 continue;
@@ -250,7 +261,7 @@ fn hero_html(kind: &str, name: &str, summary: &str) -> String {
 fn declaration(index: &Index, signature: &str, file: &Path, line: usize) -> String {
     format!(
         "<div class=\"code-declaration\">\n\n{}</div>\n\n{}",
-        fence(signature),
+        fence(signature, file),
         source(index, file, Some(line))
     )
 }
@@ -363,7 +374,7 @@ fn short(signature: &str) -> String {
 
 /// A doc comment as its abstract — its first paragraph — and the rest, both
 /// as page Markdown. A doc opening with a heading or code has no abstract.
-fn split_doc(doc: &str) -> (String, String) {
+pub(super) fn split_doc(doc: &str) -> (String, String) {
     let markdown = doc_markdown(doc);
     let mut lines = markdown.lines();
     let mut summary = Vec::new();
@@ -411,9 +422,15 @@ pub(super) fn title_case(name: &str) -> String {
 }
 
 /// A Rust code block of `code`, long enough to hold any backticks in it.
-fn fence(code: &str) -> String {
+fn fence(code: &str, file: &Path) -> String {
+    let language = match file.extension().and_then(|s| s.to_str()).unwrap_or("") {
+        "py" => "python",
+        "ts" | "tsx" => "typescript",
+        "sql" => "sql",
+        _ => "rust",
+    };
     let ticks = "`".repeat(longest_run(code, '`').max(2) + 1);
-    format!("{ticks}rust\n{code}\n{ticks}\n\n")
+    format!("{ticks}{language}\n{code}\n{ticks}\n\n")
 }
 
 /// The length of the longest run of `c` in `text`.

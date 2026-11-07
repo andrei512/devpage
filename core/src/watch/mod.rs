@@ -125,10 +125,9 @@ impl Listeners {
             slide_pngs.changed(&files);
         }
         heard.extend(folder.changes);
+        let extensions = crate::extensions::changed(self.folder.served(), &files);
         let code = crate::code::changed(self.folder.served(), &files);
-        if (crate::extensions::changed(self.folder.served(), &files) || code)
-            && !heard.contains(&crate::changes::Change::Refresh)
-        {
+        if (extensions || code) && !heard.contains(&crate::changes::Change::Refresh) {
             heard.push(crate::changes::Change::Refresh);
         }
         for change in heard {
