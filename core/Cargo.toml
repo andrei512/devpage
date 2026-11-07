@@ -31,6 +31,7 @@ tree-sitter-rust = "0.24.2"
 tree-sitter-python = "0.25.0"
 tree-sitter-typescript = "0.23.2"
 streaming-iterator = "0.1.9"
+percent-encoding = "2.3.2"
 
 [features]
 # Test helpers — in-memory comment store, fixtures — for devpage's own tests.

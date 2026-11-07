@@ -125,6 +125,7 @@ pub fn item(
     for (group, heading) in [
         (Group::Field, "Fields"),
         (Group::Variant, "Variants"),
+        (Group::Type, "Associated Types"),
         (Group::Function, "Associated Functions"),
         (Group::Method, "Methods"),
     ] {
@@ -139,7 +140,7 @@ pub fn item(
         groups.push_str(&format!("### {heading}\n\n"));
         for member in members {
             let mut path = item.path.clone();
-            path.push(member.name.clone());
+            path.push(item.member_id(member));
             groups.push_str(&topic(
                 &short(&member.signature),
                 "rust",
@@ -199,6 +200,8 @@ enum Group {
     Field,
     /// A variant of an enum.
     Variant,
+    /// A trait-associated type.
+    Type,
     /// A function of the type that takes no `self`.
     Function,
     /// A function of the type that takes `self`.
@@ -212,6 +215,7 @@ impl Group {
         match self {
             Group::Field => "Field",
             Group::Variant => "Variant",
+            Group::Type => "Associated Type",
             Group::Function => "Associated Function",
             Group::Method => "Method",
         }
@@ -223,6 +227,7 @@ fn group_of(member: &Member) -> Group {
     match member.kind.as_str() {
         "field" => Group::Field,
         "variant" => Group::Variant,
+        "type" => Group::Type,
         _ if takes_self(&member.signature) => Group::Method,
         _ => Group::Function,
     }

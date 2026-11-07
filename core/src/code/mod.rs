@@ -66,6 +66,23 @@ pub struct Item {
     pub container: bool,
 }
 
+impl Item {
+    /// A member's route, qualified by kind only when its name is ambiguous.
+    pub fn member_id(&self, member: &Member) -> String {
+        if self
+            .members
+            .iter()
+            .filter(|m| m.name == member.name)
+            .count()
+            > 1
+        {
+            format!("{}@{}", member.kind, member.name)
+        } else {
+            member.name.clone()
+        }
+    }
+}
+
 /// A part of an item shown on its page: a field, a variant, a method.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -662,7 +679,7 @@ pub struct Searched {
 }
 
 /// The kinds the sidebar's tree lists; the rest are left to their pages.
-const NAVIGATED: [&str; 12] = [
+const NAVIGATED: [&str; 13] = [
     "module",
     "struct",
     "enum",
@@ -675,6 +692,7 @@ const NAVIGATED: [&str; 12] = [
     "node",
     "schema",
     "rpc",
+    "variant",
 ];
 
 /// What a page address of the code reference names.
@@ -715,7 +733,14 @@ impl Index {
             .map(|part| part.as_os_str().to_string_lossy().into_owned());
         let name = parts.next()?;
         let at = self.namespaces.iter().position(|n| n.name == name)?;
-        let segments: Vec<String> = parts.collect();
+        let segments: Vec<String> = parts
+            .map(|part| {
+                percent_encoding::percent_decode_str(&part)
+                    .decode_utf8()
+                    .map(|s| s.into_owned())
+                    .unwrap_or(part)
+            })
+            .collect();
         if segments.is_empty() {
             return Some(Page::Namespace(at));
         }
@@ -727,12 +752,22 @@ impl Index {
         // A member's page is under its type's: `Store/read`.
         let (name, owner) = segments.split_last()?;
         let owner = items.aliases.get(owner).cloned().unwrap_or(owner.to_vec());
-        let member = items
-            .items
-            .get(&owner)?
-            .members
+        let members = &items.items.get(&owner)?.members;
+        let matches: Vec<_> = members
             .iter()
-            .position(|member| member.name == *name)?;
+            .enumerate()
+            .filter(|(_, member)| {
+                if let Some((kind, bare)) = name.split_once('@') {
+                    member.kind == kind && member.name == bare
+                } else {
+                    member.name == *name
+                }
+            })
+            .collect();
+        if matches.len() != 1 {
+            return None;
+        }
+        let member = matches[0].0;
         Some(Page::Member(at, owner, member))
     }
 
@@ -761,7 +796,12 @@ impl Index {
                 let items = namespace.items();
                 let owner = &items.items[path];
                 let member = &owner.members[*member];
-                let id = format!("{}:{}::{}", namespace.name, path.join("::"), member.name);
+                let id = format!(
+                    "{}:{}::{}",
+                    namespace.name,
+                    path.join("::"),
+                    owner.member_id(member)
+                );
                 render::member(self, &namespace.name, owner, member, prose.get(&id))
             }
         }
@@ -823,7 +863,7 @@ impl Index {
                 trail.push(path.last().cloned().unwrap_or_default());
                 for member in &item.members {
                     let mut member_path = path.clone();
-                    member_path.push(member.name.clone());
+                    member_path.push(item.member_id(member));
                     out.push(Searched {
                         url: self.address(&namespace.name, &member_path),
                         title: member.name.clone(),
@@ -867,7 +907,7 @@ impl Index {
         items: &Items,
         under: &[String],
     ) -> Vec<crate::nav::Group> {
-        const SHOWN: [(&str, &str); 7] = [
+        const SHOWN: [(&str, &str); 13] = [
             ("module", "Modules"),
             ("struct", "Structures"),
             ("enum", "Enumerations"),
@@ -875,6 +915,12 @@ impl Index {
             ("trait", "Traits"),
             ("type", "Type Aliases"),
             ("macro", "Macros"),
+            ("class", "Classes"),
+            ("interface", "Interfaces"),
+            ("node", "Nodes"),
+            ("schema", "Schemas"),
+            ("rpc", "RPC Methods"),
+            ("variant", "Variants"),
         ];
         let children: Vec<&Item> = items
             .items
@@ -895,7 +941,7 @@ impl Index {
                         }
                         file
                     },
-                    children: if kind == "module" {
+                    children: if NAVIGATED.contains(&kind) {
                         self.nav_children(namespace, items, &item.path)
                     } else {
                         Vec::new()
@@ -1214,7 +1260,21 @@ impl Index {
                             ),
                         ));
                     }
+                    let mut member_ids = std::collections::BTreeSet::new();
                     for member in &item.members {
+                        if !member_ids.insert((&member.kind, &member.name)) {
+                            failures.push((
+                                member.file.clone(),
+                                member.line,
+                                format!(
+                                    "duplicate reference {}:{}::{}@{}",
+                                    namespace.name,
+                                    item.path.join("::"),
+                                    member.kind,
+                                    member.name
+                                ),
+                            ));
+                        }
                         if render::split_doc(&member.doc).0.is_empty() {
                             failures.push((
                                 member.file.clone(),
@@ -1401,7 +1461,7 @@ mod tests {
             ),
             (
                 "local.ts",
-                "/** A local export. */\nfunction kept(){}\nexport {kept as publicName};\nfunction hidden(){}\n",
+                "/** A local export. */\nfunction kept(){}\nexport {kept as publicName, kept as second};\nfunction hidden(){}\n/** A visible value. */\nexport const value=1;\nexport {value as first, value as third};\n",
             ),
         ];
         let files = sources
@@ -1436,11 +1496,128 @@ mod tests {
                 .items
                 .contains_key(&vec!["local".into(), "publicName".into()])
         );
+        for name in ["second", "value", "first", "third"] {
+            assert!(
+                items.items.contains_key(&vec!["local".into(), name.into()]),
+                "{name}"
+            );
+        }
         assert!(
             !items
                 .items
                 .contains_key(&vec!["local".into(), "hidden".into()])
         );
+    }
+
+    /// Navigation and route identity use every native catalog kind consistently.
+    #[test]
+    fn catalog_kinds_are_navigable_and_member_collisions_have_unambiguous_routes() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-catalog-routes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let served = crate::folder::ServedFolder::new(&dir).unwrap();
+        let config: serde_yaml::Value =
+            serde_yaml::from_str("ts: {language: typescript, files: ['*.ts'], strict: true}")
+                .unwrap();
+        let doc = dir.join("devpage.yml");
+        super::configure(&doc, &dir, &served, Some(&config)).unwrap();
+        let index = super::for_document(&doc).unwrap();
+        let mut items = super::Items::default();
+        for kind in ["class", "interface", "node", "schema", "rpc", "variant"] {
+            let path = vec![kind.to_string()];
+            items.items.insert(
+                path.clone(),
+                super::Item {
+                    path,
+                    kind: kind.into(),
+                    doc: "A documented contract.".into(),
+                    public: true,
+                    ..super::Item::default()
+                },
+            );
+        }
+        let mut owner = super::Item {
+            path: vec!["Cell".into()],
+            kind: "struct".into(),
+            doc: "A value.".into(),
+            public: true,
+            ..super::Item::default()
+        };
+        for kind in ["field", "method"] {
+            owner.members.push(super::Member {
+                name: "present".into(),
+                kind: kind.into(),
+                signature: format!("{kind} present"),
+                doc: format!("The {kind}."),
+                file: dir.join("cell.rs"),
+                line: 1,
+                public: true,
+            });
+        }
+        items.items.insert(owner.path.clone(), owner);
+        let path = vec!["payload_<i>".into()];
+        items.items.insert(
+            path.clone(),
+            super::Item {
+                path,
+                kind: "schema".into(),
+                doc: "A payload.".into(),
+                ..super::Item::default()
+            },
+        );
+        *index.namespaces[0].items.write().unwrap() = std::sync::Arc::new(items);
+        let navigation = index.navigator(&dir.join("reference/ts"));
+        let names: Vec<_> = navigation
+            .iter()
+            .flat_map(|g| &g.entries)
+            .map(|e| e.label.as_str())
+            .collect();
+        for kind in ["class", "interface", "node", "schema", "rpc", "variant"] {
+            assert!(names.contains(&kind), "{kind}");
+        }
+        assert!(index.page(&dir.join("reference/ts/Cell/present")).is_none());
+        for kind in ["field", "method"] {
+            let route = format!("reference/ts/Cell/{kind}@present");
+            let page = index.page(&dir.join(&route)).unwrap();
+            assert!(index.markdown(&page).contains(&format!("The {kind}.")));
+            assert!(
+                index
+                    .searched()
+                    .iter()
+                    .any(|s| s.url.ends_with(&format!("/{kind}@present")))
+            );
+        }
+        let page = index.page(&dir.join("reference/ts/Cell")).unwrap();
+        let markdown = index.markdown(&page);
+        assert!(markdown.contains("/field@present") && markdown.contains("/method@present"));
+        assert!(
+            index
+                .page(&dir.join("reference/ts/payload_%3Ci%3E"))
+                .is_some()
+        );
+        assert!(index.problems().is_empty(), "{:?}", index.problems());
+        let held = index.namespaces[0].items();
+        let mut duplicate = super::Items {
+            items: held.items.clone(),
+            aliases: held.aliases.clone(),
+        };
+        let cell = duplicate.items.get_mut(&vec!["Cell".into()]).unwrap();
+        cell.members.push(cell.members[0].clone());
+        *index.namespaces[0].items.write().unwrap() = std::sync::Arc::new(duplicate);
+        assert!(
+            index
+                .problems()
+                .iter()
+                .any(|p| p.message.contains("duplicate reference"))
+        );
+        assert!(
+            index
+                .page(&dir.join("reference/ts/Cell/field@present"))
+                .is_none()
+        );
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// A version server mode drops takes its code reference with it.

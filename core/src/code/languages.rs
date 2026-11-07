@@ -211,19 +211,20 @@ pub(super) fn link(
             }
             module.extend(components);
         }
-        let exports: BTreeMap<String, String> = if matches!(language, "typescript" | "tsx") {
-            extracted
+        let mut exports: BTreeMap<String, Vec<String>> = BTreeMap::new();
+        if matches!(language, "typescript" | "tsx") {
+            for e in extracted
                 .reexports
                 .iter()
                 .filter(|e| !e.imported && e.source.is_none())
-                .map(|e| {
-                    let (source, alias) = e.path.split_once(" as ").unwrap_or((&e.path, &e.path));
-                    (source.trim().to_string(), alias.trim().to_string())
-                })
-                .collect()
-        } else {
-            BTreeMap::new()
-        };
+            {
+                let (source, alias) = e.path.split_once(" as ").unwrap_or((&e.path, &e.path));
+                exports
+                    .entry(source.trim().trim_start_matches("type ").to_string())
+                    .or_default()
+                    .push(alias.trim().to_string());
+            }
+        }
         for export in extracted.reexports.iter().filter(|e| !e.imported) {
             let (original, alias) = export
                 .path
@@ -371,10 +372,15 @@ pub(super) fn link(
                     property(declaration, "name").unwrap_or_else(|| declaration.name.clone())
                 }
             } else {
-                exports
-                    .get(&declaration.name)
-                    .cloned()
-                    .unwrap_or_else(|| declaration.name.clone())
+                if declaration.visibility == Visibility::Public {
+                    declaration.name.clone()
+                } else {
+                    exports
+                        .get(&declaration.name)
+                        .and_then(|aliases| aliases.first())
+                        .cloned()
+                        .unwrap_or_else(|| declaration.name.clone())
+                }
             };
             if let Some(parent) = parent.as_ref().filter(|_| {
                 ancestor.is_some_and(|d| {
@@ -516,6 +522,44 @@ pub(super) fn link(
             }
             items.items.insert(path.clone(), item);
             parents.push(Some(path));
+        }
+        for (original, aliases) in &exports {
+            let Some(declaration) = extracted
+                .declarations
+                .iter()
+                .find(|d| d.parent.is_none() && d.name == *original)
+            else {
+                continue;
+            };
+            let primary = if declaration.visibility == Visibility::Public {
+                original
+            } else {
+                &aliases[0]
+            };
+            let mut from = module.clone();
+            from.push(primary.clone());
+            let descendants: Vec<_> = items
+                .items
+                .iter()
+                .filter(|(path, _)| path.starts_with(&from))
+                .map(|(path, item)| (path.clone(), item.clone()))
+                .collect();
+            for alias in aliases.iter().filter(|alias| *alias != primary) {
+                for (path, item) in &descendants {
+                    let mut target = module.clone();
+                    target.push(alias.clone());
+                    target.extend_from_slice(&path[from.len()..]);
+                    let mut item = item.clone();
+                    item.path = target.clone();
+                    if items.items.insert(target.clone(), item).is_some() {
+                        failures.push((
+                            file.clone(),
+                            declaration.line,
+                            format!("duplicate reexport {}", target.join("::")),
+                        ));
+                    }
+                }
+            }
         }
         for (submodule, doc) in &extracted.modules {
             let mut path = prefix.to_vec();

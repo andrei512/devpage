@@ -124,7 +124,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
         // The path each declaration gives its children: a module's own, or
         // its parent's for anything else.
         let mut paths: Vec<Option<Vec<String>>> = Vec::with_capacity(declarations.len());
-        for declaration in declarations.iter() {
+        for (declaration_at, declaration) in declarations.iter().enumerate() {
             let parent = declaration.parent.map(|at| &declarations[at]);
             let inside = match declaration.parent {
                 None => Some(module.clone()),
@@ -144,10 +144,18 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
                 paths.push(None);
                 continue;
             }
+            let named_variant = declaration.kind == "variant"
+                && declarations.iter().any(|d| {
+                    d.parent == Some(declaration_at)
+                        && d.kind == "field"
+                        && d.name.parse::<usize>().is_err()
+                });
             match parent {
                 // Inside a function's body: local, not part of the module.
                 Some(parent) if parent.kind == "function" => paths.push(None),
-                Some(parent) if is_type(&parent.kind) => {
+                Some(parent)
+                    if (is_type(&parent.kind) || parent.kind == "variant") && !named_variant =>
+                {
                     if let Some(item) = items.get_mut(&inside) {
                         let kind = if declaration.kind == "function" {
                             "method".to_string()
@@ -158,6 +166,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
                         // visible as the trait or the enum.
                         let public = declaration.visibility == Visibility::Public
                             || parent.kind == "trait"
+                            || parent.kind == "variant"
                             || declaration.kind == "variant";
                         item.members
                             .push(member(declaration, &kind, unit.file, public));
@@ -220,7 +229,8 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
                                 doc: declaration.doc.clone(),
                                 file: unit.file.to_path_buf(),
                                 line: declaration.line,
-                                public: declaration.visibility == Visibility::Public,
+                                public: declaration.visibility == Visibility::Public
+                                    || named_variant,
                                 ..Item::default()
                             },
                         );
@@ -268,6 +278,7 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
                 Some(item) if item.kind == "module" => {
                     module_public.get(module).copied().unwrap_or(false)
                 }
+                Some(item) if at < path.len() => item.public,
                 _ => true,
             }
         })
@@ -583,6 +594,43 @@ mod tests {
         assert_eq!(store.implements, ["Display"]);
         assert_eq!(store.members[1].doc, "Reads one.");
         assert!(store.members[1].file.ends_with("read.rs"));
+    }
+
+    #[test]
+    fn named_enum_variants_and_trait_associated_types_have_source_owned_contracts() {
+        let dir = crate_dir(
+            "nested-contracts",
+            &[(
+                "lib.rs",
+                r#"
+/// An event.
+pub enum Event { /// Connected.
+Connected { /// Slot identity.
+slot: usize }, /// Empty.
+Empty }
+/// A source.
+pub trait Source { /// Read failure.
+type Error; }
+enum Hidden { Entry { hidden: u8 } }
+"#,
+            )],
+        );
+        let items = linked(&dir, &["lib.rs"], false);
+        let connected = &items.items[&path("my_crate::Event::Connected")];
+        assert_eq!(connected.members[0].name, "slot");
+        assert_eq!(connected.members[0].doc, "Slot identity.");
+        assert!(connected.public && connected.members[0].public);
+        assert_eq!(
+            items.items[&path("my_crate::Event")].members[0].name,
+            "Empty"
+        );
+        let associated = &items.items[&path("my_crate::Source")].members[0];
+        assert_eq!(
+            (associated.kind.as_str(), associated.name.as_str()),
+            ("type", "Error")
+        );
+        assert!(associated.signature.contains("type Error"));
+        assert!(!items.items.contains_key(&path("my_crate::Hidden::Entry")));
     }
 
     #[test]
