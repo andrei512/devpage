@@ -24,3 +24,5 @@
 (use_declaration (visibility_modifier) @visibility argument: (_) @reexport.path) @reexport
 
 (ordered_field_declaration_list type: (_) @item.field)
+
+(associated_type name: (type_identifier) @name) @item.type

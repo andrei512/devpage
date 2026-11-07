@@ -69,10 +69,15 @@ with no label the layout already says:
 Every [item](../glossary/README.md#item) has a page, and so does every
 [member](../glossary/README.md#member): `reference/rust` lists the crates,
 `reference/rust/devpage_core/answer` is a module, `…/answer/Answers` a
-structure and `…/answer/Answers/path` its method. A Topics entry for
+structure and `…/answer/Answers/path` its method. Named enum payloads have
+nested pages such as `Event/Connected/slot`; trait-associated types live under
+their trait. If a field and method share a name, their routes are
+`field@name` and `method@name`; the bare ambiguous name fails checking.
+A Topics entry for
 `reference/rust` opens the reference's tree in the sidebar: its crates, and
 under each module its modules and types. A function's or a member's page keeps
-its module or its type open there.
+its module or its type open there. Python classes, TypeScript interfaces and
+native node, schema and RPC contracts participate in the same navigation.
 
 Rust doc comments read as the page's Markdown: its headings go below the page's
 own, an unlabelled code block is Rust with rustdoc's hidden `# ` lines left

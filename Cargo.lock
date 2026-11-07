@@ -993,6 +993,7 @@ dependencies = [
  "globset",
  "ignore",
  "oxc",
+ "percent-encoding",
  "rquickjs",
  "serde",
  "serde_json",

@@ -115,3 +115,10 @@ text changed.
 
 Nothing is written to disk. Native capture compiles each configured language
 query once per preparation and reuses it for every matching source file.
+
+Named Rust enum variants retain their own field contracts as nested items;
+unit and tuple variants remain members of their enumeration. Associated types
+are captured beneath their trait. A field and method may share a display name,
+but their member routes use `field@name` and `method@name`; duplicate members
+of the same kind fail strict checking. TypeScript named exports preserve every
+public alias, including the original name when its declaration is exported.
