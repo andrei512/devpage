@@ -403,10 +403,12 @@ pub fn configure(
                 bail!("Extension {id} cannot replace a built-in language");
             }
         }
-        let input = base.join(
-            descriptor["input"]
-                .as_str()
-                .ok_or_else(|| anyhow!("Extension input missing"))?,
+        let input = crate::folder::lexical(
+            &base.join(
+                descriptor["input"]
+                    .as_str()
+                    .ok_or_else(|| anyhow!("Extension input missing"))?,
+            ),
         );
         if !input.canonicalize()?.starts_with(scope.path()) {
             bail!("Extension {id} input outside served folder");
@@ -565,19 +567,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("model/nested")).unwrap();
         std::fs::write(dir.join("model/nested/a.toy"), "signal\n").unwrap();
-        std::fs::write(dir.join("README.md"), "# Reference\n").unwrap();
+        std::fs::create_dir_all(dir.join("docs")).unwrap();
+        std::fs::write(dir.join("docs/README.md"), "# Reference\n").unwrap();
         std::fs::write(
-            dir.join("Signal.md"),
+            dir.join("docs/Signal.md"),
             "# ``nodes:Signal``\n\nThe domain explanation.\n",
         )
         .unwrap();
-        std::fs::write(dir.join("devpage.yml"),"kind: site\ntitle: Native\nroot: README.md\nextensions:\n  toy:\n    package: ./package\n    config: {input: model}\n  code:\n    config:\n      nodes: {provider: toy, strict: true}\n").unwrap();
+        std::fs::write(dir.join("docs/devpage.yml"),"kind: site\ntitle: Native\nroot: README.md\nextensions:\n  toy:\n    package: ./package\n    config: {input: ../model}\n  code:\n    config:\n      nodes: {provider: toy, strict: true}\n").unwrap();
         let dir = dir.canonicalize().unwrap();
         let served = ServedFolder::new(&dir).unwrap();
-        let doc = crate::document::Document::load(&dir.join("devpage.yml"), &served).unwrap();
+        let doc = crate::document::Document::load(&dir.join("docs/devpage.yml"), &served).unwrap();
         let index = crate::code::for_document(&doc.path()).unwrap();
         assert!(index.problems().is_empty(), "{:?}", index.problems());
-        let page = index.page(&dir.join("reference/nodes/Signal")).unwrap();
+        let page = index
+            .page(&dir.join("docs/reference/nodes/Signal"))
+            .unwrap();
         let markdown = index.markdown(&page);
         assert!(markdown.contains("A signal from a price."));
         assert!(markdown.contains("The domain explanation."));
@@ -590,7 +595,11 @@ mod tests {
         assert_eq!(index.inventory()["nodes"].len(), 1);
         std::fs::remove_file(dir.join("model/nested/a.toy")).unwrap();
         crate::code::changed(&served, &[dir.join("model/nested/a.toy")]);
-        assert!(index.page(&dir.join("reference/nodes/Signal")).is_none());
+        assert!(
+            index
+                .page(&dir.join("docs/reference/nodes/Signal"))
+                .is_none()
+        );
         assert!(
             index
                 .problems()
