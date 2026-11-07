@@ -77,6 +77,9 @@ enum Command {
         /// The document: a Markdown file, a design, a folder holding
         /// devpage.yml, or a document file. The current folder by default.
         path: Option<PathBuf>,
+        /// Check local files and extension references without requesting external URLs.
+        #[arg(long)]
+        internal_only: bool,
         /// Answer in JSON: `{"problems": [{"file", "line", "message"}]}`.
         #[arg(long)]
         json: bool,
@@ -210,14 +213,21 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
     use devpage_core::{check, comments, designs, diagrams};
     use drive::{http, pdf, png, video};
     diagrams::start();
-    if let Some(Command::Check { path, json, root }) = &cli.command {
+    if let Some(Command::Check {
+        path,
+        json,
+        root,
+        internal_only,
+    }) = &cli.command
+    {
         let document = Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &root.served()?,
         )?;
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
-        let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
+        let external = (!internal_only).then(|| external::checker(None));
+        let problems = check::document(&folder, &designs, external.as_deref()).await;
         return Ok(reported(&problems, *json));
     }
     match cli.command.take() {

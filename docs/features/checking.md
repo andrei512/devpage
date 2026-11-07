@@ -15,3 +15,8 @@ docs/README.md:9: broken diagram — No diagram type detected for the given text
 </Terminal>
 
 Teaches it: [Checking links](../boxes/viewer/checking-links/README.md).
+
+For a reproducible build that must not depend on external sites, run
+`devpage check docs --internal-only`. It still checks local links, anchors and
+extension references; it skips only requests to external URLs. Normal `check`
+continues to check those URLs too.
