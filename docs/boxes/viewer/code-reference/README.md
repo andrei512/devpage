@@ -261,4 +261,3 @@ remain the authority for registration coverage.
   — every field of a namespace, and the errors devpage stops with.
 - [`devpage_core::code`](../../../reference/rust/devpage_core/code) — the
   implementation, in devpage's own reference.
-
