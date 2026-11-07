@@ -319,6 +319,20 @@ pub fn link(units: &[(Vec<String>, Unit)], private: bool) -> Items {
                     moved.path = at.clone();
                     moved.public = true;
                     items.insert(at.clone(), moved);
+                    let descendants: Vec<_> = items
+                        .keys()
+                        .filter(|path| path.len() > resolved.len() && path.starts_with(&resolved))
+                        .cloned()
+                        .collect();
+                    for from in descendants {
+                        let mut descendant = items.remove(&from).unwrap();
+                        let mut target = at.clone();
+                        target.extend_from_slice(&from[resolved.len()..]);
+                        descendant.path = target.clone();
+                        descendant.public = true;
+                        items.insert(target.clone(), descendant);
+                        aliases.insert(from, target);
+                    }
                     aliases.insert(resolved, at);
                 } else {
                     aliases.insert(at, resolved);
@@ -631,6 +645,27 @@ enum Hidden { Entry { hidden: u8 } }
         );
         assert!(associated.signature.contains("type Error"));
         assert!(!items.items.contains_key(&path("my_crate::Hidden::Entry")));
+    }
+
+    #[test]
+    fn reexported_enums_keep_their_variant_field_contracts() {
+        let dir = crate_dir(
+            "enum-reexport",
+            &[
+                ("lib.rs", "mod event; pub use event::Event;"),
+                (
+                    "event.rs",
+                    "/// An event.\npub enum Event { /// Connected.\nConnected { /// Slot.\nslot: usize } }",
+                ),
+            ],
+        );
+        let items = linked(&dir, &["lib.rs", "event.rs"], false);
+        let connected = &items.items[&path("my_crate::Event::Connected")];
+        assert_eq!(connected.members[0].name, "slot");
+        assert_eq!(
+            items.aliases[&path("my_crate::event::Event::Connected")],
+            path("my_crate::Event::Connected")
+        );
     }
 
     #[test]

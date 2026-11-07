@@ -114,6 +114,27 @@ pub struct Items {
     pub aliases: BTreeMap<Vec<String>, Vec<String>>,
 }
 
+impl Items {
+    /// Resolve aliases on any ancestor so an aliased type retains nested contracts.
+    fn canonical(&self, path: &[String]) -> Vec<String> {
+        let mut resolved = path.to_vec();
+        let mut visited = std::collections::BTreeSet::new();
+        while visited.insert(resolved.clone()) {
+            let Some((length, target)) = (1..=resolved.len()).rev().find_map(|length| {
+                self.aliases
+                    .get(&resolved[..length])
+                    .map(|target| (length, target))
+            }) else {
+                break;
+            };
+            let mut next = target.clone();
+            next.extend_from_slice(&resolved[length..]);
+            resolved = next;
+        }
+        resolved
+    }
+}
+
 /// The `code` extension's `config`: its namespaces.
 #[derive(Debug, Deserialize)]
 #[serde(transparent)]
@@ -745,13 +766,13 @@ impl Index {
             return Some(Page::Namespace(at));
         }
         let items = self.namespaces[at].items();
-        let segments = items.aliases.get(&segments).cloned().unwrap_or(segments);
+        let segments = items.canonical(&segments);
         if items.items.contains_key(&segments) {
             return Some(Page::Item(at, segments));
         }
         // A member's page is under its type's: `Store/read`.
         let (name, owner) = segments.split_last()?;
-        let owner = items.aliases.get(owner).cloned().unwrap_or(owner.to_vec());
+        let owner = items.canonical(owner);
         let members = &items.items.get(&owner)?.members;
         let matches: Vec<_> = members
             .iter()
@@ -1557,6 +1578,7 @@ mod tests {
             });
         }
         items.items.insert(owner.path.clone(), owner);
+        items.aliases.insert(vec!["old".into()], Vec::new());
         let path = vec!["payload_<i>".into()];
         items.items.insert(
             path.clone(),
@@ -1581,6 +1603,11 @@ mod tests {
         for kind in ["field", "method"] {
             let route = format!("reference/ts/Cell/{kind}@present");
             let page = index.page(&dir.join(&route)).unwrap();
+            assert!(
+                index
+                    .page(&dir.join(format!("reference/ts/old/Cell/{kind}@present")))
+                    .is_some()
+            );
             assert!(index.markdown(&page).contains(&format!("The {kind}.")));
             assert!(
                 index
