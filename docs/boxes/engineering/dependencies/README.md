@@ -99,7 +99,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` (feature `server` in the binary only) | 0.3.2 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
+| `devpage-design` (feature `server` in the binary only) | 0.3.3 (path `design/`, published beside devpage at the same version) | MIT | The design engine: parsing, resolving, painting a PNG, the watch stream's messages and patches — for the design store, and for `devpage check` through it — and, with `server`, the `Designs` service's server side, which only the binary turns on. | `core/src/designs.rs`, `src/drive/http.rs`, `src/drive/http/watch_stream.rs` |
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/http/watch_stream.rs`, `src/drive/http.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/http.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/http.rs` |
@@ -147,7 +147,7 @@ The [extension](../../viewer/extensions/README.md) loader is unfinished.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-extension-api` | 0.3.2 (path `extension-api/`) | MIT | The ABI a native package's library exports and devpage calls: its version, the table of `invoke` and `release`, the buffer they pass JSON in, and `export_extension!`, which a package builds its library with. Its own dependency is `serde_json`, which it re-exports. | `src/adapters/extensions.rs`, `extension-api/src/lib.rs` |
+| `devpage-extension-api` | 0.3.3 (path `extension-api/`) | MIT | The ABI a native package's library exports and devpage calls: its version, the table of `invoke` and `release`, the buffer they pass JSON in, and `export_extension!`, which a package builds its library with. Its own dependency is `serde_json`, which it re-exports. | `src/adapters/extensions.rs`, `extension-api/src/lib.rs` |
 | `libloading` | 0.8.9 | ISC | Opening a package's dynamic library and taking its `devpage_extension_v1` table. | `src/adapters/extensions.rs` |
 
 The binary's build script, `build.rs`, sets `NATIVE_EXTENSION_TARGET` to the
@@ -203,7 +203,7 @@ A `cdylib` built only for `wasm32-unknown-unknown`, by `devpage-design-module`.
 
 | Crate | Locked version | Licence | What the module uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `devpage-design` | 0.3.2 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
+| `devpage-design` | 0.3.3 (path `design/`) | MIT | The engine: applying scenes and patches, layout, the display list, tiles and damage, the CPU backend, hit-testing. | `design/wasm/src/lib.rs` |
 | `prost` | 0.14.4 | Apache-2.0 | Decoding the watch stream's messages (`Message::decode`) before they are applied to a canvas's scene. | `design/wasm/src/lib.rs` |
 | `vello` | 0.11.0 | Apache-2.0 or MIT | The GPU backend: an area of the display list replayed into a vello scene and rendered into a tile's texture with WebGPU through `wgpu`, which also runs the compositor's pass. | `design/wasm/src/vello_backend.rs`, `design/wasm/src/compositor/` |
 | `wasm-bindgen` | 0.2.129 | MIT or Apache-2.0 | Every export the page calls, and the canvas and GPU handles passed in from JavaScript. Pinned to the version `wasm-bindgen-cli-support` generates bindings for. | `design/wasm/src/lib.rs`, `design/wasm/src/compositor/` |

@@ -4,6 +4,18 @@ What changed in each released version of devpage, newest first. The four
 crates — `devpage`, `devpage-core`, `devpage-design` and
 `devpage-extension-api` — are released together at the same version.
 
+## 0.3.3 — 2026-11-09
+
+- **Install without compiling.** Each release has prebuilt binaries for macOS
+  (Apple silicon and Intel), Linux (x86-64 and ARM) and Windows, and one
+  command installs them: a `curl … | sh` script on macOS and Linux, a
+  PowerShell one on Windows ([Installing](docs/installing.md#install-it)).
+- **Told when a newer devpage is out.** Serving on your machine, `devpage
+  check` and `devpage pdf` print one line with the command that updates
+  devpage when a newer release is out. They ask GitHub at most once a day;
+  `DEVPAGE_NO_UPDATE_CHECK` turns it off
+  ([Staying up to date](docs/installing.md#staying-up-to-date)).
+
 ## 0.3.2 — 2026-11-04
 
 - **One menu on a phone.** The navbar's links join the navigator: on a screen

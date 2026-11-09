@@ -1,6 +1,6 @@
 [package]
 name = "devpage-extension-api"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 description = "The ABI a native devpage extension library exports"
 license = "MIT"
