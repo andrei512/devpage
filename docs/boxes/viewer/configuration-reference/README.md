@@ -76,7 +76,9 @@ a document's problems from a command that couldn't run:
 ([the narrator](../making-a-video/README.md#the-narrator)). `devpage server`
 reads its own, listed in the
 [server reference](../server/reference/README.md#environment), and the
-server commands read `DEVPAGE_CONTEXT`. A variable set to an empty string
+server commands read `DEVPAGE_CONTEXT`, and serving, `check` and `pdf` read
+`DEVPAGE_NO_UPDATE_CHECK` ([Installing](../../../installing.md#staying-up-to-date)).
+A variable set to an empty string
 counts as not set.
 
 | Variable | Default | Meaning |
@@ -85,6 +87,7 @@ counts as not set.
 | `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI. |
 | `DEVPAGE_AZURE_OPENAI_API_KEY` | none | The Azure resource's key; required with the endpoint. |
 | `DEVPAGE_VIDEO_MODEL` | `gpt-live-1` | The model; on Azure, the deployment's name. |
+| `DEVPAGE_NO_UPDATE_CHECK` | none | Set, devpage never asks GitHub whether a newer release is out. |
 | `DEVPAGE_CHROME_SANDBOX` | `on` | `off` runs Chrome — for `devpage pdf`, a slide's PNG, `devpage video` and the server's downloads — without its sandbox. Only for a container, which has no sandbox for Chrome to use and is the boundary itself; the [server image](../server/running-a-server/README.md) sets it. |
 
 On start, `devpage` checks the document is inside the

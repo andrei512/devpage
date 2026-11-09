@@ -217,17 +217,24 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         )?;
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(Arc::new(document));
+        let update = (!json).then(updates);
         let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
-        return Ok(reported(&problems, *json));
+        let code = reported(&problems, *json);
+        if let Some(update) = update {
+            told(update).await;
+        }
+        return Ok(code);
     }
     match cli.command.take() {
         Some(Command::Pdf { path, output, root }) => {
             let document = Arc::new(Document::load(&path, &root.served()?)?);
             let output = output.unwrap_or_else(|| download_name(&document.title, "pdf"));
+            let update = updates();
             let bytes = pdf::print(document).await?;
             std::fs::write(&output, bytes)
                 .with_context(|| format!("writing {}", output.display()))?;
             println!("{}", output.display());
+            told(update).await;
             return Ok(ExitCode::SUCCESS);
         }
         Some(Command::Png {
@@ -342,6 +349,15 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
+    // Served on another address, devpage is deployed: no one there updates it.
+    if cli.host.is_loopback() {
+        let update = updates();
+        tokio::spawn(async move {
+            if let Ok(Some(line)) = update.await {
+                eprintln!("{line}");
+            }
+        });
+    }
     let router = http::logged(http::router(app));
     // Stopped, the server closes the Chrome that draws its slides' PNGs.
     tokio::select! {
@@ -350,6 +366,21 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
     }
     shots.close().await;
     Ok(ExitCode::SUCCESS)
+}
+
+/// Starts asking, in the background, whether a newer devpage is out.
+fn updates() -> tokio::task::JoinHandle<Option<String>> {
+    tokio::spawn(adapters::update::notice())
+}
+
+/// Prints the line saying a newer devpage is out, if the asking `updates`
+/// started has answered so: a command that is done never waits for it.
+async fn told(update: tokio::task::JoinHandle<Option<String>>) {
+    if update.is_finished()
+        && let Ok(Some(line)) = update.await
+    {
+        eprintln!("{line}");
+    }
 }
 
 /// Waits for Ctrl-C, SIGTERM or SIGHUP, and names it.

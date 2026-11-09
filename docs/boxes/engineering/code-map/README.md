@@ -30,7 +30,7 @@ Each part of the diagram opens the page that explains it.
 ```mermaid
 flowchart LR
   main["main.rs<br/>commands, startup"] --> drive["Driving: src/drive/<br/>http.rs, pdf.rs, slide_png.rs, video.rs"]
-  main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, external.rs, terminal.rs, chrome.rs, git.rs, extensions.rs"]
+  main --> adapters["Driven: src/adapters/<br/>watch.rs, changes.rs, external.rs, terminal.rs, chrome.rs, git.rs, extensions.rs, update.rs"]
   drive --> core["The core: core/src/<br/>document.rs, folder/, answer.rs, page/,<br/>check.rs, comments/, designs.rs, widgets/, watch/, code/"]
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
@@ -56,6 +56,7 @@ flowchart LR
 | `src/adapters/changes.rs` | The change bus, on tokio: what any producer publishes reaches every subscriber — a page's event stream. Server mode keeps one per published document. |
 | `src/adapters/chrome.rs` | One Chrome session — a Chrome with a profile folder of its own and the router its tabs load from, served on loopback — in one of two profiles: **shot** (chrome-headless-shell with its GPU on, honouring `DEVPAGE_CHROME_SANDBOX`) or **recording** (Chrome for Testing capturing its own tab). `open(path, Open)` waits until the page is ready, sending `X-Devpage-Shot` only when the tab is shot; a tab evaluates, waits, screenshots, prints to bytes, presses keys, sizes its window and closes. Downloads both browsers at the pinned `CHROME_VERSION`. `chrome::testing` is what the Chrome tests drive it with: one Chrome for the whole run, launched in the shot profile on a runtime of its own and killed as the run exits, a `Browser` of its own for each test — a browser context, with its own storage, cache and connections — a test's router served on loopback, and the waits on a page — `eval`, `until`, `until_is`, `next_frames`, `loaded`, `open` — with `answering`, which keeps every request a router answers, and `until_answered`, which waits on it. |
 | `src/adapters/git.rs` | Git, asked for the user's name: the local comment author. |
+| `src/adapters/update.rs` | Whether a newer devpage is out: the latest GitHub Release, asked at most once a day and kept in the cache folder, and the line naming the command that updates this install. `main.rs` asks in the background when serving on a loopback address, for `check` and for `pdf`. |
 | `src/adapters/watch/macos.rs` | The macOS watcher: an FSEvents stream per deep folder, kqueue on the shallow folders and the files directly in them. |
 | `src/adapters/watch/folders.rs` | The Linux and Windows watcher: `notify`'s inotify or ReadDirectoryChangesW watcher, non-recursive on every folder in sight. |
 | `src/adapters/watch/recursive.rs` | The watcher everywhere else: `notify`'s recommended watcher, recursive on the whole served folder. |

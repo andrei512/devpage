@@ -510,7 +510,7 @@ async fn fetch(kind: BrowserKind, name: &str) -> Result<PathBuf> {
 
 /// devpage's cache folder: `~/Library/Caches/devpage` on macOS,
 /// `%LOCALAPPDATA%\devpage` on Windows, `~/.cache/devpage` elsewhere.
-fn cache_folder() -> Result<PathBuf> {
+pub(crate) fn cache_folder() -> Result<PathBuf> {
     if cfg!(windows) {
         let local = std::env::var_os("LOCALAPPDATA")
             .context("no LOCALAPPDATA for devpage's cache folder")?;
