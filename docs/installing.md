@@ -1,8 +1,8 @@
 # Installing devpage
 
 How to get a `devpage` program you can run on any document: downloading the
-prebuilt binary, building it from crates.io, what `devpage pdf` and `devpage video` need, building it from a checkout instead, and
-starting it. It is a task page under the [devpage landing page](README.md);
+prebuilt binary or building it from crates.io or a checkout, starting it,
+staying up to date, and what `devpage pdf` and `devpage video` need. It is a task page under the [devpage landing page](README.md);
 [Getting started](getting-started.md) then walks a first site, doc and deck.
 
 ## What you need
@@ -109,6 +109,18 @@ flags, examples and exit codes; the exact rules are in the
 To serve the docs of another repository, give it a document file — see
 [Documenting another repository](boxes/viewer/writing-a-document/README.md#documenting-another-repository).
 To serve docs to a team, see [Deploying devpage](boxes/viewer/deploying/README.md).
+
+## Staying up to date
+
+Serving a document on your machine, `devpage check` and `devpage pdf` tell you
+when a newer devpage is out, with one line on standard error — the new
+version, yours, and the command that updates it: the install script's, or
+`cargo install devpage --locked` when cargo installed it. To know, devpage
+asks GitHub which release is the latest at most once a day, in the
+background, so nothing waits for it, and keeps the answer in its cache folder.
+It never asks when devpage is deployed — serving on another address than
+your own machine's, or `devpage server` — when a command answers in JSON, on
+CI (`CI` is set), or when `DEVPAGE_NO_UPDATE_CHECK` is set.
 
 ## What pdf and video need
 
