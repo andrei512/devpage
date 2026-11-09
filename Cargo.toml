@@ -7,6 +7,7 @@ rust-version = "1.97"
 description = "Live documents from a repository: sites, docs and slides from Markdown, and UI designs drawn from code — with comments, link checking and PDF"
 license = "MIT"
 repository = "https://github.com/andrei512/devpage"
+homepage = "https://devpage.ai"
 readme = "README.md"
 keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
 categories = ["command-line-utilities", "development-tools"]
@@ -96,6 +97,11 @@ opt-level = 3
 
 [profile.release.package.brotli]
 opt-level = 3
+
+# The prebuilt binaries a release attaches (`dist-workspace.toml`): a release
+# build, the brotli override with it.
+[profile.dist]
+inherits = "release"
 
 # QuickJS draws every diagram a page has; unoptimised it is many times slower.
 [profile.dev.package.rquickjs-sys]

@@ -77,7 +77,14 @@ published once, so a release moves the four crates past the last published
 version together. Each release adds its entry to
 [`CHANGELOG.md`](../../../../../CHANGELOG.md) — what changed for a user, newest
 first — in the commit that moves the version. Publishing is permanent — a version can be yanked but never
-replaced — so it happens only when the operator says so. The
+replaced — so it happens only when the operator says so. Pushing the tag
+runs `.github/workflows/release.yml`, which [dist](https://axodotdev.github.io/cargo-dist/)
+generates from `dist-workspace.toml`: it builds the `devpage` binary for each
+platform [Installing](../../../../installing.md#install-it) lists, on GitHub's
+runners, and publishes a GitHub Release holding them, their checksums and the
+two install scripts that fetch them. The tag must name the version in
+`Cargo.toml`, or the release fails. After a change to `dist-workspace.toml`,
+`dist generate` rewrites the workflow. The
 [example image](../../../viewer/deploying/README.md#the-image) installs the
 released version, so it follows each release.
 

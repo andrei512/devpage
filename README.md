@@ -11,7 +11,7 @@ from [`docs/`](docs/README.md).
 ## Quickstart
 
 ```sh
-cargo install devpage --locked
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.sh | sh
 devpage README.md
 ```
 
@@ -27,8 +27,9 @@ devpage checkout.design   # draw a design on a canvas
 devpage --help            # every command
 ```
 
-Installing needs Rust 1.97 or later and a C compiler. devpage runs on macOS,
-Linux and Windows ([Installing](https://devpage.ai/docs/installing.md)).
+The quickstart's `curl` installs the prebuilt binary on macOS or Linux. Windows
+has a PowerShell one-liner, and `cargo install devpage --locked` builds it with Rust 1.97 or
+later ([Installing](https://devpage.ai/docs/installing.md)).
 
 ## What it does
 

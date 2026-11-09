@@ -28,7 +28,7 @@ description of the program.
   tree-sitter.
 - PDF printing of a doc or a deck, identical to the screen.
 - Light and dark themes from one set of color tokens.
-- Installed with `cargo install devpage`; run locally, or deployed for a team
+- Installed with one command, prebuilt, or with `cargo install devpage`; run locally, or deployed for a team
   behind an auth proxy. MIT licensed.
 
 ## Not built yet
