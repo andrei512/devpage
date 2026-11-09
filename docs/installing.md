@@ -1,13 +1,15 @@
 # Installing devpage
 
-How to get a `devpage` program you can run on any document: installing it from
-crates.io, what `devpage pdf` and `devpage video` need, building it from a checkout instead, and
+How to get a `devpage` program you can run on any document: downloading the
+prebuilt binary, building it from crates.io, what `devpage pdf` and `devpage video` need, building it from a checkout instead, and
 starting it. It is a task page under the [devpage landing page](README.md);
 [Getting started](getting-started.md) then walks a first site, doc and deck.
 
 ## What you need
 
-devpage runs on macOS, Linux and Windows. Installing it builds it, so it needs:
+devpage runs on macOS, Linux and Windows. The prebuilt binary needs nothing:
+one command downloads it. Building it instead — from crates.io or a
+checkout — needs:
 
 - **Rust 1.97 or later**, with `cargo`. Check with `cargo --version`; install
   or update with [rustup](https://rustup.rs).
@@ -22,6 +24,34 @@ it runs, and `devpage video` also needs a GPT-Live key
 ## Install it
 
 <Tabs>
+<Tab title="Prebuilt">
+
+On macOS or Linux:
+
+```sh
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.sh | sh
+```
+
+On Windows, in PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.ps1 | iex"
+```
+
+The script picks the binary for your system — macOS on Apple silicon or
+Intel, Linux on x86-64 or ARM, Windows on x86-64 — downloads it from the
+latest [GitHub Release](https://github.com/andrei512/devpage/releases), puts
+it in `~/.local/bin` (`%USERPROFILE%\.local\bin` on Windows) and adds that
+folder to your `PATH`. Run it again to update; deleting the file removes it.
+`releases/download/v<version>/` in place of `releases/latest/download/`
+installs that version. Releases after 0.3.2 have prebuilt binaries.
+
+The binaries aren't signed. A file a script downloads isn't marked as coming
+from the internet, so neither Gatekeeper on macOS nor SmartScreen on Windows
+stops it; one downloaded with a browser is, and on macOS
+`xattr -d com.apple.quarantine devpage` lets it run.
+
+</Tab>
 <Tab title="From crates.io">
 
 ```sh

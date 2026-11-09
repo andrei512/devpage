@@ -64,6 +64,11 @@ builds the image in `deploy/server/` from the checkout on x86-64, publishes
 into both emulated buckets and downloads a version's PDF, on a pull request
 that touches the code or `deploy/server/`, and on every push to `main`.
 
+**`.github/workflows/release.yml`** builds a release's
+[prebuilt binaries](../stages/README.md#release) when a version tag is pushed.
+On a pull request it builds them all without releasing, so a change that
+breaks a platform's build shows there.
+
 **`.github/workflows/bench.yml`** is [the server's benchmark](../../tests/README.md#the-servers-benchmark),
 run by hand from the Actions tab: it reports a server's numbers against the
 envelope's targets and against the last run from `main`. It gates nothing on

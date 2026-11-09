@@ -7,11 +7,11 @@ every page you have open updates the moment its file is saved — by you or by a
 agent. These pages are devpage's own documentation, served by devpage.
 
 ```sh
-cargo install devpage --locked
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.sh | sh
 devpage README.md
 ```
 
-[Installing](installing.md) has what the build needs; [Getting
+[Installing](installing.md) has Windows and building it yourself; [Getting
 started](getting-started.md) goes from there.
 
 ## What devpage does
