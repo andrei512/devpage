@@ -24,24 +24,25 @@ side by side:
 
 - **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
   `cargo clippy --all-targets -- -D warnings` and `cargo test`, with
-  `--locked` — and then `devpage check docs`, external links included, on
-  the change's own docs. It runs twice, on Linux and on Windows: devpage
-  runs on both and on macOS, where it is developed.
+  `--locked`. It runs twice, on Linux and on Windows: devpage runs on both
+  and on macOS, where it is developed. On Linux it then runs
+  `devpage check docs`, external links included, on the change's own docs.
+  On Windows it then runs the Chrome tests but the GPU's,
+  `cargo test --bin devpage -- --ignored --skip gpu`, with the test build
+  it just made: every test that draws on the GPU has `gpu` in its name, and
+  the runner has no GPU.
 - **`install`** runs `cargo install --path . --locked` in a bare
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
-- **`install-windows`** installs devpage from the checkout on Windows the
-  same way.
-- **`chrome-windows`** runs the Chrome tests on Windows but the GPU's,
-  `cargo test --bin devpage -- --ignored --skip gpu`: every test that draws
-  on the GPU has `gpu` in its name, and the runner has no GPU.
 
 Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
-pinned to a commit, keyed on `Cargo.lock` and the toolchain, and saved when a
-run fails too, so a red run doesn't leave the next one to build them all
-again; devpage's own
-crates are built afresh every run. A change to `Cargo.lock` or the toolchain
+pinned to a commit and keyed on `Cargo.lock` and the toolchain; devpage's own
+crates are built afresh every run. Only a run on `main` saves the cache, a
+red one too, and a pull request reads main's: GitHub keeps 10 GB of caches
+for the repository and evicts the oldest past that, so caches saved by every
+pull request — and by the release builds, which save none — would evict
+main's and leave each run building every dependency again. A change to `Cargo.lock` or the toolchain
 misses the cache, so `install` builds every dependency again — their build
 scripts and C sources too — with nothing added. `install` caches no installed
 binary: one would make the install a no-op.
@@ -66,8 +67,8 @@ that touches the code or `deploy/server/`, and on every push to `main`.
 
 **`.github/workflows/release.yml`** builds a release's
 [prebuilt binaries](../stages/README.md#release) when a version tag is pushed.
-On a pull request it builds them all without releasing, so a change that
-breaks a platform's build shows there.
+On a pull request it only plans the release; the gates build Linux and
+Windows, and macOS is where devpage is developed.
 
 **`.github/workflows/bench.yml`** is [the server's benchmark](../../tests/README.md#the-servers-benchmark),
 run by hand from the Actions tab: it reports a server's numbers against the

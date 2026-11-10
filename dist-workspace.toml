@@ -17,4 +17,6 @@ targets = [
 ]
 install-path = "~/.local/bin/"
 install-updater = false
-pr-run-mode = "upload"
+pr-run-mode = "plan"
+# A release builds rarely; its caches would only evict the gates'.
+cache-builds = false
