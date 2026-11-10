@@ -88,6 +88,15 @@ strip = true
 members = ["extension-api", ".", "core", "design", "design/wasm", "design/module", "bench"]
 default-members = ["extension-api", ".", "core", "design", "design/wasm", "design/module", "bench"]
 
+# Debug builds keep line numbers, for backtraces, and no other debug info;
+# dependencies keep none. Full debug info made a build's target folder about
+# twice the size — the CI caches with it — and slowed linking, Windows' most.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
 # The core's build.rs compresses the built-in assets with brotli at its best, which is
 # slow unoptimised; optimise it in development builds too, and in release
 # builds — `cargo install` among them — where a build script's dependencies
