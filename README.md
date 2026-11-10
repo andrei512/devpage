@@ -11,7 +11,7 @@ from [`docs/`](docs/README.md).
 ## Quickstart
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.sh | sh
+curl -fsSL https://devpage.ai/install.sh | sh
 devpage README.md
 ```
 

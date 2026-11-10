@@ -7,7 +7,7 @@ every page you have open updates the moment its file is saved — by you or by a
 agent. These pages are devpage's own documentation, served by devpage.
 
 ```sh
-curl --proto '=https' --tlsv1.2 -LsSf https://github.com/andrei512/devpage/releases/latest/download/devpage-installer.sh | sh
+curl -fsSL https://devpage.ai/install.sh | sh
 devpage README.md
 ```
 

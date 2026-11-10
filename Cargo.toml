@@ -11,7 +11,7 @@ homepage = "https://devpage.ai"
 readme = "README.md"
 keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["deploy/", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
+exclude = ["deploy/", "install.sh", "install.ps1", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
 
 [dependencies]
 devpage-extension-api = { path = "extension-api", version = "0.3.3" }

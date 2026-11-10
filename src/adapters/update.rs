@@ -108,11 +108,10 @@ fn command(exe: &Path, cargo_bin: Option<&Path>) -> String {
     if cargo_bin.is_some_and(|bin| exe.starts_with(bin)) {
         "cargo install devpage --locked".to_string()
     } else if cfg!(windows) {
-        format!(
-            "powershell -ExecutionPolicy Bypass -c \"irm {LATEST}/download/devpage-installer.ps1 | iex\""
-        )
+        "powershell -ExecutionPolicy Bypass -c \"irm https://devpage.ai/install.ps1 | iex\""
+            .to_string()
     } else {
-        format!("curl --proto '=https' --tlsv1.2 -LsSf {LATEST}/download/devpage-installer.sh | sh")
+        "curl -fsSL https://devpage.ai/install.sh | sh".to_string()
     }
 }
 
@@ -151,11 +150,8 @@ mod tests {
             "cargo install devpage --locked"
         );
         let script = command(Path::new("/home/me/.local/bin/devpage"), Some(bin));
-        assert!(
-            script.contains("releases/latest/download/devpage-installer"),
-            "{script}"
-        );
-        assert!(command(&bin.join("devpage"), None).contains("devpage-installer"));
+        assert!(script.contains("devpage.ai/install."), "{script}");
+        assert!(command(&bin.join("devpage"), None).contains("devpage.ai/install."));
     }
 
     #[test]
