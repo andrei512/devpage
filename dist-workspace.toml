@@ -15,6 +15,8 @@ targets = [
   "x86_64-unknown-linux-gnu",
   "x86_64-pc-windows-msvc",
 ]
+# gzip, not xz: a bare Linux, a slim container's, has no xz to unpack with.
+unix-archive = ".tar.gz"
 install-path = "~/.local/bin/"
 install-updater = false
 pr-run-mode = "plan"
