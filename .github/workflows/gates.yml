@@ -31,17 +31,25 @@ jobs:
         run: |
           rustup toolchain install
           rustup component add rustfmt clippy
-      # The dependencies, built, from the last run with the same Cargo.lock
-      # and toolchain — kept when a run fails too, so a red run doesn't make
-      # the next build every dependency again; devpage's own crates are
-      # always built afresh.
+      # The dependencies, built, from main's last run with the same
+      # Cargo.lock and toolchain; devpage's own crates are always built
+      # afresh. Only main saves: the repository's 10 GB of caches would
+      # otherwise fill with each pull request's, evicting main's.
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+      # On Windows, the Chrome tests too — pages, PDFs, slide PNGs, designs,
+      # videos — on the pinned Chrome, with the test build just made. All
+      # but the GPU's — each has `gpu` in its name: the runner has no GPU.
+      - name: The Chrome tests, but the GPU's
+        if: runner.os == 'Windows'
+        run: cargo test --locked --bin devpage -- --ignored --skip gpu
       - name: The docs pass devpage check, external links too
+        if: runner.os == 'Linux'
         run: cargo run --locked -- check docs
 
   install:
@@ -59,35 +67,8 @@ jobs:
         with:
           cache-bin: false
           cache-on-failure: true
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
-
-  # The same on Windows, beside the Chrome tests rather than before them.
-  install-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-bin: false
-          cache-on-failure: true
-      - name: Install from the checkout with nothing added
-        run: cargo install --path . --locked
-      - run: devpage --version
-
-  # The Chrome tests on Windows — pages, PDFs, slide PNGs, designs, videos —
-  # on the pinned Chrome.
-  chrome-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup toolchain install
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-on-failure: true
-      # All but the GPU's — each has `gpu` in its name: the runner has no GPU.
-      - name: The Chrome tests, but the GPU's
-        run: cargo test --locked --bin devpage -- --ignored --skip gpu
 
