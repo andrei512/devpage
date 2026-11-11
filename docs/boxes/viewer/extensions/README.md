@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Extensions
 
 An extension is a separately built Rust library that a document enables in its `devpage.yml`. Devpage loads it into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).

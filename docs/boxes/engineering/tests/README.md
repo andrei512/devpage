@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Tests
 
 What devpage's test suite covers, module by module, how the tests are written,

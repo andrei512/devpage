@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Rendering a page
 
 How a Markdown file becomes the HTML page a reader sees: comrak turns it into

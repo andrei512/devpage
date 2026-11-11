@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # On main, the box docs describe the system as it is
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

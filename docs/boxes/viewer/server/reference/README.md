@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Server reference
 
 The exact contract of server mode: every CLI command, every API request, and

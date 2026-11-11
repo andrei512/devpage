@@ -1,9 +1,13 @@
+---
+page-type: mechanism
+---
 # Storage
 
 How server mode keeps its data: the store in SQLite and how Litestream backs
 it up, each version's zip in the bucket, and the bounded cache on the PVC that
-makes reading fast. It is the mechanism page of [Server mode](../README.md),
-for someone about to change it.
+makes reading fast. It is a mechanism page under
+[How server mode works](../how-server-mode-works/README.md), for someone about
+to change it.
 
 ```mermaid
 flowchart LR

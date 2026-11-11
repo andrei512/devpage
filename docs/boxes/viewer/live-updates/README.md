@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Live updates
 
 How a saved file reaches every open page: a file watcher over the served
@@ -7,7 +10,7 @@ or, for a change in the comment store, the page's comments — again and swaps
 it in place. It also covers why
 there is one stream per tab; [the page script](../page-script/README.md) is
 the browser's side. It is a
-mechanism page under the [viewer](../README.md), for someone about to change
+mechanism page under [Writing a document](../writing-a-document/README.md), for someone about to change
 `src/adapters/watch.rs`, `core/src/watch/`, `src/adapters/changes.rs`, `src/drive/http.rs` or `core/assets/devpage.js`.
 
 ```mermaid

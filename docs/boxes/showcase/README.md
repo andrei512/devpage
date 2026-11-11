@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # The showcase deck
 
 The design of devpage's own presentation, `docs/talks/devpage/`: what it is

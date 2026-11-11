@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Writing a document
 
 How to write a devpage document: the four kinds and when to use each, the
@@ -148,3 +151,9 @@ How a request becomes a page is explained in
   link to a page, a document file or a heading opens.
 - [Markdown that works](markdown-that-works/README.md) — the GitHub-flavoured
   features, code blocks, images and other files.
+
+- [Serving pages](../serving-pages/README.md) — from a request to a file to a
+  page: the served folder, the document a page belongs to, rendering, assets,
+  addresses and logging.
+- [Live updates](../live-updates/README.md) — from a saved file to a swapped page:
+  the watcher, the event stream and the page script.

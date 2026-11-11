@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Code map
 
 Which module of devpage does what, and how `main` wires them together when

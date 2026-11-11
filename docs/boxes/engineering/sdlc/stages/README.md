@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Stages
 
 What each stage of the flow does, what it produces and the skill that runs it —

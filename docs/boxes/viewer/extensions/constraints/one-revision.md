@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A render uses one extension revision
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

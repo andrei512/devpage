@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # Metrics name no document
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

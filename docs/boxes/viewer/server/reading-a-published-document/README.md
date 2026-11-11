@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Reading a published document
 
 What a reader gets from a document's link: the latest version, live as it

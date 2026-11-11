@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # Viewer
 
 The viewer is the `devpage` program. It serves **documents** from a folder
@@ -151,31 +154,6 @@ Each card opens the page that explains it.
   and function of a site's code, read with tree-sitter, live, and checked when
   prose links to it.
 - [Extensions](extensions/README.md) — Enabling a local Rust package without assembling another executable.
-
-### Mechanisms
-
-- [Serving pages](serving-pages/README.md) — from a request to a file to a
-  page: the served folder, the document a page belongs to, rendering, assets,
-  addresses and logging.
-- [Live updates](live-updates/README.md) — from a saved file to a swapped page:
-  the watcher, the event stream and the page script.
-- [Design engine](design-engine/README.md) — parsing, resolving, layout and
-  painting in one crate for two targets, and the gRPC-Web watch stream.
-- [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
-  from Topics sections, resolved, grouped and kept free of cycles.
-- [Search](search/README.md) — the full-text index of what the served
-  document publishes: what is searched and indexed, the query, how it ranks
-  and groups by page, how it stays current,
-  `/__devpage/search`, and the search box in the sidebar.
-- [The vendored pele bundle](vendored-pele/README.md) — the third-party
-  diagram renderer built into devpage: its source, version, licences and how
-  to upgrade it.
-- [The vendored React bundle](vendored-react/README.md) — the React that
-  widgets run with: its version, how it is built, its licence and how to
-  upgrade it.
-- [The vendored icons](vendored-icons/README.md) — the Lucide icons and
-  GitHub's mark devpage draws in navbars and the theme selector: versions,
-  licences and how to upgrade them.
 
 ### Reference
 

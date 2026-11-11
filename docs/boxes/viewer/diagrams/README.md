@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Diagrams
 
 How to put a diagram in a page with a Mermaid fence, how to make its nodes
@@ -161,3 +164,9 @@ pele colors its SVG with `--pele-*` CSS variables, which the page's
 stylesheet sets from the theme tokens, so a diagram drawn on the server still
 follows the light and dark themes in the browser
 ([How themes reach code and diagrams](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams)).
+
+## Topics
+
+- [The vendored pele bundle](../vendored-pele/README.md) — the third-party
+  diagram renderer built into devpage: its source, version, licences and how
+  to upgrade it.

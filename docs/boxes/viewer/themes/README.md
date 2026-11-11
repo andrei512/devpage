@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Themes
 
 How the light and dark themes color everything — the page, highlighted code,

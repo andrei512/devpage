@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Comments
 
 How readers comment on a site, a doc or a deck — a design is discussed on the

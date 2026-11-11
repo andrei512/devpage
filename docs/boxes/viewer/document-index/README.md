@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Which document a file belongs to
 
 How the viewer decides what a requested file is — a document file, a page of a

@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Organizing navigation
 
 How a site's sidebar is built from the `## Topics` sections of its pages —
@@ -187,8 +190,9 @@ In practice:
 
 - Give each subject a landing page whose Topics groups its children under
   `###` headings by layer or by reader goal — for example `### Essentials`,
-  `### Concepts and tasks`, `### Mechanisms`, `### Reference` — in reading
-  order.
+  `### Concepts and tasks`, `### Reference` — in reading order. List a
+  mechanism under the article that explains what it is a mechanism of, so a
+  reader reaches it one level at a time.
 - Start every page with `# Title` and one abstract paragraph, and follow each
   Topics link with a one-line abstract, so a list of links reads as a summary.
 - Link both ways: a page links up to its parent in its text, and down to the
@@ -200,8 +204,17 @@ In practice:
 
 A site can have devpage hold it to such a layout: it defines its own page
 types and says which may sit under which, and a page out of place is a
-problem ([Structuring a site](../structuring-a-site/README.md)).
+problem ([Structuring a site](../structuring-a-site/README.md)). These docs
+do: each layer above is a type file in `docs/structure/`.
 
 The [viewer](../README.md) is laid out this way: its Topics run from
 [Getting started](../../../getting-started.md) down to the
 [configuration reference](../configuration-reference/README.md).
+
+## Topics
+
+- [Navigation tree](../navigation-tree/README.md) — how a sidebar tree is read
+  from Topics sections, resolved, grouped and kept free of cycles.
+- [The vendored icons](../vendored-icons/README.md) — the Lucide icons and
+  GitHub's mark devpage draws in navbars and the theme selector: versions,
+  licences and how to upgrade them.

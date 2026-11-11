@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Configuration reference
 
 The exact contract of a devpage document file and of the `devpage` command

@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # General constraints
 
 Rules that belong to no single box, checked on **every** review rather than only

@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Using widgets
 
 How to put a widget in a page: its props, its content, when it is a block and

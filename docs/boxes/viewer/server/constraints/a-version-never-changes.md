@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A version never changes
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

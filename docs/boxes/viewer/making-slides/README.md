@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Making slides
 
 How to make a deck: one Markdown file per slide, listed in order by a document

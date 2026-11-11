@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A PDF is the page the browser shows
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

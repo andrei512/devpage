@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Structuring a site
 
 How to give a site's pages a structure devpage checks: every page says what
@@ -118,7 +121,12 @@ The pages checked are the site's own: the Markdown files `devpage check`
 reaches that belong to this site. Type files, the site's `404.md` and the root
 page's missing parent are not problems. A document of another kind listed in a
 Topics section — a doc, a deck, a design, a code reference — has no type and
-is not checked; a nested site has its own structure, or none.
+is not checked, and neither is a chapter of a doc or a slide of a deck that
+lies in the site's folder; a nested site has its own structure, or none.
+
+These docs are structured this way: [`docs/structure/`](../../../structure/landing.md)
+holds their seven types, and a mechanism page is listed only under the
+article that explains what it is a mechanism of.
 
 Whether a page is true to its type — an essentials page that really teaches
 the mental model — is not something devpage can tell. Review judges that,

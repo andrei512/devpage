@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Publishing a document
 
 How to publish a document to a devpage server and keep it up to date from the

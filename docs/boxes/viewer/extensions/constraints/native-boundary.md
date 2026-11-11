@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # The native boundary is versioned
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

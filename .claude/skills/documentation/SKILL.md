@@ -24,6 +24,13 @@ answering a different question:
 | **4. Mechanisms** | How does this part work inside, and why? | One page per mechanism: its design, the reasons for it, its failure modes. Written for someone about to change it. |
 | **5. Reference** | What exactly is the contract? | Schemas, APIs, configuration, vocabularies — complete and exact, reachable from any layer. |
 
+Each layer is a page type with a file in `docs/structure/`, which says what a
+page of that type is for and which types it may sit under. Every page names
+its type in front matter (`page-type: mechanism`), and `devpage check docs`
+reports a page with no type, a page no Topics section lists, and a page under
+a parent its type does not allow. Read the type file before writing a page of
+that type.
+
 Rules that make the hierarchy work:
 
 - **Don't skip a layer.** A mechanism page with no essentials and concept
@@ -39,8 +46,9 @@ Rules that make the hierarchy work:
   readable.
 - **Topics connect the layers.** A page lists its children in a `## Topics`
   section at its end, grouped under `###` headings by layer or reader goal
-  ("Essentials", "Working with state", "Mechanisms", "Reference"), each link
-  followed by a one-line abstract. The order of the list is the reading order.
+  ("Essentials", "Working with state", "Reference"), each link
+  followed by a one-line abstract. A mechanism is listed under the article
+  that explains what it is a mechanism of, never on a landing page. The order of the list is the reading order.
 - **Link both ways.** Each page links up to where it sits and down to the next
   useful detail. Essentials and concept articles link to the mechanisms that
   implement them; mechanisms link to the reference for exact contracts.

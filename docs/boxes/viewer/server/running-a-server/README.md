@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Running a server
 
 How to deploy `devpage server`: what it needs, the example image to copy, its

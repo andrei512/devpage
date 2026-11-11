@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Making a video
 
 How a deck becomes a narrated video: `devpage video` has GPT-Live read each

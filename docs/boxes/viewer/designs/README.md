@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Designs
 
 A **design** is a UI drawn as code: a `.design` file an agent writes, which
@@ -405,3 +408,6 @@ The rule that the canvas and the PNG are drawn by the same code is
 
 - [Elements and attributes](elements-and-attributes/README.md) — every
   element, attribute, value and default a design can use.
+
+- [Design engine](../design-engine/README.md) — parsing, resolving, layout and
+  painting in one crate for two targets, and the gRPC-Web watch stream.

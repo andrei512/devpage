@@ -134,6 +134,11 @@ significant claims against code and real wiring, and check what the subject
 omitted, not only what it says. Do its links resolve; does it contradict another
 document; could someone act on it without having been in the conversation.
 
+`devpage check docs` tells whether each page names a type and sits under a
+parent its type allows. It cannot tell whether the page is true to its type:
+read the type's file in `docs/structure/` and judge the page against that
+text. A page that does two types' jobs is a finding — it is split.
+
 Distinguish incorrect behavior, broken navigation, missing coverage and editorial
 problems in the report. Demonstrate each with the source, failed check or exact
 reading transition. Keep author and reviewer separate.

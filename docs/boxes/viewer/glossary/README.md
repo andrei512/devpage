@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Viewer glossary
 
 The words the viewer owns, one section per term, so any page can link to a

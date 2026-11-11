@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # The PVC is only a cache
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

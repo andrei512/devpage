@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Markdown that works
 
 Every Markdown feature a page can use, how code blocks are highlighted, and how

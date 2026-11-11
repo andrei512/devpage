@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # Server mode
 
 Server mode is devpage as a place to publish documents. `devpage server` runs
@@ -38,7 +41,7 @@ flowchart LR
 
 - [How server mode works](how-server-mode-works/README.md) — the mental model:
   a document, its versions, a context, and one document followed from first
-  publish to its second version.
+  publish to its second version; under it, how the data is stored.
 
 ### Concepts and tasks
 
@@ -49,11 +52,6 @@ flowchart LR
   downloads.
 - [Running a server](running-a-server/README.md) — the example image, its
   environment, Kubernetes, and putting your own proxy in front.
-
-### Mechanisms
-
-- [Storage](storage/README.md) — the store in SQLite and how Litestream keeps
-  it, version zips in the bucket, and the bounded cache on the PVC.
 - [Measuring a server](measuring-a-server/README.md) — the envelope one server
   holds and its targets, the metrics it reports on its own port, and the
   benchmark that checks both.

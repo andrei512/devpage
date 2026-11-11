@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Code reference
 
 A site's [code reference](../glossary/README.md#code-reference) is a page for

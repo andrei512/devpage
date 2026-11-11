@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Reading the code
 
 How devpage turns a namespace's files into the pages of a

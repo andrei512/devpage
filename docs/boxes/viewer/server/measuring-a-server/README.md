@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Measuring a server
 
 How much one devpage server holds, and how to tell which part of it gives out

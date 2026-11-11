@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # The system catalog
 
 Every part of devpage is explained here once, in the folder of the subject that

@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Review bars and CI
 
 The two bars a change is reviewed against — one for a ticket going into a

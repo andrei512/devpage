@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # Surface area arrives with its consumer
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # Decisions live in box docs, not in a decision log
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # The served folder is the boundary
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

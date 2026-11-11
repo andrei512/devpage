@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # devpage
 
 devpage renders the documents a software project lives by — a site of system

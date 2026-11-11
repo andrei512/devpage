@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # The page script
 
 What `core/assets/devpage.js` does in every open page: swapping a page in place,

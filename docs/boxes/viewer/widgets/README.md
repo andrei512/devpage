@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Widgets
 
 **Widgets** make a page more visual: React components written as HTML tags in

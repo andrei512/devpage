@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Search
 
 How the viewer finds text: `core/src/search/` keeps a full-text index of the
@@ -5,7 +8,7 @@ sections of everything the served document publishes in memory, ranks a
 query's matches with BM25, groups them by page and answers
 `GET /__devpage/search?q=…` with them as JSON, which the search box at the
 top of a site's sidebar shows as the reader types. It is a mechanism page
-under the [viewer](../README.md), for someone about to change what is
+under [Making a site](../making-a-site/README.md), for someone about to change what is
 searched, how it ranks, what the endpoint answers or how the search box
 behaves.
 

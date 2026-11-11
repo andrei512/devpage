@@ -1,3 +1,6 @@
+---
+page-type: essentials
+---
 # Getting started
 
 The few ideas you need to reason about devpage — documents and their

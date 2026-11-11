@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Writing a project widget
 
 How a project adds its own widgets: the folder they live in, what a widget

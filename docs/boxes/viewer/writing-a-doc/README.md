@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Writing a doc
 
 How to write a **doc** — a design doc, a PRD, a proposal: a document read top to

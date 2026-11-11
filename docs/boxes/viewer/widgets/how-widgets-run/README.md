@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # How widgets run
 
 How a widget tag in Markdown becomes a mounted React component: the
@@ -116,3 +119,9 @@ mounted, which is what `devpage pdf` waits for.
 
 Widget and helper files refresh open pages whatever a site's `watch` list says
 ([Live updates](../../live-updates/README.md#the-watcher)).
+
+## Topics
+
+- [The vendored React bundle](../../vendored-react/README.md) — the React that
+  widgets run with: its version, how it is built, its licence and how to
+  upgrade it.

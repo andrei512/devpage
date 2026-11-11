@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Checking links
 
 How devpage finds broken links: what counts as a problem, how the preview shows

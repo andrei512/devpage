@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Skills reference
 
 Every skill in this repository — who starts it, what it takes and what it

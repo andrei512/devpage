@@ -246,14 +246,23 @@ fn internal(
     // Every page of a deck the check reaches is a slide, however else it is
     // reached: its notes are judged once the whole walk is done.
     let mut slides = HashSet::new();
-    let deck_pages = |linked: &Document, slides: &mut HashSet<PathBuf>| {
-        let found = pages(linked);
-        if matches!(linked.kind, Kind::Slides { .. }) {
-            slides.extend(found.iter().cloned());
-        }
-        found
-    };
-    let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides).into();
+    // A chapter of a doc or a slide of a deck is that document's part, not a
+    // page of the site whose folder it lies in: no structure asks it for a type.
+    let mut parts = HashSet::new();
+    let deck_pages =
+        |linked: &Document, slides: &mut HashSet<PathBuf>, parts: &mut HashSet<PathBuf>| {
+            let found = pages(linked);
+            match linked.kind {
+                Kind::Slides { .. } => {
+                    slides.extend(found.iter().cloned());
+                    parts.extend(found.iter().cloned());
+                }
+                Kind::Doc { .. } => parts.extend(found.iter().cloned()),
+                Kind::Site { .. } | Kind::Design => {}
+            }
+            found
+        };
+    let mut queue: VecDeque<PathBuf> = deck_pages(document, &mut slides, &mut parts).into();
     // A page is checked as its nearest site's page, whichever document the
     // check started from — as the preview shows it. Widgets are read and
     // compiled once per check.
@@ -317,7 +326,7 @@ fn internal(
                 if target.extension().is_some_and(|ext| ext == "md") {
                     queue.push_back(target);
                 } else if let Ok(linked) = Document::load(&target, &document.served) {
-                    queue.extend(deck_pages(&linked, &mut slides));
+                    queue.extend(deck_pages(&linked, &mut slides, &mut parts));
                 }
             }
         }
@@ -335,7 +344,9 @@ fn internal(
             }
             structure
         });
-        if let Some(structure) = structure {
+        if let Some(structure) = structure
+            && !parts.contains(&page)
+        {
             problems.extend(structure.problems(owner, &page, rendered.source()));
         }
         checked.push(rendered);
@@ -349,7 +360,7 @@ fn internal(
             {
                 // An invalid one is a problem on the page linking to it.
                 if let Ok(linked) = Document::load(&target, &document.served) {
-                    queue.extend(deck_pages(&linked, &mut slides));
+                    queue.extend(deck_pages(&linked, &mut slides, &mut parts));
                 }
             }
         }
@@ -1870,6 +1881,23 @@ mod structure {
             ("ref.md", "---\npage-type: reference\n---\n# Ref\n"),
         ]);
         let found = checked(&site("structure-ok", &files)).await;
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn a_chapter_or_a_slide_in_the_sites_folder_is_asked_for_no_type() {
+        let mut files = TYPES.to_vec();
+        files.extend([
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\nThe [tour](tour/devpage.yml) and the [talk](talk/devpage.yml).\n",
+            ),
+            ("tour/devpage.yml", "kind: doc\ntitle: Tour\nchapters: [one.md]\n"),
+            ("tour/one.md", "# One\n"),
+            ("talk/devpage.yml", "kind: slides\ntitle: Talk\nslides: [first.md]\n"),
+            ("talk/first.md", "# First\n"),
+        ]);
+        let found = checked(&site("structure-parts", &files)).await;
         assert!(found.is_empty(), "{found:#?}");
     }
 

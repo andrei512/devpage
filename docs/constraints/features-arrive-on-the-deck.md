@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A feature a user sees arrives on the deck
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

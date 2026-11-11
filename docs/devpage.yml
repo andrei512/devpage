@@ -3,6 +3,7 @@ kind: site
 title: devpage
 root: README.md
 widgets: widgets
+structure: structure
 logo: logo.svg
 navbar:
   Docs (book-open): README.md

@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # SDLC
 
 How work gets from an idea to running code: the stages every change to devpage

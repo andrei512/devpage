@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Branches
 
 Which branches carry a change from idea to `main` — design, prototype, ticket

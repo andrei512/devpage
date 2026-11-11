@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Printing to PDF
 
 How a doc or a deck becomes a PDF that looks exactly like the page in the

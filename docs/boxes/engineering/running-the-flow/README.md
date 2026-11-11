@@ -1,3 +1,6 @@
+---
+page-type: essentials
+---
 # Running the flow with skills
 
 How the operator drives a change through devpage's development flow in this

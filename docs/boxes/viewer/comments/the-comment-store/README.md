@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # The comment store
 
 Where threads are kept and how to read or resolve them from the files — the

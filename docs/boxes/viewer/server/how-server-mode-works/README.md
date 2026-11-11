@@ -1,3 +1,6 @@
+---
+page-type: essentials
+---
 # How server mode works
 
 The mental model of server mode: four ideas — a document, its versions, a
@@ -65,3 +68,8 @@ Version 1 stays readable at `/d/<id>/v/1`.
 - [Reading a published document](../reading-a-published-document/README.md) —
   what readers see.
 - [Running a server](../running-a-server/README.md) — deploying one.
+
+## Topics
+
+- [Storage](../storage/README.md) — the store in SQLite and how Litestream keeps
+  it, version zips in the bucket, and the bounded cache on the PVC.

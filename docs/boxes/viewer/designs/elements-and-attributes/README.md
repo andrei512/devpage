@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Elements and attributes
 
 Every element a design can use and every attribute each one takes, with its

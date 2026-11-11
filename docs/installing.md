@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Installing devpage
 
 How to get a `devpage` program you can run on any document: downloading the

@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Your first site, doc and deck
 
 A walk from an empty folder to a small site, a doc and a deck that update

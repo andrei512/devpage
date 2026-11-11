@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Links between pages and documents
 
 What a link opens: a page, a document of another kind, or a heading — and why

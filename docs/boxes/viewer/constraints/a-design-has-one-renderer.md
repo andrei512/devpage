@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A design has one renderer
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

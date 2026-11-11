@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # How themes reach code and diagrams
 
 How highlighted code and Mermaid diagrams take their colors from the theme

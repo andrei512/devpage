@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Making a site
 
 How to make a site — a project's documentation as many pages, with a sidebar
@@ -103,3 +106,9 @@ These docs are a site: [`docs/devpage.yml`](../../../devpage.yml) with a navbar,
 a logo, widgets and a sidebar built from Topics, starting at the
 [landing page](../../../README.md). Every field is in the
 [configuration reference](../configuration-reference/README.md#site).
+
+## Topics
+
+- [Search](../search/README.md) — the full-text index behind the sidebar's
+  search box: what is searched, how it ranks and groups by page, and how it
+  stays current.

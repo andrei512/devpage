@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # System widgets
 
 Every widget devpage ships, in every document, each shown live beside the

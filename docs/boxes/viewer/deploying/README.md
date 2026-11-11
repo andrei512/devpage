@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Deploying devpage
 
 How to run devpage for a team — on a Kubernetes cluster or any container host

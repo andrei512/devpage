@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # One replica
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

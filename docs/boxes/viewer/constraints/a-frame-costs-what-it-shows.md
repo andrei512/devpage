@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # A frame costs what it shows
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

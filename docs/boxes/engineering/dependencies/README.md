@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Dependencies
 
 Every crate devpage depends on, with the version `Cargo.lock` resolves and

@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Working with an agent
 
 What to tell a coding agent so it works with devpage the way you do: it

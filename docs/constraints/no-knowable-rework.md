@@ -1,3 +1,6 @@
+---
+page-type: constraint
+---
 # No knowable rework
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">

@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Developing devpage
 
 How to work on devpage itself: build it, run its tests and the three gates,

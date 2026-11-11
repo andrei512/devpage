@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Vision
 
 devpage renders the documents a software project lives by — system docs,
