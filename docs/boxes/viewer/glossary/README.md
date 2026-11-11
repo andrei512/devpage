@@ -54,7 +54,7 @@ GPT-Live, as `devpage video` uses it: told the deck's audience, goal and tone an
 
 ## pacing
 
-How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/README.md#how-it-is-recorded).
+How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/how-a-video-is-recorded/README.md#how-it-is-recorded).
 
 ## document file
 
@@ -382,7 +382,7 @@ A page rendered for Chrome to print: no live updates, no comments, no navigation
 
 ## Chrome session
 
-One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/README.md#the-chrome-it-drives).
+One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives).
 
 ## built-in asset
 

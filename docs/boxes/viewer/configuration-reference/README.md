@@ -281,7 +281,7 @@ document file reached by a link don't stop devpage: they are [problems](../check
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, with the
 error `downloading chrome-headless-shell <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
+when the first download of [its Chrome](../pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives) fails,
 with `chrome-headless-shell <version> has no build for <os> on <arch>` on a
 platform that has none, and with `pdf prints a doc or slides, not a design` when given a design.
 
@@ -299,7 +299,7 @@ when no narrator is set, `DEVPAGE_AZURE_OPENAI_ENDPOINT is set but DEVPAGE_AZURE
 `video records slides, not a site` (or `a doc`, `a design`), and
 `every slide needs <Notes> to be narrated; these have none: <n> (<file>), …`.
 Once running it stops with `downloading chrome-for-testing <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../making-a-video/README.md#the-chrome-it-drives)
+when the first download of [its Chrome](../making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives)
 fails, `chrome-for-testing <version> has no build for <os> on <arch>` on a
 platform that has none, `connecting to GPT-Live at <address>` when the session can't open (a
 wrong key is `HTTP error: 401 Unauthorized`), with the error GPT-Live sends as

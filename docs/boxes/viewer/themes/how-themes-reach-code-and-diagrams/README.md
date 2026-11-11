@@ -12,7 +12,7 @@ change `core/assets/style.css`.
 
 The highlighter marks code with classes named after syntax scopes, prefixed
 `hl-` (`hl-keyword`, `hl-string`, `hl-comment`…), and `core/assets/style.css` maps
-groups of those classes to the `--syntax-*` [tokens](../README.md#the-tokens):
+groups of those classes to the `--syntax-*` [tokens](../tokens/README.md#the-tokens):
 comments (in italics), strings, numeric and language constants, keywords and
 storage (in semibold), type names, function names, and tags, attribute names
 and macros. Code the stylesheet doesn't map keeps the body text color. How the

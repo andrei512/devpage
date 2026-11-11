@@ -117,7 +117,7 @@ the page is the theme's **tokens**. Written with them — `var(--text)`,
 `var(--font)`, `var(--font-mono)` — a widget follows the light and dark themes
 with nothing else to do; where it must differ beyond the tokens, scope the
 rule to `:root[data-theme="dark"]`, which follows the reader's choice in the
-theme switch ([Themes](../../themes/README.md#the-tokens)).
+theme switch ([Themes](../../themes/tokens/README.md#the-tokens)).
 
 What a failing widget looks like is on
 [Using widgets](../using-widgets/README.md#when-a-widget-fails).

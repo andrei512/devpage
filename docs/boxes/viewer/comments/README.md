@@ -1,12 +1,12 @@
 ---
-page-type: concept
+page-type: task
 ---
 # Comments
 
 How readers comment on a site, a doc or a deck — a design is discussed on the
 page that embeds it — and where those comments live: threads anchored to selected text or a paragraph, kept one file
 per thread in a `.devpage/` folder git never sees, and resolved by deleting
-that file. It is a concept and task article under the [viewer](../README.md);
+that file. It is a task article under the [viewer](../README.md);
 the files threads are kept in are on [The comment store](the-comment-store/README.md).
 
 Comments are working notes about the docs, not part of them. Locally, the loop
@@ -114,3 +114,5 @@ reading, replying or resolving from the files is on
 
 - [The comment store](the-comment-store/README.md) — the thread files, their
   YAML, and the requests the page script makes.
+- [How a comment is written](how-a-comment-is-written/README.md) — the one
+  path every thread write takes to its file and to every open page.

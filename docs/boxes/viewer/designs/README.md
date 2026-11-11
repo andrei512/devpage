@@ -8,7 +8,7 @@ devpage renders on a canvas at high fidelity and lets a reader click through
 as a **prototype**. Designs exist so that an agent can show a screen or a flow
 before anyone builds it, and so that people can agree on it fast — with the
 agent, or with each other on a [deployed](../deploying/README.md) devpage. It is
-a concept and task article under the [viewer](../README.md); how a design is
+a task article under the [viewer](../README.md); how a design is
 parsed, laid out, drawn and streamed is in the
 [design engine](../design-engine/README.md).
 
