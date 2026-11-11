@@ -14,6 +14,7 @@ use crate::page::{self, Rendered};
 use crate::external::{External, Link};
 use crate::html;
 use crate::problem::Problem;
+use crate::structure::Structure;
 use crate::widgets::{Modules, Widgets};
 
 /// The pages a document is made of.
@@ -260,6 +261,8 @@ fn internal(
     let mut widget_folders = HashSet::new();
     let mut navbars = HashSet::new();
     let mut logos = HashSet::new();
+    // A site's structure is read once, and its type files checked with it.
+    let mut structures: HashMap<PathBuf, Option<Structure>> = HashMap::new();
     while let Some(page) = queue.pop_front() {
         if !seen.insert(page.clone()) {
             continue;
@@ -322,6 +325,19 @@ fn internal(
         let (found, reached) =
             page_links_with(folder, owner, &modules, designs, &rendered, external);
         problems.extend(found);
+        let structure = structures.entry(owner.path()).or_insert_with(|| {
+            let structure = Structure::of(owner);
+            if let Some(structure) = &structure {
+                problems.extend(structure.type_problems());
+                for file in structure.files() {
+                    follow(document, designs, &mut files, file);
+                }
+            }
+            structure
+        });
+        if let Some(structure) = structure {
+            problems.extend(structure.problems(owner, &page, rendered.source()));
+        }
         checked.push(rendered);
         for target in reached {
             follow(document, designs, &mut files, &target);
@@ -786,6 +802,14 @@ impl Preview {
         let mut problems = widget_problems(document, widgets);
         problems.extend(page::navbar::problems(document));
         problems.extend(page::navbar::logo_problem(document));
+        if let Some(structure) = Structure::of(document) {
+            problems.extend(structure.type_problems());
+            problems.extend(
+                pages
+                    .iter()
+                    .flat_map(|page| structure.problems(document, page.file(), page.source())),
+            );
+        }
         problems.extend(pages.iter().flat_map(|page| {
             page_links_with(
                 folder,
@@ -1772,6 +1796,262 @@ mod documents {
                 "talk/one.md",
                 "talk/talk.yml",
             ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod structure {
+    use super::tests::{designs_of, opened, rendered};
+    use super::*;
+    use crate::external::testing::offline;
+    use crate::folder::ServedFolder;
+    use crate::widgets::Modules;
+
+    /// A site named `name` with a structure folder, holding `files` — each a
+    /// path in the site and its text.
+    fn site(name: &str, files: &[(&str, &str)]) -> Document {
+        let dir = std::env::temp_dir().join(format!("devpage-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("structure")).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nstructure: structure\n",
+        )
+        .unwrap();
+        for (file, text) in files {
+            let file = dir.join(file);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            std::fs::write(file, text).unwrap();
+        }
+        Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap()
+    }
+
+    /// Every problem `devpage check` finds in `doc`, as it prints them.
+    async fn checked(doc: &Document) -> Vec<String> {
+        document(&opened(doc), &designs_of(doc), None)
+            .await
+            .iter()
+            .map(ToString::to_string)
+            .collect()
+    }
+
+    /// Landing, essentials under a landing, mechanism under essentials or a
+    /// mechanism, reference anywhere.
+    const TYPES: [(&str, &str); 4] = [
+        ("structure/landing.md", "# Landing\n"),
+        (
+            "structure/essentials.md",
+            "---\nparent: landing\n---\n# Essentials\n",
+        ),
+        (
+            "structure/mechanism.md",
+            "---\nparent: [essentials, mechanism]\n---\n# Mechanism\n",
+        ),
+        ("structure/reference.md", "# Reference\n"),
+    ];
+
+    #[tokio::test]
+    async fn a_tree_that_goes_down_by_its_types_has_no_problem() {
+        let mut files = TYPES.to_vec();
+        files.extend([
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\n## Topics\n\n- [How](how.md)\n- [Ref](ref.md)\n",
+            ),
+            (
+                "how.md",
+                "---\npage-type: essentials\n---\n# How\n\n## Topics\n\n- [Store](store.md)\n",
+            ),
+            (
+                "store.md",
+                "---\npage-type: mechanism\n---\n# Store\n\n## Topics\n\n- [Cache](cache.md)\n",
+            ),
+            ("cache.md", "---\npage-type: mechanism\n---\n# Cache\n"),
+            ("ref.md", "---\npage-type: reference\n---\n# Ref\n"),
+        ]);
+        let found = checked(&site("structure-ok", &files)).await;
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[tokio::test]
+    async fn a_page_under_a_parent_its_type_does_not_allow_is_a_problem_at_the_entry() {
+        let mut files = TYPES.to_vec();
+        files.extend([
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\nThe [store](store.md), in passing.\n\n## Topics\n\n- [How](how.md)\n- [Store](store.md)\n",
+            ),
+            ("how.md", "---\npage-type: essentials\n---\n# How\n"),
+            ("store.md", "---\npage-type: mechanism\n---\n# Store\n"),
+        ]);
+        let found = checked(&site("structure-parent", &files)).await;
+        assert_eq!(
+            found,
+            [
+                "README.md:11: store.md — a page of type mechanism sits under essentials or mechanism, and this page's type is landing"
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_page_needs_a_type_the_folder_has_and_a_place_in_the_tree() {
+        let mut files = TYPES.to_vec();
+        files.extend([
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\nSee [loose](loose.md).\n\n## Topics\n\n- [Bare](bare.md)\n- [Typo](typo.md)\n",
+            ),
+            ("bare.md", "# Bare\n"),
+            ("typo.md", "---\npage-type: mecanism\n---\n# Typo\n"),
+            ("loose.md", "---\npage-type: reference\n---\n# Loose\n"),
+        ]);
+        let mut found = checked(&site("structure-types", &files)).await;
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "bare.md: no page-type",
+                "loose.md: no Topics section lists this page",
+                "typo.md:2: page-type mecanism — no structure/mecanism.md",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_types_sections_must_be_there_in_order() {
+        let files = [
+            ("structure/landing.md", "# Landing\n"),
+            (
+                "structure/constraint.md",
+                "---\nsections: [Why, Check]\n---\n# Constraint\n",
+            ),
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\n## Topics\n\n- [Good](good.md)\n- [Half](half.md)\n- [Swapped](swapped.md)\n",
+            ),
+            (
+                "good.md",
+                "---\npage-type: constraint\n---\n# Good\n\n## Why\n\n## Also\n\n## Check\n",
+            ),
+            (
+                "half.md",
+                "---\npage-type: constraint\n---\n# Half\n\n## Why\n\n```\n## Check\n```\n",
+            ),
+            (
+                "swapped.md",
+                "---\npage-type: constraint\n---\n# Swapped\n\n## Check\n\n## Why\n",
+            ),
+        ];
+        let mut found = checked(&site("structure-sections", &files)).await;
+        found.sort();
+        assert_eq!(
+            found,
+            [
+                "half.md: no ## Check section — a page of type constraint has ## Why, ## Check",
+                "swapped.md:6: ## Check comes before ## Why — a page of type constraint has ## Why, ## Check",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_type_files_own_mistakes_are_problems_on_it_reported_once() {
+        let files = [
+            ("structure/landing.md", "# Landing\n"),
+            (
+                "structure/essentials.md",
+                "---\nparent: landin\n---\n# Essentials\n",
+            ),
+            (
+                "structure/reference.md",
+                "---\nparents: landing\n---\n# Reference\n",
+            ),
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\n## Topics\n\n- [Ref](ref.md)\n",
+            ),
+            ("ref.md", "---\npage-type: reference\n---\n# Ref\n"),
+        ];
+        let mut found = checked(&site("structure-type-files", &files)).await;
+        found.sort();
+        assert_eq!(found.len(), 2, "{found:#?}");
+        assert_eq!(
+            found[0],
+            "structure/essentials.md:2: parent landin — no structure/landin.md"
+        );
+        assert!(
+            found[1]
+                .starts_with("structure/reference.md:2: front matter — unknown field `parents`"),
+            "{found:#?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_site_with_no_structure_folder_asks_no_page_for_a_type() {
+        let doc = site("structure-none", &[("README.md", "# Home\n")]);
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        let doc = Document::load(&doc.base, &doc.served).unwrap();
+        let found = checked(&doc).await;
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[test]
+    fn the_preview_shows_a_pages_own_structure_problems() {
+        let mut files = TYPES.to_vec();
+        files.extend([
+            (
+                "README.md",
+                "---\npage-type: landing\n---\n# Home\n\n## Topics\n\n- [Store](store.md)\n- [Bare](bare.md)\n",
+            ),
+            ("store.md", "---\npage-type: mechanism\n---\n# Store\n"),
+            ("bare.md", "# Bare\n"),
+        ]);
+        let doc = site("structure-preview", &files);
+        let preview = |page: &str| -> Vec<String> {
+            Preview::new(offline(), Arc::new(Silent))
+                .problems(
+                    &opened(&doc),
+                    &doc,
+                    &Widgets::of(&doc, &Modules::default()),
+                    &designs_of(&doc),
+                    &rendered(&doc, &[doc.base.join(page)]),
+                )
+                .iter()
+                .map(ToString::to_string)
+                .collect()
+        };
+        assert_eq!(
+            preview("README.md"),
+            [
+                "README.md:8: store.md — a page of type mechanism sits under essentials or mechanism, and this page's type is landing"
+            ]
+        );
+        assert_eq!(preview("bare.md"), ["bare.md: no page-type"]);
+        assert!(preview("store.md").is_empty());
+    }
+
+    /// Tells no one.
+    struct Silent;
+
+    impl Report for Silent {
+        fn problem(&self, _: &Problem) {}
+    }
+
+    #[test]
+    fn a_structure_that_names_no_folder_stops_the_site_loading() {
+        let doc = site("structure-missing", &[("README.md", "# Home\n")]);
+        std::fs::write(
+            doc.base.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nstructure: nowhere\n",
+        )
+        .unwrap();
+        let error = Document::load(&doc.base, &doc.served).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("structure nowhere is not a folder"),
+            "{error:#}"
         );
     }
 }

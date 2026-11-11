@@ -77,7 +77,8 @@ anywhere and needs no section.
 A page's parent is the page whose [Topics](../organizing-navigation/README.md#a-topics-section)
 section lists it — its place in the sidebar. A page listed in several Topics
 sections has the one place the sidebar gives it, and its parent is the page
-that lists it there. The root page has no parent, so its type's `parent` does
+that lists it there. A type may name itself as a parent — a mechanism under a
+mechanism — so the tree is as deep as the system needs. The root page has no parent, so its type's `parent` does
 not apply to it.
 
 Links anywhere else in a page are free: a landing page may link to a mechanism
@@ -100,16 +101,18 @@ a mechanism of.
 ## What is checked
 
 Once a site has a structure folder, these are [problems](../checking-links/README.md),
-shown in the preview and reported by `devpage check` like a broken link:
+shown in the preview and reported by `devpage check` like a broken link. A type file's own problems
+show on every page of the site, as a navbar's do:
 
 | What | Must | Reported as |
 | --- | --- | --- |
 | A page of the site | name a type | `<page>: no page-type` |
 | A page's `page-type` | be a file in the structure folder | `<page>:<line>: page-type <type> — no <folder>/<type>.md` |
-| A page whose type has a `parent` | sit under a page of one of those types | on the parent, at the Topics entry: `<link> is a <type>, which sits under <types> — this page is a <type>` |
+| A page whose type has a `parent` | sit under a page of one of those types | on the parent, at the Topics entry: `<link> — a page of type <type> sits under <types>, and this page's type is <type>` |
 | A page of the site | be listed in a Topics section | `<page>: no Topics section lists this page` |
-| A page whose type has `sections` | have each one, in order | `<page>: no ## <heading> section — a <type> has <headings>`, or `<page>:<line>: ## <heading> comes before ## <heading>` |
+| A page whose type has `sections` | have each one, in order | `<page>: no ## <heading> section — a page of type <type> has <headings>`, or `<page>:<line>: ## <heading> comes before ## <heading> — …` |
 | A type file's `parent` | name types the folder has | `<type file>:<line>: parent <type> — no <folder>/<type>.md` |
+| A type file's front matter | hold only `parent` and `sections` | `<type file>:<line>: front matter — <the YAML error>` |
 
 The pages checked are the site's own: the Markdown files `devpage check`
 reaches that belong to this site. Type files, the site's `404.md` and the root

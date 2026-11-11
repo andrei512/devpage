@@ -27,6 +27,7 @@ enum Config {
         root: String,
         watch: Option<Vec<String>>,
         widgets: Option<String>,
+        structure: Option<String>,
         navbar: Option<serde_yaml::Mapping>,
         sidebar: Option<bool>,
         #[serde(rename = "theme-selector")]
@@ -304,6 +305,8 @@ pub struct Document {
     watch_roots: Vec<PathBuf>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
+    /// A site's structure folder — its type files — if it names one.
+    pub structure: Option<PathBuf>,
     /// A site's navbar, in order; empty when it has none.
     pub navbar: Vec<NavItem>,
     /// Whether a site shows its Topics sidebar.
@@ -365,6 +368,7 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                structure: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -385,6 +389,7 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                structure: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -411,6 +416,7 @@ impl Document {
         let mut watch = None;
         let mut watch_roots = Vec::new();
         let widget_folder;
+        let mut structure_folder = None;
         let mut nav_items = Vec::new();
         let mut show_sidebar = true;
         let show_selector;
@@ -422,6 +428,7 @@ impl Document {
                 root,
                 watch: patterns,
                 widgets,
+                structure,
                 navbar: nav,
                 sidebar,
                 theme_selector,
@@ -431,6 +438,7 @@ impl Document {
                 extension_configs = extensions;
                 logo_path = logo;
                 widget_folder = widgets;
+                structure_folder = structure;
                 show_selector = theme_selector.unwrap_or(true);
                 show_sidebar = sidebar.unwrap_or(true);
                 if let Some(nav) = nav {
@@ -514,6 +522,13 @@ impl Document {
             },
             None => None,
         };
+        let structure = match structure_folder {
+            Some(folder) => match served.folder(&base.join(&folder)) {
+                Some(dir) => Some(dir),
+                None => bail!("structure {folder} is not a folder"),
+            },
+            None => None,
+        };
         let mut extension_configs = extension_configs;
         // `code` with no package is the system extension: the code reference,
         // which only a site has pages for.
@@ -538,6 +553,7 @@ impl Document {
             watch,
             watch_roots,
             widgets,
+            structure,
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,
