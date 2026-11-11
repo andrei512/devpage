@@ -198,6 +198,10 @@ In practice:
   appears, so put its own children under the place a reader meets it first, or
   give it none.
 
+A site can have devpage hold it to such a layout: it defines its own page
+types and says which may sit under which, and a page out of place is a
+problem ([Structuring a site](../structuring-a-site/README.md)).
+
 The [viewer](../README.md) is laid out this way: its Topics run from
 [Getting started](../../../getting-started.md) down to the
 [configuration reference](../configuration-reference/README.md).

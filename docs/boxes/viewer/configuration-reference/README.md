@@ -118,6 +118,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. A `.gitignore`d file never refreshes, and is watched — so the served folder and designs hear of it — only in an ignored folder a pattern explicitly reaches into: its part before the first glob character is in that folder or is it (`build/*.svg` reaches into an ignored `build/`; `**/*.md` reaches into none) ([the watch set](../live-updates/README.md#the-watch-set)). Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
+| `structure` | path | no | The folder of this site's [type files](../structuring-a-site/README.md#a-type-file), relative to this file: every `.md` in it is a page type, named after the file. With it, the site's pages are [checked against their types](../structuring-a-site/README.md#what-is-checked). Default: none — no page needs a type. |
 | `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
 | `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../themes/README.md#choosing-a-theme)). Default: `true`. |
@@ -208,8 +209,20 @@ keywords: [retry, offline]
 | `search` | boolean | `false` leaves the page out of [search](../search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
 | `description` | string | Words search finds the page by, weighted like its title. |
 | `keywords` | string or list of strings | The same. |
+| `page-type` | string | The page's [type](../glossary/README.md#page-type): the name of a type file in its site's structure folder, without `.md`. Read only in a site with a [`structure`](#site). |
 
 Any other field is read by nothing and ignored.
+
+### A type file
+
+A [type file](../structuring-a-site/README.md#a-type-file)'s own front matter
+holds the rules of its type; both fields are optional, and any other field is
+a problem on the file.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `parent` | string or list of strings | The types a page of this type may sit under. Default: any. |
+| `sections` | list of strings | The `##` headings a page of this type must have, in order. Default: none. |
 
 ## Errors
 
@@ -232,6 +245,7 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
+| `structure` names no folder, or one outside the served folder | `in <file>` — `structure <folder> is not a folder` |
 | A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
 | A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |

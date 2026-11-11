@@ -96,6 +96,7 @@ Each card opens the page that explains it.
 <Cards>
 
 - (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
+- (network) [Structuring a site](structuring-a-site/README.md) — Page types a site defines, and which may sit under which, checked.
 - (book-open) [Configuration reference](configuration-reference/README.md) — Every field, flag and error.
 - (search-check) [Viewer glossary](glossary/README.md) — The words the viewer owns.
 
@@ -117,6 +118,8 @@ Each card opens the page that explains it.
   sidebar, navbar, logo, theme switch and `404.md`.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
+- [Structuring a site](structuring-a-site/README.md) — a site's own page
+  types, the type each page names, and which types may sit under which.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the
   PDF's paper, header and footer.
 - [Making slides](making-slides/README.md) — one file per slide, the stage,

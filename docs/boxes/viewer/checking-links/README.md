@@ -20,6 +20,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 | `#n` on a deck | be a slide the deck has |
 | A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |
 | A Topics entry | point at an existing page |
+| A page of a site with a [structure](../structuring-a-site/README.md#what-is-checked) | name a page type the site has, sit under a parent its type allows, be listed in a Topics section, and have the sections its type requires |
 | A page of a [code reference](../code-reference/README.md#linking-to-code) | be one the code has — `no such code; did you mean …?` — and its `#fragment` a section it renders — `no section #…` |
 | A [prose file](../glossary/README.md#prose-file) | name an item or member the code has — `` ``<id>`` names no code `` |
 | An `http` or `https` address | answer with a status below 400, following redirects |

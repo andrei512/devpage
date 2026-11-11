@@ -241,6 +241,18 @@ One page in a sidebar tree, labelled with its Topics link's text.
 
 A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar.
 
+## page type
+
+What sort of page a page is, in a site with a structure folder: a name the site defines with a type file, and each page states as `page-type` in its front matter. See [Structuring a site](../structuring-a-site/README.md).
+
+## type file
+
+A Markdown file in a site's structure folder that defines the page type named after it: its front matter says which types a page of the type may sit under and which sections it must have, and its text says what such a page is for.
+
+## structure folder
+
+The folder a site's `structure` names, holding its type files. A site without one has no page types, and none of its pages is checked for any.
+
 ## branch
 
 An entry with children in the sidebar. Its chevron opens and closes it; the branch down to the page shown is open, and those the reader opened stay open, remembered per document. See [Organizing navigation](../organizing-navigation/README.md#opening-and-closing).
