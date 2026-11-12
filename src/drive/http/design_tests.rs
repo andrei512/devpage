@@ -2,6 +2,7 @@
 //! as an entry document, and what `devpage check` makes of designs a page
 //! embeds.
 
+use codespec_rust_macro::spec;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -108,6 +109,7 @@ async fn a_png_or_the_problems() {
 }
 
 #[tokio::test]
+#[spec("a-design-has-one-renderer")]
 async fn a_png_in_either_theme() {
     let dir = served("png-theme");
     std::fs::write(dir.join("themes.yml"), THEMES).unwrap();

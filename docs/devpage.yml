@@ -19,6 +19,13 @@ watch:
   - "**/*.yml"
   - "**/*.design"
 extensions:
+  requirements:
+    config:
+      tests:
+        - name: rust
+          glob: "../**/*.rs"
+          pattern: '#\[spec\("([^"]+)"\)\]'
+          run: "RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format junit"
   code:
     config:
       rust:

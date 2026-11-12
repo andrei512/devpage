@@ -1107,6 +1107,7 @@ pub mod testing {
 mod tests {
     use super::testing::*;
     use super::*;
+    use codespec_rust_macro::spec;
 
     /// What the store tells, as it tells it.
     fn announced(designs: &Designs) -> std::sync::mpsc::Receiver<String> {
@@ -1281,6 +1282,7 @@ mod tests {
     /// store's cache, which never holds more than its cap; asked for again,
     /// only the tiles the cap dropped are painted again.
     #[test]
+    #[spec("a-frame-costs-what-it-shows")]
     fn a_design_100000_pixels_tall_streams_its_png_from_a_capped_cache() {
         let dir = served("huge");
         tall(&dir, None);
@@ -1314,6 +1316,7 @@ mod tests {
     /// A PNG asked for twice paints nothing the second time; after an edit to
     /// one node of a design 100,000 pixels tall, only the tiles over it.
     #[test]
+    #[spec("a-frame-costs-what-it-shows")]
     fn an_edit_repaints_only_the_tiles_over_it() {
         let dir = served("edit");
         std::fs::write(

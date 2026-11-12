@@ -2,6 +2,7 @@
 //! publish, without a browser; the browser's side is in
 //! `server_mode_browser`.
 
+use codespec_rust_macro::spec;
 use std::path::Path;
 use std::time::Duration;
 
@@ -306,6 +307,7 @@ async fn a_design_resolves_under_its_documents_mount() {
 }
 
 #[tokio::test]
+#[spec("a-versions-work-is-done-once")]
 async fn a_versions_problems_are_found_once_whichever_address_it_is_read_at() {
     let config = config("problems-both-mounts");
     let app = router(&config).unwrap();

@@ -1,6 +1,7 @@
 //! The canvas in Chrome: painting on the GPU and the CPU against the server's
 //! PNG, interactions, embedding and printing. They drive chrome-headless-shell.
 
+use codespec_rust_macro::spec;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -2430,12 +2431,14 @@ async fn a_huge_design_paints_only_the_tiles_of_its_view(webgpu: bool) {
 
 #[tokio::test]
 #[ignore]
+#[spec("a-frame-costs-what-it-shows")]
 async fn a_huge_design_paints_only_the_tiles_of_its_view_on_the_gpu() {
     a_huge_design_paints_only_the_tiles_of_its_view(true).await;
 }
 
 #[tokio::test]
 #[ignore]
+#[spec("a-frame-costs-what-it-shows")]
 async fn a_huge_design_paints_only_the_tiles_of_its_view_on_the_cpu() {
     a_huge_design_paints_only_the_tiles_of_its_view(false).await;
 }
@@ -2625,6 +2628,7 @@ async fn shot_of(page: &Page, width: usize, height: usize) -> Vec<u8> {
 /// painting stretched — and so agree with each other.
 #[tokio::test]
 #[ignore]
+#[spec("a-design-has-one-renderer")]
 async fn the_gpu_and_the_cpu_agree_zoomed_in_and_are_sharp() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let address = serve(root, "docs/designs/checkout/checkout.design").await;
@@ -2695,12 +2699,14 @@ async fn an_edit_repaints_only_the_tiles_around_it(webgpu: bool) {
 
 #[tokio::test]
 #[ignore]
+#[spec("a-frame-costs-what-it-shows")]
 async fn an_edit_repaints_only_the_tiles_around_it_on_the_gpu() {
     an_edit_repaints_only_the_tiles_around_it(true).await;
 }
 
 #[tokio::test]
 #[ignore]
+#[spec("a-frame-costs-what-it-shows")]
 async fn an_edit_repaints_only_the_tiles_around_it_on_the_cpu() {
     an_edit_repaints_only_the_tiles_around_it(false).await;
 }

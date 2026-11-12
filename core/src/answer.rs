@@ -479,6 +479,7 @@ fn module(requested: Option<Result<Compiled, String>>, missing: impl FnOnce() ->
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
 
     /// A served folder with a site, a deck, a loose page, an invalid doc and
     /// a YAML file that isn't a document — and a secret beside it, outside.
@@ -656,6 +657,7 @@ mod tests {
     }
 
     #[test]
+    #[spec("the-served-folder-is-the-boundary")]
     fn nothing_outside_the_served_folder_is_answered() {
         let dir = served("outside");
         crate::folder::symlink(&dir.join("../secret.md"), &dir.join("docs/escape.md")).unwrap();

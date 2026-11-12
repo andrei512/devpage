@@ -871,6 +871,7 @@ async fn resolve_comment(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
     use devpage_core::folder::ServedFolder;
     use serde_json::{Value, json};
 
@@ -1059,6 +1060,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[spec("devpage-authenticates-no-one")]
     async fn deployed_writes_need_the_header_and_are_stamped_with_it() {
         let identity = Identity::Header("X-Forwarded-Email".into());
         let (address, _) = serve_comments("deployed", Some(identity)).await;
@@ -1377,6 +1379,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[spec("the-served-folder-is-the-boundary")]
     async fn nothing_outside_the_served_folder_is_served() {
         let dir = served("outside");
         devpage_core::folder::symlink(&dir.join("../secret.md"), &dir.join("docs/escape.md"))

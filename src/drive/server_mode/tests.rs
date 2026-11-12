@@ -1,3 +1,4 @@
+use codespec_rust_macro::spec;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -525,6 +526,7 @@ async fn concurrent_publishes_to_one_document_take_one_number_each() {
 /// the bucket keeps the upload byte for byte, the store its sha-256, and a
 /// later publish leaves it as it was.
 #[tokio::test]
+#[spec("a-version-never-changes")]
 async fn a_version_is_kept_byte_for_byte_and_never_changes() {
     let config = config("never-changes");
     let app = router(&config).unwrap();
@@ -547,6 +549,7 @@ async fn a_version_is_kept_byte_for_byte_and_never_changes() {
 /// with the cache deleted, a server started again renders every version
 /// from the bucket.
 #[tokio::test]
+#[spec("the-pvc-is-only-a-cache")]
 async fn with_the_cache_deleted_every_version_renders_again_from_the_bucket() {
     let config = config("refill");
     let app = router(&config).unwrap();

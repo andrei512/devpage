@@ -63,7 +63,7 @@ extensions:
       tests:
         - name: rust
           glob: "../src/**/*.rs"
-          pattern: '// constraint: ([a-z0-9-]+)'
+          pattern: '#\[spec\("([^"]+)"\)\]'
           run: "cargo +nightly test -- -Z unstable-options --format junit"
 ```
 
@@ -82,10 +82,14 @@ language makes natural: a comment, an attribute, a decorator.
 A test names a constraint by its `id`. With the pattern above:
 
 ```rust
-// constraint: a-version-never-changes
 #[test]
+#[spec("a-version-never-changes")]
 fn a_published_version_reads_back_unchanged() {
 ```
+
+Here `spec` is an attribute that does nothing, from the
+`codespec-rust-macro` crate; devpage only reads the text. A comment the
+pattern matches works as well.
 
 Several tests may point at one constraint, and the constraint's page lists
 none of them: the tests name the constraint, never the other way around.
@@ -105,6 +109,9 @@ any:
 | A suite's `run` | print a JUnit report | ``<document file>: tests <name>: `<run>` printed no JUnit report (exit code <n>)`` |
 
 So a constraint is met when at least one test points at it and no test fails.
+
+These docs do this: [`docs/devpage.yml`](../../../devpage.yml) reads every
+`#[spec("…")]` in the repository's Rust files and runs `cargo test`.
 
 `devpage check` runs every suite, which takes as long as the tests do.
 `devpage check --docs` checks the docs alone — links, diagrams, page types —

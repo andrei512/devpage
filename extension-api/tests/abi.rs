@@ -1,3 +1,4 @@
+use codespec_rust_macro::spec;
 use devpage_extension_api::{
     Extension, export_extension,
     serde_json::{Value, json},
@@ -16,6 +17,7 @@ impl Extension for Echo {
 export_extension!(Echo);
 
 #[test]
+#[spec("native-boundary")]
 fn native_buffers_errors_and_panics_follow_the_abi() {
     let table = unsafe { &*devpage_extension_v1() };
     assert_eq!(table.version, devpage_extension_api::API);

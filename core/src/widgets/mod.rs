@@ -363,6 +363,7 @@ pub fn system_address(name: &str, mount: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
 
     #[test]
     fn a_system_widget_address_carries_its_own_version() {
@@ -455,6 +456,7 @@ mod tests {
     }
 
     #[test]
+    #[spec("one-name-one-widget")]
     fn a_project_widget_named_notes_clashes() {
         let dir = std::env::temp_dir().join(format!("devpage-wnotes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

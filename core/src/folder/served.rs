@@ -169,6 +169,7 @@ impl AsRef<Path> for ServedFolder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
 
     /// A served folder `served/` beside a secret `outside.txt`, with a
     /// symbolic link inside pointing out.
@@ -240,6 +241,7 @@ mod tests {
     }
 
     #[test]
+    #[spec("the-served-folder-is-the-boundary")]
     fn refuses_what_climbs_out_or_links_out() {
         let (top, served) = fixture("outside");
         assert_eq!(served.at("/../outside.txt"), None);

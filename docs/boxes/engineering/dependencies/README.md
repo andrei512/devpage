@@ -71,6 +71,8 @@ except where a code comment says so, and this page doesn't guess.
 | `windows-sys` (Windows only; features `Win32_Foundation`, `Win32_Storage_FileSystem`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_ProcessStatus`, `Win32_System_Threading`) | 0.61.2 | MIT or Apache-2.0 | `GetDiskFreeSpaceExW`: the size of the volume server mode's cache is on, as `statvfs` gives it on Unix; a thread snapshot and `GetProcessMemoryInfo`: the server's threads and resident bytes for its metrics, as `/proc` and `proc_pidinfo` give them. Already in the tree through `tokio` and others. | `src/drive/server_mode/config.rs`, `src/drive/server_mode/metrics.rs` |
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/folder/index.rs`, `core/src/search/gather.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
+| `regex` | 1.13.1 | MIT or Apache-2.0 | A requirements suite's `pattern`: finding where a test file names a constraint. | `core/src/requirements.rs` |
+| `quick-xml` | 0.42.0 | MIT | Reading the JUnit report a requirements suite's `run` prints. | `core/src/requirements.rs` |
 | `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
 | `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/http.rs` |
 
@@ -105,6 +107,7 @@ except where a code comment says so, and this page doesn't guess.
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/http/watch_stream.rs`, `src/drive/http.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/http.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/http.rs` |
+| `codespec-rust-macro` (dev; core and extension-api dev too) | 0.1.2 | MIT | The `#[spec("<id>")]` attribute a test names its [constraint](../../viewer/glossary/README.md#constraint) with; it does nothing when compiled. | every test that checks a constraint |
 | `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/drive/http/watch_stream.rs` (tests) |
 
 ## Caching

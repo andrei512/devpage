@@ -40,7 +40,7 @@ jobs:
           -d '{"page":"docs/README.md","anchor":{"quote":"devpage"},"text":"CI"}'
           http://localhost:8090/__devpage/comments
       - name: The docs pass devpage check
-        run: docker compose -f deploy/bundled/compose.yaml exec -T devpage devpage check docs
+        run: docker compose -f deploy/bundled/compose.yaml exec -T devpage devpage check docs --docs
       - name: Logs
         if: failure()
         run: docker compose -f deploy/bundled/compose.yaml logs

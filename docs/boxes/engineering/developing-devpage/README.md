@@ -125,7 +125,10 @@ in [Dependencies](../dependencies/README.md).
 
 These docs are a devpage site: `docs/devpage.yml`, rooted at
 `docs/README.md`. Keep `cargo run -- docs` open, from the repository root,
-while you write, and run `cargo run -- check docs` before you push — `cargo
+while you write, and run `cargo run -- check docs` before you push — it runs the tests too,
+because these docs hold the code to its
+[constraints](../../viewer/checking-requirements/README.md); `check docs
+--docs` checks the docs alone — `cargo
 test` checks the same internal links and diagrams.
 How to write and organize pages is in the
 [viewer's task articles](../../viewer/README.md#topics); the page types
