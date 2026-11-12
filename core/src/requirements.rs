@@ -281,69 +281,50 @@ pub fn problems(document: &Document) -> Vec<Problem> {
 }
 
 /// The tests of a JUnit report: every `testcase`, failed when it holds a
-/// `failure` or an `error`. `text` may hold several reports one after another,
-/// as a command running several test binaries prints them; what is not XML
-/// ends the reading.
+/// `failure` or an `error`. `text` is whatever a command printed: several
+/// reports one after another, as a command running several test binaries
+/// prints them, with anything else between them — a build's own output —
+/// passed over.
 pub fn junit(text: &str) -> Vec<Case> {
-    use quick_xml::events::{BytesStart, Event};
-    fn case(element: &BytesStart) -> Case {
-        let mut name = String::new();
-        let mut class = String::new();
-        for attribute in element.attributes().flatten() {
-            let value = attribute
-                .normalized_value(quick_xml::XmlVersion::Implicit1_0)
-                .map(|value| value.into_owned())
-                .unwrap_or_default();
-            match attribute.key.as_ref() {
-                "name" => name = value,
-                "classname" => class = value,
-                _ => {}
-            }
-        }
-        Case {
-            name: if class.is_empty() {
-                name
-            } else {
-                format!("{class}::{name}")
-            },
-            failed: false,
-        }
-    }
-    let mut reader = quick_xml::Reader::from_str(text);
-    let mut cases = Vec::new();
-    let mut open: Option<Case> = None;
-    loop {
-        match reader.read_event() {
-            Ok(Event::Empty(element)) => match element.name().as_ref() {
-                "testcase" => cases.push(case(&element)),
-                "failure" | "error" => {
-                    if let Some(open) = &mut open {
-                        open.failed = true;
-                    }
+    static CASE: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"(?s)<testcase\b([^>]*?)(?:/>|>(.*?)</testcase>)").unwrap()
+    });
+    static ATTRIBUTE: std::sync::LazyLock<Regex> =
+        std::sync::LazyLock::new(|| Regex::new(r#"\b(classname|name)="([^"]*)""#).unwrap());
+    let unescaped = |value: &str| {
+        value
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+    };
+    CASE.captures_iter(text)
+        .map(|case| {
+            let mut name = String::new();
+            let mut class = String::new();
+            for attribute in ATTRIBUTE.captures_iter(&case[1]) {
+                match &attribute[1] {
+                    "name" => name = unescaped(&attribute[2]),
+                    _ => class = unescaped(&attribute[2]),
                 }
-                _ => {}
-            },
-            Ok(Event::Start(element)) => match element.name().as_ref() {
-                "testcase" => open = Some(case(&element)),
-                "failure" | "error" => {
-                    if let Some(open) = &mut open {
-                        open.failed = true;
-                    }
-                }
-                _ => {}
-            },
-            Ok(Event::End(element)) if element.name().as_ref() == "testcase" => {
-                cases.extend(open.take());
             }
-            Ok(Event::Eof) | Err(_) => break,
-            Ok(_) => {}
-        }
-    }
-    cases
+            let body = case.get(2).map_or("", |body| body.as_str());
+            Case {
+                name: if class.is_empty() {
+                    name
+                } else {
+                    format!("{class}::{name}")
+                },
+                failed: body.contains("<failure") || body.contains("<error"),
+            }
+        })
+        .collect()
 }
 
 /// What a suite's run shows is wrong, from what its command printed and how
-/// it exited: each failed test, or that it printed no report at all. The
+/// it exited: each failed test, that it printed no report at all, or that it
+/// failed though its report names no failed test. The
 /// problems are the document file's.
 pub fn run_problems(
     document: &Document,
@@ -368,11 +349,24 @@ pub fn run_problems(
             suite.name, suite.run
         ))];
     }
-    cases
+    let failed: Vec<Problem> = cases
         .into_iter()
         .filter(|case| case.failed)
         .map(|case| problem(format!("tests {}: {} failed", suite.name, case.name)))
-        .collect()
+        .collect();
+    // A command that failed without naming a failed test did not run them
+    // all: it stopped on a build error, or on a test binary that printed no
+    // report.
+    if failed.is_empty() && exit != Some(0) {
+        let exit = exit.map_or("no exit code".to_string(), |code| {
+            format!("exit code {code}")
+        });
+        return vec![problem(format!(
+            "tests {}: `{}` failed ({exit}) and its report names no failed test",
+            suite.name, suite.run
+        ))];
+    }
+    failed
 }
 
 #[cfg(test)]
@@ -509,6 +503,7 @@ mod tests {
              <testcase classname=\"save\" name=\"two\"><failure message=\"x &lt; y\">at line 3</failure></testcase>\
              <testcase name=\"three\"><error/></testcase>\
              </testsuite></testsuites>\n\
+             #1 [internal] load <build definition> & more\n\
              <?xml version=\"1.0\"?>\n<testsuites><testsuite name=\"b\"><testcase name=\"four\"/></testsuite></testsuites>",
         );
         let read: Vec<(&str, bool)> = cases.iter().map(|c| (c.name.as_str(), c.failed)).collect();
@@ -538,6 +533,13 @@ mod tests {
             shown(report, Some(101)),
             ["devpage.yml: tests shell: two failed"]
         );
+        assert_eq!(
+            shown("<testsuite><testcase name=\"one\"/></testsuite>", Some(101)),
+            [
+                "devpage.yml: tests shell: `sh tests/run.sh` failed (exit code 101) and its report names no failed test"
+            ]
+        );
+        assert!(shown("<testsuite><testcase name=\"one\"/></testsuite>", Some(0)).is_empty());
         assert_eq!(
             shown("error: could not compile", Some(101)),
             ["devpage.yml: tests shell: `sh tests/run.sh` printed no JUnit report (exit code 101)"]

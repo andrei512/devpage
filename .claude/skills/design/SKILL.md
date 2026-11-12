@@ -97,6 +97,27 @@ A new constraint also gets its own file under that box's `constraints/` — the
 rule stated precisely, why it exists, and how to check it — linked from its
 one-line entry. A box that doesn't exist yet is created here.
 
+Each such file is a requirement, and its `page-type` says which of three
+kinds — the type files in `docs/structure/` define them:
+
+- **constraint** — a test can check it. Give it an `id` in its front matter;
+  the tests that check it carry `#[spec("<id>")]`, and `devpage check docs`
+  fails while no test does.
+- **review-rule** — only words can say it; a reviewer judges each change.
+  Use it only when no test can check the rule.
+- **objective** — it has a number. Its `## Check` says where the number
+  comes from, and a **process** page under it says how an agent works toward
+  it.
+
+Write a requirement so it reads one way:
+
+1. One requirement, one sentence, one "must".
+2. Active voice, naming who or what must do it.
+3. Every term is in the box's glossary and means one thing.
+4. No vague words — "fast", "easy", "appropriate": say the number or the
+   result someone can observe.
+5. The reason goes under `## Why`, not in the sentence.
+
 A rule that holds everywhere is not that box's, however it came up. It goes in
 `docs/constraints/`, which review reads on every diff. Ask which box could
 violate it: if the answer is any of them, it belongs there. Filing a general

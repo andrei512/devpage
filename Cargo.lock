@@ -1001,7 +1001,6 @@ dependencies = [
  "globset",
  "ignore",
  "oxc",
- "quick-xml 0.42.0",
  "regex",
  "rquickjs",
  "serde",

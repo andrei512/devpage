@@ -25,7 +25,7 @@ extensions:
         - name: rust
           glob: "../**/*.rs"
           pattern: '#\[spec\("([^"]+)"\)\]'
-          run: "RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format junit"
+          run: "RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format junit --include-ignored"
   code:
     config:
       rust:

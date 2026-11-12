@@ -34,6 +34,13 @@ including its constraints list. Each entry there states a rule in one line and
 links to the file explaining it. Open that file when the diff plausibly bears on
 the rule; the one-liner is enough to decide whether it does.
 
+Each file's `page-type` says how it is checked. A **review-rule** is yours:
+nothing else judges it. A **constraint** has tests that carry
+`#[spec("<its id>")]`, and `devpage check docs` runs them — still read the
+diff against it, because its tests cover the cases someone thought of. An
+**objective** has a number: follow the process page under it when the diff
+touches what the number measures.
+
 Code whose area hasn't been designed yet has no box. It is bound by AGENTS.md
 alone — that's a fact about the diff, not a finding.
 

@@ -39,3 +39,8 @@ a page is served, published, cached or kept in memory runs it before it
 merges, and the pull request carries the report's link.
 `deploy/server/kubernetes.yaml` sets the pod's requests and limits to the
 envelope's 2 CPUs and 4 GB.
+
+## Topics
+
+- [Checking the envelope](checking-the-envelope.md) — running the benchmark
+  on a change and reading each target as met or missed.

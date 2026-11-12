@@ -63,7 +63,9 @@ with the operator. Keep that handoff; do not open a separate operator conversati
 ## Get it reviewed before you hand it back
 
 Run the mechanical half of `review` on yourself first: gates green, every
-acceptance criterion ticked, the constraints you touched walked. You can't judge
+acceptance criterion ticked, the constraints you touched walked — a test that
+checks a constraint carries `#[spec("<its id>")]`, and `devpage check docs`
+passes. You can't judge
 your own work — you know why every line is there — so that half is all you can
 honestly do.
 
