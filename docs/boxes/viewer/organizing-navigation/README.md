@@ -174,25 +174,9 @@ is just its pages, linked by their text.
 ## Structuring a site's reading order
 
 The Topics lists are the site's table of contents, so lay them out the way a
-reader learns. This repository's documentation skill
-(`.claude/skills/documentation/SKILL.md`) describes five layers, each answering
-a different question:
+reader learns: from what the subject is, down one level at a time to how it
+works inside.
 
-| Layer | Question it answers | What it holds |
-| --- | --- | --- |
-| **1. Landing** | What is this, and where do I go? | A subject's README: what it is in a few paragraphs, one picture of its parts, Topics grouped by what the reader wants. |
-| **2. Essentials** | How should I think about it? | One or two articles teaching the mental model with one example walked end to end. |
-| **3. Concepts and tasks** | How do I work with it? | Articles around what a reader wants to understand or do, linking down into mechanisms. |
-| **4. Mechanisms** | How does this part work inside, and why? | One page per mechanism: design, reasons, failure modes. |
-| **5. Reference** | What exactly is the contract? | Schemas, APIs, configuration — complete and exact. |
-
-In practice:
-
-- Give each subject a landing page whose Topics groups its children under
-  `###` headings by layer or by reader goal — for example `### Essentials`,
-  `### Concepts and tasks`, `### Reference` — in reading order. List a
-  mechanism under the article that explains what it is a mechanism of, so a
-  reader reaches it one level at a time.
 - Start every page with `# Title` and one abstract paragraph, and follow each
   Topics link with a one-line abstract, so a list of links reads as a summary.
 - Link both ways: a page links up to its parent in its text, and down to the
@@ -202,10 +186,10 @@ In practice:
   appears, so put its own children under the place a reader meets it first, or
   give it none.
 
-A site can have devpage hold it to such a layout: it defines its own page
-types and says which may sit under which, and a page out of place is a
-problem ([Structuring a site](../structuring-a-site/README.md)). These docs
-do: each layer above is a type file in `docs/structure/`.
+A site can have devpage hold it to a layout: it defines its own page types
+and says which may sit under which, and a page out of place is a problem
+([Structuring a site](../structuring-a-site/README.md)). These docs do; their
+page types are in [`docs/structure/`](../../../structure/landing.md).
 
 The [viewer](../README.md) is laid out this way: its Topics run from
 [Getting started](../../../getting-started.md) down to the
