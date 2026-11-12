@@ -5,7 +5,7 @@ page-type: task
 
 How to put a diagram in a page with a Mermaid fence, how to make its nodes
 links, how `devpage check` finds a diagram that doesn't parse, and what a
-reader sees when one doesn't. It is a task article under the
+reader sees when one doesn't. It sits under the
 [viewer](../README.md); the colors diagrams take are on
 [Themes](../themes/README.md), and how the server draws them is on
 [The diagram engine](#the-diagram-engine) below.

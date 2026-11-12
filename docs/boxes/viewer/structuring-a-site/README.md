@@ -4,8 +4,7 @@ page-type: task
 # Structuring a site
 
 How to give a site's pages a structure devpage checks: every page says what
-type of page it is, and a type can say which types it must sit under. It is a
-task article under the [viewer](../README.md). The structure is the site's
+type of page it is, and a type can say which types it must sit under. It sits under the [viewer](../README.md). The structure is the site's
 own — devpage ships no page types — and a site that configures none is not
 checked for any.
 

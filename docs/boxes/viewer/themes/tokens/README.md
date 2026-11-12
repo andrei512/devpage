@@ -4,7 +4,7 @@ page-type: reference
 # Theme tokens
 
 Every token the light and dark themes are made of, with what each one
-colors. It is the reference page under [Themes](../README.md).
+colors. It sits under [Themes](../README.md).
 
 ## The tokens
 

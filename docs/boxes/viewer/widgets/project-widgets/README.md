@@ -5,7 +5,7 @@ page-type: task
 
 How a project adds its own widgets: the folder they live in, what a widget
 file looks like, how widgets compose and share helpers, and how they are
-styled. It is a task article under [Widgets](../README.md).
+styled. It sits under [Widgets](../README.md).
 
 ## The widgets folder
 

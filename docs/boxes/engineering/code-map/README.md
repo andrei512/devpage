@@ -4,8 +4,7 @@ page-type: mechanism
 # Code map
 
 Which module of devpage does what, and how `main` wires them together when
-devpage starts. It is a mechanism page under
-[Developing devpage](../developing-devpage/README.md), for someone finding
+devpage starts. It sits under [Developing devpage](../developing-devpage/README.md), for someone finding
 their way into the source.
 
 

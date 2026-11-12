@@ -5,8 +5,7 @@ page-type: reference
 
 Where threads are kept and how to read or resolve them from the files — the
 reference for anyone, person or agent, working with comments outside the
-browser — and the requests the page script makes. It is a reference page
-under [Comments](../README.md); how a write reaches a file is on
+browser — and the requests the page script makes. It sits under [Comments](../README.md); how a write reaches a file is on
 [How a comment is written](../how-a-comment-is-written/README.md).
 
 ## The files

@@ -7,8 +7,7 @@ How the viewer answers a request: the URL names a file in the served folder,
 the path is checked to stay inside it, and the file is served as what it is — a
 document, a page in its document's frame, or bytes. It also covers the built-in
 assets, how the browser is told what to keep, the address devpage listens on
-and what it logs. It is a mechanism page
-under [Writing a document](../writing-a-document/README.md), for someone about to change how requests are
+and what it logs. It sits under [Writing a document](../writing-a-document/README.md), for someone about to change how requests are
 served; [which document a file belongs to](../document-index/README.md) and
 [rendering a page](../rendering-a-page/README.md) go one level deeper.
 

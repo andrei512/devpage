@@ -4,7 +4,7 @@ page-type: reference
 # System widgets
 
 Every widget devpage ships, in every document, each shown live beside the
-Markdown that makes it. It is the reference page under [Widgets](../README.md);
+Markdown that makes it. It sits under [Widgets](../README.md);
 how to write props and content is on [Using widgets](../using-widgets/README.md).
 
 | Widget | Props | Content |

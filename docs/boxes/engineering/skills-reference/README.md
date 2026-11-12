@@ -5,8 +5,7 @@ page-type: reference
 
 Every skill in this repository — who starts it, what it takes and what it
 produces — where the skill files live, and the two skills taken unchanged from
-an upstream repository. It is the reference page under
-[Engineering](../README.md); [Running the flow with skills](../running-the-flow/README.md)
+an upstream repository. It sits under [Engineering](../README.md); [Running the flow with skills](../running-the-flow/README.md)
 explains how they are used together.
 
 ## Where skills live

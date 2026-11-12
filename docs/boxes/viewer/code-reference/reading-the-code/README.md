@@ -6,8 +6,7 @@ page-type: mechanism
 How devpage turns a namespace's files into the pages of a
 [code reference](../README.md): each file read on its own with a tree-sitter
 query, every file's declarations linked into items, a page rendered when it is
-asked for, and all of it kept current as files are saved. It is a mechanism
-page, for someone about to change `core/src/code/`
+asked for, and all of it kept current as files are saved. It is for someone about to change `core/src/code/`
 ([`devpage_core::code`](../../../../reference/rust/devpage_core/code)).
 
 ```mermaid

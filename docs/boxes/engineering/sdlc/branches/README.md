@@ -4,8 +4,7 @@ page-type: concept
 # Branches
 
 Which branches carry a change from idea to `main` — design, prototype, ticket
-and direct branches — how they merge, and when each is deleted. It is a
-concept page under the [SDLC](../README.md).
+and direct branches — how they merge, and when each is deleted. It sits under the [SDLC](../README.md).
 
 
 ```mermaid

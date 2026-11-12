@@ -4,8 +4,7 @@ page-type: reference
 # Tests
 
 What devpage's test suite covers, module by module, how the tests are written,
-and what has no test. It is a reference page under
-[Developing devpage](../developing-devpage/README.md), for someone about to
+and what has no test. It sits under [Developing devpage](../developing-devpage/README.md), for someone about to
 change a module or wondering whether a behaviour is pinned.
 
 <Terminal>

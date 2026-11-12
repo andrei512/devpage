@@ -3,8 +3,7 @@ page-type: mechanism
 ---
 # How a comment is written
 
-How a thread write reaches its file and every open page. It is a mechanism
-page under [Comments](../README.md), for someone about to change how comments
+How a thread write reaches its file and every open page. It sits under [Comments](../README.md), for someone about to change how comments
 are stored; the files and the requests are on
 [The comment store](../the-comment-store/README.md).
 

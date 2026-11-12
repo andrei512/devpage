@@ -5,7 +5,7 @@ page-type: mechanism
 
 How `devpage pdf` gets a PDF out of a headless Chrome: the server it starts,
 what it waits for before printing, and the one pinned Chrome it downloads and
-drives. It is a mechanism page under [Printing to PDF](../README.md), for
+drives. It sits under [Printing to PDF](../README.md), for
 someone about to change `src/adapters/chrome.rs` or how a document is printed.
 
 ## The Chrome it drives

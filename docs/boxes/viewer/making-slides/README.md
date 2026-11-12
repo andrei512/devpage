@@ -5,7 +5,7 @@ page-type: task
 
 How to make a deck: one Markdown file per slide, listed in order by a document
 file of kind `slides`, shown one at a time on a 16:9 stage that prints to PDF
-exactly as it shows. It is a task article under the [viewer](../README.md); the
+exactly as it shows. It sits under the [viewer](../README.md); the
 document file in general is on [Writing a document](../writing-a-document/README.md).
 
 ## A deck

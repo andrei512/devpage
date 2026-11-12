@@ -37,14 +37,13 @@ owner. One box looks like this:
   - glossary/README.md — the words it owns, one anchor per term
   - constraints/
     - the-served-folder-is-the-boundary.md — one rule per file: the rule, why, how it is checked
-  - writing-a-document/README.md — a concept or task article
-  - serving-pages/README.md — a mechanism page
+  - writing-a-document/README.md — an article, with its own children
 
 </FileTree>
 
-A README's Topics section leads down layer by layer — essentials that teach the
-mental model, concept and task articles organized around what a reader wants to
-do, mechanism pages that explain one part fully, and reference. A broad box
+A README's Topics section leads down one level at a time. Every page names its
+type, and the types — what each is for and what it may sit under — are in
+[`docs/structure/`](../structure/landing.md). A broad box
 summarizes its parts and links to focused child designs; a focused box can
 explain its behavior fully. Code belonging to a child remains bound by its own
 and its ancestors' constraints. Each subject's words are in its glossary — the

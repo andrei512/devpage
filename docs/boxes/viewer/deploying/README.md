@@ -7,7 +7,7 @@ How to run devpage for a team — on a Kubernetes cluster or any container host
 — so they can read the docs and comment on them: the example image, the auth
 proxy that names each reader, the volume that keeps comments, and trying the
 whole thing on your machine with Docker Compose — and how to serve a public
-site, which runs with comments off. It is a task article under the
+site, which runs with comments off. It sits under the
 [viewer](../README.md).
 
 This is the **bundled** way to deploy: the documents are in the image, as in a

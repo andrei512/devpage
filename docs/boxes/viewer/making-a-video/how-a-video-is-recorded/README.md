@@ -5,7 +5,7 @@ page-type: mechanism
 
 How `devpage video` turns a deck into an mp4: how each slide is shown and
 captured while the narrator speaks, how silence is cut, and the Chrome it
-drives. It is a mechanism page under [Making a video](../README.md), for
+drives. It sits under [Making a video](../README.md), for
 someone about to change how a deck is recorded.
 
 ## How it is recorded

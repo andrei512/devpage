@@ -5,8 +5,7 @@ page-type: task
 
 How the light and dark themes color everything — the page, highlighted code,
 diagrams and widgets — from one set of tokens, how a reader switches between
-them, and how far a page can change the look. It is a task article
-under the [viewer](../README.md); every token is on
+them, and how far a page can change the look. It sits under the [viewer](../README.md); every token is on
 [Theme tokens](tokens/README.md).
 
 ## Choosing a theme

@@ -5,8 +5,7 @@ page-type: mechanism
 
 What pele is in devpage — a third-party JavaScript bundle copied into the
 repository that draws Mermaid diagrams on the server — where it came from,
-its version and licences, how devpage calls it, and how to upgrade it. It is a
-mechanism page under [Diagrams](../diagrams/README.md), which says how to
+its version and licences, how devpage calls it, and how to upgrade it. It sits under [Diagrams](../diagrams/README.md), which says how to
 write a diagram, for someone about to replace the bundle or change how
 diagrams are drawn.
 

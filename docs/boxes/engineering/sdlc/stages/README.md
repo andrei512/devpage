@@ -5,7 +5,7 @@ page-type: concept
 
 What each stage of the flow does, what it produces and the skill that runs it —
 from the design conversation to the retro, and the inverted path a small
-change can take. It is a concept page under the [SDLC](../README.md); who may
+change can take. It sits under the [SDLC](../README.md); who may
 start each skill is on the [Skills reference](../../skills-reference/README.md).
 
 ## Design

@@ -5,8 +5,7 @@ page-type: mechanism
 
 How server mode keeps its data: the store in SQLite and how Litestream backs
 it up, each version's zip in the bucket, and the bounded cache on the PVC that
-makes reading fast. It is a mechanism page under
-[How server mode works](../how-server-mode-works/README.md), for someone about
+makes reading fast. It sits under [How server mode works](../how-server-mode-works/README.md), for someone about
 to change it.
 
 ```mermaid

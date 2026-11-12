@@ -6,8 +6,7 @@ page-type: task
 How to work on devpage itself: build it, run its tests and the three gates,
 run the documentation while you edit it, and know what needs a rebuild. The
 [code map](../code-map/README.md) and the [tests](../tests/README.md) go one
-level deeper. It is a task article
-under [Engineering](../README.md); how a change travels from idea to `main` is
+level deeper. It sits under [Engineering](../README.md); how a change travels from idea to `main` is
 the [SDLC](../sdlc/README.md).
 
 You need the toolchain from [Installing devpage](../../../installing.md#what-you-need).
@@ -129,9 +128,9 @@ These docs are a devpage site: `docs/devpage.yml`, rooted at
 while you write, and run `cargo run -- check docs` before you push — `cargo
 test` checks the same internal links and diagrams.
 How to write and organize pages is in the
-[viewer's task articles](../../viewer/README.md#topics); the reading hierarchy
-this repository follows is the documentation skill,
-`.claude/skills/documentation/SKILL.md`. A diagram that doesn't parse is a
+[viewer's task articles](../../viewer/README.md#topics); the page types
+this repository's docs follow are in [`docs/structure/`](../../../structure/landing.md),
+and `check` reports a page that breaks them. A diagram that doesn't parse is a
 problem `devpage check` reports, like a broken link
 ([Diagrams](../../viewer/diagrams/README.md#checking-diagrams-before-committing)).
 

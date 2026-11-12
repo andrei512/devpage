@@ -6,7 +6,7 @@ page-type: concept
 How much one devpage server holds, and how to tell which part of it gives out
 first: the **envelope** a server is built to hold, the **metrics** it reports
 about its own work, and the **benchmark** that loads it to the envelope and
-past it. It is a concept article under [Server mode](../README.md), for an
+past it. It sits under [Server mode](../README.md), for an
 operator sizing a server and for anyone about to make one faster — a change
 made for speed starts from a number here, not from a guess.
 

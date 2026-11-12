@@ -4,8 +4,7 @@ page-type: task
 # Running a server
 
 How to deploy `devpage server`: what it needs, the example image to copy, its
-environment, running it on Kubernetes, and the proxy you may put in front. It is a task article under
-[Server mode](../README.md); every variable is in the
+environment, running it on Kubernetes, and the proxy you may put in front. It sits under [Server mode](../README.md); every variable is in the
 [reference](../reference/README.md#environment).
 
 ## What it needs

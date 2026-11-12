@@ -6,7 +6,7 @@ page-type: concept
 How work gets from an idea to running code: the stages every change to devpage
 goes through and the skill that runs each, the branches that carry a design
 until the code catches up, the two review bars, and how the box docs are
-organized. It is a concept page of the [Engineering](../README.md) box;
+organized. It sits under the [Engineering](../README.md) box;
 [Running the flow with skills](../running-the-flow/README.md) is the short
 version, from the operator's keyboard.
 

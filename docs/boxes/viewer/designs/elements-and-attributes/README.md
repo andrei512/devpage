@@ -4,8 +4,7 @@ page-type: reference
 # Elements and attributes
 
 Every element a design can use and every attribute each one takes, with its
-values and defaults. It is the reference page under
-[Designs](../README.md), for an agent or a person writing a `.design` file;
+values and defaults. It sits under [Designs](../README.md), for an agent or a person writing a `.design` file;
 how the file is put together — imports, one root, props and interactions — is
 on that page.
 

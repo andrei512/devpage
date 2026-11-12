@@ -5,8 +5,7 @@ page-type: reference
 
 The words the viewer owns, one section per term, so any page can link to a
 term by its anchor — `glossary/README.md#served-folder`. The rest of the docs use
-these words with these meanings. It is the reference page for the
-[viewer](../README.md)'s vocabulary.
+these words with these meanings. It sits under the [viewer](../README.md).
 
 ## document
 

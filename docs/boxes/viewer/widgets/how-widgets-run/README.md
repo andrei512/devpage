@@ -5,7 +5,7 @@ page-type: mechanism
 
 How a widget tag in Markdown becomes a mounted React component: the
 placeholder the server writes, how widgets are compiled and served, and how the
-page script mounts them. It is a mechanism page under [Widgets](../README.md),
+page script mounts them. It sits under [Widgets](../README.md),
 for someone about to change `core/src/widgets/` or the widget code in
 `core/assets/devpage.js`.
 

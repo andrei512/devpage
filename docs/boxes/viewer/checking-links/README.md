@@ -5,7 +5,7 @@ page-type: task
 
 How devpage finds broken links: what counts as a problem, how the preview shows
 problems while you write, and how `devpage check` fails a test or a CI job on
-them. It is a task article under the [viewer](../README.md). Links are most of
+them. It sits under the [viewer](../README.md). Links are most of
 what it checks, so the page keeps their name; a diagram that doesn't parse, a
 design with problems and a misplaced `<Notes>` are found and reported the same
 way.

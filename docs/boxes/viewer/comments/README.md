@@ -6,7 +6,7 @@ page-type: task
 How readers comment on a site, a doc or a deck — a design is discussed on the
 page that embeds it — and where those comments live: threads anchored to selected text or a paragraph, kept one file
 per thread in a `.devpage/` folder git never sees, and resolved by deleting
-that file. It is a task article under the [viewer](../README.md);
+that file. It sits under the [viewer](../README.md);
 the files threads are kept in are on [The comment store](the-comment-store/README.md).
 
 Comments are working notes about the docs, not part of them. Locally, the loop

@@ -4,8 +4,7 @@ page-type: task
 # Printing to PDF
 
 How a doc or a deck becomes a PDF that looks exactly like the page in the
-browser: the `devpage pdf` command and what print mode leaves out. It is a task
-article under the [viewer](../README.md); how the PDF is made is on
+browser: the `devpage pdf` command and what print mode leaves out. It sits under the [viewer](../README.md); how the PDF is made is on
 [How a PDF is printed](how-a-pdf-is-printed/README.md).
 
 ## `devpage pdf`

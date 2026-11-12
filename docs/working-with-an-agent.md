@@ -5,7 +5,7 @@ page-type: task
 
 What to tell a coding agent so it works with devpage the way you do: it
 checks the links it wrote, looks at the designs and slides it drew, and deals
-with the comments you left. None of it needs a server running. It is a task page under the
+with the comments you left. None of it needs a server running. It sits under the
 [devpage landing page](README.md).
 
 devpage has nothing to install for an agent. It reads the same files you

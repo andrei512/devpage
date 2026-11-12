@@ -5,7 +5,7 @@ page-type: task
 
 How a deck becomes a narrated video: `devpage video` has GPT-Live read each
 slide's notes aloud while a browser shows the deck and records it, and writes
-an mp4. It is a task article under the [viewer](../README.md); how the recording
+an mp4. It sits under the [viewer](../README.md); how the recording
 works is on [How a video is recorded](how-a-video-is-recorded/README.md).
 
 ## `devpage video`

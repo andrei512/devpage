@@ -5,7 +5,7 @@ page-type: task
 
 How to get a `devpage` program you can run on any document: downloading the
 prebuilt binary or building it from crates.io or a checkout, starting it,
-staying up to date, and what `devpage pdf` and `devpage video` need. It is a task page under the [devpage landing page](README.md);
+staying up to date, and what `devpage pdf` and `devpage video` need. It sits under the [devpage landing page](README.md);
 [Getting started](getting-started.md) then walks a first site, doc and deck.
 
 ## What you need

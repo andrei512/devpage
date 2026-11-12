@@ -6,7 +6,7 @@ page-type: task
 How a site's sidebar is built from the `## Topics` sections of its pages —
 children, groups, order, labels, repeated pages and pages left out — and how to
 use that to give a site a reading order that goes from its landing page down to
-reference. It is a task article under the [viewer](../README.md); the
+reference. It sits under the [viewer](../README.md); the
 [navigation tree](../navigation-tree/README.md) mechanism explains the
 implementation.
 

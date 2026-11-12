@@ -4,8 +4,7 @@ page-type: task
 # Using widgets
 
 How to put a widget in a page: its props, its content, when it is a block and
-when it sits inside a paragraph, and what happens when one fails. It is a task
-article under [Widgets](../README.md).
+when it sits inside a paragraph, and what happens when one fails. It sits under [Widgets](../README.md).
 
 ## Props and content
 

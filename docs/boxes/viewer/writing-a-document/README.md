@@ -6,7 +6,7 @@ page-type: task
 How to write a devpage document: the four kinds and when to use each, the
 document file that describes one, and the folder devpage serves from. How
 pages link to each other and which Markdown renders are on their own pages,
-below. It is a task article under the [viewer](../README.md); read
+below. It sits under the [viewer](../README.md); read
 [Getting started](../../../getting-started.md) first for the mental model.
 
 ## Four kinds

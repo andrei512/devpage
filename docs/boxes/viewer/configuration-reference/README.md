@@ -5,8 +5,7 @@ page-type: reference
 
 The exact contract of a devpage document file and of the `devpage` command
 line: every field of each kind with its type, default and validation, the
-commands and flags, and the errors devpage stops with. It is the reference page
-under the [viewer](../README.md).
+commands and flags, and the errors devpage stops with. It sits under the [viewer](../README.md).
 
 ## Command line
 

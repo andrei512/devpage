@@ -5,7 +5,7 @@ page-type: mechanism
 
 How the viewer decides what a requested file is — a document file, a page of a
 site, or a Markdown file on its own — and the index of the served folder that
-answers it without scanning folders. It is a mechanism page under the
+answers it without scanning folders. It sits under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
 for someone about to change how files map to documents.
 

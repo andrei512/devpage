@@ -5,8 +5,7 @@ page-type: reference
 
 Every crate devpage depends on, with the version `Cargo.lock` resolves and
 what devpage uses it for, and the build scripts and builder that make what it
-embeds. It is a reference page under
-[Engineering](../README.md), for someone reading or changing the code; the
+embeds. It sits under [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
 
 devpage is a Cargo workspace of seven crates: `devpage`, the binary, at the

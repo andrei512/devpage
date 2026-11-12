@@ -7,7 +7,7 @@ What `core/assets/devpage.js` does in every open page: swapping a page in place,
 mounting widgets, keeping a site's sidebar mounted, listening to the live-update stream, following links without
 reloading, keeping the theme, driving the navbar and, on a narrow screen, the
 navigator, and letting hidden tabs go
-quiet. It is a mechanism page under [Live updates](../live-updates/README.md),
+quiet. It sits under [Live updates](../live-updates/README.md),
 for someone about to change the script.
 
 ```mermaid

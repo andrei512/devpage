@@ -7,8 +7,7 @@ How the operator drives a change through devpage's development flow in this
 repository: the slash command that starts each stage, which skills start
 only when the operator asks and which agents reach for themselves, where each stage's
 output lands, and how to choose between the full flow, a hacking session and a
-direct pull request. It is the essentials article under
-[Engineering](../README.md); the [SDLC](../sdlc/README.md) is the full design
+direct pull request. It sits under [Engineering](../README.md); the [SDLC](../sdlc/README.md) is the full design
 of the process, and the [skills reference](../skills-reference/README.md) lists
 every skill exactly.
 

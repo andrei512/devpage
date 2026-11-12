@@ -5,8 +5,8 @@ page-type: essentials
 
 The mental model of server mode: four ideas — a document, its versions, a
 publish and a context — and one document followed from its first publish to
-its second version. It is the essentials page of [Server mode](../README.md);
-read it before the task pages.
+its second version. It sits under [Server mode](../README.md);
+read it before the others.
 
 ## Four ideas
 

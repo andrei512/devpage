@@ -7,7 +7,7 @@ How a `.design` file becomes pixels: the engine parses it, resolves its
 imports and props into one tree of nodes, lays the tree out, and paints it —
 on the GPU in the browser, compiled to WebAssembly, for the canvas, and on the
 CPU in the server for a PNG. A gRPC-Web stream carries each change to the browser as the nodes that
-changed. It is a mechanism page under [Designs](../designs/README.md), which says
+changed. It sits under [Designs](../designs/README.md), which says
 what a design can say, for someone about to change the engine, its stream or
 the canvas page.
 

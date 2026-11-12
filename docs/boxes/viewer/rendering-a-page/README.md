@@ -6,7 +6,7 @@ page-type: mechanism
 How a Markdown file becomes the HTML page a reader sees: comrak turns it into
 HTML with highlighted code, its diagrams are drawn, its problems are found,
 the title and sidebar are worked out, and the pieces go into the page frame.
-It is a mechanism page under the
+It sits under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
 for someone about to change `core/src/page/`, `core/src/highlight.rs` or
 `core/src/diagrams.rs`.

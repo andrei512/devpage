@@ -5,8 +5,7 @@ page-type: mechanism
 
 What React is in devpage — React and react-dom bundled into one file that
 widgets run with in the browser — where it came from, its version and licence,
-how devpage serves it, and how to upgrade it. It is a mechanism page under
-[How widgets run](../widgets/how-widgets-run/README.md), for someone about to
+how devpage serves it, and how to upgrade it. It sits under [How widgets run](../widgets/how-widgets-run/README.md), for someone about to
 replace the bundle; how to write a
 widget is in [Widgets](../widgets/README.md).
 

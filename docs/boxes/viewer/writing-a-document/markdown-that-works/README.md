@@ -4,8 +4,7 @@ page-type: reference
 # Markdown that works
 
 Every Markdown feature a page can use, how code blocks are highlighted, and how
-images and other files are served. It is the reference page under
-[Writing a document](../README.md).
+images and other files are served. It sits under [Writing a document](../README.md).
 
 ## Features
 

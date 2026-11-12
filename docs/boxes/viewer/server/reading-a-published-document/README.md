@@ -5,8 +5,7 @@ page-type: concept
 
 What a reader gets from a document's link: the latest version, live as it
 changes, earlier versions, comments that carry over from one version to the
-next, and a PDF or PNG to download. It is a concept article under
-[Server mode](../README.md).
+next, and a PDF or PNG to download. It sits under [Server mode](../README.md).
 
 ## The link
 
