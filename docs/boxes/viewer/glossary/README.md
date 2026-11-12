@@ -255,6 +255,26 @@ A Markdown file in a site's structure folder that defines the page type named af
 
 The folder a site's `structure` names, holding its type files. A site without one has no page types, and none of its pages is checked for any.
 
+## requirement
+
+Something the people who run a system say it must do, kept as a page. It is a constraint, a review rule or an objective. See [Checking requirements](../checking-requirements/README.md).
+
+## constraint
+
+A requirement a test can check. Its id is its file's name without `.md`; tests point at it by that id, and it is met when at least one does and none fails.
+
+## review rule
+
+A requirement no test can check: a reviewer judges each change against its words.
+
+## objective
+
+A requirement with a number, measured by a benchmark or read from a data source outside the repository.
+
+## process
+
+A page an agent follows to work toward one objective, alone on a schedule or in a session with a person.
+
 ## branch
 
 An entry with children in the sidebar. Its chevron opens and closes it; the branch down to the page shown is open, and those the reader opened stay open, remembered per document. See [Organizing navigation](../organizing-navigation/README.md#opening-and-closing).

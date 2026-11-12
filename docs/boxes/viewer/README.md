@@ -100,6 +100,7 @@ Each card opens the page that explains it.
 
 - (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
 - (network) [Structuring a site](structuring-a-site/README.md) — Page types a site defines, and which may sit under which, checked.
+- (list-checks) [Checking requirements](checking-requirements/README.md) — Constraints as pages, the tests that point at them, and their JUnit results.
 - (book-open) [Configuration reference](configuration-reference/README.md) — Every field, flag and error.
 - (search-check) [Viewer glossary](glossary/README.md) — The words the viewer owns.
 
@@ -123,6 +124,9 @@ Each card opens the page that explains it.
   Topics sections build the sidebar, and how to lay out its reading order.
 - [Structuring a site](structuring-a-site/README.md) — a site's own page
   types, the type each page names, and which types may sit under which.
+- [Checking requirements](checking-requirements/README.md) — a system's
+  requirements as pages, tests that point at its constraints, and what
+  `devpage check` reports from their results.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the
   PDF's paper, header and footer.
 - [Making slides](making-slides/README.md) — one file per slide, the stage,

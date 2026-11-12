@@ -307,6 +307,8 @@ pub struct Document {
     pub widgets: Option<PathBuf>,
     /// A site's structure folder — its type files — if it names one.
     pub structure: Option<PathBuf>,
+    /// A site's requirements — its test suites — if it configures them.
+    pub requirements: Option<crate::requirements::Requirements>,
     /// A site's navbar, in order; empty when it has none.
     pub navbar: Vec<NavItem>,
     /// Whether a site shows its Topics sidebar.
@@ -369,6 +371,7 @@ impl Document {
                 watch_roots: Vec::new(),
                 widgets: None,
                 structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -390,6 +393,7 @@ impl Document {
                 watch_roots: Vec::new(),
                 widgets: None,
                 structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -541,6 +545,25 @@ impl Document {
             }
             _ => None,
         };
+        // `requirements` with no package is the system extension that holds a
+        // site's constraints to its tests.
+        let requirements = match extension_configs.get("requirements") {
+            Some(config) if config.package.is_none() => {
+                if !matches!(kind, Kind::Site { .. }) {
+                    bail!("extensions: requirements: only a site has requirements");
+                }
+                let config = extension_configs.remove("requirements").map(|c| c.config);
+                Some(
+                    crate::requirements::Requirements::read(
+                        &config.unwrap_or_default(),
+                        &base,
+                        &served,
+                    )
+                    .map_err(|e| anyhow::anyhow!("extensions: requirements: {e:#}"))?,
+                )
+            }
+            _ => None,
+        };
         crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
         Ok(Self {
@@ -554,6 +577,7 @@ impl Document {
             watch_roots,
             widgets,
             structure,
+            requirements,
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,

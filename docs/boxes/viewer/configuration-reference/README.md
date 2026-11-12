@@ -12,7 +12,7 @@ commands and flags, and the errors devpage stops with. It sits under the [viewer
 ```sh
 devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
-devpage check [path] [--root <folder>] [--json]
+devpage check [path] [--root <folder>] [--json] [--docs]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
@@ -28,7 +28,7 @@ devpage --version
 | Command | Does |
 | --- | --- |
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
-| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. A site with [requirements](../checking-requirements/README.md) has its tests run too; `--docs` leaves them out. |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
 | `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
@@ -191,6 +191,21 @@ items' ids and addresses, `reference/<namespace>/` — to these fields:
 | `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
 | `private` | boolean | no | Whether items no `pub` path reaches get pages too. Default: `false`. |
 
+### `requirements`
+
+A site's `extensions` may hold `requirements` with no `package`: the
+[system extension](../glossary/README.md#system-extension) that holds the
+site's constraints to its tests
+([Checking requirements](../checking-requirements/README.md)). Its `config`
+has one field, `tests`, a list of suites, each with these fields:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | What the suite is called in problems. |
+| `glob` | glob pattern | yes | Its test files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
+| `pattern` | regular expression | yes | Where a test names a constraint; its first group is the constraint's id. |
+| `run` | command | yes | Runs the suite and prints JUnit XML on standard output, from the document file's folder. |
+
 ## Front matter
 
 A page may open with YAML front matter: a `---` line first, the fields, and
@@ -248,6 +263,9 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
 | `structure` names no folder, or one outside the served folder | `in <file>` — `structure <folder> is not a folder` |
+| `requirements` on a doc or a deck | `in <file>` — `extensions: requirements: only a site has requirements` |
+| A suite's `pattern` is no regular expression, or has no group | `in <file>` — `extensions: requirements: tests <name>: pattern <pattern>`, then the error, or `… has no group — its first group is the constraint's id` |
+| A suite's `glob` is outside the served folder | `in <file>` — `extensions: requirements: tests <name>: glob <glob> is outside the served folder` |
 | A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
 | A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |

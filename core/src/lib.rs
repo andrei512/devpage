@@ -22,6 +22,7 @@ pub mod external;
 pub mod folder;
 pub mod page;
 pub mod problem;
+pub mod requirements;
 pub mod search;
 pub mod structure;
 pub mod watch;
