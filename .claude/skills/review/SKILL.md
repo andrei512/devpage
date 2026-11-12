@@ -12,7 +12,7 @@ thread.
 
 ## The general constraints, always
 
-`docs/constraints/` holds the rules that belong to no single box. Read that
+`docs/requirements/` holds the rules that belong to no single box. Read that
 index on every review, whatever the diff touches — they are the ones nobody
 thinks to look for, because there is no box whose name matches them.
 
@@ -30,7 +30,7 @@ Every path in the diff belongs to a box, and boxes nest — code inside a box th
 sits within another is bound by both of their constraints.
 
 Start by listing the boxes the diff touches and reading each one's README,
-including its constraints list. Each entry there states a rule in one line and
+including its requirements list. Each entry there states a rule in one line and
 links to the file explaining it. Open that file when the diff plausibly bears on
 the rule; the one-liner is enough to decide whether it does.
 

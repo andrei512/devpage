@@ -81,7 +81,7 @@ compiles through it, and it forgets a file when the watcher reports it
 (`Modules::forget`). `devpage check` reads through one of its own. A widget
 or helper that resolves outside the served folder — a symbolic link pointing
 out — is never read, as nothing outside it is
-([the served folder is the boundary](../../constraints/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
+([the served folder is the boundary](../../requirements/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
 a module that throws the compiler's message, and so is a widget whose relative
 imports reach a helper that doesn't compile — with the helper's message — so
 the page shows why in the widget's place rather than only that its import

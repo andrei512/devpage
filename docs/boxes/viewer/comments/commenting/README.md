@@ -47,7 +47,7 @@ no archive and no "resolved" state, because the store is not history. Anyone
 can resolve any thread.
 
 Comments are never printed: print mode leaves them out
-([A PDF is the page the browser shows](../../constraints/a-pdf-is-the-page.md)).
+([A PDF is the page the browser shows](../../requirements/a-pdf-is-the-page.md)).
 
 ## Turning comments off
 

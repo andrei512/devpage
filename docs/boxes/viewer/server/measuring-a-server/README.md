@@ -23,10 +23,10 @@ flowchart LR
 
 ## The envelope
 
-[One replica](../constraints/one-replica.md) fixes the scale: one process,
+[One replica](../requirements/one-replica.md) fixes the scale: one process,
 read by thousands at most and written far less. The envelope is that sentence
 in numbers, and one server holds it
-([one server holds the envelope](../constraints/one-server-holds-the-envelope.md)):
+([one server holds the envelope](../requirements/one-server-holds-the-envelope.md)):
 
 | | |
 | --- | --- |
@@ -54,7 +54,7 @@ on a port of its own — `DEVPAGE_METRICS_PORT`, `9030` by default — so the
 public Service and the proxy never route to it and a forgotten proxy rule
 can't publish it. It holds counts and timings, never content, and no label
 names a document or a version
-([metrics name no document](../constraints/metrics-name-no-document.md)).
+([metrics name no document](../requirements/metrics-name-no-document.md)).
 
 **Time per stage**, as histograms — each stage a request can spend its time in:
 

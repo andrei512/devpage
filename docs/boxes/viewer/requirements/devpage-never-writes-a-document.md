@@ -29,7 +29,7 @@ outside the served folder.
 
 In [server mode](../server/README.md) there is no served folder on disk to
 protect: a published version's files are kept byte for byte as uploaded
-([a version never changes](../server/constraints/a-version-never-changes.md)),
+([a version never changes](../server/requirements/a-version-never-changes.md)),
 and the server writes only its store, its cache and the bucket's objects. The
 CLI writes only `~/.devpage/` — never the document it publishes.
 

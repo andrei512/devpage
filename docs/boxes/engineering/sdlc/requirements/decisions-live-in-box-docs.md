@@ -16,7 +16,7 @@ checked: the rule, why it holds, and how a breach shows.
 
 A decision changes how a box works, so it belongs in that subject's focused
 design, linked from the box's README. A rule that must not be broken belongs in
-the owning box's `constraints/`, or in `docs/constraints/` when system-wide.
+the owning box's `requirements/`, or in `docs/requirements/` when system-wide.
 The reasoning behind the change goes in the commit message, attached to the
 diff it explains.
 

@@ -1,7 +1,7 @@
 ---
 page-type: landing
 ---
-# General constraints
+# General requirements
 
 Rules that belong to no single box, checked on **every** review rather than only
 when a matching box is touched.

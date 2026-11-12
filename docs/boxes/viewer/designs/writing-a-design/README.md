@@ -57,7 +57,7 @@ designs use. A file:
 - starts with any number of **imports**, one per line —
   `import Button from "./button.design"` — each a name and a path relative to
   the file. The path must name a `.design` file that exists in the
-  [served folder](../../constraints/the-served-folder-is-the-boundary.md),
+  [served folder](../../requirements/the-served-folder-is-the-boundary.md),
   whether the design uses the import or not. Each import takes a name of its
   own, and none takes a built-in element's name — `Frame`, `Text`, `Rect`,
   `Ellipse`, `Vector` or `Image`.
@@ -135,7 +135,7 @@ design that follows the themes names every color it wants to change.
 
 - **Which `themes.yml`.** A design uses the nearest `themes.yml` up the
   folder tree from its own file, as far as the
-  [served folder](../../constraints/the-served-folder-is-the-boundary.md)'s top;
+  [served folder](../../requirements/the-served-folder-is-the-boundary.md)'s top;
   nothing imports it. A `themes.yml` lower down overrides only the names it
   lists, in each theme, and takes the rest from the ones above it, so one
   file at the top can hold a product's palette and a folder can change a few
@@ -159,7 +159,7 @@ A design never picks its theme; where it is shown does — see
 
 A `Text` with no `font` is set in **Inter**, which devpage carries inside it —
 regular, medium, semibold and bold. Any other font is a **font file** in the
-[served folder](../../constraints/the-served-folder-is-the-boundary.md), which a
+[served folder](../../requirements/the-served-folder-is-the-boundary.md), which a
 `themes.yml` gives a short name; a `Text` names the font it is set in, and a
 design can mix as many as it likes. devpage never uses a font installed on the
 machine: the canvas is WebAssembly in a browser that can't read them, and the

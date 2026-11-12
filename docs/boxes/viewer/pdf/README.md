@@ -41,7 +41,7 @@ agent wants.
 ## Why the PDF matches the screen
 
 Print mode is the same page; it only leaves things out, and sets the page size
-([A PDF is the page the browser shows](../constraints/a-pdf-is-the-page.md)):
+([A PDF is the page the browser shows](../requirements/a-pdf-is-the-page.md)):
 
 | Kept on paper | Left out |
 | --- | --- |

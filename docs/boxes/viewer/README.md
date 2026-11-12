@@ -167,20 +167,20 @@ Each card opens the page that explains it.
 - [Viewer glossary](glossary/README.md) — the words the viewer owns, one
   anchor per term.
 
-### Constraints
+### Requirements
 
-- [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
+- [The served folder is the boundary](requirements/the-served-folder-is-the-boundary.md)
   — what devpage may serve, read and link to.
-- [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
+- [devpage never writes a document](requirements/devpage-never-writes-a-document.md)
   — comments stay in `.devpage/`; a PDF or a video goes only where it was
   asked for.
-- [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
+- [A PDF is the page the browser shows](requirements/a-pdf-is-the-page.md)
   — one renderer for screen and paper.
-- [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
+- [devpage authenticates no one](requirements/devpage-authenticates-no-one.md)
   — identity comes from the proxy in front of it.
-- [One name, one widget](constraints/one-name-one-widget.md)
+- [One name, one widget](requirements/one-name-one-widget.md)
   — widgets compose by name, so no name is shadowed.
-- [A design has one renderer](constraints/a-design-has-one-renderer.md)
+- [A design has one renderer](requirements/a-design-has-one-renderer.md)
   — the agent's PNG is the reader's canvas.
-- [A frame costs what it shows](constraints/a-frame-costs-what-it-shows.md)
+- [A frame costs what it shows](requirements/a-frame-costs-what-it-shows.md)
   — no size limit: a view costs what it shows, an edit what it changed.

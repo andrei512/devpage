@@ -95,7 +95,7 @@ devpage --root ~/code/my-project ~/code/my-project/docs
 
 <Callout kind="warning" title="The served folder is the boundary">
 Everything in the served folder can be served, and nothing outside it can: not
-through `..`, not through a symbolic link ([the rule](../constraints/the-served-folder-is-the-boundary.md)).
+through `..`, not through a symbolic link ([the rule](../requirements/the-served-folder-is-the-boundary.md)).
 </Callout>
 
 The document you start devpage with must be inside the served folder. A

@@ -39,7 +39,7 @@ a doc's or deck's widgets are its own.
 <Callout kind="warning" title="One name, one widget">
 A project widget can't take a system widget's name: `Callout.tsx` in a project
 is a problem, so system widgets that use `Callout` keep getting the one they
-were written for ([the rule](../../constraints/one-name-one-widget.md)).
+were written for ([the rule](../../requirements/one-name-one-widget.md)).
 `Notes.tsx` is a problem too: `Notes` is devpage's tag for a slide's
 [notes](../../making-slides/README.md#speaker-notes). So is
 `DevpageSidebar.tsx`: names starting with `Devpage` are devpage's own chrome

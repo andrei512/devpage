@@ -71,7 +71,7 @@ honestly do.
 
 Then review the rest of it yourself, against the `review` skill at the task bar:
 the acceptance criteria run rather than assumed, the constraints of every box
-your diff touches, `docs/constraints/` whatever you touched, and the gates green
+your diff touches, `docs/requirements/` whatever you touched, and the gates green
 from your own run.
 
 You are the wrong person for this and it is still your job. You know why every

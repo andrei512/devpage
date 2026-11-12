@@ -10,7 +10,7 @@ before any code, and it produces one artifact: an update to the design docs.
 
 Those docs live in `docs/boxes/`, one directory per **box** — a component of the
 system. Its `README.md` describes how the box works and lists that box's
-**constraints**; each constraint has its own file under `constraints/`. Review
+**constraints**; each constraint has its own file under `requirements/`. Review
 checks a diff against them. The format is described in `docs/boxes/engineering/sdlc/`.
 
 ## Talk until told to act
@@ -31,7 +31,7 @@ bring blast-radius findings back through the same conversation.
 ## The recommendation is the shape that passes no-knowable-rework
 
 When options differ in size, recommend the one where no rework is already
-nameable ([no-knowable-rework](../../../docs/constraints/no-knowable-rework.md)) —
+nameable ([no-knowable-rework](../../../docs/requirements/no-knowable-rework.md)) —
 judged against the design and the vision, not the current ticket. A smaller
 shape appears only as a named cost, never as the proposal.
 
@@ -51,7 +51,7 @@ departure buys and what it costs.
 ## Cut the branch
 
 A design update describes a system that doesn't exist yet, so it can't go on
-main — see [docs-are-true-on-main](../../../docs/boxes/engineering/sdlc/constraints/docs-are-true-on-main.md).
+main — see [docs-are-true-on-main](../../../docs/boxes/engineering/sdlc/requirements/docs-are-true-on-main.md).
 It lives on its own branch, one per design update, until the code catches up.
 
 Cut that branch once the shape of the change is clear, before the first blast
@@ -92,8 +92,8 @@ up nothing new. The operator decides when the design is settled.
 
 ## The write
 
-Update each affected box's README: how the box works, and its constraints list.
-A new constraint also gets its own file under that box's `constraints/` — the
+Update each affected box's README: how the box works, and its requirements list.
+A new constraint also gets its own file under that box's `requirements/` — the
 rule stated precisely, why it exists, and how to check it — linked from its
 one-line entry. A box that doesn't exist yet is created here.
 
@@ -119,7 +119,7 @@ Write a requirement so it reads one way:
 5. The reason goes under `## Why`, not in the sentence.
 
 A rule that holds everywhere is not that box's, however it came up. It goes in
-`docs/constraints/`, which review reads on every diff. Ask which box could
+`docs/requirements/`, which review reads on every diff. Ask which box could
 violate it: if the answer is any of them, it belongs there. Filing a general
 rule under whichever box happened to surface it is how one layout ends up
 escaping raw HTML differently from the others while the constraint saying how

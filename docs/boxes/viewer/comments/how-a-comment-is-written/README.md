@@ -18,7 +18,7 @@ served or version folder. It holds every rule of a write:
   (`/docs/a.md`); one that is empty or climbs out of the folder is refused.
 - **Starting a thread.** The page must be a file in the served folder — or,
   on a server, in the version the thread is started on — resolved through the
-  [served folder](../../constraints/the-served-folder-is-the-boundary.md).
+  [served folder](../../requirements/the-served-folder-is-the-boundary.md).
 - **Replying and resolving** go by the thread's id alone, with no page check,
   so a [detached comment](../../glossary/README.md#detached-comment) takes
   replies like any other.

@@ -76,8 +76,8 @@ A package is trusted native code in the devpage process. Its panics are caught a
 
 - [Package and protocol reference](reference/README.md) — Bundle, native boundary, every request and reply, capture rules and addresses.
 
-### Constraints
+### Requirements
 
-- [Extensions use the host watch](constraints/host-watch.md) — Inputs join devpage's watch, and preparation precedes refresh.
-- [A render uses one extension revision](constraints/one-revision.md) — A render names its revision, and a failed preparation is never served as current.
-- [The native boundary is versioned](constraints/native-boundary.md) — Only the C table and owned JSON buffers cross between devpage and a package.
+- [Extensions use the host watch](requirements/host-watch.md) — Inputs join devpage's watch, and preparation precedes refresh.
+- [A render uses one extension revision](requirements/one-revision.md) — A render names its revision, and a failed preparation is never served as current.
+- [The native boundary is versioned](requirements/native-boundary.md) — Only the C table and owned JSON buffers cross between devpage and a package.

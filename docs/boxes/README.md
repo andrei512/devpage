@@ -16,11 +16,11 @@ flowchart LR
   catalog["System catalog"] --> viewer["Viewer<br/>the devpage program"]
   catalog --> engineering["Engineering<br/>how changes reach main"]
   catalog --> showcase["Showcase deck<br/>devpage's pitch"]
-  catalog --> constraints["General constraints<br/>checked on every review"]
+  catalog --> constraints["General requirements<br/>checked on every review"]
   click viewer href "./viewer/README.md" "Viewer"
   click engineering href "./engineering/README.md" "Engineering"
   click showcase href "./showcase/README.md" "The showcase deck"
-  click constraints href "../constraints/README.md" "General constraints"
+  click constraints href "../requirements/README.md" "General requirements"
 ```
 
 ## How to read the catalog
@@ -35,7 +35,7 @@ owner. One box looks like this:
 - viewer/
   - README.md — the entrance: what the subject is, a picture of its parts, and its Topics
   - glossary/README.md — the words it owns, one anchor per term
-  - constraints/
+  - requirements/
     - the-served-folder-is-the-boundary.md — one rule per file: the rule, why, how it is checked
   - writing-a-document/README.md — an article, with its own children
 
@@ -58,10 +58,10 @@ examples and incoming links it affects; a design decision lives in its owning
 focused design, linked from the box entrance, and the reason for changing it
 belongs in the commit message, not an ADR.
 
-## Constraints
+## Requirements
 
 Rules that belong to no single subject are the
-[general constraints](../constraints/README.md), checked on every review. Every
+[general constraints](../requirements/README.md), checked on every review. Every
 other constraint lives with the subject it governs, one file per rule listed
 one line each in that subject's Topics, and applies to its descendants. Each
 constraint file opens with the same note: it is a rule for automated AI code

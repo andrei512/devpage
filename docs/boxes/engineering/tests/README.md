@@ -655,7 +655,7 @@ each brings up a server from `deploy/server/compose.yaml` — building the image
 from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
 two versions and starts a thread, deletes the server's volume, starts it on
 an empty one, and finds both versions, the thread, the latest at the link and
-version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
+version 1 unchanged: [the PVC is only a cache](../../viewer/server/requirements/the-pvc-is-only-a-cache.md),
 on the example deploy. Without Litestream's restore it fails.
 
 ### The server's benchmark
@@ -663,7 +663,7 @@ on the example deploy. Without Litestream's restore it fails.
 Not a test `cargo test` runs: `.github/workflows/bench.yml`, started by hand,
 loads a server to the [envelope](../../viewer/server/measuring-a-server/README.md#the-envelope)
 and past it, and reports each target met or missed
-([one server holds the envelope](../../viewer/server/constraints/one-server-holds-the-envelope.md)).
+([one server holds the envelope](../../viewer/server/requirements/one-server-holds-the-envelope.md)).
 The code is `bench/` (`devpage-bench`), a workspace crate never published; the
 repository holds no corpus and no results.
 

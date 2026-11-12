@@ -41,7 +41,7 @@ feature.
 1. Design
    An idea that changes what the box docs say. A conversation, using `align`,
    until a blast-radius pass turns up nothing new; then, when asked, the write:
-   the box docs under `docs/boxes/` (and `docs/constraints/` for a system-wide
+   the box docs under `docs/boxes/` (and `docs/requirements/` for a system-wide
    rule), on a branch `design/<name>` cut once the shape is clear.
 
    $ /design

@@ -386,7 +386,7 @@ is decided there, the theme's value of each color included: a drawing is made
 for a theme, and the scene holds both. A design has no size limit: nothing
 about a frame or an edit costs more because the design is bigger — a frame
 costs what is visible, an edit what changed
-([a frame costs what it shows](../constraints/a-frame-costs-what-it-shows.md)).
+([a frame costs what it shows](../requirements/a-frame-costs-what-it-shows.md)).
 
 ```mermaid
 flowchart LR
@@ -485,7 +485,7 @@ more:
   container, which has no GPU to count on, and in a browser without WebGPU.
 
 Both backends replay the
-[same display list](../constraints/a-design-has-one-renderer.md); they differ
+[same display list](../requirements/a-design-has-one-renderer.md); they differ
 only where two rasterizers can — the last bit of anti-aliasing at an edge.
 `vello_cpu` has its own API rather than replaying a `vello` scene, which is
 why the shared form is the engine's list and not a vello type. Where the two

@@ -46,11 +46,11 @@ How box docs are organized and kept true — one home per subject, constraints
 one file per rule, docs on main describing the system as it is — is on the
 [system catalog](../../README.md#how-to-read-the-catalog).
 
-## Constraints
+## Requirements
 
 The SDLC's two rules are listed under [Topics](#topics), one line each, and
 reviewed on every change to the process or to box docs. System-wide rules are
-the [general constraints](../../../constraints/README.md).
+the [general constraints](../../../requirements/README.md).
 
 ## Topics
 
@@ -61,11 +61,11 @@ the [general constraints](../../../constraints/README.md).
 - [Review bars and CI](review-bars/README.md) — the task bar and the drift
   bar, and what checks them today.
 
-### Constraints
+### Requirements
 
-- [On main, the box docs describe the system as it is](constraints/docs-are-true-on-main.md)
+- [On main, the box docs describe the system as it is](requirements/docs-are-true-on-main.md)
   — anything merged to main leaves the docs an accurate description of the
   code; a design not yet built waits on its design branch.
-- [Decisions live in box docs, not in a decision log](constraints/decisions-live-in-box-docs.md)
+- [Decisions live in box docs, not in a decision log](requirements/decisions-live-in-box-docs.md)
   — a decision goes into the owning box's docs or constraints and its reason
   into the commit message; there is no ADR directory.

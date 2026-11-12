@@ -522,7 +522,7 @@ async fn concurrent_publishes_to_one_document_take_one_number_each() {
     }
 }
 
-/// [A version never changes](docs/boxes/viewer/server/constraints/a-version-never-changes.md):
+/// [A version never changes](docs/boxes/viewer/server/requirements/a-version-never-changes.md):
 /// the bucket keeps the upload byte for byte, the store its sha-256, and a
 /// later publish leaves it as it was.
 #[tokio::test]
@@ -545,7 +545,7 @@ async fn a_version_is_kept_byte_for_byte_and_never_changes() {
     assert_eq!(std::fs::read(&kept).unwrap(), first);
 }
 
-/// The first half of [the PVC is only a cache](docs/boxes/viewer/server/constraints/the-pvc-is-only-a-cache.md):
+/// The first half of [the PVC is only a cache](docs/boxes/viewer/server/requirements/the-pvc-is-only-a-cache.md):
 /// with the cache deleted, a server started again renders every version
 /// from the bucket.
 #[tokio::test]
