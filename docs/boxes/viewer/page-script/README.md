@@ -65,7 +65,7 @@ compiled module would, so an equal key mounts the same thing: the old,
 still-mounted element is kept in its place, with its state, and only the
 others mount afresh. An edited widget has a new address, so it mounts afresh
 even where its placeholder's HTML is the same. Each
-[embedded design](../designs/README.md#viewing-a-design) outside a widget
+[embedded design](../designs/viewing-a-design/README.md#viewing-a-design) outside a widget
 whose canvas is still in the fresh page is kept too, with its drawing, so the
 page's one watch stream stays open while the set of designs it shows is the
 same. A design embedded inside a widget goes with the widget: kept with it, or

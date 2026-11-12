@@ -242,7 +242,7 @@ which widgets run with; the [vendored icons](../../viewer/vendored-icons/README.
 Lucide's icon set (ISC) and GitHub's mark (CC0); and the Inter typeface —
 regular, medium, semibold and bold, in `design/fonts/` — which the design
 engine embeds with `include_bytes!` and sets a design's text in unless the
-design names a [font file](../../viewer/designs/README.md#fonts). Inter is
+design names a [font file](../../viewer/designs/writing-a-design/README.md#fonts). Inter is
 under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
 

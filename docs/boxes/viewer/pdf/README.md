@@ -31,7 +31,7 @@ or a **deck**, one slide per 16:9 page
 ([Making slides](../making-slides/README.md#on-paper)). A site is many pages,
 not one, and `devpage pdf` refuses it; print one of its pages from the browser
 instead. It refuses a design too; a page that embeds the design prints it, and
-its [PNG](../designs/README.md#looking-at-a-design-as-a-png) is its picture.
+its [PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png) is its picture.
 
 The browser's own print — <Keys>⌘ P</Keys>, *Save as PDF* — produces the same pages from an
 open doc or deck, since both print the same print-mode page. `devpage pdf` adds

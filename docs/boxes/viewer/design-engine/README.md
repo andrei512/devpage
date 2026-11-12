@@ -193,7 +193,7 @@ to it; among static files, the file of that weight. The text's node names the
 face's file by its id, and the scene carries each font file its texts use
 once, however many texts use it, under whatever names — a folder's other
 weights aren't carried. Why at most 4 MB is on
-[Fonts](../designs/README.md#fonts): every font file goes whole to each
+[Fonts](../designs/writing-a-design/README.md#fonts): every font file goes whole to each
 browser that shows the design.
 
 Every path a node carries — an image's file, a font file, an interaction's
@@ -922,7 +922,7 @@ and one that goes leaves the stream.
 
 | What happens | What the reader sees |
 | --- | --- |
-| A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)). |
+| A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)). |
 | A design's images don't fit the GPU together | The problem at the `src` of the first that doesn't fit, over the last valid drawing — never a drawing with a hole; the PNG route answers with it too. |
 | A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |

@@ -46,7 +46,7 @@ The docs are served by devpage (https://devpage.ai/docs/README.md) from
   one JSON shape for problems ([exit codes](boxes/viewer/configuration-reference/README.md#exit-codes)).
 - **Design PNGs**: `devpage png` draws the picture a running devpage
   answers `<path>.design.png` with
-  ([Designs](boxes/viewer/designs/README.md#looking-at-a-design-as-a-png)).
+  ([Designs](boxes/viewer/designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)).
 - **Slide PNGs**: every slide of a deck is a PNG
   ([Making slides](boxes/viewer/making-slides/README.md#a-slide-as-an-image)).
 - **Comments**: one file per thread, and deleting it resolves the thread

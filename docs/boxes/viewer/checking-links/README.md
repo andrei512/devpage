@@ -64,14 +64,14 @@ every section it finds is somewhere a link can land.
 Every `.design` file a page links to or embeds, and every design those
 import, must parse and resolve: known elements, attributes and props, values
 of the right type, imports and images that exist in the served folder, and no
-design that uses itself ([Designs](../designs/README.md#problems)). They are
+design that uses itself ([Designs](../designs/viewing-a-design/README.md#problems)). They are
 read from the page's Markdown — an image or a link whose target ends in
 `.design`, never an example in code — and each of the design's problems is
 reported on the page as
 `broken design <target> — <file>:<line>:<column>: <message>`. A design whose
 images don't fit the GPU's atlas together is a problem too. A link to a design's PNG
 address, `x.design.png`, is checked as the design `x.design`
-([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
+([Looking at a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)).
 
 ### Diagrams
 

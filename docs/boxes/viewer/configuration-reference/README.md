@@ -30,7 +30,7 @@ devpage --version
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
 | `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
-| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
+| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
 | `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../server/README.md)). |
 | `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../server/reference/README.md#cli). |
@@ -53,7 +53,7 @@ devpage --version
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
-| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/README.md#turning-comments-off)). |
+| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/commenting/README.md#turning-comments-off)). |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 | `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
 | `-o, --output <file>` | `devpage png` | `<title>.png`, or `<title> <n>.png` for a slide, in the current folder | Where to write the PNG. |

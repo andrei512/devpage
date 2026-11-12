@@ -206,7 +206,7 @@ In detail:
   [content addresses](../serving-pages/README.md#built-in-assets) under
   `/__devpage/`; with comments off `devpage.js` carries `data-no-comments`,
   and the script shows no threads and offers no comment
-  ([Turning comments off](../comments/README.md#turning-comments-off));
+  ([Turning comments off](../comments/commenting/README.md#turning-comments-off));
 - then an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → React's content address,
   `/__devpage/react.<hash>.js`),

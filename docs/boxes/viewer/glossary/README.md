@@ -121,7 +121,7 @@ The `devpage-design` crate: parses, resolves, lays out and paints designs, nativ
 
 ## drawing
 
-What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
+What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## element id
 
@@ -181,11 +181,11 @@ The page a design's own address answers: one canvas filling the window, which th
 
 ## embed
 
-A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/README.md#viewing-a-design).
+A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## backdrop
 
-The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner — and, for a themed design, the embed's own theme switch beside it. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
+The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner — and, for a themed design, the embed's own theme switch beside it. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## watch stream
 
@@ -201,7 +201,7 @@ A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its byte
 
 ## font
 
-What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/README.md#fonts).
+What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/writing-a-design/README.md#fonts).
 
 ## font file
 
@@ -417,11 +417,11 @@ A widget a project writes: one `.tsx` file in the folder its document file's `wi
 
 ## theme
 
-A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/README.md#themes).
+A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/writing-a-design/README.md#themes).
 
 ## themes.yml
 
-The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
+The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/writing-a-design/README.md#themes).
 
 ## navbar
 

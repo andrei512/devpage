@@ -50,4 +50,4 @@ marks; the yellow (`#ffd60a`, half seen through) of the
 A [design](../../designs/README.md) has light and dark themes of its own: the
 colors its `themes.yml` names, which it draws with instead of the tokens. It
 is drawn in the theme of the page it is shown on, so a dark page shows a dark
-design on a dark backdrop — see [Themes](../../designs/README.md#themes).
+design on a dark backdrop — see [Themes](../../designs/writing-a-design/README.md#themes).

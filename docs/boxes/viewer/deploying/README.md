@@ -54,7 +54,7 @@ devpage docs --host 0.0.0.0 --port 3030 --no-comments
 
 The pages show no way to comment, every comment request answers `404`, and no
 `.devpage/` volume is needed
-([Turning comments off](../comments/README.md#turning-comments-off)). The
+([Turning comments off](../comments/commenting/README.md#turning-comments-off)). The
 same image can serve both: add `--no-comments` to the command of the public
 deployment only. `--no-comments` arrived in 0.2.1.
 

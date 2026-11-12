@@ -48,7 +48,7 @@ flowchart LR
   click pdf href "./pdf/README.md" "Printing to PDF"
   click designfiles href "./designs/README.md" "Designs"
   click engine href "./design-engine/README.md" "The design engine"
-  click png href "./designs/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
+  click png href "designs/viewing-a-design/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
 ```
 
 ## Its parts

@@ -85,7 +85,7 @@ with a relative path:
 
 An image of a `.design` file is not served as bytes: it embeds the design,
 drawn live and clickable — `![Checkout](checkout.design)`; see
-[Designs](../../designs/README.md#viewing-a-design).
+[Designs](../../designs/viewing-a-design/README.md#viewing-a-design).
 
 By default a change to any file in the served folder refreshes the open
 pages, images included, except files a `.gitignore` excludes. A site can
