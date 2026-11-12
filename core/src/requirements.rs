@@ -1,6 +1,6 @@
 //! A site's requirements, checked against its tests: the `requirements`
 //! system extension. A page of type `constraint` is a requirement a test can
-//! check; a test points at it by its id — the page's file name without `.md`
+//! check; a test points at it by its id — the `id` of the page's front matter
 //! — which the site's own pattern reads out of its test files. A constraint
 //! no test points at is a problem, and so is a test pointing at no
 //! constraint. Each suite's `run` command prints its results as JUnit XML,
@@ -178,52 +178,54 @@ impl Requirements {
     }
 }
 
-/// A constraint page's id: its file name without `.md`, or its folder's name
-/// for a `README.md`.
-fn id(page: &Path) -> String {
-    let stem = page.file_stem().unwrap_or_default().to_string_lossy();
-    if stem.eq_ignore_ascii_case("README") {
-        page.parent()
-            .and_then(Path::file_name)
-            .unwrap_or_default()
-            .to_string_lossy()
-            .into_owned()
-    } else {
-        stem.into_owned()
-    }
+/// A site's constraint pages: every Markdown file in its folder whose
+/// `page-type` is `constraint`.
+struct Constraints {
+    /// The pages by the `id` their front matter gives; an id two pages share
+    /// keeps both, in path order.
+    by_id: BTreeMap<String, Vec<PathBuf>>,
+    /// The pages that give no `id`.
+    unnamed: Vec<PathBuf>,
 }
 
-/// The site's constraint pages by id: every Markdown file in its folder whose
-/// `page-type` is `constraint`. An id two pages share keeps both.
-fn constraints(document: &Document) -> BTreeMap<String, Vec<PathBuf>> {
-    let mut found: BTreeMap<String, Vec<PathBuf>> = BTreeMap::new();
+/// Reads the site's constraint pages.
+fn constraints(document: &Document) -> Constraints {
+    let mut found = Constraints {
+        by_id: BTreeMap::new(),
+        unnamed: Vec::new(),
+    };
     let walk = ignore::WalkBuilder::new(&document.base)
         .hidden(true)
         .require_git(false)
         .build();
+    let mut pages = Vec::new();
     for entry in walk.flatten() {
         let path = entry.path();
-        if !entry.file_type().is_some_and(|t| t.is_file())
-            || path.extension().is_none_or(|ext| ext != "md")
+        if entry.file_type().is_some_and(|t| t.is_file())
+            && path.extension().is_some_and(|ext| ext == "md")
         {
-            continue;
-        }
-        let Ok(source) = std::fs::read_to_string(path) else {
-            continue;
-        };
-        if crate::structure::page_type(&source).is_some_and(|(name, _)| name == CONSTRAINT) {
-            found.entry(id(path)).or_default().push(path.to_path_buf());
+            pages.push(path.to_path_buf());
         }
     }
-    for pages in found.values_mut() {
-        pages.sort();
+    pages.sort();
+    for page in pages {
+        let Ok(source) = std::fs::read_to_string(&page) else {
+            continue;
+        };
+        if crate::structure::page_type(&source).is_none_or(|(name, _)| name != CONSTRAINT) {
+            continue;
+        }
+        match crate::structure::front_matter(&source, "id") {
+            Some(id) => found.by_id.entry(id).or_default().push(page),
+            None => found.unnamed.push(page),
+        }
     }
     found
 }
 
 /// What is wrong between a site's constraints and its tests, without running
-/// one: a constraint no test points at, a test pointing at no constraint, and
-/// two constraints with one id. Nothing for a document with no requirements.
+/// one: a constraint with no id, a constraint no test points at, a test
+/// pointing at no constraint, and two constraints with one id. Nothing for a document with no requirements.
 pub fn problems(document: &Document) -> Vec<Problem> {
     let Some(requirements) = &document.requirements else {
         return Vec::new();
@@ -240,7 +242,14 @@ pub fn problems(document: &Document) -> Vec<Problem> {
     let constraints = constraints(document);
     let pointers = requirements.pointers();
     let mut problems = Vec::new();
-    for (id, pages) in &constraints {
+    for page in &constraints.unnamed {
+        problems.extend(problem(
+            page,
+            None,
+            "a constraint has an id — its front matter has no id".to_string(),
+        ));
+    }
+    for (id, pages) in &constraints.by_id {
         for page in &pages[1..] {
             problems.extend(problem(
                 page,
@@ -260,7 +269,7 @@ pub fn problems(document: &Document) -> Vec<Problem> {
         }
     }
     for pointer in &pointers {
-        if !constraints.contains_key(&pointer.id) {
+        if !constraints.by_id.contains_key(&pointer.id) {
             problems.extend(problem(
                 &pointer.file,
                 Some(pointer.line),
@@ -395,7 +404,10 @@ mod tests {
         found
     }
 
-    const CONSTRAINT: &str = "---\npage-type: constraint\n---\n# C\n";
+    /// A constraint page whose id is `id`.
+    fn constraint(id: &str) -> String {
+        format!("---\npage-type: constraint\nid: {id}\n---\n# C\n")
+    }
 
     #[test]
     fn a_constraint_every_test_of_which_is_found_has_no_problem() {
@@ -403,7 +415,7 @@ mod tests {
             "requirements-ok",
             &[
                 ("README.md", "# Home\n"),
-                ("rules/a-save-is-kept.md", CONSTRAINT),
+                ("rules/saving.md", &constraint("a-save-is-kept")),
                 (
                     "rules/no-rework.md",
                     "---\npage-type: review-rule\n---\n# R\n",
@@ -418,19 +430,21 @@ mod tests {
     }
 
     #[test]
-    fn a_constraint_no_test_points_at_is_a_problem_on_its_page() {
+    fn a_constraint_with_no_test_or_no_id_is_a_problem_on_its_page() {
         let doc = site(
             "requirements-untested",
             &[
                 ("README.md", "# Home\n"),
-                ("rules/a-save-is-kept.md", CONSTRAINT),
+                ("rules/saving.md", &constraint("a-save-is-kept")),
+                ("rules/unnamed.md", "---\npage-type: constraint\n---\n# C\n"),
                 ("tests/save.sh", "one() { :; }\n"),
             ],
         );
         assert_eq!(
             found(&doc),
             [
-                "rules/a-save-is-kept.md: no test points at this constraint — a test names it a-save-is-kept"
+                "rules/saving.md: no test points at this constraint — a test names it a-save-is-kept",
+                "rules/unnamed.md: a constraint has an id — its front matter has no id",
             ]
         );
     }
@@ -459,14 +473,14 @@ mod tests {
             "requirements-twice",
             &[
                 ("README.md", "# Home\n"),
-                ("a/kept.md", CONSTRAINT),
-                ("b/kept.md", CONSTRAINT),
+                ("a/one.md", &constraint("kept")),
+                ("b/two.md", &constraint("kept")),
                 ("tests/save.sh", "# spec: kept\none() { :; }\n"),
             ],
         );
         assert_eq!(
             found(&doc),
-            ["b/kept.md: constraint id kept is taken by a/kept.md"]
+            ["b/two.md: constraint id kept is taken by a/one.md"]
         );
     }
 
@@ -481,7 +495,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(dir.join("README.md"), "# Home\n").unwrap();
-        std::fs::write(dir.join("kept.md"), CONSTRAINT).unwrap();
+        std::fs::write(dir.join("kept.md"), constraint("kept")).unwrap();
         let doc = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
         assert!(doc.requirements.is_none());
         assert_eq!(found(&doc), Vec::<String>::new());

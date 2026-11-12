@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: native-boundary
 ---
 # The native boundary is versioned
 

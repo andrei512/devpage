@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: host-watch
 ---
 # Extensions use the host watch
 

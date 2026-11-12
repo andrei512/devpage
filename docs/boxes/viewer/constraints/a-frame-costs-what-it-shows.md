@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: a-frame-costs-what-it-shows
 ---
 # A frame costs what it shows
 

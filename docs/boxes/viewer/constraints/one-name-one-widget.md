@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: one-name-one-widget
 ---
 # One name, one widget
 

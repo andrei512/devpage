@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: devpage-never-writes-a-document
 ---
 # devpage never writes a document
 

@@ -278,6 +278,15 @@ pub fn page_type(source: &str) -> Option<(String, usize)> {
     Some((name, line))
 }
 
+/// The text a page's front matter gives `key`, trimmed; `None` when it has no
+/// front matter, no such key, or nothing written for it.
+pub fn front_matter(source: &str, key: &str) -> Option<String> {
+    let (yaml, _) = split_front_matter(source)?;
+    let map: serde_yaml::Mapping = serde_yaml::from_str(yaml).ok()?;
+    let value = map.get(key)?.as_str()?.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
 /// What is wrong with a page's sections against the `required` ones of its
 /// type `name`: each one missing, and each one standing before one it follows.
 fn sections(source: &str, name: &str, required: &[String]) -> Vec<(Option<usize>, String)> {

@@ -261,7 +261,7 @@ Something the people who run a system say it must do, kept as a page. It is a co
 
 ## constraint
 
-A requirement a test can check. Its id is its file's name without `.md`; tests point at it by that id, and it is met when at least one does and none fails.
+A requirement a test can check. Its front matter gives it an `id`; tests point at it by that id, and it is met when at least one does and none fails.
 
 ## review rule
 

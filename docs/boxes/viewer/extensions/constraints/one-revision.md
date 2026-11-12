@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: one-revision
 ---
 # A render uses one extension revision
 

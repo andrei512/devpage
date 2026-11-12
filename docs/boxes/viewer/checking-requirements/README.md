@@ -36,9 +36,13 @@ devpage checks constraints. It reads a page as one by its front matter:
 ```markdown
 ---
 page-type: constraint
+id: a-version-never-changes
 ---
 # A version never changes
 ```
+
+`id` is the name tests know the constraint by. It is the page's own, so the
+file can be renamed or moved without touching a test.
 
 The other kinds are page types of the site's own
 ([Structuring a site](../structuring-a-site/README.md)): review reads a review
@@ -75,9 +79,7 @@ language makes natural: a comment, an attribute, a decorator.
 
 ## A test points at a constraint
 
-A constraint's **id** is its file's name without `.md`:
-`a-version-never-changes.md` is `a-version-never-changes`. With the pattern
-above, a test points at it like this:
+A test names a constraint by its `id`. With the pattern above:
 
 ```rust
 // constraint: a-version-never-changes
@@ -95,6 +97,7 @@ any:
 
 | What | Must | Reported as |
 | --- | --- | --- |
+| A constraint | have an `id` | `<page>: a constraint has an id — its front matter has no id` |
 | A constraint | have at least one test pointing at it | `<page>: no test points at this constraint — a test names it <id>` |
 | An id a test names | be a constraint's | `<test file>:<line>: <id> — no constraint has this id` |
 | A constraint's id | be its alone | `<page>: constraint id <id> is taken by <page>` |

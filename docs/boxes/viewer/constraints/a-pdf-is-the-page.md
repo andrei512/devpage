@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: a-pdf-is-the-page
 ---
 # A PDF is the page the browser shows
 

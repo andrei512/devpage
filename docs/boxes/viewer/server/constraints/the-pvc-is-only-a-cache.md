@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: the-pvc-is-only-a-cache
 ---
 # The PVC is only a cache
 

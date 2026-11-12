@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: a-design-has-one-renderer
 ---
 # A design has one renderer
 

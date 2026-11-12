@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: devpage-authenticates-no-one
 ---
 # devpage authenticates no one
 

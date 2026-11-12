@@ -227,6 +227,7 @@ keywords: [retry, offline]
 | `description` | string | Words search finds the page by, weighted like its title. |
 | `keywords` | string or list of strings | The same. |
 | `page-type` | string | The page's [type](../glossary/README.md#page-type): the name of a type file in its site's structure folder, without `.md`. Read only in a site with a [`structure`](#site). |
+| `id` | string | A [constraint](../glossary/README.md#constraint)'s id: the name tests point at it by. Read only on a page whose `page-type` is `constraint`, in a site with [requirements](#requirements). |
 
 Any other field is read by nothing and ignored.
 

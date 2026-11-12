@@ -1,5 +1,6 @@
 ---
 page-type: constraint
+id: the-served-folder-is-the-boundary
 ---
 # The served folder is the boundary
 
