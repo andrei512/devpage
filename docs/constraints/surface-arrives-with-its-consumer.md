@@ -1,11 +1,11 @@
 ---
-page-type: constraint
+page-type: review-rule
 ---
 # Surface area arrives with its consumer
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 
-This file is a constraint for automated AI code review. On every change, whatever it touches, the
+This file is a requirement for automated AI code review. On every change, whatever it touches, the
 reviewer reads it and checks the diff against the rule below; a change that
 breaks it is a finding. People can read it too, but it is written to be
 checked: the rule, why it holds, and how a breach shows.
