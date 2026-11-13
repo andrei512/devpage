@@ -4,15 +4,6 @@ id: devpage-refuses-a-different-extension-api
 ---
 # devpage must refuse an extension built for a different extension API
 
-<Callout kind="tip" title="A review rule, written for the AI reviewer">
-
-This file is a requirement for automated AI code review. On every change to this box or to anything inside it, the
-reviewer reads it and checks the diff against the rule below; a change that
-breaks it is a finding. People can read it too, but it is written to be
-checked: the rule, why it holds, and how a breach shows.
-
-</Callout>
-
 <Callout kind="note" title="The rule">
 
 Only `devpage_extension_v1`'s `VTable` and JSON bytes in `Buffer`s cross between devpage and a package. Devpage checks the manifest's `api`, `target`, `id` and library path, then the table's `version` and `size`, before it sends a request. Each side frees only buffers it allocated. No Rust type, trait object or panic crosses.

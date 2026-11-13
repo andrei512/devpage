@@ -3,15 +3,6 @@ page-type: objective
 ---
 # One server holds the envelope
 
-<Callout kind="tip" title="A review rule, written for the AI reviewer">
-
-This file is a requirement for automated AI code review. On every change to this box or to anything inside it, the
-reviewer reads it and checks the diff against the rule below; a change that
-breaks it is a finding. People can read it too, but it is written to be
-checked: the rule, why it holds, and how a breach shows.
-
-</Callout>
-
 <Callout kind="note" title="The rule">
 
 One devpage server on 2 CPUs and 4 GB holds the

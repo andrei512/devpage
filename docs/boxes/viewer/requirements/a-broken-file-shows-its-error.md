@@ -4,15 +4,6 @@ id: a-broken-file-shows-its-error
 ---
 # When a file is broken, the page must show the error
 
-<Callout kind="tip" title="A review rule, written for the AI reviewer">
-
-This file is a requirement for automated AI code review. On every change to this box or to anything inside it, the
-reviewer reads it and checks the diff against the rule below; a change that
-breaks it is a finding. People can read it too, but it is written to be
-checked: the rule, why it holds, and how a breach shows.
-
-</Callout>
-
 <Callout kind="note" title="The rule">
 
 When a file is broken, the page must show the error. A page never looks fine

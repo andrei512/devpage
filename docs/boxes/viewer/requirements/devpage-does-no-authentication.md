@@ -4,15 +4,6 @@ id: devpage-does-no-authentication
 ---
 # devpage must not do authentication itself; it must give users what they need to connect their own
 
-<Callout kind="tip" title="A review rule, written for the AI reviewer">
-
-This file is a requirement for automated AI code review. On every change to this box or to anything inside it, the
-reviewer reads it and checks the diff against the rule below; a change that
-breaks it is a finding. People can read it too, but it is written to be
-checked: the rule, why it holds, and how a breach shows.
-
-</Callout>
-
 <Callout kind="note" title="The rule">
 
 devpage has no login, no sessions and no user list. Running locally — on a
