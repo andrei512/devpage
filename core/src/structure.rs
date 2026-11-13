@@ -1,6 +1,6 @@
 //! A site's structure: the page types its structure folder defines, and what
 //! is wrong with a page against them — no type, a type the folder lacks, a
-//! parent its type doesn't allow, no place in the tree, a missing section.
+//! parent its type doesn't allow, a missing section.
 //! devpage has no page types of its own: every one is a type file's.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -55,8 +55,6 @@ pub struct Structure {
     files: Vec<PathBuf>,
     /// What is wrong with the type files themselves.
     problems: Vec<Problem>,
-    /// The site's root page, which sits under none.
-    root: PathBuf,
     /// The page each listed page sits under.
     parents: HashMap<PathBuf, PathBuf>,
 }
@@ -66,7 +64,7 @@ impl Structure {
     /// structure folder.
     pub fn of(document: &Document) -> Option<Self> {
         let folder = document.structure.clone()?;
-        let Kind::Site { root } = &document.kind else {
+        let Kind::Site { .. } = &document.kind else {
             return None;
         };
         let folder_name = document
@@ -141,7 +139,6 @@ impl Structure {
             types,
             files,
             problems,
-            root: document.base.join(root),
             parents: nav::parents(document),
         })
     }
@@ -188,13 +185,6 @@ impl Structure {
                 None,
             )),
             Some(_) => {}
-        }
-        if page != self.root && !self.parents.contains_key(page) {
-            problems.push(problem(
-                None,
-                "no Topics section lists this page".to_string(),
-                None,
-            ));
         }
         let Some((name, own)) = own.and_then(|(name, _)| {
             let own = self.types.get(&name)?;

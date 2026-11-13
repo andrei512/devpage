@@ -82,10 +82,3 @@ How a deck like this is made, step by step, is the `presentation` skill.
 ## Requirements
 
 - [A feature a user sees arrives on the deck](../../requirements/features-arrive-on-the-deck.md)
-
-## Topics
-
-### Requirements
-
-- [A feature a user sees arrives on the deck](../../requirements/features-arrive-on-the-deck.md)
-  — the change that adds it adds or remakes its slide.

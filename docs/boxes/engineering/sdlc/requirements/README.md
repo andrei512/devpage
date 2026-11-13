@@ -6,8 +6,6 @@ page-type: reference
 What the way changes are made must always do. Each requirement has its own page: the rule in
 one sentence, why it exists, and how it is checked.
 
-## Topics
-
 - [On main, the box docs describe the system as it is](docs-are-true-on-main.md)
   — anything merged to main leaves the docs an accurate description of the
   code; a design not yet built waits on its design branch.

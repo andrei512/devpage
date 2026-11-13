@@ -1922,7 +1922,7 @@ mod structure {
     }
 
     #[tokio::test]
-    async fn a_page_needs_a_type_the_folder_has_and_a_place_in_the_tree() {
+    async fn a_page_needs_a_type_the_folder_has_and_none_needs_a_topics_listing() {
         let mut files = TYPES.to_vec();
         files.extend([
             (
@@ -1939,7 +1939,6 @@ mod structure {
             found,
             [
                 "bare.md: no page-type",
-                "loose.md: no Topics section lists this page",
                 "typo.md:2: page-type mecanism — no structure/mecanism.md",
             ]
         );

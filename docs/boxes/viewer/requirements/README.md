@@ -6,8 +6,6 @@ page-type: reference
 What the viewer must always do. Each requirement has its own page: the rule in
 one sentence, why it exists, and how it is checked.
 
-## Topics
-
 - [devpage must never serve or read a file outside the folder it was started on](devpage-stays-inside-its-folder.md)
   — what devpage may serve, read and link to.
 - [devpage must never change the files it serves](devpage-never-changes-served-files.md)

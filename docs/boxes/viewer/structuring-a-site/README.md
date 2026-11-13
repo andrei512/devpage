@@ -119,7 +119,6 @@ show on every page of the site, as a navbar's do:
 | A page of the site | name a type | `<page>: no page-type` |
 | A page's `page-type` | be a file in the structure folder | `<page>:<line>: page-type <type> — no <folder>/<type>.md` |
 | A page whose type has a `parent` | sit under a page of one of those types | on the parent, at the Topics entry: `<link> — a page of type <type> sits under <types>, and this page's type is <type>` |
-| A page of the site | be listed in a Topics section | `<page>: no Topics section lists this page` |
 | A page whose type has `sections` | have each one, in order | `<page>: no ## <heading> section — a page of type <type> has <headings>`, or `<page>:<line>: ## <heading> comes before ## <heading> — …` |
 | A type file's `parent` | name types the folder has | `<type file>:<line>: parent <type> — no <folder>/<type>.md` |
 | A type file's front matter | hold only `parent` and `sections` | `<type file>:<line>: front matter — <the YAML error>` |

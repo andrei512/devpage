@@ -6,8 +6,6 @@ page-type: reference
 What server mode must always do. Each requirement has its own page: the rule in
 one sentence, why it exists, and how it is checked.
 
-## Topics
-
 - [A published version never changes](a-published-version-never-changes.md) — a
   published version's files are kept byte for byte, and its link shows the
   same thing forever.

@@ -10,8 +10,6 @@ A box's constraints live with the box. These are the ones that would otherwise
 be written into whichever box happened to notice them first — and then never
 read by a review of the box that breaks them.
 
-## Topics
-
 - [No knowable rework](no-knowable-rework.md) — the final shape of what's
   needed now.
 - [A feature a user sees arrives on the deck](features-arrive-on-the-deck.md)
