@@ -21,10 +21,4 @@ it held the only copy of a publish or a comment, that would go with it.
 
 A test runs a server, publishes and comments, deletes its data folder, starts
 a server on an empty one against the same bucket, and finds every document,
-version and comment. A publish answers only after its zip is in the bucket.
-
-## Not met yet
-
-A comment is saved to the store on the disk and copied to the bucket about a
-second later, so a disk lost in that second loses the comment. Closing the gap
-means a comment is answered only after it is off the disk.
+version and comment. A publish answers only after its zip is in the bucket. Comments are streamed to the bucket about once a second.
