@@ -78,6 +78,6 @@ A package is trusted native code in the devpage process. Its panics are caught a
 
 ### Requirements
 
-- [Extensions use the host watch](requirements/host-watch.md) — Inputs join devpage's watch, and preparation precedes refresh.
-- [A render uses one extension revision](requirements/one-revision.md) — A render names its revision, and a failed preparation is never served as current.
-- [The native boundary is versioned](requirements/native-boundary.md) — Only the C table and owned JSON buffers cross between devpage and a package.
+- [devpage must refuse an extension built for a different extension API](requirements/devpage-refuses-a-different-extension-api.md) — Only the C table and owned JSON buffers cross between devpage and a package.
+- [In local mode, hot reload must work for every page](../requirements/hot-reload-works-for-every-page.md) — Inputs join devpage's watch, and preparation precedes refresh.
+- [When a file is broken, the page must show the error](../requirements/a-broken-file-shows-its-error.md) — A failed preparation is never served as current.

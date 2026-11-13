@@ -63,18 +63,15 @@ flowchart LR
 
 ### Requirements
 
-- [A version never changes](requirements/a-version-never-changes.md) — a
+- [A published version never changes](requirements/a-published-version-never-changes.md) — a
   published version's files are kept byte for byte, and its link shows the
   same thing forever.
-- [The PVC is only a cache](requirements/the-pvc-is-only-a-cache.md) — nothing
-  on it is the only copy, so losing it loses at most a second of the store.
+- [In server mode, a published document, version or comment must never be lost](requirements/nothing-published-is-lost.md)
+  — losing the server's disk loses nothing.
 - [One replica](requirements/one-replica.md) — server mode runs as one process;
   nothing coordinates two.
 - [One server holds the envelope](requirements/one-server-holds-the-envelope.md)
   — on 2 CPUs and 4 GB, 10,000 documents and thousands of readers at their
   targets; the benchmark says whether it does.
-- [A version's work is done once](requirements/a-versions-work-is-done-once.md)
-  — what is worked out from a version's files, it works out once, never per
-  view.
 - [Metrics name no document](requirements/metrics-name-no-document.md) — every
   label comes from a closed set, and metrics are served only on their own port.

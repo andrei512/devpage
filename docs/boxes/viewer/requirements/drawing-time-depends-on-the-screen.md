@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: a-frame-costs-what-it-shows
+id: drawing-time-depends-on-the-screen
 ---
-# A frame costs what it shows
+# The time to draw a design must depend on what is on screen, not on how many elements the design has
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: one-name-one-widget
+id: widget-names-are-unique
 ---
-# One name, one widget
+# Widget names are unique
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

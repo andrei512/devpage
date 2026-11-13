@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: the-served-folder-is-the-boundary
+id: devpage-stays-inside-its-folder
 ---
-# The served folder is the boundary
+# devpage must never serve or read a file outside the folder it was started on
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

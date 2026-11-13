@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: devpage-authenticates-no-one
+id: devpage-does-no-authentication
 ---
-# devpage authenticates no one
+# devpage must not do authentication itself; it must give users what they need to connect their own
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

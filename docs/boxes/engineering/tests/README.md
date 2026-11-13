@@ -655,7 +655,7 @@ each brings up a server from `deploy/server/compose.yaml` — building the image
 from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
 two versions and starts a thread, deletes the server's volume, starts it on
 an empty one, and finds both versions, the thread, the latest at the link and
-version 1 unchanged: [the PVC is only a cache](../../viewer/server/requirements/the-pvc-is-only-a-cache.md),
+version 1 unchanged: [nothing published is ever lost](../../viewer/server/requirements/nothing-published-is-lost.md),
 on the example deploy. Without Litestream's restore it fails.
 
 ### The server's benchmark

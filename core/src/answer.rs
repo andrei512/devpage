@@ -657,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    #[spec("the-served-folder-is-the-boundary")]
+    #[spec("devpage-stays-inside-its-folder")]
     fn nothing_outside_the_served_folder_is_answered() {
         let dir = served("outside");
         crate::folder::symlink(&dir.join("../secret.md"), &dir.join("docs/escape.md")).unwrap();

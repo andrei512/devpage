@@ -566,7 +566,7 @@ mod tests {
     }
 
     #[test]
-    #[spec("devpage-authenticates-no-one")]
+    #[spec("devpage-does-no-authentication")]
     fn a_header_author_is_trimmed_and_a_blank_one_refused() {
         let deployed = Identity::Header("X-Forwarded-Email".into());
         for blank in [None, Some(""), Some("   ")] {

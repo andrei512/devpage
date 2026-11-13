@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: native-boundary
+id: devpage-refuses-a-different-extension-api
 ---
-# The native boundary is versioned
+# devpage must refuse an extension built for a different extension API
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

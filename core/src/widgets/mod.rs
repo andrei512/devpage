@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    #[spec("one-name-one-widget")]
+    #[spec("widget-names-are-unique")]
     fn a_project_widget_named_notes_clashes() {
         let dir = std::env::temp_dir().join(format!("devpage-wnotes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

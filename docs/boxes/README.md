@@ -36,7 +36,7 @@ owner. One box looks like this:
   - README.md — the entrance: what the subject is, a picture of its parts, and its Topics
   - glossary/README.md — the words it owns, one anchor per term
   - requirements/
-    - the-served-folder-is-the-boundary.md — one rule per file: the rule, why, how it is checked
+    - devpage-stays-inside-its-folder.md — one rule per file: the rule, why, how it is checked
   - writing-a-document/README.md — an article, with its own children
 
 </FileTree>

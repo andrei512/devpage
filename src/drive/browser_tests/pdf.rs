@@ -54,7 +54,7 @@ async fn a_design_with_problems_does_not_delay_a_pdf() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
-#[spec("a-pdf-is-the-page")]
+#[spec("a-pdf-looks-like-the-page")]
 async fn the_fixture_doc_prints_on_a4() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(
@@ -80,7 +80,7 @@ async fn the_fixture_doc_prints_on_a4() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
-#[spec("a-pdf-is-the-page")]
+#[spec("a-pdf-looks-like-the-page")]
 async fn the_talk_prints_one_16_by_9_page_per_slide() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(

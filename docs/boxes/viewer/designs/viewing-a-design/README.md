@@ -52,7 +52,7 @@ again — after a branch switch, say — without a reload.
 
 `GET <path>.design.png` answers with the design's whole drawing as a PNG,
 at 1×, from the same layout and the same scene as the canvas
-([one renderer](../../requirements/a-design-has-one-renderer.md)):
+([one renderer](../../requirements/a-design-png-looks-like-the-design.md)):
 
 ```sh
 curl -s http://localhost:3030/docs/designs/checkout/checkout.design.png -o checkout.png
@@ -135,4 +135,4 @@ While a design has problems the canvas keeps showing the last valid drawing,
 under the list of problems.
 
 The rule that the canvas and the PNG are drawn by the same code is
-[A design has one renderer](../../requirements/a-design-has-one-renderer.md).
+[The PNG of a design must look the same as the design on screen](../../requirements/a-design-png-looks-like-the-design.md).

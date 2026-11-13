@@ -33,8 +33,8 @@ S3 or Azure Blob, named by one URL — `s3://bucket/prefix` or
 trying server mode on one machine and for tests; on a deploy it would put the
 durable copy on the PVC. Each version is the zip as uploaded, at
 `documents/<id>/versions/<n>.zip`, written before the publish answers
-([the PVC is only a cache](../requirements/the-pvc-is-only-a-cache.md)) and
-never written again ([a version never changes](../requirements/a-version-never-changes.md)).
+([nothing published is ever lost](../requirements/nothing-published-is-lost.md)) and
+never written again ([a published version never changes](../requirements/a-published-version-never-changes.md)).
 The store's replica sits beside them under `store/`.
 
 ## The store
@@ -98,8 +98,7 @@ deleted.
 ### What a version holds in memory
 
 A version read since the server started has its router in memory, and
-everything worked out from its files is worked out once
-([a version's work is done once](../requirements/a-versions-work-is-done-once.md)):
+everything worked out from its files is worked out once:
 
 - **Each page's problems**, found on the page's first view and kept with the
   version, shared by its routers at both its addresses — the version's files

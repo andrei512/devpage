@@ -109,7 +109,7 @@ async fn a_png_or_the_problems() {
 }
 
 #[tokio::test]
-#[spec("a-design-has-one-renderer")]
+#[spec("a-design-png-looks-like-the-design")]
 async fn a_png_in_either_theme() {
     let dir = served("png-theme");
     std::fs::write(dir.join("themes.yml"), THEMES).unwrap();

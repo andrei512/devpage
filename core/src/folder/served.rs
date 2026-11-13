@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    #[spec("the-served-folder-is-the-boundary")]
+    #[spec("devpage-stays-inside-its-folder")]
     fn refuses_what_climbs_out_or_links_out() {
         let (top, served) = fixture("outside");
         assert_eq!(served.at("/../outside.txt"), None);

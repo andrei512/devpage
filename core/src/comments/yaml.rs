@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    #[spec("devpage-never-writes-a-document")]
+    #[spec("devpage-never-changes-served-files")]
     fn a_thread_lives_and_dies_without_touching_the_repository() {
         let served = served("yaml-repo");
         let repo = served.path();

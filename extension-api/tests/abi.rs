@@ -17,7 +17,7 @@ impl Extension for Echo {
 export_extension!(Echo);
 
 #[test]
-#[spec("native-boundary")]
+#[spec("devpage-refuses-a-different-extension-api")]
 fn native_buffers_errors_and_panics_follow_the_abi() {
     let table = unsafe { &*devpage_extension_v1() };
     assert_eq!(table.version, devpage_extension_api::API);

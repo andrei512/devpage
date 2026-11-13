@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: devpage-never-writes-a-document
+id: devpage-never-changes-served-files
 ---
-# devpage never writes a document
+# devpage must never change the files it serves
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 
@@ -29,7 +29,7 @@ outside the served folder.
 
 In [server mode](../server/README.md) there is no served folder on disk to
 protect: a published version's files are kept byte for byte as uploaded
-([a version never changes](../server/requirements/a-version-never-changes.md)),
+([a published version never changes](../server/requirements/a-published-version-never-changes.md)),
 and the server writes only its store, its cache and the bucket's objects. The
 CLI writes only `~/.devpage/` — never the document it publishes.
 

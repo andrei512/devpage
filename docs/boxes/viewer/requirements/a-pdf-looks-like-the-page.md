@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: a-pdf-is-the-page
+id: a-pdf-looks-like-the-page
 ---
-# A PDF is the page the browser shows
+# A PDF must look the same as the page on screen
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

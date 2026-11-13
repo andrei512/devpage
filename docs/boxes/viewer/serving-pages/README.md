@@ -103,7 +103,7 @@ links between files work as written. Nothing is precomputed: every request
 reads its files from disk.
 
 **Path safety.** Every path takes the same three checks
-([the rule](../requirements/the-served-folder-is-the-boundary.md)):
+([the rule](../requirements/devpage-stays-inside-its-folder.md)):
 
 ```mermaid
 flowchart LR

@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: a-version-never-changes
+id: a-published-version-never-changes
 ---
-# A version never changes
+# A published version never changes
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

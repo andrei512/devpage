@@ -1,8 +1,8 @@
 ---
 page-type: constraint
-id: a-design-has-one-renderer
+id: a-design-png-looks-like-the-design
 ---
-# A design has one renderer
+# The PNG of a design must look the same as the design on screen
 
 <Callout kind="tip" title="A review rule, written for the AI reviewer">
 

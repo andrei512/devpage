@@ -60,7 +60,7 @@ deployment only. `--no-comments` arrived in 0.2.1.
 
 ## The auth proxy
 
-devpage has no login ([devpage authenticates no one](../requirements/devpage-authenticates-no-one.md)).
+devpage has no login ([devpage must not do authentication itself](../requirements/devpage-does-no-authentication.md)).
 Put it behind the proxy your cluster already uses —
 [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/), or your ingress's
 external authentication — and have it pass the signed-in user's email in

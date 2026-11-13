@@ -36,7 +36,7 @@ devpage checks constraints. It reads a page as one by its front matter:
 ```markdown
 ---
 page-type: constraint
-id: a-version-never-changes
+id: a-published-version-never-changes
 ---
 # A version never changes
 ```
@@ -83,7 +83,7 @@ A test names a constraint by its `id`. With the pattern above:
 
 ```rust
 #[test]
-#[spec("a-version-never-changes")]
+#[spec("a-published-version-never-changes")]
 fn a_published_version_reads_back_unchanged() {
 ```
 

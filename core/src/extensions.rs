@@ -512,8 +512,8 @@ mod tests {
     }
 
     #[test]
-    #[spec("host-watch")]
-    #[spec("one-revision")]
+    #[spec("hot-reload-works-for-every-page")]
+    #[spec("a-broken-file-shows-its-error")]
     fn another_language_uses_the_same_capture_render_targets_and_watch_contract() {
         install_loader(Arc::new(Toy));
         let dir =

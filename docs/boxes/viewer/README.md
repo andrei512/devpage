@@ -169,18 +169,22 @@ Each card opens the page that explains it.
 
 ### Requirements
 
-- [The served folder is the boundary](requirements/the-served-folder-is-the-boundary.md)
+- [devpage must never serve or read a file outside the folder it was started on](requirements/devpage-stays-inside-its-folder.md)
   — what devpage may serve, read and link to.
-- [devpage never writes a document](requirements/devpage-never-writes-a-document.md)
+- [devpage must never change the files it serves](requirements/devpage-never-changes-served-files.md)
   — comments stay in `.devpage/`; a PDF or a video goes only where it was
   asked for.
-- [A PDF is the page the browser shows](requirements/a-pdf-is-the-page.md)
+- [A PDF must look the same as the page on screen](requirements/a-pdf-looks-like-the-page.md)
   — one renderer for screen and paper.
-- [devpage authenticates no one](requirements/devpage-authenticates-no-one.md)
+- [devpage must not do authentication itself](requirements/devpage-does-no-authentication.md)
   — identity comes from the proxy in front of it.
-- [One name, one widget](requirements/one-name-one-widget.md)
+- [Widget names are unique](requirements/widget-names-are-unique.md)
   — widgets compose by name, so no name is shadowed.
-- [A design has one renderer](requirements/a-design-has-one-renderer.md)
+- [The PNG of a design must look the same as the design on screen](requirements/a-design-png-looks-like-the-design.md)
   — the agent's PNG is the reader's canvas.
-- [A frame costs what it shows](requirements/a-frame-costs-what-it-shows.md)
-  — no size limit: a view costs what it shows, an edit what it changed.
+- [The time to draw a design must depend on what is on screen](requirements/drawing-time-depends-on-the-screen.md)
+  — not on how many elements the design has.
+- [In local mode, hot reload must work for every page](requirements/hot-reload-works-for-every-page.md)
+  — a saved file shows in the open page, whatever made the page.
+- [When a file is broken, the page must show the error](requirements/a-broken-file-shows-its-error.md)
+  — a page never looks fine while a file behind it is broken.

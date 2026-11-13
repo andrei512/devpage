@@ -18,7 +18,7 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 
 | What | Must |
 | --- | --- |
-| A target inside the served folder | exist, inside the [served folder](../requirements/the-served-folder-is-the-boundary.md) |
+| A target inside the served folder | exist, inside the [served folder](../requirements/devpage-stays-inside-its-folder.md) |
 | A `#fragment` | name a heading or id the page it points at renders — in a doc of several chapters, `<chapter>--<id>` or the chapter's own name; see [Headings](#headings) |
 | `#n` on a deck | be a slide the deck has |
 | A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |

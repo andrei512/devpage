@@ -52,7 +52,7 @@ around it, at the start of a line included:
 A PDF, and the browser's print, show each widget's **first render** — what it
 shows before anyone clicks: a `Tabs` prints its first tab. A widget meant for
 paper shows what matters without interaction
-([A PDF is the page the browser shows](../../requirements/a-pdf-is-the-page.md)).
+([A PDF must look the same as the page on screen](../../requirements/a-pdf-looks-like-the-page.md)).
 `devpage pdf` waits for every widget to mount before printing.
 
 ## When a widget fails
