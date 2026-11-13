@@ -75,9 +75,4 @@ A package is trusted native code in the devpage process. Its panics are caught a
 ### Reference
 
 - [Package and protocol reference](reference/README.md) — Bundle, native boundary, every request and reply, capture rules and addresses.
-
-### Requirements
-
-- [devpage must refuse an extension built for a different extension API](requirements/devpage-refuses-a-different-extension-api.md) — Only the C table and owned JSON buffers cross between devpage and a package.
-- [In local mode, hot reload must work for every page](../requirements/hot-reload-works-for-every-page.md) — Inputs join devpage's watch, and preparation precedes refresh.
-- [When a file is broken, the page must show the error](../requirements/a-broken-file-shows-its-error.md) — A failed preparation is never served as current.
+- [Requirements](requirements/README.md) — what extensions must always do, one page each.

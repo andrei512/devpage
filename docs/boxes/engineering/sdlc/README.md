@@ -60,12 +60,4 @@ the [general constraints](../../../requirements/README.md).
   branches: how they merge and when they are deleted.
 - [Review bars and CI](review-bars/README.md) — the task bar and the drift
   bar, and what checks them today.
-
-### Requirements
-
-- [On main, the box docs describe the system as it is](requirements/docs-are-true-on-main.md)
-  — anything merged to main leaves the docs an accurate description of the
-  code; a design not yet built waits on its design branch.
-- [Decisions live in box docs, not in a decision log](requirements/decisions-live-in-box-docs.md)
-  — a decision goes into the owning box's docs or constraints and its reason
-  into the commit message; there is no ADR directory.
+- [Requirements](requirements/README.md) — what the way changes are made must always do, one page each.

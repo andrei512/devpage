@@ -60,18 +60,4 @@ flowchart LR
 
 - [Server reference](reference/README.md) — every CLI command, API request and
   environment variable.
-
-### Requirements
-
-- [A published version never changes](requirements/a-published-version-never-changes.md) — a
-  published version's files are kept byte for byte, and its link shows the
-  same thing forever.
-- [In server mode, a published document, version or comment must never be lost](requirements/nothing-published-is-lost.md)
-  — losing the server's disk loses nothing.
-- [One replica](requirements/one-replica.md) — server mode runs as one process;
-  nothing coordinates two.
-- [One server holds the envelope](requirements/one-server-holds-the-envelope.md)
-  — on 2 CPUs and 4 GB, 10,000 documents and thousands of readers at their
-  targets; the benchmark says whether it does.
-- [Metrics name no document](requirements/metrics-name-no-document.md) — every
-  label comes from a closed set, and metrics are served only on their own port.
+- [Requirements](requirements/README.md) — what server mode must always do, one page each.

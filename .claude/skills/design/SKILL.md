@@ -9,8 +9,8 @@ Design is the conversation that works out how the system should change. It comes
 before any code, and it produces one artifact: an update to the design docs.
 
 Those docs live in `docs/boxes/`, one directory per **box** — a component of the
-system. Its `README.md` describes how the box works and lists that box's
-**constraints**; each constraint has its own file under `requirements/`. Review
+system. Its `README.md` describes how the box works; its `requirements/README.md`
+lists that box's **requirements**, each in its own file beside it. Review
 checks a diff against them. The format is described in `docs/boxes/engineering/sdlc/`.
 
 ## Talk until told to act
@@ -92,10 +92,10 @@ up nothing new. The operator decides when the design is settled.
 
 ## The write
 
-Update each affected box's README: how the box works, and its requirements list.
-A new constraint also gets its own file under that box's `requirements/` — the
-rule stated precisely, why it exists, and how to check it — linked from its
-one-line entry. A box that doesn't exist yet is created here.
+Update each affected box's README: how the box works. A new requirement gets
+its own file under that box's `requirements/` — the rule stated precisely, why
+it exists, and how to check it — and a one-line entry in the Topics of
+`requirements/README.md`. A box that doesn't exist yet is created here.
 
 Each such file is a requirement, and its `page-type` says which of three
 kinds — the type files in `docs/structure/` define them:
