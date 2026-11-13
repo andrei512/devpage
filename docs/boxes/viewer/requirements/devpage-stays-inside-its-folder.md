@@ -21,18 +21,6 @@ publish, and no document reads another's files.
 
 </Callout>
 
-<FileTree>
-
-- ~/code/
-  - secrets.txt — outside: `/../secrets.txt` gets `404`
-  - my-project/ — the served folder
-    - README.md — served
-    - docs/
-      - README.md — served; may link to `../README.md`
-      - link-out — a symbolic link to `~/code/secrets.txt`: `404`
-
-</FileTree>
-
 ## Why
 
 A document is read by whoever can reach devpage, and once deployed

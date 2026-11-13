@@ -26,16 +26,6 @@ CLI writes only `~/.devpage/` — never the document it publishes.
 
 </Callout>
 
-<FileTree>
-
-- my-project/ — the served folder
-  - docs/ — never written by devpage
-  - .devpage/ — the only folder the server writes
-    - .gitignore — holds `*`
-    - comments/ — one file per thread
-
-</FileTree>
-
 ## Why
 
 The documents are the repository's source of truth, written by people
