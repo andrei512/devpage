@@ -30,9 +30,9 @@ Every path in the diff belongs to a box, and boxes nest — code inside a box th
 sits within another is bound by both of their constraints.
 
 Start by listing the boxes the diff touches and reading each one's README
-and its `requirements/README.md`. Each entry there states a rule in one line and
-links to the file explaining it. Open that file when the diff plausibly bears on
-the rule; the one-liner is enough to decide whether it does.
+and the titles of the pages in its `requirements/` folder. Each title states
+a rule in one sentence. Open the page when the diff plausibly bears on the
+rule; the title is enough to decide whether it does.
 
 Each file's `page-type` says how it is checked. A **review-rule** is yours:
 nothing else judges it. A **constraint** has tests that carry

@@ -60,8 +60,8 @@ meanings.
 
 ## Requirements
 
-System-wide [constraints](../../requirements/README.md) apply here as
-elsewhere. The SDLC's own rules are listed on the [SDLC](sdlc/README.md#topics)
+System-wide [requirements](../README.md#requirements) apply here as
+elsewhere. The SDLC's own rules are listed on the [SDLC](sdlc/README.md#requirements)
 page.
 
 ## Topics

@@ -119,7 +119,9 @@ pub fn content(widgets: &Widgets, file: &Path, source: String) -> Rendered {
             Err(error) => tags.push(format!("Extension: {error:#}")),
         }
     }
-    let expanded = crate::widgets::expand(&augmented, widgets.names(), &mut tags);
+    let expanded = crate::widgets::expand_with(&augmented, widgets.names(), &mut tags, &|name| {
+        widgets.written(file, name)
+    });
     let grammars: Vec<_> = extensions.iter().filter_map(|b| b.grammar()).collect();
     let mut extension_embeds = Vec::new();
     let mut html = crate::highlight::with_grammars(&grammars, || markdown(&expanded));

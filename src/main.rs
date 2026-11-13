@@ -195,6 +195,7 @@ fn tested(document: &devpage_core::document::Document) -> Vec<devpage_core::prob
         return Vec::new();
     };
     let mut problems = Vec::new();
+    let mut cases = Vec::new();
     for suite in &configured.suites {
         let mut command = if cfg!(windows) {
             let mut command = std::process::Command::new("cmd");
@@ -219,6 +220,17 @@ fn tested(document: &devpage_core::document::Document) -> Vec<devpage_core::prob
             Err(_) => (String::new(), None),
         };
         problems.extend(requirements::run_problems(document, suite, &printed, exit));
+        cases.extend(requirements::junit(&printed));
+    }
+    // Kept for the `Requirements` widget, which shows each constraint as
+    // met or not by this run.
+    let checked = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    if let Err(error) =
+        requirements::save(document, &requirements::results(document, &cases, checked))
+    {
+        eprintln!("The run's results were not kept: {error:#}");
     }
     problems
 }

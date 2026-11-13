@@ -48,9 +48,10 @@ one file per rule, docs on main describing the system as it is — is on the
 
 ## Requirements
 
-The SDLC's two rules are listed under [Topics](#topics), one line each, and
-reviewed on every change to the process or to box docs. System-wide rules are
-the [general constraints](../../../requirements/README.md).
+The SDLC's own rules, reviewed on every change to the process or to box docs,
+and the ones every change is held to.
+
+<Requirements />
 
 ## Topics
 
@@ -60,4 +61,3 @@ the [general constraints](../../../requirements/README.md).
   branches: how they merge and when they are deleted.
 - [Review bars and CI](review-bars/README.md) — the task bar and the drift
   bar, and what checks them today.
-- [Requirements](requirements/README.md) — what the way changes are made must always do, one page each.

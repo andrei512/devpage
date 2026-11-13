@@ -110,6 +110,36 @@ any:
 
 So a constraint is met when at least one test points at it and no test fails.
 
+## Where a requirement lives
+
+A requirement belongs to a part of the system, and the folder says which: a
+page in `<part>/requirements/` is a requirement of the part whose folder that
+is — the one its `README.md` describes — and of every part inside it. So a
+requirement goes in the smallest part that holds everything that could break
+it, and nothing links a requirement to its part by hand.
+
+The part's page shows them with the
+[`Requirements`](../widgets/system-widgets/README.md#requirements) widget:
+its own requirements, then those of each part above.
+
+```md
+## Requirements
+
+<Requirements />
+```
+
+## Seeing what is met
+
+`devpage check` keeps what its run found in
+`.devpage/requirements/<document file>.json` at the top of the served folder,
+beside the comments and as far from git. The `Requirements` widget reads it:
+each constraint shows as met, not met, without a test or not checked, with the
+time of the run under the list. The test a pointer names is the first test of
+the JUnit report whose name comes after the pointer in its file.
+
+The results are this machine's last run: `devpage check --docs` runs no test
+and keeps nothing, and a change made since the run shows only after the next.
+
 These docs do this: [`docs/devpage.yml`](../../../devpage.yml) reads every
 `#[spec("…")]` in the repository's Rust files and runs `cargo test`.
 

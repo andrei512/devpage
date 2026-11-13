@@ -106,6 +106,10 @@ Each card opens the page that explains it.
 
 </Cards>
 
+## Requirements
+
+<Requirements />
+
 ## Topics
 
 ### Essentials
@@ -166,4 +170,3 @@ Each card opens the page that explains it.
   errors devpage stops with.
 - [Viewer glossary](glossary/README.md) — the words the viewer owns, one
   anchor per term.
-- [Requirements](requirements/README.md) — what the viewer must always do, one page each.

@@ -81,4 +81,4 @@ How a deck like this is made, step by step, is the `presentation` skill.
 
 ## Requirements
 
-- [A feature a user sees arrives on the deck](../../requirements/features-arrive-on-the-deck.md)
+<Requirements />

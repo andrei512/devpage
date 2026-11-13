@@ -35,6 +35,10 @@ flowchart LR
 
 </Cards>
 
+## Requirements
+
+<Requirements />
+
 ## Topics
 
 ### Essentials
@@ -60,4 +64,3 @@ flowchart LR
 
 - [Server reference](reference/README.md) — every CLI command, API request and
   environment variable.
-- [Requirements](requirements/README.md) — what server mode must always do, one page each.

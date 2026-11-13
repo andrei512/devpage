@@ -66,6 +66,10 @@ A package is trusted native code in the devpage process. Its panics are caught a
 
 `devpage check` and `devpage pdf` use the same extensions as serving; a Markdown page printed on its own uses its site's. Publishing a document that enables a package fails with "Publishing native extensions is not supported; serve this project locally". Changing a package's library needs a devpage restart. Devpage never tells a package to dispose of an instance; a library is closed once no binding holds it.
 
+## Requirements
+
+<Requirements />
+
 ## Topics
 
 ### Tasks
@@ -75,4 +79,3 @@ A package is trusted native code in the devpage process. Its panics are caught a
 ### Reference
 
 - [Package and protocol reference](reference/README.md) — Bundle, native boundary, every request and reply, capture rules and addresses.
-- [Requirements](requirements/README.md) — what extensions must always do, one page each.

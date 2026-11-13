@@ -20,7 +20,7 @@ flowchart LR
   click viewer href "./viewer/README.md" "Viewer"
   click engineering href "./engineering/README.md" "Engineering"
   click showcase href "./showcase/README.md" "The showcase deck"
-  click constraints href "../requirements/README.md" "General requirements"
+  click constraints href "#requirements" "General requirements"
 ```
 
 ## How to read the catalog
@@ -60,10 +60,15 @@ belongs in the commit message, not an ADR.
 
 ## Requirements
 
-Rules that belong to no single subject are the
-[general constraints](../requirements/README.md), checked on every review. Every
-other constraint lives with the subject it governs, one file per rule listed
-one line each in that subject's Topics, and applies to its descendants. Each
+Rules that belong to no single subject are the general requirements, checked
+on every review:
+
+<Requirements />
+
+Every
+other requirement lives with the subject it governs, one file per rule in the
+subject's `requirements` folder, shown on the subject's page, and applies to
+its descendants. Each
 constraint file opens with the same note: it is a rule for automated AI code
 review, which reads it on every change it governs and checks the diff
 against it.

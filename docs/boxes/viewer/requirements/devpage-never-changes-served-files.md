@@ -9,7 +9,8 @@ id: devpage-never-changes-served-files
 devpage never creates, changes or deletes a file a document is made of — a
 Markdown file, a document file, an image, anything in the served folder outside
 `.devpage/`. The server writes only inside `.devpage/` at the top of the served
-folder: the comment store and the `.gitignore` that keeps git away from it. A
+folder: the comment store, what `devpage check` last found of the site's
+requirements, and the `.gitignore` that keeps git away from both. A
 comment is never stored in the page it is about. The only other files devpage
 writes are the PDF `devpage pdf` was asked for and the video `devpage video`
 was asked for, each at the path it was given (or `<title>.pdf`,

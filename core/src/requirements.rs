@@ -5,14 +5,20 @@
 //! no test points at is a problem, and so is a test pointing at no
 //! constraint. Each suite's `run` command prints its results as JUnit XML,
 //! which [`junit`] reads; the command itself is run by the binary.
+//!
+//! A requirement belongs to a part: a page in `<part>/requirements/` is a
+//! requirement of the part whose folder that is, and of every part below
+//! it. [`listing`] is what the `Requirements` widget shows on a part's
+//! page, and [`save`] keeps the last run's results in `.devpage/`, so the
+//! widget can say whether each constraint is met.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use globset::GlobSet;
 use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::document::Document;
 use crate::folder::{ServedFolder, lexical};
@@ -20,6 +26,17 @@ use crate::problem::Problem;
 
 /// The page type whose pages are constraints.
 const CONSTRAINT: &str = "constraint";
+
+/// The page types whose pages are requirements, each with what the
+/// `Requirements` widget calls it.
+const KINDS: &[(&str, &str)] = &[
+    (CONSTRAINT, "constraint"),
+    ("review-rule", "review rule"),
+    ("objective", "objective"),
+];
+
+/// The folder, in a part's folder, that holds the part's requirements.
+const FOLDER: &str = "requirements";
 
 /// `extensions: requirements: config:` as a site writes it.
 #[derive(Debug, Deserialize)]
@@ -369,6 +386,274 @@ pub fn run_problems(
     failed
 }
 
+/// How one test pointing at a constraint did in a run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Outcome {
+    /// The report has it, and it passed.
+    Passed,
+    /// The report has it, and it failed.
+    Failed,
+    /// The report has no test of its name.
+    NotRun,
+}
+
+/// A test pointing at a constraint, and how it did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Tested {
+    /// The test's name; where it points from, when the report has no test
+    /// after the pointer.
+    pub test: String,
+    /// How it did.
+    pub result: Outcome,
+}
+
+/// One run of a site's tests, as kept: when, and each constraint's tests.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Results {
+    /// When the run ended, in seconds since 1970.
+    pub checked: u64,
+    /// Each constraint the site had, by id, with the tests pointing at it; a
+    /// constraint no test points at has none.
+    pub tests: BTreeMap<String, Vec<Tested>>,
+}
+
+/// Whether a constraint is met, by the last run kept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Status {
+    /// Every test pointing at it passed.
+    Met,
+    /// A test pointing at it failed.
+    NotMet,
+    /// No test points at it.
+    NoTest,
+    /// No run is kept, or the run did not have it or one of its tests.
+    NotChecked,
+}
+
+impl Results {
+    /// Whether the constraint `id` is met.
+    fn status(&self, id: &str) -> Status {
+        match self.tests.get(id) {
+            None => Status::NotChecked,
+            Some(tests) if tests.is_empty() => Status::NoTest,
+            Some(tests) if tests.iter().any(|t| t.result == Outcome::Failed) => Status::NotMet,
+            Some(tests) if tests.iter().any(|t| t.result == Outcome::NotRun) => Status::NotChecked,
+            Some(_) => Status::Met,
+        }
+    }
+}
+
+/// What a run of `document`'s tests, ended at `checked`, shows of each of
+/// its constraints: the tests pointing at it, each with how it did in
+/// `cases`. The test a pointer names is the first of the report's tests
+/// named after it in its file — the test the pointer is written on.
+pub fn results(document: &Document, cases: &[Case], checked: u64) -> Results {
+    let mut tests: BTreeMap<String, Vec<Tested>> = constraints(document)
+        .by_id
+        .into_keys()
+        .map(|id| (id, Vec::new()))
+        .collect();
+    let Some(requirements) = &document.requirements else {
+        return Results { checked, tests };
+    };
+    // A report names a test with its module before it; a file names it
+    // alone.
+    let mut failed: HashMap<&str, bool> = HashMap::new();
+    for case in cases {
+        let short = case
+            .name
+            .rsplit([':', '.', ' '])
+            .next()
+            .unwrap_or(&case.name);
+        *failed.entry(short).or_default() |= case.failed;
+    }
+    let mut sources: HashMap<PathBuf, String> = HashMap::new();
+    for pointer in requirements.pointers() {
+        let Some(found) = tests.get_mut(&pointer.id) else {
+            continue;
+        };
+        let source = sources
+            .entry(pointer.file.clone())
+            .or_insert_with(|| std::fs::read_to_string(&pointer.file).unwrap_or_default());
+        let after: usize = source
+            .split_inclusive('\n')
+            .take(pointer.line.saturating_sub(1))
+            .map(str::len)
+            .sum();
+        let named = source[after..]
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .find(|word| failed.contains_key(word));
+        found.push(match named {
+            Some(name) => Tested {
+                test: name.to_string(),
+                result: if failed[name] {
+                    Outcome::Failed
+                } else {
+                    Outcome::Passed
+                },
+            },
+            None => Tested {
+                test: format!(
+                    "{}:{}",
+                    document.name(&pointer.file).unwrap_or_default(),
+                    pointer.line
+                ),
+                result: Outcome::NotRun,
+            },
+        });
+    }
+    Results { checked, tests }
+}
+
+/// Where the last run of the document named `document` is kept:
+/// `.devpage/requirements/<document>.json` in the served folder.
+fn kept(served: &ServedFolder, document: &str) -> PathBuf {
+    served
+        .path()
+        .join(".devpage")
+        .join(FOLDER)
+        .join(format!("{document}.json"))
+}
+
+/// Keeps `results` as `document`'s last run, in the served folder's
+/// `.devpage/` — made, with the `.gitignore` that keeps git away from it,
+/// when it isn't there.
+pub fn save(document: &Document, results: &Results) -> Result<()> {
+    let name = document
+        .name(&document.path())
+        .context("the document file is outside the served folder")?;
+    let file = kept(&document.served, &name);
+    let root = document.served.path().join(".devpage");
+    std::fs::create_dir_all(file.parent().unwrap_or(&root))?;
+    let ignore = root.join(".gitignore");
+    if !ignore.exists() {
+        std::fs::write(ignore, "*\n")?;
+    }
+    std::fs::write(file, serde_json::to_string_pretty(results)?)?;
+    Ok(())
+}
+
+/// The last run kept for the document named `document`, if one is.
+fn saved(served: &ServedFolder, document: &str) -> Option<Results> {
+    serde_json::from_str(&std::fs::read_to_string(kept(served, document)).ok()?).ok()
+}
+
+/// One requirement page, as the widget lists it.
+struct Listed {
+    /// The page.
+    file: PathBuf,
+    /// Its heading.
+    title: String,
+    /// What its kind is called.
+    kind: &'static str,
+    /// Its `id`, when it is a constraint that gives one.
+    id: Option<String>,
+}
+
+/// The requirement pages of the part whose folder is `part`: the pages of
+/// its `requirements` folder whose type is a requirement's, in name order.
+fn listed(part: &Path) -> Vec<Listed> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(part.join(FOLDER))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|file| file.extension().is_some_and(|ext| ext == "md"))
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .filter_map(|file| {
+            let source = std::fs::read_to_string(&file).ok()?;
+            let (name, _) = crate::structure::page_type(&source)?;
+            let (kind, called) = KINDS.iter().find(|(kind, _)| *kind == name)?;
+            Some(Listed {
+                title: crate::markup::title(&source, &file),
+                kind: called,
+                id: (*kind == CONSTRAINT)
+                    .then(|| crate::structure::front_matter(&source, "id"))
+                    .flatten(),
+                file,
+            })
+        })
+        .collect()
+}
+
+/// What the `Requirements` widget shows on `page`, a page of the site in
+/// `base` whose document is named `document`: a Markdown list of the
+/// requirements of the page's part — the pages in the `requirements` folder
+/// beside it — each a link, then ` — ` and whether it is met by the last run
+/// kept, or its kind when no test checks it; then, for each part above that
+/// has requirements, an item naming the part with its requirements listed
+/// under it. After the list, the time of the run, when one is kept.
+pub fn listing(served: &ServedFolder, base: &Path, document: &str, page: &Path) -> String {
+    let results = saved(served, document);
+    let Some(part) = page.parent().filter(|part| part.starts_with(base)) else {
+        return String::new();
+    };
+    let item = |listed: &Listed, up: &str, indent: &str| {
+        let status = match (&listed.id, listed.kind) {
+            (Some(id), _) => match results.as_ref().map(|r| r.status(id)) {
+                Some(Status::Met) => "met",
+                Some(Status::NotMet) => "not met",
+                Some(Status::NoTest) => "no test",
+                Some(Status::NotChecked) | None => "not checked",
+            },
+            (None, kind) => kind,
+        };
+        format!(
+            "{indent}- [{}]({up}{FOLDER}/{}) — {status}\n",
+            listed.title.replace('[', "\\[").replace(']', "\\]"),
+            listed
+                .file
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        )
+    };
+    let mut out = String::new();
+    for listed in listed(part) {
+        out.push_str(&item(&listed, "", ""));
+    }
+    let mut up = String::new();
+    let mut above = part;
+    while above != base {
+        let Some(parent) = above.parent() else { break };
+        above = parent;
+        up.push_str("../");
+        let inherited = listed(above);
+        if inherited.is_empty() {
+            continue;
+        }
+        let top = above.join("README.md");
+        let title = std::fs::read_to_string(&top).map_or_else(
+            |_| {
+                above
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned()
+            },
+            |source| crate::markup::title(&source, &top),
+        );
+        out.push_str(&format!("- [{title}]({up}README.md)\n"));
+        for listed in inherited {
+            out.push_str(&item(&listed, &up, "  "));
+        }
+    }
+    if out.is_empty() {
+        return String::new();
+    }
+    if let Some(results) = results {
+        out.push_str(&format!(
+            "\n<span data-checked=\"{}\"></span>\n",
+            results.checked
+        ));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -571,5 +856,96 @@ mod tests {
             load("        - {name: sh, glob: \"*.sh\", pattern: '(', run: \"x\"}\n")
                 .contains("extensions: requirements: tests sh: pattern ("),
         );
+    }
+
+    #[test]
+    fn a_run_is_kept_and_a_parts_page_lists_its_requirements_with_what_the_run_showed() {
+        let page = |kind: &str, id: &str, title: &str| {
+            let id = if id.is_empty() {
+                String::new()
+            } else {
+                format!("id: {id}\n")
+            };
+            format!("---\npage-type: {kind}\n{id}---\n# {title}\n")
+        };
+        let doc = site(
+            "requirements-kept",
+            &[
+                ("README.md", "# Home\n"),
+                (
+                    "requirements/kept.md",
+                    &page("constraint", "a-save-is-kept", "A save is kept"),
+                ),
+                (
+                    "requirements/lost.md",
+                    &page("constraint", "nothing-is-lost", "Nothing is lost"),
+                ),
+                (
+                    "requirements/rule.md",
+                    &page("review-rule", "", "No rework"),
+                ),
+                (
+                    "requirements/untested.md",
+                    &page("constraint", "it-is-fast", "It is fast"),
+                ),
+                ("requirements/steps.md", &page("process", "", "Steps")),
+                ("part/README.md", "# The part\n"),
+                (
+                    "part/requirements/own.md",
+                    &page("constraint", "the-part-works", "The part works"),
+                ),
+                (
+                    "tests/save.sh",
+                    "# spec: a-save-is-kept\nsaves() { :; }\n# spec: nothing-is-lost\n# spec: a-save-is-kept\nloses() { :; }\n# spec: the-part-works\nnever_ran() { :; }\n",
+                ),
+            ],
+        );
+        let case = |name: &str, failed| Case {
+            name: name.to_string(),
+            failed,
+        };
+        let results = results(&doc, &[case("shell::saves", false), case("loses", true)], 7);
+        let outcomes = |id: &str| -> Vec<(String, Outcome)> {
+            results.tests[id]
+                .iter()
+                .map(|t| (t.test.clone(), t.result))
+                .collect()
+        };
+        assert_eq!(
+            outcomes("a-save-is-kept"),
+            [
+                ("saves".to_string(), Outcome::Passed),
+                ("loses".to_string(), Outcome::Failed)
+            ]
+        );
+        assert_eq!(
+            outcomes("the-part-works"),
+            [("tests/save.sh:6".to_string(), Outcome::NotRun)]
+        );
+        assert!(results.tests["it-is-fast"].is_empty());
+
+        let listing =
+            |page: &str| listing(&doc.served, &doc.base, "devpage.yml", &doc.base.join(page));
+        // Before a run is kept, nothing is known of a constraint.
+        assert_eq!(
+            listing("part/README.md").lines().next(),
+            Some("- [The part works](requirements/own.md) — not checked")
+        );
+        save(&doc, &results).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(doc.base.join(".devpage/.gitignore")).unwrap(),
+            "*\n"
+        );
+        assert_eq!(
+            listing("part/README.md"),
+            "- [The part works](requirements/own.md) — not checked\n\
+             - [Home](../README.md)\n  \
+             - [A save is kept](../requirements/kept.md) — not met\n  \
+             - [Nothing is lost](../requirements/lost.md) — not met\n  \
+             - [No rework](../requirements/rule.md) — review rule\n  \
+             - [It is fast](../requirements/untested.md) — no test\n\
+             \n<span data-checked=\"7\"></span>\n"
+        );
+        assert!(listing("README.md").starts_with("- [A save is kept](requirements/kept.md)"));
     }
 }
