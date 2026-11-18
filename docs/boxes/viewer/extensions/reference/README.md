@@ -37,6 +37,7 @@ library: libtoy.dylib
 | `library` | Optional. Path inside the bundle. |
 | `run` | Optional. The [program](#process) and its arguments, as a list; not empty. |
 | `assets` | Optional folder inside the bundle. Checked to stay inside, but nothing is served from it. |
+| `widgets` | Optional, for a package with no `library`. Widget name → the path of its module inside the bundle, as a library declares them in [`create`](#create). |
 
 Unknown fields are errors, and so is a manifest with neither `library` nor `run`: `Extension has neither a library nor a program to run`. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
 
@@ -66,7 +67,7 @@ Paths are relative to the served folder, with `/`. An unknown `op` should be an 
 
 ### Create
 
-Sent once per binding when the document loads. A package without a library gets no requests: it declares nothing. The reply declares:
+Sent once per binding when the document loads. A package without a library gets no requests: it declares only the `widgets` its manifest names, each with its module. The reply declares:
 
 | Field | Meaning |
 | --- | --- |

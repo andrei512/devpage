@@ -79,7 +79,5 @@ Not touched, because `live/service.ts`, `live/fast.ts` and
   No widget reads a part in a browser yet.
 - A manifest's `places` and its world module; global extensions.
 - The migration of `tasks.json`, `agents.json`, `world.jsonl` and the log.
-- The extensions reference still says a package without a library declares
-  nothing; that page is open in other work too.
 - Relative imports between a manifest's widget modules: each widget's module
   is declared alone.
