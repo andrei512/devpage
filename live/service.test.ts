@@ -67,6 +67,7 @@ test("the live service exposes one registered function to Fast and the slow harn
     expect(JSON.stringify(seen)).toContain("slow counted 3");
     const db = new Database(join(root, ".devpage/live/projects", root.replace(/[^a-zA-Z0-9]/g, "-"), "world.sqlite"), { readonly: true });
     try {
+      db.run("pragma busy_timeout = 5000");
       const [update] = db.query("select fields from entries where part='work' and kind='update' order by n desc limit 1").values();
       const report = JSON.parse(JSON.parse(String(update[0])).text);
       expect(report.result).toEqual({ text: "counted 3" });

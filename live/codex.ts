@@ -10,6 +10,7 @@ import { homedir } from "node:os";
 import { join, relative, sep } from "node:path";
 import { z } from "zod";
 import type { Harness, HarnessTool, Item, Model, PastTurn, Turn, TurnEnd, TurnEvent, TurnInput } from "./harness.ts";
+import { toolReply } from "./harness.ts";
 import { shape } from "./log.ts";
 
 /** The name the live session's tools are served under. */
@@ -101,8 +102,7 @@ function serve(tools: HarnessTool[]) {
         if (!given) return { content: [{ type: "text", text: `No tool is called ${call.params?.name}.` }], isError: true };
         const input = z.object(given.input).safeParse(call.params?.arguments ?? {});
         if (!input.success) return { content: [{ type: "text", text: input.error.message }], isError: true };
-        const { text, error } = await given.run(input.data);
-        return { content: [{ type: "text", text }], ...(error ? { isError: true } : {}) };
+        return toolReply(await given.run(input.data));
       }
       default:
         throw new Error(`Method not found: ${call.method}`);
