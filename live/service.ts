@@ -188,7 +188,7 @@ registry.onState = (part, state) => tell({ type: "state", part, state });
 // The `world` setting names parts and the module that registers each: a file in the project, or anywhere by its full path.
 for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.world === "object" ? SETTINGS.world : {})) {
   if (typeof file !== "string") continue;
-  registry.load(part, isAbsolute(file) ? file : join(ROOT, file)).then(
+  await registry.load(part, isAbsolute(file) ? file : join(ROOT, file)).then(
     () => {
       log.write("service", "world_part", { text: part });
       tell({ type: "state", part, state: registry.state(part) });
@@ -197,10 +197,15 @@ for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.worl
   );
 }
 
+registry.onEntry = (entry, wakes) => {
+  log.write("world", entry.kind, { part: entry.part, text: registry.line(entry), n: entry.n });
+  if (wakes) fast?.entry(`${entry.part}.${entry.kind}`, entry.n);
+};
+
 /** The world. Every entry also goes into the log, as the line Fast reads; an update or a problem wakes Fast. */
 const world: World = new World(store, (entry) => {
   log.write("world", entry.kind, { text: line(entry), n: entry.n, ...(entry.kind === "update" || entry.kind === "task" ? { agent: entry.agent, task: entry.kind === "task" ? entry.id : entry.task } : {}) });
-  if (entry.kind === "update" || entry.kind === "problem") fast?.wake(entry.kind);
+  if (entry.kind === "update" || entry.kind === "problem") fast?.entry(entry.kind, entry.n);
 });
 
 /** The part that was marked when each of the user's messages was said: a task given from the message is about it. */
@@ -230,6 +235,7 @@ void checked(routes, enabled, complain).then((sure) => {
 });
 
 const agents = new Agents(ROOT, PADS, enabled, routes, store, {
+  worldTools: agent => registry.tools(agent),
   owns: (agent, id) => tasks.get(id)?.agent === agent,
   session: (agent, line) => {
     const text = JSON.stringify({ type: "session_line", agent, line });
@@ -349,6 +355,8 @@ function reported({ said, used }: Carried) {
 /** Carries out one thing a script of Fast's asked for. Throws when it cannot be done: Fast is told. */
 async function carry(intent: Intent, carried: Carried): Promise<unknown> {
   switch (intent.do) {
+    case "world":
+      return registry.call(intent.name, intent.input, { who: "fast", run: carried.run, handover: carried.handover, used: carried.used });
     case "say": {
       if (!voice || voiceState !== "on") throw new Error("the voice is off");
       const handover = handover_of(carried);
@@ -445,7 +453,7 @@ async function carry(intent: Intent, carried: Carried): Promise<unknown> {
 
 const fast: Fast | null = PROVIDER
   ? new Fast(PROVIDER, FAST_MODEL, {
-      world,
+      world, registry,
       page: seen,
       pages: listed,
       // The rules are read again each time Fast's context is built, so a change of `routing.md` needs no restart.

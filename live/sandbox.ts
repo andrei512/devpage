@@ -3,6 +3,7 @@
 // the script runs: they are collected, and the service carries them out when the script ended without an error. So
 // a script that throws has done nothing.
 import { readFileSync } from "node:fs";
+import type { Registry } from "./registry.ts";
 import { QuickJS } from "quickjs-wasi";
 
 /** What a script sees. Every id in it is one Fast was shown. */
@@ -22,6 +23,7 @@ export interface Scope {
 
 /** One thing a script asked for. */
 export type Intent =
+  | { do: "world"; name: string; input: Record<string, unknown> }
   | { do: "say"; text: string }
   /** `route`: the route the script named for the new agent, as it wrote it. */
   | { do: "spawn"; prompt: string; route?: string }
@@ -144,6 +146,7 @@ const PRELUDE = `(() => {
     select(quote) { intents.push({ do: "select", quote: part(quote, "page.select") }); },
   });
 
+  globalThis.__worldCall = (name, input) => intents.push({ do: "world", name, input });
   globalThis.__done = () => {
     const gives = intents.some((intent) => intent.do === "spawn" || intent.do === "send" || intent.do === "fork");
     const mine = scope.handover.map((id) => "m" + id);
@@ -163,17 +166,25 @@ function binary() {
 }
 
 /** Runs one script. Throws what the script threw, as an Error whose message Fast is given. */
-export async function run(script: string, scope: Scope): Promise<Ran> {
+export async function run(script: string, scope: Scope, registry?: Registry): Promise<Ran> {
   const began = performance.now();
   const until = began + LIMIT_MS;
   const vm = await QuickJS.create({ wasm: await binary(), memoryLimit: 32 * 1024 * 1024, interruptHandler: () => performance.now() > until });
   try {
     vm.newString(JSON.stringify(scope)).consume((handle) => vm.setProp(vm.global, "__scope", handle));
     vm.evalCode(PRELUDE, "<world>").dispose();
+    if (registry) vm.evalCode(registry.prelude(), "<registered functions>").dispose();
     try {
       vm.evalCode(script, "<script>").dispose();
       const done = vm.evalCode("__done()", "<end>").consume((handle) => handle.toString());
-      return { ...(JSON.parse(done) as Pick<Ran, "intents" | "used" | "printed">), ms: Math.round(performance.now() - began) };
+      const result = JSON.parse(done) as Ran;
+      for (const intent of result.intents) {
+        if (intent.do === "world") {
+          if (!registry) throw new Error("No registered world functions");
+          registry.checked(intent.name, intent.input, "fast");
+        }
+      }
+      return { ...result, ms: Math.round(performance.now() - began) };
     } catch (error: any) {
       const name = typeof error?.name === "string" ? error.name : "Error";
       const message = typeof error?.message === "string" ? error.message : String(error);

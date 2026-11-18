@@ -175,3 +175,37 @@ test("a function for the page is a widget's to call, and nobody else's", async (
   expect(registry.brief()).toBe("");
   await expect(registry.call("counter.add", { by: 1 }, FAST)).rejects.toThrow("counter.add is for page, not for fast");
 });
+
+test("failed registration publishes nothing and can be retried", () => {
+  const registry = new Registry(":memory:");
+  expect(() => registry.part("mac", (p) => {
+    p.widget("Panel", "panel");
+    p.kind("ran", { line: () => "partial" });
+    p.action("run", { for: "both", description: "run", input: {} }, () => {});
+    throw new Error("broken");
+  })).toThrow("broken");
+  expect(registry.parts()).toEqual([]);
+  expect(registry.widgets).toEqual([]);
+  expect(registry.tools(1)).toEqual([]);
+  computer(registry);
+});
+
+test("overlapping calls to a part see the previous committed update", async () => {
+  const registry = new Registry(":memory:");
+  computer(registry);
+  await Promise.all(["first", "second"].map(script => registry.call("mac.run", { script }, FAST)));
+  expect(registry.state("mac")).toEqual({ ran: 2 });
+});
+
+test("Fast checks every registered input and collects mixed calls in script order", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("counter", ({ z, set }) => set("add", { for: "both", description: "Adds a count", input: { n: z.number().int().positive() } }, ({ n }, ctx) => ctx.set("n", n)));
+  const { run } = await import("./sandbox.ts");
+  const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
+  const result = await run('say("hello"); counter.add(2); say("done")', scope, registry);
+  expect(result.intents.map(i => i.do)).toEqual(["say", "world", "say"]);
+  await expect(run('say("hello"); counter.add(-1)', scope, registry)).rejects.toThrow();
+  await expect(run('counter.add(2); page.go("/missing")', scope, registry)).rejects.toThrow("no page");
+  await expect(run('counter.add(2); throw Error("cancel")', scope, registry)).rejects.toThrow("cancel");
+  expect(registry.state("counter")).toEqual({});
+});

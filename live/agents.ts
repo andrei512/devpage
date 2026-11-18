@@ -56,6 +56,7 @@ function shown(message: string) {
 }
 
 export interface AgentHooks {
+  worldTools?: (agent: number | null) => HarnessTool[];
   /** An agent published an update on a task. */
   published: (update: Published) => void;
   /** Whether a task is this agent's and still running. */
@@ -101,6 +102,7 @@ interface Agent {
 interface Base {
   session: string;
   built: string;
+  tools?: string;
 }
 
 interface Saved {
@@ -200,9 +202,10 @@ export class Agents {
     // A base agent is only of use where a new agent can start as a copy of it.
     if (!this.harnesses.get(harness)?.can.fork) return null;
     const base = this.bases.get(harness);
-    if (base && Date.now() - new Date(base.built).getTime() <= BASE_AGE) return base;
+    const matching = base?.tools === this.toolFingerprint();
+    if (base && matching && Date.now() - new Date(base.built).getTime() <= BASE_AGE) return base;
     void this.build(harness);
-    return base ?? null;
+    return matching ? base ?? null : null;
   }
 
   /** The harness an agent runs on. */
@@ -464,7 +467,12 @@ export class Agents {
       },
       run: async (filter) => ({ text: JSON.stringify(this.hooks.readLog(filter)) }),
     };
-    return [update, comment, log];
+    return [update, comment, log, ...(this.hooks.worldTools?.(agent?.id ?? null) ?? [])];
+  }
+
+  private toolFingerprint() {
+    const descriptions = this.tools(null).map(tool => [tool.name, tool.description, z.toJSONSchema(z.object(tool.input))]);
+    return new Bun.CryptoHasher("sha256").update(JSON.stringify(descriptions)).digest("hex");
   }
 
   /** Builds a harness's base agent: a conversation that reads the project once. Until it is ready, new agents of that harness start empty. */
@@ -478,12 +486,13 @@ export class Agents {
       // On the first model that is enabled for the harness. It has the agents' tools, so that a fork of it starts with
       // the same ones it was built with.
       const model = this.routes.find((route) => route.harness === harness)?.model ?? null;
+      const tools = this.toolFingerprint();
       const running = this.harnesses.get(harness)!.turn({ session: null, fork: false, model, message: BASE_PROMPT, brief: brief(this.pads), root: this.root, also: [this.pads], tools: this.tools(null) });
       for await (const event of running.events) {
         if (event.type === "started") session = event.session;
         if (event.type !== "ended") continue;
         if (event.state === "done" && session) {
-          this.bases.set(harness, { session, built: new Date().toISOString() });
+          this.bases.set(harness, { session, tools, built: new Date().toISOString() });
           this.save();
           this.hooks.log("base_ready", { agent: "base", harness, harness_session: session, text: event.text, ms: Date.now() - began, turns: event.detail?.turns, cost_usd: event.detail?.cost_usd });
         } else {

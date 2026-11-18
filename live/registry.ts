@@ -1,10 +1,8 @@
-// The world as registered parts: the prototype of the extendable world. A part registers its entry kinds, its
-// functions and its state; a function is written once and says who it is for, and it is offered to Fast as a call in
-// its script and to a slow agent as a tool. What a function writes, state and entries, is kept in one SQLite file and
-// committed in one transaction. Nothing of the running session uses this yet.
+// Registered parts share an event stream, with state and events committed together.
+import { line as coreLine } from "./world.ts";
+import { coreEntry, Events } from "./events.ts";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
-import { QuickJS } from "quickjs-wasi";
+import { run as runScript } from "./sandbox.ts";
 import { z } from "zod";
 import type { HarnessTool } from "./harness.ts";
 
@@ -17,6 +15,7 @@ export type Caller = { who: "fast"; run: number; handover: string | null; used: 
 /** One thing that happened, as the store keeps it. */
 export interface Entry {
   n: number;
+  originalNumber?: number;
   at: string;
   part: string;
   kind: string;
@@ -70,11 +69,10 @@ export interface Asked {
   input: Record<string, unknown>;
 }
 
-let compiled: Promise<WebAssembly.Module> | null = null;
-const binary = () => (compiled ??= WebAssembly.compile(readFileSync(new URL(import.meta.resolve("quickjs-wasi/quickjs.wasm")))));
-
 export class Registry {
   private readonly db: Database;
+  readonly events: Events;
+  private readonly pending = new Map<string, Promise<unknown>>();
   private readonly kinds = new Map<string, Kind & { part: string }>();
   private readonly fns = new Map<string, Fn>();
   private readonly named = new Set<string>();
@@ -86,34 +84,47 @@ export class Registry {
 
   constructor(file: string | Database) {
     this.db = typeof file === "string" ? new Database(file) : file;
-    this.db.run("create table if not exists entries (n integer primary key autoincrement, at text not null, part text not null, kind text not null, fields text not null)");
+    this.events = new Events(this.db);
+    this.events.install();
     this.db.run("create table if not exists state (part text not null, key text not null, value text not null, primary key (part, key))");
   }
 
   /** Registers a part: the core's or an extension's, the same way. */
   part(part: string, register: (as: Registering) => void) {
-    this.named.add(part);
+    if (this.named.has(part)) throw new Error(`${part} is registered already`);
+    const kinds = new Map<string, Kind & { part: string }>();
+    const functions = new Map<string, Fn>();
+    const widgets: typeof this.widgets = [];
+    const publish = () => {
+      if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      for (const [name, kind] of kinds) this.kinds.set(name, kind);
+      for (const [name, fn] of functions) this.fns.set(name, fn);
+      this.widgets.push(...widgets);
+      this.named.add(part);
+    };
     const fn = (does: Fn["does"]) => (name: string, options: Options, run: Fn["run"]) => {
       if (does === "get" && options.for !== "slow") throw new Error(`${part}.${name}: a get is for slow agents only: Fast's script gets no answer from a call`);
       const full = `${part}.${name}`;
-      if (this.fns.has(full)) throw new Error(`${full} is registered already`);
-      this.fns.set(full, { part, name, does, run, ...options });
+      if (functions.has(full) || this.fns.has(full)) throw new Error(`${full} is registered already`);
+      functions.set(full, { part, name, does, run, ...options });
     };
-    register({
+    const registered: unknown = register({
       z,
-      kind: (name, kind) => void this.kinds.set(`${part}.${name}`, { ...kind, part }),
+      kind: (name, kind) => void kinds.set(`${part}.${name}`, { ...kind, part }),
       get: fn("get"),
       set: fn("set"),
       action: fn("action"),
-      widget: (name, place) => void this.widgets.push({ part, name, place }),
+      widget: (name, place) => void widgets.push({ part, name, place }),
     });
+    if (registered instanceof Promise) return registered.then(publish);
+    publish();
   }
 
   /** Loads an extension's world module: a file whose default export registers its part. */
   async load(part: string, file: string) {
     const module = await import(file);
     if (typeof module.default !== "function") throw new Error(`${file} has no default export that registers a part`);
-    this.part(part, module.default);
+    await this.part(part, module.default);
   }
 
   /** The parts that are registered, by name. */
@@ -129,13 +140,15 @@ export class Registry {
 
   /** Every entry after the one with this number, oldest first. */
   since(n: number): Entry[] {
-    const rows = this.db.query("select n, at, part, kind, fields from entries where n > ? order by n").all(n) as any[];
-    return rows.map((row) => ({ ...row, fields: JSON.parse(row.fields) }));
+    return this.events.since(n);
   }
 
   /** An entry as the line Fast reads. */
   line(entry: Entry) {
-    return this.kinds.get(`${entry.part}.${entry.kind}`)?.line(entry.fields) ?? `${entry.part}.${entry.kind}`;
+    const kind = this.kinds.get(`${entry.part}.${entry.kind}`);
+    if (kind) return kind.line(entry.fields);
+    const core = coreEntry(entry);
+    return core ? coreLine(core) : `${entry.part}.${entry.kind}`;
   }
 
   /** The image an entry carries, when it has one. */
@@ -148,10 +161,20 @@ export class Registry {
    * transaction once it ended: a function that throws has written nothing.
    */
   async call(name: string, input: unknown, caller: Caller) {
-    const fn = this.fns.get(name);
-    if (!fn) throw new Error(`there is no function ${name}`);
-    if (fn.for !== "both" && fn.for !== caller.who) throw new Error(`${name} is for ${fn.for}, not for ${caller.who}`);
-    const given = z.object(fn.input).parse(input);
+    const { fn, given } = this.checked(name, input, caller.who);
+    // A function may await external work. Serialize calls per part across that
+    // await while letting unrelated parts commit on the same SQLite connection.
+    const previous = this.pending.get(fn.part);
+    const run = (previous ?? Promise.resolve()).catch(() => {}).then(() => this.execute(fn, given, caller));
+    this.pending.set(fn.part, run);
+    try {
+      return await run;
+    } finally {
+      if (this.pending.get(fn.part) === run) this.pending.delete(fn.part);
+    }
+  }
+
+  private async execute(fn: Fn, given: unknown, caller: Caller) {
     const sets = new Map<string, unknown>();
     const adds: { kind: string; fields: Record<string, unknown> }[] = [];
     const result = await fn.run(given, {
@@ -167,9 +190,7 @@ export class Registry {
     this.db.transaction(() => {
       for (const [key, value] of sets) this.db.run("insert into state (part, key, value) values (?, ?, ?) on conflict (part, key) do update set value = excluded.value", [fn.part, key, JSON.stringify(value)]);
       for (const { kind, fields } of adds) {
-        const at = new Date().toISOString();
-        const { lastInsertRowid } = this.db.run("insert into entries (at, part, kind, fields) values (?, ?, ?, ?)", [at, fn.part, kind, JSON.stringify(fields)]);
-        added.push({ n: Number(lastInsertRowid), at, part: fn.part, kind, fields });
+        added.push(this.events.append(fn.part, kind, fields));
       }
     })();
     if (sets.size > 0) this.onState(fn.part, this.state(fn.part));
@@ -180,8 +201,16 @@ export class Registry {
     return result;
   }
 
+  /** Check the whole script before carrying any of its intents out. */
+  checked(name: string, input: unknown, who: Caller["who"]) {
+    const fn = this.fns.get(name);
+    if (!fn) throw new Error(`there is no function ${name}`);
+    if (fn.for !== who && !(fn.for === "both" && who !== "page")) throw new Error(`${name} is for ${fn.for}, not for ${who}`);
+    return { fn, given: z.object(fn.input).parse(input) };
+  }
+
   /** The functions a slow agent has, as the tools every harness hands over: the same list the session's own three are in today. */
-  tools(agent: number): HarnessTool[] {
+  tools(agent: number | null): HarnessTool[] {
     return [...this.fns.entries()]
       .filter(([, fn]) => fn.for === "slow" || fn.for === "both")
       .map(([name, fn]) => ({
@@ -190,6 +219,7 @@ export class Registry {
         input: fn.input,
         run: async (input: any) => {
           try {
+            if (agent === null) throw new Error("A base agent has no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             return { text: typeof result === "string" ? result : JSON.stringify(result ?? "Done.") };
           } catch (error) {
@@ -209,7 +239,7 @@ export class Registry {
    * call that takes its input in the order it was registered, checks each value's type against the input's schema,
    * and records what was asked. Nothing is carried out while the script runs.
    */
-  private prelude() {
+  prelude() {
     const fns = [...this.fns.entries()]
       .filter(([, fn]) => fn.for === "fast" || fn.for === "both")
       .map(([name, fn]) => {
@@ -217,7 +247,7 @@ export class Registry {
         return { name, keys: Object.keys(fn.input), types: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, value.type ?? null])), required: schema.required ?? [] };
       });
     return `(() => {
-      const asked = [];
+
       for (const fn of ${JSON.stringify(fns)}) {
         const [part, name] = fn.name.split(".");
         globalThis[part] ??= {};
@@ -229,24 +259,21 @@ export class Registry {
             const type = fn.types[key];
             if (type && type !== "array" && type !== "object" && typeof input[key] !== (type === "integer" ? "number" : type)) throw new TypeError(fn.name + ": " + key + " is not a " + type);
           }
-          asked.push({ do: fn.name, input });
+          __worldCall(fn.name, input);
         };
       }
-      globalThis.__done = () => JSON.stringify(asked);
+
     })()`;
   }
 
   /** Runs a script of Fast's in the sandbox and returns what it asked for. A script that throws asked for nothing. */
   async script(code: string): Promise<Asked[]> {
-    const until = performance.now() + 300;
-    const vm = await QuickJS.create({ wasm: await binary(), memoryLimit: 32 * 1024 * 1024, interruptHandler: () => performance.now() > until });
-    try {
-      vm.evalCode(this.prelude(), "<world>").dispose();
-      vm.evalCode(code, "<script>").dispose();
-      return JSON.parse(vm.evalCode("__done()", "<end>").consume((handle) => handle.toString()));
-    } finally {
-      vm.dispose();
-    }
+    const scope = { messages: [], updates: [], agents: [], pages: [], page: null, handover: [] };
+    const ran = await runScript(code, scope, this);
+    return ran.intents.map(intent => {
+      if (intent.do !== "world") throw new Error("Expected a registered world call");
+      return { do: intent.name, input: intent.input };
+    });
   }
 
   /** One run of Fast: the script in the sandbox, then each call carried out, in order. */

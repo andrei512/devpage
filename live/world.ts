@@ -70,14 +70,12 @@ const KEPT = 2000;
 
 export class World {
   private entries: Entry[] = [];
-  private last = 0;
   private ids = { message: 0, update: 0 };
 
   /** `added` is called with every new entry. */
   constructor(private readonly store: SessionStore, private readonly added: (entry: Entry) => void) {
     for (const entry of store.world()) {
       this.entries.push(entry);
-      this.last = Math.max(this.last, entry.n);
       if (entry.kind === "message" || entry.kind === "update") this.ids[entry.kind] = Math.max(this.ids[entry.kind], entry.id);
     }
     this.entries = this.entries.slice(-KEPT);
@@ -85,7 +83,7 @@ export class World {
 
   /** The number of the newest entry. */
   get now() {
-    return this.last;
+    return this.store.events.now;
   }
 
   /** The next id of a message or an update: they go on across restarts, so `m41` is one message for ever. */
@@ -94,9 +92,8 @@ export class World {
   }
 
   add<T extends Entry>(entry: Fresh<T>): T {
-    const full = { n: this.last + 1, at: new Date().toISOString(), ...entry } as unknown as T;
-    this.store.addWorld(full);
-    this.last = full.n;
+    const timed = { ...entry, at: new Date().toISOString() };
+    const full = { ...timed, n: this.store.events.appendCore(timed) } as unknown as T;
     this.entries.push(full);
     if (this.entries.length > KEPT) this.entries.shift();
     this.added(full);
