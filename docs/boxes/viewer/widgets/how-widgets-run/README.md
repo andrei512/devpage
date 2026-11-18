@@ -92,6 +92,7 @@ throws, and the server only adds its headers.
 | Address | What it serves |
 | --- | --- |
 | `/__devpage/react.<hash>.js` | React and react-dom, [vendored](../../vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
+| `/__devpage/page.<hash>.js` | [The page module](../page-module/README.md), for the import map's `devpage` |
 | `/__devpage/system-widgets/<Name>.tsx?v=<version>` | A system widget, compiled from `core/assets/widgets/`, built into the binary |
 | `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; a path without an extension finds the `.tsx` or `.ts` |
 

@@ -1,13 +1,14 @@
 //! Trusted native extension packages loaded by the executable, never by core.
 use anyhow::{Context, Result, bail};
-use devpage_core::extensions::{Loader, Package};
+use devpage_core::extensions::{Loader, Package, Process};
 use devpage_extension_api::{API, VTable};
 use libloading::Library;
 use serde::Deserialize;
 use serde_json::Value;
 use std::{path::Path, sync::Arc};
 
-/// A package's `extension.yml`: what it is and where its library lies.
+/// A package's `extension.yml`: what it is, where its library lies and the
+/// program it runs. It has a library, a program or both.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -19,10 +20,13 @@ struct Manifest {
     /// The extension ABI the package was built for; must be [`API`].
     api: u32,
     /// The platform triple the library was built for; must be the executable's
-    /// own.
-    target: String,
+    /// own. Needed only with `library`.
+    target: Option<String>,
     /// The dynamic library's path inside the package.
-    library: String,
+    library: Option<String>,
+    /// The program the package keeps running beside devpage, and its
+    /// arguments; started in the package's folder.
+    run: Option<Vec<String>>,
     /// The package's asset folder inside it, if it has one.
     assets: Option<String>,
 }
@@ -39,6 +43,36 @@ struct Native {
     invoke: unsafe extern "C" fn(*const u8, usize) -> devpage_extension_api::Buffer,
     /// Frees a buffer `invoke` returned.
     release: unsafe extern "C" fn(devpage_extension_api::Buffer),
+    /// The program the package runs, if its manifest names one.
+    process: Option<Process>,
+}
+/// A package with no library: it shows no files and adds nothing to a page,
+/// and only runs its program.
+struct Plain {
+    /// The package's id from its manifest.
+    id: String,
+    /// The program the package runs.
+    process: Process,
+}
+impl Package for Plain {
+    fn invoke(&self, request: Value) -> Result<Value> {
+        match request["op"].as_str() {
+            Some("create") if request["id"].as_str() != Some(&self.id) => {
+                bail!("Package id must match configuration key {}", self.id)
+            }
+            Some("create") => Ok(serde_json::json!({})),
+            Some("prepare") => Ok(serde_json::json!({"revision": "none"})),
+            // A page's source passes through unchanged.
+            Some("augment") => Ok(serde_json::json!({})),
+            Some("route") => Ok(serde_json::json!({
+                "body": "Not found", "mime": "text/plain", "status": 404
+            })),
+            _ => bail!("Package {} has no library", self.id),
+        }
+    }
+    fn process(&self) -> Option<Process> {
+        Some(self.process.clone())
+    }
 }
 impl Package for Native {
     fn invoke(&self, request: Value) -> Result<Value> {
@@ -72,6 +106,9 @@ impl Package for Native {
         }
         Ok(value)
     }
+    fn process(&self) -> Option<Process> {
+        self.process.clone()
+    }
 }
 /// Loads a package folder as a native extension, after checking its manifest
 /// and ABI.
@@ -92,15 +129,36 @@ impl Loader for NativeLoader {
         {
             bail!("Invalid extension id");
         }
-        if manifest.version.is_empty() || manifest.target != env!("NATIVE_EXTENSION_TARGET") {
-            bail!("Extension version/target mismatch: {}", manifest.target);
+        if manifest.version.is_empty() {
+            bail!("Extension version is empty");
         }
+        let process = match manifest.run {
+            Some(command) if command.is_empty() => bail!("Extension run names no program"),
+            Some(command) => Some(Process {
+                command,
+                folder: root.clone(),
+            }),
+            None => None,
+        };
         if let Some(assets) = manifest.assets
             && !root.join(assets).canonicalize()?.starts_with(&root)
         {
             bail!("Assets outside package");
         }
-        let file = root.join(manifest.library).canonicalize()?;
+        let Some(library) = manifest.library else {
+            let Some(process) = process else {
+                bail!("Extension has neither a library nor a program to run");
+            };
+            return Ok(Arc::new(Plain {
+                id: manifest.id,
+                process,
+            }));
+        };
+        let target = manifest.target.unwrap_or_default();
+        if target != env!("NATIVE_EXTENSION_TARGET") {
+            bail!("Extension version/target mismatch: {target}");
+        }
+        let file = root.join(library).canonicalize()?;
         if !file.starts_with(&root) {
             bail!("Library outside package");
         }
@@ -121,6 +179,7 @@ impl Loader for NativeLoader {
                 id: manifest.id,
                 invoke,
                 release,
+                process,
             }))
         }
     }
@@ -128,4 +187,30 @@ impl Loader for NativeLoader {
 /// Makes core load extension packages as native libraries.
 pub fn install() {
     devpage_core::extensions::install_loader(Arc::new(NativeLoader));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_package_with_only_a_program_leaves_pages_as_they_are() {
+        let dir = std::env::temp_dir().join(format!("devpage-program-only-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("extension.yml"),
+            "id: clock\nversion: \"1\"\napi: 1\nrun: [clock]\n",
+        )
+        .unwrap();
+        let package = NativeLoader.load(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+        assert!(package.process().is_some());
+        package
+            .invoke(serde_json::json!({"op":"create","id":"clock"}))
+            .unwrap();
+        let reply = package
+            .invoke(serde_json::json!({"op":"augment","path":"README.md","source":"# T\n"}))
+            .unwrap();
+        assert!(reply["source"].is_null());
+    }
 }

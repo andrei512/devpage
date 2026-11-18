@@ -421,6 +421,9 @@ mark.devpage-found {
    panel the reader opens. Never printed. */
 
 mark.comment { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; cursor: pointer; border-radius: 2px; }
+/* In a diagram the marked text takes the accent: SVG text has no background. */
+tspan.comment, tspan.devpage-mark { fill: var(--accent); }
+tspan.comment { cursor: pointer; }
 #devpage-comments { flex-shrink: 0; font-size: 14px; line-height: 1.45; }
 #devpage-comments:empty { display: none; }
 #devpage-comments.beside { position: relative; width: 300px; margin: 56px 16px 0 0; }
@@ -448,7 +451,7 @@ body.show-comments #devpage-comments:not(.beside):not(:empty) { display: block; 
 .comment-button { display: inline-flex; align-items: center; gap: 6px; }
 .comment-button.comment-icon { width: 28px; height: 28px; padding: 0; justify-content: center; border-radius: 50%; color: var(--muted); background: var(--background); box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--text) 35%, transparent); transition: color 0.15s, border-color 0.15s; }
 .comment-button.comment-icon:hover { color: var(--accent); border-color: var(--accent); }
-@media print { #devpage-comments, #devpage-comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } }
+@media print { #devpage-comments, #devpage-comments-toggle, .comment-button { display: none !important; } mark.comment { background: none; } tspan.comment, tspan.devpage-mark { fill: inherit; } }
 
 /* Problems: broken links found while the page is previewed. */
 
@@ -662,6 +665,39 @@ body.with-version-banner { flex-wrap: wrap; align-content: flex-start; }
 :fullscreen #devpage-versions, :fullscreen #devpage-version-banner { display: none; }
 @media print { #devpage-versions, #devpage-version-banner { display: none !important; } }
 
+/* Places: a document's widgets outside its pages' text. The navbar's sit
+   before the theme selector; the panel is the window's right edge, beside
+   the page on a wide window — the page gives it the room, and the comment
+   threads become the list a button opens — and over it on a narrow one and
+   on a deck; the floating ones are at the middle of the bottom edge. Never
+   printed; a deck hides them in fullscreen. */
+
+#devpage-place-navbar, #devpage-place-navbar .placed, #devpage-place-navbar .placed > [data-widget] { display: flex; align-items: center; gap: 4px; }
+#devpage-place-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 21; width: 300px;
+  display: none; overflow: auto; padding: 16px;
+  background: var(--background); border-left: 1px solid var(--border);
+  font-size: 14px; line-height: 1.45;
+}
+body.with-panel #devpage-place-panel { display: block; }
+body.panel-beside { padding-right: 300px; }
+body.panel-beside #devpage-corner { right: 316px; }
+body.panel-beside #devpage-comments-toggle { right: 316px; }
+body.panel-beside #devpage-comments:not(.beside) { right: 300px; }
+#devpage-place-float {
+  position: fixed; left: 50%; bottom: 16px; z-index: 22; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px;
+}
+:fullscreen #devpage-place-panel, :fullscreen #devpage-place-float { display: none; }
+@media print { #devpage-place-navbar, #devpage-place-panel, #devpage-place-float { display: none !important; } body.panel-beside { padding-right: 0; } }
+
+/* What a widget marked on the page (`page.mark`), and the block a pick would
+   take while picking is on. */
+mark.devpage-mark { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; border-radius: 2px; }
+body.picking #devpage-page [data-source] { cursor: crosshair; }
+body.picking #devpage-page [data-source] :is(a, button, summary) { cursor: pointer; }
+.devpage-pick { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 2px; }
+
 /* A workspace allocates the viewport to the tool, which owns its toolbar and inspector. */
 body.devpage-workspace {height:100dvh;overflow:hidden;display:flex;flex-direction:column;flex-wrap:nowrap;align-content:normal;}
 body.devpage-workspace > #devpage-page {flex:1;min-width:0;min-height:0;width:100%;max-width:none;margin:0;padding:0;overflow:hidden;}
@@ -740,6 +776,7 @@ body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min
   body:not(.with-navbar):has(.navigator) main { padding-top: 76px; }
 
   main { padding: 24px 16px 72px; }
+  #devpage-place-panel { width: 100vw; border-left: 0; }
   h1 { font-size: 32px; margin-bottom: 18px; }
   h2 { font-size: 24px; margin: 40px 0 14px; }
   h3 { font-size: 19px; margin: 28px 0 10px; }

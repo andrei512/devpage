@@ -34,6 +34,8 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
     /// A doc: its `chapters` in order, and its settings on paper.
     Doc {
@@ -47,6 +49,8 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
     /// A deck: its `slides` in order, and what its narrator is told about the
     /// talk.
@@ -63,7 +67,40 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
+}
+
+/// The widgets a document shows outside its pages' text, by place: each a
+/// list of widget names, shown in order on every page.
+#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Places {
+    /// Beside the theme selector: at the end of a site's navbar, or in the
+    /// top-right corner of a page with none.
+    #[serde(default)]
+    pub navbar: Vec<String>,
+    /// The panel at the right edge of the window.
+    #[serde(default)]
+    pub panel: Vec<String>,
+    /// Floating over the page, at the middle of the window's bottom edge.
+    #[serde(default)]
+    pub float: Vec<String>,
+}
+
+impl Places {
+    /// Each place that names a widget, by its name in the document file.
+    pub fn named(&self) -> Vec<(&'static str, &[String])> {
+        [
+            ("navbar", self.navbar.as_slice()),
+            ("panel", self.panel.as_slice()),
+            ("float", self.float.as_slice()),
+        ]
+        .into_iter()
+        .filter(|(_, widgets)| !widgets.is_empty())
+        .collect()
+    }
 }
 
 /// One link of a site's navbar, as written: a label, an icon or both, and its
@@ -304,6 +341,8 @@ pub struct Document {
     watch_roots: Vec<PathBuf>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
+    /// The widgets it shows outside its pages' text.
+    pub places: Places,
     /// A site's navbar, in order; empty when it has none.
     pub navbar: Vec<NavItem>,
     /// Whether a site shows its Topics sidebar.
@@ -365,6 +404,7 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                places: Places::default(),
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -385,6 +425,7 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                places: Places::default(),
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -416,6 +457,7 @@ impl Document {
         let show_selector;
         let logo_path;
         let extension_configs;
+        let places;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
@@ -427,8 +469,10 @@ impl Document {
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -461,8 +505,10 @@ impl Document {
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -486,8 +532,10 @@ impl Document {
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -538,6 +586,7 @@ impl Document {
             watch,
             watch_roots,
             widgets,
+            places,
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,

@@ -1017,7 +1017,7 @@ async fn settled(page: &Page, answered: &Answered, from: usize) -> Vec<(String, 
 /// Writes `text` to the widget file `path`, its time moved on past the
 /// last write's, so the module cache — which keys a file by its time and
 /// length — reads it again however soon after that write it comes.
-fn rewrite(path: &Path, text: &str) {
+pub(super) fn rewrite(path: &Path, text: &str) {
     let last = std::fs::metadata(path).unwrap().modified().unwrap();
     std::fs::write(path, text).unwrap();
     std::fs::File::options()

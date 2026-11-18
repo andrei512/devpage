@@ -16,6 +16,8 @@ mod comments;
 mod page_script;
 /// `devpage pdf`: what a doc and a deck print to.
 mod pdf;
+/// A document's places, and the page module a widget imports.
+mod places;
 /// A published document: every request its pages make stays under their
 /// mount.
 mod server_mode;

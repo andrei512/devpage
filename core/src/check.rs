@@ -643,8 +643,8 @@ fn widget_files(folder: &Path) -> Vec<PathBuf> {
 }
 
 /// The problems of a document's widgets folder, once per document rather than
-/// once per page: a file with a system widget's name, and every widget or
-/// helper that doesn't compile.
+/// once per page: a file with a system widget's name, a place that names no
+/// widget, and every widget or helper that doesn't compile.
 fn widget_problems(document: &Document, widgets: &Widgets) -> Vec<Problem> {
     let mut problems: Vec<Problem> = widgets
         .problems

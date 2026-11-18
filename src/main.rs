@@ -349,6 +349,18 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
+    // An extension's process acts as whoever runs devpage, so one is started
+    // only where devpage answers this machine alone.
+    let processes = cli.host.is_loopback().then(|| {
+        adapters::processes::Processes::new(
+            format!("http://{shown}:{port}"),
+            git::user_name(document.served.path()),
+        )
+    });
+    let app = match &processes {
+        Some(processes) => app.with_processes(processes.clone()),
+        None => app,
+    };
     // Served on another address, devpage is deployed: no one there updates it.
     if cli.host.is_loopback() {
         let update = updates();
@@ -365,6 +377,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         _ = interrupted() => {}
     }
     shots.close().await;
+    if let Some(processes) = processes {
+        processes.stop().await;
+    }
     Ok(ExitCode::SUCCESS)
 }
 

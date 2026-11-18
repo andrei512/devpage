@@ -18,6 +18,36 @@ pub trait Package: Send + Sync {
     /// asked: `create`, `prepare`, `view`, `augment`, `embed`, `targets` or
     /// `route`.
     fn invoke(&self, request: Value) -> Result<Value>;
+    /// The program the package keeps running beside devpage — none, unless the
+    /// package says otherwise.
+    fn process(&self) -> Option<Process> {
+        None
+    }
+}
+/// A package's process: the long-running program devpage starts for it, and
+/// passes the requests under the extension's `live/` address to.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Process {
+    /// The program and its arguments, as the package's `run` lists them.
+    pub command: Vec<String>,
+    /// The package's folder, which the program is started in.
+    pub folder: PathBuf,
+}
+/// An address under an extension's `live/`, and what answers it.
+#[derive(Clone, Debug)]
+pub struct Live {
+    /// What names the bound extension among all of them: `<owner>/<id>`.
+    pub key: String,
+    /// The extension's name under the document's `extensions:`.
+    pub id: String,
+    /// The package's process — `None` when it has none.
+    pub process: Option<Process>,
+    /// What the extension is configured with, as JSON.
+    pub config: String,
+    /// The folder of the document file that configures the extension.
+    pub folder: PathBuf,
+    /// The address past `live/`, without a leading `/`.
+    pub rest: String,
 }
 /// What loads an extension's package from its bundle; the executable installs
 /// the native one.
@@ -80,8 +110,13 @@ struct State {
     package: Arc<dyn Package>,
     /// The served folder its input and the files it shows must lie in.
     scope: ServedFolder,
-    /// The file or folder it reads, as the package's `create` reply names it.
-    input: PathBuf,
+    /// What the extension is configured with, as JSON.
+    config: Value,
+    /// The folder of the document file that configures it.
+    folder: PathBuf,
+    /// The file or folder it reads, as the package's `create` reply names it —
+    /// `None` when it reads none.
+    input: Option<PathBuf>,
     /// The package's reply to `create`: the suffixes it owns, its input and the
     /// suffixes read there, its grammar, widgets and styles.
     descriptor: Value,
@@ -107,6 +142,12 @@ impl Binding {
             s.owner,
             s.id
         )
+    }
+    /// The extension's name under the document's `extensions:`, and the
+    /// address it answers under.
+    pub fn address(&self) -> (String, String) {
+        let s = self.0.lock().unwrap();
+        (s.id.clone(), Self::base(&s))
     }
     /// The address of each of the package's widgets' modules, by widget name.
     pub fn widget_urls(&self) -> BTreeMap<String, String> {
@@ -154,15 +195,20 @@ impl Binding {
         request["revision"] = s.revision.clone().into();
         s.package.invoke(request)
     }
-    /// The file or folder the extension reads.
-    pub fn input(&self) -> PathBuf {
+    /// The file or folder the extension reads — `None` when it reads none.
+    pub fn input(&self) -> Option<PathBuf> {
         self.0.lock().unwrap().input.clone()
     }
     /// Whether `file` is one the extension shows: its suffix is one the package
     /// declared and, when `file` is absolute, it lies in the input.
     pub fn owns(&self, file: &Path) -> bool {
         let s = self.0.lock().unwrap();
-        if file.is_absolute() && !file.starts_with(&s.input) {
+        if file.is_absolute()
+            && !s
+                .input
+                .as_ref()
+                .is_some_and(|input| file.starts_with(input))
+        {
             return false;
         }
         let ext = file.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -212,12 +258,14 @@ impl Binding {
             }
             Ok(())
         }
-        let extensions = s.descriptor["input_extensions"]
-            .as_array()
-            .ok_or_else(|| anyhow!("Extension must declare input_extensions"))?;
-        if let Err(error) = read(&s.scope, &s.input, &mut sources, extensions) {
-            s.error = Some(error.to_string());
-            return Err(error);
+        if let Some(input) = &s.input {
+            let extensions = s.descriptor["input_extensions"]
+                .as_array()
+                .ok_or_else(|| anyhow!("Extension must declare input_extensions"))?;
+            if let Err(error) = read(&s.scope, input, &mut sources, extensions) {
+                s.error = Some(error.to_string());
+                return Err(error);
+            }
         }
         if s.error.is_none() && s.sources == sources && !s.revision.is_empty() {
             return Ok(false);
@@ -335,12 +383,20 @@ pub fn configure(
             Sha256::digest(format!("{}:{id}:{configuration}", doc.display()))
         )[..16]
             .to_string();
-        let descriptor = package
-            .invoke(json!({"op":"create","instance":owner,"id":id,"config":config.config}))?;
-        for suffix in descriptor["file_extensions"]
-            .as_array()
-            .ok_or_else(|| anyhow!("Extension {id} file_extensions missing"))?
-        {
+        let config = serde_json::to_value(&config.config)?;
+        let descriptor =
+            package.invoke(json!({"op":"create","instance":owner,"id":id,"config":config}))?;
+        // A package that shows no files and reads no input may leave both out.
+        let none = Vec::new();
+        let listed = |field: &str| -> Result<&Vec<Value>> {
+            match &descriptor[field] {
+                Value::Null => Ok(&none),
+                Value::Array(listed) => Ok(listed),
+                _ => bail!("Extension {id} {field} is not a list"),
+            }
+        };
+        let reads = !listed("input_extensions")?.is_empty();
+        for suffix in listed("file_extensions")? {
             let suffix = suffix
                 .as_str()
                 .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric()))
@@ -360,14 +416,19 @@ pub fn configure(
                 bail!("Extension {id} cannot replace a built-in language");
             }
         }
-        let input = base.join(
-            descriptor["input"]
-                .as_str()
-                .ok_or_else(|| anyhow!("Extension input missing"))?,
-        );
-        if !input.canonicalize()?.starts_with(scope.path()) {
-            bail!("Extension {id} input outside served folder");
-        }
+        let input = match descriptor["input"].as_str() {
+            Some(input) => {
+                let input = base.join(input);
+                if !input.canonicalize()?.starts_with(scope.path()) {
+                    bail!("Extension {id} input outside served folder");
+                }
+                Some(input)
+            }
+            None if reads || !listed("file_extensions")?.is_empty() => {
+                bail!("Extension input missing")
+            }
+            None => None,
+        };
         let browser = Browser::new(
             &descriptor,
             &format!("{}/__devpage/extensions/{owner}/{id}/", scope.mount()),
@@ -378,6 +439,8 @@ pub fn configure(
             owner,
             package,
             scope: scope.clone(),
+            config,
+            folder: base.to_path_buf(),
             input,
             descriptor,
             browser: Arc::new(browser),
@@ -408,7 +471,7 @@ pub fn input_roots(scope: &ServedFolder) -> Vec<PathBuf> {
         .values()
         .flatten()
         .filter(|b| b.0.lock().unwrap().scope == *scope)
-        .map(Binding::input)
+        .filter_map(Binding::input)
         .collect()
 }
 /// Whether an extension in `scope` prepared anew after `files` changed: each
@@ -425,7 +488,9 @@ pub fn changed(scope: &ServedFolder, files: &[PathBuf]) -> bool {
         .collect();
     let mut changed = false;
     for b in all {
-        let input = b.input();
+        let Some(input) = b.input() else {
+            continue;
+        };
         if files
             .iter()
             .any(|p| p.starts_with(&input) || input.starts_with(p))
@@ -444,6 +509,38 @@ pub fn for_file(file: &Path, folder: &crate::folder::Folder) -> Vec<Binding> {
         .map(|d| d.path())
         .unwrap_or_else(|| folder.entry().path());
     for_document(&path)
+}
+/// What answers `path` when it is under an extension's `live/` address in
+/// `scope`: the bound extension and its process. `None` when it is no such
+/// address.
+pub fn live(path: &str, scope: &ServedFolder) -> Option<Live> {
+    let suffix = path
+        .trim_start_matches('/')
+        .strip_prefix("__devpage/extensions/")?;
+    let (owner, tail) = suffix.split_once('/')?;
+    let (id, tail) = tail.split_once('/')?;
+    let rest = tail.strip_prefix("live/")?;
+    let guard = instances().lock().unwrap();
+    guard.values().flatten().find_map(|b| {
+        let s = b.0.lock().unwrap();
+        (s.owner == owner && s.id == id && s.scope == *scope).then(|| Live {
+            key: format!("{owner}/{id}"),
+            id: s.id.clone(),
+            process: s.package.process(),
+            config: s.config.to_string(),
+            folder: s.folder.clone(),
+            rest: rest.to_string(),
+        })
+    })
+}
+/// Whether `key`, a [`Live::key`], still names a bound extension: one whose
+/// document was not loaded again with another configuration.
+pub fn bound(key: &str) -> bool {
+    let guard = instances().lock().unwrap();
+    guard.values().flatten().any(|b| {
+        let s = b.0.lock().unwrap();
+        key.split_once('/') == Some((&s.owner, &s.id))
+    })
 }
 /// The reply to `path` when it is an extension's address in `scope`: a browser
 /// file the package ships, or else what the package routes it to. `None` when

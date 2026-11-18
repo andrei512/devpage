@@ -206,10 +206,14 @@ In detail:
   ([Turning comments off](../comments/README.md#turning-comments-off));
 - then an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → React's content address,
-  `/__devpage/react.<hash>.js`),
+  `/__devpage/react.<hash>.js`) and
+  [the page module](../widgets/page-module/README.md) (`devpage` →
+  `/__devpage/page.<hash>.js`),
   `window.devpageWidgets`, the document's widgets with the address of each
-  ([Widgets](../widgets/how-widgets-run/README.md)), and the page's
-  [load set](#the-load-set).
+  ([Widgets](../widgets/how-widgets-run/README.md)) — with
+  `window.devpagePlaces`, its [places](../widgets/places/README.md), and
+  `window.devpageExtensions`, its extensions' addresses, when it has any —
+  and the page's [load set](#the-load-set), its places' widgets included.
 
 ### The load set
 

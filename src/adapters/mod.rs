@@ -10,6 +10,7 @@ pub mod changes;
 pub mod chrome;
 pub mod external;
 pub mod git;
+pub mod processes;
 pub mod sqlite;
 pub mod terminal;
 pub mod update;

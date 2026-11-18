@@ -108,6 +108,22 @@ script, `core/assets/design.js`, is loaded the first time a
 page has a design, and from then on starts every canvas not yet drawn and
 stops those gone.
 
+## Places and the page module
+
+A document's [places](../widgets/places/README.md) are mounted after the
+content, each in an element of its own outside the page's frame —
+`#devpage-place-navbar`, `#devpage-place-panel`, `#devpage-place-float` — so a
+swap never touches them. The navbar's is put back into the fresh navbar in
+the swap's commit, still mounted. After each swap the places the fresh page
+names are compared with those shown: a widget whose key changed is mounted
+again, one no longer named is unmounted.
+
+The script makes `window.devpagePage`, which
+[the page module](../widgets/page-module/README.md) hands to the widgets
+that import `devpage`. Its parts are the [comments'](../comments/README.md)
+anchors, found with the same text model; its marks are put back after every
+swap; while picking is on, the comment handlers stand down.
+
 ## The sidebar
 
 A site's sidebar is the `DevpageSidebar` widget

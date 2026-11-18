@@ -22,3 +22,11 @@ The core test binds an in-process toy package (no native library) to a site and 
 7. Run `devpage pdf README.md -o /tmp/toy.pdf`: the printed page keeps its site's extension.
 
 Rebuilding the library needs a devpage restart.
+
+## Run a package that is only a program
+
+1. Make a folder with an `extension.yml` whose `run` names a server: a few lines of any language that listen on the port in `DEVPAGE_PORT` and answer HTTP.
+2. Enable the folder under `extensions` in a site's `devpage.yml`, with no `config`.
+3. Run `devpage .`, and open `/__devpage/extensions/<instance>/<id>/live/` — the address `base("<id>")` gives a widget, plus `live/`. The program starts and its answer shows.
+4. Stop the program by hand: the next request starts it again.
+5. Remove the entry from `devpage.yml`: the program is stopped.

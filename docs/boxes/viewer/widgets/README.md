@@ -42,6 +42,10 @@ a slide.
   in your widgets folder: composing, helpers, styling, paper.
 - (cpu) [How widgets run](how-widgets-run/README.md) — placeholders on the
   server, compiling with oxc, mounting with React.
+- (panel-right) [Places](places/README.md) — a widget outside the text, on every
+  page: in the navbar, in the panel, floating.
+- (mouse-pointer-click) [The page module](page-module/README.md) — what a
+  widget imports to read the page it is on and steer it.
 
 </Cards>
 
@@ -55,3 +59,6 @@ a slide.
   widgets in TSX.
 - [How widgets run](how-widgets-run/README.md) — from a tag in Markdown to a
   mounted React component.
+- [Places](places/README.md) — widgets shown outside the text, on every page.
+- [The page module](page-module/README.md) — a widget reading and steering the
+  page it is on.

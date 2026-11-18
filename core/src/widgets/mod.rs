@@ -86,16 +86,37 @@ pub struct Widgets {
     files: BTreeMap<String, PathBuf>,
     /// Every name in `modules`: what a project widget can render by name.
     known: Vec<String>,
-    /// Widget files that can't be widgets: a lowercase name, or a system
-    /// widget's name.
+    /// What can't be shown: a widget file with a lowercase name or a system
+    /// widget's name, and a place that names no widget.
     pub problems: Vec<String>,
+    /// The widgets the document shows outside its pages' text.
+    places: crate::document::Places,
 }
 
 impl Widgets {
     /// The system widgets plus the document's own, from its `widgets` folder,
     /// each at its [content address](crate::addresses), read and compiled
-    /// through `cache`.
+    /// through `cache`; and the document's places, each naming widgets among
+    /// them.
     pub fn of(document: &Document, cache: &Modules) -> Self {
+        let mut widgets = Self::read(document, cache);
+        widgets.places = document.places.clone();
+        for (place, names) in document.places.named() {
+            for name in names {
+                if !widgets.modules.contains_key(name) {
+                    widgets.problems.push(format!(
+                        "{} — places: {place}: no widget is named {name}",
+                        document.name(&document.path()).unwrap_or_default()
+                    ));
+                }
+            }
+        }
+        widgets
+    }
+
+    /// The system and extension widgets plus those in the document's
+    /// `widgets` folder.
+    fn read(document: &Document, cache: &Modules) -> Self {
         #[cfg(test)]
         READ.with_borrow_mut(|read| read.push(document.path()));
         let mut widgets = Self {
@@ -205,15 +226,48 @@ impl Widgets {
 
     /// What the `<head>` of a page whose rendered content is `content`, in a
     /// frame that mounts the widgets `chrome`, needs: the import map naming
-    /// React, the widgets the page script loads, and the page's
-    /// [load set](Self::load_set) — each module as a `modulepreload` at the
+    /// React and the [page module](crate::addresses), the widgets the page
+    /// script loads, the document's places and its extensions' addresses
+    /// when it has any, and the page's [load set](Self::load_set), its
+    /// places' widgets included — each module as a `modulepreload` at the
     /// very address its import asks for, and the design engine's wasm as a
     /// low-priority fetch — so the browser asks for all of it at once, as
     /// soon as it reads the head.
     pub fn head(&self, content: &str, chrome: &[&str]) -> String {
         let modules = serde_json::to_string(&self.modules).unwrap_or_default();
         let react = address(Owned::Asset("react.js"));
-        let (preloads, fetches) = self.load_set(content, chrome);
+        let page = address(Owned::Asset("page.js"));
+        let placed = self.places.named();
+        let mut setup = format!("window.devpageWidgets = {modules};");
+        if !placed.is_empty() {
+            let places: BTreeMap<&str, &[String]> = placed.iter().copied().collect();
+            setup.push_str(&format!(
+                "window.devpagePlaces = {};",
+                serde_json::to_string(&places).unwrap_or_default()
+            ));
+        }
+        if !self.extensions.is_empty() {
+            let extensions: BTreeMap<String, String> = self
+                .extensions
+                .iter()
+                .map(crate::extensions::Binding::address)
+                .collect();
+            setup.push_str(&format!(
+                "window.devpageExtensions = {};",
+                serde_json::to_string(&extensions).unwrap_or_default()
+            ));
+        }
+        // A place's widgets load after the content's and the frame's.
+        let chrome: Vec<&str> = chrome
+            .iter()
+            .copied()
+            .chain(
+                placed
+                    .iter()
+                    .flat_map(|(_, names)| names.iter().map(String::as_str)),
+            )
+            .collect();
+        let (preloads, fetches) = self.load_set(content, &chrome);
         let mut links = String::new();
         for module in preloads {
             links.push_str(&format!("\n<link rel=\"modulepreload\" href=\"{module}\">"));
@@ -232,8 +286,8 @@ impl Widgets {
             }
         }
         format!(
-            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}"}}}}</script>
-<script>window.devpageWidgets = {modules};</script>{links}"#
+            r#"<script type="importmap">{{"imports":{{"react":"{react}","react/jsx-runtime":"{react}","react-dom/client":"{react}","devpage":"{page}"}}}}</script>
+<script>{setup}</script>{links}"#
         )
     }
 
@@ -476,5 +530,60 @@ mod tests {
             widgets.problems,
             vec!["widgets/Notes.tsx — Notes is devpage's tag for a slide's notes".to_string()]
         );
+    }
+    #[test]
+    fn a_place_names_widgets_the_head_lists_and_loads() {
+        let dir = std::env::temp_dir().join(format!("devpage-wplaces-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\nplaces:\n  navbar: [Dot]\n  panel: [Dot, Gone]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# T\n").unwrap();
+        std::fs::write(dir.join("widgets/Dot.tsx"), "export default () => null;").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let document = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
+        let widgets = Widgets::of(&document, &Modules::default());
+        assert_eq!(
+            widgets.problems,
+            vec!["devpage.yml — places: panel: no widget is named Gone".to_string()]
+        );
+        let head = widgets.head("<p>no widget</p>", &[]);
+        assert!(
+            head.contains(r#"window.devpagePlaces = {"navbar":["Dot"],"panel":["Dot","Gone"]};"#),
+            "{head}"
+        );
+        assert!(
+            head.contains(&format!(
+                "<link rel=\"modulepreload\" href=\"{}\">",
+                widgets.modules["Dot"]
+            )),
+            "a place's widget is in the load set: {head}"
+        );
+        assert!(
+            head.contains(&format!(
+                r#""devpage":"{}""#,
+                address(Owned::Asset("page.js"))
+            )),
+            "{head}"
+        );
+        // A document with no places says nothing of them.
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\n",
+        )
+        .unwrap();
+        let document = Document::load(&dir, &ServedFolder::new(&dir).unwrap()).unwrap();
+        let head = Widgets::of(&document, &Modules::default()).head("", &[]);
+        assert!(!head.contains("devpagePlaces"), "{head}");
+        // A place devpage doesn't have is refused.
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nplaces:\n  footer: [Dot]\n",
+        )
+        .unwrap();
+        assert!(Document::load(&dir, &ServedFolder::new(&dir).unwrap()).is_err());
     }
 }

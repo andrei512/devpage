@@ -1,6 +1,6 @@
 # Extensions
 
-An extension is a separately built Rust library that a document enables in its `devpage.yml`. Devpage loads it into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
+An extension is a package a document enables in its `devpage.yml`: a separately built Rust library, a program devpage keeps running, or both. Devpage loads the library into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. The program is started when a page first asks for it, and requests and WebSockets under its extension's address are passed to it. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
 
 ## Enable a package
 
@@ -17,7 +17,7 @@ extensions:
       input: model
 ```
 
-The bundle holds `extension.yml` and the library. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: only [`code`](../code-reference/README.md) exists.
+The bundle holds `extension.yml` and the library, the program or both. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: only [`code`](../code-reference/README.md) exists.
 
 ## What a package can do
 
@@ -49,6 +49,23 @@ With the toy package above enabled:
 - Opening `/model/a.toy` shows the package's view of the file inside a devpage workspace page.
 - `[link](model/a.toy#main)` is checked against the fragments the package lists for that file.
 
+## A program beside devpage
+
+A package whose manifest has `run` names a program: a server of its own that devpage starts, restarts and stops.
+
+```yaml
+id: toy
+version: "0.1.0"
+api: 1
+run: [node, server.js]
+```
+
+1. The first request under the extension's `live/` address starts the program in the bundle folder, with the port to listen on in `DEVPAGE_PORT`.
+2. Devpage passes each request there to it, and each WebSocket, and returns its answer. A widget finds the address with [`base`](../widgets/page-module/README.md#base): `fetch(base("toy") + "live/state")`.
+3. A program that died is started again by the next request. It is stopped when devpage exits, and when the document's `extensions` no longer bind it.
+
+A package may be only this: no library, no input. The [reference](reference/README.md#process) has the variables, the headers and every answer.
+
 ## From a save to a refreshed page
 
 1. On load, the package's `create` reply names one input file or folder inside the served folder. Devpage watches it even when the site's `watch` list would exclude it.
@@ -60,6 +77,8 @@ With the toy package above enabled:
 ## Trust and limits
 
 A package is trusted native code in the devpage process. Its panics are caught and reported as errors; a crash or memory fault ends devpage. The package gets file contents only from devpage's capture, but nothing stops native code reading files itself.
+
+A package's program runs as the person who ran `devpage`, with everything they may do. Enabling a package with `run` is running that program. Devpage starts one only when it serves on a loopback address, and passes it only requests made by its own pages on `localhost`: another site's page, and a request under any other host name, is refused. A deployed devpage starts none.
 
 `devpage check` and `devpage pdf` use the same extensions as serving; a Markdown page printed on its own uses its site's. Publishing a document that enables a package fails with "Publishing native extensions is not supported; serve this project locally". Changing a package's library needs a devpage restart. Devpage never tells a package to dispose of an instance; a library is closed once no binding holds it.
 

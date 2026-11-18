@@ -196,6 +196,7 @@ addresses.
 | --- | --- | --- |
 | `style.css` | `core/assets/style.css` | `text/css` |
 | `devpage.js` | `core/assets/devpage.js` | `text/javascript` |
+| `page.js` | `core/assets/page.js`, [the page module](../widgets/page-module/README.md): what a widget imports as `devpage` | `text/javascript` |
 | `react.js` | `core/assets/vendor/react.js` | `text/javascript` |
 | `design.js` | `core/assets/design.js`, the design script: the canvas page's, and loaded by the page script on a page that embeds a design; it loads the engine and starts the page's canvases | `text/javascript` |
 | `design-canvas.js` | `core/assets/design-canvas.js`, a design's canvas: its view, pointer and interactions, overlays and an embed's backdrop | `text/javascript` |

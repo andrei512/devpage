@@ -1,6 +1,6 @@
 # Package and protocol reference
 
-The exact contract between devpage and an [extension](../README.md) package: the configuration entry, the bundle, the native boundary, and each JSON request devpage sends with the reply it expects. The definitions live in `core/src/extensions.rs` (binding and requests), `core/src/extensions/browser.rs` (browser modules), `src/adapters/extensions.rs` (manifest and library loading) and `extension-api/src/lib.rs` (the SDK).
+The exact contract between devpage and an [extension](../README.md) package: the configuration entry, the bundle, the native boundary, and each JSON request devpage sends with the reply it expects. The definitions live in `core/src/extensions.rs` (binding and requests), `core/src/extensions/browser.rs` (browser modules), `src/adapters/extensions.rs` (manifest and library loading), `src/adapters/processes.rs` (a package's program), `src/drive/http/live.rs` (requests passed to it) and `extension-api/src/lib.rs` (the SDK).
 
 ## Configuration
 
@@ -15,7 +15,7 @@ An unknown field is an error. A Markdown page uses the extensions of the documen
 
 ## Bundle
 
-A bundle folder holds `extension.yml` and the library it names:
+A bundle folder holds `extension.yml` and the library it names, the program it runs, or both:
 
 ```yaml
 id: toy
@@ -30,11 +30,12 @@ library: libtoy.dylib
 | `id` | ASCII letters, digits and `-`; must equal the configuration key. |
 | `version` | Not empty. Otherwise unused. |
 | `api` | Must be `1`. |
-| `target` | Must be the target triple devpage was built for. |
-| `library` | Path inside the bundle. |
+| `target` | With a `library`: must be the target triple devpage was built for. |
+| `library` | Optional. Path inside the bundle. |
+| `run` | Optional. The [program](#process) and its arguments, as a list; not empty. |
 | `assets` | Optional folder inside the bundle. Checked to stay inside, but nothing is served from it. |
 
-Unknown fields are errors. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
+Unknown fields are errors, and so is a manifest with neither `library` nor `run`: `Extension has neither a library nor a program to run`. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
 
 ## Native boundary
 
@@ -62,13 +63,13 @@ Paths are relative to the served folder, with `/`. An unknown `op` should be an 
 
 ### Create
 
-Sent once per binding when the document loads. The reply declares:
+Sent once per binding when the document loads. A package without a library gets no requests: it declares nothing. The reply declares:
 
 | Field | Meaning |
 | --- | --- |
-| `input` | Required. One file or folder, relative to the document's folder. It must exist and lie inside the served folder. |
-| `input_extensions` | Required. File suffixes to capture under `input`. |
-| `file_extensions` | Required. Suffixes the package shows and checks. ASCII letters and digits; not `md`, `yml`, `yaml` or `design`, and not claimed by another extension of the same document. |
+| `input` | Required when `input_extensions` or `file_extensions` names a suffix. One file or folder, relative to the document's folder. It must exist and lie inside the served folder. |
+| `input_extensions` | Optional. File suffixes to capture under `input`. |
+| `file_extensions` | Optional. Suffixes the package shows and checks. ASCII letters and digits; not `md`, `yml`, `yaml` or `design`, and not claimed by another extension of the same document. |
 | `grammar` | Optional. Path of a Syntect `.sublime-syntax` file inside the bundle. Devpage reads it and validates it. Its own `file_extensions` are the fence names it highlights, and must not name a language devpage already highlights. |
 | `modules` | Optional. Module path → TypeScript, TSX or JavaScript source. |
 | `widgets` | Optional. Widget name → module path whose default export is the widget. |
@@ -103,9 +104,43 @@ A link with a fragment to an owned file sends `targets`; a fragment not in `ids`
 A binding's `base` is `<mount>/__devpage/extensions/<instance>/<id>/`. Under it:
 
 - `browser/<digest>/modules/<path>` serves a compiled module, and `browser/<digest>/styles/<path>` a stylesheet. `<digest>` is the SHA-256 of devpage's build and the declared modules, widgets and styles.
+- `live/<rest>` is passed to the package's [process](#process).
 - Any other suffix sends `route` with that suffix as `path`, without the query. `mime` defaults to `text/plain` and `status` to `200`.
 
-Only GET and HEAD reach it. Every response has `Cache-Control: no-store`. An error answers 500 with its text.
+Only GET and HEAD reach `route`. Every response has `Cache-Control: no-store`. An error answers 500 with its text.
+
+## Process
+
+The program a manifest's `run` names. It is started in the bundle folder by the first request under `live/`, in a process group of its own, with:
+
+| Variable | Value |
+| --- | --- |
+| `DEVPAGE_PORT` | The loopback port to listen on, for HTTP. |
+| `DEVPAGE_TOKEN` | The token every request from devpage carries. |
+| `DEVPAGE_URL` | Devpage's own address, as a browser opens it. |
+| `DEVPAGE_CONFIG` | The extension's `config`, as JSON; `null` when left out. |
+| `DEVPAGE_ROOT` | The folder of the document that enabled it. |
+
+It has 20 seconds to accept a connection on the port. A request under `live/<rest>` — any method, its query, headers and body — is sent to it as a request for `/<rest>`, with two headers set by devpage, whatever the browser sent:
+
+| Header | Value |
+| --- | --- |
+| `X-Devpage-Token` | `DEVPAGE_TOKEN`. A request without it did not come through devpage; the program should refuse it. |
+| `X-Devpage-User` | Who is at the browser: the local git name. |
+
+Its response is returned as it is. When it answers `101 Switching Protocols`, the two connections are joined until either closes: a WebSocket opened under `live/` is one to the program.
+
+| When | Answer |
+| --- | --- |
+| Devpage serves on a non-loopback address | 404 `extension processes run only under `devpage` on a loopback address` |
+| The request's `Host` is not `localhost`, `127.0.0.1` or `[::1]` | 403 `an extension's process answers only on localhost` |
+| Its `Origin` is another one, or its `Sec-Fetch-Site` is neither `same-origin` nor `none` | 403 `an extension's process answers only devpage's own pages` |
+| No extension is bound at the address | 404 `no extension is bound at this address` |
+| The package has no `run` | 404 `extension <id> has no process` |
+| The program ended before listening, or didn't listen in time | 502 with the reason |
+| The program died | 502 `extension <id>: its process died`, then the end of what it wrote |
+
+A program that isn't running is started by the next request; one that failed to start is tried again after 2 seconds, then 4, doubling to 30, and from the start once it has run for 10. It is stopped — asked with `SIGTERM`, with what it started, and killed after 3 seconds — when devpage exits and when its extension is no longer bound, which a change to the document's `extensions` mapping causes.
 
 ## Browser modules
 

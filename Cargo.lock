@@ -941,6 +941,8 @@ dependencies = [
  "dispatch2",
  "flate2",
  "futures",
+ "hyper",
+ "hyper-util",
  "libc",
  "libloading",
  "mime_guess",

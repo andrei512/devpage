@@ -4,6 +4,7 @@
 
 #[cfg(test)]
 pub(crate) mod design_tests;
+mod live;
 mod watch_stream;
 
 use std::convert::Infallible;
@@ -19,10 +20,11 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 use serde::Deserialize;
 
 use crate::adapters::changes::Changes;
+use crate::adapters::processes::Processes;
 use crate::drive::slide_png::Shots;
 use devpage_core::answer::{Answer, Answers};
 use devpage_core::check::Preview;
@@ -59,6 +61,9 @@ struct AppState {
     /// The search index built on the first search, when the server holds
     /// none: a published version's.
     search_on_demand: Option<OnDemand>,
+    /// The extensions' processes; `None` where none is ever started, and
+    /// every `live/` address answers 404.
+    processes: Option<Processes>,
 }
 
 impl AppState {
@@ -139,6 +144,8 @@ pub struct App {
     /// Where a search is answered from when `search` is `None`: the index
     /// this gives, built on the first search — a published version's.
     search_on_demand: Option<OnDemand>,
+    /// The extensions' processes, or `None`: none is ever started.
+    processes: Option<Processes>,
 }
 
 /// Answers a search from an index over the server's served folder, building
@@ -247,6 +254,20 @@ impl App {
         Self { designs, ..self }
     }
 
+    /// Starts the extensions' processes with `processes`, as `devpage` does on
+    /// a loopback address, and stops those whose extension a change unbound.
+    pub fn with_processes(mut self, processes: Processes) -> Self {
+        let mut changes = self.changes.subscribe();
+        let heard = processes.clone();
+        tokio::spawn(async move {
+            while changes.next().await.is_some() {
+                heard.forget().await;
+            }
+        });
+        self.processes = Some(processes);
+        self
+    }
+
     /// The parts every constructor shares: `document`'s folder opened, with
     /// `designs`, `changes`, `preview` and `comments` as given, and no search
     /// index.
@@ -267,6 +288,7 @@ impl App {
             changes,
             preview,
             search_on_demand: None,
+            processes: None,
         }
     }
 
@@ -318,6 +340,7 @@ pub fn router(app: App) -> Router {
         shots,
         preview,
         search_on_demand,
+        processes,
     } = app;
     routes(AppState {
         comments,
@@ -330,6 +353,7 @@ pub fn router(app: App) -> Router {
         shots,
         preview: Some(preview),
         search_on_demand,
+        processes,
     })
 }
 
@@ -358,6 +382,11 @@ fn routes(state: AppState) -> Router {
         // never end, so the middleware, which reads a whole body, skips them.
         .route_layer(middleware::from_fn(crate::drive::validators::validate))
         .route("/__devpage/events", get(events))
+        .route("/__devpage/extensions/{owner}/{id}/live/", any(live::live))
+        .route(
+            "/__devpage/extensions/{owner}/{id}/live/{*rest}",
+            any(live::live),
+        )
         .route_service(
             "/devpage.design.v1.Designs/Watch",
             tower::ServiceBuilder::new()
