@@ -22,7 +22,11 @@ mock.module("./claude.ts", () => ({
         yield { type: "started", session: "test-agent" };
         const tool = tools.find(t => t.name === "counter_change");
         const result = tool && await tool.run({ n: 3 });
-        yield { type: "ended", state: "done", text: JSON.stringify({ result, tools: tools.map(t => t.name).sort() }) };
+        const report = JSON.stringify({ result, tools: tools.map(t => t.name).sort() });
+        const update = tools.find(t => t.name === "update")!;
+        const answer = await update.run({ task: 1, type: "finished", text: report });
+        if (answer.error) throw new Error(answer.text);
+        yield { type: "ended", state: "done", text: "The registered update already ended this task" };
       }
       return { events: events(), stop: async () => {} };
     }

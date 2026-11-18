@@ -9,14 +9,15 @@ import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, statSync, wat
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import { Agents } from "./agents.ts";
+import { Agents, registerAgentFunctions } from "./agents.ts";
 import { ClaudeCode } from "./claude.ts";
 import { Codex } from "./codex.ts";
 import type { Harness } from "./harness.ts";
 import { checked, enabledRoutes, find, rules, settings, told, type Enabled, type Route } from "./routes.ts";
 import { NEEDS, provider } from "./provider.ts";
 import { Recording } from "./recording.ts";
-import { Registry } from "./registry.ts";
+import { registerCore, type CorePart } from "./core-parts.ts";
+import { type Registering, Registry } from "./registry.ts";
 import { BACKEND, Fast, moved, type Carried, type Seen } from "./fast.ts";
 import { everywhere, here as project, HOME, stateOf } from "./home.ts";
 import { map } from "./pages.ts";
@@ -35,6 +36,7 @@ const STATE = stateOf(ROOT);
 mkdirSync(STATE, { recursive: true });
 /** The session history shares its database with registered world parts. */
 const store = new SessionStore(STATE);
+const registry = new Registry(store.db);
 const log = new Log(store);
 log.write("service", "service_started", { text: "The service started." });
 
@@ -68,11 +70,12 @@ interface Page {
 /** The page each open tab shows. Every tab reports its own, also on a live update while it is in the background. */
 const pages = new Map<Socket, Page>();
 /** The address the user was last known to be on. */
-let known: string | null = null;
+const savedPage = registry.state("page");
+let known = savedPage.address as string | null ?? null;
 /** What is marked, by the user or by a script's `page.select`: always a part of the page the user is on. */
-let subject: Part | null = null;
+let subject = savedPage.subject as Part | null ?? null;
 /** Who marked it: the page draws the user's mark in the colour of the user's voice and the assistant's in its own. Means nothing while nothing is marked. */
-let author: "user" | "assistant" = "user";
+let author = savedPage.by as "assistant" | "user" ?? "user";
 /** Until when a change of page is a script's doing, not the user's: a script asked the page to go somewhere a moment ago. */
 let moving = 0;
 /** The last thing heard or said, as it grows. */
@@ -86,7 +89,9 @@ const PADS = join(STATE, "pads");
 const PAD = /^pads\/[a-z0-9][a-z0-9-]*\.md$/;
 mkdirSync(PADS, { recursive: true });
 /** The scratch pad on the canvas, with a number that changes whenever its file does; null while the canvas is closed. */
-let canvas: { pad: string; version: number } | null = null;
+type Canvas = { pad: string; version: number };
+let canvas = registry.state("canvas").canvas as Canvas | null ?? null;
+if (canvas && (!PAD.test(canvas.pad) || !existsSync(join(PADS, canvas.pad.slice(5))))) canvas = null;
 
 /** A pad's file, from its address. */
 const padFile = (address: string) => join(PADS, address.slice("pads/".length));
@@ -122,7 +127,7 @@ function showPad(address: string, title: string | undefined, by: "me" | "fast") 
   known = address;
   subject = null;
   world.add({ kind: "page", by, text: by === "fast" ? `Fast opened the canvas on the scratch pad ${address}.` : `The user opened the canvas on the scratch pad ${address}.` });
-  tell();
+  publish("page", "canvas");
 }
 
 /** Closes the canvas: the page under it is the page the user is on again. */
@@ -132,7 +137,7 @@ function closePad(by: "me" | "fast") {
   subject = null;
   known = here()?.address ?? null;
   world.add({ kind: "page", by, text: by === "fast" ? "Fast closed the canvas." : "The user closed the canvas themselves." });
-  tell();
+  publish("page", "canvas");
   return true;
 }
 
@@ -144,9 +149,9 @@ try {
     clearTimeout(padChanged);
     padChanged = setTimeout(() => {
       if (!canvas) return;
-      if (!existsSync(padFile(canvas.pad))) return void closePad("fast");
+      if (!existsSync(padFile(canvas.pad))) return void registry.atomic(() => closePad("fast"));
       canvas = { ...canvas, version: Date.now() };
-      tell();
+      publish("canvas");
     }, 150);
   });
 } catch (error) {
@@ -173,17 +178,18 @@ function settle() {
     // A page that changed without a script having just asked for it is one the user opened themselves.
     if (known !== null && Date.now() > moving) world.add({ kind: "page", by: "me", text: `The user opened ${page.address}.` });
     known = page.address;
+    publish("page");
   }
-  if (subject && !shows(page, subject)) {
+  if (subject && page && !shows(page, subject)) {
     subject = null;
-    tell();
+    publish("page");
   }
 }
 
-const tasks = new Tasks(store, () => tell());
+const tasks = new Tasks(store, () => publish("work"));
 
 /** The world's registered parts, with their state and entries in one store. A page is sent a part's state when it changes. */
-const registry = new Registry(store.db);
+registerCore(registry, coreFunctions());
 registry.onState = (part, state) => tell({ type: "state", part, state });
 // The `world` setting names parts and the module that registers each: a file in the project, or anywhere by its full path.
 for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.world === "object" ? SETTINGS.world : {})) {
@@ -202,16 +208,7 @@ registry.onEntry = (entry, wakes) => {
   if (wakes) fast?.entry(`${entry.part}.${entry.kind}`, entry.n);
 };
 
-/** The world. Every entry also goes into the log, as the line Fast reads; an update or a problem wakes Fast. */
-const world: World = new World(store, (entry) => {
-  log.write("world", entry.kind, { text: line(entry), n: entry.n, ...(entry.kind === "update" || entry.kind === "task" ? { agent: entry.agent, task: entry.kind === "task" ? entry.id : entry.task } : {}) });
-  if (entry.kind === "update" || entry.kind === "problem") fast?.entry(entry.kind, entry.n);
-});
-
-/** The part that was marked when each of the user's messages was said: a task given from the message is about it. */
-const marks = new Map<number, Part>();
-/** The hand-over each task was given in, with its voice session: news of the task is said as that hand-over's. */
-const origins = new Map<number, { session: string | null; handover: string }>();
+const world = new World(registry);
 
 /** The agent whose chat each page has open: that page gets the agent's session as it happens. */
 const watching = new Map<Socket, number>();
@@ -235,6 +232,7 @@ void checked(routes, enabled, complain).then((sure) => {
 });
 
 const agents = new Agents(ROOT, PADS, enabled, routes, store, {
+  atomic: change => registry.atomic(change),
   worldTools: agent => registry.tools(agent),
   owns: (agent, id) => tasks.get(id)?.agent === agent,
   session: (agent, line) => {
@@ -242,7 +240,7 @@ const agents = new Agents(ROOT, PADS, enabled, routes, store, {
     for (const [socket, id] of watching) if (id === agent) socket.send(text);
   },
   log: (kind, fields) => log.write("agent", kind, fields),
-  changed: () => tell(),
+  changed: () => publish("work"),
   readLog: (filter) => log.read(filter),
   holds: (agent, id) => {
     const task = tasks.get(id);
@@ -253,12 +251,13 @@ const agents = new Agents(ROOT, PADS, enabled, routes, store, {
     if (!part) throw new Error("no part was marked when this task was given: the user has to click or select one first");
     await comments(part, text);
   },
-  published: ({ agent, task, type, text, title, changes }) => {
-    if (title) tasks.change(task, { title });
+  published: ({ agent, task, type, text, title, changes }) => registry.atomic(() => {
+    const id = world.next("update");
+    tasks.change(task, { ...(title && { title }), latest: { id, type } });
     if (type === "finished" || type === "failed") tasks.end(task, type === "finished" ? "done" : "failed", text, changes);
     else tasks.change(task, { summary: text });
-    world.add<Update>({ kind: "update", id: world.next("update"), task, agent, type, text });
-  },
+    world.add<Update>({ kind: "update", id, task, agent, type, text });
+  }),
 }, Math.max(0, ...tasks.all().map((task) => task.agent ?? 0)) + 1);
 
 /** The pages, read from the folders at most every few seconds. */
@@ -333,7 +332,7 @@ function handover_of({ handover, used }: Carried) {
   for (const name of used) {
     if (!name.startsWith("u")) continue;
     const update = world.recent("update", 400).find((entry) => entry.id === Number(name.slice(1)));
-    const origin = update && origins.get(update.task);
+    const origin = update && tasks.get(update.task)?.origin;
     if (origin && origin.session === log.session) return origin.handover;
   }
   return null;
@@ -352,105 +351,142 @@ function reported({ said, used }: Carried) {
   return [...new Set(read.filter((entry) => entry && entry.type !== "progress").map((entry) => entry!.agent))];
 }
 
-/** Carries out one thing a script of Fast's asked for. Throws when it cannot be done: Fast is told. */
-async function carry(intent: Intent, carried: Carried): Promise<unknown> {
-  switch (intent.do) {
-    case "world":
-      return registry.call(intent.name, intent.input, { who: "fast", run: carried.run, handover: carried.handover, used: carried.used });
-    case "say": {
-      if (!voice || voiceState !== "on") throw new Error("the voice is off");
-      const handover = handover_of(carried);
-      if (!voice.say(intent.text, handover, { run: carried.run })) throw new Error("the voice session is not connected");
-      const agents = reported(carried);
-      passing = agents.length > 0 ? { agents, at: Date.now() } : null;
-      return { handover };
-    }
-    case "spawn":
-    case "send":
-    case "fork": {
-      if (intent.do !== "spawn" && !agents.has(intent.agent)) throw new Error(`a${intent.agent} no longer exists`);
-      // Fast decides the route, in its script. Here it is only checked: a name that is not an enabled route is refused,
-      // and Fast is told, so that the decision stays its own. No name is the default route, which Fast was told too.
-      const route = intent.do === "spawn" && intent.route ? find(routes, intent.route) : undefined;
-      if (intent.do === "spawn" && intent.route && !route) throw new Error(`${JSON.stringify(intent.route)} is not a route. The routes are: ${routes.map((one) => one.name).join(", ")}`);
-      // The message the work comes from: the one of this hand-over that the script put in the prompt.
-      const from = carried.said.find((message) => carried.used.includes(`m${message.id}`)) ?? carried.said.at(-1) ?? null;
-      const part = (from && marks.get(from.id)) ?? null;
-      const task = tasks.add({ title: start_of(from?.text ?? intent.prompt), request: intent.prompt, page: from?.page ?? here()?.address ?? null, part });
-      const job = { task: task.id, prompt: intent.prompt };
-      const agent = intent.do === "spawn" ? agents.spawn(job, route ?? routes[0]) : intent.do === "fork" ? agents.fork(intent.agent, job) : agents.send(intent.agent, job);
-      tasks.change(task.id, { agent });
-      if (carried.handover) origins.set(task.id, { session: log.session, handover: carried.handover });
-      world.add({ kind: "task", id: task.id, agent, how: intent.do, from: intent.do === "fork" ? intent.agent : null, prompt: intent.prompt });
-      // The marked part went with the task: the next command starts with nothing marked.
-      if (part && subject === part) {
-        subject = null;
-        tell();
-      }
-      return { task: task.id, agent, ...(intent.do === "spawn" ? { route: (route ?? routes[0]).name } : {}), from_message: from?.id ?? null, marked: part?.quote ?? null };
-    }
-    case "show": {
-      showPad(intent.address, intent.title, "fast");
-      return { canvas: intent.address };
-    }
-    case "close": {
-      return { closed: closePad("fast") };
-    }
-    case "go": {
-      // Going to a page means showing the page.
-      closePad("fast");
-      moving = Date.now() + 5000;
-      const went = await page_does({ name: "go", address: intent.address });
-      world.add({ kind: "page", by: "fast", text: moved(intent) });
-      return went;
-    }
-    case "scroll": {
-      const done = await page_does({ name: "scroll", to: intent.where });
-      world.add({ kind: "page", by: "fast", text: moved(intent) });
-      return done;
-    }
-    case "panel": {
-      const done = await page_does({ name: "panel", open: intent.open });
-      world.add({ kind: "page", by: "fast", text: moved(intent) });
-      return done;
-    }
-    case "point": {
-      const done = await page_does({ name: "point", quote: intent.quote });
-      world.add({ kind: "page", by: "fast", text: moved(intent) });
-      return done;
-    }
-    case "select": {
-      const found = await page_does({ name: "find", quote: intent.quote });
-      if (!found.part) throw new Error("the page has no such text");
-      mark(found.part, "assistant");
-      world.add({ kind: "page", by: "fast", text: moved(intent) });
-      return { marked: true };
-    }
-    case "restart": {
-      const why = await broken();
-      if (why) throw new Error(`the service's code does not build, so it was not restarted: ${why}`);
-      const running = tasks.running();
-      if (running.length > 0 && !intent.force) {
-        throw new Error(`${running.length === 1 ? "one task is" : `${running.length} tasks are`} still running, and restarting interrupts ${running.length === 1 ? "it" : "them"}. Tell the user that, and that "restart now" does it anyway; use restart(true) only after the user said so`);
-      }
-      // The pages are told first, so each knows the close that follows is a restart, connects again at once and
-      // starts the voice again when it was on. A few seconds are left for what is being said; then the process
-      // ends, with what it started, and devpage starts it again on the next request, which is the page's.
-      tell({ type: "restarting" });
-      setTimeout(() => {
-        log.write("service", "service_restarting", { text: `The service ends now: the user asked for a restart.${running.length > 0 ? ` ${running.length} running tasks are interrupted.` : ""}` });
-        // The signal below reaches this process too: it is not a second ending.
-        ending = true;
-        try {
-          process.kill(-process.pid, "SIGTERM");
-        } catch {}
-        process.exit(0);
-      }, 6000);
-      return { restarting: true, interrupted: running.length };
-    }
-  }
+/** Core commands keep their context-sensitive sandbox syntax and register their implementations once. */
+function coreFunctions(): Record<CorePart, (as: Registering) => void> {
+  return {
+    session: (as) => {
+      const { action, z } = as;
+      action("say", { for: "fast", syntax: "say(text)", description: "Give Voice the line to speak.", input: { text: z.string() } }, (intent, { caller }) => {
+        const carried = fastCaller(caller);
+        if (!voice || voiceState !== "on") throw new Error("the voice is off");
+        const handover = handover_of(carried);
+        if (!voice.say(intent.text, handover, { run: carried.run })) throw new Error("the voice session is not connected");
+        const agents = reported(carried);
+        passing = agents.length > 0 ? { agents, at: Date.now() } : null;
+        return { handover };
+      });
+      action("restart", { for: "fast", syntax: "restart(force)", description: "Restart the live session.", input: { force: z.boolean() } }, async (intent) => {
+        const why = await broken();
+        if (why) throw new Error(`the service's code does not build, so it was not restarted: ${why}`);
+        const running = tasks.running();
+        if (running.length > 0 && !intent.force) {
+          throw new Error(`${running.length === 1 ? "one task is" : `${running.length} tasks are`} still running, and restarting interrupts ${running.length === 1 ? "it" : "them"}. Tell the user that, and that "restart now" does it anyway; use restart(true) only after the user said so`);
+        }
+        // The pages are told first, so each knows the close that follows is a restart, connects again at once and
+        // starts the voice again when it was on. A few seconds are left for what is being said; then the process
+        // ends, with what it started, and devpage starts it again on the next request, which is the page's.
+        tell({ type: "restarting" });
+        setTimeout(() => {
+          log.write("service", "service_restarting", { text: `The service ends now: the user asked for a restart.${running.length > 0 ? ` ${running.length} running tasks are interrupted.` : ""}` });
+          // The signal below reaches this process too: it is not a second ending.
+          ending = true;
+          try {
+            process.kill(-process.pid, "SIGTERM");
+          } catch {}
+          process.exit(0);
+        }, 6000);
+        return { restarting: true, interrupted: running.length };
+      });
+    },
+    work: (as) => {
+      registerAgentFunctions(as, () => agents);
+      const { action, z } = as;
+      action("spawn", { for: "fast", syntax: "spawn(prompt, route)", description: "Give work to a new agent.", input: { prompt: z.string(), route: z.string().optional() } }, (intent, { caller }) => giveWork({ ...intent, do: "spawn" }, fastCaller(caller)));
+      action("send", { for: "fast", syntax: "aN.send(prompt)", description: "Give work to an existing agent.", input: { agent: z.number(), prompt: z.string() } }, (intent, { caller }) => giveWork({ ...intent, do: "send" }, fastCaller(caller)));
+      action("fork", { for: "fast", syntax: "aN.fork(prompt)", description: "Give work to a copy of an agent.", input: { agent: z.number(), prompt: z.string() } }, (intent, { caller }) => giveWork({ ...intent, do: "fork" }, fastCaller(caller)));
+    },
+    canvas: (as) => {
+      const { action, z } = as;
+      action("show", { for: "fast", syntax: "canvas.show(address)", description: "Show a scratch pad.", input: { address: z.string(), title: z.string().optional() } }, (intent) => registry.atomic(() => {
+        showPad(intent.address, intent.title, "fast");
+        return { canvas: intent.address };
+      }));
+      action("close", { for: "fast", syntax: "canvas.close()", description: "Close the canvas.", input: {} }, () => registry.atomic(() => {
+        return { closed: closePad("fast") };
+      }));
+    },
+    page: (as) => {
+      const { action, z } = as;
+      action("go", { for: "fast", syntax: "page.go(address)", description: "Open a listed page.", input: { address: z.string() } }, async (intent) => {
+        // Going to a page means showing the page.
+        closePad("fast");
+        moving = Date.now() + 5000;
+        const went = await page_does({ name: "go", address: intent.address });
+        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "go" }) });
+        return went;
+      });
+      action("scroll", { for: "fast", syntax: "page.scroll(where)", description: "Scroll the page.", input: { where: z.enum(["up", "down", "top", "bottom"]) } }, async (intent) => {
+        const done = await page_does({ name: "scroll", to: intent.where });
+        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "scroll" }) });
+        return done;
+      });
+      action("panel", { for: "fast", syntax: "page.panel(open)", description: "Open or close the panel.", input: { open: z.boolean() } }, async (intent) => {
+        const done = await page_does({ name: "panel", open: intent.open });
+        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "panel" }) });
+        return done;
+      });
+      action("point", { for: "fast", syntax: "page.point(quote)", description: "Point at a quote on the page.", input: { quote: z.string() } }, async (intent) => {
+        const done = await page_does({ name: "point", quote: intent.quote });
+        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "point" }) });
+        return done;
+      });
+      action("select", { for: "fast", syntax: "page.select(quote)", description: "Select a quote on the page.", input: { quote: z.string() } }, async (intent) => {
+        const found = await page_does({ name: "find", quote: intent.quote });
+        if (!found.part) throw new Error("the page has no such text");
+        registry.atomic(() => {
+          mark(found.part, "assistant");
+          world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "select" }) });
+        });
+        return { marked: true };
+      });
+    },
+  };
 }
 
+function fastCaller(caller: import("./registry.ts").Caller): Carried {
+  if (caller.who !== "fast") throw new Error("Only Fast can run this command");
+  return { ...caller, said: caller.said ?? [] };
+}
+
+function giveWork(intent: Extract<Intent, { do: "spawn" | "send" | "fork" }>, carried: Carried) {
+  return registry.atomic(() => {
+    if (intent.do !== "spawn" && !agents.has(intent.agent)) throw new Error(`a${intent.agent} no longer exists`);
+    // Fast decides the route, in its script. Here it is only checked: a name that is not an enabled route is refused,
+    // and Fast is told, so that the decision stays its own. No name is the default route, which Fast was told too.
+    const route = intent.do === "spawn" && intent.route ? find(routes, intent.route) : undefined;
+    if (intent.do === "spawn" && intent.route && !route) throw new Error(`${JSON.stringify(intent.route)} is not a route. The routes are: ${routes.map((one) => one.name).join(", ")}`);
+    // The message the work comes from: the one of this hand-over that the script put in the prompt.
+    const from = carried.said.find((message) => carried.used.includes(`m${message.id}`)) ?? carried.said.at(-1) ?? null;
+    const part = from?.part ?? null;
+    const task = tasks.add({ title: start_of(from?.text ?? intent.prompt), request: intent.prompt, page: from?.page ?? here()?.address ?? null, part, origin: carried.handover ? { session: log.session, handover: carried.handover } : undefined });
+    const job = { task: task.id, prompt: intent.prompt };
+    const agent = intent.do === "spawn" ? agents.spawn(job, route ?? routes[0]) : intent.do === "fork" ? agents.fork(intent.agent, job) : agents.send(intent.agent, job);
+    tasks.change(task.id, { agent });
+    world.add({ kind: "task", id: task.id, agent, how: intent.do, from: intent.do === "fork" ? intent.agent : null, prompt: intent.prompt });
+    // The marked part went with the task: the next command starts with nothing marked.
+    if (part && JSON.stringify(subject) === JSON.stringify(part)) {
+      subject = null;
+      publish("page");
+    }
+    return { task: task.id, agent, ...(intent.do === "spawn" ? { route: (route ?? routes[0]).name } : {}), from_message: from?.id ?? null, marked: part?.quote ?? null };
+  });
+}
+
+const commandPart = {
+  say: "session", restart: "session",
+  spawn: "work", send: "work", fork: "work",
+  show: "canvas", close: "canvas",
+  go: "page", scroll: "page", panel: "page", point: "page", select: "page",
+} as const;
+
+function carry(intent: Intent, carried: Carried) {
+  const caller = { who: "fast" as const, ...carried };
+  if (intent.do === "world") return registry.call(intent.name, intent.input, caller);
+  const { do: command, ...input } = intent;
+  return registry.call(`${commandPart[command]}.${command}`, input, caller);
+}
+
+publish("work", "page", "canvas", "session");
 const fast: Fast | null = PROVIDER
   ? new Fast(PROVIDER, FAST_MODEL, {
       world, registry,
@@ -459,8 +495,7 @@ const fast: Fast | null = PROVIDER
       // The rules are read again each time Fast's context is built, so a change of `routing.md` needs no restart.
       // The project's own replace the ones for every project.
       routes: () => told(routes, rules(ROOT, HOME)),
-      tasks: () => tasks.all(),
-      agent: (id) => agents.has(id),
+      work: () => registry.state("work") as unknown as import("./fast.ts").WorkState,
       carry,
       forget: (keep) => void agents.forget(keep),
       quiet: () => Date.now() - spoke > 1500,
@@ -487,19 +522,26 @@ function said({ who, text, start_ms, end_ms, handover }: Said) {
   const part = who === "me" ? subject : null;
   const about = who === "voice" && passing && Date.now() - passing.at < SPOKEN_WITHIN ? passing.agents : undefined;
   if (who === "voice") passing = null;
-  const message = world.add<Message>({ kind: "message", id: world.next("message"), who, text, page: here()?.address ?? null, marked: part?.quote ?? "", start_ms, end_ms, handover, ...(about ? { about } : {}) });
-  if (part) marks.set(message.id, part);
+  const message = world.add<Message>({ kind: "message", id: world.next("message"), who, text, page: here()?.address ?? null, marked: part?.quote ?? "", ...(part ? { part } : {}), start_ms, end_ms, handover, ...(about ? { about } : {}) });
   if (who !== "me") return;
   loose.push(message);
   if (handover) handed(handover);
 }
 
-function state() {
-  return { type: "state", voice: voiceState, problem, tasks: tasks.all(), agents: agents.all().map(({ id, name, state }) => ({ id, name, state })), chats: true, subject, by: subject ? author : null, canvas };
+function snapshot(part: CorePart): Record<string, unknown> {
+  switch (part) {
+    case "work": return { tasks: tasks.all(), agents: agents.all(), chats: true };
+    case "session": return { voice: voiceState, problem };
+    case "page": return { address: known, subject, by: subject ? author : null };
+    case "canvas": return { canvas };
+  }
 }
 
-/** Sends every open page the state, or one message. */
-function tell(message: unknown = state()) {
+function publish(...parts: CorePart[]) {
+  for (const part of parts) registry.commit(part, snapshot(part), []);
+}
+
+function tell(message: unknown) {
   const text = JSON.stringify(message);
   for (const socket of sockets) socket.send(text);
 }
@@ -537,7 +579,7 @@ function mark(part: Part | null, by: "user" | "assistant") {
   if (part && !shows(here(), part)) part = null;
   subject = part;
   author = by;
-  tell();
+  publish("page");
 }
 
 /** What the page measured of a start: when the user pressed, by the clock this service shares with it, and how long its microphone and audio took. */
@@ -567,14 +609,14 @@ async function start(socket: Socket, again = false, timing: Timing | null = null
   if (!PROVIDER) {
     problem = `${NEEDS} is not set in devpage's environment`;
     log.write("service", "voice_start_failed", { text: problem, resumed: again, ...page });
-    return tell();
+    return publish("session");
   }
   voiceState = "starting";
   problem = null;
   owner = socket;
   // A new session starts with nothing marked.
-  subject = null;
-  tell();
+  if (!again) subject = null;
+  publish("session", "page");
   const id = randomUUID();
   log.session = id;
   log.write("service", "voice_start_asked", { resumed: again, ...page });
@@ -589,7 +631,7 @@ async function start(socket: Socket, again = false, timing: Timing | null = null
     voiceState = "off";
     problem = why;
     subject = null;
-    tell();
+    publish("page", "session");
   };
   const session: Voice = new Voice(PROVIDER, {
     audio: (pcm) => owner?.send(pcm),
@@ -634,7 +676,7 @@ async function start(socket: Socket, again = false, timing: Timing | null = null
   if (again) voice.say("I'm back.", null, { why: "the voice came back by itself" });
   // Fast gets what the agents published while no voice was on, and decides what of it the user hears now.
   fast?.listen(true);
-  tell();
+  publish("session", "page");
 }
 
 function stop() {
@@ -657,19 +699,20 @@ function on(socket: Socket, message: any) {
       // the user used last.
       pages.set(socket, message.page);
       if (message.focused || !active) active = socket;
-      return settle();
+      return registry.atomic(settle);
     case "subject":
       active = socket;
       settle();
       // Only the user's own click or selection arrives here: a script's `page.select` marks the part in the service.
-      world.add({ kind: "page", by: "me", text: message.part ? `The user marked ${JSON.stringify(message.part.quote)}.` : "The user cleared the mark." });
-      return mark(message.part, "user");
+      return registry.atomic(() => {
+        world.add({ kind: "page", by: "me", text: message.part ? `The user marked ${JSON.stringify(message.part.quote)}.` : "The user cleared the mark." });
+        mark(message.part, "user");
+      });
     case "canvas":
       // The user pressed the cross, or clicked a task whose change is on a pad.
       active = socket;
       try {
-        if (message.open) showPad(String(message.address), undefined, "me");
-        else closePad("me");
+        registry.atomic(() => message.open ? showPad(String(message.address), undefined, "me") : closePad("me"));
       } catch (error) {
         log.write("service", "canvas_not_shown", { text: error instanceof Error ? error.message : String(error) });
       }
@@ -685,7 +728,7 @@ function on(socket: Socket, message: any) {
       );
     case "message":
       active = socket;
-      return typed(Number(message.agent), String(message.text ?? ""));
+      return registry.atomic(() => typed(Number(message.agent), String(message.text ?? "")));
     case "call":
       // A widget calls a function of the world: what it wrote reaches every page as its part's state.
       return void registry.call(String(message.name), message.input ?? {}, { who: "page" }).catch((error) => log.write("service", "call_failed", { text: `${message.name}: ${error instanceof Error ? error.message : String(error)}` }));
@@ -704,7 +747,7 @@ Bun.serve<undefined, never>({
     if (request.headers.get("x-devpage-token") !== TOKEN) return new Response("not devpage", { status: 403 });
     const { pathname } = new URL(request.url);
     if (pathname === "/socket") return server.upgrade(request) ? undefined : new Response("expected a WebSocket", { status: 400 });
-    if (pathname === "/state") return Response.json(state());
+    if (pathname === "/state") return Response.json(Object.fromEntries(registry.parts().map(part => [part, registry.state(part)])));
     // A scratch pad's Markdown: devpage draws it as a page, for the canvas.
     if (pathname.startsWith("/pages/")) {
       const address = decodeURIComponent(pathname.slice("/pages/".length));
@@ -719,7 +762,6 @@ Bun.serve<undefined, never>({
   websocket: {
     open(socket) {
       sockets.add(socket);
-      socket.send(JSON.stringify(state()));
       for (const part of registry.parts()) socket.send(JSON.stringify({ type: "state", part, state: registry.state(part) }));
     },
     message(socket, message) {

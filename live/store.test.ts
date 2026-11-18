@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { registerCore } from "./core-parts.ts";
 import { Registry } from "./registry.ts";
 import { SessionStore } from "./store.ts";
 import { World } from "./world.ts";
@@ -27,7 +28,8 @@ test("an interrupted import keeps its sources and retries alongside existing ext
     expect(store.world()).toEqual([message]);
     expect(readFileSync(file + ".migrated", "utf8")).toBe(source);
     expect(registry.since(0).map(e => [e.n, e.kind, e.originalNumber])).toEqual([[1, "message", undefined], [2, "count", 1]]);
-    const world = new World(store, () => {});
+    registerCore(registry, {});
+    const world = new World(registry);
     expect(world.next("message")).toBe(11);
     expect(world.add({ kind: "problem", text: "test" }).n).toBe(3);
     store.db.close();

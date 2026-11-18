@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { Entry } from "./registry.ts";
 import type { Entry as CoreEntry } from "./world.ts";
 
-const coreParts = { message: "session", problem: "session", page: "page", task: "work", update: "work" } as const;
+export const coreParts = { message: "session", problem: "session", page: "page", task: "work", update: "work" } as const;
 
 /** The built-in view used by the transcript, tasks and sandbox variables. */
 export function coreEntry(entry: Entry): CoreEntry | null {

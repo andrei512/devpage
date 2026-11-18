@@ -10,7 +10,7 @@ import type { HarnessTool } from "./harness.ts";
 export type For = "fast" | "slow" | "both" | "page";
 
 /** Who called: a run of Fast, with its hand-over and what its script read, a slow agent, or a widget on the user's page. */
-export type Caller = { who: "fast"; run: number; handover: string | null; used: string[] } | { who: "slow"; agent: number } | { who: "page" };
+export type Caller = { who: "fast"; run: number; handover: string | null; used: string[]; said?: import("./world.ts").Message[] } | { who: "slow"; agent: number | null } | { who: "page" };
 
 /** One thing that happened, as the store keeps it. */
 export interface Entry {
@@ -46,11 +46,15 @@ export interface Fn {
   description: string;
   /** Its line of Fast's brief, for a function Fast may call. */
   brief?: string;
+  /** This function already has the session sandbox’s context-sensitive checks. */
+  syntax?: string;
   input: Record<string, z.ZodType>;
+  /** Stable harness spelling and transcript rendering for a tool with an existing interface. */
+  tool?: Pick<HarnessTool, "name" | "always" | "reads">;
   run: (input: any, running: Running) => unknown | Promise<unknown>;
 }
 
-type Options = Pick<Fn, "for" | "description" | "brief" | "input">;
+type Options = Pick<Fn, "for" | "description" | "brief" | "syntax" | "input" | "tool">;
 
 /** What a part registers with. An extension's module gets this, with the schema builder: it cannot import the program's packages itself. */
 export interface Registering {
@@ -72,6 +76,7 @@ export interface Asked {
 export class Registry {
   private readonly db: Database;
   readonly events: Events;
+  private notices: { parts: Set<string>; entries: [Entry, boolean][] } | null = null;
   private readonly pending = new Map<string, Promise<unknown>>();
   private readonly kinds = new Map<string, Kind & { part: string }>();
   private readonly fns = new Map<string, Fn>();
@@ -97,6 +102,13 @@ export class Registry {
     const widgets: typeof this.widgets = [];
     const publish = () => {
       if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      const tools = new Set<string>();
+      for (const [name, fn] of [...this.fns, ...functions]) {
+        if (fn.for !== "both" && fn.for !== "slow") continue;
+        const tool = fn.tool?.name ?? name.replace(".", "_");
+        if (tools.has(tool)) throw new Error(`The slow-agent tool ${tool} is registered twice`);
+        tools.add(tool);
+      }
       for (const [name, kind] of kinds) this.kinds.set(name, kind);
       for (const [name, fn] of functions) this.fns.set(name, fn);
       this.widgets.push(...widgets);
@@ -186,19 +198,43 @@ export class Registry {
         adds.push({ kind, fields });
       },
     });
-    const added: Entry[] = [];
-    this.db.transaction(() => {
-      for (const [key, value] of sets) this.db.run("insert into state (part, key, value) values (?, ?, ?) on conflict (part, key) do update set value = excluded.value", [fn.part, key, JSON.stringify(value)]);
-      for (const { kind, fields } of adds) {
-        added.push(this.events.append(fn.part, kind, fields));
-      }
-    })();
-    if (sets.size > 0) this.onState(fn.part, this.state(fn.part));
-    for (const entry of added) {
-      const wakes = this.kinds.get(`${entry.part}.${entry.kind}`)!.wakes ?? false;
-      this.onEntry(entry, typeof wakes === "function" ? wakes(entry.fields, caller) : wakes);
-    }
+    this.commit(fn.part, Object.fromEntries(sets), adds, caller);
     return result;
+  }
+
+  /** A synchronous change can include several parts. Publish their final
+   * snapshots only after the outermost transaction has committed. */
+  atomic<T>(change: () => T): T {
+    if (this.notices) return change();
+    const notices = { parts: new Set<string>(), entries: [] as [Entry, boolean][] };
+    this.notices = notices;
+    let result: T;
+    try {
+      result = this.db.transaction(change)();
+    } finally {
+      this.notices = null;
+    }
+    for (const part of notices.parts) this.onState(part, this.state(part));
+    for (const [entry, wakes] of notices.entries) this.onEntry(entry, wakes);
+    return result;
+  }
+
+  commit(part: string, sets: Record<string, unknown>, adds: { kind: string; fields: Record<string, unknown> }[], caller: Caller = { who: "page" }) {
+    if (!this.named.has(part)) throw new Error(`Unknown world part ${part}`);
+    return this.atomic(() => {
+      for (const [key, value] of Object.entries(sets)) {
+        const written = this.db.run("insert into state (part, key, value) values (?, ?, ?) on conflict (part, key) do update set value = excluded.value where value <> excluded.value", [part, key, JSON.stringify(value)]);
+        if (written.changes) this.notices!.parts.add(part);
+      }
+      return adds.map(({ kind, fields }) => {
+        const registered = this.kinds.get(`${part}.${kind}`);
+        if (!registered) throw new Error(`${part} has no entry kind ${kind}`);
+        const entry = this.events.append(part, kind, fields);
+        const wakes = registered.wakes;
+        this.notices!.entries.push([entry, typeof wakes === "function" ? wakes(fields, caller) : !!wakes]);
+        return entry;
+      });
+    });
   }
 
   /** Check the whole script before carrying any of its intents out. */
@@ -215,11 +251,12 @@ export class Registry {
       .filter(([, fn]) => fn.for === "slow" || fn.for === "both")
       .map(([name, fn]) => ({
         name: name.replace(".", "_"),
+        ...fn.tool,
         description: fn.description,
         input: fn.input,
         run: async (input: any) => {
           try {
-            if (agent === null) throw new Error("A base agent has no active task.");
+            if (agent === null && fn.does !== "get") throw new Error("A base agent has no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             return { text: typeof result === "string" ? result : JSON.stringify(result ?? "Done.") };
           } catch (error) {
@@ -231,7 +268,7 @@ export class Registry {
 
   /** The lines of Fast's brief for the functions Fast may call. */
   brief() {
-    return [...this.fns.entries()].filter(([, fn]) => fn.for === "fast" || fn.for === "both").map(([name, fn]) => `${name}(${Object.keys(fn.input).join(", ")})  // ${fn.brief ?? fn.description}`).join("\n");
+    return [...this.fns.entries()].filter(([, fn]) => fn.for === "fast" || fn.for === "both").map(([name, fn]) => `${fn.syntax ?? `${name}(${Object.keys(fn.input).join(", ")})`}  // ${fn.brief ?? fn.description}`).join("\n");
   }
 
   /**
@@ -241,7 +278,7 @@ export class Registry {
    */
   prelude() {
     const fns = [...this.fns.entries()]
-      .filter(([, fn]) => fn.for === "fast" || fn.for === "both")
+      .filter(([, fn]) => !fn.syntax && (fn.for === "fast" || fn.for === "both"))
       .map(([name, fn]) => {
         const schema = z.toJSONSchema(z.object(fn.input)) as { properties?: Record<string, { type?: string }>; required?: string[] };
         return { name, keys: Object.keys(fn.input), types: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, value.type ?? null])), required: schema.required ?? [] };

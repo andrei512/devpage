@@ -209,3 +209,14 @@ test("Fast checks every registered input and collects mixed calls in script orde
   await expect(run('counter.add(2); throw Error("cancel")', scope, registry)).rejects.toThrow("cancel");
   expect(registry.state("counter")).toEqual({});
 });
+
+test("a registered built-in keeps its harness spelling and presentation", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("work", p => p.get("read_log", {
+    for: "slow", description: "Read", input: {}, tool: { name: "read_log", always: true },
+  }, () => "history"));
+  const [tool] = registry.tools(null);
+  expect(tool.name).toBe("read_log");
+  expect(tool.always).toBe(true);
+  expect(await tool.run({})).toEqual({ text: "history" });
+});
