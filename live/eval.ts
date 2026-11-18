@@ -358,6 +358,7 @@ async function moment(test: Case): Promise<Moment> {
     for (const intent of ran.intents) {
       if (intent.do === "say") lines.push(intent.text);
       else if (intent.do === "restart") continue;
+      else if (intent.do === "world") throw new Error(`The recorded eval has no implementation of ${intent.name}`);
       else if (intent.do === "spawn" || intent.do === "send" || intent.do === "fork") {
         const agent = intent.do === "send" ? intent.agent : Math.max(0, ...agents) + 1;
         agents.add(agent);
