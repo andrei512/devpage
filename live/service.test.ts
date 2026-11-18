@@ -19,13 +19,16 @@ test("the live service exposes one registered function to Fast and the slow harn
     });
   }`);
   const requests: any[] = [];
+  let handed = false;
   const model = Bun.serve({
     hostname: "127.0.0.1", port: 0,
     async fetch(request) {
       const body = await request.json();
       if (body.tool_choice === "none") return Response.json({ output: [] });
       requests.push(body);
-      const code = requests.length === 1 ? 'counter.change(2); spawn("Count three more")' : "// done";
+      const marked = !handed && JSON.stringify(body.input.at(-1)).includes("Review this mark");
+      if (marked) handed = true;
+      const code = marked ? 'spawn(`Review: ${m1}`)' : requests.length === 1 ? 'counter.change(2); spawn("Count three more")' : "// done";
       return Response.json({ output: [{ type: "function_call", name: "exec", arguments: JSON.stringify({ code }), call_id: "call" + requests.length }] });
     },
   });
@@ -53,7 +56,7 @@ test("the live service exposes one registered function to Fast and the slow harn
     ws.onopen = () => ws.send(JSON.stringify({ type: "start" }));
     ws.onmessage = event => {
       const message = JSON.parse(event.data);
-      if (message.type === "action") ws.send(JSON.stringify({ type: "result", id: message.id, value: null }));
+      if (message.type === "action") ws.send(JSON.stringify({ type: "result", id: message.id, value: { address: "/home", text: "The marked line." } }));
       if (!started && (message.voice === "on" || message.part === "session" && message.state.voice === "on")) {
         started = true;
         ws.send(JSON.stringify({ type: "call", name: "counter.start", input: {} }));
@@ -72,6 +75,20 @@ test("the live service exposes one registered function to Fast and the slow harn
       const report = JSON.parse(JSON.parse(String(update[0])).text);
       expect(report.result).toEqual({ text: "counted 3" });
       expect(report.tools).toEqual(["counter_change", "read_log", "update", "write_comment"]);
+      // A real hand-over through the sandbox carries the marked part to work.
+      const part = { page: "/home", quote: "marked line", prefix: "The ", suffix: "." };
+      ws.send(JSON.stringify({ type: "page", page: { address: "/home", fragment: "", sources: ["/home"] }, focused: true }));
+      ws.send(JSON.stringify({ type: "subject", part }));
+      ws.send(new Uint8Array([0, 0]));
+      const work = () => JSON.parse(String(db.query("select value from state where part='work' and key='tasks'").values()[0][0]));
+      for (let i = 0; i < 120 && work().length < 2; i++) await Bun.sleep(20);
+      const second = work()[1];
+      expect(second.part).toEqual(part);
+      expect(second.origin.handover).toBe("h-mark");
+      expect(typeof second.origin.session).toBe("string");
+      const transcript = db.query("select fields from entries where kind='message' order by n desc limit 1").values();
+      expect(JSON.parse(String(transcript[0][0])).part).toEqual(part);
+
     } finally { db.close(); }
   } finally {
     socket?.close();
