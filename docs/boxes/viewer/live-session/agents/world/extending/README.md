@@ -174,6 +174,12 @@ already uses the database. It keeps every entry's number and every
 id of a message, an update, a task and an agent, with each agent's
 conversation in its harness. The old files are kept, renamed.
 
+Sessions from the prototype can have two entries with the same number, one
+from the core and one from an extension. The shared stream keeps the core
+number used in the session log. An extension entry moved to a new stream
+position carries its old number as `originalNumber`. Extension entries keep
+their relative order.
+
 ## Widgets and state on the page
 
 - **A package says where its widgets go.** Its `extension.yml` declares its

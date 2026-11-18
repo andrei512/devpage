@@ -175,3 +175,24 @@ test("a function for the page is a widget's to call, and nobody else's", async (
   expect(registry.brief()).toBe("");
   await expect(registry.call("counter.add", { by: 1 }, FAST)).rejects.toThrow("counter.add is for page, not for fast");
 });
+
+test("failed registration publishes nothing and can be retried", () => {
+  const registry = new Registry(":memory:");
+  expect(() => registry.part("mac", (p) => {
+    p.widget("Panel", "panel");
+    p.kind("ran", { line: () => "partial" });
+    p.action("run", { for: "both", description: "run", input: {} }, () => {});
+    throw new Error("broken");
+  })).toThrow("broken");
+  expect(registry.parts()).toEqual([]);
+  expect(registry.widgets).toEqual([]);
+  expect(registry.tools(1)).toEqual([]);
+  computer(registry);
+});
+
+test("overlapping calls to a part see the previous committed update", async () => {
+  const registry = new Registry(":memory:");
+  computer(registry);
+  await Promise.all(["first", "second"].map(script => registry.call("mac.run", { script }, FAST)));
+  expect(registry.state("mac")).toEqual({ ran: 2 });
+});

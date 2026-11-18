@@ -1,7 +1,5 @@
-// The world as registered parts: the prototype of the extendable world. A part registers its entry kinds, its
-// functions and its state; a function is written once and says who it is for, and it is offered to Fast as a call in
-// its script and to a slow agent as a tool. What a function writes, state and entries, is kept in one SQLite file and
-// committed in one transaction. Nothing of the running session uses this yet.
+// Registered parts share an event stream, with state and events committed together.
+import { Events } from "./events.ts";
 import { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { QuickJS } from "quickjs-wasi";
@@ -17,6 +15,7 @@ export type Caller = { who: "fast"; run: number; handover: string | null; used: 
 /** One thing that happened, as the store keeps it. */
 export interface Entry {
   n: number;
+  originalNumber?: number;
   at: string;
   part: string;
   kind: string;
@@ -75,6 +74,8 @@ const binary = () => (compiled ??= WebAssembly.compile(readFileSync(new URL(impo
 
 export class Registry {
   private readonly db: Database;
+  readonly events: Events;
+  private readonly pending = new Map<string, Promise<unknown>>();
   private readonly kinds = new Map<string, Kind & { part: string }>();
   private readonly fns = new Map<string, Fn>();
   private readonly named = new Set<string>();
@@ -86,34 +87,47 @@ export class Registry {
 
   constructor(file: string | Database) {
     this.db = typeof file === "string" ? new Database(file) : file;
-    this.db.run("create table if not exists entries (n integer primary key autoincrement, at text not null, part text not null, kind text not null, fields text not null)");
+    this.events = new Events(this.db);
+    this.events.install();
     this.db.run("create table if not exists state (part text not null, key text not null, value text not null, primary key (part, key))");
   }
 
   /** Registers a part: the core's or an extension's, the same way. */
   part(part: string, register: (as: Registering) => void) {
-    this.named.add(part);
+    if (this.named.has(part)) throw new Error(`${part} is registered already`);
+    const kinds = new Map<string, Kind & { part: string }>();
+    const functions = new Map<string, Fn>();
+    const widgets: typeof this.widgets = [];
+    const publish = () => {
+      if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      for (const [name, kind] of kinds) this.kinds.set(name, kind);
+      for (const [name, fn] of functions) this.fns.set(name, fn);
+      this.widgets.push(...widgets);
+      this.named.add(part);
+    };
     const fn = (does: Fn["does"]) => (name: string, options: Options, run: Fn["run"]) => {
       if (does === "get" && options.for !== "slow") throw new Error(`${part}.${name}: a get is for slow agents only: Fast's script gets no answer from a call`);
       const full = `${part}.${name}`;
-      if (this.fns.has(full)) throw new Error(`${full} is registered already`);
-      this.fns.set(full, { part, name, does, run, ...options });
+      if (functions.has(full) || this.fns.has(full)) throw new Error(`${full} is registered already`);
+      functions.set(full, { part, name, does, run, ...options });
     };
-    register({
+    const registered: unknown = register({
       z,
-      kind: (name, kind) => void this.kinds.set(`${part}.${name}`, { ...kind, part }),
+      kind: (name, kind) => void kinds.set(`${part}.${name}`, { ...kind, part }),
       get: fn("get"),
       set: fn("set"),
       action: fn("action"),
-      widget: (name, place) => void this.widgets.push({ part, name, place }),
+      widget: (name, place) => void widgets.push({ part, name, place }),
     });
+    if (registered instanceof Promise) return registered.then(publish);
+    publish();
   }
 
   /** Loads an extension's world module: a file whose default export registers its part. */
   async load(part: string, file: string) {
     const module = await import(file);
     if (typeof module.default !== "function") throw new Error(`${file} has no default export that registers a part`);
-    this.part(part, module.default);
+    await this.part(part, module.default);
   }
 
   /** The parts that are registered, by name. */
@@ -129,8 +143,7 @@ export class Registry {
 
   /** Every entry after the one with this number, oldest first. */
   since(n: number): Entry[] {
-    const rows = this.db.query("select n, at, part, kind, fields from entries where n > ? order by n").all(n) as any[];
-    return rows.map((row) => ({ ...row, fields: JSON.parse(row.fields) }));
+    return this.events.since(n);
   }
 
   /** An entry as the line Fast reads. */
@@ -150,8 +163,21 @@ export class Registry {
   async call(name: string, input: unknown, caller: Caller) {
     const fn = this.fns.get(name);
     if (!fn) throw new Error(`there is no function ${name}`);
-    if (fn.for !== "both" && fn.for !== caller.who) throw new Error(`${name} is for ${fn.for}, not for ${caller.who}`);
+    if (fn.for !== caller.who && !(fn.for === "both" && caller.who !== "page")) throw new Error(`${name} is for ${fn.for}, not for ${caller.who}`);
     const given = z.object(fn.input).parse(input);
+    // A function may await external work. Serialize calls per part across that
+    // await while letting unrelated parts commit on the same SQLite connection.
+    const previous = this.pending.get(fn.part);
+    const run = (previous ?? Promise.resolve()).catch(() => {}).then(() => this.execute(fn, given, caller));
+    this.pending.set(fn.part, run);
+    try {
+      return await run;
+    } finally {
+      if (this.pending.get(fn.part) === run) this.pending.delete(fn.part);
+    }
+  }
+
+  private async execute(fn: Fn, given: unknown, caller: Caller) {
     const sets = new Map<string, unknown>();
     const adds: { kind: string; fields: Record<string, unknown> }[] = [];
     const result = await fn.run(given, {
@@ -167,9 +193,7 @@ export class Registry {
     this.db.transaction(() => {
       for (const [key, value] of sets) this.db.run("insert into state (part, key, value) values (?, ?, ?) on conflict (part, key) do update set value = excluded.value", [fn.part, key, JSON.stringify(value)]);
       for (const { kind, fields } of adds) {
-        const at = new Date().toISOString();
-        const { lastInsertRowid } = this.db.run("insert into entries (at, part, kind, fields) values (?, ?, ?, ?)", [at, fn.part, kind, JSON.stringify(fields)]);
-        added.push({ n: Number(lastInsertRowid), at, part: fn.part, kind, fields });
+        added.push(this.events.append(fn.part, kind, fields));
       }
     })();
     if (sets.size > 0) this.onState(fn.part, this.state(fn.part));
