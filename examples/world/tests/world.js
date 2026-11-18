@@ -11,6 +11,7 @@ export default function tests({ action, kind }) {
   kind("finished", { line: result => result.summary, wakes: true });
   action("run", { for: "slow", input: {}, description: "Run the project's Node tests and show each result in the panel." }, (_, run) => {
     if (active) throw new Error("Tests are already running.");
+    run.set("results", {});
     run.set("summary", null);
     run.follow(async publish => {
       active = true;
