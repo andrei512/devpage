@@ -75,6 +75,19 @@ export interface FastFunction {
   schema: z.core.JSONSchema.BaseSchema;
 }
 
+// A package id can be a digit, a keyword, a sandbox binding or a hyphenated name.
+const identifier = /^[A-Za-z_$][\w$]*$/;
+const reserved = new Set("await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield arguments eval spawn say restart worldParts page canvas".split(" "));
+
+function binding(full: string) {
+  const dot = full.indexOf(".");
+  const part = full.slice(0, dot), name = full.slice(dot + 1);
+  const bare = identifier.test(part) && !reserved.has(part) && !(part in globalThis) && !/^[mua]\d+$/.test(part);
+  const owner = bare ? part : `worldParts[${JSON.stringify(part)}]`;
+  const access = identifier.test(name) ? `.${name}` : `[${JSON.stringify(name)}]`;
+  return { part, name, bare, expression: owner + access };
+}
+
 export class Registry {
   private readonly db: Database;
   readonly events: Events;
@@ -168,14 +181,25 @@ export class Registry {
   /** An entry as the line Fast reads. */
   line(entry: Entry) {
     const kind = this.kinds.get(`${entry.part}.${entry.kind}`);
-    if (kind) return kind.line(entry.fields);
-    const core = coreEntry(entry);
-    return core ? coreLine(core) : `${entry.part}.${entry.kind}`;
+    const fallback = `${entry.part}.${entry.kind}`;
+    try {
+      const core = coreEntry(entry);
+      const rendered = kind ? kind.line(entry.fields) : core ? coreLine(core) : fallback;
+      return typeof rendered === "string" ? rendered : fallback;
+    } catch {
+      // Earlier records can have a different shape from the current package.
+      return fallback;
+    }
   }
 
   /** The image an entry carries, when it has one. */
   image(entry: Entry) {
-    return this.kinds.get(`${entry.part}.${entry.kind}`)?.image?.(entry.fields) ?? null;
+    try {
+      const image = this.kinds.get(`${entry.part}.${entry.kind}`)?.image?.(entry.fields);
+      return typeof image === "string" ? image : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -240,10 +264,15 @@ export class Registry {
         const registered = this.kinds.get(`${part}.${kind}`);
         if (!registered) throw new Error(`${part} has no entry kind ${kind}`);
         const entry = this.events.append(part, kind, fields);
-        const image = registered.image?.(fields);
+        const image = this.image(entry);
         if (image) this.events.keepImage(entry, image);
         const wakes = registered.wakes;
-        this.notices!.entries.push([entry, typeof wakes === "function" ? wakes(fields, caller) : !!wakes]);
+        let wake = wakes === true;
+        if (typeof wakes === "function") {
+          try { wake = wakes(fields, caller) === true; }
+          catch { /* A failed notification predicate leaves this entry available on the next wake. */ }
+        }
+        this.notices!.entries.push([entry, wake]);
         return entry;
       });
     });
@@ -295,24 +324,37 @@ export class Registry {
 
   brief() {
     return this.fastFunctions().map(({ name, syntax, description, schema }) =>
-      `${syntax ?? `${name}(${Object.keys(schema.properties ?? {}).join(", ")})`}  // ${description}`).join("\n");
+      `${syntax ?? `${binding(name).expression}(${Object.keys(schema.properties ?? {}).join(", ")})`}  // ${description}`).join("\n");
   }
 
   prelude() {
     const functions = this.fastFunctions().filter(fn => !fn.syntax).map(fn => ({
-      name: fn.name, keys: Object.keys(fn.schema.properties ?? {}), required: fn.schema.required ?? [],
+      ...binding(fn.name), full: fn.name, keys: Object.keys(fn.schema.properties ?? {}), required: fn.schema.required ?? [],
+      types: Object.fromEntries(Object.entries(fn.schema.properties ?? {}).map(([key, property]) =>
+        [key, typeof property === "object" ? property.type : undefined])),
     }));
     // Zod checks every collected input before the service carries out the first
     // intent. Preserve the order of these calls among the built-ins.
     return `(() => {
+      const parts = globalThis.worldParts = Object.create(null);
       for (const fn of ${JSON.stringify(functions)}) {
-        const [part, name] = fn.name.split(".");
-        globalThis[part] ??= {};
-        globalThis[part][name] = (...values) => {
+        const part = parts[fn.part] ??= Object.create(null);
+        if (fn.bare) globalThis[fn.part] = part;
+        part[fn.name] = (...values) => {
           const input = {};
           fn.keys.forEach((key, at) => { if (values[at] !== undefined) input[key] = values[at]; });
           for (const key of fn.required) if (!(key in input)) throw new TypeError(fn.name + " needs " + key);
-          __worldCall(fn.name, input);
+          for (const key of Object.keys(input)) {
+            const type = fn.types[key];
+            if (!type) continue;
+            const value = input[key];
+            const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+            const allowed = Array.isArray(type) ? type : [type];
+            if (!allowed.includes(actual) && !(allowed.includes("integer") && Number.isInteger(value))) {
+              throw new TypeError(fn.name + ": " + key + " needs " + allowed.join(" or "));
+            }
+          }
+          __worldCall(fn.full, input);
         };
       }
     })()`;

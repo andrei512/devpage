@@ -63,6 +63,7 @@ export interface FastDeps {
   pages: () => { address: string; title: string }[];
   /** What Fast is told about the routes a new agent can run on, with the user's rules. Empty when there is only one route. */
   routes?: () => string;
+  routeNames?: () => string[];
   /** The persisted work snapshot also used by the panel. */
   work: () => WorkState;
   /** Carries out one thing a script asked for. Throws when it cannot be done. Returns what there is to log. */
@@ -462,6 +463,7 @@ export class Fast {
       page: page && { address: page.address, text: page.text },
       pages: this.deps.pages().map(({ address }) => address),
       pads: page?.pads?.map(({ address }) => address) ?? [],
+      routes: this.deps.routeNames?.(),
       handover: said.map((message) => message.id),
     };
     const written = await script(

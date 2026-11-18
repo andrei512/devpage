@@ -413,10 +413,12 @@ function coreFunctions(): Record<CorePart, (as: Registering) => void> {
       const { action, z } = as;
       action("go", { for: "fast", syntax: "page.go(address)", description: "Open a listed page.", input: { address: z.string() } }, async (intent) => {
         // Going to a page means showing the page.
-        closePad("fast");
         moving = Date.now() + 5000;
         const went = await page_does({ name: "go", address: intent.address });
-        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "go" }) });
+        registry.atomic(() => {
+          closePad("fast");
+          world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "go" }) });
+        });
         return went;
       });
       action("scroll", { for: "fast", syntax: "page.scroll(where)", description: "Scroll the page.", input: { where: z.enum(["up", "down", "top", "bottom"]) } }, async (intent) => {
@@ -488,6 +490,7 @@ const fast: Fast | null = PROVIDER
       // The rules are read again each time Fast's context is built, so a change of `routing.md` needs no restart.
       // The project's own replace the ones for every project.
       routes: () => told(routes, rules(ROOT, HOME)),
+      routeNames: () => routes.map(route => route.name),
       work: () => registry.state("work") as unknown as import("./fast.ts").WorkState,
       carry: (intent, carried) => {
         const { name, input } = registry.requested(intent);

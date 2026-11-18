@@ -300,7 +300,7 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
 
   for (const run of session.runs.slice(0, before)) {
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(run.wake || told(session, run, until(Math.max(...run.entries))), run.images);
+    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
     for (const { code, output } of run.scripts) answered(code, output);
   }
 
@@ -308,7 +308,7 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     const run = session.runs[before];
     if (!run) throw new Error(`${test.name}: the session ${test.session} has no wake-up ${test.run}.`);
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(run.wake || told(session, run, until(Math.max(...run.entries))), run.images);
+    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
     return done(seen(session, run.page), run.said);
   }
 

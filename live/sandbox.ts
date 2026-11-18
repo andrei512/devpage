@@ -15,6 +15,8 @@ export interface Scope {
   page: { address: string; text: string } | null;
   /** Every page's address: where `page.go` may go. */
   pages: string[];
+  /** Enabled routes at the start of this run. */
+  routes?: string[];
   /** The user's messages of the hand-over that woke Fast: a script that gives work to an agent must use one of them. */
   handover: number[];
   /** The scratch pads there are, as addresses. Left out where there are none to know of. */
@@ -179,6 +181,10 @@ export async function run(script: string, scope: Scope, registry?: Registry): Pr
       const done = vm.evalCode("__done()", "<end>").consume((handle) => handle.toString());
       const result = JSON.parse(done) as Ran;
       for (const intent of result.intents) {
+        if (intent.do === "spawn" && intent.route && scope.routes &&
+            !scope.routes.some(route => route.toLowerCase() === intent.route!.trim().toLowerCase())) {
+          throw new Error(intent.route + " is not an enabled route");
+        }
         if (registry) {
           const call = registry.requested(intent);
           registry.checked(call.name, call.input, "fast");

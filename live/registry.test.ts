@@ -239,3 +239,37 @@ test("Fast checks the registered schema of each built-in before any earlier call
   const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
   await expect(run('say("allowed"); say("wrong")', scope, registry)).rejects.toThrow();
 });
+
+test("Fast can run the advertised syntax for every legal shape of package id", async () => {
+  const registry = new Registry(":memory:");
+  for (const id of ["unit-tests", "42", "class", "a2", "Object", "counter"]) {
+    registry.part(id, ({ action }) => action("run", { for: "fast", description: "Run", input: {} }, () => {}));
+  }
+  for (const [i, line] of registry.brief().split("\n").entries()) {
+    expect(await runRegistered(registry, line)).toEqual([{ name: registry.parts()[i] + ".run", input: {} }]);
+  }
+});
+
+test("an unreadable event survives and the next wake can still be delivered", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("tests", ({ kind, action }) => {
+    kind("result", {
+      line: f => f.result.name.toUpperCase(),
+      image: f => f.result.picture.url,
+      wakes: f => f.result.complete,
+    });
+    action("run", { for: "fast", description: "Run", input: {} }, (_, r) => {
+      r.set("done", true);
+      r.add("result", { legacy: true });
+      r.add("result", { result: { name: "current", picture: { url: "image.png" }, complete: true } });
+    });
+  });
+  const notices: boolean[] = [];
+  registry.onEntry = (entry, wakes) => { registry.line(entry); notices.push(wakes); };
+  await registry.call("tests.run", {}, FAST);
+  expect(notices).toEqual([false, true]);
+  expect(registry.state("tests")).toEqual({ done: true });
+  expect(registry.wake(registry.since(0)).content).toEqual([
+    { type: "input_text", text: "tests.result\nCURRENT" }, { type: "input_image", image_url: "image.png" },
+  ]);
+});
