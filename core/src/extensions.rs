@@ -33,7 +33,8 @@ pub struct Process {
     /// The package's folder, which the program is started in.
     pub folder: PathBuf,
 }
-/// An address under an extension's `live/`, and what answers it.
+/// An address an extension's process answers — under its `live/`, or a page
+/// under its `pages/` — and what answers it.
 #[derive(Clone, Debug)]
 pub struct Live {
     /// What names the bound extension among all of them: `<owner>/<id>`.
@@ -44,9 +45,11 @@ pub struct Live {
     pub process: Option<Process>,
     /// What the extension is configured with, as JSON.
     pub config: String,
-    /// The folder of the document file that configures the extension.
+    /// The folder of the document file that configures the extension — the
+    /// served folder, for the live session devpage binds itself.
     pub folder: PathBuf,
-    /// The address past `live/`, without a leading `/`.
+    /// What the process is asked for, without a leading `/`: the address
+    /// past `live/`, or a page's from `pages/` on.
     pub rest: String,
 }
 /// What loads an extension's package from its bundle; the executable installs
@@ -70,13 +73,50 @@ static INSTANCES: OnceLock<Mutex<BTreeMap<PathBuf, Vec<Binding>>>> = OnceLock::n
 fn instances() -> &'static Mutex<BTreeMap<PathBuf, Vec<Binding>>> {
     INSTANCES.get_or_init(Default::default)
 }
+/// The system extension that is the live session: its name under a
+/// document's `extensions:`, and in its address.
+pub const LIVE: &str = "live";
+/// A served folder the live session is on in, and the session's package.
+type Session = (ServedFolder, Arc<dyn Package>);
+/// Each served folder the live session is on in.
+static SESSIONS: OnceLock<Mutex<Vec<Session>>> = OnceLock::new();
+/// Turns the live session on in `scope`: every document loaded there from
+/// now on is bound to `package` as its extension [`LIVE`], unless the document
+/// turns it off or names a package of its own. Where this is never called
+/// the session is off, and a document's word on it changes nothing.
+pub fn serve_live(scope: &ServedFolder, package: Arc<dyn Package>) {
+    let mut sessions = SESSIONS.get_or_init(Default::default).lock().unwrap();
+    sessions.retain(|(served, _)| served != scope);
+    sessions.push((scope.clone(), package));
+}
+/// The live session's package in `scope` — `None` where the session is off.
+fn session(scope: &ServedFolder) -> Option<Arc<dyn Package>> {
+    let sessions = SESSIONS.get()?.lock().unwrap();
+    sessions
+        .iter()
+        .find(|(served, _)| served == scope)
+        .map(|(_, package)| package.clone())
+}
+/// Whether `config`, what a document configures the live session with, leaves
+/// it on: it does unless it says `enabled: false`.
+fn enabled(config: &serde_yaml::Value) -> Result<bool> {
+    match config {
+        serde_yaml::Value::Null => Ok(true),
+        serde_yaml::Value::Mapping(map) => match map.get("enabled") {
+            None => Ok(true),
+            Some(serde_yaml::Value::Bool(enabled)) => Ok(*enabled),
+            Some(_) => bail!("extensions: {LIVE}: config: enabled is not true or false"),
+        },
+        _ => bail!("extensions: {LIVE}: config is not a mapping"),
+    }
+}
 /// An extension as a document's `extensions:` names it: its package and what it
 /// is configured with.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// The package's bundle; left out only for a system extension such as
-    /// [`code`](crate::code).
+    /// [`code`](crate::code) or the live session, [`LIVE`].
     pub package: Option<String>,
     /// What the package is created with, as written under `config:`; null when
     /// left out.
@@ -99,12 +139,18 @@ impl std::fmt::Debug for Binding {
 struct State {
     /// The extension's name under the document's `extensions:`.
     id: String,
-    /// The document's whole `extensions:`, as JSON — what tells a changed
-    /// configuration from the bound one.
+    /// The document's whole `extensions:`, as JSON, and whether the live
+    /// session is bound to it — what tells a changed configuration from the
+    /// bound one.
     configuration: String,
     /// The instance's id: the first 16 hex digits of the SHA-256 of the
-    /// document's path, `id` and `configuration`.
+    /// document's path, `id` and `configuration` — or, for the live session
+    /// devpage binds itself, of the served folder's path and `id`: one for
+    /// every document in it.
     owner: String,
+    /// Whether devpage bound it itself, as the live session: no document
+    /// names its package.
+    system: bool,
     /// The package, loaded by the installed [`Loader`]; each request names
     /// this binding by `owner`.
     package: Arc<dyn Package>,
@@ -112,7 +158,8 @@ struct State {
     scope: ServedFolder,
     /// What the extension is configured with, as JSON.
     config: Value,
-    /// The folder of the document file that configures it.
+    /// The folder of the document file that configures it — the served
+    /// folder, for the live session devpage binds itself.
     folder: PathBuf,
     /// The file or folder it reads, as the package's `create` reply names it —
     /// `None` when it reads none.
@@ -148,6 +195,11 @@ impl Binding {
     pub fn address(&self) -> (String, String) {
         let s = self.0.lock().unwrap();
         (s.id.clone(), Self::base(&s))
+    }
+    /// Whether this is the live session devpage binds itself, not a package
+    /// the document names.
+    pub fn is_session(&self) -> bool {
+        self.0.lock().unwrap().system
     }
     /// The address of each of the package's widgets' modules, by widget name.
     pub fn widget_urls(&self) -> BTreeMap<String, String> {
@@ -341,20 +393,32 @@ impl Binding {
     }
 }
 /// Binds the extensions `configs` to the document at `doc`, each package loaded
-/// from its bundle under `base`, and prepares each; no `configs` unbinds it. A
-/// configuration already bound in `scope` is kept as it is.
+/// from its bundle under `base`, and prepares each; with them the live
+/// session, where it is [on](serve_live) in `scope`, unless the document's
+/// `live` says `enabled: false` in its `config` or names a package of its
+/// own. Nothing to bind unbinds the document. A configuration already bound
+/// in `scope` is kept as it is.
 pub fn configure(
     doc: &Path,
     base: &Path,
     scope: &ServedFolder,
-    configs: BTreeMap<String, Config>,
+    mut configs: BTreeMap<String, Config>,
 ) -> Result<()> {
+    // `live` with no package is the system extension: the live session.
+    let own = match configs.get(LIVE) {
+        Some(config) if config.package.is_none() => configs.remove(LIVE).map(|c| c.config),
+        _ => None,
+    };
+    let on = own.as_ref().map(enabled).transpose()?.unwrap_or(true);
+    let session = (on && !configs.contains_key(LIVE))
+        .then(|| session(scope))
+        .flatten();
     let mut guard = instances().lock().unwrap();
-    if configs.is_empty() {
+    if configs.is_empty() && session.is_none() {
         guard.remove(doc);
         return Ok(());
     }
-    let configuration = serde_json::to_string(&configs)?;
+    let configuration = serde_json::to_string(&(&configs, &own, session.is_some()))?;
     if guard.get(doc).is_some_and(|bindings| {
         bindings.iter().all(|b| {
             let s = b.0.lock().unwrap();
@@ -363,9 +427,6 @@ pub fn configure(
     }) {
         return Ok(());
     }
-    let loader = LOADER
-        .get()
-        .ok_or_else(|| anyhow!("Native extension loader unavailable"))?;
     let mut bindings = vec![];
     let mut claims: std::collections::BTreeSet<String> = ["md", "yml", "yaml", "design"]
         .into_iter()
@@ -375,6 +436,9 @@ pub fn configure(
         let Some(path) = &config.package else {
             bail!("extensions: {id}: package is required — {id} is not a system extension");
         };
+        let loader = LOADER
+            .get()
+            .ok_or_else(|| anyhow!("Native extension loader unavailable"))?;
         let package = loader
             .load(&base.join(path))
             .map_err(|e| anyhow!("Extension {id}: {e:#}"))?;
@@ -383,76 +447,144 @@ pub fn configure(
             Sha256::digest(format!("{}:{id}:{configuration}", doc.display()))
         )[..16]
             .to_string();
-        let config = serde_json::to_value(&config.config)?;
-        let descriptor =
-            package.invoke(json!({"op":"create","instance":owner,"id":id,"config":config}))?;
-        // A package that shows no files and reads no input may leave both out.
-        let none = Vec::new();
-        let listed = |field: &str| -> Result<&Vec<Value>> {
-            match &descriptor[field] {
-                Value::Null => Ok(&none),
-                Value::Array(listed) => Ok(listed),
-                _ => bail!("Extension {id} {field} is not a list"),
-            }
-        };
-        let reads = !listed("input_extensions")?.is_empty();
-        for suffix in listed("file_extensions")? {
-            let suffix = suffix
-                .as_str()
-                .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric()))
-                .ok_or_else(|| anyhow!("Extension {id} invalid file suffix"))?;
-            if !claims.insert(suffix.into()) {
-                bail!("Extension {id} file format {suffix} is already claimed");
-            }
-        }
-        if let Some(grammar) = descriptor["grammar"].as_str() {
-            let syntax = syntect::parsing::SyntaxDefinition::load_from_str(grammar, true, None)
-                .map_err(|e| anyhow!("Extension {id} grammar: {e}"))?;
-            if syntax
-                .file_extensions
-                .iter()
-                .any(|s| crate::highlight::builtin_language(s))
-            {
-                bail!("Extension {id} cannot replace a built-in language");
-            }
-        }
-        let input = match descriptor["input"].as_str() {
-            Some(input) => {
-                let input = base.join(input);
-                if !input.canonicalize()?.starts_with(scope.path()) {
-                    bail!("Extension {id} input outside served folder");
-                }
-                Some(input)
-            }
-            None if reads || !listed("file_extensions")?.is_empty() => {
-                bail!("Extension input missing")
-            }
-            None => None,
-        };
-        let browser = Browser::new(
-            &descriptor,
-            &format!("{}/__devpage/extensions/{owner}/{id}/", scope.mount()),
-        )?;
-        let binding = Binding(Arc::new(Mutex::new(State {
-            id,
-            configuration: configuration.clone(),
-            owner,
-            package,
-            scope: scope.clone(),
-            config,
-            folder: base.to_path_buf(),
-            input,
-            descriptor,
-            browser: Arc::new(browser),
-            revision: String::new(),
-            error: None,
-            sources: BTreeMap::new(),
-        })));
-        binding.prepare()?;
-        bindings.push(binding);
+        bindings.push(bind(
+            Bound {
+                id,
+                owner,
+                system: false,
+                package,
+                config: serde_json::to_value(&config.config)?,
+                folder: base,
+            },
+            &configuration,
+            scope,
+            &mut claims,
+        )?);
+    }
+    if let Some(package) = session {
+        let owner = format!(
+            "{:x}",
+            Sha256::digest(format!("{}:{LIVE}", scope.path().display()))
+        )[..16]
+            .to_string();
+        bindings.push(bind(
+            Bound {
+                id: LIVE.to_string(),
+                owner,
+                system: true,
+                package,
+                config: serde_json::to_value(own.unwrap_or_default())?,
+                folder: scope.path(),
+            },
+            &configuration,
+            scope,
+            &mut claims,
+        )?);
     }
     guard.insert(doc.to_path_buf(), bindings);
     Ok(())
+}
+/// An extension about to be bound to a document: what [`bind`] makes a
+/// [`Binding`] from.
+struct Bound<'a> {
+    /// The extension's name under the document's `extensions:`.
+    id: String,
+    /// The instance's id.
+    owner: String,
+    /// Whether devpage binds it itself, as the live session.
+    system: bool,
+    /// The package, loaded.
+    package: Arc<dyn Package>,
+    /// What the extension is configured with, as JSON.
+    config: Value,
+    /// The folder its input is named from and its program is told as the
+    /// root: the document file's, or the served folder for the live session.
+    folder: &'a Path,
+}
+/// Creates and prepares the extension `bound` in `scope`, under the document
+/// configuration `configuration`; `claims` holds the file suffixes taken so
+/// far, and gains the package's.
+fn bind(
+    bound: Bound,
+    configuration: &str,
+    scope: &ServedFolder,
+    claims: &mut std::collections::BTreeSet<String>,
+) -> Result<Binding> {
+    let Bound {
+        id,
+        owner,
+        system,
+        package,
+        config,
+        folder,
+    } = bound;
+    let descriptor =
+        package.invoke(json!({"op":"create","instance":owner,"id":id,"config":config}))?;
+    // A package that shows no files and reads no input may leave both out.
+    let none = Vec::new();
+    let listed = |field: &str| -> Result<&Vec<Value>> {
+        match &descriptor[field] {
+            Value::Null => Ok(&none),
+            Value::Array(listed) => Ok(listed),
+            _ => bail!("Extension {id} {field} is not a list"),
+        }
+    };
+    let reads = !listed("input_extensions")?.is_empty();
+    for suffix in listed("file_extensions")? {
+        let suffix = suffix
+            .as_str()
+            .filter(|s| !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric()))
+            .ok_or_else(|| anyhow!("Extension {id} invalid file suffix"))?;
+        if !claims.insert(suffix.into()) {
+            bail!("Extension {id} file format {suffix} is already claimed");
+        }
+    }
+    if let Some(grammar) = descriptor["grammar"].as_str() {
+        let syntax = syntect::parsing::SyntaxDefinition::load_from_str(grammar, true, None)
+            .map_err(|e| anyhow!("Extension {id} grammar: {e}"))?;
+        if syntax
+            .file_extensions
+            .iter()
+            .any(|s| crate::highlight::builtin_language(s))
+        {
+            bail!("Extension {id} cannot replace a built-in language");
+        }
+    }
+    let input = match descriptor["input"].as_str() {
+        Some(input) => {
+            let input = folder.join(input);
+            if !input.canonicalize()?.starts_with(scope.path()) {
+                bail!("Extension {id} input outside served folder");
+            }
+            Some(input)
+        }
+        None if reads || !listed("file_extensions")?.is_empty() => {
+            bail!("Extension input missing")
+        }
+        None => None,
+    };
+    let browser = Browser::new(
+        &descriptor,
+        &format!("{}/__devpage/extensions/{owner}/{id}/", scope.mount()),
+    )?;
+    let binding = Binding(Arc::new(Mutex::new(State {
+        id,
+        configuration: configuration.to_string(),
+        owner,
+        system,
+        package,
+        scope: scope.clone(),
+        config,
+        folder: folder.to_path_buf(),
+        input,
+        descriptor,
+        browser: Arc::new(browser),
+        revision: String::new(),
+        error: None,
+        sources: BTreeMap::new(),
+    })));
+    binding.prepare()?;
+    Ok(binding)
 }
 /// The extensions bound to the document at `doc` — none when it has none.
 pub fn for_document(doc: &Path) -> Vec<Binding> {
@@ -514,24 +646,50 @@ pub fn for_file(file: &Path, folder: &crate::folder::Folder) -> Vec<Binding> {
 /// `scope`: the bound extension and its process. `None` when it is no such
 /// address.
 pub fn live(path: &str, scope: &ServedFolder) -> Option<Live> {
+    let (mut live, _) = bound_at(path, scope, None)?;
+    live.rest = live.rest.strip_prefix("live/")?.to_string();
+    Some(live)
+}
+/// The page of an extension `path` names in `scope`, `pages/<page>` under the
+/// extension's address: what answers it, asked for `pages/<page>`; the page,
+/// as its extension names it; and the file of the document it is drawn in —
+/// `entry` when that document binds the extension, else the first that does.
+/// `None` when `path` is no extension's page.
+pub fn page(path: &str, scope: &ServedFolder, entry: &Path) -> Option<(Live, String, PathBuf)> {
+    let (live, document) = bound_at(path, scope, Some(entry))?;
+    let page = live.rest.strip_prefix("pages/")?.to_string();
+    (!page.is_empty()).then_some((live, page, document))
+}
+/// The extension bound in `scope` whose address `path` is under, with
+/// everything past that address as its [`Live::rest`], and the file of a
+/// document that binds it: `preferred` when it does, else the first.
+fn bound_at(path: &str, scope: &ServedFolder, preferred: Option<&Path>) -> Option<(Live, PathBuf)> {
     let suffix = path
         .trim_start_matches('/')
         .strip_prefix("__devpage/extensions/")?;
     let (owner, tail) = suffix.split_once('/')?;
-    let (id, tail) = tail.split_once('/')?;
-    let rest = tail.strip_prefix("live/")?;
+    let (id, rest) = tail.split_once('/')?;
     let guard = instances().lock().unwrap();
-    guard.values().flatten().find_map(|b| {
-        let s = b.0.lock().unwrap();
-        (s.owner == owner && s.id == id && s.scope == *scope).then(|| Live {
-            key: format!("{owner}/{id}"),
-            id: s.id.clone(),
-            process: s.package.process(),
-            config: s.config.to_string(),
-            folder: s.folder.clone(),
-            rest: rest.to_string(),
+    let found = |(document, bindings): (&PathBuf, &Vec<Binding>)| {
+        bindings.iter().find_map(|b| {
+            let s = b.0.lock().unwrap();
+            (s.owner == owner && s.id == id && s.scope == *scope).then(|| {
+                let live = Live {
+                    key: format!("{owner}/{id}"),
+                    id: s.id.clone(),
+                    process: s.package.process(),
+                    config: s.config.to_string(),
+                    folder: s.folder.clone(),
+                    rest: rest.to_string(),
+                };
+                (live, document.clone())
+            })
         })
-    })
+    };
+    preferred
+        .and_then(|preferred| guard.get_key_value(preferred))
+        .and_then(found)
+        .or_else(|| guard.iter().find_map(found))
 }
 /// Whether `key`, a [`Live::key`], still names a bound extension: one whose
 /// document was not loaded again with another configuration.
@@ -666,6 +824,132 @@ mod tests {
         assert!(bindings[0].prepare().unwrap());
         assert!(bindings[0].view(&dir.join("model/a.toy")).is_ok());
         instances().lock().unwrap().remove(&dir.join("devpage.yml"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A package that only runs a program, as the live session's does.
+    struct Session;
+    impl Package for Session {
+        fn invoke(&self, r: Value) -> Result<Value> {
+            Ok(match r["op"].as_str().unwrap() {
+                "prepare" => json!({"revision": "none"}),
+                _ => json!({}),
+            })
+        }
+        fn process(&self) -> Option<Process> {
+            Some(Process {
+                command: vec!["session".into()],
+                folder: PathBuf::from("/program"),
+            })
+        }
+    }
+
+    #[test]
+    fn the_live_session_is_one_for_a_served_folder_and_a_document_turns_it_off_or_replaces_it() {
+        use crate::document::Document;
+        install_loader(Arc::new(Toy));
+        let dir = std::env::temp_dir().join(format!("devpage-live-session-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for folder in ["widgets", "set", "off", "own/model"] {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+        }
+        std::fs::write(dir.join("widgets/Mine.tsx"), "export default () => null;").unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\nwidgets: widgets\nplaces:\n  float: [Mine]\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("README.md"), "# T\n").unwrap();
+        std::fs::write(dir.join("lone.md"), "# Lone\n").unwrap();
+        std::fs::write(
+            dir.join("set/devpage.yml"),
+            "kind: doc\ntitle: S\nchapters: [a.md]\nextensions:\n  live:\n    config:\n      voice: calm\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("set/a.md"), "# A\n").unwrap();
+        std::fs::write(
+            dir.join("off/devpage.yml"),
+            "kind: doc\ntitle: O\nchapters: [a.md]\nextensions:\n  live:\n    config:\n      enabled: false\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("off/a.md"), "# A\n").unwrap();
+        std::fs::write(
+            dir.join("own/devpage.yml"),
+            "kind: doc\ntitle: W\nchapters: [a.md]\nextensions:\n  live:\n    package: ./package\n    config:\n      input: model\n",
+        )
+        .unwrap();
+        std::fs::write(dir.join("own/a.md"), "# A\n").unwrap();
+        let dir = dir.canonicalize().unwrap();
+        let scope = ServedFolder::new(&dir).unwrap();
+        let load = |path: &str| Document::load(&dir.join(path), &scope).unwrap();
+
+        // Off: no document has it, whatever it says of it.
+        for path in [
+            "devpage.yml",
+            "lone.md",
+            "set/devpage.yml",
+            "off/devpage.yml",
+        ] {
+            let document = load(path);
+            assert!(document.extensions.is_empty(), "{path}");
+            assert!(document.places.panel.is_empty(), "{path}");
+        }
+
+        serve_live(&scope, Arc::new(Session));
+        let site = load("devpage.yml");
+        let (id, address) = site.extensions[0].address();
+        assert_eq!(id, LIVE);
+        assert!(site.extensions[0].is_session());
+        // Its widgets come after the document's own.
+        assert_eq!(site.places.navbar, ["DevpageLiveTasksButton"]);
+        assert_eq!(site.places.panel, ["DevpageLiveTasks"]);
+        assert_eq!(
+            site.places.float,
+            ["Mine", "DevpageLiveCanvas", "DevpageLiveOrb"]
+        );
+        // One address for every document: a lone Markdown file's, and one
+        // that configures the session.
+        for path in ["lone.md", "set/devpage.yml"] {
+            let document = load(path);
+            assert_eq!(document.extensions.len(), 1, "{path}");
+            assert_eq!(document.extensions[0].address().1, address, "{path}");
+            assert_eq!(document.places.panel, ["DevpageLiveTasks"], "{path}");
+        }
+        // Its program is told the served folder, and each document's own
+        // configuration is kept with its binding.
+        let asked = live(&format!("{address}live/socket"), &scope).unwrap();
+        assert_eq!(asked.folder, dir);
+        assert_eq!(asked.rest, "socket");
+        assert!(asked.process.is_some());
+        assert!(bound(&asked.key));
+        let configured = for_document(&dir.join("set/devpage.yml"));
+        assert_eq!(
+            configured[0].0.lock().unwrap().config,
+            json!({"voice": "calm"})
+        );
+
+        // `enabled: false` turns it off for the document, and a package of
+        // the document's own takes its place: devpage places nothing.
+        let off = load("off/devpage.yml");
+        assert!(off.extensions.is_empty());
+        assert_eq!(off.places, Default::default());
+        let own = load("own/devpage.yml");
+        assert_eq!(own.extensions.len(), 1);
+        assert!(!own.extensions[0].is_session());
+        assert_ne!(own.extensions[0].address().1, address);
+        assert_eq!(own.places, Default::default());
+
+        std::fs::write(
+            dir.join("off/devpage.yml"),
+            "kind: doc\ntitle: O\nchapters: [a.md]\nextensions:\n  live:\n    config:\n      enabled: sometimes\n",
+        )
+        .unwrap();
+        let error = Document::load(&dir.join("off/devpage.yml"), &scope).unwrap_err();
+        assert!(
+            format!("{error:#}")
+                .ends_with("extensions: live: config: enabled is not true or false"),
+            "{error:#}"
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

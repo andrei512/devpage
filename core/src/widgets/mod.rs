@@ -39,6 +39,22 @@ pub const SYSTEM: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/DevpageSidebar.tsx"),
     ),
     ("Cards", include_str!("../../assets/widgets/Cards.tsx")),
+    (
+        LIVE_CANVAS,
+        include_str!("../../assets/widgets/DevpageLiveCanvas.tsx"),
+    ),
+    (
+        LIVE_ORB,
+        include_str!("../../assets/widgets/DevpageLiveOrb.tsx"),
+    ),
+    (
+        LIVE_TASKS,
+        include_str!("../../assets/widgets/DevpageLiveTasks.tsx"),
+    ),
+    (
+        LIVE_TASKS_BUTTON,
+        include_str!("../../assets/widgets/DevpageLiveTasksButton.tsx"),
+    ),
     ("Example", include_str!("../../assets/widgets/Example.tsx")),
     (
         "FileTree",
@@ -49,6 +65,7 @@ pub const SYSTEM: &[(&str, &str)] = &[
         REQUIREMENTS,
         include_str!("../../assets/widgets/Requirements.tsx"),
     ),
+    ("Soon", include_str!("../../assets/widgets/Soon.tsx")),
     ("Steps", include_str!("../../assets/widgets/Steps.tsx")),
     ("Tab", include_str!("../../assets/widgets/Tab.tsx")),
     ("Tabs", include_str!("../../assets/widgets/Tabs.tsx")),
@@ -57,6 +74,34 @@ pub const SYSTEM: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/Terminal.tsx"),
     ),
 ];
+
+/// The modules system widgets share, by file name: what a system widget
+/// imports by a relative specifier (`./live`) beside the other system
+/// widgets. None is a widget: a page can't name one.
+pub const SHARED: &[(&str, &str)] = &[
+    (
+        "live-agent-orb.tsx",
+        include_str!("../../assets/widgets/live-agent-orb.tsx"),
+    ),
+    (
+        "live-orb.ts",
+        include_str!("../../assets/widgets/live-orb.ts"),
+    ),
+    ("live.ts", include_str!("../../assets/widgets/live.ts")),
+];
+
+/// The live session's orb, which starts and stops it: devpage's own chrome,
+/// [placed](crate::document::Places) by devpage where the session is on.
+pub const LIVE_ORB: &str = "DevpageLiveOrb";
+
+/// The live session's side panel: its agents and their tasks.
+pub const LIVE_TASKS: &str = "DevpageLiveTasks";
+
+/// The navbar's button that opens the live session's side panel.
+pub const LIVE_TASKS_BUTTON: &str = "DevpageLiveTasksButton";
+
+/// The live session's canvas: a scratch pad over the page.
+pub const LIVE_CANVAS: &str = "DevpageLiveCanvas";
 
 /// The widget that is a site's sidebar: devpage's own chrome, mounted by the
 /// page script on the sidebar the server rendered, never written in a page.
@@ -136,9 +181,10 @@ impl Widgets {
         };
         for (name, _) in SYSTEM {
             let mount = document.served.mount();
-            widgets
-                .modules
-                .insert(name.to_string(), system_address(name, mount));
+            widgets.modules.insert(
+                name.to_string(),
+                system_address(&format!("{name}.tsx"), mount),
+            );
         }
         widgets.served = document.served.clone();
         widgets.document = (
@@ -320,7 +366,7 @@ impl Widgets {
     /// from devpage beyond its stylesheet and page script: the modules —
     /// React if it has a widget; each widget it names, then the frame's; the
     /// widgets each of those renders by name (its `__devpageUses`), and so
-    /// on; every helper a project widget's imports reach; the design script
+    /// on; every module a widget's imports reach; the design script
     /// and engine with an
     /// embedded design — and what is fetched, not imported: the engine's
     /// wasm. Each is the address [`address`] makes, so it is the one the
@@ -354,10 +400,15 @@ impl Widgets {
                     }
                     snapshot.compile(file, &self.known)
                 }
-                None => self
-                    .cache
-                    .system(&name)
-                    .unwrap_or_else(|| Err(anyhow!("no {name}"))),
+                None => {
+                    let file = format!("{name}.tsx");
+                    for helper in system_closure(&file).into_iter().skip(1) {
+                        helpers.push(system_address(helper, self.served.mount()));
+                    }
+                    self.cache
+                        .system(&file)
+                        .unwrap_or_else(|| Err(anyhow!("no {name}")))
+                }
             };
             queue.extend(compiled.map(|js| compile::uses(&js)).unwrap_or_default());
         }
@@ -399,42 +450,143 @@ pub fn is_widget_file(path: &Path, folder: &Path) -> bool {
             .is_some_and(|ext| ext == "ts" || ext == "tsx")
 }
 
-/// The source of a system widget, by name.
-pub fn system(name: &str) -> Option<&'static str> {
-    SYSTEM.iter().find(|(n, _)| *n == name).map(|(_, s)| *s)
+/// A system module: a system widget's file or one of the [`SHARED`] modules.
+struct SystemModule {
+    /// Its file name, as its address has it: `Tabs.tsx`, `live.ts`.
+    file: String,
+    /// Its source.
+    source: &'static str,
+    /// Each relative specifier it imports and the system module's file the
+    /// specifier names.
+    imports: Vec<(String, String)>,
+    /// Its [version](system_hash).
+    hash: String,
 }
 
-/// A system widget's version: its source, the names it can render and the
-/// build — everything its compiled bytes are made from. `None` for a name
-/// that isn't a system widget.
-pub fn system_hash(name: &str) -> Option<&'static str> {
-    static HASHES: LazyLock<Vec<(&'static str, String)>> = LazyLock::new(|| {
-        let names: Vec<&str> = SYSTEM.iter().map(|(n, _)| *n).collect();
-        SYSTEM
-            .iter()
-            .map(|(name, source)| {
-                let mut hash = Sha256::new();
-                hash.update(crate::addresses::BUILD);
-                hash.update(names.join("\0"));
-                hash.update(name);
-                hash.update(source);
-                (*name, crate::addresses::short(&hash.finalize()))
-            })
-            .collect()
-    });
-    HASHES
+/// Every system module: the system widgets, each as `<name>.tsx`, and the
+/// shared modules.
+static SYSTEM_MODULES: LazyLock<Vec<SystemModule>> = LazyLock::new(|| {
+    let sources: Vec<(String, &'static str)> = SYSTEM
         .iter()
-        .find(|(n, _)| *n == name)
-        .map(|(_, hash)| hash.as_str())
+        .map(|(name, source)| (format!("{name}.tsx"), *source))
+        .chain(
+            SHARED
+                .iter()
+                .map(|(file, source)| (file.to_string(), *source)),
+        )
+        .collect();
+    let names: Vec<&str> = SYSTEM.iter().map(|(n, _)| *n).collect();
+    let imports: BTreeMap<&str, Vec<(String, String)>> = sources
+        .iter()
+        .map(|(file, source)| {
+            let found = compile::relative_imports(Path::new(file), source)
+                .into_iter()
+                .filter_map(|specifier| {
+                    let stem = specifier.strip_prefix("./")?;
+                    modules::IMPORT_EXTENSIONS
+                        .iter()
+                        .map(|ext| format!("{stem}{ext}"))
+                        .find(|named| sources.iter().any(|(file, _)| file == named))
+                        .map(|named| (specifier, named))
+                })
+                .collect();
+            (file.as_str(), found)
+        })
+        .collect();
+    sources
+        .iter()
+        .map(|(file, source)| {
+            let mut hash = Sha256::new();
+            hash.update(crate::addresses::BUILD);
+            hash.update(names.join("\0"));
+            for reached in closure(file, &imports) {
+                let (_, source) = sources
+                    .iter()
+                    .find(|(file, _)| *file == reached)
+                    .expect("an import names a system module");
+                hash.update([0]);
+                hash.update(reached);
+                hash.update([0]);
+                hash.update(source);
+            }
+            SystemModule {
+                file: file.clone(),
+                source,
+                imports: imports[file.as_str()].clone(),
+                hash: crate::addresses::short(&hash.finalize()),
+            }
+        })
+        .collect()
+});
+
+/// `file` and every system module its relative imports reach: `file` first,
+/// then the rest in name order.
+fn closure<'a>(file: &'a str, imports: &'a BTreeMap<&str, Vec<(String, String)>>) -> Vec<&'a str> {
+    let mut found = std::collections::BTreeSet::new();
+    let mut queue = vec![file];
+    while let Some(next) = queue.pop() {
+        for (_, imported) in imports.get(next).into_iter().flatten() {
+            if imported != file && found.insert(imported.as_str()) {
+                queue.push(imported);
+            }
+        }
+    }
+    std::iter::once(file).chain(found).collect()
 }
 
-/// The address the system widget `name` is served at for the document
+/// The system module in `file` — `Tabs.tsx`, `live.ts`.
+fn system_module_named(file: &str) -> Option<&'static SystemModule> {
+    SYSTEM_MODULES.iter().find(|module| module.file == file)
+}
+
+/// The source of the system module in `file`, and each relative specifier
+/// it imports with the address that import asks for: the imported module's
+/// own, beside the importer's. `None` for a file that isn't a system module.
+pub(crate) fn system(file: &str) -> Option<(&'static str, BTreeMap<String, String>)> {
+    let module = system_module_named(file)?;
+    let imports = module
+        .imports
+        .iter()
+        .map(|(specifier, imported)| {
+            let hash = system_hash(imported).unwrap_or_default();
+            (specifier.clone(), format!("./{imported}?v={hash}"))
+        })
+        .collect();
+    Some((module.source, imports))
+}
+
+/// The system module in `file` and every system module its relative imports
+/// reach: `file` first, then the rest in name order. Empty for a file that
+/// isn't a system module.
+pub(crate) fn system_closure(file: &str) -> Vec<&'static str> {
+    let Some(module) = system_module_named(file) else {
+        return Vec::new();
+    };
+    let imports: BTreeMap<&str, Vec<(String, String)>> = SYSTEM_MODULES
+        .iter()
+        .map(|module| (module.file.as_str(), module.imports.clone()))
+        .collect();
+    closure(&module.file, &imports)
+        .into_iter()
+        .filter_map(|file| system_module_named(file).map(|module| module.file.as_str()))
+        .collect()
+}
+
+/// A system module's version: its source, the sources of every system
+/// module its relative imports reach, the names a system widget can render
+/// and the build — everything its compiled bytes are made from. `None` for
+/// a file that isn't a system module.
+pub fn system_hash(file: &str) -> Option<&'static str> {
+    system_module_named(file).map(|module| module.hash.as_str())
+}
+
+/// The address the system module in `file` is served at for the document
 /// served under `mount`, carrying its [version](system_hash).
-pub fn system_address(name: &str, mount: &str) -> String {
-    address(Owned::SystemWidget {
-        name,
+pub fn system_address(file: &str, mount: &str) -> String {
+    address(Owned::SystemModule {
+        file,
         mount,
-        hash: system_hash(name).unwrap_or_default(),
+        hash: system_hash(file).unwrap_or_default(),
     })
 }
 
@@ -446,18 +598,88 @@ mod tests {
     #[test]
     fn a_system_widget_address_carries_its_own_version() {
         assert_eq!(
-            system_address("Callout", ""),
+            system_address("Callout.tsx", ""),
             format!(
                 "/__devpage/system-widgets/Callout.tsx?v={}",
-                system_hash("Callout").unwrap()
+                system_hash("Callout.tsx").unwrap()
             )
         );
         assert_ne!(
-            system_hash("Callout"),
-            system_hash("Tabs"),
+            system_hash("Callout.tsx"),
+            system_hash("Tabs.tsx"),
             "each system widget has its own version"
         );
         assert_eq!(system_hash("Nope"), None);
+    }
+
+    #[test]
+    fn every_system_module_compiles_and_imports_system_modules_at_their_addresses() {
+        let modules = Modules::default();
+        let files = SYSTEM
+            .iter()
+            .map(|(name, _)| format!("{name}.tsx"))
+            .chain(SHARED.iter().map(|(file, _)| file.to_string()));
+        for file in files {
+            let (source, imports) = system(&file).unwrap();
+            assert_eq!(
+                compile::relative_imports(Path::new(&file), source)
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<_>>(),
+                imports.keys().cloned().collect(),
+                "{file}: every relative import names a system module"
+            );
+            let js = modules.system(&file).unwrap().unwrap();
+            for address in imports.values() {
+                assert!(js.contains(&format!("{address:?}")), "{file}: {js}");
+            }
+        }
+        // An import asks for the very address the imported module has: the
+        // importer's own folder, the module's file and its version.
+        let (_, imports) = system("DevpageLiveOrb.tsx").unwrap();
+        assert_eq!(
+            imports["./live"],
+            format!("./live.ts?v={}", system_hash("live.ts").unwrap())
+        );
+        assert_eq!(
+            system_address("live.ts", "/d"),
+            format!(
+                "/d/__devpage/system-widgets/live.ts?v={}",
+                system_hash("live.ts").unwrap()
+            )
+        );
+        assert_eq!(system("live"), None, "a module is named by its file");
+    }
+
+    #[test]
+    fn a_system_widget_loads_with_every_module_its_imports_reach() {
+        assert_eq!(
+            system_closure("DevpageLiveCanvas.tsx"),
+            [
+                "DevpageLiveCanvas.tsx",
+                "DevpageLiveTasks.tsx",
+                "live-agent-orb.tsx",
+                "live.ts"
+            ]
+        );
+        assert_eq!(system_closure("Callout.tsx"), ["Callout.tsx"]);
+        let widgets = Widgets {
+            modules: BTreeMap::from([(
+                LIVE_CANVAS.to_string(),
+                system_address("DevpageLiveCanvas.tsx", ""),
+            )]),
+            ..Widgets::default()
+        };
+        let (modules, _) = widgets.load_set("", &[LIVE_CANVAS]);
+        assert_eq!(
+            modules,
+            [
+                address(Owned::Asset("react.js")),
+                system_address("DevpageLiveCanvas.tsx", ""),
+                system_address("DevpageLiveTasks.tsx", ""),
+                system_address("live-agent-orb.tsx", ""),
+                system_address("live.ts", ""),
+            ]
+        );
     }
 
     #[test]

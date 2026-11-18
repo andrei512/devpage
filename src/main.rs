@@ -129,6 +129,13 @@ enum Command {
     /// The commands that talk to a devpage server.
     #[command(flatten)]
     Remote(drive::client::Command),
+    /// Install the live session: its program, and the bun that runs it.
+    ///
+    /// Unpacks the program this devpage carries into ~/.devpage/live/program,
+    /// downloads devpage's own bun into ~/.devpage/live/bun and installs the
+    /// program's packages with it. Run again after updating devpage; when
+    /// everything is installed already it changes nothing.
+    Setup,
     /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
     ///
     /// Needs `DEVPAGE_OPENAI_API_KEY`, or `DEVPAGE_AZURE_OPENAI_ENDPOINT` and
@@ -150,7 +157,7 @@ impl Command {
         match self {
             Command::Check { json, .. } | Command::Png { json, .. } => *json,
             Command::Remote(command) => command.json(),
-            Command::Pdf { .. } | Command::Server | Command::Video { .. } => false,
+            Command::Pdf { .. } | Command::Server | Command::Setup | Command::Video { .. } => false,
         }
     }
 }
@@ -364,10 +371,28 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
             print!("{}", output.text);
             return Ok(ExitCode::from(output.code));
         }
+        Some(Command::Setup) => {
+            let home = drive::client::contexts::Home::from_env()?;
+            adapters::live::Installed::new(&home.0).setup().await?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let document = Arc::new(Document::load(&path, &cli.root.served()?)?);
+    let served = cli.root.served()?;
+    let home = drive::client::contexts::Home::from_env()?;
+    let installed = adapters::live::Installed::new(&home.0);
+    // The live session acts as whoever runs devpage, as every extension's
+    // process does: it is on only where devpage answers this machine alone,
+    // and only with the key its models need, OpenAI's or Azure's.
+    if cli.host.is_loopback() && adapters::live::has_provider() {
+        let program = home.config().and_then(|config| config.live_program());
+        match program.and_then(|program| installed.package(program.as_deref())) {
+            Ok(package) => devpage_core::extensions::serve_live(&served, package),
+            Err(error) => eprintln!("No live session: {error:#}"),
+        }
+    }
+    let document = Arc::new(Document::load(&path, &served)?);
 
     // The process-wide parts: the change bus, the link checker on the
     // network reporting to the terminal, and who writes a comment — the
@@ -418,6 +443,7 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         adapters::processes::Processes::new(
             format!("http://{shown}:{port}"),
             git::user_name(document.served.path()),
+            installed.bun(),
         )
     });
     let app = match &processes {

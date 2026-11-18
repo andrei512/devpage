@@ -6,6 +6,7 @@
 //! devpage.
 
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,6 +46,8 @@ struct Shared {
     url: String,
     /// Who is at the browser: the local git name, sent as `X-Devpage-User`.
     user: String,
+    /// Where devpage's own bun is once `devpage setup` installed it.
+    bun: PathBuf,
     /// Whether a [`Live::key`] still names a bound extension.
     bound: fn(&str) -> bool,
     /// Each extension's process, by its [`Live::key`]. Held while one starts,
@@ -82,11 +85,13 @@ struct Running {
 type Output = Arc<Mutex<VecDeque<String>>>;
 
 impl Processes {
-    /// The processes of the devpage at `url`, whose reader is `user`.
-    pub fn new(url: String, user: String) -> Self {
+    /// The processes of the devpage at `url`, whose reader is `user`. A
+    /// program named `bun` is devpage's own, at `bun`, when it is there.
+    pub fn new(url: String, user: String, bun: PathBuf) -> Self {
         Self(Arc::new(Shared {
             url,
             user,
+            bun,
             bound: extensions::bound,
             slots: Default::default(),
         }))
@@ -158,7 +163,13 @@ impl Processes {
             uuid::Uuid::new_v4().simple()
         );
         let named = process.command.join(" ");
-        let mut command = Command::new(&process.command[0]);
+        // devpage's own bun, when `devpage setup` installed it, is the `bun`
+        // a package names; the machine's is otherwise.
+        let program = match process.command[0].as_str() {
+            "bun" if self.0.bun.is_file() => self.0.bun.as_os_str(),
+            program => program.as_ref(),
+        };
+        let mut command = Command::new(program);
         command
             .args(&process.command[1..])
             .current_dir(&process.folder)
@@ -328,6 +339,7 @@ pub(crate) mod tests {
         Processes(Arc::new(Shared {
             url: "http://localhost:1".into(),
             user: "Ada".into(),
+            bun: PathBuf::from("devpage-no-bun"),
             bound: |_| true,
             slots: Default::default(),
         }))
@@ -348,8 +360,10 @@ pub(crate) mod tests {
 
     /// Not a test of its own: the process the others start. It answers every
     /// request with what it was started with and what the request carried,
-    /// and echoes whatever an upgraded connection sends. With
-    /// `die` in its configuration it ends at once instead.
+    /// and echoes whatever an upgraded connection sends; a request under
+    /// `/pages/` it answers with a page in Markdown — but `gone.md` it has
+    /// not, and `broken.md` it fails at. With `die` in its configuration it
+    /// ends at once instead.
     #[test]
     fn a_process_serving() {
         let Ok(port) = std::env::var("DEVPAGE_PORT") else {
@@ -387,6 +401,19 @@ pub(crate) mod tests {
                 )
                     .into_response();
             }
+            let path = request.uri().path().to_string();
+            if path.starts_with("/pages/") {
+                return match path.as_str() {
+                    "/pages/gone.md" => (StatusCode::NOT_FOUND, "no such page").into_response(),
+                    "/pages/broken.md" => StatusCode::IM_A_TEAPOT.into_response(),
+                    _ => format!(
+                        "# Written\n\nAsked for `{path}` by {} with the token: {}.\n",
+                        said("x-devpage-user"),
+                        said("x-devpage-token") == std::env::var("DEVPAGE_TOKEN").unwrap(),
+                    )
+                    .into_response(),
+                };
+            }
             let line = format!(
                 "{} {}?{} token={} user={} config={} url={} root={}",
                 request.method(),
@@ -415,7 +442,11 @@ pub(crate) mod tests {
 
     #[tokio::test]
     async fn a_process_starts_once_is_restarted_when_it_died_and_stops() {
-        let processes = Processes::new("http://localhost:1".into(), "Ada".into());
+        let processes = Processes::new(
+            "http://localhost:1".into(),
+            "Ada".into(),
+            PathBuf::from("devpage-no-bun"),
+        );
         let live = live("0000000000000000/toy", Some(serving(&std::env::temp_dir())));
         let first = processes.start(&live, live.process.as_ref().unwrap(), 0);
         let mut running = first.await.unwrap();
@@ -440,6 +471,27 @@ pub(crate) mod tests {
                 .is_err()
         );
         assert!(processes.0.slots.lock().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn a_program_named_bun_is_devpages_own_bun_when_it_is_installed() {
+        // devpage's bun is this test binary here, so the process serves.
+        let processes = Processes::new(
+            "http://localhost:1".into(),
+            "Ada".into(),
+            std::env::current_exe().unwrap(),
+        );
+        let mut process = serving(&std::env::temp_dir());
+        process.command[0] = "bun".into();
+        let live = live("4444444444444444/toy", Some(process));
+        let running = processes.start(&live, live.process.as_ref().unwrap(), 0);
+        let running = running.await.unwrap();
+        assert!(
+            TcpStream::connect(("127.0.0.1", running.endpoint.port))
+                .await
+                .is_ok()
+        );
+        stop(running.child).await;
     }
 
     #[tokio::test]

@@ -22,7 +22,8 @@ checkout — needs:
 
 Nothing else. `devpage pdf` downloads the Chrome it prints with the first time
 it runs, and `devpage video` also needs a GPT-Live key
-([below](#what-pdf-and-video-need)).
+([below](#what-pdf-and-video-need)). The live session has its own program,
+which `devpage setup` installs ([below](#the-live-session)).
 
 ## Install it
 
@@ -140,6 +141,25 @@ CI (`CI` is set), or when `DEVPAGE_NO_UPDATE_CHECK` is set.
   OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
   time it records it downloads Chrome for Testing, at the same pinned
   version, once into the same cache folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
+
+## The live session
+
+[The live session](boxes/viewer/live-session/README.md) — talking over your
+pages while coding agents work — runs a program beside devpage, on a bun of
+devpage's own. On macOS and Linux the install script installs both, by
+running `devpage setup` once devpage is in place; when that fails devpage is
+installed all the same, and the script says so. After `cargo install`, after
+an update, or whenever devpage says `run devpage setup`, run it yourself:
+
+```sh
+devpage setup
+```
+
+It downloads bun at the version devpage pins, checks it against the checksum
+devpage carries, and puts it with the program in `~/.devpage/live/`; it never
+uses or changes a bun the machine has. The session is on once
+`DEVPAGE_OPENAI_API_KEY` is set, or for Azure `DEVPAGE_AZURE_OPENAI_ENDPOINT`
+and `DEVPAGE_AZURE_OPENAI_API_KEY`. Windows has no live session yet.
 
 ## What the build uses
 

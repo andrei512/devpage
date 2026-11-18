@@ -1,0 +1,4 @@
+id: live
+version: "0.1.0"
+api: 1
+run: [bun, service.ts]

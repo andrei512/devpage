@@ -1,0 +1,14 @@
+{
+  "name": "live",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "latest",
+    "quickjs-wasi": "3.6.2",
+    "zod": "^4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.4",
+    "typescript": "^7.0.2"
+  }
+}

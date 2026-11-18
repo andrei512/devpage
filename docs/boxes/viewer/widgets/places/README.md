@@ -28,6 +28,15 @@ places:
 
 Each name is a widget of the document: a [system widget](../system-widgets/README.md), a [project widget](../project-widgets/README.md) or an extension's. It is rendered with no props and no content. A name that is no widget is a problem, shown on every page and reported by `devpage check`: `places: <place>: no widget is named <Name>`. A place devpage doesn't have makes the document invalid.
 
+## Widgets devpage places
+
+Where [the live session](../../live-session/README.md) is on, devpage adds
+its widgets to a document's places, after the document's own: the tasks
+button to `navbar`, the task panel to `panel`, the canvas and the orb to
+`float`. The document names none of them, and a document that
+[turns the session off](../../live-session/README.md#when-it-is-on) gets
+none. The orb moves its place to the window's bottom right corner.
+
 ## How long a placed widget lives
 
 A placed widget is mounted once and stays mounted while the tab shows the document: a link to another page, a live update and Back leave it and its state as they are. It is mounted again when its module changed, or one it renders by name. A page loaded whole mounts it anew.

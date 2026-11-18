@@ -91,6 +91,19 @@ pub struct Places {
 }
 
 impl Places {
+    /// These places with the live session's widgets after the document's
+    /// own, when the session is among `extensions`: its button in the
+    /// navbar, its tasks in the panel, its canvas and its orb floating.
+    fn with_session(mut self, extensions: &[crate::extensions::Binding]) -> Self {
+        use crate::widgets::{LIVE_CANVAS, LIVE_ORB, LIVE_TASKS, LIVE_TASKS_BUTTON};
+        if extensions.iter().any(|binding| binding.is_session()) {
+            self.navbar.push(LIVE_TASKS_BUTTON.to_string());
+            self.panel.push(LIVE_TASKS.to_string());
+            self.float.extend([LIVE_CANVAS, LIVE_ORB].map(String::from));
+        }
+        self
+    }
+
     /// Each place that names a widget, by its name in the document file.
     pub fn named(&self) -> Vec<(&'static str, &[String])> {
         [
@@ -320,7 +333,8 @@ pub enum KindName {
 /// A loaded document: its title, its folder, what it is, and where it is served.
 #[derive(Debug)]
 pub struct Document {
-    /// The extensions the document file configures, bound to it.
+    /// The extensions the document file configures, bound to it, and the
+    /// live session where it is on.
     pub extensions: Vec<crate::extensions::Binding>,
     /// The title it shows: as written, or a Markdown file's first heading —
     /// its file name when it has none — or a design's file name.
@@ -342,7 +356,8 @@ pub struct Document {
     watch_roots: Vec<PathBuf>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
-    /// The widgets it shows outside its pages' text.
+    /// The widgets it shows outside its pages' text: its own and, after
+    /// them, the live session's where that is bound to it.
     pub places: Places,
     /// A site's structure folder — its type files — if it names one.
     pub structure: Option<PathBuf>,
@@ -419,8 +434,14 @@ impl Document {
             });
         }
         if file.extension().is_some_and(|ext| ext == "md") {
+            // A lone Markdown file configures nothing: the live session is
+            // all it can have.
+            let path = base.join(&file_name);
+            crate::extensions::configure(&path, &base, served, Default::default())?;
+            let extensions = crate::extensions::for_document(&path);
             return Ok(Self {
-                extensions: Vec::new(),
+                places: Places::default().with_session(&extensions),
+                extensions,
                 served: served.clone(),
                 title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
@@ -432,7 +453,6 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
-                places: Places::default(),
                 structure: None,
                 requirements: None,
                 navbar: Vec::new(),
@@ -614,8 +634,10 @@ impl Document {
         };
         crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
+        let extensions = crate::extensions::for_document(&base.join(&file_name));
+        let places = places.with_session(&extensions);
         Ok(Self {
-            extensions: crate::extensions::for_document(&base.join(&file_name)),
+            extensions,
             title,
             base,
             kind,

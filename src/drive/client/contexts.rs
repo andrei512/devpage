@@ -20,6 +20,35 @@ pub struct Config {
     /// Every context, by name.
     #[serde(default)]
     pub contexts: BTreeMap<String, Context>,
+    /// The live session's settings on this machine. devpage reads `program`
+    /// alone; the session's program reads the rest, which is kept as it is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub live: Option<serde_yaml::Mapping>,
+}
+
+impl Config {
+    /// `live.program`: the folder of the program devpage runs as the live
+    /// session in place of the installed one, a leading `~` being the home
+    /// folder; `None` when it isn't set.
+    pub fn live_program(&self) -> Result<Option<PathBuf>> {
+        let program = self.live.as_ref().and_then(|live| live.get("program"));
+        let Some(program) = program.filter(|program| !program.is_null()) else {
+            return Ok(None);
+        };
+        let Some(program) = program.as_str() else {
+            bail!("live: program in ~/.devpage/config.yml is not a folder's path");
+        };
+        let folder = match program.strip_prefix('~') {
+            Some(rest) if rest.is_empty() || rest.starts_with('/') => std::env::home_dir()
+                .ok_or_else(|| anyhow!("no home folder"))?
+                .join(rest.trim_start_matches('/')),
+            _ => PathBuf::from(program),
+        };
+        if !folder.is_absolute() {
+            bail!("live: program in ~/.devpage/config.yml is not an absolute path: {program}");
+        }
+        Ok(Some(folder))
+    }
 }
 
 /// A server, and how to get a token for the proxy in front of it.
@@ -194,6 +223,39 @@ mod tests {
         assert_eq!(home.config().unwrap(), config);
         assert_eq!(home.context(None).unwrap().0, "work");
         assert!(home.context(Some("other")).is_err());
+    }
+
+    #[test]
+    fn the_live_settings_survive_a_save_and_program_is_a_folder_with_the_home_expanded() {
+        let home = home("live");
+        assert_eq!(home.config().unwrap().live_program().unwrap(), None);
+        std::fs::create_dir_all(&home.0).unwrap();
+        std::fs::write(
+            home.0.join("config.yml"),
+            "live:\n  program: ~/code/live\n  agents:\n    slow: codex\n",
+        )
+        .unwrap();
+        let mut config = home.config().unwrap();
+        let folder = std::env::home_dir().unwrap().join("code/live");
+        assert_eq!(config.live_program().unwrap(), Some(folder));
+        config.current_context = Some("work".into());
+        home.save_config(&config).unwrap();
+        let text = std::fs::read_to_string(home.0.join("config.yml")).unwrap();
+        assert!(text.contains("program: ~/code/live"), "{text}");
+        assert!(text.contains("slow: codex"), "{text}");
+        let program = |text: &str| {
+            let config: Config = serde_yaml::from_str(text).unwrap();
+            config.live_program()
+        };
+        assert_eq!(program("live:\n").unwrap(), None);
+        assert_eq!(program("live: {agents: {}}").unwrap(), None);
+        assert_eq!(
+            program("live: {program: /opt/live}").unwrap(),
+            Some(PathBuf::from("/opt/live"))
+        );
+        let error = program("live: {program: live}").unwrap_err().to_string();
+        assert!(error.contains("not an absolute path: live"), "{error}");
+        assert!(program("live: {program: [a]}").is_err());
     }
 
     #[test]

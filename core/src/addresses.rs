@@ -48,10 +48,11 @@ include!(concat!(env!("OUT_DIR"), "/manifest.rs"));
 pub enum Owned<'a> {
     /// A built-in asset, by the name it is written by: `"devpage.js"`.
     Asset(&'a str),
-    /// A system widget, by name — `"Callout"` — for the document served under
-    /// `mount`, at its version `hash`.
-    SystemWidget {
-        name: &'a str,
+    /// A system widget's module, or a module system widgets share, by its
+    /// file name — `"Callout.tsx"`, `"live.ts"` — for the document served
+    /// under `mount`, at its version `hash`.
+    SystemModule {
+        file: &'a str,
         mount: &'a str,
         hash: &'a str,
     },
@@ -79,8 +80,8 @@ pub fn address(owned: Owned) -> String {
                 .unwrap_or_else(|| panic!("{name} is not a built-in asset"));
             format!("/__devpage/{}", asset.hashed)
         }
-        Owned::SystemWidget { name, mount, hash } => {
-            format!("{mount}/__devpage/system-widgets/{name}.tsx?v={hash}")
+        Owned::SystemModule { file, mount, hash } => {
+            format!("{mount}/__devpage/system-widgets/{file}?v={hash}")
         }
         Owned::Module { mount, name, hash } => {
             format!("{mount}/__devpage/widgets/{name}?v={hash}")
@@ -154,8 +155,8 @@ mod tests {
     #[test]
     fn a_widget_address_carries_its_mount_and_version() {
         assert_eq!(
-            address(Owned::SystemWidget {
-                name: "Callout",
+            address(Owned::SystemModule {
+                file: "Callout.tsx",
                 mount: "/d/x/v/1",
                 hash: "0123456789abcdef",
             }),

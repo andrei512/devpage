@@ -26,6 +26,7 @@ async fn deck(name: &str, files: &[(&str, &str)]) -> (String, PathBuf, Shots) {
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     for (file, text) in files {
+        std::fs::create_dir_all(dir.join(file).parent().unwrap()).unwrap();
         std::fs::write(dir.join(file), text).unwrap();
     }
     let dir = dir.canonicalize().unwrap();
@@ -67,6 +68,48 @@ async fn a_slide_is_shot_without_its_comments() {
     shots.changed(&[dir.join("one.md")]);
     let after = reqwest::get(&url).await.unwrap().bytes().await.unwrap();
     assert!(after == before, "the comment shows in the slide's PNG");
+}
+
+/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+#[tokio::test]
+#[ignore]
+async fn a_slide_is_shot_without_the_widgets_in_its_decks_places() {
+    let one = ("one.md", "# One\n");
+    let (plain, _, _) = deck(
+        "plain",
+        &[
+            one,
+            ("talk.yml", "kind: slides\ntitle: Talk\nslides: [one.md]\n"),
+        ],
+    )
+    .await;
+    let (placed, _, _) = deck(
+        "placed",
+        &[
+            one,
+            (
+                "talk.yml",
+                "kind: slides\ntitle: Talk\nwidgets: widgets\nslides: [one.md]\nplaces:\n  panel: [Side]\n  float: [Bar]\n",
+            ),
+            (
+                "widgets/Side.tsx",
+                "export default () => <p style={{ background: \"red\" }}>side</p>;",
+            ),
+            (
+                "widgets/Bar.tsx",
+                "export default () => <p style={{ background: \"red\" }}>bar</p>;",
+            ),
+        ],
+    )
+    .await;
+    let shot = |address: String| async move {
+        let url = format!("{address}/talk.yml/1.png");
+        reqwest::get(url).await.unwrap().bytes().await.unwrap()
+    };
+    assert!(
+        shot(placed).await == shot(plain).await,
+        "a place's widget shows in the slide's PNG"
+    );
 }
 
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.

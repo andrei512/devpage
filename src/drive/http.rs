@@ -376,6 +376,10 @@ fn routes(state: AppState) -> Router {
         .route("/__devpage/search", get(search))
         .route("/__devpage/system-widgets/{name}", get(system_widget))
         .route("/__devpage/widgets/{*path}", get(project_widget))
+        .route(
+            "/__devpage/extensions/{owner}/{id}/pages/{*page}",
+            get(live::page),
+        )
         .route("/__devpage/{asset}", get(asset))
         .route("/{*path}", get(file))
         // Every route so far answers with a validator; the streams below
@@ -1507,7 +1511,7 @@ mod tests {
             .and_then(|rest| rest.split('"').next())
             .unwrap()
             .to_string();
-        let tabs = devpage_core::widgets::system_address("Tabs", "");
+        let tabs = devpage_core::widgets::system_address("Tabs.tsx", "");
         for (address, cache) in [
             (card.as_str(), "public, max-age=31536000, immutable"),
             ("/__devpage/widgets/docs/widgets/Card.tsx", "no-cache"),
@@ -1545,7 +1549,7 @@ mod tests {
         assert!(
             page.contains(&format!(
                 "\"Callout\":\"{}\"",
-                devpage_core::widgets::system_address("Callout", "")
+                devpage_core::widgets::system_address("Callout.tsx", "")
             )),
             "{page}"
         );

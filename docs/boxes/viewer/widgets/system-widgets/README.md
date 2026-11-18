@@ -19,10 +19,12 @@ how to write props and content is on [Using widgets](../using-widgets/README.md)
 | [`Steps`](#steps) | — | A numbered Markdown list |
 | [`Cards`](#cards) | `columns` (optional, 2–4; default fits the width) | A Markdown list of links |
 | [`Requirements`](#requirements) | — | None: devpage writes it |
+| [`Soon`](#soon) | `kind`: `flow`, `cards`, `list`, `table`, `picture` or `text`; `height`, `width` (optional) | None |
 
 `Notes` is taken too, though it is not a widget: it holds a slide's
 [notes](../../making-slides/README.md#speaker-notes) and is never shown. So is
-[`DevpageSidebar`](#devpagesidebar), devpage's own chrome. A `mermaid` fence
+[`DevpageSidebar`](#devpagesidebar), devpage's own chrome, and so are
+[the live session's four](#the-live-sessions-widgets). A `mermaid` fence
 is no widget: the server draws it ([Diagrams](../../diagrams/README.md)).
 
 ## Callout
@@ -187,6 +189,27 @@ It takes nothing: devpage finds the requirements by where the page is.
 [Checking requirements](../../checking-requirements/README.md) says how a
 site sets its requirements up.
 
+## Soon
+
+A placeholder for a part of a page that is not written yet: a wireframe of
+what is coming — a flow of steps, cards, a list, a table, a picture or text —
+at about the size the real part will have, so the page does not jump when the
+part takes its place. It has no text. The first one on a page is drawn as the
+next to arrive. An agent of [the live session](../../live-session/README.md)
+writes them into a scratch pad before it fills the pad in.
+
+<Example>
+
+<Soon kind="list" height="s" width="half" />
+<Soon kind="cards" count={2} height="s" width="half" />
+
+</Example>
+
+`height` is `s`, `m`, `l`, `xl` or a number of pixels; `width` is `quarter`,
+`third`, `half`, `two-thirds` or `three-quarters`, and the full width when
+left out. Placeholders that follow each other and fit in one row sit side by
+side.
+
 ## DevpageSidebar
 
 A site's sidebar: devpage's own chrome, not a widget for pages. devpage
@@ -202,3 +225,15 @@ Its name is reserved like every system widget's: a project's
 `DevpageSidebar.tsx` is a problem. The **`Devpage` prefix** marks the widgets
 that are devpage's own chrome, so their names stay clear of a project's: a
 project may have its own `Sidebar`.
+
+## The live session's widgets
+
+`DevpageLiveOrb`, `DevpageLiveTasksButton`, `DevpageLiveTasks` and
+`DevpageLiveCanvas` are [the live session](../../live-session/README.md#what-a-page-shows)
+on a page: the orb that starts and stops it, the button and the panel of its
+tasks, and the canvas its scratch pads are shown on. They are chrome too, not
+widgets for pages: devpage [places them itself](../places/README.md#widgets-devpage-places)
+where the session is on, and a page of a document without the session loads
+none of them. They share their state through modules beside them in
+`core/assets/widgets/`, which a system widget imports as a project widget
+imports its [helpers](../project-widgets/README.md).

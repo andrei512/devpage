@@ -604,7 +604,7 @@ fn a_diagram_page_comes_drawn_and_loads_nothing_for_it() {
         linked(&html, "modulepreload"),
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", "")
+            crate::widgets::system_address("DevpageSidebar.tsx", "")
         ],
         "{html}"
     );
@@ -619,7 +619,7 @@ fn a_plain_page_loads_only_react_and_its_sidebar() {
         linked(&html, "modulepreload"),
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", "")
+            crate::widgets::system_address("DevpageSidebar.tsx", "")
         ],
         "{html}"
     );
@@ -667,8 +667,8 @@ fn a_widget_page_preloads_its_widgets_what_they_render_and_their_helpers() {
         address(Owned::Asset("react.js")),
         module("widgets/Card.tsx"),
         frames,
-        crate::widgets::system_address("Callout", ""),
-        crate::widgets::system_address("DevpageSidebar", ""),
+        crate::widgets::system_address("Callout.tsx", ""),
+        crate::widgets::system_address("DevpageSidebar.tsx", ""),
     ] {
         assert!(modules.contains(&expected), "{expected} in {modules:?}");
     }
@@ -684,7 +684,7 @@ fn a_design_page_preloads_the_design_chain_and_its_wasm_last() {
         modules,
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", ""),
+            crate::widgets::system_address("DevpageSidebar.tsx", ""),
             address(Owned::Asset("design.js")),
             address(Owned::Asset("design-stream.js")),
             address(Owned::Asset("design-canvas.js")),
@@ -807,7 +807,7 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
     // no widget.
     let modules = linked(&html, "modulepreload");
     assert!(
-        modules.contains(&crate::widgets::system_address("DevpageSidebar", "")),
+        modules.contains(&crate::widgets::system_address("DevpageSidebar.tsx", "")),
         "{modules:?}"
     );
 }

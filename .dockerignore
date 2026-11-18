@@ -1,0 +1,3 @@
+# What an image built from this checkout never reads: the live session's
+# installed packages, which the executable does not carry.
+live/node_modules

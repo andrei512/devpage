@@ -19,7 +19,7 @@ export default function TalkFiles() {
           <div>title.md</div>
           <div>agents-write.md</div>
           <div>one-command.md</div>
-          <div className="dim">… 9 more</div>
+          <div className="dim">… 14 more</div>
         </div>
       </Window>
       <span className="arrow">→</span>

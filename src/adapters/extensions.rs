@@ -115,73 +115,88 @@ impl Package for Native {
 struct NativeLoader;
 impl Loader for NativeLoader {
     fn load(&self, path: &Path) -> Result<Arc<dyn Package>> {
-        let root = path.canonicalize()?;
-        let manifest: Manifest =
-            serde_yaml::from_str(&std::fs::read_to_string(root.join("extension.yml"))?)?;
-        if manifest.api != API {
-            bail!("Unsupported extension API {}", manifest.api);
-        }
-        if manifest.id.is_empty()
-            || !manifest
-                .id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        {
-            bail!("Invalid extension id");
-        }
-        if manifest.version.is_empty() {
-            bail!("Extension version is empty");
-        }
-        let process = match manifest.run {
-            Some(command) if command.is_empty() => bail!("Extension run names no program"),
-            Some(command) => Some(Process {
-                command,
-                folder: root.clone(),
-            }),
-            None => None,
+        Ok(package(path)?.1)
+    }
+}
+/// The package in the folder `path`, which must be the extension `id`: how
+/// devpage loads a package no document names, the live session's.
+pub fn load(path: &Path, id: &str) -> Result<Arc<dyn Package>> {
+    let (named, package) = package(path)?;
+    if named != id {
+        bail!("Package {named} is not the extension {id}");
+    }
+    Ok(package)
+}
+/// The id and the package of the folder `path`, after checking its manifest
+/// and ABI.
+fn package(path: &Path) -> Result<(String, Arc<dyn Package>)> {
+    let root = path.canonicalize()?;
+    let manifest: Manifest =
+        serde_yaml::from_str(&std::fs::read_to_string(root.join("extension.yml"))?)?;
+    if manifest.api != API {
+        bail!("Unsupported extension API {}", manifest.api);
+    }
+    if manifest.id.is_empty()
+        || !manifest
+            .id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        bail!("Invalid extension id");
+    }
+    if manifest.version.is_empty() {
+        bail!("Extension version is empty");
+    }
+    let process = match manifest.run {
+        Some(command) if command.is_empty() => bail!("Extension run names no program"),
+        Some(command) => Some(Process {
+            command,
+            folder: root.clone(),
+        }),
+        None => None,
+    };
+    if let Some(assets) = manifest.assets
+        && !root.join(assets).canonicalize()?.starts_with(&root)
+    {
+        bail!("Assets outside package");
+    }
+    let Some(library) = manifest.library else {
+        let Some(process) = process else {
+            bail!("Extension has neither a library nor a program to run");
         };
-        if let Some(assets) = manifest.assets
-            && !root.join(assets).canonicalize()?.starts_with(&root)
-        {
-            bail!("Assets outside package");
-        }
-        let Some(library) = manifest.library else {
-            let Some(process) = process else {
-                bail!("Extension has neither a library nor a program to run");
-            };
-            return Ok(Arc::new(Plain {
-                id: manifest.id,
-                process,
-            }));
+        let package = Plain {
+            id: manifest.id.clone(),
+            process,
         };
-        let target = manifest.target.unwrap_or_default();
-        if target != env!("NATIVE_EXTENSION_TARGET") {
-            bail!("Extension version/target mismatch: {target}");
+        return Ok((manifest.id, Arc::new(package)));
+    };
+    let target = manifest.target.unwrap_or_default();
+    if target != env!("NATIVE_EXTENSION_TARGET") {
+        bail!("Extension version/target mismatch: {target}");
+    }
+    let file = root.join(library).canonicalize()?;
+    if !file.starts_with(&root) {
+        bail!("Library outside package");
+    }
+    unsafe {
+        let library = Library::new(&file).with_context(|| format!("Loading {}", file.display()))?;
+        let entry: libloading::Symbol<unsafe extern "C" fn() -> *const VTable> =
+            library.get(b"devpage_extension_v1")?;
+        let table = entry().as_ref().context("Null extension table")?;
+        if table.version != API || table.size != std::mem::size_of::<VTable>() {
+            bail!("Extension ABI mismatch");
         }
-        let file = root.join(library).canonicalize()?;
-        if !file.starts_with(&root) {
-            bail!("Library outside package");
-        }
-        unsafe {
-            let library =
-                Library::new(&file).with_context(|| format!("Loading {}", file.display()))?;
-            let entry: libloading::Symbol<unsafe extern "C" fn() -> *const VTable> =
-                library.get(b"devpage_extension_v1")?;
-            let table = entry().as_ref().context("Null extension table")?;
-            if table.version != API || table.size != std::mem::size_of::<VTable>() {
-                bail!("Extension ABI mismatch");
-            }
-            let invoke = table.invoke;
-            let release = table.release;
-            Ok(Arc::new(Native {
-                _library: library,
-                root,
-                id: manifest.id,
-                invoke,
-                release,
-                process,
-            }))
-        }
+        let invoke = table.invoke;
+        let release = table.release;
+        let package = Native {
+            _library: library,
+            root,
+            id: manifest.id.clone(),
+            invoke,
+            release,
+            process,
+        };
+        Ok((manifest.id, Arc::new(package)))
     }
 }
 /// Makes core load extension packages as native libraries.
@@ -202,7 +217,8 @@ mod tests {
             "id: clock\nversion: \"1\"\napi: 1\nrun: [clock]\n",
         )
         .unwrap();
-        let package = NativeLoader.load(&dir).unwrap();
+        let package = load(&dir, "clock").unwrap();
+        assert!(load(&dir, "live").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
         assert!(package.process().is_some());
         package

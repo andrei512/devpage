@@ -11,7 +11,7 @@ The exact contract between devpage and an [extension](../README.md) package: the
 
 | Field | Meaning |
 | --- | --- |
-| `package` | Path of the bundle folder, relative to the YAML file. Required, except for the system extension [`code`](../../code-reference/README.md). |
+| `package` | Path of the bundle folder, relative to the YAML file. Required, except for a [system extension](../../glossary/README.md#system-extension): `code`, `requirements` and `live`. |
 | `config` | Any YAML, passed to `create` as JSON. Null when left out. Devpage does not read it. |
 
 An unknown field is an error. A Markdown page uses the extensions of the document that owns it; with no owner, the entry document's. A page printed on its own uses its site's. A binding is kept while the document's whole `extensions` mapping and served folder are unchanged; any change creates the document's bindings again.
@@ -108,13 +108,14 @@ A binding's `base` is `<mount>/__devpage/extensions/<instance>/<id>/`. Under it:
 
 - `browser/<digest>/modules/<path>` serves a compiled module, and `browser/<digest>/styles/<path>` a stylesheet. `<digest>` is the SHA-256 of devpage's build and the declared modules, widgets and styles.
 - `live/<rest>` is passed to the package's [process](#process).
+- `pages/<page>` is a [page](#pages) the process writes.
 - Any other suffix sends `route` with that suffix as `path`, without the query. `mime` defaults to `text/plain` and `status` to `200`.
 
 Only GET and HEAD reach `route`. Every response has `Cache-Control: no-store`. An error answers 500 with its text.
 
 ## Process
 
-The program a manifest's `run` names. It is started in the bundle folder by the first request under `live/`, in a process group of its own, with:
+The program a manifest's `run` names. It is started in the bundle folder by the first request under `live/` or `pages/`, in a process group of its own, with:
 
 | Variable | Value |
 | --- | --- |
@@ -122,7 +123,9 @@ The program a manifest's `run` names. It is started in the bundle folder by the 
 | `DEVPAGE_TOKEN` | The token every request from devpage carries. |
 | `DEVPAGE_URL` | Devpage's own address, as a browser opens it. |
 | `DEVPAGE_CONFIG` | The extension's `config`, as JSON; `null` when left out. |
-| `DEVPAGE_ROOT` | The folder of the document that enabled it. |
+| `DEVPAGE_ROOT` | The folder of the document that enabled it; for [the live session](../../live-session/README.md), the served folder. |
+
+A `run` whose program is `bun` is run with the bun [`devpage setup`](../../configuration-reference/README.md#devpage-setup) installed, when there is one, and else with the `bun` on the `PATH`.
 
 It has 20 seconds to accept a connection on the port. A request under `live/<rest>` — any method, its query, headers and body — is sent to it as a request for `/<rest>`, with two headers set by devpage, whatever the browser sent:
 
@@ -144,6 +147,23 @@ Its response is returned as it is. When it answers `101 Switching Protocols`, th
 | The program died | 502 `extension <id>: its process died`, then the end of what it wrote |
 
 A program that isn't running is started by the next request; one that failed to start is tried again after 2 seconds, then 4, doubling to 30, and from the start once it has run for 10. It is stopped — asked with `SIGTERM`, with what it started, and killed after 3 seconds — when devpage exits and when its extension is no longer bound, which a change to the document's `extensions` mapping causes.
+
+### Pages
+
+A GET of `pages/<page>` under the extension's address asks the process for `/pages/<page>`, as a request under `live/` is passed on: the path as the browser wrote it, the query, and the same two headers. The answer's body is taken as Markdown and drawn as a page:
+
+- In the frame of the document that binds the extension — the entry document when it does, else the first that does. A site draws it as one of its pages, with its navbar and sidebar; any other document as a doc of that one chapter, as a Markdown file served alone is drawn.
+- Its widgets and diagrams are drawn as in any page. A relative link in it is resolved against the page's own address.
+- Its content is named `<page>`: that is the `data-source` of its `<article>` or its chapter's `<section>`, so [a part](../../widgets/page-module/README.md#a-part-of-a-page) of it names its page as the extension does.
+- It shows no comments and lists no problems, and `devpage check` does not read it: it is no file.
+
+| The process answers | devpage answers |
+| --- | --- |
+| 2xx | 200, the page. A body over 8 MB is a 502. |
+| 404 | 404, devpage's own page for an address with nothing at it |
+| Anything else | 502 `extension <id>: its process answered <status> for pages/<page>`, then what it said |
+
+The refusals of a request under `live/` hold here too: no process on a non-loopback address, only `localhost`, only devpage's own pages. An address under no bound extension's `pages/` is not found.
 
 ## Browser modules
 

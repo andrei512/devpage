@@ -20,21 +20,21 @@ pub struct Compiled {
     pub current: bool,
 }
 
-/// The system widget `name` — `Tabs.tsx` — compiled, asked for at
-/// `version`; `Err` with why when it doesn't compile, and `None` for a name
-/// that isn't a system widget.
+/// The system module in `file` — a system widget's, `Tabs.tsx`, or one
+/// they share, `live.ts` — compiled, asked for at `version`; `Err` with why
+/// when it doesn't compile, and `None` for a file that isn't a system
+/// module.
 pub fn system_module(
     modules: &Modules,
-    name: &str,
+    file: &str,
     version: Option<&str>,
 ) -> Option<Result<Compiled, String>> {
-    let stem = name.strip_suffix(".tsx").unwrap_or(name);
-    let compiled = modules.system(stem)?;
-    let current = version.is_some() && version == system_hash(stem);
+    let compiled = modules.system(file)?;
+    let current = version.is_some() && version == system_hash(file);
     Some(
         compiled
             .map(|js| Compiled { js, current })
-            .map_err(|error| format!("{name} does not compile: {error}")),
+            .map_err(|error| format!("{file} does not compile: {error}")),
     )
 }
 

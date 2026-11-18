@@ -46,7 +46,11 @@ when the browser asks for it, with React's automatic JSX runtime. Capitalized na
 widget uses without declaring them are other widgets: the compiled module looks
 each up by name when it renders, and lists them in `__devpageUses`. A system
 widget composes only system widgets; a project widget composes the system
-widgets and those of the document whose widgets folder holds it.
+widgets and those of the document whose widgets folder holds it. A system
+widget imports modules beside it in `core/assets/widgets/` — `./live`, shared
+by [the live session's widgets](../system-widgets/README.md#the-live-sessions-widgets)
+— as a project widget imports its helpers: each is compiled and addressed the
+same way, by its file's name.
 
 Every widget's address carries its **version**, `?v=<hash>`: a hash of its
 source, the source of every module its relative imports reach — directly or
@@ -96,7 +100,7 @@ throws, and the server only adds its headers.
 | --- | --- |
 | `/__devpage/react.<hash>.js` | React and react-dom, [vendored](../../vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
 | `/__devpage/page.<hash>.js` | [The page module](../page-module/README.md), for the import map's `devpage` |
-| `/__devpage/system-widgets/<Name>.tsx?v=<version>` | A system widget, compiled from `core/assets/widgets/`, built into the binary |
+| `/__devpage/system-widgets/<file>?v=<version>` | A system widget, `<Name>.tsx`, or a module one imports, by its file's name — compiled from `core/assets/widgets/`, built into the binary |
 | `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; a path without an extension finds the `.tsx` or `.ts` |
 
 ## In the browser

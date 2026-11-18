@@ -138,17 +138,15 @@ impl Modules {
         result.map_err(|e| anyhow!(e))
     }
 
-    /// A system widget, compiled as its address serves it — system widgets
-    /// compose only each other. `None` for a name that isn't one.
-    pub fn system(&self, name: &str) -> Option<Result<String>> {
-        let source = system(name)?;
+    /// The system module in `file` — a system widget's, `Tabs.tsx`, or a
+    /// shared module's, `live.ts` — compiled as its address serves it: it
+    /// renders by name only system widgets, and each relative import is
+    /// rewritten to the imported system module's address. `None` for a
+    /// file that isn't one.
+    pub fn system(&self, file: &str) -> Option<Result<String>> {
+        let (source, imports) = system(file)?;
         let known: Vec<String> = SYSTEM.iter().map(|(name, _)| name.to_string()).collect();
-        Some(self.compile(
-            Path::new(&format!("{name}.tsx")),
-            source,
-            &known,
-            &Default::default(),
-        ))
+        Some(self.compile(Path::new(file), source, &known, &imports))
     }
 
     /// `file`'s source and resolved imports, read again only when it changed.

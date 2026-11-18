@@ -1,10 +1,11 @@
 //! An extension's `live/` address: every request under it, and every
 //! connection upgraded there — a WebSocket — passed to the extension's
 //! process as it is, with the token that proves it came through devpage and
-//! the name of who is at the browser.
+//! the name of who is at the browser. And its `pages/` address: each page
+//! under it is Markdown the process answers, which devpage draws.
 
 use axum::body::Body;
-use axum::extract::{Request, State};
+use axum::extract::{Path, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::response::{IntoResponse, Response};
 use hyper_util::rt::TokioIo;
@@ -17,6 +18,8 @@ use crate::adapters::processes::Endpoint;
 const TOKEN: &str = "x-devpage-token";
 /// The header a process finds who is at the browser in.
 const USER: &str = "x-devpage-user";
+/// The most Markdown a process may answer a page with, in bytes.
+const LONGEST_PAGE: usize = 8 << 20;
 
 /// Any request under `/__devpage/extensions/<owner>/<id>/live/`.
 pub(super) async fn live(State(state): State<AppState>, request: Request) -> Response {
@@ -56,6 +59,80 @@ pub(super) async fn live(State(state): State<AppState>, request: Request) -> Res
             (StatusCode::BAD_GATEWAY, why).into_response()
         }
     }
+}
+
+/// A page of an extension: `/__devpage/extensions/<owner>/<id>/pages/<page>`.
+/// The extension's process is asked for `pages/<page>`, as a request under
+/// `live/` is passed on, and the Markdown it answers is drawn as a page in
+/// the frame of the document that binds the extension. A page the process
+/// says it has not is not found, as any address with nothing at it.
+pub(super) async fn page(
+    State(state): State<AppState>,
+    Path((owner, id, page)): Path<(String, String, String)>,
+    request: Request,
+) -> Response {
+    let Some(processes) = &state.processes else {
+        return (
+            StatusCode::NOT_FOUND,
+            "extension processes run only under `devpage` on a loopback address",
+        )
+            .into_response();
+    };
+    if let Err(why) = same_origin(request.headers()) {
+        return (StatusCode::FORBIDDEN, why).into_response();
+    }
+    let headers = request.headers().clone();
+    // The address as it was decoded names the page; the process is asked
+    // for it as it was written.
+    let path = format!("/__devpage/extensions/{owner}/{id}/pages/{page}");
+    let missing = {
+        let path = path.clone();
+        move |answers: devpage_core::answer::Answers<'_>| answers.missing(&path)
+    };
+    let entry = state.folder.entry().path();
+    let asked = request.uri().path().to_string();
+    let Some((live, _, document)) =
+        devpage_core::extensions::page(&asked, state.folder.served(), &entry)
+    else {
+        return super::respond(&state, &headers, super::resolved(&state, missing).await).await;
+    };
+    let endpoint = match processes.endpoint(&live).await {
+        Ok(endpoint) => endpoint,
+        Err(why) if live.process.is_none() => {
+            return (StatusCode::NOT_FOUND, why).into_response();
+        }
+        Err(why) => return (StatusCode::BAD_GATEWAY, why).into_response(),
+    };
+    let answered = async {
+        let response = forward(&endpoint, processes.user(), &live.rest, request).await?;
+        let status = response.status();
+        let body = axum::body::to_bytes(response.into_body(), LONGEST_PAGE).await?;
+        anyhow::Ok((status, String::from_utf8_lossy(&body).into_owned()))
+    };
+    let answer = match answered.await {
+        Ok((StatusCode::NOT_FOUND, _)) => super::resolved(&state, missing).await,
+        Ok((status, markdown)) if status.is_success() => {
+            super::resolved(&state, move |answers| {
+                answers.extension_page(&path, &document, &page, markdown)
+            })
+            .await
+        }
+        Ok((status, said)) => {
+            let why = format!(
+                "extension {}: its process answered {status} for {}\n{said}",
+                live.id, live.rest
+            );
+            return (StatusCode::BAD_GATEWAY, why).into_response();
+        }
+        Err(error) => {
+            let why = match processes.died(&live.key).await {
+                Some(output) => format!("extension {}: its process died\n{output}", live.id),
+                None => format!("extension {}: {error}", live.id),
+            };
+            return (StatusCode::BAD_GATEWAY, why).into_response();
+        }
+    };
+    super::respond(&state, &headers, answer).await
 }
 
 /// Refuses a request another site's page made, or one made under a name that
@@ -276,10 +353,169 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_extensions_page_is_what_its_process_wrote_drawn_in_the_sites_frame() {
+        let dir = site("page");
+        let (address, live) = serve(&dir, true).await;
+        let pages = format!(
+            "http://{address}{}pages/",
+            live.strip_suffix("live/").unwrap()
+        );
+        let client = reqwest::Client::new();
+        let asked = |page: &str| {
+            client
+                .get(format!("{pages}{page}"))
+                .header("accept", "text/html")
+        };
+        let got = asked("pads/how%20it.md").send().await.unwrap();
+        assert_eq!(got.status(), 200);
+        let html = got.text().await.unwrap();
+        // The process was asked for the page as a request under `live/` is.
+        assert!(
+            html.contains(
+                "Asked for <code>/pages/pads/how%20it.md</code> by Ada with the token: true."
+            ),
+            "{html}"
+        );
+        // In the site's frame, its parts named as the extension names the
+        // page, and with no comments.
+        assert!(html.contains("<body class=\"site"), "{html}");
+        assert!(html.contains("<title>Written · T</title>"), "{html}");
+        assert!(
+            html.contains("<article data-source=\"pads/how it.md\">"),
+            "{html}"
+        );
+        assert!(html.contains("data-no-comments"), "{html}");
+        // A page the process has not is devpage's page for nothing there.
+        let gone = asked("gone.md").send().await.unwrap();
+        assert_eq!(gone.status(), 404);
+        assert!(gone.text().await.unwrap().contains("Page not found"));
+        let gone = reqwest::get(format!("{pages}gone.md")).await.unwrap();
+        assert_eq!(gone.status(), 404);
+        assert!(gone.text().await.unwrap().starts_with("nothing at "));
+        let broken = asked("broken.md").send().await.unwrap();
+        assert_eq!(broken.status(), 502);
+        let why = broken.text().await.unwrap();
+        assert!(why.contains("answered 418"), "{why}");
+        // Only devpage's own pages reach it, and only an extension's own.
+        let refused = asked("pads/how.md").header("sec-fetch-site", "cross-site");
+        assert_eq!(refused.send().await.unwrap().status(), 403);
+        let nowhere = format!("http://{address}/__devpage/extensions/0000/toy/pages/how.md");
+        assert_eq!(reqwest::get(nowhere).await.unwrap().status(), 404);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_doc_draws_an_extensions_page_as_a_doc_of_one_chapter() {
+        let dir = site("doc-page");
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: doc\ntitle: T\nchapters: [README.md]\nextensions:\n  toy:\n    package: ./toy\n",
+        )
+        .unwrap();
+        let (address, live) = serve(&dir, true).await;
+        let page = format!(
+            "http://{address}{}pages/pads/how.md",
+            live.strip_suffix("live/").unwrap()
+        );
+        let html = reqwest::get(page).await.unwrap().text().await.unwrap();
+        assert!(html.contains("<body class=\"doc\" "), "{html}");
+        assert!(
+            html.contains("<section class=\"chapter\" data-source=\"pads/how.md\">"),
+            "{html}"
+        );
+        assert!(html.contains("<h1 id=\"written\">Written"), "{html}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn the_live_session_is_on_every_page_of_the_served_folder_and_its_program_answers() {
+        let dir = site("session");
+        let run = serde_json::to_string(&serving(&dir).command).unwrap();
+        std::fs::create_dir_all(dir.join("program")).unwrap();
+        std::fs::write(
+            dir.join("program/extension.yml"),
+            format!("id: live\nversion: \"1\"\napi: 1\nrun: {run}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("devpage.yml"),
+            "kind: site\ntitle: T\nroot: README.md\n",
+        )
+        .unwrap();
+        let scope = ServedFolder::new(&dir).unwrap();
+        // Off, a page names none of the session's widgets.
+        let off = Arc::new(Document::load(&dir.join("devpage.yml"), &scope).unwrap());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let without = listener.local_addr().unwrap();
+        let app = App::testing(off, Default::default()).with_processes(keeping());
+        tokio::spawn(async move { axum::serve(listener, router(app)).await.ok() });
+        let html = reqwest::get(format!("http://{without}/"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(html.contains("<h1 id=\"page\">Page"), "{html}");
+        assert!(!html.contains("window.devpagePlaces"), "{html}");
+        assert!(!html.contains("window.devpageExtensions"), "{html}");
+        let preloaded = |html: &str, widget: &str| {
+            html.lines()
+                .any(|line| line.contains("modulepreload") && line.contains(widget))
+        };
+        assert!(!preloaded(&html, "DevpageLive"), "{html}");
+
+        let program = crate::adapters::extensions::load(&dir.join("program"), "live").unwrap();
+        devpage_core::extensions::serve_live(&scope, program);
+        let (address, live) = serve(&dir, true).await;
+        let html = reqwest::get(format!("http://{address}/"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(
+            html.contains(
+                "window.devpagePlaces = {\"float\":[\"DevpageLiveCanvas\",\"DevpageLiveOrb\"],\
+                 \"navbar\":[\"DevpageLiveTasksButton\"],\"panel\":[\"DevpageLiveTasks\"]};"
+            ),
+            "{html}"
+        );
+        assert!(preloaded(&html, "DevpageLiveOrb.tsx"), "{html}");
+        assert!(html.contains(live.strip_suffix("live/").unwrap()), "{html}");
+        // Its program answers what is under its address, and writes its
+        // pages.
+        let said = reqwest::get(format!("http://{address}{live}state"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(said.starts_with("GET /state?"), "{said}");
+        let pad = format!("{}pages/pads/how.md", live.strip_suffix("live/").unwrap());
+        let html = reqwest::get(format!("http://{address}{pad}"))
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
+        assert!(
+            html.contains("<article data-source=\"pads/how.md\">"),
+            "{html}"
+        );
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
     async fn where_no_process_is_started_live_is_not_found() {
         let dir = site("off");
         let (address, live) = serve(&dir, false).await;
         let got = reqwest::get(format!("http://{address}{live}hello"))
+            .await
+            .unwrap();
+        assert_eq!(got.status(), 404);
+        assert!(got.text().await.unwrap().contains("loopback"));
+        let page = live.replace("/live/", "/pages/how.md");
+        let got = reqwest::get(format!("http://{address}{page}"))
             .await
             .unwrap();
         assert_eq!(got.status(), 404);

@@ -27,6 +27,7 @@ COPY --from=source core core
 COPY --from=source design design
 COPY --from=source assets assets
 COPY --from=source bench bench
+COPY --from=source live live
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/target \
     CARGO_TARGET_DIR=/target cargo install --path /src --locked

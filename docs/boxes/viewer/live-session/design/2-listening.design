@@ -1,0 +1,100 @@
+// The orb was pressed. The session listens.
+<Frame name="2-listening" width={1440} height={864} fill={theme.background} clip>
+  <Frame x={0} y={0} width={1440} height={51} layout="row" align="center" justify="space-between" padding={[0, 20]} fill={theme.background}>
+    <Text size={15} weight={700} color={theme.text}>Plotkeeper</Text>
+    <Frame layout="row" align="center" gap={18}>
+      <Text size={13} weight={600} color={theme.text}>Docs</Text>
+      <Text size={13} weight={500} color={theme.muted}>Guides</Text>
+      <Rect width={1} height={22} fill={theme.border} />
+      <Frame height={30} radius={6} layout="row" align="center" justify="center" gap={5} padding={[0, 7]}>
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M9 6h12M9 12h12M9 18h12M3.5 6h1M3.5 12h1M3.5 18h1" />
+      </Frame>
+      <Frame width={30} height={30} radius={6} layout="row" align="center" justify="center">
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </Frame>
+      <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </Frame>
+  </Frame>
+  <Rect x={0} y={51} width={1440} height={1} fill={theme.border} />
+  <Frame x={0} y={52} width={240} height={812} fill={theme.surface} layout="column" padding={[24, 14, 0, 20]} gap={0}>
+    <Frame width={206} height={28} radius={7} fill={theme.background} stroke={theme.border} layout="row" align="center" padding={[0, 10]}>
+      <Text size={12} color={theme.muted}>Search</Text>
+    </Frame>
+    <Frame height={16} />
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Overview</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Gardens</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Plots</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]} fill={theme.accent}>
+      <Text size={12} weight={500} color={theme.onAccent}>The waiting list</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Coordinators</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Notifications</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Changelog</Text>
+    </Frame>
+  </Frame>
+  <Rect x={240} y={52} width={1} height={812} fill={theme.border} />
+  <Frame x={264} y={80} layout="column" width={672}>
+      <Text size={30} weight={700} color={theme.text}>The waiting list</Text>
+      <Frame height={10} />
+      <Text size={14} color={theme.text} width={660} lineHeight={1.55}>Every garden has more people who want a plot than plots. The waiting list decides who is offered the next one.</Text>
+      <Frame height={28} />
+      <Text size={22} weight={700} color={theme.text}>How a plot is offered</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>A gardener joins the list of one garden, or of every garden in the town.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>When a plot is given up, it is offered to the first person on the list.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>An offer stays open for a while, then goes to the next person.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>A coordinator can skip the list for a school or a community group.</Text>
+      </Frame>
+      <Frame height={32} />
+      <Text size={22} weight={700} color={theme.text}>What a gardener sees</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>Their place on the list, for each garden.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>An email when a plot is offered, with one button to accept.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>The offers they let pass.</Text>
+      </Frame>
+      <Frame height={32} />
+      <Text size={22} weight={700} color={theme.text}>What a coordinator sees</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>The list of their garden, in order, with the date each person joined.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>Which plot is on offer, and to whom.</Text>
+      </Frame>
+  </Frame>
+  <Ellipse x={1346} y={770} width={60} height={60} fill={"#8a4cd61a"} stroke={"#8a4cd6"} strokeWidth={2} />
+  <Ellipse x={1362} y={792} width={28} height={22} fill="linear-gradient(135deg, #e64c3c 0%, #8a4cd6 50%, #2f8fe6 100%)" opacity={0.9} />
+  <Ellipse x={1342} y={766} width={68} height={68} fill="#ffffff01" onClick="navigate ./3-marked.design" />
+</Frame>

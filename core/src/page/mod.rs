@@ -20,7 +20,8 @@ pub use crate::html::escape;
 pub use canvas::canvas;
 pub use content::{Link, Rendered, content, ids, read, shown_by, shown_in};
 pub use frame::{
-    doc, generated, invalid, missing, nothing_at, nothing_at_alone, page, slides, workspace,
+    doc, extension, generated, invalid, missing, nothing_at, nothing_at_alone, page, slides,
+    workspace,
 };
 
 #[cfg(test)]

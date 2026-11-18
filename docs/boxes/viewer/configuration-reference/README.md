@@ -16,6 +16,7 @@ devpage check [path] [--root <folder>] [--json] [--docs]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
+devpage setup
 devpage server
 devpage context add|use|list …
 devpage publish <path> [--root <folder>] [--id <uuid>] [--new]
@@ -32,6 +33,7 @@ devpage --version
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
 | `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
+| `devpage setup` | Installs [the live session](../live-session/README.md): [below](#devpage-setup). |
 | `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../server/README.md)). |
 | `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../server/reference/README.md#cli). |
 
@@ -44,6 +46,28 @@ devpage --version
 | a `.design` file | that [design](../designs/README.md), titled by its file name without `.design`: `/` leads to its canvas, and `devpage check` reports its problems |
 | any other file | a document file, whatever its name |
 | none | `.` — `devpage.yml` in the current folder |
+
+### `devpage setup`
+
+Installs what [the live session](../live-session/README.md) runs on, into
+`~/.devpage/live/`, and can be run again at any time: what is already there
+and right is left alone.
+
+1. **bun**, at the version devpage pins, for this system — macOS or Linux, on
+   x86-64 or ARM — downloaded from bun's GitHub release into
+   `~/.devpage/live/bun/<version>/`. The download is kept only when its
+   SHA-256 is the one devpage carries for that build. A bun installed on the
+   machine is neither used nor changed.
+2. **The session's program**, which the executable carries, unpacked into
+   `~/.devpage/live/program/` in place of whatever was there.
+3. **The program's packages**, installed by that bun exactly as the program's
+   lockfile lists them.
+
+The program is then stamped with the version of the executable that unpacked
+it, and a serving devpage runs only a program with its own stamp. The install
+script runs `devpage setup` after installing devpage; when it fails, devpage
+is installed all the same and the script says what to run. On Windows it
+stops with `` `devpage setup` does not support Windows yet ``.
 
 ### Flags
 
@@ -75,7 +99,10 @@ a document's problems from a command that couldn't run:
 ### Environment variables
 
 `devpage video` reads the first four, and never `OPENAI_API_KEY`
-([the narrator](../making-a-video/README.md#the-narrator)). `devpage server`
+([the narrator](../making-a-video/README.md#the-narrator)). Serving on a
+loopback address reads the first three, which with its program
+installed turn [the live session](../live-session/README.md#when-it-is-on)
+on, and the session reads `DEVPAGE_LIVE_MODEL`. `devpage server`
 reads its own, listed in the
 [server reference](../server/reference/README.md#environment), and the
 server commands read `DEVPAGE_CONTEXT`, and serving, `check` and `pdf` read
@@ -85,10 +112,11 @@ counts as not set.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DEVPAGE_OPENAI_API_KEY` | none | Narrate with GPT-Live on OpenAI, with this key. |
-| `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI. |
+| `DEVPAGE_OPENAI_API_KEY` | none | Narrate with GPT-Live on OpenAI, with this key. Serving on a loopback address: the live session's key, for its voice model and Fast's. |
+| `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI, for the live session too. |
 | `DEVPAGE_AZURE_OPENAI_API_KEY` | none | The Azure resource's key; required with the endpoint. |
 | `DEVPAGE_VIDEO_MODEL` | `gpt-live-1` | The model; on Azure, the deployment's name. |
+| `DEVPAGE_LIVE_MODEL` | `gpt-live-1` | The live session's voice model; on Azure, the deployment's name. |
 | `DEVPAGE_NO_UPDATE_CHECK` | none | Set, devpage never asks GitHub whether a newer release is out. |
 | `DEVPAGE_CHROME_SANDBOX` | `on` | `off` runs Chrome — for `devpage pdf`, a slide's PNG, `devpage video` and the server's downloads — without its sandbox. Only for a container, which has no sandbox for Chrome to use and is the boundary itself; the [server image](../server/running-a-server/README.md) sets it. |
 
@@ -178,6 +206,35 @@ default.
 A site, doc or deck accepts an optional `extensions` mapping. Each key is an extension ID; its entry names a built bundle with `package`, relative to this document file, and passes `config` to the package unread. The [package reference](../extensions/reference/README.md#configuration) gives the bundle's rules and errors. Enabling an extension does not compile or install it.
 
 Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.
+
+### `live`
+
+Where [the live session](../live-session/README.md#when-it-is-on) is on, every
+document has the system extension `live` without an entry. An entry changes
+it for that document:
+
+| Entry | Does |
+| --- | --- |
+| `live: {config: {…}}` | Passes the session these settings for the project, over the ones under `live` in `~/.devpage/config.yml`. |
+| `live: {config: {enabled: false}}` | Turns the session off for the document. `enabled` is `true` or `false`. |
+| `live: {package: <path>}` | Binds that package in the built-in session's place. |
+
+Where the session is off, an entry with no `package` is accepted and changes
+nothing.
+
+### Settings for every project
+
+`~/.devpage/config.yml` holds the [server contexts](../server/reference/README.md#cli)
+and, under `live`, the live session's settings for every project. devpage
+reads one of them:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `live.program` | path | A folder holding the session's program, run in place of the installed one. Absolute, or from `~`. |
+
+Every other key under `live` belongs to
+[the session's program](../live-session/README.md#settings), and is kept when
+a `devpage context` command writes the file.
 
 ### `code`
 
@@ -276,7 +333,7 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
 | A `navbar` key has neither a label nor an `(icon)` | `in <file>` — `navbar has an entry with neither a label nor an icon` |
 | `extensions: code` on a doc or slides | `in <file>` — `extensions: code: only a site has a code reference` |
-| An extension other than `code` without `package` | `in <file>` — `extensions: <id>: package is required — <id> is not a system extension` |
+| An extension that is no system extension without `package` | `in <file>` — `extensions: <id>: package is required — <id> is not a system extension` |
 | `extensions: code` with no namespace in its `config` | `in <file>` — `extensions: code: config lists no namespaces` |
 | A `code` namespace's field the namespace doesn't have | `in <file>` — `extensions: code`, then ``unknown field `bogus`, expected one of `language`, `files`, `query`, `private` `` |
 | A namespace's `files` is an empty list | `in <file>` — `extensions: code: <namespace>`, then `files lists no patterns` |
@@ -286,6 +343,23 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `query` names no file | `in <file>` — `extensions: code: <namespace>`, then `query <path> does not exist` |
 | `query` doesn't compile against the grammar | `in <file>` — `extensions: code: <namespace>`, then `query <file>` and `line <n>: <kind> error: <what>` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
+
+### The live session
+
+Said once as devpage starts, when `DEVPAGE_OPENAI_API_KEY` or Azure's two
+variables are set on a loopback address; devpage then serves without the session.
+
+| Problem | Message |
+| --- | --- |
+| No program is installed | ``No live session: its program is not installed: run `devpage setup` `` |
+| The installed program is another version's | ``No live session: the program in <folder> is another devpage's: run `devpage setup` `` |
+| `live.program` is no text | `No live session: live: program in ~/.devpage/config.yml is not a folder's path` |
+| `live.program` is neither absolute nor from `~` | `No live session: live: program in ~/.devpage/config.yml is not an absolute path: <path>` |
+| The program's folder has no valid `extension.yml`, or one for another extension | `No live session: loading its program in <folder>`, then the [bundle's](../extensions/reference/README.md#bundle) error, or `Package <id> is not the extension live` |
+| `~/.devpage/config.yml` does not read | `No live session:`, then the error |
+
+A document whose `live` entry has an `enabled` that is neither `true` nor
+`false` is invalid: `extensions: live: config: enabled is not true or false`.
 
 ### Binding the address
 

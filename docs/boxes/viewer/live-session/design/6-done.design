@@ -1,0 +1,142 @@
+// The item is rewritten on the page, its task is done, and the assistant says so.
+<Frame name="6-done" width={1440} height={864} fill={theme.background} clip>
+  <Frame x={0} y={0} width={1140} height={51} layout="row" align="center" justify="space-between" padding={[0, 20]} fill={theme.background}>
+    <Text size={15} weight={700} color={theme.text}>Plotkeeper</Text>
+    <Frame layout="row" align="center" gap={18}>
+      <Text size={13} weight={600} color={theme.text}>Docs</Text>
+      <Text size={13} weight={500} color={theme.muted}>Guides</Text>
+      <Rect width={1} height={22} fill={theme.border} />
+      <Frame height={30} radius={6} layout="row" align="center" justify="center" gap={5} padding={[0, 7]} fill={theme.pressed}>
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2} d="M9 6h12M9 12h12M9 18h12M3.5 6h1M3.5 12h1M3.5 18h1" />
+        <Frame layout="row" align="center" justify="center" height={16} padding={[0, 5]} radius={8} fill={theme.user}><Text size={10} weight={700} color="#ffffff">1</Text></Frame>
+      </Frame>
+      <Frame width={30} height={30} radius={6} layout="row" align="center" justify="center">
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </Frame>
+      <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </Frame>
+  </Frame>
+  <Rect x={0} y={51} width={1140} height={1} fill={theme.border} />
+  <Frame x={0} y={52} width={240} height={812} fill={theme.surface} layout="column" padding={[24, 14, 0, 20]} gap={0}>
+    <Frame width={206} height={28} radius={7} fill={theme.background} stroke={theme.border} layout="row" align="center" padding={[0, 10]}>
+      <Text size={12} color={theme.muted}>Search</Text>
+    </Frame>
+    <Frame height={16} />
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Overview</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Gardens</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Plots</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]} fill={theme.accent}>
+      <Text size={12} weight={500} color={theme.onAccent}>The waiting list</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Coordinators</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Notifications</Text>
+    </Frame>
+    <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+      <Text size={12} weight={500} color={theme.text}>Changelog</Text>
+    </Frame>
+  </Frame>
+  <Rect x={240} y={52} width={1} height={812} fill={theme.border} />
+  <Frame x={264} y={80} layout="column" width={672}>
+      <Text size={30} weight={700} color={theme.text}>The waiting list</Text>
+      <Frame height={10} />
+      <Text size={14} color={theme.text} width={660} lineHeight={1.55}>Every garden has more people who want a plot than plots. The waiting list decides who is offered the next one.</Text>
+      <Frame height={28} />
+      <Text size={22} weight={700} color={theme.text}>How a plot is offered</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>A gardener joins the list of one garden, or of every garden in the town.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>When a plot is given up, it is offered to the first person on the list.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>An offer stays open for seven days. After that it goes to the next person on the list, and the first one keeps their place.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>A coordinator can skip the list for a school or a community group.</Text>
+      </Frame>
+      <Frame height={32} />
+      <Text size={22} weight={700} color={theme.text}>What a gardener sees</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>Their place on the list, for each garden.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>An email when a plot is offered, with one button to accept.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>The offers they let pass.</Text>
+      </Frame>
+      <Frame height={32} />
+      <Text size={22} weight={700} color={theme.text}>What a coordinator sees</Text>
+      <Frame height={12} />
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>The list of their garden, in order, with the date each person joined.</Text>
+      </Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3}>
+        <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+        <Text size={14} color={theme.text} width={630} lineHeight={1.55}>Which plot is on offer, and to whom.</Text>
+      </Frame>
+  </Frame>
+  <Frame name="panel" x={1140} y={0} width={300} height={864} fill={theme.surface}>
+    <Frame x={0} y={0} width={300} height={51} layout="column" justify="end" padding={[8, 16, 7, 16]}>
+      <Text size={13} color={theme.muted} width={268} lineHeight={1.45}>The page now says an offer stays open for seven days.</Text>
+    </Frame>
+    <Rect x={0} y={51} width={300} height={1} fill={theme.border} />
+    <Frame x={0} y={60} width={300} layout="column" padding={[4, 8]} gap={1}>
+      <Frame width={284} padding={[6, 8, 2, 8]}><Text size={11} weight={600} color={theme.muted}>Working</Text></Frame>
+      <Frame layout="row" width={284} padding={[9, 6, 4, 8]} align="center" justify="space-between">
+        <Frame layout="row" gap={10} align="center">
+          <Frame width={22} height={22}>
+            <Ellipse x={0} y={0} width={22} height={22} fill="#2fb9a31f" stroke="#2fb9a3" strokeWidth={1.5} />
+            <Ellipse x={4} y={6} width={13} height={11} fill="linear-gradient(135deg, #2fb9a3 0%, #2f6fe6 100%)" opacity={0.95} />
+          </Frame>
+          <Text size={13} weight={700} color={theme.text} width={200} lineHeight={1.4}>Unanswered offers</Text>
+        </Frame>
+        <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M5 9l7 7 7-7" />
+      </Frame>
+      <Frame layout="row" width={284} padding={[4, 8, 4, 14]} gap={10} align="center">
+        <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2} d="M21 12a9 9 0 1 1-6.2-8.6" />
+        <Text size={13} color={theme.text} width={220} lineHeight={1.4}>Add a part on unanswered offers</Text>
+      </Frame>
+      <Frame height={6} />
+      <Frame layout="row" width={284} padding={[9, 6, 4, 8]} align="center" justify="space-between">
+        <Frame layout="row" gap={10} align="center">
+          <Frame width={22} height={22}>
+            <Ellipse x={0} y={0} width={22} height={22} fill="#e6923c1f" stroke="#e6923c" strokeWidth={1.5} />
+            <Ellipse x={4} y={6} width={13} height={11} fill="linear-gradient(135deg, #e6923c 0%, #e64c8a 100%)" opacity={0.95} />
+          </Frame>
+          <Text size={13} weight={700} color={theme.text} width={200} lineHeight={1.4}>Waiting list</Text>
+        </Frame>
+        <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M5 9l7 7 7-7" />
+      </Frame>
+      <Frame layout="row" width={284} padding={[4, 8, 4, 14]} gap={10} align="center" onClick="navigate ./8-go-to.design">
+        <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2} d="M4 12.5l5 5L20 6.5" />
+        <Text size={13} color={theme.muted} width={220} lineHeight={1.4}>Say how long an offer stays open</Text>
+      </Frame>
+      <Frame height={6} />
+    </Frame>
+  </Frame>
+  <Rect x={1140} y={0} width={1} height={864} fill={theme.border} />
+  <Vector x={1036} y={760} width={80} height={80} viewBox="0 0 80 80" stroke="#8a4cd6" strokeWidth={3} d="M40 2 A38 38 0 0 1 78 40 M40 78 A38 38 0 0 1 2 40" />
+  <Ellipse x={1046} y={770} width={60} height={60} fill={"#2f8fe61a"} stroke={theme.assistant} strokeWidth={2} />
+  <Ellipse x={1056} y={785} width={40} height={32} fill="linear-gradient(135deg, #1b5fb0 0%, #2f8fe6 55%, #9ad4ff 100%)" opacity={0.95} />
+  <Ellipse x={1042} y={766} width={68} height={68} fill="#ffffff01" onClick="navigate ./7-off-working.design" />
+</Frame>

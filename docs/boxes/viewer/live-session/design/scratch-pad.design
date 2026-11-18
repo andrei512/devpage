@@ -1,0 +1,105 @@
+// The canvas is the whole screen, rounded, on a thin grey edge. The cross is in its top right corner. The side panel
+// is a card under the cross, as high as what is in it: the same panel as on any page, with the last thing heard or
+// said, the agents with their orbs, the arrow that folds each, their tasks, and the idle ones as one row.
+<Frame name="scratch-pad" width={960} height={600} fill={theme.border} clip>
+  <Frame name="canvas" x={5} y={5} width={950} height={590} radius={12} fill={theme.background} clip>
+    <Frame x={908} y={8} width={32} height={32} layout="row" align="center" justify="center">
+      <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M6 6l12 12M18 6L6 18" />
+    </Frame>
+    <Frame x={56} y={52} layout="column" width={560}>
+      <Text size={26} weight={700} color={theme.text}>Resetting a password</Text>
+      <Frame height={8} />
+      <Text size={13} color={theme.text} width={540} lineHeight={1.55}>How someone who forgot their password gets back in.</Text>
+      <Frame height={24} />
+      <Frame layout="row" align="center" gap={10}>
+        <Frame width={120} height={46} stroke={theme.border} fill={theme.surface} radius={6} layout="row" align="center" justify="center"><Text size={12} weight={600} color={theme.text}>Forgot password</Text></Frame>
+        <Text size={16} color={theme.muted}>→</Text>
+        <Frame width={120} height={46} stroke={theme.border} fill={theme.surface} radius={6} layout="row" align="center" justify="center"><Text size={12} weight={600} color={theme.text}>Open the link</Text></Frame>
+        <Text size={16} color={theme.muted}>→</Text>
+        <Frame width={120} height={46} stroke={theme.border} fill={theme.surface} radius={6} layout="row" align="center" justify="center"><Text size={12} weight={600} color={theme.text}>New password</Text></Frame>
+        <Text size={16} color={theme.muted}>→</Text>
+        <Frame width={90} height={46} stroke={theme.border} fill={theme.surface} radius={6} layout="row" align="center" justify="center"><Text size={12} weight={600} color={theme.text}>Signed in</Text></Frame>
+      </Frame>
+      <Frame height={26} />
+      <Frame layout="row" gap={10} padding={[3, 6]}><Text size={13} color={theme.text}>1.</Text><Text size={13} color={theme.text} width={500}>Add the link under the password field.</Text></Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]}><Text size={13} color={theme.text}>2.</Text><Text size={13} color={theme.text} width={500}>Send the email, with a link that works once.</Text></Frame>
+      <Frame layout="row" gap={10} padding={[3, 6]} radius={3} fill={theme.markUser}><Text size={13} color={theme.text}>3.</Text><Text size={13} color={theme.text} width={500}>Sign the person in right after the new password is saved.</Text></Frame>
+    </Frame>
+
+  <Frame name="side-panel" x={654} y={48} width={282} height={396} radius={12} fill={theme.background} stroke={theme.border} clip>
+    <Frame x={1} y={0} width={280} height={52} layout="column" justify="end" padding={[8, 16, 7, 16]}>
+      <Text size={13} color={theme.muted} width={248} lineHeight={1.45}>I'm working step three into the plan now.</Text>
+    </Frame>
+    <Rect x={1} y={52} width={280} height={1} fill={theme.border} />
+    <Frame x={1} y={60} width={280} layout="column" padding={[4, 8]} gap={1}>
+    <Frame layout="row" width={264} padding={[9, 6, 4, 8]} align="center" justify="space-between">
+      <Frame layout="row" gap={10} align="center">
+        <Frame width={22} height={22}>
+          <Ellipse x={0} y={0} width={22} height={22} fill="#e6923c1f" stroke="#e6923c" strokeWidth={1.5} />
+          <Ellipse x={4} y={6} width={13} height={11} fill="linear-gradient(135deg, #e6923c 0%, #e64c8a 100%)" opacity={0.95} />
+        </Frame>
+        <Text size={13} weight={700} color={theme.text} width={180} lineHeight={1.4}>Password reset</Text>
+      </Frame>
+      <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M5 9l7 7 7-7" />
+    </Frame>
+    <Frame layout="row" width={264} padding={[4, 8, 4, 14]} gap={10} align="center">
+      <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2} d="M21 12a9 9 0 1 1-6.2-8.6" />
+      <Text size={13} color={theme.text} width={200} lineHeight={1.4}>Sign in after the reset</Text>
+    </Frame>
+    <Frame layout="row" width={264} padding={[4, 8, 4, 14]} gap={10} align="center">
+      <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2} d="M4 12.5l5 5L20 6.5" />
+      <Text size={13} color={theme.muted} width={200} lineHeight={1.4}>Compare link and code</Text>
+    </Frame>
+    <Frame layout="row" width={264} padding={[4, 8, 4, 14]} gap={10} align="center">
+      <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2} d="M4 12.5l5 5L20 6.5" />
+      <Text size={13} color={theme.muted} width={200} lineHeight={1.4}>Draw the flow</Text>
+    </Frame>
+    <Frame width={264} padding={[2, 8, 4, 14]}><Text size={12} color={theme.muted}>Show more</Text></Frame>
+    <Frame height={6} />
+    <Frame layout="row" width={264} padding={[9, 6, 4, 8]} align="center" justify="space-between">
+      <Frame layout="row" gap={10} align="center">
+        <Frame width={22} height={22}>
+          <Ellipse x={0} y={0} width={22} height={22} fill="#2fb9a31f" stroke="#2fb9a3" strokeWidth={1.5} />
+          <Ellipse x={6} y={4} width={10} height={13} fill="linear-gradient(200deg, #2fb9a3 0%, #2f6fe6 100%)" opacity={0.95} />
+        </Frame>
+        <Text size={13} weight={700} color={theme.text} width={180} lineHeight={1.4}>Search</Text>
+      </Frame>
+      <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M5 9l7 7 7-7" />
+    </Frame>
+    <Frame layout="row" width={264} padding={[4, 8, 4, 14]} gap={10} align="center">
+      <Vector width={15} height={15} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2} d="M21 12a9 9 0 1 1-6.2-8.6" />
+      <Text size={13} color={theme.text} width={200} lineHeight={1.4}>Faster first search</Text>
+    </Frame>
+    <Frame height={6} />
+    <Frame layout="row" width={264} padding={[8, 6, 8, 8]} align="center" justify="space-between">
+      <Frame layout="row" gap={10} align="center">
+        <Frame width={22} height={22}>
+          <Ellipse x={0} y={0} width={22} height={22} fill="#5c8ae614" stroke="#5c8ae6" strokeWidth={1.5} opacity={0.55} />
+          <Ellipse x={7} y={8} width={8} height={6} fill="#5c8ae6" opacity={0.45} />
+        </Frame>
+        <Frame layout="column" width={180} gap={1}>
+          <Text size={13} weight={500} color={theme.muted} width={180} lineHeight={1.4}>Onboarding guide</Text>
+          <Text size={12} color={theme.muted} width={180} lineHeight={1.4}>✓ Shorten the first page</Text>
+        </Frame>
+      </Frame>
+      <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M9 5l7 7-7 7" />
+    </Frame>
+    <Frame layout="row" width={264} padding={[8, 6, 8, 8]} align="center" justify="space-between">
+      <Frame layout="row" gap={10} align="center">
+        <Frame width={22} height={22}>
+          <Ellipse x={0} y={0} width={22} height={22} fill="#c9a52c14" stroke="#c9a52c" strokeWidth={1.5} opacity={0.55} />
+          <Ellipse x={7} y={8} width={8} height={6} fill="#c9a52c" opacity={0.45} />
+        </Frame>
+        <Frame layout="column" width={180} gap={1}>
+          <Text size={13} weight={500} color={theme.muted} width={180} lineHeight={1.4}>Release notes</Text>
+          <Text size={12} color={theme.muted} width={180} lineHeight={1.4}>✓ List this week's changes</Text>
+        </Frame>
+      </Frame>
+      <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.2} d="M9 5l7 7-7 7" />
+    </Frame>
+    </Frame>
+  </Frame>
+  </Frame>
+  <Ellipse x={896} y={536} width={40} height={40} fill="#e64c3c1a" stroke={theme.user} strokeWidth={2} />
+  <Ellipse x={906} y={548} width={20} height={16} fill={theme.user} opacity={0.9} />
+</Frame>

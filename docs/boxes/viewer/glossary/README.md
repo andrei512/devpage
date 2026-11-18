@@ -457,7 +457,7 @@ A page for every module, type and function of the code a site names, made from t
 
 ## system extension
 
-An extension built into devpage, enabled under `extensions:` with no `package`: `code`.
+An extension built into devpage, with no `package`: `code` and `requirements`, which a site enables under `extensions:`, and `live`, [the live session](../live-session/README.md), which every document has where the session is on.
 
 ## namespace
 
@@ -482,3 +482,63 @@ A Markdown file of a site whose first non-blank line is a heading of an id betwe
 ## 404 page
 
 What a browser is shown, with `404`, at an address with nothing at it: the nearest site's `404.md` in that site's frame, else devpage's own page saying nothing is there and offering the address most likely meant. A request that doesn't accept HTML gets one line, `nothing at <address>`, instead (`Answer::Missing`). See [A page for missing addresses](../making-a-site/README.md#a-page-for-missing-addresses).
+
+## live session
+
+Talking with an assistant over the pages of a project while coding agents on the machine do the work: an orb on every page, a side panel of agents and tasks, and a canvas ([The live session](../live-session/README.md)). Its program is the system extension `live`.
+
+## Voice
+
+The part of a live session that hears the user and speaks: a voice model that hands over everything the user says and says only the lines it is given ([The agents](../live-session/agents/README.md)).
+
+## Fast
+
+The hub of a live session: a quick model woken by a hand-over or by updates, which answers each wake-up with one script and does no work itself ([Fast, the hub](../live-session/fast/README.md)).
+
+## slow agent
+
+One conversation with a coding agent on the machine, which does the work of a live session: it answers questions and changes files ([Slow agents](../live-session/slow-agents/README.md)). Called an agent where no other is meant.
+
+## base agent
+
+The agent of a harness that has read the project and takes no tasks. A new slow agent starts as a fork of it ([Slow agents](../live-session/slow-agents/README.md#the-base-agent)).
+
+## world
+
+Everything Fast can read in a live session: the messages, the page, the tasks and their updates, as one numbered log ([The world](../live-session/world/README.md)).
+
+## task
+
+In a live session, one piece of work given to a slow agent, with its title, its state and its updates ([Slow agents](../live-session/slow-agents/README.md#an-agent-and-its-tasks)). Not the page type `task`.
+
+## update
+
+What a slow agent publishes on its task: progress, a question, finished or failed, written to be spoken ([Slow agents](../live-session/slow-agents/README.md#what-an-agent-publishes)). Not a live update, which is a saved file reaching an open page.
+
+## hand-over
+
+The event by which Voice gives what the user just said to the session's program. It carries an id and a time and no words ([Voice to Fast](../live-session/voice-to-fast/README.md)).
+
+## wake-up
+
+One run of Fast: the world's new entries in, one script out ([Fast, the hub](../live-session/fast/README.md#what-wakes-fast)).
+
+## scratch pad
+
+A Markdown file a live session keeps outside the project, one per idea, which a slow agent writes and devpage draws as a page ([The scratch pad](../live-session/scratch-pad/README.md)). Called a pad for short.
+
+## canvas
+
+The full-screen layer of a live session that shows one scratch pad over the page ([The scratch pad](../live-session/scratch-pad/README.md#showing-it-the-canvas)). Not a canvas page, which is a design drawn on a page of its own.
+
+## harness
+
+A coding agent as a live session uses it, Claude Code or Codex, behind one contract for giving an agent work and reading what happens inside it ([The harness](../live-session/harness/README.md)).
+
+## turn
+
+One message to a slow agent and all it did until it stopped, as a list of items of a closed set of kinds: a message, a read, a change, a command ([The harness](../live-session/harness/README.md#the-primitives)). These items are not the items of a code reference.
+
+## route
+
+A harness and one of its models, named `harness/model`: what a slow agent is made on and stays on ([Routing](../live-session/routing/README.md)).

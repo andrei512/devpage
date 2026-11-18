@@ -1,0 +1,54 @@
+// The board: every screen of one request in the live session, in order. A click on a screen opens it; there, a click on the orb goes to the next one.
+import S1 from "./1-off.design"
+import S2 from "./2-listening.design"
+import S3 from "./3-marked.design"
+import S4 from "./4-task.design"
+import S5 from "./5-working.design"
+import S6 from "./6-done.design"
+import S7 from "./7-off-working.design"
+import S8 from "./8-go-to.design"
+
+<Frame name="The live session" width={6440} height={2728} fill={theme.surface}>
+  <Text x={160} y={160} size={96} weight={700} color={theme.text}>The live session</Text>
+  <Text x={160} y={290} size={34} color={theme.muted}>One request, from pressing the orb to the work being done. Click a screen to open it, then click the orb to step through.</Text>
+  <Text x={160} y={420} size={40} weight={700} color={theme.text}>1. Off</Text>
+  <Text x={160} y={478} size={26} color={theme.muted} width={1440}>The session is off. The page is as it always is, and the orb is an empty grey sphere.</Text>
+  <Frame x={160} y={570} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./1-off.design">
+    <S1 />
+  </Frame>
+  <Text x={1720} y={420} size={40} weight={700} color={theme.text}>2. Listening</Text>
+  <Text x={1720} y={478} size={26} color={theme.muted} width={1440}>The orb was pressed. The session listens, and a click on the page now marks a part.</Text>
+  <Frame x={1720} y={570} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./2-listening.design">
+    <S2 />
+  </Frame>
+  <Text x={3280} y={420} size={40} weight={700} color={theme.text}>3. A click on the part being talked about</Text>
+  <Text x={3280} y={478} size={26} color={theme.muted} width={1440}>The user talks and clicks one item of the list. It is marked in the user's colour, so what is said is about that item. Nothing is typed.</Text>
+  <Frame x={3280} y={570} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./3-marked.design">
+    <S3 />
+  </Frame>
+  <Text x={4840} y={420} size={40} weight={700} color={theme.text}>4. It becomes a task</Text>
+  <Text x={4840} y={478} size={26} color={theme.muted} width={1440}>What was said is a task of an agent. The navbar button shows one running task, and the panel, opened with it, shows the agent and the short line the assistant said.</Text>
+  <Frame x={4840} y={570} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./4-task.design">
+    <S4 />
+  </Frame>
+  <Text x={160} y={1554} size={40} weight={700} color={theme.text}>5. Working</Text>
+  <Text x={160} y={1612} size={26} color={theme.muted} width={1440}>The agent works. The user is already giving the next request, about the whole page, and a second agent gets it.</Text>
+  <Frame x={160} y={1704} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./5-working.design">
+    <S5 />
+  </Frame>
+  <Text x={1720} y={1554} size={40} weight={700} color={theme.text}>6. Done</Text>
+  <Text x={1720} y={1612} size={26} color={theme.muted} width={1440}>The item is rewritten on the page. The panel shows its task as done, and the assistant says so.</Text>
+  <Frame x={1720} y={1704} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./6-done.design">
+    <S6 />
+  </Frame>
+  <Text x={3280} y={1554} size={40} weight={700} color={theme.text}>7. Off, still working</Text>
+  <Text x={3280} y={1612} size={26} color={theme.muted} width={1440}>The orb was pressed again. The voice is off; the running task goes on, and the panel still shows it.</Text>
+  <Frame x={3280} y={1704} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./7-off-working.design">
+    <S7 />
+  </Frame>
+  <Text x={4840} y={1554} size={40} weight={700} color={theme.text}>8. A click on a done task</Text>
+  <Text x={4840} y={1612} size={26} color={theme.muted} width={1440}>The done task was clicked in the panel. The page shows the part it changed, marked. When that part is on another page, that page opens there.</Text>
+  <Frame x={4840} y={1704} width={1440} height={864} stroke={theme.border} shadow={{ y: 12, blur: 40, color: "#00000030" }} onClick="navigate ./8-go-to.design">
+    <S8 />
+  </Frame>
+</Frame>

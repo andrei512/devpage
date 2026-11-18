@@ -33,7 +33,7 @@ flowchart LR
 | `/__devpage/events` | the live-update event stream — see [Live updates](../live-updates/README.md) |
 | `/__devpage/comments…` | the comment store's requests — see [Comments](../comments/the-comment-store/README.md#the-requests); `404` with comments off |
 | `/__devpage/search?q=…` | the hits of a full-text search, as JSON, comments on or off — see [Search](../search/README.md#the-endpoint) |
-| `/__devpage/system-widgets/{name}` | a system widget, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
+| `/__devpage/system-widgets/{name}` | a system widget, or a module one imports, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the [built-in assets](#built-in-assets) |
 | `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
@@ -90,7 +90,10 @@ decided in `Answers` through its package:
   is the package's — a browser file it ships, or what its `route` replies with
   its own body, type and status — and is asked before the served folder's
   files. Its widgets and stylesheets are served there too, under the
-  document's mount.
+  document's mount. Under `live/` the path is passed to the package's
+  process, and under `pages/` the process answers Markdown that is drawn as a
+  page in the document's frame
+  ([Pages](../extensions/reference/README.md#pages)).
 
 The package's own folder is never served as files. Every request and reply is
 in the [package reference](../extensions/reference/README.md#requests).

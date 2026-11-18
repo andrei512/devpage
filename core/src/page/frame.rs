@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::addresses::{Owned, address};
-use crate::document::{Document, Paper, Pdf};
+use crate::document::{Document, Kind, Paper, Pdf};
 use crate::folder::{ServedFolder, lexical};
 use crate::html::{Link, escape};
 use crate::markup::title;
@@ -129,6 +129,43 @@ pub fn generated(
     Some(html.replacen(
         &format!("<article data-source=\"{}\">", escape(&shown)),
         &format!("<article data-source=\"{}\">", escape(&own)),
+        1,
+    ))
+}
+
+/// A page an extension's program wrote, `rendered` at the address it is
+/// shown at, in the frame of `document`, which binds the extension: a site's
+/// page, or — for any other document — a doc of that one chapter, as a
+/// Markdown file alone is drawn. Its content's source is `source`, the page
+/// as its extension names it. It shows no comments, which belong to files,
+/// and lists no problems.
+pub fn extension(
+    document: &Document,
+    widgets: &Widgets,
+    rendered: &Rendered,
+    source: &str,
+) -> Option<String> {
+    let own = document.url(rendered.file())?;
+    let (html, tag) = match &document.kind {
+        Kind::Site { .. } => {
+            let page = title(rendered.source(), rendered.file());
+            let file = rendered.file();
+            let html = framed(document, widgets, file, &page, rendered.html(), false, &[])?;
+            (html, "<article")
+        }
+        kind => {
+            let pdf = match kind {
+                Kind::Doc { pdf, .. } => pdf.clone(),
+                _ => Pdf::default(),
+            };
+            let chapters = std::slice::from_ref(rendered);
+            let html = doc(document, widgets, chapters, &pdf, false, false, &[]);
+            (html, "<section class=\"chapter\"")
+        }
+    };
+    Some(html.replacen(
+        &format!("{tag} data-source=\"{}\">", escape(&own)),
+        &format!("{tag} data-source=\"{}\">", escape(source)),
         1,
     ))
 }

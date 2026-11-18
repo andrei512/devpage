@@ -267,7 +267,7 @@ impl<'a> Answers<'a> {
     /// `404.md` beside its document file, or devpage's own page; outside any
     /// site, devpage's own page alone. devpage's own offers the file the
     /// address most likely meant, when there is one.
-    fn missing(&self, path: &str) -> Answer {
+    pub fn missing(&self, path: &str) -> Answer {
         let entry = self.folder.entry();
         let served = &entry.served;
         let address = format!("{}/{}", served.mount(), path.trim_start_matches('/'));
@@ -327,8 +327,32 @@ impl<'a> Answers<'a> {
         .map(Answer::Html)
     }
 
-    /// `/__devpage/system-widgets/<name>`: a system widget, compiled from
-    /// the TSX built into the binary.
+    /// A page of an extension, at `path`: `markdown`, what the extension's
+    /// program answered for it, drawn in the frame of the document whose
+    /// file is `document` — a page of a site, or of any other document a doc
+    /// of this one chapter. `page` is the page as its extension names it,
+    /// which the content's parts are named by.
+    pub fn extension_page(
+        &self,
+        path: &str,
+        document: &std::path::Path,
+        page: &str,
+        markdown: String,
+    ) -> Answer {
+        let served = self.folder.served();
+        let document = match Document::load(document, served) {
+            Ok(document) => document,
+            Err(error) => return Answer::Failed(format!("{error:#}")),
+        };
+        let would_be = lexical(&served.path().join(path.trim_start_matches('/')));
+        let widgets = Widgets::of(&document, self.modules);
+        let rendered = page::content(&widgets, &would_be, markdown);
+        page::extension(&document, &widgets, &rendered, page)
+            .map_or_else(|| self.missing(path), Answer::Html)
+    }
+
+    /// `/__devpage/system-widgets/<name>`: a system widget, or a module
+    /// system widgets share, compiled from the source built into the binary.
     pub fn system_widget(&self, name: &str, query: Option<&str>) -> Answer {
         module(
             widgets::system_module(self.modules, name, version(query)),
@@ -1049,7 +1073,7 @@ mod tests {
         let answers = served.at();
 
         // A system widget: immutable at its current address only.
-        let tabs = widgets::system_address("Tabs", "");
+        let tabs = widgets::system_address("Tabs.tsx", "");
         let (path, query) = tabs.split_once('?').unwrap();
         let name = path.rsplit('/').next().unwrap();
         let (system, immutable) = module(answers.system_widget(name, Some(query)));

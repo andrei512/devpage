@@ -87,7 +87,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/adapters/external.rs`, `src/drive/http.rs` (tests) |
+| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client; `devpage setup` downloading bun. | `src/adapters/external.rs`, `src/adapters/live.rs`, `src/drive/http.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | The boxed futures of the core's `Ask` and `Background` ports, running external-link checks at once (`join_all`), and driving chromiumoxide's event stream (`StreamExt`). | `core/src/external.rs`, `src/adapters/external.rs`, `src/adapters/chrome.rs`, `src/drive/browser_tests/` (tests) |
 | `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/adapters/chrome.rs`; the Chrome tests in `src/drive/browser_tests/` |
 
@@ -113,7 +113,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `sha2` (both; and the core's build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, an extension's instance id and the address of its browser files, and the ETag of a response or a design's scene; a published version's sha-256. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `core/src/extensions.rs`, `src/drive/validators.rs`, `src/drive/server_mode/published.rs` |
+| `sha2` (both; and the core's build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, an extension's instance id and the address of its browser files, and the ETag of a response or a design's scene; a published version's sha-256; the checksum of the bun `devpage setup` downloads, and the live session's program's stamp. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `core/src/extensions.rs`, `src/adapters/live.rs`, `src/drive/validators.rs`, `src/drive/server_mode/published.rs` |
 | `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/http.rs` (tests) |
 | `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/http.rs` (tests) |
 
@@ -140,7 +140,7 @@ and `design-engine.js`.
 | --- | --- | --- | --- | --- |
 | `rusqlite` (feature `bundled`) | 0.41.0 | MIT | The store: documents, versions and comment threads in one SQLite file. `bundled` builds SQLite from its C source, so no system SQLite is needed. | `src/adapters/sqlite.rs` |
 | `object_store` (features `aws`, `azure`) | 0.14.2 | MIT or Apache-2.0 | The bucket every version's zip is kept in: S3, Azure Blob or a local folder, with credentials read from the environment. | `src/adapters/bucket.rs` |
-| `zip` (default features off; `deflate`) | 8.6.0 | MIT | A publish's zip: packed by the client, unpacked by the server for its check and its cache. | `src/adapters/bundle.rs` |
+| `zip` (default features off; `deflate`) | 8.6.0 | MIT | A publish's zip: packed by the client, unpacked by the server for its check and its cache. bun's release zip, which `devpage setup` takes bun out of. | `src/adapters/bundle.rs`, `src/adapters/live.rs` |
 | `uuid` (feature `v4`) | 1.29.0 | Apache-2.0 or MIT | A new document's id, the names of the cache's temporary folders, and an id in an address read as one, so anything else names no document. | `src/drive/server_mode/published.rs`, `src/drive/server_mode/cache.rs`, `src/drive/server_mode/routes/mod.rs` |
 | `url` | 2.5.8 | MIT or Apache-2.0 | Parsing `DEVPAGE_BUCKET_URL`, and encoding the document file's name in a publish request. | `src/adapters/bucket.rs`, `src/drive/server_mode/config.rs`, `src/drive/client/api.rs` |
 | `tracing` (both) | 0.1.44 | MIT | The core's `check`, `nav` and `render` spans, and the listener server mode's metrics time them with. | `core/src/check.rs`, `core/src/nav.rs`, `core/src/page/`, `src/drive/server_mode/metrics.rs` |

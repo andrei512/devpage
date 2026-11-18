@@ -21,9 +21,11 @@ use tokio::sync::Semaphore;
 
 use crate::adapters::chrome::{Open, Profile, Session};
 
-/// devpage's own controls, which are not part of the slide.
+/// devpage's own controls and the widgets in its places, which are not part
+/// of the slide.
 const HIDE_CONTROLS: &str = "document.head.insertAdjacentHTML('beforeend', \
-    '<style>#devpage-corner, #devpage-comments-toggle { display: none !important; }</style>')";
+    '<style>#devpage-corner, #devpage-comments-toggle, #devpage-place-navbar, #devpage-place-panel, \
+    #devpage-place-float { display: none !important; } body.panel-beside { padding-right: 0 !important; }</style>')";
 
 /// Shots drawn at once; more wait their turn.
 const AT_ONCE: u32 = 2;
