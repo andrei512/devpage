@@ -16,6 +16,7 @@ import type { Harness } from "./harness.ts";
 import { checked, enabledRoutes, find, rules, settings, told, type Enabled, type Route } from "./routes.ts";
 import { NEEDS, provider } from "./provider.ts";
 import { Recording } from "./recording.ts";
+import { coreEntry } from "./events.ts";
 import { registerCore, type CorePart } from "./core-parts.ts";
 import { type Registering, Registry } from "./registry.ts";
 import { BACKEND, Fast, moved, type Carried, type Seen } from "./fast.ts";
@@ -23,9 +24,9 @@ import { everywhere, here as project, HOME, stateOf } from "./home.ts";
 import { map } from "./pages.ts";
 import { Log } from "./log.ts";
 import type { Intent } from "./sandbox.ts";
-import { Tasks, type Part } from "./tasks.ts";
+import { Tasks, type Task, type Part } from "./tasks.ts";
 import { Voice, type Said } from "./voice.ts";
-import { line, World, type Message, type Update } from "./world.ts";
+import { World, type Message, type Update } from "./world.ts";
 
 const PORT = Number(process.env.DEVPAGE_PORT);
 const TOKEN = process.env.DEVPAGE_TOKEN;
@@ -186,7 +187,8 @@ function settle() {
   }
 }
 
-const tasks = new Tasks(store, () => publish("work"));
+const priorTasks = registry.state("work").tasks as Task[] | undefined;
+const tasks = new Tasks(priorTasks ?? store.get<Task[]>("tasks") ?? [], () => publish("work"));
 
 /** The world's registered parts, with their state and entries in one store. A page is sent a part's state when it changes. */
 registerCore(registry, coreFunctions());
@@ -204,8 +206,10 @@ for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.worl
 }
 
 registry.onEntry = (entry, wakes) => {
-  log.write("world", entry.kind, { part: entry.part, text: registry.line(entry), n: entry.n });
-  if (wakes) fast?.entry(`${entry.part}.${entry.kind}`, entry.n);
+  const core = coreEntry(entry);
+  const work = core?.kind === "task" || core?.kind === "update" ? { agent: core.agent, task: core.kind === "task" ? core.id : core.task } : {};
+  log.write("world", entry.kind, { part: entry.part, text: registry.line(entry), n: entry.n, ...work });
+  if (wakes) fast?.entry(core ? core.kind : `${entry.part}.${entry.kind}`, entry.n);
 };
 
 const world = new World(registry);
@@ -486,7 +490,10 @@ function carry(intent: Intent, carried: Carried) {
   return registry.call(`${commandPart[command]}.${command}`, input, caller);
 }
 
-publish("work", "page", "canvas", "session");
+registry.atomic(() => {
+  publish("work", "page", "canvas", "session");
+  store.db.run("delete from session_state where name = 'tasks'");
+});
 const fast: Fast | null = PROVIDER
   ? new Fast(PROVIDER, FAST_MODEL, {
       world, registry,

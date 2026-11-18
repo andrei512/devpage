@@ -456,10 +456,11 @@ export class Fast {
     this.deps.log("wake", { run, text, why: reasons, handovers: handovers.map((handover) => handover.id), entries: entries.map((entry) => entry.n), page: page?.address ?? null, page_ms: Date.now() - began });
 
     const carried: Carried = { run, handover: handovers.at(-1)?.id ?? null, said, used: [] };
+    const activeAgents = new Set(this.deps.work().agents.map(agent => agent.id));
     const scope: Scope = {
       messages: [...context.messages.values()].map(({ id, text, page, marked }) => ({ id, text, page, marked })),
       updates: [...context.updates.values()].map(({ id, text }) => ({ id, text })),
-      agents: [...context.agents].filter((id) => this.deps.work().agents.some(agent => agent.id === id)),
+      agents: [...context.agents].filter((id) => activeAgents.has(id)),
       page: page && { address: page.address, text: page.text },
       pages: this.deps.pages().map(({ address }) => address),
       pads: page?.pads?.map(({ address }) => address) ?? [],

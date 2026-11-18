@@ -74,7 +74,7 @@ export class World {
   private entries: Entry[] = [];
   private ids = { message: 0, update: 0 };
 
-  /** `added` is called with every new entry. */
+  /** Restore transcript ids and the recent entries used by the sandbox. */
   constructor(private readonly registry: Registry) {
     for (const entry of registry.events.core()) {
       this.entries.push(entry);
