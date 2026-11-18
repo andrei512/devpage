@@ -10,7 +10,7 @@ import type { HarnessTool } from "./harness.ts";
 export type For = "fast" | "slow" | "both" | "page";
 
 /** Who called: a run of Fast, with its hand-over and what its script read, a slow agent, or a widget on the user's page. */
-export type Caller = { who: "fast"; run: number; handover: string | null; used: string[]; said?: import("./world.ts").Message[] } | { who: "slow"; agent: number } | { who: "page" };
+export type Caller = { who: "fast"; run: number; handover: string | null; used: string[]; said?: import("./world.ts").Message[] } | { who: "slow"; agent: number | null } | { who: "page" };
 
 /** One thing that happened, as the store keeps it. */
 export interface Entry {
@@ -49,10 +49,12 @@ export interface Fn {
   /** This function already has the session sandbox’s context-sensitive checks. */
   syntax?: string;
   input: Record<string, z.ZodType>;
+  /** Stable harness spelling and transcript rendering for a tool with an existing interface. */
+  tool?: Pick<HarnessTool, "name" | "always" | "reads">;
   run: (input: any, running: Running) => unknown | Promise<unknown>;
 }
 
-type Options = Pick<Fn, "for" | "description" | "brief" | "syntax" | "input">;
+type Options = Pick<Fn, "for" | "description" | "brief" | "syntax" | "input" | "tool">;
 
 /** What a part registers with. An extension's module gets this, with the schema builder: it cannot import the program's packages itself. */
 export interface Registering {
@@ -100,6 +102,13 @@ export class Registry {
     const widgets: typeof this.widgets = [];
     const publish = () => {
       if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      const tools = new Set<string>();
+      for (const [name, fn] of [...this.fns, ...functions]) {
+        if (fn.for !== "both" && fn.for !== "slow") continue;
+        const tool = fn.tool?.name ?? name.replace(".", "_");
+        if (tools.has(tool)) throw new Error(`The slow-agent tool ${tool} is registered twice`);
+        tools.add(tool);
+      }
       for (const [name, kind] of kinds) this.kinds.set(name, kind);
       for (const [name, fn] of functions) this.fns.set(name, fn);
       this.widgets.push(...widgets);
@@ -242,11 +251,12 @@ export class Registry {
       .filter(([, fn]) => fn.for === "slow" || fn.for === "both")
       .map(([name, fn]) => ({
         name: name.replace(".", "_"),
+        ...fn.tool,
         description: fn.description,
         input: fn.input,
         run: async (input: any) => {
           try {
-            if (agent === null) throw new Error("A base agent has no active task.");
+            if (agent === null && fn.does !== "get") throw new Error("A base agent has no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             return { text: typeof result === "string" ? result : JSON.stringify(result ?? "Done.") };
           } catch (error) {

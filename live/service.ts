@@ -9,7 +9,7 @@ import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, statSync, wat
 import { tmpdir } from "node:os";
 import { isAbsolute, join } from "node:path";
 import type { ServerWebSocket } from "bun";
-import { Agents } from "./agents.ts";
+import { Agents, registerAgentFunctions } from "./agents.ts";
 import { ClaudeCode } from "./claude.ts";
 import { Codex } from "./codex.ts";
 import type { Harness } from "./harness.ts";
@@ -232,6 +232,7 @@ void checked(routes, enabled, complain).then((sure) => {
 });
 
 const agents = new Agents(ROOT, PADS, enabled, routes, store, {
+  atomic: change => registry.atomic(change),
   worldTools: agent => registry.tools(agent),
   owns: (agent, id) => tasks.get(id)?.agent === agent,
   session: (agent, line) => {
@@ -388,6 +389,7 @@ function coreFunctions(): Record<CorePart, (as: Registering) => void> {
       });
     },
     work: (as) => {
+      registerAgentFunctions(as, () => agents);
       const { action, z } = as;
       action("spawn", { for: "fast", syntax: "spawn(prompt, route)", description: "Give work to a new agent.", input: { prompt: z.string(), route: z.string().optional() } }, (intent, { caller }) => giveWork({ ...intent, do: "spawn" }, fastCaller(caller)));
       action("send", { for: "fast", syntax: "aN.send(prompt)", description: "Give work to an existing agent.", input: { agent: z.number(), prompt: z.string() } }, (intent, { caller }) => giveWork({ ...intent, do: "send" }, fastCaller(caller)));
