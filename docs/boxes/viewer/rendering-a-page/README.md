@@ -1,9 +1,12 @@
+---
+page-type: mechanism
+---
 # Rendering a page
 
 How a Markdown file becomes the HTML page a reader sees: comrak turns it into
 HTML with highlighted code, its diagrams are drawn, its problems are found,
 the title and sidebar are worked out, and the pieces go into the page frame.
-It is a mechanism page under the
+It sits under the
 [viewer](../README.md), beside [Serving pages](../serving-pages/README.md),
 for someone about to change `core/src/page/`, `core/src/highlight.rs` or
 `core/src/diagrams.rs`.
@@ -121,7 +124,7 @@ image is left as it is.
   HTML (`ClassStyle::SpacedPrefixed { prefix: "hl-" }`): nested spans such
   as `<span class="hl-keyword hl-operator hl-arithmetic hl-rust">`, colored by the
   `--syntax-*` tokens in `core/assets/style.css` (see
-  [Themes](../themes/README.md#the-tokens));
+  [Themes](../themes/tokens/README.md#the-tokens));
 - otherwise — no language, an unknown one, `mermaid`, or a highlighting
   error partway through — writes the code HTML-escaped and unhighlighted;
 - writes a bare `<pre>` and `<code>` with no language attributes, except
@@ -203,7 +206,7 @@ In detail:
   [content addresses](../serving-pages/README.md#built-in-assets) under
   `/__devpage/`; with comments off `devpage.js` carries `data-no-comments`,
   and the script shows no threads and offers no comment
-  ([Turning comments off](../comments/README.md#turning-comments-off));
+  ([Turning comments off](../comments/commenting/README.md#turning-comments-off));
 - then an import map naming React (`react`, `react/jsx-runtime`,
   `react-dom/client` → React's content address,
   `/__devpage/react.<hash>.js`) and

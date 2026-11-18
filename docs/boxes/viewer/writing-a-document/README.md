@@ -1,9 +1,12 @@
+---
+page-type: task
+---
 # Writing a document
 
 How to write a devpage document: the four kinds and when to use each, the
 document file that describes one, and the folder devpage serves from. How
 pages link to each other and which Markdown renders are on their own pages,
-below. It is a task article under the [viewer](../README.md); read
+below. It sits under the [viewer](../README.md); read
 [Getting started](../../../getting-started.md) first for the mental model.
 
 ## Four kinds
@@ -92,7 +95,7 @@ devpage --root ~/code/my-project ~/code/my-project/docs
 
 <Callout kind="warning" title="The served folder is the boundary">
 Everything in the served folder can be served, and nothing outside it can: not
-through `..`, not through a symbolic link ([the rule](../constraints/the-served-folder-is-the-boundary.md)).
+through `..`, not through a symbolic link ([the rule](../requirements/devpage-stays-inside-its-folder.md)).
 </Callout>
 
 The document you start devpage with must be inside the served folder. A
@@ -148,3 +151,9 @@ How a request becomes a page is explained in
   link to a page, a document file or a heading opens.
 - [Markdown that works](markdown-that-works/README.md) — the GitHub-flavoured
   features, code blocks, images and other files.
+
+- [Serving pages](../serving-pages/README.md) — from a request to a file to a
+  page: the served folder, the document a page belongs to, rendering, assets,
+  addresses and logging.
+- [Live updates](../live-updates/README.md) — from a saved file to a swapped page:
+  the watcher, the event stream and the page script.

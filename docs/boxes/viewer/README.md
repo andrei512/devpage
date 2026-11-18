@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # Viewer
 
 The viewer is the `devpage` program. It serves **documents** from a folder
@@ -45,7 +48,7 @@ flowchart LR
   click pdf href "./pdf/README.md" "Printing to PDF"
   click designfiles href "./designs/README.md" "Designs"
   click engine href "./design-engine/README.md" "The design engine"
-  click png href "./designs/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
+  click png href "designs/viewing-a-design/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
 ```
 
 ## Its parts
@@ -96,10 +99,16 @@ Each card opens the page that explains it.
 <Cards>
 
 - (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
+- (network) [Structuring a site](structuring-a-site/README.md) — Page types a site defines, and which may sit under which, checked.
+- (list-checks) [Checking requirements](checking-requirements/README.md) — Constraints as pages, the tests that point at them, and their JUnit results.
 - (book-open) [Configuration reference](configuration-reference/README.md) — Every field, flag and error.
 - (search-check) [Viewer glossary](glossary/README.md) — The words the viewer owns.
 
 </Cards>
+
+## Requirements
+
+<Requirements />
 
 ## Topics
 
@@ -117,6 +126,11 @@ Each card opens the page that explains it.
   sidebar, navbar, logo, theme switch and `404.md`.
 - [Organizing navigation](organizing-navigation/README.md) — how a site's
   Topics sections build the sidebar, and how to lay out its reading order.
+- [Structuring a site](structuring-a-site/README.md) — a site's own page
+  types, the type each page names, and which types may sit under which.
+- [Checking requirements](checking-requirements/README.md) — a system's
+  requirements as pages, tests that point at its constraints, and what
+  `devpage check` reports from their results.
 - [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the
   PDF's paper, header and footer.
 - [Making slides](making-slides/README.md) — one file per slide, the stage,
@@ -149,31 +163,6 @@ Each card opens the page that explains it.
   prose links to it.
 - [Extensions](extensions/README.md) — Enabling a local Rust package without assembling another executable.
 
-### Mechanisms
-
-- [Serving pages](serving-pages/README.md) — from a request to a file to a
-  page: the served folder, the document a page belongs to, rendering, assets,
-  addresses and logging.
-- [Live updates](live-updates/README.md) — from a saved file to a swapped page:
-  the watcher, the event stream and the page script.
-- [Design engine](design-engine/README.md) — parsing, resolving, layout and
-  painting in one crate for two targets, and the gRPC-Web watch stream.
-- [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
-  from Topics sections, resolved, grouped and kept free of cycles.
-- [Search](search/README.md) — the full-text index of what the served
-  document publishes: what is searched and indexed, the query, how it ranks
-  and groups by page, how it stays current,
-  `/__devpage/search`, and the search box in the sidebar.
-- [The vendored pele bundle](vendored-pele/README.md) — the third-party
-  diagram renderer built into devpage: its source, version, licences and how
-  to upgrade it.
-- [The vendored React bundle](vendored-react/README.md) — the React that
-  widgets run with: its version, how it is built, its licence and how to
-  upgrade it.
-- [The vendored icons](vendored-icons/README.md) — the Lucide icons and
-  GitHub's mark devpage draws in navbars and the theme selector: versions,
-  licences and how to upgrade them.
-
 ### Reference
 
 - [Configuration reference](configuration-reference/README.md) — every field
@@ -181,21 +170,3 @@ Each card opens the page that explains it.
   errors devpage stops with.
 - [Viewer glossary](glossary/README.md) — the words the viewer owns, one
   anchor per term.
-
-### Constraints
-
-- [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
-  — what devpage may serve, read and link to.
-- [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
-  — comments stay in `.devpage/`; a PDF or a video goes only where it was
-  asked for.
-- [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
-  — one renderer for screen and paper.
-- [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
-  — identity comes from the proxy in front of it.
-- [One name, one widget](constraints/one-name-one-widget.md)
-  — widgets compose by name, so no name is shadowed.
-- [A design has one renderer](constraints/a-design-has-one-renderer.md)
-  — the agent's PNG is the reader's canvas.
-- [A frame costs what it shows](constraints/a-frame-costs-what-it-shows.md)
-  — no size limit: a view costs what it shows, an edit what it changed.

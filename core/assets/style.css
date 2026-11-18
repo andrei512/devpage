@@ -647,6 +647,31 @@ a.card:hover .card-arrow { opacity: 1; transform: none; }
 .card-summary { font-size: 0.92rem; line-height: 1.5; color: var(--muted); }
 @media print { .card, .step { break-inside: avoid; } .card-arrow { display: none; } a.card { transform: none; box-shadow: none; } }
 
+/* A part's requirements: one row each, its status first. */
+.requirements { margin: 1.25rem 0 20px; }
+.requirements-list { border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+.requirement { display: flex; align-items: baseline; gap: 0.9rem; padding: 0.7rem 1rem; color: var(--text); border-top: 1px solid var(--border); transition: background 0.15s ease; }
+.requirement:first-child { border-top: 0; }
+a.requirement:hover { text-decoration: none; background: color-mix(in srgb, var(--accent) 6%, var(--background)); }
+.requirement-status { flex: none; width: 6.4rem; padding: 0.12rem 0; border-radius: 999px; font-size: 0.78rem; font-weight: 600; text-align: center; white-space: nowrap; color: var(--muted); background: var(--surface); }
+.requirement-status.status-met { color: #1a7f37; background: color-mix(in srgb, #1a7f37 12%, var(--background)); }
+.requirement-status.status-not-met { color: #cf222e; background: color-mix(in srgb, #cf222e 12%, var(--background)); }
+.requirement-status.status-no-test { color: #9a6700; background: color-mix(in srgb, #9a6700 14%, var(--background)); }
+.requirement-title { min-width: 0; }
+.requirements-above { margin-top: 0.75rem; }
+.requirements-above summary { cursor: pointer; padding: 0.3rem 0.2rem; color: var(--muted); font-size: 0.92rem; }
+.requirements-above[open] summary { margin-bottom: 0.4rem; }
+.requirements-checked, .requirements-none { margin: 0.6rem 0.2rem 0; color: var(--muted); font-size: 0.85rem; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) .requirement-status.status-met { color: #3fb950; }
+  :root:not([data-theme]) .requirement-status.status-not-met { color: #ff7b72; }
+  :root:not([data-theme]) .requirement-status.status-no-test { color: #d29922; }
+}
+:root[data-theme="dark"] .requirement-status.status-met { color: #3fb950; }
+:root[data-theme="dark"] .requirement-status.status-not-met { color: #ff7b72; }
+:root[data-theme="dark"] .requirement-status.status-no-test { color: #d29922; }
+@media print { .requirement { break-inside: avoid; } .requirements-above > .requirements-list { display: block; } }
+
 /* A published document's versions: the menu and the download at the bottom
    left — the sidebar leaves room under its last link for them — and on an old
    version a strip across the top linking to the latest, in the page's flow

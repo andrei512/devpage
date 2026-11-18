@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Checking links
 
 How devpage finds broken links: what counts as a problem, how the preview shows
 problems while you write, and how `devpage check` fails a test or a CI job on
-them. It is a task article under the [viewer](../README.md). Links are most of
+them. It sits under the [viewer](../README.md). Links are most of
 what it checks, so the page keeps their name; a diagram that doesn't parse, a
 design with problems and a misplaced `<Notes>` are found and reported the same
 way.
@@ -15,11 +18,12 @@ images, links and `src` attributes in raw HTML, and the targets of Mermaid
 
 | What | Must |
 | --- | --- |
-| A target inside the served folder | exist, inside the [served folder](../constraints/the-served-folder-is-the-boundary.md) |
+| A target inside the served folder | exist, inside the [served folder](../requirements/devpage-stays-inside-its-folder.md) |
 | A `#fragment` | name a heading or id the page it points at renders — in a doc of several chapters, `<chapter>--<id>` or the chapter's own name; see [Headings](#headings) |
 | `#n` on a deck | be a slide the deck has |
 | A document file | be valid for its kind, with its `root`, `chapters` and `slides` naming existing files |
 | A Topics entry | point at an existing page |
+| A page of a site with a [structure](../structuring-a-site/README.md#what-is-checked) | name a page type the site has, sit under a parent its type allows, be listed in a Topics section, and have the sections its type requires |
 | A page of a [code reference](../code-reference/README.md#linking-to-code) | be one the code has — `no such code; did you mean …?` — and its `#fragment` a section it renders — `no section #…` |
 | A [prose file](../glossary/README.md#prose-file) | name an item or member the code has — `` ``<id>`` names no code `` |
 | An `http` or `https` address | answer with a status below 400, following redirects |
@@ -60,14 +64,14 @@ every section it finds is somewhere a link can land.
 Every `.design` file a page links to or embeds, and every design those
 import, must parse and resolve: known elements, attributes and props, values
 of the right type, imports and images that exist in the served folder, and no
-design that uses itself ([Designs](../designs/README.md#problems)). They are
+design that uses itself ([Designs](../designs/viewing-a-design/README.md#problems)). They are
 read from the page's Markdown — an image or a link whose target ends in
 `.design`, never an example in code — and each of the design's problems is
 reported on the page as
 `broken design <target> — <file>:<line>:<column>: <message>`. A design whose
 images don't fit the GPU's atlas together is a problem too. A link to a design's PNG
 address, `x.design.png`, is checked as the design `x.design`
-([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)).
+([Looking at a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)).
 
 ### Diagrams
 

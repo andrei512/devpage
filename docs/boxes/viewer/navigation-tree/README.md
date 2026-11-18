@@ -1,3 +1,6 @@
+---
+page-type: mechanism
+---
 # Navigation tree
 
 How `core/src/nav.rs` reads the sidebar tree out of the pages' `## Topics`
@@ -5,9 +8,8 @@ sections — finding the section, taking each item's first link, resolving it to
 a file, grouping by `###` headings and placing each page once — and how
 `core/src/page/sidebar.rs` turns the tree into the sidebar's HTML — collapsed, the
 current page highlighted and its branch open — which the `DevpageSidebar`
-widget takes over in the browser. It is a mechanism page under the
-[viewer](../README.md), for someone about to change those files; how to use Topics is in
-[Organizing navigation](../organizing-navigation/README.md).
+widget takes over in the browser. It sits under [Organizing navigation](../organizing-navigation/README.md), which says how
+to use Topics, for someone about to change those files.
 
 ## The data
 

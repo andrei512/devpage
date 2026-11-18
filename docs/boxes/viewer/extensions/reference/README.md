@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # Package and protocol reference
 
 The exact contract between devpage and an [extension](../README.md) package: the configuration entry, the bundle, the native boundary, and each JSON request devpage sends with the reply it expects. The definitions live in `core/src/extensions.rs` (binding and requests), `core/src/extensions/browser.rs` (browser modules), `src/adapters/extensions.rs` (manifest and library loading), `src/adapters/processes.rs` (a package's program), `src/drive/http/live.rs` (requests passed to it) and `extension-api/src/lib.rs` (the SDK).

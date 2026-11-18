@@ -1,3 +1,6 @@
+---
+page-type: reference
+---
 # The page module
 
 A widget imports `devpage` to read the page it is on and steer it: what is shown, what the reader selected or picked, where a quoted part is, and the address of an extension. It is how a widget in a [place](../places/README.md) works with the text beside it. This box belongs to [widgets](../README.md).

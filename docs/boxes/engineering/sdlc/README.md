@@ -1,9 +1,12 @@
+---
+page-type: concept
+---
 # SDLC
 
 How work gets from an idea to running code: the stages every change to devpage
 goes through and the skill that runs each, the branches that carry a design
 until the code catches up, the two review bars, and how the box docs are
-organized. It is a concept page of the [Engineering](../README.md) box;
+organized. It sits under the [Engineering](../README.md) box;
 [Running the flow with skills](../running-the-flow/README.md) is the short
 version, from the operator's keyboard.
 
@@ -43,11 +46,12 @@ How box docs are organized and kept true — one home per subject, constraints
 one file per rule, docs on main describing the system as it is — is on the
 [system catalog](../../README.md#how-to-read-the-catalog).
 
-## Constraints
+## Requirements
 
-The SDLC's two rules are listed under [Topics](#topics), one line each, and
-reviewed on every change to the process or to box docs. System-wide rules are
-the [general constraints](../../../constraints/README.md).
+The SDLC's own rules, reviewed on every change to the process or to box docs,
+and the ones every change is held to.
+
+<Requirements />
 
 ## Topics
 
@@ -57,12 +61,3 @@ the [general constraints](../../../constraints/README.md).
   branches: how they merge and when they are deleted.
 - [Review bars and CI](review-bars/README.md) — the task bar and the drift
   bar, and what checks them today.
-
-### Constraints
-
-- [On main, the box docs describe the system as it is](constraints/docs-are-true-on-main.md)
-  — anything merged to main leaves the docs an accurate description of the
-  code; a design not yet built waits on its design branch.
-- [Decisions live in box docs, not in a decision log](constraints/decisions-live-in-box-docs.md)
-  — a decision goes into the owning box's docs or constraints and its reason
-  into the commit message; there is no ADR directory.

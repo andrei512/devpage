@@ -1,11 +1,13 @@
+---
+page-type: mechanism
+---
 # Serving pages
 
 How the viewer answers a request: the URL names a file in the served folder,
 the path is checked to stay inside it, and the file is served as what it is — a
 document, a page in its document's frame, or bytes. It also covers the built-in
 assets, how the browser is told what to keep, the address devpage listens on
-and what it logs. It is a mechanism page
-under the [viewer](../README.md), for someone about to change how requests are
+and what it logs. It sits under [Writing a document](../writing-a-document/README.md), for someone about to change how requests are
 served; [which document a file belongs to](../document-index/README.md) and
 [rendering a page](../rendering-a-page/README.md) go one level deeper.
 
@@ -35,7 +37,7 @@ flowchart LR
 | `/__devpage/widgets/{*path}` | a project widget or helper in the served folder, compiled — see [Widgets](../widgets/how-widgets-run/README.md) |
 | `/__devpage/{asset}` | one of the [built-in assets](#built-in-assets) |
 | `/devpage.design.v1.Designs/Watch` | a page's watch stream over every design it shows, as gRPC-Web; it is the service's only method, and the only path under `/devpage.design.v1.Designs/` that answers — see [Design engine](../design-engine/README.md#the-watch-stream) |
-| `/{*path}.design.png` | the design at `path` painted as a PNG, in its light theme or, with `?theme=dark`, its dark one; `400` for any other `theme` — see [Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png) |
+| `/{*path}.design.png` | the design at `path` painted as a PNG, in its light theme or, with `?theme=dark`, its dark one; `400` for any other `theme` — see [Looking at a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png) |
 | `/{*path}.yml/{n}.png` | slide `n` of the deck at `path.yml` (or `.yaml`) as a 1920 × 1080 PNG, drawn by chrome-headless-shell, with an `ETag` (`304` when the request holds it); `404` with the reason when the file isn't a deck or has no slide `n`; `508 Loop Detected` when a page devpage's own Chrome is shooting asks for a slide not drawn yet — see [A slide as an image](../making-slides/README.md#a-slide-as-an-image) |
 | `/{*path}` | the file at `path` in the served folder |
 
@@ -101,7 +103,7 @@ links between files work as written. Nothing is precomputed: every request
 reads its files from disk.
 
 **Path safety.** Every path takes the same three checks
-([the rule](../constraints/the-served-folder-is-the-boundary.md)):
+([the rule](../requirements/devpage-stays-inside-its-folder.md)):
 
 ```mermaid
 flowchart LR
@@ -237,7 +239,7 @@ Every response but the two streams carries a strong ETag, and a request whose
 matches) is answered `304 Not Modified` with no body. One middleware gives a
 response its ETag — the hash of its body — unless the handler set one: a
 built-in asset's is its content hash, with `-br` or `-gz` for a compressed
-copy; a [design's PNG](../designs/README.md#looking-at-a-design-as-a-png)'s is
+copy; a [design's PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)'s is
 a hash of its resolved scene and devpage's build, known before painting, so
 a browser that has the PNG is answered without painting it again; a
 [slide's PNG](../making-slides/README.md#a-slide-as-an-image) carries the

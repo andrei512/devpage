@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # Engineering
 
 How devpage is understood, changed and checked: the development flow every
@@ -43,7 +46,7 @@ meanings.
 
 | Term | Meaning |
 | --- | --- |
-| **box** | A component or containing subsystem of devpage, documented in its own folder under `docs/boxes/` with a README as its entrance and, when it has rules, a `constraints/` folder. |
+| **box** | A component or containing subsystem of devpage, documented in its own folder under `docs/boxes/` with a README as its entrance and, when it has rules, a `requirements/` folder. |
 | **operator** | The person directing the work. Starts every stage, settles design questions, does the final review and merges into `main`. |
 | **fork** | An agent that starts as a copy of the current session, carrying its conversation. The design session forks to prototype; `/build` forks one per lane. |
 | **coordinator** | The agent running `/build`: dispatches lanes, has them reviewed, merges them into the design branch, carries design questions to the operator. Never writes code. |
@@ -55,10 +58,10 @@ meanings.
 | **drift bar** | The review bar for a design branch going into `main`: the code does what the docs claim, every expand–migrate–contract finished. |
 | **expand–migrate–contract** | Changing a contract that already has callers in three moves: add the new one beside the old, move callers across, delete the old. The system works at every step. |
 
-## Constraints
+## Requirements
 
-System-wide [constraints](../../constraints/README.md) apply here as
-elsewhere. The SDLC's own rules are listed on the [SDLC](sdlc/README.md#topics)
+System-wide [requirements](../README.md#requirements) apply here as
+elsewhere. The SDLC's own rules are listed on the [SDLC](sdlc/README.md#requirements)
 page.
 
 ## Topics

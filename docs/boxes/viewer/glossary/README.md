@@ -1,9 +1,11 @@
+---
+page-type: reference
+---
 # Viewer glossary
 
 The words the viewer owns, one section per term, so any page can link to a
 term by its anchor — `glossary/README.md#served-folder`. The rest of the docs use
-these words with these meanings. It is the reference page for the
-[viewer](../README.md)'s vocabulary.
+these words with these meanings. It sits under the [viewer](../README.md).
 
 ## document
 
@@ -51,7 +53,7 @@ GPT-Live, as `devpage video` uses it: told the deck's audience, goal and tone an
 
 ## pacing
 
-How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/README.md#how-it-is-recorded).
+How a recorded slide waits on its voice: how much is buffered before it plays and how much quiet ends it (`Pacing`, in `src/drive/video.rs`). `devpage video` records with the default, 2 and 1.5 seconds. See [How it is recorded](../making-a-video/how-a-video-is-recorded/README.md#how-it-is-recorded).
 
 ## document file
 
@@ -119,7 +121,7 @@ The `devpage-design` crate: parses, resolves, lays out and paints designs, nativ
 
 ## drawing
 
-What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/README.md#viewing-a-design).
+What a design shows: its root's box, widened by anything painted outside it — a shadow, a stroke, a child placed past an edge — cut by any clipping frame and rounded out to whole pixels. A PNG is the drawing; the canvas page and an embed fit it. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## element id
 
@@ -179,11 +181,11 @@ The page a design's own address answers: one canvas filling the window, which th
 
 ## embed
 
-A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/README.md#viewing-a-design).
+A design shown inside a page, written as an image of it — `![Checkout](checkout.design)` or `<img src="checkout.design">` — and drawn at its own size on a backdrop, scaled down only to fit; a navigation stays inside it. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## backdrop
 
-The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner — and, for a themed design, the embed's own theme switch beside it. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/README.md#viewing-a-design).
+The quiet box an embed sits centred on, setting it apart from the text, with the link to its canvas page in its corner — and, for a themed design, the embed's own theme switch beside it. Never "stage", which is a slide's 1920 × 1080 box. See [Viewing a design](../designs/viewing-a-design/README.md#viewing-a-design).
 
 ## watch stream
 
@@ -199,7 +201,7 @@ A PNG or JPEG an `Image` shows, known by its content — the SHA-256 of its byte
 
 ## font
 
-What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/README.md#fonts).
+What a `Text` is set in: Inter, which devpage carries inside it, when the `Text` has no `font`; or the font its `font` names — a **font name**, lowercase letters, digits and `-`, that a `themes.yml`'s `fonts` gives a font file or a folder of one family's font files. A design can mix several. Never a font installed on the machine, and never "typeface", which is a font's design rather than its files. See [Fonts](../designs/writing-a-design/README.md#fonts).
 
 ## font file
 
@@ -240,6 +242,38 @@ One page in a sidebar tree, labelled with its Topics link's text.
 ## group
 
 A run of entries under one `###` heading in a Topics section, shown under that heading in the sidebar.
+
+## page type
+
+What sort of page a page is, in a site with a structure folder: a name the site defines with a type file, and each page states as `page-type` in its front matter. See [Structuring a site](../structuring-a-site/README.md).
+
+## type file
+
+A Markdown file in a site's structure folder that defines the page type named after it: its front matter says which types a page of the type may sit under and which sections it must have, and its text says what such a page is for.
+
+## structure folder
+
+The folder a site's `structure` names, holding its type files. A site without one has no page types, and none of its pages is checked for any.
+
+## requirement
+
+Something the people who run a system say it must do, kept as a page. It is a constraint, a review rule or an objective. See [Checking requirements](../checking-requirements/README.md).
+
+## constraint
+
+A requirement a test can check. Its front matter gives it an `id`; tests point at it by that id, and it is met when at least one does and none fails.
+
+## review rule
+
+A requirement no test can check: a reviewer judges each change against its words.
+
+## objective
+
+A requirement with a number, measured by a benchmark or read from a data source outside the repository.
+
+## process
+
+A page an agent follows to work toward one objective, alone on a schedule or in a session with a person.
 
 ## branch
 
@@ -367,7 +401,7 @@ A page rendered for Chrome to print: no live updates, no comments, no navigation
 
 ## Chrome session
 
-One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/README.md#the-chrome-it-drives).
+One Chrome devpage drives, with a profile folder of its own, and the server its tabs load pages from on `127.0.0.1` (`Session`, in `src/adapters/chrome.rs`). It is launched in one of two profiles: the **shot profile** — chrome-headless-shell with its GPU on, for `devpage pdf` and a slide's PNG — or the **recording profile** — Chrome for Testing capturing its own tab, for `devpage video`. A tab opened to be **shot** marks every request it makes with `X-Devpage-Shot`. See [The Chrome it drives](../pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives).
 
 ## built-in asset
 
@@ -403,11 +437,11 @@ A widget a project writes: one `.tsx` file in the folder its document file's `wi
 
 ## theme
 
-A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/README.md#themes).
+A set of values for the color and font tokens. There are two, light and dark: by default the reader's system setting picks one, and the theme selector — one button — switches between them. A design has its own two, light and dark, from its `themes.yml`, and is drawn in the one of the same name as the page it is on. See [Themes](../designs/writing-a-design/README.md#themes).
 
 ## themes.yml
 
-The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/README.md#themes).
+The file a design's themes come from: `kind: themes`, then `light` and `dark`, each a map of names to colors that a design writes as `theme.<name>`. It may also hold `fonts`, a map of font names to font files — fonts are no part of a theme. A design uses the nearest one up the folder tree from its file; a lower one overrides only the names it lists, of colors and of fonts. Its colors are never called tokens, which are the page's. See [Themes](../designs/writing-a-design/README.md#themes).
 
 ## navbar
 

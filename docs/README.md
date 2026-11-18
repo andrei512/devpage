@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # devpage
 
 devpage renders the documents a software project lives by — a site of system
@@ -76,6 +79,4 @@ commitments. How these docs are laid out is on the
 
 - [System catalog](boxes/README.md) — how devpage works, one subject per
   folder.
-- [General constraints](constraints/README.md) — the rules every change is
-  reviewed against.
 - [Rust reference](reference/rust) — devpage's crates, modules and types.

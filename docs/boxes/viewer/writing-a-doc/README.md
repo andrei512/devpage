@@ -1,9 +1,12 @@
+---
+page-type: task
+---
 # Writing a doc
 
 How to write a **doc** — a design doc, a PRD, a proposal: a document read top to
 bottom, like a Word file. It covers splitting a doc into chapters, the outline
 that follows the reader, links between chapters, and the paper, header and
-footer its PDF gets. It is a task article under the [viewer](../README.md); the
+footer its PDF gets. It sits under the [viewer](../README.md); the
 document file in general is on [Writing a document](../writing-a-document/README.md).
 
 ## One file or chapters

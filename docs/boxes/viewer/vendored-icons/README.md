@@ -1,10 +1,12 @@
+---
+page-type: mechanism
+---
 # The vendored icons
 
 What icons devpage can draw — the Lucide set, plus GitHub's mark — where they
 came from, their versions and licences, how devpage draws them, and how to
-upgrade them. It is a mechanism page under the [viewer](../README.md), for
-someone about to replace the set; using icons in a site's navbar is in
-[Organizing navigation](../organizing-navigation/README.md#the-navbar).
+upgrade them. It sits under [Organizing navigation](../organizing-navigation/README.md#the-navbar), which
+says how to use icons in a site's navbar, for someone about to replace the set.
 
 ## What is in the repository
 

@@ -674,6 +674,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "codespec-rust-macro"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2dc37e2812f8df0ec33007dd5831cc6741394d9e4c05bd7af24d42c6a6d0b70"
+
+[[package]]
 name = "color"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -935,6 +941,7 @@ dependencies = [
  "brotli",
  "chromiumoxide",
  "clap",
+ "codespec-rust-macro",
  "devpage-core",
  "devpage-design",
  "devpage-extension-api",
@@ -988,6 +995,7 @@ version = "0.3.3"
 dependencies = [
  "anyhow",
  "brotli",
+ "codespec-rust-macro",
  "comrak",
  "devpage-design",
  "flate2",
@@ -995,6 +1003,7 @@ dependencies = [
  "globset",
  "ignore",
  "oxc",
+ "regex",
  "rquickjs",
  "serde",
  "serde_json",
@@ -1057,6 +1066,7 @@ dependencies = [
 name = "devpage-extension-api"
 version = "0.3.3"
 dependencies = [
+ "codespec-rust-macro",
  "serde_json",
 ]
 

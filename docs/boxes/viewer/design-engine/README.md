@@ -1,12 +1,15 @@
+---
+page-type: mechanism
+---
 # Design engine
 
 How a `.design` file becomes pixels: the engine parses it, resolves its
 imports and props into one tree of nodes, lays the tree out, and paints it —
 on the GPU in the browser, compiled to WebAssembly, for the canvas, and on the
 CPU in the server for a PNG. A gRPC-Web stream carries each change to the browser as the nodes that
-changed. It is a mechanism page under the [viewer](../README.md), for someone
-about to change the engine, its stream or the canvas page; what a design can
-say is in [Designs](../designs/README.md).
+changed. It sits under [Designs](../designs/README.md), which says
+what a design can say, for someone about to change the engine, its stream or
+the canvas page.
 
 ```mermaid
 flowchart LR
@@ -190,7 +193,7 @@ to it; among static files, the file of that weight. The text's node names the
 face's file by its id, and the scene carries each font file its texts use
 once, however many texts use it, under whatever names — a folder's other
 weights aren't carried. Why at most 4 MB is on
-[Fonts](../designs/README.md#fonts): every font file goes whole to each
+[Fonts](../designs/writing-a-design/README.md#fonts): every font file goes whole to each
 browser that shows the design.
 
 Every path a node carries — an image's file, a font file, an interaction's
@@ -383,7 +386,7 @@ is decided there, the theme's value of each color included: a drawing is made
 for a theme, and the scene holds both. A design has no size limit: nothing
 about a frame or an edit costs more because the design is bigger — a frame
 costs what is visible, an edit what changed
-([a frame costs what it shows](../constraints/a-frame-costs-what-it-shows.md)).
+([the time to draw a design must depend on what is on screen](../requirements/drawing-time-depends-on-the-screen.md)).
 
 ```mermaid
 flowchart LR
@@ -482,7 +485,7 @@ more:
   container, which has no GPU to count on, and in a browser without WebGPU.
 
 Both backends replay the
-[same display list](../constraints/a-design-has-one-renderer.md); they differ
+[same display list](../requirements/a-design-png-looks-like-the-design.md); they differ
 only where two rasterizers can — the last bit of anti-aliasing at an edge.
 `vello_cpu` has its own API rather than replaying a `vello` scene, which is
 why the shared form is the engine's list and not a vello type. Where the two
@@ -919,7 +922,7 @@ and one that goes leaves the stream.
 
 | What happens | What the reader sees |
 | --- | --- |
-| A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png)). |
+| A file has problems | The problems over the last valid drawing; the PNG route answers with them instead of a drawing ([Looking at a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)). |
 | A design's images don't fit the GPU together | The problem at the `src` of the first that doesn't fit, over the last valid drawing — never a drawing with a hole; the PNG route answers with it too. |
 | A design is deleted | Its canvas shows the problem `no such file` over its last drawing, and draws again when the file is written back. |
 | devpage stops | Every canvas keeps its drawing; the page reopens its stream when devpage is back and gets each whole scene again. |

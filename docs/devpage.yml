@@ -3,6 +3,7 @@ kind: site
 title: devpage
 root: README.md
 widgets: widgets
+structure: structure
 logo: logo.svg
 navbar:
   Docs (book-open): README.md
@@ -18,6 +19,13 @@ watch:
   - "**/*.yml"
   - "**/*.design"
 extensions:
+  requirements:
+    config:
+      tests:
+        - name: rust
+          glob: "../**/*.rs"
+          pattern: '#\[spec\("([^"]+)"\)\]'
+          run: "RUSTC_BOOTSTRAP=1 cargo test -- -Z unstable-options --format junit --include-ignored"
   code:
     config:
       rust:

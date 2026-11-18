@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Writing a project widget
 
 How a project adds its own widgets: the folder they live in, what a widget
 file looks like, how widgets compose and share helpers, and how they are
-styled. It is a task article under [Widgets](../README.md).
+styled. It sits under [Widgets](../README.md).
 
 ## The widgets folder
 
@@ -36,7 +39,7 @@ a doc's or deck's widgets are its own.
 <Callout kind="warning" title="One name, one widget">
 A project widget can't take a system widget's name: `Callout.tsx` in a project
 is a problem, so system widgets that use `Callout` keep getting the one they
-were written for ([the rule](../../constraints/one-name-one-widget.md)).
+were written for ([the rule](../../requirements/widget-names-are-unique.md)).
 `Notes.tsx` is a problem too: `Notes` is devpage's tag for a slide's
 [notes](../../making-slides/README.md#speaker-notes). So is
 `DevpageSidebar.tsx`: names starting with `Devpage` are devpage's own chrome
@@ -114,7 +117,7 @@ the page is the theme's **tokens**. Written with them — `var(--text)`,
 `var(--font)`, `var(--font-mono)` — a widget follows the light and dark themes
 with nothing else to do; where it must differ beyond the tokens, scope the
 rule to `:root[data-theme="dark"]`, which follows the reader's choice in the
-theme switch ([Themes](../../themes/README.md#the-tokens)).
+theme switch ([Themes](../../themes/tokens/README.md#the-tokens)).
 
 What a failing widget looks like is on
 [Using widgets](../using-widgets/README.md#when-a-widget-fails).

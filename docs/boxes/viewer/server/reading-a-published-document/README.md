@@ -1,9 +1,11 @@
+---
+page-type: concept
+---
 # Reading a published document
 
 What a reader gets from a document's link: the latest version, live as it
 changes, earlier versions, comments that carry over from one version to the
-next, and a PDF or PNG to download. It is a concept article under
-[Server mode](../README.md).
+next, and a PDF or PNG to download. It sits under [Server mode](../README.md).
 
 ## The link
 
@@ -14,7 +16,7 @@ every open page swaps it in at once — the same
 **Older versions** are listed in the version menu, at the page's bottom left,
 and stay at
 `/d/<id>/v/<n>`, under a banner that links to the latest. A version never
-changes ([a version never changes](../constraints/a-version-never-changes.md)),
+changes ([a published version never changes](../requirements/a-published-version-never-changes.md)),
 so a link to version 3 shows the same thing for as long as version 3 exists.
 
 The server's front page lists no documents: a document is reached only

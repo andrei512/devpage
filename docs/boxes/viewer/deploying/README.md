@@ -1,10 +1,13 @@
+---
+page-type: task
+---
 # Deploying devpage
 
 How to run devpage for a team — on a Kubernetes cluster or any container host
 — so they can read the docs and comment on them: the example image, the auth
 proxy that names each reader, the volume that keeps comments, and trying the
 whole thing on your machine with Docker Compose — and how to serve a public
-site, which runs with comments off. It is a task article under the
+site, which runs with comments off. It sits under the
 [viewer](../README.md).
 
 This is the **bundled** way to deploy: the documents are in the image, as in a
@@ -51,13 +54,13 @@ devpage docs --host 0.0.0.0 --port 3030 --no-comments
 
 The pages show no way to comment, every comment request answers `404`, and no
 `.devpage/` volume is needed
-([Turning comments off](../comments/README.md#turning-comments-off)). The
+([Turning comments off](../comments/commenting/README.md#turning-comments-off)). The
 same image can serve both: add `--no-comments` to the command of the public
 deployment only. `--no-comments` arrived in 0.2.1.
 
 ## The auth proxy
 
-devpage has no login ([devpage authenticates no one](../constraints/devpage-authenticates-no-one.md)).
+devpage has no login ([devpage must not do authentication itself](../requirements/devpage-does-no-authentication.md)).
 Put it behind the proxy your cluster already uses —
 [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/), or your ingress's
 external authentication — and have it pass the signed-in user's email in

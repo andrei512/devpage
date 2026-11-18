@@ -1,16 +1,18 @@
+---
+page-type: reference
+---
 # Configuration reference
 
 The exact contract of a devpage document file and of the `devpage` command
 line: every field of each kind with its type, default and validation, the
-commands and flags, and the errors devpage stops with. It is the reference page
-under the [viewer](../README.md).
+commands and flags, and the errors devpage stops with. It sits under the [viewer](../README.md).
 
 ## Command line
 
 ```sh
 devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
-devpage check [path] [--root <folder>] [--json]
+devpage check [path] [--root <folder>] [--json] [--docs]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
@@ -26,9 +28,9 @@ devpage --version
 | Command | Does |
 | --- | --- |
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
-| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. A site with [requirements](../checking-requirements/README.md) has its tests run too; `--docs` leaves them out. |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
-| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
+| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
 | `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../server/README.md)). |
 | `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../server/reference/README.md#cli). |
@@ -51,7 +53,7 @@ devpage --version
 | `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
-| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/README.md#turning-comments-off)). |
+| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/commenting/README.md#turning-comments-off)). |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 | `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
 | `-o, --output <file>` | `devpage png` | `<title>.png`, or `<title> <n>.png` for a slide, in the current folder | Where to write the PNG. |
@@ -118,6 +120,7 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
 | `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. A `.gitignore`d file never refreshes, and is watched — so the served folder and designs hear of it — only in an ignored folder a pattern explicitly reaches into: its part before the first glob character is in that folder or is it (`build/*.svg` reaches into an ignored `build/`; `**/*.md` reaches into none) ([the watch set](../live-updates/README.md#the-watch-set)). Default: every file that no `.gitignore` excludes. |
 | `widgets` | path | no | The folder of this document's [project widgets](../widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
+| `structure` | path | no | The folder of this site's [type files](../structuring-a-site/README.md#a-type-file), relative to this file: every `.md` in it is a page type, named after the file. With it, the site's pages are [checked against their types](../structuring-a-site/README.md#what-is-checked). Default: none — no page needs a type. |
 | `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
 | `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../themes/README.md#choosing-a-theme)). Default: `true`. |
@@ -191,6 +194,21 @@ items' ids and addresses, `reference/<namespace>/` — to these fields:
 | `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
 | `private` | boolean | no | Whether items no `pub` path reaches get pages too. Default: `false`. |
 
+### `requirements`
+
+A site's `extensions` may hold `requirements` with no `package`: the
+[system extension](../glossary/README.md#system-extension) that holds the
+site's constraints to its tests
+([Checking requirements](../checking-requirements/README.md)). Its `config`
+has one field, `tests`, a list of suites, each with these fields:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | What the suite is called in problems. |
+| `glob` | glob pattern | yes | Its test files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
+| `pattern` | regular expression | yes | Where a test names a constraint; its first group is the constraint's id. |
+| `run` | command | yes | Runs the suite and prints JUnit XML on standard output, from the document file's folder. |
+
 ## Front matter
 
 A page may open with YAML front matter: a `---` line first, the fields, and
@@ -211,8 +229,21 @@ keywords: [retry, offline]
 | `search` | boolean | `false` leaves the page out of [search](../search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
 | `description` | string | Words search finds the page by, weighted like its title. |
 | `keywords` | string or list of strings | The same. |
+| `page-type` | string | The page's [type](../glossary/README.md#page-type): the name of a type file in its site's structure folder, without `.md`. Read only in a site with a [`structure`](#site). |
+| `id` | string | A [constraint](../glossary/README.md#constraint)'s id: the name tests point at it by. Read only on a page whose `page-type` is `constraint`, in a site with [requirements](#requirements). |
 
 Any other field is read by nothing and ignored.
+
+### A type file
+
+A [type file](../structuring-a-site/README.md#a-type-file)'s own front matter
+holds the rules of its type; both fields are optional, and any other field is
+a problem on the file.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `parent` | string or list of strings | The types a page of this type may sit under. Default: any. |
+| `sections` | list of strings | The `##` headings a page of this type must have, in order. Default: none. |
 
 ## Errors
 
@@ -236,6 +267,10 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
 | `places` names a place other than `navbar`, `panel` and `float` | `in <file>` — ``places: unknown field `footer`, expected one of `navbar`, `panel`, `float` `` |
+| `structure` names no folder, or one outside the served folder | `in <file>` — `structure <folder> is not a folder` |
+| `requirements` on a doc or a deck | `in <file>` — `extensions: requirements: only a site has requirements` |
+| A suite's `pattern` is no regular expression, or has no group | `in <file>` — `extensions: requirements: tests <name>: pattern <pattern>`, then the error, or `… has no group — its first group is the constraint's id` |
+| A suite's `glob` is outside the served folder | `in <file>` — `extensions: requirements: tests <name>: glob <glob> is outside the served folder` |
 | A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
 | A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
@@ -268,7 +303,7 @@ document file reached by a link don't stop devpage: they are [problems](../check
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, with the
 error `downloading chrome-headless-shell <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
+when the first download of [its Chrome](../pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives) fails,
 with `chrome-headless-shell <version> has no build for <os> on <arch>` on a
 platform that has none, and with `pdf prints a doc or slides, not a design` when given a design.
 
@@ -286,7 +321,7 @@ when no narrator is set, `DEVPAGE_AZURE_OPENAI_ENDPOINT is set but DEVPAGE_AZURE
 `video records slides, not a site` (or `a doc`, `a design`), and
 `every slide needs <Notes> to be narrated; these have none: <n> (<file>), …`.
 Once running it stops with `downloading chrome-for-testing <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../making-a-video/README.md#the-chrome-it-drives)
+when the first download of [its Chrome](../making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives)
 fails, `chrome-for-testing <version> has no build for <os> on <arch>` on a
 platform that has none, `connecting to GPT-Live at <address>` when the session can't open (a
 wrong key is `HTTP error: 401 Unauthorized`), with the error GPT-Live sends as

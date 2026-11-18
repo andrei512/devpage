@@ -8,6 +8,7 @@ use crate::document::Document;
 use crate::folder::ServedFolder;
 use crate::markup::title;
 use crate::widgets::Widgets;
+use codespec_rust_macro::spec;
 
 /// `document`'s widget set, read through a cache of its own.
 fn widgets_of(document: &Document) -> Widgets {
@@ -125,6 +126,7 @@ fn keeps_raw_html_and_draws_mermaid_fences() {
 }
 
 #[test]
+#[spec("a-broken-file-shows-its-error")]
 fn a_diagram_that_does_not_parse_shows_its_error_and_its_source() {
     let html = markdown("```mermaid\nsequenceDiagram\n  A->>B: one; two\n```\n");
     assert!(

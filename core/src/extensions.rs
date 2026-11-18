@@ -575,6 +575,7 @@ pub fn route(path: &str, scope: &ServedFolder) -> Option<Result<Value>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
     struct Toy;
     impl Loader for Toy {
         fn load(&self, _: &Path) -> Result<Arc<dyn Package>> {
@@ -608,6 +609,8 @@ mod tests {
     }
 
     #[test]
+    #[spec("hot-reload-works-for-every-page")]
+    #[spec("a-broken-file-shows-its-error")]
     fn another_language_uses_the_same_capture_render_targets_and_watch_contract() {
         install_loader(Arc::new(Toy));
         let dir =

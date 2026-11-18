@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Places
 
 A place shows a widget outside a page's text, on every page of a document: a button beside the theme selector, a panel beside the page, a control floating over it. This box belongs to [widgets](../README.md).

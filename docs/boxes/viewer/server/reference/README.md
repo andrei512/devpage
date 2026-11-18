@@ -1,8 +1,10 @@
+---
+page-type: reference
+---
 # Server reference
 
 The exact contract of server mode: every CLI command, every API request, and
-every environment variable. It is the reference page of
-[Server mode](../README.md); the tasks are on
+every environment variable. It sits under [Server mode](../README.md); the tasks are on
 [Publishing a document](../publishing/README.md) and
 [Running a server](../running-a-server/README.md).
 

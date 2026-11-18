@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Diagrams
 
 How to put a diagram in a page with a Mermaid fence, how to make its nodes
 links, how `devpage check` finds a diagram that doesn't parse, and what a
-reader sees when one doesn't. It is a task article under the
+reader sees when one doesn't. It sits under the
 [viewer](../README.md); the colors diagrams take are on
 [Themes](../themes/README.md), and how the server draws them is on
 [The diagram engine](#the-diagram-engine) below.
@@ -161,3 +164,9 @@ pele colors its SVG with `--pele-*` CSS variables, which the page's
 stylesheet sets from the theme tokens, so a diagram drawn on the server still
 follows the light and dark themes in the browser
 ([How themes reach code and diagrams](../themes/how-themes-reach-code-and-diagrams/README.md#diagrams)).
+
+## Topics
+
+- [The vendored pele bundle](../vendored-pele/README.md) — the third-party
+  diagram renderer built into devpage: its source, version, licences and how
+  to upgrade it.

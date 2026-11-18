@@ -27,6 +27,7 @@ enum Config {
         root: String,
         watch: Option<Vec<String>>,
         widgets: Option<String>,
+        structure: Option<String>,
         navbar: Option<serde_yaml::Mapping>,
         sidebar: Option<bool>,
         #[serde(rename = "theme-selector")]
@@ -343,6 +344,10 @@ pub struct Document {
     pub widgets: Option<PathBuf>,
     /// The widgets it shows outside its pages' text.
     pub places: Places,
+    /// A site's structure folder — its type files — if it names one.
+    pub structure: Option<PathBuf>,
+    /// A site's requirements — its test suites — if it configures them.
+    pub requirements: Option<crate::requirements::Requirements>,
     /// A site's navbar, in order; empty when it has none.
     pub navbar: Vec<NavItem>,
     /// Whether a site shows its Topics sidebar.
@@ -405,6 +410,8 @@ impl Document {
                 watch_roots: Vec::new(),
                 widgets: None,
                 places: Places::default(),
+                structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -426,6 +433,8 @@ impl Document {
                 watch_roots: Vec::new(),
                 widgets: None,
                 places: Places::default(),
+                structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -452,6 +461,7 @@ impl Document {
         let mut watch = None;
         let mut watch_roots = Vec::new();
         let widget_folder;
+        let mut structure_folder = None;
         let mut nav_items = Vec::new();
         let mut show_sidebar = true;
         let show_selector;
@@ -464,6 +474,7 @@ impl Document {
                 root,
                 watch: patterns,
                 widgets,
+                structure,
                 navbar: nav,
                 sidebar,
                 theme_selector,
@@ -475,6 +486,7 @@ impl Document {
                 places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
+                structure_folder = structure;
                 show_selector = theme_selector.unwrap_or(true);
                 show_sidebar = sidebar.unwrap_or(true);
                 if let Some(nav) = nav {
@@ -562,6 +574,13 @@ impl Document {
             },
             None => None,
         };
+        let structure = match structure_folder {
+            Some(folder) => match served.folder(&base.join(&folder)) {
+                Some(dir) => Some(dir),
+                None => bail!("structure {folder} is not a folder"),
+            },
+            None => None,
+        };
         let mut extension_configs = extension_configs;
         // `code` with no package is the system extension: the code reference,
         // which only a site has pages for.
@@ -571,6 +590,25 @@ impl Document {
                     bail!("extensions: code: only a site has a code reference");
                 }
                 extension_configs.remove("code").map(|config| config.config)
+            }
+            _ => None,
+        };
+        // `requirements` with no package is the system extension that holds a
+        // site's constraints to its tests.
+        let requirements = match extension_configs.get("requirements") {
+            Some(config) if config.package.is_none() => {
+                if !matches!(kind, Kind::Site { .. }) {
+                    bail!("extensions: requirements: only a site has requirements");
+                }
+                let config = extension_configs.remove("requirements").map(|c| c.config);
+                Some(
+                    crate::requirements::Requirements::read(
+                        &config.unwrap_or_default(),
+                        &base,
+                        &served,
+                    )
+                    .map_err(|e| anyhow::anyhow!("extensions: requirements: {e:#}"))?,
+                )
             }
             _ => None,
         };
@@ -587,6 +625,8 @@ impl Document {
             watch_roots,
             widgets,
             places,
+            structure,
+            requirements,
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,

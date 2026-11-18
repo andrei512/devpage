@@ -67,7 +67,7 @@ words.
 - `docs/vision.md` — ideas, not commitments. The map of where this is going.
 - `docs/boxes/` — the design of the system, one directory per box, nested to
   match containment. Format and rules: `docs/boxes/engineering/sdlc/`.
-- `docs/constraints/` — the rules that belong to no single box. Read on every
+- `docs/requirements/` — the rules that belong to no single box. Read on every
   review, whatever the diff touches.
 - There is no decision log and no ADR directory — see
-  [decisions-live-in-box-docs](docs/boxes/engineering/sdlc/constraints/decisions-live-in-box-docs.md).
+  [decisions-live-in-box-docs](docs/boxes/engineering/sdlc/requirements/decisions-live-in-box-docs.md).

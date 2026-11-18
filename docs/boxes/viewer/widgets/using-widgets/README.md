@@ -1,8 +1,10 @@
+---
+page-type: task
+---
 # Using widgets
 
 How to put a widget in a page: its props, its content, when it is a block and
-when it sits inside a paragraph, and what happens when one fails. It is a task
-article under [Widgets](../README.md).
+when it sits inside a paragraph, and what happens when one fails. It sits under [Widgets](../README.md).
 
 ## Props and content
 
@@ -50,7 +52,7 @@ around it, at the start of a line included:
 A PDF, and the browser's print, show each widget's **first render** — what it
 shows before anyone clicks: a `Tabs` prints its first tab. A widget meant for
 paper shows what matters without interaction
-([A PDF is the page the browser shows](../../constraints/a-pdf-is-the-page.md)).
+([A PDF must look the same as the page on screen](../../requirements/a-pdf-looks-like-the-page.md)).
 `devpage pdf` waits for every widget to mount before printing.
 
 ## When a widget fails

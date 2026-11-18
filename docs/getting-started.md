@@ -1,3 +1,6 @@
+---
+page-type: essentials
+---
 # Getting started
 
 The few ideas you need to reason about devpage — documents and their
@@ -57,7 +60,7 @@ flowchart LR
   click save href "./boxes/viewer/live-updates/README.md" "How open pages stay current"
   click comments href "./boxes/viewer/comments/README.md" "Comments"
   click design href "./boxes/viewer/designs/README.md" "Designs"
-  click canvas href "./boxes/viewer/designs/README.md#viewing-a-design" "Viewing a design"
+  click canvas href "boxes/viewer/designs/viewing-a-design/README.md#viewing-a-design" "Viewing a design"
 ```
 
 ## Where next

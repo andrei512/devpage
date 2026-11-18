@@ -276,6 +276,7 @@ pub fn problems(document: &crate::document::Document, page: &Path) -> Vec<crate:
 mod tests {
     use super::*;
     use crate::folder::ServedFolder;
+    use codespec_rust_macro::spec;
     use std::process::Command;
 
     fn git(repo: &Path, args: &[&str]) -> String {
@@ -313,6 +314,7 @@ mod tests {
     }
 
     #[test]
+    #[spec("devpage-never-changes-served-files")]
     fn a_thread_lives_and_dies_without_touching_the_repository() {
         let served = served("yaml-repo");
         let repo = served.path();

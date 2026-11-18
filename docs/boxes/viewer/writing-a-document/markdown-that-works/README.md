@@ -1,8 +1,10 @@
+---
+page-type: reference
+---
 # Markdown that works
 
 Every Markdown feature a page can use, how code blocks are highlighted, and how
-images and other files are served. It is the reference page under
-[Writing a document](../README.md).
+images and other files are served. It sits under [Writing a document](../README.md).
 
 ## Features
 
@@ -67,7 +69,7 @@ language, or one devpage doesn't know, is shown as plain code; nothing fails.
 
 Highlighting happens on the server when the page renders, and its colors come
 from the theme's syntax tokens, so code follows the light and dark themes —
-see [Themes](../../themes/README.md#the-tokens). Code
+see [Themes](../../themes/tokens/README.md#the-tokens). Code
 blocks show no language label and have no copy button. A `mermaid` block is
 not highlighted; the server draws it as a diagram.
 
@@ -83,7 +85,7 @@ with a relative path:
 
 An image of a `.design` file is not served as bytes: it embeds the design,
 drawn live and clickable — `![Checkout](checkout.design)`; see
-[Designs](../../designs/README.md#viewing-a-design).
+[Designs](../../designs/viewing-a-design/README.md#viewing-a-design).
 
 By default a change to any file in the served folder refreshes the open
 pages, images included, except files a `.gitignore` excludes. A site can

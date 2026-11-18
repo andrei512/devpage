@@ -71,6 +71,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
+codespec-rust-macro = "0.1.2"
 devpage-core = { path = "core", version = "0.3.3", features = ["testing"] }
 prost = "0.14.4"
 brotli = "9.1.0"

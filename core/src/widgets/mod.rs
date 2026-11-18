@@ -25,7 +25,7 @@ use sha2::{Digest, Sha256};
 
 pub use modules::{Modules, Snapshot};
 pub use request::{Compiled, project_module, system_module};
-pub use tags::expand;
+pub use tags::{expand, expand_with};
 
 use crate::addresses::{Owned, address};
 use crate::document::Document;
@@ -45,6 +45,10 @@ pub const SYSTEM: &[(&str, &str)] = &[
         include_str!("../../assets/widgets/FileTree.tsx"),
     ),
     ("Keys", include_str!("../../assets/widgets/Keys.tsx")),
+    (
+        REQUIREMENTS,
+        include_str!("../../assets/widgets/Requirements.tsx"),
+    ),
     ("Steps", include_str!("../../assets/widgets/Steps.tsx")),
     ("Tab", include_str!("../../assets/widgets/Tab.tsx")),
     ("Tabs", include_str!("../../assets/widgets/Tabs.tsx")),
@@ -59,6 +63,10 @@ pub const SYSTEM: &[(&str, &str)] = &[
 /// Its `Devpage` prefix keeps it clear of a project's names: a project may
 /// have its own `Sidebar`.
 pub const SIDEBAR: &str = "DevpageSidebar";
+
+/// The system widget that lists a part's requirements: the server writes
+/// its content.
+pub const REQUIREMENTS: &str = "Requirements";
 
 pub use crate::markup::NOTES;
 
@@ -91,6 +99,9 @@ pub struct Widgets {
     pub problems: Vec<String>,
     /// The widgets the document shows outside its pages' text.
     places: crate::document::Places,
+    /// The document's folder, and the document file's name in the served
+    /// folder: what the `Requirements` widget's list is read by.
+    document: (PathBuf, String),
 }
 
 impl Widgets {
@@ -130,6 +141,10 @@ impl Widgets {
                 .insert(name.to_string(), system_address(name, mount));
         }
         widgets.served = document.served.clone();
+        widgets.document = (
+            document.base.clone(),
+            document.name(&document.path()).unwrap_or_default(),
+        );
         widgets.extensions = document.extensions.clone();
         for binding in &widgets.extensions {
             for (name, url) in binding.widget_urls() {
@@ -214,6 +229,15 @@ impl Widgets {
     /// Every name a page can use as a widget tag, sorted.
     pub fn names(&self) -> &[String] {
         &self.known
+    }
+
+    /// The content the server writes for the widget `name` on the page
+    /// `file`, in place of what its tag holds: the `Requirements` widget's
+    /// list. `None` for every other widget.
+    pub(crate) fn written(&self, file: &Path, name: &str) -> Option<String> {
+        let (base, document) = &self.document;
+        (name == REQUIREMENTS)
+            .then(|| crate::requirements::listing(&self.served, base, document, file))
     }
 
     /// A project widget or helper `file` of this set, compiled now as its
@@ -417,6 +441,7 @@ pub fn system_address(name: &str, mount: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use codespec_rust_macro::spec;
 
     #[test]
     fn a_system_widget_address_carries_its_own_version() {
@@ -509,6 +534,7 @@ mod tests {
     }
 
     #[test]
+    #[spec("widget-names-are-unique")]
     fn a_project_widget_named_notes_clashes() {
         let dir = std::env::temp_dir().join(format!("devpage-wnotes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);

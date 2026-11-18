@@ -1,8 +1,10 @@
+---
+page-type: reference
+---
 # Tests
 
 What devpage's test suite covers, module by module, how the tests are written,
-and what has no test. It is a reference page under
-[Developing devpage](../developing-devpage/README.md), for someone about to
+and what has no test. It sits under [Developing devpage](../developing-devpage/README.md), for someone about to
 change a module or wondering whether a behaviour is pinned.
 
 <Terminal>
@@ -65,7 +67,7 @@ Google's server for the pinned Chrome's zips, all at once, so it needs the
 network.
 All but the three `video` tests drive chrome-headless-shell through
 chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
-[`devpage pdf` downloads](../../viewer/pdf/README.md#the-chrome-it-drives)
+[`devpage pdf` downloads](../../viewer/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
 Every test that draws on the GPU has `gpu` in its name, so
@@ -77,7 +79,7 @@ them with
 `--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
 `devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
-Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/README.md#the-chrome-it-drives),
+Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives),
 fetched the same way; run them after changing `devpage video` or its
 recorder, `assets/video.js`. The live one records
 `tests/fixtures/narrated-talk` with GPT-Live, which bills per minute, and
@@ -142,7 +144,7 @@ the suite green.
 test passing at once without a key — on an Apple M5 Max with 18 cores, the
 binary already built: before the suites shared one Chrome and waited on
 conditions, after, and since the `video` tests record with a short
-[pacing](../../viewer/making-a-video/README.md#how-it-is-recorded). One at a
+[pacing](../../viewer/making-a-video/how-a-video-is-recorded/README.md#how-it-is-recorded). One at a
 time, the same 102 tests; the runs after hold more — five canvas tests that
 landed meanwhile, the shared Chrome's own, and by the last column 110 in all.
 
@@ -653,7 +655,7 @@ each brings up a server from `deploy/server/compose.yaml` — building the image
 from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
 two versions and starts a thread, deletes the server's volume, starts it on
 an empty one, and finds both versions, the thread, the latest at the link and
-version 1 unchanged: [the PVC is only a cache](../../viewer/server/constraints/the-pvc-is-only-a-cache.md),
+version 1 unchanged: [nothing published is ever lost](../../viewer/server/requirements/nothing-published-is-lost.md),
 on the example deploy. Without Litestream's restore it fails.
 
 ### The server's benchmark
@@ -661,7 +663,7 @@ on the example deploy. Without Litestream's restore it fails.
 Not a test `cargo test` runs: `.github/workflows/bench.yml`, started by hand,
 loads a server to the [envelope](../../viewer/server/measuring-a-server/README.md#the-envelope)
 and past it, and reports each target met or missed
-([one server holds the envelope](../../viewer/server/constraints/one-server-holds-the-envelope.md)).
+([one server holds the envelope](../../viewer/server/requirements/one-server-holds-the-envelope.md)).
 The code is `bench/` (`devpage-bench`), a workspace crate never published; the
 repository holds no corpus and no results.
 

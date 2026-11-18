@@ -1,3 +1,6 @@
+---
+page-type: task
+---
 # Test an extension
 
 How to exercise [extensions](../README.md): the tests in this repository, then a package built and run with the normal `devpage` command. No package ships with devpage; the second part builds a small one.

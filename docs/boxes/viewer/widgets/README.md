@@ -1,9 +1,12 @@
+---
+page-type: concept
+---
 # Widgets
 
 **Widgets** make a page more visual: React components written as HTML tags in
 Markdown. devpage ships a set — callouts, tabs, file trees, terminals, steps,
 cards — and a project adds its own as `.tsx` files. This page shows what a
-widget is and where each part is explained; it is a concept article under the
+widget is and where each part is explained; it sits under the
 [viewer](../README.md).
 
 <Example title="Two widgets, as written and as they render">

@@ -1,10 +1,13 @@
+---
+page-type: landing
+---
 # The showcase deck
 
 The design of devpage's own presentation, `docs/talks/devpage/`: what it is
 for, the slides it has and what each one proves, and the rules every slide
 follows. The deck is devpage demonstrating itself, so it is held to the same
 bar as the code: when devpage gains a capability a user sees, the deck shows
-it ([the rule](../../constraints/features-arrive-on-the-deck.md)). It belongs
+it ([the rule](../../requirements/features-arrive-on-the-deck.md)). It belongs
 to the [system catalog](../README.md).
 
 ## Four examples, one per kind
@@ -76,13 +79,6 @@ action. Each row is one slide.
 
 How a deck like this is made, step by step, is the `presentation` skill.
 
-## Constraints
+## Requirements
 
-- [A feature a user sees arrives on the deck](../../constraints/features-arrive-on-the-deck.md)
-
-## Topics
-
-### Constraints
-
-- [A feature a user sees arrives on the deck](../../constraints/features-arrive-on-the-deck.md)
-  — the change that adds it adds or remakes its slide.
+<Requirements />

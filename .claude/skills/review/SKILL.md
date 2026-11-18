@@ -12,7 +12,7 @@ thread.
 
 ## The general constraints, always
 
-`docs/constraints/` holds the rules that belong to no single box. Read that
+`docs/requirements/` holds the rules that belong to no single box. Read that
 index on every review, whatever the diff touches — they are the ones nobody
 thinks to look for, because there is no box whose name matches them.
 
@@ -29,10 +29,17 @@ still require the operator's authorization.
 Every path in the diff belongs to a box, and boxes nest — code inside a box that
 sits within another is bound by both of their constraints.
 
-Start by listing the boxes the diff touches and reading each one's README,
-including its constraints list. Each entry there states a rule in one line and
-links to the file explaining it. Open that file when the diff plausibly bears on
-the rule; the one-liner is enough to decide whether it does.
+Start by listing the boxes the diff touches and reading each one's README
+and the titles of the pages in its `requirements/` folder. Each title states
+a rule in one sentence. Open the page when the diff plausibly bears on the
+rule; the title is enough to decide whether it does.
+
+Each file's `page-type` says how it is checked. A **review-rule** is yours:
+nothing else judges it. A **constraint** has tests that carry
+`#[spec("<its id>")]`, and `devpage check docs` runs them — still read the
+diff against it, because its tests cover the cases someone thought of. An
+**objective** has a number: follow the process page under it when the diff
+touches what the number measures.
 
 Code whose area hasn't been designed yet has no box. It is bound by AGENTS.md
 alone — that's a fact about the diff, not a finding.
@@ -133,6 +140,11 @@ path the change promises before reading implementation detail. Check the
 significant claims against code and real wiring, and check what the subject
 omitted, not only what it says. Do its links resolve; does it contradict another
 document; could someone act on it without having been in the conversation.
+
+`devpage check docs` tells whether each page names a type and sits under a
+parent its type allows. It cannot tell whether the page is true to its type:
+read the type's file in `docs/structure/` and judge the page against that
+text. A page that does two types' jobs is a finding — it is split.
 
 Distinguish incorrect behavior, broken navigation, missing coverage and editorial
 problems in the report. Demonstrate each with the source, failed check or exact

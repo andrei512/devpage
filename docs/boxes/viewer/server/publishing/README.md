@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Publishing a document
 
 How to publish a document to a devpage server and keep it up to date from the
 CLI: connecting to a server, the first publish, updates, what a publish
-contains, and deleting. It is a task article under [Server mode](../README.md);
+contains, and deleting. It sits under [Server mode](../README.md);
 every command and flag is in the [reference](../reference/README.md#cli).
 
 ## Connect to a server

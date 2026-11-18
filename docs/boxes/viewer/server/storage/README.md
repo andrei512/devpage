@@ -1,9 +1,12 @@
+---
+page-type: mechanism
+---
 # Storage
 
 How server mode keeps its data: the store in SQLite and how Litestream backs
 it up, each version's zip in the bucket, and the bounded cache on the PVC that
-makes reading fast. It is the mechanism page of [Server mode](../README.md),
-for someone about to change it.
+makes reading fast. It sits under [How server mode works](../how-server-mode-works/README.md), for someone about
+to change it.
 
 ```mermaid
 flowchart LR
@@ -30,8 +33,8 @@ S3 or Azure Blob, named by one URL — `s3://bucket/prefix` or
 trying server mode on one machine and for tests; on a deploy it would put the
 durable copy on the PVC. Each version is the zip as uploaded, at
 `documents/<id>/versions/<n>.zip`, written before the publish answers
-([the PVC is only a cache](../constraints/the-pvc-is-only-a-cache.md)) and
-never written again ([a version never changes](../constraints/a-version-never-changes.md)).
+([nothing published is ever lost](../requirements/nothing-published-is-lost.md)) and
+never written again ([a published version never changes](../requirements/a-published-version-never-changes.md)).
 The store's replica sits beside them under `store/`.
 
 ## The store
@@ -50,7 +53,7 @@ to the bucket about once a second and takes periodic snapshots; on start it
 restores the file from the bucket when the PVC is empty. It is the standard
 open-source tool for one SQLite on one node beside an object store, so devpage
 has no backup code. One process writes the store
-([one replica](../constraints/one-replica.md)), which is what SQLite and
+([one replica](../requirements/one-replica.md)), which is what SQLite and
 Litestream both assume.
 
 ## The cache
@@ -95,8 +98,7 @@ deleted.
 ### What a version holds in memory
 
 A version read since the server started has its router in memory, and
-everything worked out from its files is worked out once
-([a version's work is done once](../constraints/a-versions-work-is-done-once.md)):
+everything worked out from its files is worked out once:
 
 - **Each page's problems**, found on the page's first view and kept with the
   version, shared by its routers at both its addresses — the version's files

@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Installing devpage
 
 How to get a `devpage` program you can run on any document: downloading the
 prebuilt binary or building it from crates.io or a checkout, starting it,
-staying up to date, and what `devpage pdf` and `devpage video` need. It is a task page under the [devpage landing page](README.md);
+staying up to date, and what `devpage pdf` and `devpage video` need. It sits under the [devpage landing page](README.md);
 [Getting started](getting-started.md) then walks a first site, doc and deck.
 
 ## What you need
@@ -132,7 +135,7 @@ CI (`CI` is set), or when `DEVPAGE_NO_UPDATE_CHECK` is set.
   machine: the first time it prints, it downloads chrome-headless-shell, at
   the version devpage pins, once into devpage's cache folder and uses that
   from then on, with no network
-  ([Printing to PDF](boxes/viewer/pdf/README.md#the-chrome-it-drives)).
+  ([Printing to PDF](boxes/viewer/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)).
 - **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
   OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
   time it records it downloads Chrome for Testing, at the same pinned

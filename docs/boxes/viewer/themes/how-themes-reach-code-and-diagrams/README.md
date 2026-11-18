@@ -1,15 +1,18 @@
+---
+page-type: mechanism
+---
 # How themes reach code and diagrams
 
 How highlighted code and Mermaid diagrams take their colors from the theme
 tokens: the classes the highlighter writes and the variables pele draws with.
-It is a mechanism page under [Themes](../README.md), for someone about to
+It sits under [Themes](../README.md), for someone about to
 change `core/assets/style.css`.
 
 ## Highlighted code
 
 The highlighter marks code with classes named after syntax scopes, prefixed
 `hl-` (`hl-keyword`, `hl-string`, `hl-comment`…), and `core/assets/style.css` maps
-groups of those classes to the `--syntax-*` [tokens](../README.md#the-tokens):
+groups of those classes to the `--syntax-*` [tokens](../tokens/README.md#the-tokens):
 comments (in italics), strings, numeric and language constants, keywords and
 storage (in semibold), type names, function names, and tags, attribute names
 and macros. Code the stylesheet doesn't map keeps the body text color. How the

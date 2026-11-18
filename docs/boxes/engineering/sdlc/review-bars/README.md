@@ -1,8 +1,11 @@
+---
+page-type: reference
+---
 # Review bars and CI
 
 The two bars a change is reviewed against — one for a ticket going into a
 design branch, one for a design branch going into `main` — and what checks
-them today. It is a reference page under the [SDLC](../README.md); how a
+them today. It sits under the [SDLC](../README.md); how a
 review runs is the [Review stage](../stages/README.md#review).
 
 ## The two bars

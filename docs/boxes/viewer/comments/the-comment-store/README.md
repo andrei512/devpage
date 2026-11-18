@@ -1,9 +1,12 @@
+---
+page-type: reference
+---
 # The comment store
 
 Where threads are kept and how to read or resolve them from the files — the
 reference for anyone, person or agent, working with comments outside the
-browser — and the requests the page script makes. It is a reference and
-mechanism page under [Comments](../README.md).
+browser — and the requests the page script makes. It sits under [Comments](../README.md); how a write reaches a file is on
+[How a comment is written](../how-a-comment-is-written/README.md).
 
 ## The files
 
@@ -11,7 +14,7 @@ Threads live in `.devpage/comments/` at the top of the served folder — the sam
 folder locally and in a deployed container's volume. devpage creates
 `.devpage/` with a `.gitignore` holding `*`, so git ignores the folder and
 everything in it without any other `.gitignore` changing. The server
-writes nothing else anywhere ([devpage never writes a document](../../constraints/devpage-never-writes-a-document.md)).
+writes nothing else anywhere ([devpage must never change the files it serves](../../requirements/devpage-never-changes-served-files.md)).
 
 One thread is one file, under the path of the Markdown file it is about:
 
@@ -73,42 +76,10 @@ once, when it loads, and writes through four requests:
 
 The three writes need an author: deployed, a write without the identity header,
 or with it blank, gets `401`; reading needs none. With comments off (`--no-comments`) all four
-answer `404` and write nothing ([Turning comments off](../README.md#turning-comments-off)). Each write
+answer `404` and write nothing ([Turning comments off](../commenting/README.md#turning-comments-off)). Each write
 announces that page's comments on the
 [live-update stream](../../live-updates/README.md) as it lands, so every open
 page fetches them again. The comment store is also always watched, whatever a
 site's `watch` says, so a thread written, changed or deleted by an agent
 editing the files reaches every open page too; a file the server just wrote is
 not announced a second time.
-
-## How a write goes
-
-Every thread write — a page's request, a [server's](../../server/README.md)
-API call, a publish carrying threads onto a new version — goes through one
-module, `comments` (`core/src/comments/`), and its `Comments` value for the
-served or version folder. It holds every rule of a write:
-
-- **The page key.** A page is keyed by its path with one leading `/`
-  (`/docs/a.md`); one that is empty or climbs out of the folder is refused.
-- **Starting a thread.** The page must be a file in the served folder — or,
-  on a server, in the version the thread is started on — resolved through the
-  [served folder](../../constraints/the-served-folder-is-the-boundary.md).
-- **Replying and resolving** go by the thread's id alone, with no page check,
-  so a [detached comment](../../glossary/README.md#detached-comment) takes
-  replies like any other.
-- **The author** comes from one `Identity`: the local author, or the identity
-  header's trimmed value, refused when missing or blank.
-- **Announcing.** Each write that lands announces its page's comments once;
-  a refused write announces nothing.
-- **Carrying** a thread onto a new version reads each page as the page shows
-  it — front matter left out, widget tags expanded — through the served
-  folder. `Comments` works out where each thread goes and writes nothing: the
-  publish records the version and those moves in one transaction, so a carry
-  that fails publishes nothing, and only then are the moved pages announced.
-
-Where threads are kept is the comment store's only job, behind the `Store`
-port, by thread id: the YAML files above locally (`comments::yaml`, which finds
-`<id>.yml` through the served folder), server mode's SQLite file
-(`DocumentThreads`), and memory in tests. The store also says which pages'
-threads a hand other than its own changed (`heard`), which is how the watcher
-announces a hand edit and never the server's own write.

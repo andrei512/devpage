@@ -1,3 +1,6 @@
+---
+page-type: concept
+---
 # Extensions
 
 An extension is a package a document enables in its `devpage.yml`: a separately built Rust library, a program devpage keeps running, or both. Devpage loads the library into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. The program is started when a page first asks for it, and requests and WebSockets under its extension's address are passed to it. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
@@ -82,6 +85,10 @@ A package's program runs as the person who ran `devpage`, with everything they m
 
 `devpage check` and `devpage pdf` use the same extensions as serving; a Markdown page printed on its own uses its site's. Publishing a document that enables a package fails with "Publishing native extensions is not supported; serve this project locally". Changing a package's library needs a devpage restart. Devpage never tells a package to dispose of an instance; a library is closed once no binding holds it.
 
+## Requirements
+
+<Requirements />
+
 ## Topics
 
 ### Tasks
@@ -91,9 +98,3 @@ A package's program runs as the person who ran `devpage`, with everything they m
 ### Reference
 
 - [Package and protocol reference](reference/README.md) — Bundle, native boundary, every request and reply, capture rules and addresses.
-
-### Constraints
-
-- [Extensions use the host watch](constraints/host-watch.md) — Inputs join devpage's watch, and preparation precedes refresh.
-- [A render uses one extension revision](constraints/one-revision.md) — A render names its revision, and a failed preparation is never served as current.
-- [The native boundary is versioned](constraints/native-boundary.md) — Only the C table and owned JSON buffers cross between devpage and a package.

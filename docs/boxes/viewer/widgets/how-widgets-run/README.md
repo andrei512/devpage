@@ -1,8 +1,11 @@
+---
+page-type: mechanism
+---
 # How widgets run
 
 How a widget tag in Markdown becomes a mounted React component: the
 placeholder the server writes, how widgets are compiled and served, and how the
-page script mounts them. It is a mechanism page under [Widgets](../README.md),
+page script mounts them. It sits under [Widgets](../README.md),
 for someone about to change `core/src/widgets/` or the widget code in
 `core/assets/devpage.js`.
 
@@ -78,7 +81,7 @@ compiles through it, and it forgets a file when the watcher reports it
 (`Modules::forget`). `devpage check` reads through one of its own. A widget
 or helper that resolves outside the served folder — a symbolic link pointing
 out — is never read, as nothing outside it is
-([the served folder is the boundary](../../constraints/the-served-folder-is-the-boundary.md)). A file that doesn't compile is served as
+([devpage must never serve or read a file outside the folder it was started on](../../requirements/devpage-stays-inside-its-folder.md)). A file that doesn't compile is served as
 a module that throws the compiler's message, and so is a widget whose relative
 imports reach a helper that doesn't compile — with the helper's message — so
 the page shows why in the widget's place rather than only that its import
@@ -117,3 +120,9 @@ mounted, which is what `devpage pdf` waits for.
 
 Widget and helper files refresh open pages whatever a site's `watch` list says
 ([Live updates](../../live-updates/README.md#the-watcher)).
+
+## Topics
+
+- [The vendored React bundle](../../vendored-react/README.md) — the React that
+  widgets run with: its version, how it is built, its licence and how to
+  upgrade it.

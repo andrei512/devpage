@@ -1,8 +1,10 @@
+---
+page-type: reference
+---
 # Elements and attributes
 
 Every element a design can use and every attribute each one takes, with its
-values and defaults. It is the reference page under
-[Designs](../README.md), for an agent or a person writing a `.design` file;
+values and defaults. It sits under [Designs](../README.md), for an agent or a person writing a `.design` file;
 how the file is put together — imports, one root, props and interactions — is
 on that page.
 
@@ -48,7 +50,7 @@ Every element takes:
 | `x`, `y` | position in pixels inside a parent with no layout; in a parent with `layout="row"` or `"column"`, which places its children itself, and on a design's root, which has no parent, they are a problem | `0` |
 | `width`, `height` | pixels from `0` up, `"hug"` (fit the content) or `"fill"` (take the free space in the parent's layout direction, or stretch across it — only in a parent with `layout="row"` or `"column"`; a design's root shown on its own has no parent, and there `"fill"` hugs) | `"hug"` |
 | `opacity` | `0` to `1` | `1` |
-| `onClick` | an [interaction](../README.md#prototypes) | none |
+| `onClick` | an [interaction](../writing-a-design/README.md#prototypes) | none |
 | `key` | a string naming the node among its siblings, unique among them — two the same is a problem — so it stays the same node however its siblings are inserted, removed or reordered; without one, devpage tells nodes apart by matching each saved file against the last | none |
 
 Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
@@ -64,7 +66,7 @@ Boxes — `Frame`, `Rect`, `Ellipse`, `Vector` and `Image` — also take:
 A color is `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa`, the same in both
 themes, or `theme.<name>` in braces — `fill={theme.surface}` — the value
 `name` has in the theme the design is drawn in, from its
-[themes](../README.md#themes). A gradient names a theme's color inside its
+[themes](../writing-a-design/README.md#themes). A gradient names a theme's color inside its
 string, where a stop's color goes:
 `"linear-gradient(90deg, theme.accent 0%, #7c3aed 100%)"`.
 
@@ -83,7 +85,7 @@ string, where a stop's color goes:
 
 | Attribute | Value | Default |
 | --- | --- | --- |
-| `font` | the name of a font, which the `fonts` of the `themes.yml` files above the file it is written in give a font file or folder — see [Fonts](../README.md#fonts) | none: Inter |
+| `font` | the name of a font, which the `fonts` of the `themes.yml` files above the file it is written in give a font file or folder — see [Fonts](../writing-a-design/README.md#fonts) | none: Inter |
 | `size` | pixels from `0` up | `14` |
 | `weight` | `100` to `900` in steps of `100`, one the font has: Inter has `400`, `500`, `600` and `700`; a variable font, any its weight axis reaches; a folder, each of its files' | `400` |
 | `color` | a color | `#0f172a` |

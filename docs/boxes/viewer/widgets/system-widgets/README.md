@@ -1,7 +1,10 @@
+---
+page-type: reference
+---
 # System widgets
 
 Every widget devpage ships, in every document, each shown live beside the
-Markdown that makes it. It is the reference page under [Widgets](../README.md);
+Markdown that makes it. It sits under [Widgets](../README.md);
 how to write props and content is on [Using widgets](../using-widgets/README.md).
 
 | Widget | Props | Content |
@@ -15,6 +18,7 @@ how to write props and content is on [Using widgets](../using-widgets/README.md)
 | [`Keys`](#keys) | — | Key names separated by spaces |
 | [`Steps`](#steps) | — | A numbered Markdown list |
 | [`Cards`](#cards) | `columns` (optional, 2–4; default fits the width) | A Markdown list of links |
+| [`Requirements`](#requirements) | — | None: devpage writes it |
 
 `Notes` is taken too, though it is not a widget: it holds a slide's
 [notes](../../making-slides/README.md#speaker-notes) and is never shown. So is
@@ -154,6 +158,34 @@ Lucide doesn't have is a [problem](../../checking-links/README.md).
 </Cards>
 
 </Example>
+
+
+## Requirements
+
+The requirements of the part a page describes, each with whether it is met.
+It takes nothing: devpage finds the requirements by where the page is.
+
+- **Whose.** The pages in the `requirements` folder beside the page are its
+  part's requirements. A part's requirements bind every part inside it, so
+  under them come the requirements of each folder above, closed until
+  clicked.
+- **Met or not.** A [constraint](../../glossary/README.md#constraint) shows
+  what the last `devpage check` on this machine found: **Met** when every
+  test pointing at it passed, **Not met** when one failed, **No test** when
+  none points at it, **Not checked** when no run is kept or the run did not
+  have it. A review rule and an objective show their kind: no test checks
+  them.
+- **When.** Under the list is the time of that run. The code may have changed
+  since.
+
+<Example>
+
+<Requirements />
+
+</Example>
+
+[Checking requirements](../../checking-requirements/README.md) says how a
+site sets its requirements up.
 
 ## DevpageSidebar
 

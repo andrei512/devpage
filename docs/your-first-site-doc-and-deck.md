@@ -1,7 +1,10 @@
+---
+page-type: task
+---
 # Your first site, doc and deck
 
 A walk from an empty folder to a small site, a doc and a deck that update
-while you edit them. It is the tutorial under
+while you edit them. It sits under
 [Getting started](getting-started.md); you need devpage
 [installed](installing.md).
 

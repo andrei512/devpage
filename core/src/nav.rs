@@ -106,6 +106,20 @@ pub fn tree_and_topics(document: &Document) -> (Vec<Group>, HashMap<PathBuf, Vec
     (tree, topics)
 }
 
+/// The page each page of the site sits under: the one whose Topics lists it
+/// at its position in the [tree](tree). The root page, and a page no Topics
+/// section lists, sit under none. Empty for any document but a site.
+pub fn parents(document: &Document) -> HashMap<PathBuf, PathBuf> {
+    let crate::document::Kind::Site { root } = &document.kind else {
+        return HashMap::new();
+    };
+    let root = document.base.join(root);
+    homes(document, &root, &mut Read::default())
+        .into_iter()
+        .map(|(page, (parent, _))| (page, parent))
+        .collect()
+}
+
 /// Where each page listed in the tree has its position: the page listing it
 /// and the listing's index among that page's Topics links. Found level by
 /// level from the root, so the shallowest listing wins, then the first.
@@ -273,7 +287,7 @@ fn first_link<'a>(node: &'a AstNode<'a>) -> Option<(String, String)> {
 }
 
 /// The text of `node`: its text and inline code, without the markup.
-fn text<'a>(node: &'a AstNode<'a>) -> String {
+pub(crate) fn text<'a>(node: &'a AstNode<'a>) -> String {
     node.descendants()
         .filter_map(|descendant| match &descendant.data.borrow().value {
             NodeValue::Text(text) => Some(text.to_string()),

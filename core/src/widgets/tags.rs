@@ -17,7 +17,18 @@ const SHOWS_SOURCE: &[&str] = &["Example"];
 /// and a `Tab` outside a `Tabs`, are reported; an unknown tag is replaced by
 /// an error in its place rather than passed through as HTML.
 pub fn expand(source: &str, known: &[String], problems: &mut Vec<String>) -> String {
-    expand_in(source, known, problems, None, 0)
+    expand_with(source, known, problems, &|_| None)
+}
+
+/// [`expand`], with `written` giving the content the server writes for a
+/// widget, by name: what it answers replaces what the tag holds.
+pub fn expand_with(
+    source: &str,
+    known: &[String],
+    problems: &mut Vec<String>,
+    written: &dyn Fn(&str) -> Option<String>,
+) -> String {
+    expand_in(source, known, problems, None, 0, written)
 }
 
 /// [`expand`] for content inside the widget `parent`, whose first line is line
@@ -28,6 +39,7 @@ fn expand_in(
     problems: &mut Vec<String>,
     parent: Option<&str>,
     lines_before: usize,
+    written: &dyn Fn(&str) -> Option<String>,
 ) -> String {
     let code = code_ranges(source);
     let in_code = |at: usize| code.iter().any(|r| r.contains(&at));
@@ -108,10 +120,13 @@ fn expand_in(
             problems.push(format!("{line}: <Tab> is outside a <Tabs>"));
         }
         let inner_lines = lines_before + source[..after_open].matches('\n').count();
-        let icons;
+        let made;
         let inner = if tag.name == "Cards" {
-            icons = card_icons(inner, inner_lines, problems);
-            icons.as_str()
+            made = card_icons(inner, inner_lines, problems);
+            made.as_str()
+        } else if let Some(content) = written(&tag.name) {
+            made = content;
+            made.as_str()
         } else {
             inner
         };
@@ -135,7 +150,14 @@ fn expand_in(
         // Widgets inside the content are expanded too, then left for comrak to
         // render as Markdown: blank lines around a block widget's content
         // make it Markdown rather than raw HTML.
-        let inner = expand_in(inner, known, problems, Some(&tag.name), inner_lines);
+        let inner = expand_in(
+            inner,
+            known,
+            problems,
+            Some(&tag.name),
+            inner_lines,
+            written,
+        );
         if block {
             out.push_str(&format!(
                 "{open}\n\n{}\n\n</{element}>",
@@ -462,5 +484,19 @@ mod tests {
             html.contains("fenced") && html.contains("indented"),
             "{html}"
         );
+    }
+
+    #[test]
+    fn a_widget_the_server_writes_for_holds_what_the_server_wrote() {
+        let mut problems = Vec::new();
+        let out = expand_with(
+            "<Requirements />\n\n<Callout>mine</Callout>\n",
+            &set(&["Requirements", "Callout"]),
+            &mut problems,
+            &|name| (name == "Requirements").then(|| "- [A](a.md) — met".to_string()),
+        );
+        assert!(out.contains("\n\n- [A](a.md) — met\n\n</div>"), "{out}");
+        assert!(out.contains("\n\nmine\n\n</div>"), "{out}");
+        assert!(problems.is_empty(), "{problems:?}");
     }
 }

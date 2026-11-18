@@ -1,8 +1,10 @@
+---
+page-type: mechanism
+---
 # Code map
 
 Which module of devpage does what, and how `main` wires them together when
-devpage starts. It is a mechanism page under
-[Developing devpage](../developing-devpage/README.md), for someone finding
+devpage starts. It sits under [Developing devpage](../developing-devpage/README.md), for someone finding
 their way into the source.
 
 
@@ -88,6 +90,8 @@ flowchart LR
 | `src/adapters/extensions.rs` | The native loader: a package folder's `extension.yml` checked — its id, version, ABI and target, its library and assets inside it — its dynamic library opened with `libloading` and its `devpage_extension_v1` table taken. `build.rs` gives it the target the binary is built for. |
 | `extension-api/` | `devpage-extension-api`: the ABI — `API`, the `VTable` of `invoke` and `release`, the `Buffer` of JSON between them — and `export_extension!`, which a package's library is built with, catching panics as errors. |
 | `core/src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. Both judge a page by its content phase's `Rendered` — for the preview, the very one its page then shows — and a link into another page by `page::ids`; neither renders a page itself. External addresses it hands to `core/src/external.rs`. Both start from a folder opened on the document, whose owners decide the site each page is checked as. Both take the served folder's design store, which answers a design's problems and its files. `files` lists every file the check follows from a document — what `devpage publish` zips; `drawn_from` every file a deck's slides are drawn from — what a slide's PNG is forgotten by. The preview reports each problem the first time it finds it through its `Report` port: `src/adapters/terminal.rs` in devpage, a recorder in tests. |
+| `core/src/requirements.rs` | A site's requirements: reads the `requirements` extension's suites, finds where test files name a constraint with each suite's pattern, and answers a constraint with no `id`, a constraint no test points at, a test pointing at none and an id two constraints share. `junit` reads a suite's JUnit report; the command is run by `tested` in `src/main.rs`, which `devpage check` calls unless `--docs` ([Checking requirements](../../viewer/checking-requirements/README.md)). `results` and `save` keep a run's outcome for each constraint in `.devpage/`, and `listing` writes what the `Requirements` widget shows on a part's page. |
+| `core/src/structure.rs` | A site's page types: reads the type files of its structure folder and each page's `page-type`, and answers the problems of a type file or of a page — no type, an unknown one, a parent its type does not allow, a missing or out-of-order section. `check.rs` asks it for both the check and the preview ([Structuring a site](../../viewer/structuring-a-site/README.md)). |
 | `src/adapters/terminal.rs` | The terminal as the preview's reporter: each problem printed on standard error once. |
 | `core/src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a refresh for every document on the change bus. How an address is asked is its `Ask` port, and where the preview's background asking runs its `Background` port: `src/adapters/external.rs` in devpage, a scripted table and the test's runtime in tests. |
 | `src/adapters/external.rs` | The external-link checker devpage uses, the adapter half of `core/src/external.rs`: `checker`, which puts together `Http`, asking an address over the network, and `Tokio`, running the preview's background asking on devpage's runtime; `offline`, the checker server mode's pages use, which asks none and runs nothing (`Nowhere`). Its tests run `devpage check` and the preview against a local web server. |

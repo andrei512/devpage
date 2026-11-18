@@ -3,6 +3,7 @@
 //! and its search, a reload's caching, swaps between pages and the comment
 //! marks inside widgets.
 
+use codespec_rust_macro::spec;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -18,6 +19,7 @@ use devpage_core::folder::ServedFolder;
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
+#[spec("hot-reload-works-for-every-page")]
 async fn widgets_mount_on_load_and_after_a_live_update() {
     let dir = std::env::temp_dir().join(format!("devpage-widgets-{}", std::process::id()));
     std::fs::create_dir_all(dir.join("docs/widgets")).unwrap();
@@ -2025,6 +2027,7 @@ async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]
+#[spec("widget-names-are-unique")]
 async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
     let dir = widget_folder(
         "failing",

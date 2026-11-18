@@ -1,8 +1,10 @@
+---
+page-type: concept
+---
 # Links between pages and documents
 
 What a link opens: a page, a document of another kind, or a heading — and why
-relative links work exactly as they do on disk. It is a concept article under
-[Writing a document](../README.md).
+relative links work exactly as they do on disk. It sits under [Writing a document](../README.md).
 
 ## Addresses are file paths
 

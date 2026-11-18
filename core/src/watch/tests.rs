@@ -6,6 +6,7 @@ use super::*;
 use crate::changes::{Change, Recorder};
 use crate::document::Document;
 use crate::folder::ServedFolder;
+use codespec_rust_macro::spec;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -85,6 +86,7 @@ impl Publish for Probe {
 }
 
 #[test]
+#[spec("hot-reload-works-for-every-page")]
 fn a_saved_page_refreshes_before_search_indexes_it() {
     let dir = served("order", "kind: site\ntitle: T\nroot: README.md\n");
     std::fs::write(

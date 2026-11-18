@@ -1,8 +1,10 @@
+---
+page-type: task
+---
 # Running a server
 
 How to deploy `devpage server`: what it needs, the example image to copy, its
-environment, running it on Kubernetes, and the proxy you may put in front. It is a task article under
-[Server mode](../README.md); every variable is in the
+environment, running it on Kubernetes, and the proxy you may put in front. It sits under [Server mode](../README.md); every variable is in the
 [reference](../reference/README.md#environment).
 
 ## What it needs
@@ -20,9 +22,9 @@ flowchart LR
 ```
 
 - **One replica**, always — a StatefulSet of one on Kubernetes
-  ([one replica](../constraints/one-replica.md)).
+  ([one replica](../requirements/one-replica.md)).
 - **A PVC.** It holds the store and the cache, and losing it loses at most the
-  store's last second ([the PVC is only a cache](../constraints/the-pvc-is-only-a-cache.md)).
+  store's last second ([nothing published is ever lost](../requirements/nothing-published-is-lost.md)).
 - **A bucket** — S3 or Azure Blob — where everything durable ends up.
 
 ## The image
@@ -93,7 +95,7 @@ $ devpage publish docs
 
 `localhost:3031` keeps its documents in RustFS and `localhost:3032` in
 Azurite. The same file is what
-[the PVC is only a cache](../constraints/the-pvc-is-only-a-cache.md) is
+[nothing published is ever lost](../requirements/nothing-published-is-lost.md) is
 checked against: `cargo test --test deploy_restore -- --ignored` publishes and
 comments on each server, deletes its volume, starts it on an empty one, and
 finds every document, version and comment.
@@ -126,7 +128,7 @@ kubectl apply -f deploy/server/kubernetes.yaml
 ```
 
 - **A StatefulSet with `replicas: 1`** — never more
-  ([one replica](../constraints/one-replica.md)) — so the pod keeps its PVC
+  ([one replica](../requirements/one-replica.md)) — so the pod keeps its PVC
   across restarts, and a rollout replaces the pod rather than running two.
 - **The PVC comes from its `volumeClaimTemplates`**, mounted at
   `DEVPAGE_DATA_DIR`. The cache takes 80% of it; size it from the cache's
@@ -144,7 +146,7 @@ kubectl apply -f deploy/server/kubernetes.yaml
 
 ## Your proxy
 
-devpage checks no one ([devpage authenticates no one](../../constraints/devpage-authenticates-no-one.md)):
+devpage checks no one ([devpage must not do authentication itself](../../requirements/devpage-does-no-authentication.md)):
 whoever reaches it can read, publish, comment and delete. To decide who may do
 what, put your own proxy in front and keep devpage's port inside the cluster.
 Reads are `GET`, writes are `POST` and `DELETE` under `/api/`, so a proxy can
