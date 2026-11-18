@@ -102,3 +102,37 @@ async fn a_widget_reads_a_part_of_the_world_and_changes_it_through_the_session()
     processes.stop().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The manifest brings a whole widget module tree and appends a panel section
+/// to the document's own. The shared page module is available to both.
+#[tokio::test]
+#[ignore]
+async fn a_package_places_a_widget_and_serves_its_relative_imports() {
+    crate::adapters::extensions::install();
+    let dir = widget_folder(
+        "package-panel",
+        "# Home\n",
+        &[
+            (
+                "docs/devpage.yml",
+                "kind: site\ntitle: Panel\nroot: README.md\nwidgets: widgets\nplaces: {panel: [First]}\nextensions: {second: {package: ./second}}\n",
+            ),
+            (
+                "docs/widgets/First.tsx",
+                "export default () => <section>First</section>;",
+            ),
+            (
+                "docs/second/extension.yml",
+                "id: second\nversion: '1'\napi: 1\nwidgets: {Second: widgets/Second.tsx}\nplaces: {panel: [Second]}",
+            ),
+            (
+                "docs/second/widgets/Second.tsx",
+                "import { label } from '../label'; import { useWorld } from 'devpage'; export default () => <section>{useWorld('second')?.label ?? label}</section>;",
+            ),
+            ("docs/second/label.ts", "export const label = 'Second';"),
+        ],
+    );
+    let (_browser, page) = super::page_script::open(&dir, "/docs/README.md").await;
+    until_is(&page, "[...document.querySelectorAll('#devpage-place-panel section')].map(el => el.textContent).join(',')", "First,Second").await;
+    std::fs::remove_dir_all(dir).unwrap();
+}

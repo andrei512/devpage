@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::{path::Path, sync::Arc};
 
 /// A package's `extension.yml`: what it is, where its library lies and the
-/// program it runs. It has a library, a program or both.
+/// program, browser widgets and world module it brings.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Manifest {
@@ -29,16 +29,22 @@ struct Manifest {
     run: Option<Vec<String>>,
     /// The package's asset folder inside it, if it has one.
     assets: Option<String>,
-    /// The widgets a package with no library brings: each one's name and the
+    /// The widgets a package brings: each one's name and the
     /// path of its module inside the package.
     #[serde(default)]
     widgets: std::collections::BTreeMap<String, String>,
+    /// Where the package places its widgets, after the document's own.
+    places: Option<devpage_core::document::Places>,
+    /// The module whose default export registers this package's world part.
+    world: Option<String>,
 }
 /// A loaded native package: its library and the two entry points taken from
 /// its table.
 struct Native {
     /// The open library, kept so `invoke` and `release` stay valid.
     _library: Library,
+    /// Browser modules and world declarations read from the manifest.
+    declares: Value,
     /// The package's canonical folder; a grammar it names must lie inside.
     root: std::path::PathBuf,
     /// The package's id from its manifest.
@@ -60,7 +66,7 @@ struct Plain {
     /// library's `create` reply does.
     declares: Value,
     /// The program the package runs.
-    process: Process,
+    process: Option<Process>,
 }
 impl Package for Plain {
     fn invoke(&self, request: Value) -> Result<Value> {
@@ -79,7 +85,7 @@ impl Package for Plain {
         }
     }
     fn process(&self) -> Option<Process> {
-        Some(self.process.clone())
+        self.process.clone()
     }
 }
 impl Package for Native {
@@ -112,6 +118,18 @@ impl Package for Native {
             }
             value["grammar"] = std::fs::read_to_string(path)?.into();
         }
+        if request["op"] == "create" {
+            for field in ["widgets", "modules"] {
+                for (name, source) in self.declares[field].as_object().unwrap() {
+                    if !value[field][name].is_null() {
+                        bail!("Extension {} declares {name} twice in {field}", self.id);
+                    }
+                    value[field][name] = source.clone();
+                }
+            }
+            value["places"] = self.declares["places"].clone();
+            value["world"] = self.declares["world"].clone();
+        }
         Ok(value)
     }
     fn process(&self) -> Option<Process> {
@@ -123,13 +141,13 @@ impl Package for Native {
 struct NativeLoader;
 impl Loader for NativeLoader {
     fn load(&self, path: &Path) -> Result<Arc<dyn Package>> {
-        Ok(package(path)?.1)
+        Ok(package(path, false)?.1)
     }
 }
 /// The package in the folder `path`, which must be the extension `id`: how
 /// devpage loads a package no document names, the live session's.
 pub fn load(path: &Path, id: &str) -> Result<Arc<dyn Package>> {
-    let (named, package) = package(path)?;
+    let (named, package) = package(path, id == devpage_core::extensions::LIVE)?;
     if named != id {
         bail!("Package {named} is not the extension {id}");
     }
@@ -137,7 +155,7 @@ pub fn load(path: &Path, id: &str) -> Result<Arc<dyn Package>> {
 }
 /// The id and the package of the folder `path`, after checking its manifest
 /// and ABI.
-fn package(path: &Path) -> Result<(String, Arc<dyn Package>)> {
+fn package(path: &Path, system_session: bool) -> Result<(String, Arc<dyn Package>)> {
     let root = path.canonicalize()?;
     let manifest: Manifest =
         serde_yaml::from_str(&std::fs::read_to_string(root.join("extension.yml"))?)?;
@@ -168,26 +186,63 @@ fn package(path: &Path) -> Result<(String, Arc<dyn Package>)> {
     {
         bail!("Assets outside package");
     }
-    let Some(library) = manifest.library else {
-        let Some(process) = process else {
-            bail!("Extension has neither a library nor a program to run");
-        };
-        // Each widget's module is read from the package, as a library hands
-        // devpage its modules' source.
-        let mut modules = serde_json::Map::new();
-        for (name, module) in &manifest.widgets {
+    let world = manifest
+        .world
+        .map(|path| -> Result<_> {
             let file = root
-                .join(module)
+                .join(&path)
                 .canonicalize()
-                .with_context(|| format!("Widget {name}: its module {module}"))?;
-            if !file.starts_with(&root) {
-                bail!("Widget {name}: its module is outside the package");
+                .with_context(|| format!("World module {path}"))?;
+            if !file.starts_with(&root) || !file.is_file() {
+                bail!("World module {path} must be a file inside the package");
             }
-            modules.insert(module.clone(), std::fs::read_to_string(file)?.into());
+            Ok(file)
+        })
+        .transpose()?;
+    let mut modules = serde_json::Map::new();
+    for (widget, entry) in &manifest.widgets {
+        let mut pending = vec![entry.clone()];
+        while let Some(path) = pending.pop() {
+            if modules.contains_key(&path) {
+                continue;
+            }
+            let file = root
+                .join(&path)
+                .canonicalize()
+                .with_context(|| format!("Widget {widget}: its module {path}"))?;
+            if !file.starts_with(&root) {
+                bail!("Widget {widget}: its module is outside the package");
+            }
+            let source = std::fs::read_to_string(&file)?;
+            for import in devpage_core::widgets::extension_imports(Path::new(&path), &source) {
+                let target =
+                    devpage_core::extensions::imported_module(Path::new(&path), &import, |p| {
+                        root.join(p).is_file()
+                    })?;
+                pending.push(target);
+            }
+            modules.insert(path, source.into());
+        }
+    }
+    let places = match manifest.places {
+        Some(places) => places,
+        // Existing live.program installations predate manifest placements.
+        // Only the implicitly bound session inherits the shipped manifest.
+        None if system_session => {
+            serde_yaml::from_str::<Manifest>(include_str!("../../live/extension.yml"))?
+                .places
+                .unwrap_or_default()
+        }
+        None => Default::default(),
+    };
+    let declares = serde_json::json!({"modules": modules, "widgets": manifest.widgets, "places": places, "world": world});
+    let Some(library) = manifest.library else {
+        if process.is_none() && world.is_none() && manifest.widgets.is_empty() {
+            bail!("Extension has neither a library nor a program, world module or widgets");
         }
         let package = Plain {
             id: manifest.id.clone(),
-            declares: serde_json::json!({"modules": modules, "widgets": manifest.widgets}),
+            declares,
             process,
         };
         return Ok((manifest.id, Arc::new(package)));
@@ -212,6 +267,7 @@ fn package(path: &Path) -> Result<(String, Arc<dyn Package>)> {
         let release = table.release;
         let package = Native {
             _library: library,
+            declares,
             root,
             id: manifest.id.clone(),
             invoke,
@@ -259,10 +315,16 @@ mod tests {
         std::fs::create_dir_all(dir.join("widgets")).unwrap();
         std::fs::write(
             dir.join("extension.yml"),
-            "id: tests\nversion: \"1\"\napi: 1\nrun: [tests]\nwidgets:\n  TestsSection: widgets/TestsSection.tsx\n",
+            "id: tests\nversion: \"1\"\napi: 1\nworld: world.ts\nplaces: {panel: [TestsSection]}\nwidgets:\n  TestsSection: widgets/TestsSection.tsx\n",
         )
         .unwrap();
-        let source = "export default () => <p>tests</p>;\n";
+        let source = "import { label } from './label'; export default () => <p>{label}</p>;\n";
+        std::fs::write(
+            dir.join("widgets/label.ts"),
+            "export const label = 'tests';",
+        )
+        .unwrap();
+        std::fs::write(dir.join("world.ts"), "export default () => {};").unwrap();
         std::fs::write(dir.join("widgets/TestsSection.tsx"), source).unwrap();
         let package = load(&dir, "tests").unwrap();
         // A module outside the package is refused.
@@ -288,5 +350,7 @@ mod tests {
             "widgets/TestsSection.tsx"
         );
         assert_eq!(declared["modules"]["widgets/TestsSection.tsx"], source);
+        assert!(declared["modules"]["widgets/label.ts"].is_string());
+        assert_eq!(declared["places"]["panel"][0], "TestsSection");
     }
 }

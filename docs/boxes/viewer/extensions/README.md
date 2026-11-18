@@ -3,7 +3,7 @@ page-type: concept
 ---
 # Extensions
 
-An extension is a package a document enables in its `devpage.yml`: a separately built Rust library, a program devpage keeps running, or both. Devpage loads the library into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. The program is started when a page first asks for it, and requests and WebSockets under its extension's address are passed to it. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
+An extension is a package a document enables in its `devpage.yml`: a separately built Rust library, a running program, browser widgets or a live-session world module. Devpage loads the library into its own process, reads the files it asks for, and asks it to add to pages, draw embeds, show its own file type, answer requests under its own address and highlight its language. The program is started when a page first asks for it, and requests and WebSockets under its extension's address are passed to it. Authors keep running the normal `devpage` command; nothing is compiled or installed when a document opens. This box belongs to the [viewer](../README.md).
 
 ## Enable a package
 
@@ -20,7 +20,7 @@ extensions:
       input: model
 ```
 
-The bundle holds `extension.yml` and the library, the program or both. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: [`code`](../write/code-reference/README.md), [`requirements`](../check/checking-requirements/README.md) and [`live`](../live-session/README.md).
+The bundle holds `extension.yml` and its declared files. A package can place widgets alongside the document’s own and register a part in the live session. During loopback serving, `~/.devpage/config.yml` can enable packages for every project through the same `extensions` mapping. A project entry replaces the global one, and `enabled: false` disables it. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: [`code`](../write/code-reference/README.md), [`requirements`](../check/checking-requirements/README.md) and [`live`](../live-session/README.md).
 
 ## What a package can do
 

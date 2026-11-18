@@ -427,6 +427,68 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    #[test]
+    fn the_session_loads_enabled_world_modules_and_stacks_their_widgets() {
+        use devpage_core::extensions::{self, Config};
+        use std::collections::BTreeMap;
+        let dir = site("world-packages");
+        let manifest = "id: counter\nversion: '1'\napi: 1\nworld: counter.ts\nwidgets: {Counter: Counter.tsx}\nplaces: {panel: [Counter]}";
+        for package in ["global", "local"] {
+            let folder = dir.join(package);
+            std::fs::create_dir(&folder).unwrap();
+            std::fs::write(folder.join("extension.yml"), manifest).unwrap();
+            std::fs::write(folder.join("counter.ts"), "export default p => {};").unwrap();
+            std::fs::write(folder.join("Counter.tsx"), "export default () => null;").unwrap();
+        }
+        let scope = ServedFolder::new(&dir).unwrap();
+        let configs: BTreeMap<String, Config> =
+            serde_yaml::from_str("counter: {package: global}").unwrap();
+        extensions::serve_packages(&scope, &dir, configs);
+        std::fs::write(
+            dir.join("toy/extension.yml"),
+            include_str!("../../../live/extension.yml"),
+        )
+        .unwrap();
+        extensions::serve_live(
+            &scope,
+            crate::adapters::extensions::load(&dir.join("toy"), "live").unwrap(),
+        );
+        let file = dir.join("devpage.yml");
+        extensions::serve_entry(&scope, file.clone());
+        let site = "kind: site\ntitle: Packages\nroot: README.md\n";
+        for (extra, source) in [
+            ("", Some("global")),
+            ("extensions: {counter: {package: ./local}}", Some("local")),
+            ("extensions: {counter: {enabled: false}}", None),
+        ] {
+            std::fs::write(&file, format!("{site}{extra}")).unwrap();
+            let document = Document::load(&file, &scope).unwrap();
+            let (_, address) = document
+                .extensions
+                .iter()
+                .find(|b| b.is_session())
+                .unwrap()
+                .address();
+            let request = extensions::live(&format!("{address}live/socket"), &scope).unwrap();
+            let config: serde_json::Value = serde_json::from_str(&request.config).unwrap();
+            if let Some(source) = source {
+                assert_eq!(
+                    config["world"]["counter"],
+                    dir.join(source).join("counter.ts").to_str().unwrap()
+                );
+                assert_eq!(document.places.panel, ["Counter", "DevpageLiveTasks"]);
+            } else {
+                assert!(config["world"].is_null());
+                assert_eq!(document.places.panel, ["DevpageLiveTasks"]);
+            }
+        }
+        // A published mount in this process cannot inherit this computer's packages.
+        std::fs::write(&file, site).unwrap();
+        let published = Document::load(&file, &scope.mounted("/d/1/v/1")).unwrap();
+        assert!(published.extensions.is_empty());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     #[tokio::test]
     async fn the_live_session_is_on_every_page_of_the_served_folder_and_its_program_answers() {
         let dir = site("session");

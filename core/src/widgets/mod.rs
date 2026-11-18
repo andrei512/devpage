@@ -11,7 +11,8 @@
 //! modules answers ([`request`]).
 
 mod compile;
-pub(crate) use compile::{compile as compile_extension, relative_imports as extension_imports};
+pub(crate) use compile::compile as compile_extension;
+pub use compile::relative_imports as extension_imports;
 mod modules;
 mod request;
 mod tags;

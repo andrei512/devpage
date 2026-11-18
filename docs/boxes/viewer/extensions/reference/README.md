@@ -7,18 +7,21 @@ The exact contract between devpage and an [extension](../README.md) package: the
 
 ## Configuration
 
-`extensions` is an optional mapping on a site, doc or deck. Each key is the extension's ID; its value has only `package` and `config`:
+`extensions` is an optional mapping on a site, doc or deck. Each key is the extension's ID; its value can have these fields:
 
 | Field | Meaning |
 | --- | --- |
 | `package` | Path of the bundle folder, relative to the YAML file. Required, except for a [system extension](../../glossary/README.md#system-extension): `code`, `requirements` and `live`. |
+| `enabled` | Set to `false` to turn off this extension for the document. |
 | `config` | Any YAML, passed to `create` as JSON. Null when left out. Devpage does not read it. |
+
+For loopback serving, the same mapping under `extensions` in `~/.devpage/config.yml` enables packages by default. A bundle path there is relative to `~/.devpage/`. The document entry for an id replaces its global entry in full. Checking, exporting and publishing use the document configuration alone.
 
 An unknown field is an error. A Markdown page uses the extensions of the document that owns it; with no owner, the entry document's. A page printed on its own uses its site's. A binding is kept while the document's whole `extensions` mapping and served folder are unchanged; any change creates the document's bindings again.
 
 ## Bundle
 
-A bundle folder holds `extension.yml` and the library it names, the program it runs, or both:
+A bundle folder holds `extension.yml` and the files it declares. A package can bring a native library, a program, a world module or widgets:
 
 ```yaml
 id: toy
@@ -37,9 +40,13 @@ library: libtoy.dylib
 | `library` | Optional. Path inside the bundle. |
 | `run` | Optional. The [program](#process) and its arguments, as a list; not empty. |
 | `assets` | Optional folder inside the bundle. Checked to stay inside, but nothing is served from it. |
-| `widgets` | Optional, for a package with no `library`. Widget name → the path of its module inside the bundle, as a library declares them in [`create`](#create). |
+| `widgets` | Widget name → module path inside the bundle. Relative imports and re-exports are included recursively. |
+| `places` | Lists of widget names for `navbar`, `panel` and `float`. Each list follows the document's own widgets. |
+| `world` | Path to a JavaScript or TypeScript module in the bundle. Its default export registers a part named for the package id with the local live session. |
 
-Unknown fields are errors, and so is a manifest with neither `library` nor `run`: `Extension has neither a library nor a program to run`. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
+Unknown fields are errors. A manifest needs a library, program, world module or widget. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
+
+A project using the prototype `extensions.live.config.world` mapping can keep those paths while moving parts into packages. A bound package supplies the module for its id when both configurations name the same part.
 
 ## Native boundary
 

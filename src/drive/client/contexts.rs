@@ -20,6 +20,9 @@ pub struct Config {
     /// Every context, by name.
     #[serde(default)]
     pub contexts: BTreeMap<String, Context>,
+    /// Package defaults used only by the loopback serving command.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extensions: BTreeMap<String, devpage_core::extensions::Config>,
     /// The live session's settings on this machine. devpage reads `program`
     /// alone; the session's program reads the rest, which is kept as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]

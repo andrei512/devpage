@@ -385,14 +385,24 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
     // The live session acts as whoever runs devpage, as every extension's
     // process does: it is on only where devpage answers this machine alone,
     // and only with the key its models need, OpenAI's or Azure's.
-    if cli.host.is_loopback() && adapters::live::has_provider() {
-        let program = home.config().and_then(|config| config.live_program());
-        match program.and_then(|program| installed.package(program.as_deref())) {
-            Ok(package) => devpage_core::extensions::serve_live(&served, package),
-            Err(error) => eprintln!("No live session: {error:#}"),
+    if cli.host.is_loopback() {
+        let config = home.config()?;
+        if adapters::live::has_provider() {
+            match config
+                .live_program()
+                .and_then(|program| installed.package(program.as_deref()))
+            {
+                Ok(package) => devpage_core::extensions::serve_live(&served, package),
+                Err(error) => eprintln!("No live session: {error:#}"),
+            }
         }
+        devpage_core::extensions::serve_packages(&served, &home.0, config.extensions);
     }
     let document = Arc::new(Document::load(&path, &served)?);
+
+    if cli.host.is_loopback() {
+        devpage_core::extensions::serve_entry(&served, document.path());
+    }
 
     // The process-wide parts: the change bus, the link checker on the
     // network reporting to the terminal, and who writes a comment — the

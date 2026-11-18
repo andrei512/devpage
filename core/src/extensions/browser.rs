@@ -40,6 +40,21 @@ fn normalized(path: &Path) -> Result<String> {
     }
     Ok(parts.join("/"))
 }
+/// Resolves a package-relative import the same way when collecting the
+/// module sources and when compiling them to browser addresses.
+pub fn imported_module(
+    from: &Path,
+    specifier: &str,
+    exists: impl Fn(&str) -> bool,
+) -> Result<String> {
+    let parent = from.parent().unwrap_or(Path::new(""));
+    let requested = normalized(&parent.join(specifier))?;
+    ["", ".tsx", ".ts", ".js"]
+        .into_iter()
+        .map(|suffix| format!("{requested}{suffix}"))
+        .find(|path| exists(path))
+        .ok_or_else(|| anyhow!("{}: missing package module {specifier}", from.display()))
+}
 impl Browser {
     /// The package `descriptor` describes, with every module compiled and its
     /// relative imports rewritten to addresses under `base`. An error when a
@@ -62,15 +77,10 @@ impl Browser {
             if normalized(Path::new(path))? != *path {
                 bail!("Noncanonical package module {path}");
             }
-            let parent = Path::new(path).parent().unwrap_or(Path::new(""));
             let mut imports = BTreeMap::new();
             for specifier in crate::widgets::extension_imports(Path::new(path), source) {
-                let requested = normalized(&parent.join(&specifier))?;
-                let target = ["", ".tsx", ".ts", ".js"]
-                    .into_iter()
-                    .map(|suffix| format!("{requested}{suffix}"))
-                    .find(|p| sources.contains_key(p))
-                    .ok_or_else(|| anyhow!("{path}: missing package module {specifier}"))?;
+                let target =
+                    imported_module(Path::new(path), &specifier, |p| sources.contains_key(p))?;
                 imports.insert(specifier, format!("{prefix}modules/{target}"));
             }
             let js = crate::widgets::compile_extension(Path::new(path), source, &[], &imports)

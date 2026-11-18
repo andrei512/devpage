@@ -3,6 +3,7 @@ mod browser;
 use crate::folder::ServedFolder;
 use anyhow::{Result, anyhow, bail};
 use browser::Browser;
+pub use browser::imported_module;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -76,26 +77,70 @@ fn instances() -> &'static Mutex<BTreeMap<PathBuf, Vec<Binding>>> {
 /// The system extension that is the live session: its name under a
 /// document's `extensions:`, and in its address.
 pub const LIVE: &str = "live";
-/// A served folder the live session is on in, and the session's package.
-type Session = (ServedFolder, Arc<dyn Package>);
-/// Each served folder the live session is on in.
-static SESSIONS: OnceLock<Mutex<Vec<Session>>> = OnceLock::new();
-/// Turns the live session on in `scope`: every document loaded there from
-/// now on is bound to `package` as its extension [`LIVE`], unless the document
-/// turns it off or names a package of its own. Where this is never called
-/// the session is off, and a document's word on it changes nothing.
-pub fn serve_live(scope: &ServedFolder, package: Arc<dyn Package>) {
-    let mut sessions = SESSIONS.get_or_init(Default::default).lock().unwrap();
-    sessions.retain(|(served, _)| served != scope);
-    sessions.push((scope.clone(), package));
+/// The package defaults for a local serving process and its shared session.
+#[derive(Clone, Default)]
+struct Local {
+    session: Option<Arc<dyn Package>>,
+    packages: BTreeMap<String, Config>,
+    entry: Option<PathBuf>,
 }
-/// The live session's package in `scope` — `None` where the session is off.
-fn session(scope: &ServedFolder) -> Option<Arc<dyn Package>> {
-    let sessions = SESSIONS.get()?.lock().unwrap();
-    sessions
-        .iter()
-        .find(|(served, _)| served == scope)
-        .map(|(_, package)| package.clone())
+
+static LOCAL: OnceLock<Mutex<BTreeMap<ServedFolder, Local>>> = OnceLock::new();
+
+fn local() -> &'static Mutex<BTreeMap<ServedFolder, Local>> {
+    LOCAL.get_or_init(Default::default)
+}
+
+/// Enables globally configured packages during loopback serving. Paths are
+/// relative to the global configuration file's folder.
+pub fn serve_packages(scope: &ServedFolder, home: &Path, mut packages: BTreeMap<String, Config>) {
+    for config in packages.values_mut() {
+        if let Some(path) = &mut config.package {
+            *path = home.join(&*path).to_string_lossy().into_owned();
+        }
+    }
+    local()
+        .lock()
+        .unwrap()
+        .entry(scope.clone())
+        .or_default()
+        .packages = packages;
+}
+
+/// Enables the shared live-session package for this served project.
+pub fn serve_live(scope: &ServedFolder, package: Arc<dyn Package>) {
+    local()
+        .lock()
+        .unwrap()
+        .entry(scope.clone())
+        .or_default()
+        .session = Some(package);
+}
+
+/// The shared session reads its project configuration from the entry document.
+pub fn serve_entry(scope: &ServedFolder, document: PathBuf) {
+    local()
+        .lock()
+        .unwrap()
+        .entry(scope.clone())
+        .or_default()
+        .entry = Some(document);
+}
+
+/// Applies a document's entries over the global defaults, before system
+/// extensions and package bindings consume their configuration.
+pub(crate) fn configured(
+    scope: &ServedFolder,
+    document: BTreeMap<String, Config>,
+) -> BTreeMap<String, Config> {
+    let mut configs = local()
+        .lock()
+        .unwrap()
+        .get(scope)
+        .map(|local| local.packages.clone())
+        .unwrap_or_default();
+    configs.extend(document);
+    configs
 }
 /// Whether `config`, what a document configures the live session with, leaves
 /// it on: it does unless it says `enabled: false`.
@@ -112,9 +157,11 @@ fn enabled(config: &serde_yaml::Value) -> Result<bool> {
 }
 /// An extension as a document's `extensions:` names it: its package and what it
 /// is configured with.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    /// A document can turn off a package enabled globally.
+    pub enabled: Option<bool>,
     /// The package's bundle; left out only for a system extension such as
     /// [`code`](crate::code) or the live session, [`LIVE`].
     pub package: Option<String>,
@@ -167,6 +214,8 @@ struct State {
     /// The package's reply to `create`: the suffixes it owns, its input and the
     /// suffixes read there, its grammar, widgets and styles.
     descriptor: Value,
+    /// Widget placements from this declaration.
+    places: crate::document::Places,
     /// The modules, widgets and stylesheets the package ships for the browser,
     /// compiled.
     browser: Arc<Browser>,
@@ -200,6 +249,10 @@ impl Binding {
     /// the document names.
     pub fn is_session(&self) -> bool {
         self.0.lock().unwrap().system
+    }
+    /// The widget placements declared by this package.
+    pub fn places(&self) -> crate::document::Places {
+        self.0.lock().unwrap().places.clone()
     }
     /// The address of each of the package's widgets' modules, by widget name.
     pub fn widget_urls(&self) -> BTreeMap<String, String> {
@@ -405,13 +458,23 @@ pub fn configure(
     mut configs: BTreeMap<String, Config>,
 ) -> Result<()> {
     // `live` with no package is the system extension: the live session.
+    let live_enabled = configs
+        .get(LIVE)
+        .is_none_or(|config| config.enabled != Some(false));
+    configs.retain(|_, config| config.enabled != Some(false));
     let own = match configs.get(LIVE) {
         Some(config) if config.package.is_none() => configs.remove(LIVE).map(|c| c.config),
         _ => None,
     };
     let on = own.as_ref().map(enabled).transpose()?.unwrap_or(true);
-    let session = (on && !configs.contains_key(LIVE))
-        .then(|| session(scope))
+    let session = (on && live_enabled && !configs.contains_key(LIVE))
+        .then(|| {
+            local()
+                .lock()
+                .unwrap()
+                .get(scope)
+                .and_then(|local| local.session.clone())
+        })
         .flatten();
     let mut guard = instances().lock().unwrap();
     if configs.is_empty() && session.is_none() {
@@ -428,6 +491,7 @@ pub fn configure(
         return Ok(());
     }
     let mut bindings = vec![];
+    let mut parts = BTreeMap::new();
     let mut claims: std::collections::BTreeSet<String> = ["md", "yml", "yaml", "design"]
         .into_iter()
         .map(String::from)
@@ -447,9 +511,9 @@ pub fn configure(
             Sha256::digest(format!("{}:{id}:{configuration}", doc.display()))
         )[..16]
             .to_string();
-        bindings.push(bind(
+        let binding = bind(
             Bound {
-                id,
+                id: id.clone(),
                 owner,
                 system: false,
                 package,
@@ -459,9 +523,25 @@ pub fn configure(
             &configuration,
             scope,
             &mut claims,
-        )?);
+        )?;
+        if let Some(path) = binding.0.lock().unwrap().descriptor["world"].as_str() {
+            parts.insert(id, path.to_owned());
+        }
+        bindings.push(binding);
     }
     if let Some(package) = session {
+        let mut config = serde_json::to_value(own.unwrap_or_default())?;
+        if !parts.is_empty() {
+            if config["world"].is_null() {
+                config["world"] = json!({});
+            }
+            let world = config["world"]
+                .as_object_mut()
+                .ok_or_else(|| anyhow!("live: world must be a mapping"))?;
+            for (part, path) in parts {
+                world.insert(part, path.into());
+            }
+        }
         let owner = format!(
             "{:x}",
             Sha256::digest(format!("{}:{LIVE}", scope.path().display()))
@@ -473,7 +553,7 @@ pub fn configure(
                 owner,
                 system: true,
                 package,
-                config: serde_json::to_value(own.unwrap_or_default())?,
+                config,
                 folder: scope.path(),
             },
             &configuration,
@@ -567,6 +647,7 @@ fn bind(
         &descriptor,
         &format!("{}/__devpage/extensions/{owner}/{id}/", scope.mount()),
     )?;
+    let places = serde_json::from_value(descriptor.get("places").cloned().unwrap_or(json!({})))?;
     let binding = Binding(Arc::new(Mutex::new(State {
         id,
         configuration: configuration.to_string(),
@@ -578,6 +659,7 @@ fn bind(
         folder: folder.to_path_buf(),
         input,
         descriptor,
+        places,
         browser: Arc::new(browser),
         revision: String::new(),
         error: None,
@@ -686,7 +768,17 @@ fn bound_at(path: &str, scope: &ServedFolder, preferred: Option<&Path>) -> Optio
             })
         })
     };
+    let entry = (id == LIVE)
+        .then(|| {
+            local()
+                .lock()
+                .unwrap()
+                .get(scope)
+                .and_then(|local| local.entry.clone())
+        })
+        .flatten();
     preferred
+        .or(entry.as_deref())
         .and_then(|preferred| guard.get_key_value(preferred))
         .and_then(found)
         .or_else(|| guard.iter().find_map(found))
@@ -832,6 +924,9 @@ mod tests {
     impl Package for Session {
         fn invoke(&self, r: Value) -> Result<Value> {
             Ok(match r["op"].as_str().unwrap() {
+                "create" => {
+                    json!({"places":{"navbar":["DevpageLiveTasksButton"],"panel":["DevpageLiveTasks"],"float":["DevpageLiveCanvas","DevpageLiveOrb"]}})
+                }
                 "prepare" => json!({"revision": "none"}),
                 _ => json!({}),
             })
