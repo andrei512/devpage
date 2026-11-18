@@ -63,6 +63,7 @@ export interface FastDeps {
   pages: () => { address: string; title: string }[];
   /** What Fast is told about the routes a new agent can run on, with the user's rules. Empty when there is only one route. */
   routes?: () => string;
+  routeNames?: () => string[];
   /** The persisted work snapshot also used by the panel. */
   work: () => WorkState;
   /** Carries out one thing a script asked for. Throws when it cannot be done. Returns what there is to log. */
@@ -391,7 +392,7 @@ export class Fast {
   constructor(private readonly provider: Provider, model: string, private readonly deps: FastDeps) {
     this.model = model;
     this.context = this.build(null);
-    deps.log("context_built", { text: this.context.input[0].content, why: "start", cursor: this.context.cursor });
+    deps.log("context_built", { text: this.context.input[0].content, why: "start", cursor: this.context.cursor, functions: deps.registry.fastFunctions() });
   }
 
   /** A voice session started or ended. When one starts, Fast gets what happened while none was on. */
@@ -446,13 +447,11 @@ export class Fast {
     const entries: ShownEntry[] = events.map(event => ({
       ...(coreEntry(event) ?? { kind: "registered" as const, n: event.n }), rendered: registry.line(event),
     }));
-    const images = events.map(event => registry.image(event)).filter(image => image !== null);
     const page = await this.deps.page();
     const said = handovers.flatMap((handover) => handover.messages);
     const text = this.render(context, run, entries, said, page);
     if (entries.length > 0) context.cursor = entries.at(-1)!.n;
-    const content = images.length ? [{ type: "input_text", text }, ...images.map(image_url => ({ type: "input_image", image_url }))] : text;
-    context.input.push({ role: "user", content });
+    context.input.push(registry.wake(events, text));
     this.deps.log("wake", { run, text, why: reasons, handovers: handovers.map((handover) => handover.id), entries: entries.map((entry) => entry.n), page: page?.address ?? null, page_ms: Date.now() - began });
 
     const carried: Carried = { run, handover: handovers.at(-1)?.id ?? null, said, used: [] };
@@ -464,6 +463,7 @@ export class Fast {
       page: page && { address: page.address, text: page.text },
       pages: this.deps.pages().map(({ address }) => address),
       pads: page?.pads?.map(({ address }) => address) ?? [],
+      routes: this.deps.routeNames?.(),
       handover: said.map((message) => message.id),
     };
     const written = await script(

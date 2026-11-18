@@ -2,7 +2,7 @@
 import { line as coreLine } from "./world.ts";
 import { coreEntry, Events } from "./events.ts";
 import { Database } from "bun:sqlite";
-import { run as runScript } from "./sandbox.ts";
+import type { Intent } from "./sandbox.ts";
 import { z } from "zod";
 import type { HarnessTool } from "./harness.ts";
 
@@ -76,10 +76,25 @@ export interface Registering {
   widget: (name: string, place: "navbar" | "panel" | "float") => void;
 }
 
-/** One thing a script of Fast's asked for. */
-export interface Asked {
-  do: string;
-  input: Record<string, unknown>;
+/** Data needed to replay a script without installing or executing its packages. */
+export interface FastFunction {
+  name: string;
+  description: string;
+  syntax?: string;
+  schema: z.core.JSONSchema.BaseSchema;
+}
+
+// A package id can be a digit, a keyword, a sandbox binding or a hyphenated name.
+const identifier = /^[A-Za-z_$][\w$]*$/;
+const reserved = new Set("await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield arguments eval spawn say restart worldParts page canvas".split(" "));
+
+function binding(full: string) {
+  const dot = full.indexOf(".");
+  const part = full.slice(0, dot), name = full.slice(dot + 1);
+  const bare = identifier.test(part) && !reserved.has(part) && !(part in globalThis) && !/^[mua]\d+$/.test(part);
+  const owner = bare ? part : `worldParts[${JSON.stringify(part)}]`;
+  const access = identifier.test(name) ? `.${name}` : `[${JSON.stringify(name)}]`;
+  return { part, name, bare, expression: owner + access };
 }
 
 export class Registry {
@@ -89,6 +104,7 @@ export class Registry {
   private readonly pending = new Map<string, Promise<unknown>>();
   private readonly kinds = new Map<string, Kind & { part: string }>();
   private readonly fns = new Map<string, Fn>();
+  private readonly commands = new Map<string, string>();
   private readonly named = new Set<string>();
   readonly widgets: { part: string; name: string; place: string }[] = [];
   /** Called with each new entry and whether it wakes Fast. */
@@ -111,6 +127,12 @@ export class Registry {
     const widgets: typeof this.widgets = [];
     const publish = () => {
       if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      const commands = new Map(this.commands);
+      for (const [name, fn] of functions) {
+        if (!fn.syntax) continue;
+        if (commands.has(fn.name)) throw new Error(`The sandbox command ${fn.name} is registered twice`);
+        commands.set(fn.name, name);
+      }
       const tools = new Set<string>();
       for (const [name, fn] of [...this.fns, ...functions]) {
         if (fn.for !== "both" && fn.for !== "slow") continue;
@@ -120,6 +142,7 @@ export class Registry {
       }
       for (const [name, kind] of kinds) this.kinds.set(name, kind);
       for (const [name, fn] of functions) this.fns.set(name, fn);
+      for (const [command, name] of commands) this.commands.set(command, name);
       this.widgets.push(...widgets);
       this.named.add(part);
     };
@@ -167,14 +190,25 @@ export class Registry {
   /** An entry as the line Fast reads. */
   line(entry: Entry) {
     const kind = this.kinds.get(`${entry.part}.${entry.kind}`);
-    if (kind) return kind.line(entry.fields);
-    const core = coreEntry(entry);
-    return core ? coreLine(core) : `${entry.part}.${entry.kind}`;
+    const fallback = `${entry.part}.${entry.kind}`;
+    try {
+      const core = coreEntry(entry);
+      const rendered = kind ? kind.line(entry.fields) : core ? coreLine(core) : fallback;
+      return typeof rendered === "string" ? rendered : fallback;
+    } catch {
+      // Earlier records can have a different shape from the current package.
+      return fallback;
+    }
   }
 
   /** The image an entry carries, when it has one. */
   image(entry: Entry) {
-    return this.kinds.get(`${entry.part}.${entry.kind}`)?.image?.(entry.fields) ?? null;
+    try {
+      const image = this.kinds.get(`${entry.part}.${entry.kind}`)?.image?.(entry.fields);
+      return typeof image === "string" ? image : null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -251,11 +285,27 @@ export class Registry {
         const registered = this.kinds.get(`${part}.${kind}`);
         if (!registered) throw new Error(`${part} has no entry kind ${kind}`);
         const entry = this.events.append(part, kind, fields);
+        const image = this.image(entry);
+        if (image) this.events.keepImage(entry, image);
         const wakes = registered.wakes;
-        this.notices!.entries.push([entry, typeof wakes === "function" ? wakes(fields, caller) : !!wakes]);
+        let wake = wakes === true;
+        if (typeof wakes === "function") {
+          try { wake = wakes(fields, caller) === true; }
+          catch { /* A failed notification predicate leaves this entry available on the next wake. */ }
+        }
+        this.notices!.entries.push([entry, wake]);
         return entry;
       });
     });
+  }
+
+  /** Both forms produced by the sandbox resolve to the registered function. */
+  requested(intent: Intent) {
+    if (intent.do === "world") return { name: intent.name, input: intent.input };
+    const { do: command, ...input } = intent;
+    const name = this.commands.get(command);
+    if (!name) throw new Error(`There is no registered sandbox command ${command}`);
+    return { name, input };
   }
 
   /** Check the whole script before carrying any of its intents out. */
@@ -291,63 +341,54 @@ export class Registry {
       }));
   }
 
-  /** The lines of Fast's brief for the functions Fast may call. */
-  brief() {
-    return [...this.fns.entries()].filter(([, fn]) => fn.for === "fast" || fn.for === "both").map(([name, fn]) => `${fn.syntax ?? `${name}(${Object.keys(fn.input).join(", ")})`}  // ${fn.brief ?? fn.description}`).join("\n");
+  /** This description is given to the sandbox and kept for replay in the eval. */
+  fastFunctions(): FastFunction[] {
+    return [...this.fns].filter(([, fn]) => fn.for === "fast" || fn.for === "both")
+      .map(([name, fn]) => ({ name, description: fn.brief ?? fn.description, syntax: fn.syntax, schema: z.toJSONSchema(z.object(fn.input)) }));
   }
 
-  /**
-   * The sandbox half of every function Fast may call, as source: nothing but text crosses into the sandbox. Each is a
-   * call that takes its input in the order it was registered, checks each value's type against the input's schema,
-   * and records what was asked. Nothing is carried out while the script runs.
-   */
-  prelude() {
-    const fns = [...this.fns.entries()]
-      .filter(([, fn]) => !fn.syntax && (fn.for === "fast" || fn.for === "both"))
-      .map(([name, fn]) => {
-        const schema = z.toJSONSchema(z.object(fn.input)) as { properties?: Record<string, { type?: string }>; required?: string[] };
-        return { name, keys: Object.keys(fn.input), types: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, value.type ?? null])), required: schema.required ?? [] };
-      });
-    return `(() => {
+  brief() {
+    return this.fastFunctions().map(({ name, syntax, description, schema }) =>
+      `${syntax ?? `${binding(name).expression}(${Object.keys(schema.properties ?? {}).join(", ")})`}  // ${description}`).join("\n");
+  }
 
-      for (const fn of ${JSON.stringify(fns)}) {
-        const [part, name] = fn.name.split(".");
-        globalThis[part] ??= {};
-        globalThis[part][name] = (...values) => {
+  prelude() {
+    const functions = this.fastFunctions().filter(fn => !fn.syntax).map(fn => ({
+      ...binding(fn.name), full: fn.name, keys: Object.keys(fn.schema.properties ?? {}), required: fn.schema.required ?? [],
+      types: Object.fromEntries(Object.entries(fn.schema.properties ?? {}).map(([key, property]) =>
+        [key, typeof property === "object" ? property.type : undefined])),
+    }));
+    // Zod checks every collected input before the service carries out the first
+    // intent. Preserve the order of these calls among the built-ins.
+    return `(() => {
+      const parts = globalThis.worldParts = Object.create(null);
+      for (const fn of ${JSON.stringify(functions)}) {
+        const part = parts[fn.part] ??= Object.create(null);
+        if (fn.bare) globalThis[fn.part] = part;
+        part[fn.name] = (...values) => {
           const input = {};
           fn.keys.forEach((key, at) => { if (values[at] !== undefined) input[key] = values[at]; });
           for (const key of fn.required) if (!(key in input)) throw new TypeError(fn.name + " needs " + key);
-          for (const key in input) {
+          for (const key of Object.keys(input)) {
             const type = fn.types[key];
-            if (type && type !== "array" && type !== "object" && typeof input[key] !== (type === "integer" ? "number" : type)) throw new TypeError(fn.name + ": " + key + " is not a " + type);
+            if (!type) continue;
+            const value = input[key];
+            const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
+            const allowed = Array.isArray(type) ? type : [type];
+            if (!allowed.includes(actual) && !(allowed.includes("integer") && Number.isInteger(value))) {
+              throw new TypeError(fn.name + ": " + key + " needs " + allowed.join(" or "));
+            }
           }
-          __worldCall(fn.name, input);
+          __worldCall(fn.full, input);
         };
       }
-
     })()`;
   }
 
-  /** Runs a script of Fast's in the sandbox and returns what it asked for. A script that throws asked for nothing. */
-  async script(code: string): Promise<Asked[]> {
-    const scope = { messages: [], updates: [], agents: [], pages: [], page: null, handover: [] };
-    const ran = await runScript(code, scope, this);
-    return ran.intents.map(intent => {
-      if (intent.do !== "world") throw new Error("Expected a registered world call");
-      return { do: intent.name, input: intent.input };
-    });
-  }
-
-  /** One run of Fast: the script in the sandbox, then each call carried out, in order. */
-  async run(code: string, caller: Extract<Caller, { who: "fast" }>) {
-    const asked = await this.script(code);
-    for (const { do: name, input } of asked) await this.call(name, input, caller);
-    return asked;
-  }
-
   /** What a wake-up sends Fast for these entries: their lines as one text, and each image an entry carries after it. */
-  wake(entries: Entry[]) {
-    const images = entries.map((entry) => this.image(entry)).filter((image): image is string => Boolean(image));
-    return { role: "user" as const, content: [{ type: "input_text" as const, text: entries.map((entry) => this.line(entry)).join("\n") }, ...images.map((image_url) => ({ type: "input_image" as const, image_url }))] };
+  wake(entries: Entry[], text = entries.map(entry => this.line(entry)).join("\n")) {
+    const saved = this.events.images(entries.map(entry => entry.n));
+    const images = entries.map((entry) => saved.get(entry.n) ?? this.image(entry)).filter((image): image is string => Boolean(image));
+    return { role: "user" as const, content: [{ type: "input_text" as const, text }, ...images.map((image_url) => ({ type: "input_image" as const, image_url }))] };
   }
 }

@@ -5,11 +5,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { deflateSync } from "node:zlib";
 import { z } from "zod";
+import { run } from "./sandbox.ts";
 import { BACKEND } from "./fast.ts";
 import { provider } from "./provider.ts";
 import { Registry, type Caller, type Entry } from "./registry.ts";
 
 const FAST: Extract<Caller, { who: "fast" }> = { who: "fast", run: 1, handover: "h1", used: [] };
+
+async function runRegistered(registry: Registry, code: string) {
+  const ran = await run(code, { page: null, pages: [], agents: [], messages: [], updates: [], handover: [] }, registry);
+  const calls = ran.intents.map(intent => registry.requested(intent));
+  for (const { name, input } of calls) await registry.call(name, input, FAST);
+  return calls;
+}
 
 /** A part like the computer's: one action for both, which keeps how many ran and adds an entry that wakes Fast only for Fast's own call. */
 function computer(registry: Registry) {
@@ -30,8 +38,8 @@ test("one function, registered once, is a call in Fast's script and a slow agent
   const woke: [string, boolean][] = [];
   registry.onEntry = (entry, wakes) => void woke.push([registry.line(entry), wakes]);
 
-  const asked = await registry.run(`mac.run("open Safari")`, FAST);
-  expect(asked).toEqual([{ do: "mac.run", input: { script: "open Safari" } }]);
+  const asked = await runRegistered(registry, `mac.run("open Safari")`);
+  expect(asked).toEqual([{ name: "mac.run", input: { script: "open Safari" } }]);
 
   const [tool] = registry.tools(2);
   expect(tool.name).toBe("mac_run");
@@ -63,8 +71,8 @@ test("state and entries are written together or not at all", async () => {
 test("a script that throws asked for nothing, and a wrong input is caught inside the sandbox", async () => {
   const registry = new Registry(":memory:");
   computer(registry);
-  await expect(registry.run(`mac.run("one"); mac.run(2)`, FAST)).rejects.toThrow();
-  await expect(registry.run(`mac.run()`, FAST)).rejects.toThrow();
+  await expect(runRegistered(registry, `mac.run("one"); mac.run(2)`)).rejects.toThrow();
+  await expect(runRegistered(registry, `mac.run()`)).rejects.toThrow();
   expect(registry.since(0)).toEqual([]);
 });
 
@@ -137,7 +145,7 @@ test("an entry's image goes into what a wake-up sends", async () => {
     kind("shot", { line: () => "mac  took a screenshot", image: ({ image }) => image, wakes: true });
     action("screenshot", { for: "both", description: "Takes a screenshot.", input: { image: z.string() } }, ({ image }, running) => void running.add("shot", { image }));
   });
-  await registry.run(`mac.screenshot(${JSON.stringify(png(255, 0, 0))})`, FAST);
+  await runRegistered(registry, `mac.screenshot(${JSON.stringify(png(255, 0, 0))})`);
   const wake = registry.wake(registry.since(0));
   expect(wake.content.map((part) => part.type)).toEqual(["input_text", "input_image"]);
 });
@@ -199,6 +207,7 @@ test("overlapping calls to a part see the previous committed update", async () =
 
 test("Fast checks every registered input and collects mixed calls in script order", async () => {
   const registry = new Registry(":memory:");
+  registry.part("session", ({ z, action }) => action("say", { for: "fast", syntax: "say(text)", description: "Speak", input: { text: z.string() } }, () => {}));
   registry.part("counter", ({ z, set }) => set("add", { for: "both", description: "Adds a count", input: { n: z.number().int().positive() } }, ({ n }, ctx) => ctx.set("n", n)));
   const { run } = await import("./sandbox.ts");
   const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
@@ -219,6 +228,50 @@ test("a registered built-in keeps its harness spelling and presentation", async 
   expect(tool.name).toBe("read_log");
   expect(tool.always).toBe(true);
   expect(await tool.run({})).toEqual({ text: "history" });
+});
+
+test("Fast checks the registered schema of each built-in before any earlier call can run", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("session", ({ z, action }) => {
+    action("say", { for: "fast", syntax: "say(text)", input: { text: z.literal("allowed") }, description: "Speak" }, () => {});
+  });
+  const { run } = await import("./sandbox.ts");
+  const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
+  await expect(run('say("allowed"); say("wrong")', scope, registry)).rejects.toThrow();
+});
+
+test("Fast can run the advertised syntax for every legal shape of package id", async () => {
+  const registry = new Registry(":memory:");
+  for (const id of ["unit-tests", "42", "class", "a2", "Object", "counter"]) {
+    registry.part(id, ({ action }) => action("run", { for: "fast", description: "Run", input: {} }, () => {}));
+  }
+  for (const [i, line] of registry.brief().split("\n").entries()) {
+    expect(await runRegistered(registry, line)).toEqual([{ name: registry.parts()[i] + ".run", input: {} }]);
+  }
+});
+
+test("an unreadable event survives and the next wake can still be delivered", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("tests", ({ kind, action }) => {
+    kind("result", {
+      line: f => f.result.name.toUpperCase(),
+      image: f => f.result.picture.url,
+      wakes: f => f.result.complete,
+    });
+    action("run", { for: "fast", description: "Run", input: {} }, (_, r) => {
+      r.set("done", true);
+      r.add("result", { legacy: true });
+      r.add("result", { result: { name: "current", picture: { url: "image.png" }, complete: true } });
+    });
+  });
+  const notices: boolean[] = [];
+  registry.onEntry = (entry, wakes) => { registry.line(entry); notices.push(wakes); };
+  await registry.call("tests.run", {}, FAST);
+  expect(notices).toEqual([false, true]);
+  expect(registry.state("tests")).toEqual({ done: true });
+  expect(registry.wake(registry.since(0)).content).toEqual([
+    { type: "input_text", text: "tests.result\nCURRENT" }, { type: "input_image", image_url: "image.png" },
+  ]);
 });
 
 test("a committed action can publish external results individually and a failed start publishes none", async () => {

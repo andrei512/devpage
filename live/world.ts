@@ -83,11 +83,6 @@ export class World {
     this.entries = this.entries.slice(-KEPT);
   }
 
-  /** The number of the newest entry. */
-  get now() {
-    return this.registry.events.now;
-  }
-
   /** The next id of a message or an update: they go on across restarts, so `m41` is one message for ever. */
   next(kind: "message" | "update") {
     return (this.ids[kind] += 1);
@@ -100,11 +95,6 @@ export class World {
     this.entries.push(full);
     if (this.entries.length > KEPT) this.entries.shift();
     return full;
-  }
-
-  /** Every entry after the one with this number, oldest first. */
-  since(n: number) {
-    return this.entries.filter((entry) => entry.n > n);
   }
 
   /** The most recent entries of a kind, oldest first. */

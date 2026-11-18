@@ -413,10 +413,12 @@ function coreFunctions(): Record<CorePart, (as: Registering) => void> {
       const { action, z } = as;
       action("go", { for: "fast", syntax: "page.go(address)", description: "Open a listed page.", input: { address: z.string() } }, async (intent) => {
         // Going to a page means showing the page.
-        closePad("fast");
         moving = Date.now() + 5000;
         const went = await page_does({ name: "go", address: intent.address });
-        world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "go" }) });
+        registry.atomic(() => {
+          closePad("fast");
+          world.add({ kind: "page", by: "fast", text: moved({ ...intent, do: "go" }) });
+        });
         return went;
       });
       action("scroll", { for: "fast", syntax: "page.scroll(where)", description: "Scroll the page.", input: { where: z.enum(["up", "down", "top", "bottom"]) } }, async (intent) => {
@@ -476,20 +478,6 @@ function giveWork(intent: Extract<Intent, { do: "spawn" | "send" | "fork" }>, ca
   });
 }
 
-const commandPart = {
-  say: "session", restart: "session",
-  spawn: "work", send: "work", fork: "work",
-  show: "canvas", close: "canvas",
-  go: "page", scroll: "page", panel: "page", point: "page", select: "page",
-} as const;
-
-function carry(intent: Intent, carried: Carried) {
-  const caller = { who: "fast" as const, ...carried };
-  if (intent.do === "world") return registry.call(intent.name, intent.input, caller);
-  const { do: command, ...input } = intent;
-  return registry.call(`${commandPart[command]}.${command}`, input, caller);
-}
-
 registry.atomic(() => {
   publish("work", "page", "canvas", "session");
   store.db.run("delete from session_state where name = 'tasks'");
@@ -502,8 +490,12 @@ const fast: Fast | null = PROVIDER
       // The rules are read again each time Fast's context is built, so a change of `routing.md` needs no restart.
       // The project's own replace the ones for every project.
       routes: () => told(routes, rules(ROOT, HOME)),
+      routeNames: () => routes.map(route => route.name),
       work: () => registry.state("work") as unknown as import("./fast.ts").WorkState,
-      carry,
+      carry: (intent, carried) => {
+        const { name, input } = registry.requested(intent);
+        return registry.call(name, input, { who: "fast", ...carried });
+      },
       forget: (keep) => void agents.forget(keep),
       quiet: () => Date.now() - spoke > 1500,
       log: (kind, fields) => log.write("fast", kind, fields),

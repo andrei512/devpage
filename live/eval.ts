@@ -1,3 +1,5 @@
+import { Registry, type FastFunction } from "./registry.ts";
+import { z } from "zod";
 import { SessionStore } from "./store.ts";
 // The evals of Fast. A case is one moment of a session: what Fast had been shown until then, the wake-up, and what a
 // right script does there. The moment is put to the model through the same code the service runs (the brief, the
@@ -120,6 +122,7 @@ interface Run {
   unseen: boolean;
   /** What Fast was told, as it was. */
   wake: string;
+  images?: string[];
   /** What it answered: one script, or two when the first threw. */
   scripts: { code: string; output: string }[];
 }
@@ -131,6 +134,7 @@ interface Recorded {
   texts: Record<string, string>;
   /** The first message of Fast's context, and the ids in it. */
   start: string;
+  functions?: FastFunction[];
   held: { messages: number[]; updates: number[]; agents: number[] };
   /** The world, until the session's end. */
   entries: Entry[];
@@ -144,20 +148,22 @@ function recorded(name: string): Recorded {
 }
 
 /** Makes a session file from the log and the world of the project it is run in: `bun eval.ts freeze <start of the session's id>`. */
-function freeze(session: string) {
-  const store = new SessionStore(stateOf(ROOT), "read");
+export function freeze(session: string, root = ROOT, destination = SESSIONS) {
+  const store = new SessionStore(stateOf(root), "read");
   const log: any[] = store.logs();
   const mine = log.filter((entry) => typeof entry.session === "string" && entry.session.startsWith(session));
   const wakes = mine.filter((entry) => entry.who === "fast" && entry.kind === "wake");
   if (wakes.length === 0) throw new Error(`The log has no wake-up of a session ${session}.`);
-  const start: string = log.filter((entry) => entry.kind === "context_built" && entry.ts < wakes[0].ts).at(-1)?.text ?? "";
+  const context = log.filter(entry => entry.kind === "context_built" && entry.ts <= wakes[0].ts).at(-1);
+  const start: string = context?.text ?? "";
   const world = store.world();
   const ended = mine.at(-1).ts;
   const texts: Record<string, string> = {};
   // What a wake-up's text says of the page is read back from it: the log has the text Fast was told and no more.
   const runs: Run[] = wakes.map((wake) => {
     const text: string = wake.text;
-    const page = /\n<<<\n([\s\S]*)\n>>>$/.exec(text);
+    const page = /\n<<<\n([\s\S]*?)\n>>>(?:\n|$)/.exec(text);
+    const images = [...store.events.images(wake.entries).values()];
     if (page && wake.page) texts[wake.page] = page[1];
     const marked = /\. Marked now: (".*")\. The side panel is (?:open|closed)\./.exec(text);
     return {
@@ -167,6 +173,7 @@ function freeze(session: string) {
       page: wake.page ? { address: wake.page, marked: marked ? JSON.parse(marked[1]) : "", panel: /The side panel is open\./.test(text) } : null,
       unseen: Boolean(page),
       wake: text,
+      ...(images.length ? { images } : {}),
       scripts: mine
         .filter((entry) => entry.who === "fast" && entry.run === wake.run && (entry.kind === "script" || entry.kind === "script_failed"))
         .map((entry) => ({ code: entry.text, output: entry.kind === "script" ? "ok" : `${entry.error}\nNothing was done.${entry.attempt === 1 ? " Write the script again." : ""}` })),
@@ -177,7 +184,8 @@ function freeze(session: string) {
   const name = `${at.toLocaleDateString("en-CA")}-${String(at.getHours()).padStart(2, "0")}${String(at.getMinutes()).padStart(2, "0")}`;
   const made: Recorded = {
     name,
-    pages: map(ROOT),
+    pages: map(root),
+    functions: context?.functions,
     texts,
     start,
     held: { messages: ids("m"), updates: ids("u"), agents: [...start.matchAll(/^t\d+  a(\d+)  /gm)].map((found) => Number(found[1])) },
@@ -186,10 +194,12 @@ function freeze(session: string) {
   };
   // The session is right when the same code that told Fast tells it the same again.
   const different = runs.filter((run) => told(made, run, roster(made.entries.filter((entry) => entry.n <= Math.max(...run.entries)))) !== run.wake).map((run) => run.run);
-  mkdirSync(SESSIONS, { recursive: true });
-  writeFileSync(join(SESSIONS, `${name}.json`), JSON.stringify(made, null, 1) + "\n");
+  mkdirSync(destination, { recursive: true });
+  writeFileSync(join(destination, `${name}.json`), JSON.stringify(made, null, 1) + "\n");
   console.log(`${name}: ${runs.length} wake-ups, ${made.entries.length} entries of the world, ${Object.keys(texts).length} pages' texts.`);
+  store.db.close();
   console.log(different.length === 0 ? "Every wake-up's text is made again exactly from the world." : `The text of wake-up ${different.join(", ")} is not made again exactly from the world: the recorded text is used.`);
+  return made;
 }
 
 /** A recorded wake-up's page, as Fast saw it. */
@@ -212,6 +222,7 @@ interface Moment {
   instructions: string;
   input: any[];
   scope: Scope;
+  registry?: Registry;
   /** Everything Fast was shown, as text: for the judge and for `show`. */
   shown: string;
 }
@@ -219,8 +230,27 @@ interface Moment {
 /** A recorded script without the page line it wrote into a task: the page is added to every task now. */
 const bare = (code: string) => code.replace(/(?:\\n|\n)Page: \$\{m\d+\.page\}/g, "");
 
-async function moment(test: Case): Promise<Moment> {
-  const session = recorded(test.session);
+/** A recording carries data-only function descriptions. No installed package is
+ * loaded when evaluating an earlier session. */
+function replayRegistry(functions: FastFunction[]) {
+  const registry = new Registry(":memory:");
+  const parts = Map.groupBy(functions, fn => fn.name.split(".")[0]);
+  for (const [part, descriptions] of parts) {
+    registry.part(part, ({ action }) => {
+      for (const fn of descriptions) {
+        const input = z.fromJSONSchema(fn.schema);
+        if (!(input instanceof z.ZodObject)) throw new Error(`${fn.name} needs an object input`);
+        action(fn.name.slice(part.length + 1), { for: "fast", description: fn.description, syntax: fn.syntax, input: input.shape }, () => {
+          throw new Error("A recorded action cannot be executed during an eval");
+        });
+      }
+    });
+  }
+  return registry;
+}
+
+export async function moment(test: Case, session = recorded(test.session)): Promise<Moment> {
+  const registry = session.functions && replayRegistry(session.functions);
   session.start = session.start.replace(" When you cannot place what the user says, start a new agent.", "");
   for (const run of session.runs) for (const one of run.scripts) one.code = bare(one.code);
   // A line said at a wake-up that updates caused passes on what those agents reported.
@@ -252,8 +282,9 @@ async function moment(test: Case): Promise<Moment> {
     input.push({ type: "function_call", call_id: id, name: "exec", arguments: JSON.stringify({ code }) }, { type: "function_call_output", call_id: id, output });
     shown.push(`[the script it answered with]\n${code}${output === "ok" ? "" : `\n[it threw: ${output}]`}`);
   };
-  const wake = (text: string) => {
-    input.push({ role: "user", content: text });
+  const wake = (text: string, images: string[] = []) => {
+    const content = images.length ? [{ type: "input_text", text }, ...images.map(image_url => ({ type: "input_image", image_url }))] : text;
+    input.push({ role: "user", content });
     shown.push(text);
   };
   const scope = (page: Seen | null, said: number[]): Scope => ({
@@ -265,11 +296,11 @@ async function moment(test: Case): Promise<Moment> {
     handover: said,
     pads: page?.pads?.map(({ address }) => address) ?? [],
   });
-  const done = (page: Seen | null, said: number[]): Moment => ({ instructions: instructions(session.pages, test.routes ?? ""), input, scope: scope(page, said), shown: shown.join("\n\n") });
+  const done = (page: Seen | null, said: number[]): Moment => ({ instructions: instructions(session.pages, test.routes ?? "", registry?.brief()), registry, input, scope: scope(page, said), shown: shown.join("\n\n") });
 
   for (const run of session.runs.slice(0, before)) {
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(told(session, run, until(Math.max(...run.entries))));
+    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
     for (const { code, output } of run.scripts) answered(code, output);
   }
 
@@ -277,7 +308,7 @@ async function moment(test: Case): Promise<Moment> {
     const run = session.runs[before];
     if (!run) throw new Error(`${test.name}: the session ${test.session} has no wake-up ${test.run}.`);
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(told(session, run, until(Math.max(...run.entries))));
+    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
     return done(seen(session, run.page), run.said);
   }
 
@@ -349,7 +380,7 @@ async function moment(test: Case): Promise<Moment> {
     if (step.script === undefined) throw new Error(`${test.name}: step ${index + 1} needs the script Fast answered it with.`);
     // The script does to the world what the service would have done with it.
     const code = bare(step.script);
-    const ran = await execute(code, scope(page, ids)).catch((error) => {
+    const ran = await execute(code, scope(page, ids), registry).catch((error) => {
       throw new Error(`${test.name}: the script of step ${index + 1} does not run: ${error.message}`);
     });
     answered(code, "ok");
@@ -547,6 +578,7 @@ async function attempt(test: Case, at: Moment, with_: Setup): Promise<Try> {
       return answer;
     },
     () => {},
+    at.registry,
   );
   if (!written) return { wrong: ["no script that ran"], code: "", attempts, ms, cost, judged: 0 };
   const intents = written.ran.intents;

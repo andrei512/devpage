@@ -89,6 +89,23 @@ test("the live service exposes one registered function to Fast and the slow harn
       const transcript = db.query("select fields from entries where kind='message' order by n desc limit 1").values();
       expect(JSON.parse(String(transcript[0][0])).part).toEqual(part);
 
+      // Freeze in the isolated project after its module has gone. Replay must
+      // see the same extension functions and image without loading a package.
+      rmSync(join(root, "counter.ts"));
+      const replay = Bun.spawnSync([process.execPath, "-e", `
+        import { freeze, moment } from "./eval";
+        import { run } from "./sandbox";
+        const session = freeze("", process.env.HOME, process.env.HOME);
+        const index = session.runs.findIndex(r => r.images?.length);
+        const at = await moment({ name: "counter", why: "", session: "", run: index + 1, expect: { does: [] } }, session);
+        const ran = await run("counter.change(4)", at.scope, at.registry);
+        console.log(JSON.stringify({ intent: ran.intents[0], content: at.input.at(-1).content }));
+      `], { cwd: import.meta.dir, env: { HOME: root, PATH: process.env.PATH } });
+      expect(replay.exitCode, replay.stderr.toString()).toBe(0);
+      const frozen = JSON.parse(replay.stdout.toString().trim().split("\n").at(-1)!);
+      expect(frozen.intent).toEqual({ do: "world", name: "counter.change", input: { n: 4 } });
+      expect(frozen.content).toContainEqual({ type: "input_image", image_url: image });
+      expect(frozen.content[0].text).toContain("fast counted 2");
     } finally { db.close(); }
   } finally {
     socket?.close();

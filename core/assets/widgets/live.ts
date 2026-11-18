@@ -399,12 +399,6 @@ function attend(socket: WebSocket) {
     if (event.type === "state" && typeof event.part === "string") {
       // One part of the world: any widget reads it with `useWorld`.
       receivedPart(event.part, event.state);
-    } else if (event.type === "state") {
-      // An older service can still be serving an open page during an upgrade.
-      receivedPart("work", { tasks: event.tasks, agents: event.agents, chats: event.chats });
-      receivedPart("page", { subject: event.subject, by: event.by });
-      receivedPart("canvas", { canvas: event.canvas });
-      receivedPart("session", { voice: event.voice, problem: event.problem });
     } else if (event.type === "heard") {
       set({ heard: { who: event.who, text: event.text } });
     } else if (event.type === "session") {
