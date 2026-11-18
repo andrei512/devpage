@@ -63,9 +63,8 @@ export interface FastDeps {
   pages: () => { address: string; title: string }[];
   /** What Fast is told about the routes a new agent can run on, with the user's rules. Empty when there is only one route. */
   routes?: () => string;
-  tasks: () => Task[];
-  /** Whether an agent still exists. */
-  agent: (id: number) => boolean;
+  /** The persisted work snapshot also used by the panel. */
+  work: () => WorkState;
   /** Carries out one thing a script asked for. Throws when it cannot be done. Returns what there is to log. */
   carry: (intent: Intent, with_: Carried) => Promise<unknown>;
   /** The agents Fast no longer holds may be closed. */
@@ -197,6 +196,29 @@ export function instructions(pages: { address: string; title: string }[], routes
 }
 
 const short = (text: string, most: number) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > most ? `${flat.slice(0, most)}…` : flat; };
+
+export interface WorkState {
+  tasks: Task[];
+  agents: { id: number; state: "working" | "asked" | "idle"; from: number | string | null }[];
+}
+
+/** Fast sees precisely the agents and tasks the current work snapshot contains. */
+function workRoster({ tasks, agents }: WorkState) {
+  if (!agents.length) return "The agents: none yet.";
+  const lines = ["The agents:"];
+  for (const agent of agents) {
+    const assigned = tasks.filter(task => task.agent === agent.id);
+    const last = assigned.at(-1);
+    const waiting = last?.latest?.type === "question" ? `waiting for the user's answer to u${last.latest.id}` : "waiting for the user's answer";
+    const status = agent.state === "asked" ? waiting : agent.state === "working" ? "busy" : "free";
+    lines.push(`a${agent.id}  ${status}${typeof agent.from === "number" ? `  (started with what a${agent.from} knew)` : ""}`);
+    for (const task of assigned.slice(-3).reverse()) {
+      const state = task.state === "done" ? "finished" : task.state === "running" ? "busy" : "failed";
+      lines.push(`  t${task.id}  ${state}  ${JSON.stringify(short(task.request.split("\n\nThe page the user is on:")[0], 160))}${task.summary ? "  " + short(task.summary, 160) : ""}`);
+    }
+  }
+  return lines.join("\n");
+}
 
 /** The agents as they are, from the world's tasks and updates: each one's state, and its last tasks as they were given, with what it asked or last reported. */
 export function roster(entries: Entry[]) {
@@ -437,7 +459,7 @@ export class Fast {
     const scope: Scope = {
       messages: [...context.messages.values()].map(({ id, text, page, marked }) => ({ id, text, page, marked })),
       updates: [...context.updates.values()].map(({ id, text }) => ({ id, text })),
-      agents: [...context.agents].filter((id) => this.deps.agent(id)),
+      agents: [...context.agents].filter((id) => this.deps.work().agents.some(agent => agent.id === id)),
       page: page && { address: page.address, text: page.text },
       pages: this.deps.pages().map(({ address }) => address),
       pads: page?.pads?.map(({ address }) => address) ?? [],
@@ -487,9 +509,7 @@ export class Fast {
     const shown = page && `${page.address}\n${page.text}`;
     const unseen = shown !== null && shown !== context.page;
     if (unseen) context.page = shown;
-    const world = this.deps.world;
-    const known = [...world.recent("task", 200), ...world.recent("update", 400)].filter((entry) => this.deps.agent(entry.agent)).sort((a, b) => a.n - b.n);
-    return wakeText(run, before, fresh, said, page, unseen, roster(known));
+    return wakeText(run, before, fresh, said, page, unseen, workRoster(this.deps.work()));
   }
 
   /** Takes an entry into what a context holds: its id is a variable from now on. */
@@ -509,13 +529,14 @@ export class Fast {
     if (summary) lines.push("", "A summary of the conversation before:", summary);
     const messages = world.recent("message", RECENT_MESSAGES);
     if (messages.length > 0) lines.push("", "The most recent messages:", ...messages.map(line));
-    const tasks = this.deps.tasks().slice(-RECENT_TASKS);
+    const work = this.deps.work();
+    const tasks = work.tasks.slice(-RECENT_TASKS);
     const given = new Map(world.recent("task", 200).map((entry) => [entry.id, entry]));
     const shown: string[] = [];
     for (const task of tasks) {
       const entry = given.get(task.id);
       // A task from before the agents, or one whose agent is gone, cannot be followed up: it is left out.
-      if (!entry || !this.deps.agent(entry.agent)) continue;
+      if (!entry || !work.agents.some(agent => agent.id === entry.agent)) continue;
       shown.push(`t${task.id}  a${entry.agent}  ${task.state}  ${JSON.stringify(task.title)}`, `  ${line(entry)}`);
       this.hold(context, entry);
       for (const update of world.updates(task.id).slice(-2)) {

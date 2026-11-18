@@ -20,6 +20,8 @@ export interface Task {
   part: Part | null;
   /** The agent that has it. Tasks from before the agents have none. */
   agent?: number;
+  latest?: { id: number; type: import("./world.ts").Update["type"] };
+  origin?: { session: string | null; handover: string };
   /** The newest update the agent published on it: its report, once it ended. */
   summary: string | null;
   /** The parts it changed. */
@@ -50,7 +52,7 @@ export class Tasks {
     return this.list.find((task) => task.id === id);
   }
 
-  add(task: Pick<Task, "title" | "request" | "page" | "part" | "agent">) {
+  add(task: Pick<Task, "title" | "request" | "page" | "part" | "agent" | "origin">) {
     const id = Math.max(0, ...this.list.map((task) => task.id)) + 1;
     const added: Task = { ...task, id, state: "running", summary: null, changes: [], started: Date.now(), ended: null };
     this.list.push(added);
@@ -68,7 +70,7 @@ export class Tasks {
   }
 
   /** Changes a running task while it runs: its title, its agent, or its newest update. */
-  change(id: number, fields: Partial<Pick<Task, "title" | "summary" | "agent">>) {
+  change(id: number, fields: Partial<Pick<Task, "title" | "summary" | "agent" | "latest">>) {
     const task = this.get(id);
     if (!task || task.state !== "running") return undefined;
     Object.assign(task, fields);
