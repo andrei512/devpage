@@ -29,6 +29,10 @@ struct Manifest {
     run: Option<Vec<String>>,
     /// The package's asset folder inside it, if it has one.
     assets: Option<String>,
+    /// The widgets a package with no library brings: each one's name and the
+    /// path of its module inside the package.
+    #[serde(default)]
+    widgets: std::collections::BTreeMap<String, String>,
 }
 /// A loaded native package: its library and the two entry points taken from
 /// its table.
@@ -46,11 +50,15 @@ struct Native {
     /// The program the package runs, if its manifest names one.
     process: Option<Process>,
 }
-/// A package with no library: it shows no files and adds nothing to a page,
-/// and only runs its program.
+/// A package with no library: it shows no files and adds nothing to a
+/// page's text; it runs its program and brings the widgets its manifest
+/// names.
 struct Plain {
     /// The package's id from its manifest.
     id: String,
+    /// What it declares when it is bound: its widgets and their modules, as a
+    /// library's `create` reply does.
+    declares: Value,
     /// The program the package runs.
     process: Process,
 }
@@ -60,7 +68,7 @@ impl Package for Plain {
             Some("create") if request["id"].as_str() != Some(&self.id) => {
                 bail!("Package id must match configuration key {}", self.id)
             }
-            Some("create") => Ok(serde_json::json!({})),
+            Some("create") => Ok(self.declares.clone()),
             Some("prepare") => Ok(serde_json::json!({"revision": "none"})),
             // A page's source passes through unchanged.
             Some("augment") => Ok(serde_json::json!({})),
@@ -164,8 +172,22 @@ fn package(path: &Path) -> Result<(String, Arc<dyn Package>)> {
         let Some(process) = process else {
             bail!("Extension has neither a library nor a program to run");
         };
+        // Each widget's module is read from the package, as a library hands
+        // devpage its modules' source.
+        let mut modules = serde_json::Map::new();
+        for (name, module) in &manifest.widgets {
+            let file = root
+                .join(module)
+                .canonicalize()
+                .with_context(|| format!("Widget {name}: its module {module}"))?;
+            if !file.starts_with(&root) {
+                bail!("Widget {name}: its module is outside the package");
+            }
+            modules.insert(module.clone(), std::fs::read_to_string(file)?.into());
+        }
         let package = Plain {
             id: manifest.id.clone(),
+            declares: serde_json::json!({"modules": modules, "widgets": manifest.widgets}),
             process,
         };
         return Ok((manifest.id, Arc::new(package)));
@@ -228,5 +250,43 @@ mod tests {
             .invoke(serde_json::json!({"op":"augment","path":"README.md","source":"# T\n"}))
             .unwrap();
         assert!(reply["source"].is_null());
+    }
+
+    #[test]
+    fn a_package_with_no_library_brings_the_widgets_its_manifest_names() {
+        let dir =
+            std::env::temp_dir().join(format!("devpage-plain-widgets-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("widgets")).unwrap();
+        std::fs::write(
+            dir.join("extension.yml"),
+            "id: tests\nversion: \"1\"\napi: 1\nrun: [tests]\nwidgets:\n  TestsSection: widgets/TestsSection.tsx\n",
+        )
+        .unwrap();
+        let source = "export default () => <p>tests</p>;\n";
+        std::fs::write(dir.join("widgets/TestsSection.tsx"), source).unwrap();
+        let package = load(&dir, "tests").unwrap();
+        // A module outside the package is refused.
+        std::fs::write(
+            dir.join("extension.yml"),
+            "id: tests\nversion: \"1\"\napi: 1\nrun: [tests]\nwidgets:\n  Out: ../out.tsx\n",
+        )
+        .unwrap();
+        std::fs::write(dir.parent().unwrap().join("out.tsx"), source).unwrap();
+        let outside = load(&dir, "tests").err().map(|e| e.to_string());
+        std::fs::remove_dir_all(&dir).unwrap();
+        std::fs::remove_file(dir.parent().unwrap().join("out.tsx")).unwrap();
+        assert_eq!(
+            outside.as_deref(),
+            Some("Widget Out: its module is outside the package")
+        );
+        // What it declares is what a library's `create` reply declares.
+        let declared = package
+            .invoke(serde_json::json!({"op":"create","id":"tests"}))
+            .unwrap();
+        assert_eq!(
+            declared["widgets"]["TestsSection"],
+            "widgets/TestsSection.tsx"
+        );
+        assert_eq!(declared["modules"]["widgets/TestsSection.tsx"], source);
     }
 }
