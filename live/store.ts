@@ -1,5 +1,5 @@
-// The durable state of one project's live session. Imported world numbers stay in
-// their own sequence because installed extensions can already have numbered entries.
+// The durable state of one project's live session.
+import { Events } from "./events.ts";
 import { Database } from "bun:sqlite";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import type { Entry as LogEntry } from "./log.ts";
 
 export class SessionStore {
   readonly db: Database;
+  readonly events: Events;
 
   constructor(folder: string, mode: "service" | "read" = "service") {
     const file = join(folder, "world.sqlite");
@@ -16,6 +17,7 @@ export class SessionStore {
         const existing = new Database(file, { readonly: true });
         if (existing.query("select 1 from sqlite_master where name = 'session_state'").get()) {
           this.db = existing;
+          this.events = new Events(existing);
           return;
         }
         existing.close();
@@ -26,12 +28,20 @@ export class SessionStore {
       mkdirSync(folder, { recursive: true });
       this.db = new Database(file);
     }
+    this.events = new Events(this.db);
     this.db.run("pragma busy_timeout = 5000");
     this.db.transaction(() => {
       this.db.run("create table if not exists session_state (name text primary key, value text not null)");
-      this.db.run("create table if not exists session_world (n integer primary key, value text not null)");
+      this.events.install();
       this.db.run("create table if not exists session_log (id integer primary key, day text not null, value text not null)");
-      if (this.get<string[]>("imported") !== undefined) return;
+      if (this.get<string[]>("imported") !== undefined) {
+        if (this.hasLegacyWorld()) {
+          this.events.importCore(this.world());
+          this.db.run("drop table session_world");
+        }
+        return;
+      }
+      const history: WorldEntry[] = [];
       const files: string[] = [];
       for (const name of ["tasks", "agents"]) {
         const file = name + ".json";
@@ -48,7 +58,7 @@ export class SessionStore {
         for (const line of readFileSync(join(folder, file), "utf8").split("\n")) {
           if (!line.trim()) continue;
           const entry = JSON.parse(line);
-          if (file === "world.jsonl") this.addWorld(entry);
+          if (file === "world.jsonl") history.push(entry);
           else this.addLog(file.slice(4, 14), entry);
         }
         files.push(file);
@@ -56,6 +66,7 @@ export class SessionStore {
       for (const file of files) {
         if (existsSync(join(folder, file + ".migrated"))) throw new Error("Backup already exists for " + file);
       }
+      this.events.importCore(history);
       this.set("imported", files);
     }).immediate();
     if (mode === "read") return;
@@ -80,13 +91,15 @@ export class SessionStore {
     this.db.run("insert or replace into session_state values (?, ?)", [name, JSON.stringify(value)]);
   }
 
-  addWorld(entry: WorldEntry) {
-    if (!Number.isSafeInteger(entry.n)) throw new Error("Missing world entry number");
-    this.db.run("insert into session_world values (?, ?)", [entry.n, JSON.stringify(entry)]);
+  private hasLegacyWorld() {
+    return !!this.db.query("select 1 from sqlite_master where name='session_world'").get();
   }
 
   world(): WorldEntry[] {
-    return this.db.query("select value from session_world order by n").values().map(([value]) => JSON.parse(String(value)));
+    if (this.hasLegacyWorld()) {
+      return this.db.query("select value from session_world order by n").values().map(([value]) => JSON.parse(String(value)));
+    }
+    return this.events.core();
   }
 
   addLog(day: string, entry: LogEntry) {
