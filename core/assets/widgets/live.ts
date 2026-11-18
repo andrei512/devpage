@@ -5,7 +5,7 @@
 // A restart of the service is not the user's to repair: the page connects again by itself, and a voice that was on starts
 // again by itself, with the microphone and the sound kept open in between.
 import { useSyncExternalStore } from "react";
-import { base, page } from "devpage";
+import { base, page, world as parts } from "devpage";
 
 export interface Part {
   page: string;
@@ -330,6 +330,8 @@ function listen(name: string, listener: () => void) {
 function send(message: unknown) {
   if (kept.socket?.readyState === WebSocket.OPEN) kept.socket.send(JSON.stringify(message));
 }
+// A widget's call of a function of the world goes out on this connection.
+parts.send = send;
 
 function connect() {
   if (retired || framed) return;
@@ -389,7 +391,10 @@ function attend(socket: WebSocket) {
   socket.onmessage = (message) => {
     if (typeof message.data !== "string") return play(new Int16Array(message.data));
     const event = JSON.parse(message.data);
-    if (event.type === "state") {
+    if (event.type === "state" && typeof event.part === "string") {
+      // One part of the world: any widget reads it with `useWorld`.
+      parts.put(event.part, event.state);
+    } else if (event.type === "state") {
       stated(event);
     } else if (event.type === "heard") {
       set({ heard: { who: event.who, text: event.text } });

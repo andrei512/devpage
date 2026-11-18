@@ -8,11 +8,11 @@ import { QuickJS } from "quickjs-wasi";
 import { z } from "zod";
 import type { HarnessTool } from "./harness.ts";
 
-/** Who may call a function. */
-export type For = "fast" | "slow" | "both";
+/** Who may call a function: Fast, slow agents, both of them, or a widget on the user's page. */
+export type For = "fast" | "slow" | "both" | "page";
 
-/** Who called: a run of Fast, with its hand-over and what its script read, or a slow agent. */
-export type Caller = { who: "fast"; run: number; handover: string | null; used: string[] } | { who: "slow"; agent: number };
+/** Who called: a run of Fast, with its hand-over and what its script read, a slow agent, or a widget on the user's page. */
+export type Caller = { who: "fast"; run: number; handover: string | null; used: string[] } | { who: "slow"; agent: number } | { who: "page" };
 
 /** One thing that happened, as the store keeps it. */
 export interface Entry {
@@ -77,6 +77,7 @@ export class Registry {
   private readonly db: Database;
   private readonly kinds = new Map<string, Kind & { part: string }>();
   private readonly fns = new Map<string, Fn>();
+  private readonly named = new Set<string>();
   readonly widgets: { part: string; name: string; place: string }[] = [];
   /** Called with each new entry and whether it wakes Fast. */
   onEntry: (entry: Entry, wakes: boolean) => void = () => {};
@@ -91,6 +92,7 @@ export class Registry {
 
   /** Registers a part: the core's or an extension's, the same way. */
   part(part: string, register: (as: Registering) => void) {
+    this.named.add(part);
     const fn = (does: Fn["does"]) => (name: string, options: Options, run: Fn["run"]) => {
       if (does === "get" && options.for !== "slow") throw new Error(`${part}.${name}: a get is for slow agents only: Fast's script gets no answer from a call`);
       const full = `${part}.${name}`;
@@ -112,6 +114,11 @@ export class Registry {
     const module = await import(file);
     if (typeof module.default !== "function") throw new Error(`${file} has no default export that registers a part`);
     this.part(part, module.default);
+  }
+
+  /** The parts that are registered, by name. */
+  parts() {
+    return [...this.named];
   }
 
   /** A part's state, whole. */
@@ -176,7 +183,7 @@ export class Registry {
   /** The functions a slow agent has, as the tools every harness hands over: the same list the session's own three are in today. */
   tools(agent: number): HarnessTool[] {
     return [...this.fns.entries()]
-      .filter(([, fn]) => fn.for !== "fast")
+      .filter(([, fn]) => fn.for === "slow" || fn.for === "both")
       .map(([name, fn]) => ({
         name: name.replace(".", "_"),
         description: fn.description,
@@ -194,7 +201,7 @@ export class Registry {
 
   /** The lines of Fast's brief for the functions Fast may call. */
   brief() {
-    return [...this.fns.entries()].filter(([, fn]) => fn.for !== "slow").map(([name, fn]) => `${name}(${Object.keys(fn.input).join(", ")})  // ${fn.brief ?? fn.description}`).join("\n");
+    return [...this.fns.entries()].filter(([, fn]) => fn.for === "fast" || fn.for === "both").map(([name, fn]) => `${name}(${Object.keys(fn.input).join(", ")})  // ${fn.brief ?? fn.description}`).join("\n");
   }
 
   /**
@@ -204,7 +211,7 @@ export class Registry {
    */
   private prelude() {
     const fns = [...this.fns.entries()]
-      .filter(([, fn]) => fn.for !== "slow")
+      .filter(([, fn]) => fn.for === "fast" || fn.for === "both")
       .map(([name, fn]) => {
         const schema = z.toJSONSchema(z.object(fn.input)) as { properties?: Record<string, { type?: string }>; required?: string[] };
         return { name, keys: Object.keys(fn.input), types: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, value.type ?? null])), required: schema.required ?? [] };

@@ -31,6 +31,9 @@ mod slide_png;
 /// `devpage video`: a deck recorded, with a stand-in voice and with
 /// GPT-Live.
 mod video;
+/// The live session's world on a page: a widget reading a part's state and
+/// changing it.
+mod world;
 
 use axum::Router;
 

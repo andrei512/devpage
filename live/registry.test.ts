@@ -159,3 +159,19 @@ test.skipIf(!PROVIDER || !process.env.WORLD_PROTOTYPE_MODEL_CHECK)("Fast's model
   const text = answer.output.flatMap((item: any) => (item.type === "message" ? item.content : [])).map((part: any) => part.text).join("");
   expect(text.toLowerCase()).toContain("red");
 }, 60_000);
+
+test("a function for the page is a widget's to call, and nobody else's", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("counter", ({ z, action }) => {
+    action("add", { for: "page", description: "Adds to the count.", input: { by: z.number() } }, ({ by }, running) => void running.set("count", ((running.get("count") as number) ?? 0) + by));
+  });
+  const sent: [string, Record<string, unknown>][] = [];
+  registry.onState = (part, state) => void sent.push([part, state]);
+  await registry.call("counter.add", { by: 2 }, { who: "page" });
+  expect(sent).toEqual([["counter", { count: 2 }]]);
+  expect(registry.parts()).toEqual(["counter"]);
+  // It is no tool of a slow agent's, and no call in Fast's script.
+  expect(registry.tools(1)).toEqual([]);
+  expect(registry.brief()).toBe("");
+  await expect(registry.call("counter.add", { by: 1 }, FAST)).rejects.toThrow("counter.add is for page, not for fast");
+});

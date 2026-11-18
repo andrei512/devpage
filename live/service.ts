@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, readdirSync, rmSync, mkdirSync, statSync, watch, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { ServerWebSocket } from "bun";
 import { Agents } from "./agents.ts";
 import { ClaudeCode } from "./claude.ts";
@@ -15,6 +15,7 @@ import type { Harness } from "./harness.ts";
 import { checked, enabledRoutes, find, rules, settings, told, type Enabled, type Route } from "./routes.ts";
 import { NEEDS, provider } from "./provider.ts";
 import { Recording } from "./recording.ts";
+import { Registry } from "./registry.ts";
 import { BACKEND, Fast, moved, type Carried, type Seen } from "./fast.ts";
 import { everywhere, here as project, HOME, stateOf } from "./home.ts";
 import { map } from "./pages.ts";
@@ -178,6 +179,21 @@ function settle() {
 }
 
 const tasks = new Tasks(join(STATE, "tasks.json"), () => tell());
+
+/** The world's registered parts, with their state and entries in one store. A page is sent a part's state when it changes. */
+const registry = new Registry(join(STATE, "world.sqlite"));
+registry.onState = (part, state) => tell({ type: "state", part, state });
+// The `world` setting names parts and the module that registers each: a file in the project, or anywhere by its full path.
+for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.world === "object" ? SETTINGS.world : {})) {
+  if (typeof file !== "string") continue;
+  registry.load(part, isAbsolute(file) ? file : join(ROOT, file)).then(
+    () => {
+      log.write("service", "world_part", { text: part });
+      tell({ type: "state", part, state: registry.state(part) });
+    },
+    (error) => log.write("service", "world_part_failed", { text: `${part}: ${error instanceof Error ? error.message : String(error)}` }),
+  );
+}
 
 /** The world. Every entry also goes into the log, as the line Fast reads; an update or a problem wakes Fast. */
 const world: World = new World(join(STATE, "world.jsonl"), (entry) => {
@@ -660,6 +676,9 @@ function on(socket: Socket, message: any) {
     case "message":
       active = socket;
       return typed(Number(message.agent), String(message.text ?? ""));
+    case "call":
+      // A widget calls a function of the world: what it wrote reaches every page as its part's state.
+      return void registry.call(String(message.name), message.input ?? {}, { who: "page" }).catch((error) => log.write("service", "call_failed", { text: `${message.name}: ${error instanceof Error ? error.message : String(error)}` }));
     case "result":
       waiting.get(message.id)?.(message.value);
       waiting.delete(message.id);
@@ -691,6 +710,7 @@ Bun.serve<undefined, never>({
     open(socket) {
       sockets.add(socket);
       socket.send(JSON.stringify(state()));
+      for (const part of registry.parts()) socket.send(JSON.stringify({ type: "state", part, state: registry.state(part) }));
     },
     message(socket, message) {
       if (typeof message === "string") return on(socket, JSON.parse(message));
