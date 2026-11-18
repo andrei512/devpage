@@ -35,29 +35,19 @@ flowchart LR
   `message`, `page`, `task`, `update`, `problem`
   ([One numbered log](../README.md#one-numbered-log)). The program holds the
   newest 2,000.
-- **State.** Tasks and agents occupy separate rows in the session database, each
-  written whole on every change. The pages show the state and never read
-  entries; Fast reads entries and never the state. The code that handles an
-  update writes both, separately.
-- **Fast's calls.** `say`, `spawn`, `send`, `fork`, `page.*`, `canvas.*` and
-  `restart`, written by hand twice: in the script sandbox
-  (`live/sandbox.ts`), where each is checked while the script can still fail,
-  and in `carry` (`live/service.ts`), where each is carried out. A call
-  returns nothing to the script. Registered functions for Fast join those calls
-  in its brief and sandbox. Each script’s inputs are checked before its first
-  action runs.
-- **The slow agents' tools.** `update`, `write_comment` and `read_log`, one
-  list in `live/agents.ts`: a name, an input, what it runs. Each
-  [harness](../../harness/README.md) hands the list to its agent, today over
-  MCP. The same harness receives an extension’s slow and shared functions as
-  tools. Their schemas and descriptions contribute to the base-agent fingerprint.
-- **What wakes Fast.** A hand-over, an `update` and a `problem`
-  ([What wakes Fast](../../fast/README.md#what-wakes-fast)). The rule is
-  written into the program for these built-ins. An extension’s entry kind decides
-  whether a call wakes Fast and can include an image in its next wake-up.
-- **The pages.** One WebSocket from each page to the program. On every change
-  the program sends the whole state. The session's four widgets are compiled
-  into devpage and placed by name in `core/src/document.rs`.
+- **State.** The `work` part holds the tasks and current agents shown to
+  Fast and to the panel. The `page`, `canvas` and `session` parts hold the
+  current mark, open pad and voice status. Every page receives one complete
+  snapshot per part when it connects and a new snapshot when that part changes.
+- **Fast's calls.** Core actions keep their sandbox checks for a unique
+  quote, a known address and a hand-over's message. The service dispatches
+  the collected calls to registered functions with Fast's caller context.
+- **The slow agents' tools.** The work part registers `update`,
+  `write_comment` and `read_log` alongside functions supplied by extensions.
+  Each harness offers the functions declared for its caller.
+- **What wakes Fast.** A hand-over wakes Fast. For world entries the
+  registered kind decides. The core's `update` and `problem` kinds wake it.
+
 - **Registered parts.** A world module can define state, entries, Fast calls,
   slow-agent tools and page functions in the running service.
 
@@ -160,11 +150,9 @@ flowchart LR
   store and one way to write.
 - [Scratch pads](../../../scratch-pad/README.md) stay Markdown files: devpage
   draws them as pages and the agents edit them as files.
-- What is only in memory today moves into state: the part marked with each
-  message, the hand-over each task came from, what is marked now, the open
-  pad. A restart loses them today.
-- Fast's list of agents and the side panel's are worked out twice today, from
-  entries and from the files. Both read the work part's state.
+- A message stores the part marked when it was said. A task stores its
+  hand-over and voice session. The current mark and open pad survive restart.
+- Fast and the side panel read tasks and agents from the work part.
 - [The eval of Fast](../../technical-design/README.md#the-eval-of-fast) and
   [the cost](../../technical-design/README.md#the-cost) read the store, where
   they read the files today.
