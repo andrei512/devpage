@@ -220,3 +220,28 @@ test("a registered built-in keeps its harness spelling and presentation", async 
   expect(tool.always).toBe(true);
   expect(await tool.run({})).toEqual({ text: "history" });
 });
+
+test("a committed action can publish external results individually and a failed start publishes none", async () => {
+  const registry = new Registry(":memory:");
+  const states: number[] = [];
+  const complete = Promise.withResolvers<void>();
+  registry.onState = (_part, state) => states.push(state.count as number);
+  registry.part("stream", ({ action, kind, z }) => {
+    kind("done", { line: () => "done" });
+    action("start", { for: "slow", input: { fail: z.boolean() }, description: "Start results" }, ({ fail }, ctx) => {
+      ctx.set("count", 0);
+      ctx.follow(async publish => {
+        await publish(w => w.set("count", 1));
+        await publish(w => { w.set("count", Number(w.get("count")) + 1); w.add("done", {}); });
+        complete.resolve();
+      });
+      if (fail) throw new Error("Start failed");
+    });
+  });
+  await expect(registry.call("stream.start", { fail: true }, { who: "slow", agent: 1 })).rejects.toThrow("Start failed");
+  expect(states).toEqual([]);
+  await registry.call("stream.start", { fail: false }, { who: "slow", agent: 1 });
+  await complete.promise;
+  expect(states).toEqual([0, 1, 2]);
+  expect(registry.since(0).map(x => x.kind)).toEqual(["done"]);
+});

@@ -23,7 +23,7 @@ test("an interrupted import keeps its sources and retries alongside existing ext
     expect(() => new SessionStore(dir)).toThrow();
     expect(existsSync(file)).toBe(true);
     writeFileSync(file, source);
-    new SessionStore(dir).db.close();
+    new SessionStore(dir).close();
     const store = new SessionStore(dir);
     expect(store.world()).toEqual([message]);
     expect(readFileSync(file + ".migrated", "utf8")).toBe(source);
@@ -32,7 +32,7 @@ test("an interrupted import keeps its sources and retries alongside existing ext
     const world = new World(registry);
     expect(world.next("message")).toBe(11);
     expect(world.add({ kind: "problem", text: "test" }).n).toBe(3);
-    store.db.close();
+    store.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -47,17 +47,44 @@ test("a previously migrated SQLite session joins the shared stream once, retaini
     const message = { n: 91, kind: "update", at: "2026-10-01", id: 14, task: 7, agent: 3, text: "done", type: "finished" };
     first.db.run("create table session_world (n integer primary key, value text not null)");
     first.db.run("insert into session_world values (?, ?)", [91, JSON.stringify(message)]);
-    first.db.close();
+    first.close();
 
     const upgraded = new SessionStore(dir);
     const registry = new Registry(upgraded.db);
     expect(registry.since(90)).toMatchObject([{ n: 91, part: "work", fields: { id: 14, task: 7 } }]);
-    upgraded.db.close();
+    upgraded.close();
     const reopened = new SessionStore(dir);
     expect(reopened.world()).toEqual([message as import("./world.ts").Update]);
     expect(reopened.get("agents")).toEqual({ agents: [agent] });
-    reopened.db.close();
+    reopened.close();
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("one service owns a project until it exits; reports can read it throughout", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "session-owner-"));
+  const owner = Bun.spawn([process.execPath, "-e", `
+    import { SessionStore } from ${JSON.stringify(import.meta.resolve("./store.ts"))};
+    const store = new SessionStore(process.argv[1]);
+    store.set("owner", "first");
+    console.log("ready");
+    setInterval(() => store.get("owner"), 1000);`, dir], { stdout: "pipe", stderr: "pipe" });
+  try {
+    const { value } = await owner.stdout.getReader().read();
+    expect(new TextDecoder().decode(value)).toContain("ready");
+    expect(() => new SessionStore(dir)).toThrow("already serving");
+    const reader = new SessionStore(dir, "read");
+    expect(reader.get("owner")).toBe("first");
+    reader.close();
+    owner.kill("SIGKILL");
+    await owner.exited;
+    const next = new SessionStore(dir);
+    expect(next.get("owner")).toBe("first");
+    next.close();
+  } finally {
+    owner.kill();
+    await owner.exited;
     rmSync(dir, { recursive: true, force: true });
   }
 });
