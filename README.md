@@ -33,29 +33,29 @@ later ([Installing](https://devpage.ai/docs/installing.md)).
 
 ## What it does
 
-- [**Sites, docs and decks**](https://devpage.ai/docs/boxes/viewer/writing-a-document/README.md):
+- [**Sites, docs and decks**](https://devpage.ai/docs/boxes/viewer/write/writing-a-document/README.md):
   Markdown plus a small `devpage.yml` that names the kind. A lone Markdown
   file is a doc on its own.
-- [**Live updates**](https://devpage.ai/docs/boxes/viewer/live-updates/README.md):
+- [**Live updates**](https://devpage.ai/docs/boxes/viewer/write/writing-a-document/live-updates/README.md):
   a save refreshes every open page in place, without a build step.
-- [**Designs**](https://devpage.ai/docs/boxes/viewer/designs/README.md): a UI
+- [**Designs**](https://devpage.ai/docs/boxes/viewer/on-the-page/designs/README.md): a UI
   an agent writes as a `.design` file, clicked through as a prototype and
   fetched as a PNG so the agent can see its work.
-- [**Diagrams**](https://devpage.ai/docs/boxes/viewer/diagrams/README.md) and
-  [**widgets**](https://devpage.ai/docs/boxes/viewer/widgets/README.md):
+- [**Diagrams**](https://devpage.ai/docs/boxes/viewer/on-the-page/diagrams/README.md) and
+  [**widgets**](https://devpage.ai/docs/boxes/viewer/on-the-page/widgets/README.md):
   `mermaid` fences drawn as diagrams, and React components used as tags.
-- [**Code reference**](https://devpage.ai/docs/boxes/viewer/code-reference/README.md):
+- [**Code reference**](https://devpage.ai/docs/boxes/viewer/write/code-reference/README.md):
   a page for every module, type and function of a site's Rust code, read
   from the code as it is now, with links to it checked.
-- [**Comments**](https://devpage.ai/docs/boxes/viewer/comments/README.md):
+- [**Comments**](https://devpage.ai/docs/boxes/viewer/share/comments/README.md):
   threads on selected text, kept as files in `.devpage/` that an agent can
   read and resolve.
-- [**Checked links**](https://devpage.ai/docs/boxes/viewer/checking-links/README.md),
-  [**PDF**](https://devpage.ai/docs/boxes/viewer/pdf/README.md) and
-  [**video**](https://devpage.ai/docs/boxes/viewer/making-a-video/README.md).
-- [**Deployed for a team**](https://devpage.ai/docs/boxes/viewer/deploying/README.md)
+- [**Checked links**](https://devpage.ai/docs/boxes/viewer/check/checking-links/README.md),
+  [**PDF**](https://devpage.ai/docs/boxes/viewer/share/pdf/README.md) and
+  [**video**](https://devpage.ai/docs/boxes/viewer/share/making-a-video/README.md).
+- [**Deployed for a team**](https://devpage.ai/docs/boxes/viewer/share/deploying/README.md)
   behind the auth proxy you already have, or as a
-  [server](https://devpage.ai/docs/boxes/viewer/server/README.md) that keeps
+  [server](https://devpage.ai/docs/boxes/viewer/share/server/README.md) that keeps
   every published version.
 
 ## With an agent

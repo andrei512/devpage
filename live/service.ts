@@ -514,11 +514,33 @@ function mark(part: Part | null, by: "user" | "assistant") {
   tell();
 }
 
+/** What the page measured of a start: when the user pressed, by the clock this service shares with it, and how long its microphone and audio took. */
+interface Timing {
+  pressed: number;
+  microphone_ms: number;
+  audio_ms: number;
+  kept: boolean;
+}
+
+/** A start's timing as the page sent it; null from a page that sends none, or nonsense. */
+function timingOf(sent: any): Timing | null {
+  if (!sent || !Number.isFinite(sent.pressed)) return null;
+  return { pressed: sent.pressed, microphone_ms: Number(sent.microphone_ms) || 0, audio_ms: Number(sent.audio_ms) || 0, kept: sent.kept === true };
+}
+
+/** The voice came on and no audio of the user's has reached it yet: when it came on, and when the user pressed. */
+let ready: { at: number; pressed: number } | null = null;
+
 /** Starts the voice for a tab. `again` when the page does it by itself, because the voice was on when the service ended or the page was loaded again. */
-async function start(socket: Socket, again = false) {
-  if (voiceState !== "off") return;
+async function start(socket: Socket, again = false, timing: Timing | null = null) {
+  const asked = Date.now();
+  // The page's part of the start: from the press to this request, and how long its microphone and audio took to open.
+  const page = timing ? { press_to_request_ms: asked - timing.pressed, microphone_ms: timing.microphone_ms, audio_ms: timing.audio_ms, audio_kept: timing.kept } : {};
+  const pressed = timing?.pressed ?? asked;
+  if (voiceState !== "off") return void log.write("service", "voice_start_ignored", { text: `A start was asked for while the voice was ${voiceState}.`, resumed: again, ...page });
   if (!PROVIDER) {
     problem = `${NEEDS} is not set in devpage's environment`;
+    log.write("service", "voice_start_failed", { text: problem, resumed: again, ...page });
     return tell();
   }
   voiceState = "starting";
@@ -529,6 +551,7 @@ async function start(socket: Socket, again = false) {
   tell();
   const id = randomUUID();
   log.session = id;
+  log.write("service", "voice_start_asked", { resumed: again, ...page });
   /** The session ended or never started: the voice is off, and the user is shown why when it was not the user's doing. */
   const off = (why: string | null) => {
     if (voice !== session) return;
@@ -567,13 +590,15 @@ async function start(socket: Socket, again = false) {
   } catch (error) {
     const why = error instanceof Error ? error.message : String(error);
     if (log.session === id) {
-      log.write("service", "voice_session_failed", { text: why });
+      log.write("service", "voice_session_failed", { text: why, request_to_failure_ms: Date.now() - asked, press_to_failure_ms: Date.now() - pressed });
       log.session = null;
     }
     return off(why);
   }
   if (voice !== session) return;
   voiceState = "on";
+  ready = { at: Date.now(), pressed };
+  log.write("service", "voice_ready", { resumed: again, request_to_ready_ms: ready.at - asked, press_to_ready_ms: ready.at - pressed });
   if (RECORD) {
     recording = new Recording(join(STATE, "voice"), id);
     log.write("service", "recording_started", { text: recording.path });
@@ -594,7 +619,10 @@ function on(socket: Socket, message: any) {
   switch (message.type) {
     case "start":
       active = socket;
-      return void start(socket, message.resumed === true);
+      return void start(socket, message.resumed === true, timingOf(message.timing));
+    case "start_failed":
+      // The page gave up before the service had a session: the microphone did not open, or the request was never answered.
+      return void log.write("service", "voice_start_failed", { text: String(message.text).slice(0, 300), press_to_failure_ms: Number(message.ms) || null });
     case "stop":
       active = socket;
       return stop();
@@ -668,6 +696,11 @@ Bun.serve<undefined, never>({
       if (typeof message === "string") return on(socket, JSON.parse(message));
       // The user's voice. Only the tab that started the session is heard.
       if (socket !== owner || !voice || voiceState !== "on") return;
+      if (ready) {
+        // The first piece of the user's audio that reaches the voice model: what came before it was never sent.
+        log.write("service", "voice_first_audio", { ready_to_audio_ms: Date.now() - ready.at, press_to_audio_ms: Date.now() - ready.pressed });
+        ready = null;
+      }
       voice.hear(message);
       recording?.add(message);
     },

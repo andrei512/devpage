@@ -83,6 +83,7 @@ export const SETS: Record<string, string> = {
   "held-out": "Never used to change the brief: for the last check of a change, not for everyday runs.",
   "red-team": "Hard moments written to break it.",
   "scratch-pad": "When a scratch pad is shown, and how an open one is used.",
+  "acknowledgments": "How much the user hears when work is taken on.",
 };
 
 /** The cases of one set. */
@@ -240,6 +241,24 @@ export const CASES: Case[] = [
       { does: [{ do: GIVES, has: ["a snapshot that prune removed is gone"] }], may: ["say"], prompt: ["It has the user's message."] },
     ),
     after("settled-change", "A change the user has decided is given as work, without asking for it to be confirmed.", [{ he: "Change the title of this page to how long snapshots live" }], { does: [{ do: GIVES }], may: ["say"], prompt: ["It has the user's message."], line: ["It asks the user nothing."] }),
+  ]),
+
+  ...set("acknowledgments", [
+    // Taking work on is said in a few words. The user asked for about five; six is the most that passes. The user's
+    // request is long and said as people speak, which is when the line grows into the request said back.
+    // Only the line is under test: opening a pad for the answer or going to the page named is allowed.
+    after(
+      "ack-long-request-new-work",
+      "A long spoken request for new work is taken on in a few words, not said back to the user.",
+      [{ he: "Okay so the troubleshooting page, I think like half of it is out of date by now. Can you go through it and check every fix it gives against what the commands actually do today, and then tell me which ones are stale" }],
+      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "show", "go"], prompt: ["It has the user's message."] },
+    ),
+    after(
+      "ack-annoyed-order-in-parts",
+      "An annoyed order with several parts is taken on in a few words: no list of its parts, no plan.",
+      [{ he: "Then just add the exit codes to every command page already. People keep asking for them, they are missing everywhere, and the numbers have to match what the code really returns" }],
+      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "show", "go"], prompt: ["It has the user's message."] },
+    ),
   ]),
 
   ...set("held-out", [

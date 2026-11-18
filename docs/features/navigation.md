@@ -16,7 +16,7 @@ navbar:
   (github): https://github.com/andrei512/devpage
 ```
 
-Teaches it: [Making a site](../boxes/viewer/making-a-site/README.md),
-[A page for missing addresses](../boxes/viewer/making-a-site/README.md#a-page-for-missing-addresses),
-[Organizing navigation](../boxes/viewer/organizing-navigation/README.md),
-[Choosing a theme](../boxes/viewer/themes/README.md#choosing-a-theme).
+Teaches it: [Making a site](../boxes/viewer/write/making-a-site/README.md),
+[A page for missing addresses](../boxes/viewer/write/making-a-site/README.md#a-page-for-missing-addresses),
+[Organizing navigation](../boxes/viewer/write/organizing-navigation/README.md),
+[Choosing a theme](../boxes/viewer/on-the-page/themes/README.md#choosing-a-theme).

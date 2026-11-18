@@ -124,7 +124,7 @@ enum Command {
     /// Serve published documents for a team, every version kept.
     ///
     /// Configured only by `DEVPAGE_*` variables, every one listed at
-    /// https://devpage.ai/docs/boxes/viewer/server/reference/README.md#environment
+    /// https://devpage.ai/docs/boxes/viewer/share/server/reference/README.md#environment
     Server,
     /// The commands that talk to a devpage server.
     #[command(flatten)]

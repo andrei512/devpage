@@ -88,7 +88,7 @@ runners, and publishes a GitHub Release holding them, their checksums and the
 two install scripts that fetch them. The tag must name the version in
 `Cargo.toml`, or the release fails. After a change to `dist-workspace.toml`,
 `dist generate` rewrites the workflow. The
-[example image](../../../viewer/deploying/README.md#the-image) installs the
+[example image](../../../viewer/share/deploying/README.md#the-image) installs the
 released version, so it follows each release.
 
 ## Retro

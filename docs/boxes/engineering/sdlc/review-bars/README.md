@@ -51,7 +51,7 @@ scripts and C sources too — with nothing added. `install` caches no installed
 binary: one would make the install a no-op.
 
 **`.github/workflows/deploy-example.yml`** keeps the
-[example deployment](../../../viewer/deploying/README.md) true. Its one job,
+[example deployment](../../../viewer/share/deploying/README.md) true. Its one job,
 **`image`**, builds the image in `deploy/` and starts it behind its proxy
 with Docker Compose, then checks that the docs load, that a design's PNG is
 served as `image/png`, that a comment is accepted, and that
@@ -63,7 +63,7 @@ pull request, which moves the image to a version not yet published, fails it
 until the version is.
 
 **`.github/workflows/deploy-server.yml`** keeps the
-[server example](../../../viewer/server/running-a-server/README.md) true: it
+[server example](../../../viewer/share/server/running-a-server/README.md) true: it
 builds the image in `deploy/server/` from the checkout on x86-64, publishes
 into both emulated buckets and downloads a version's PDF, on a pull request
 that touches the code or `deploy/server/`, and on every push to `main`.

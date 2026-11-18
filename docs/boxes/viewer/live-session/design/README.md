@@ -117,7 +117,7 @@ its name.
   steps, with the newest one last.
 - **The same shape for every harness.** You see messages and steps, not the
   harness's own screen. What they are made of is on
-  [The harness](../harness/README.md).
+  [The harness](../agents/harness/README.md).
 - **A chat box at the bottom,** as in any app for chatting with an agent.
   What you type there is sent to this agent as a message. Enter sends it;
   Shift and Enter is a new line.

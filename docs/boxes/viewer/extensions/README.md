@@ -20,7 +20,7 @@ extensions:
       input: model
 ```
 
-The bundle holds `extension.yml` and the library, the program or both. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: [`code`](../code-reference/README.md), [`requirements`](../checking-requirements/README.md) and [`live`](../live-session/README.md).
+The bundle holds `extension.yml` and the library, the program or both. Devpage refuses the package when its manifest names another ID, another extension API, another platform, or a library outside the bundle. Any such failure, and any failure of the package's first preparation, makes the document invalid with the reason. An entry with no `package` is a system extension built into devpage: [`code`](../write/code-reference/README.md), [`requirements`](../check/checking-requirements/README.md) and [`live`](../live-session/README.md).
 
 ## What a package can do
 
@@ -41,7 +41,7 @@ flowchart LR
   click view href "./reference/README.md#file-views" "File views"
   click route href "./reference/README.md#addresses-and-routes" "Routes"
   click targets href "./reference/README.md#checked-targets" "Targets"
-  click watch href "../live-updates/README.md#extension-inputs" "Extension inputs"
+  click watch href "../write/writing-a-document/live-updates/README.md#extension-inputs" "Extension inputs"
 ```
 
 With the toy package above enabled:
@@ -64,7 +64,7 @@ run: [node, server.js]
 ```
 
 1. The first request under the extension's `live/` address starts the program in the bundle folder, with the port to listen on in `DEVPAGE_PORT`.
-2. Devpage passes each request there to it, and each WebSocket, and returns its answer. A widget finds the address with [`base`](../widgets/page-module/README.md#base): `fetch(base("toy") + "live/state")`.
+2. Devpage passes each request there to it, and each WebSocket, and returns its answer. A widget finds the address with [`base`](../on-the-page/widgets/page-module/README.md#base): `fetch(base("toy") + "live/state")`.
 3. A program that died is started again by the next request. It is stopped when devpage exits, and when the document's `extensions` no longer bind it.
 4. A page under the extension's `pages/` address is Markdown the program answers, which devpage draws in the document's frame: `base("toy") + "pages/notes/today.md"` is a page like any other, with the program as its file.
 

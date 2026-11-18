@@ -19,9 +19,9 @@ profile it deletes afterwards and, the first time, is downloaded —
 chrome-headless-shell, or Chrome for Testing for a video — into a cache
 outside the served folder.
 
-In [server mode](../server/README.md) there is no served folder on disk to
+In [server mode](../share/server/README.md) there is no served folder on disk to
 protect: a published version's files are kept byte for byte as uploaded
-([a published version never changes](../server/requirements/a-published-version-never-changes.md)),
+([a published version never changes](../share/server/requirements/a-published-version-never-changes.md)),
 and the server writes only its store, its cache and the bucket's objects. The
 CLI writes only `~/.devpage/` — never the document it publishes.
 

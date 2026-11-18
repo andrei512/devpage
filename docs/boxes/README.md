@@ -34,12 +34,19 @@ owner. One box looks like this:
 
 - viewer/
   - README.md — the entrance: what the subject is, a picture of its parts, and its Topics
-  - glossary/README.md — the words it owns, one anchor per term
   - requirements/
     - devpage-stays-inside-its-folder.md — one rule per file: the rule, why, how it is checked
-  - writing-a-document/README.md — an article, with its own children
+  - glossary/README.md — the words it owns, one anchor per term
+  - write/
+    - README.md — a part of the subject, with a landing page of its own
+    - writing-a-document/README.md — an article, with its own children
 
 </FileTree>
+
+A folder holds at most ten subfolders that are pages; one that would get an
+eleventh is regrouped into named parts, as the viewer's is into Write, On the
+page, Share and Check
+([the rule](engineering/sdlc/requirements/a-docs-folder-holds-at-most-ten-subfolders.md)).
 
 A README's Topics section leads down one level at a time. Every page names its
 type, and the types — what each is for and what it may sit under — are in

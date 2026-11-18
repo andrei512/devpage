@@ -15,7 +15,7 @@ path outside has no address and no name, so no page, problem or label shows
 it. Nothing about the boundary depends on git: devpage never looks for a
 `.git` folder.
 
-In [server mode](../server/README.md) each version's served folder is the root
+In [server mode](../share/server/README.md) each version's served folder is the root
 of its zip: an entry with `..`, an absolute path or a symbolic link refuses the
 publish, and no document reads another's files.
 

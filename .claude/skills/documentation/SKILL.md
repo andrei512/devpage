@@ -32,6 +32,9 @@ Rules the type files do not hold:
   section at its end, grouped under `###` headings by type or reader goal
   ("Essentials", "Working with state", "Reference"), each link
   followed by a one-line abstract. The order of the list is the reading order.
+- **At most ten subfolders.** A page folder holds at most ten subfolders that
+  are pages; a test fails on the eleventh. Regroup the folder into named
+  parts, each with a landing page, instead of adding to it.
 - **Link both ways.** Each page links up to where it sits and down to the next
   useful detail. Essentials and concept articles link to the mechanisms that
   implement them; mechanisms link to the reference for exact contracts.

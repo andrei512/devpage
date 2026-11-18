@@ -30,7 +30,7 @@ All of them run in `live/`, with bun.
 
 A case is one moment: what Fast had been shown, what you say next, and what a
 right script does there. How a case is built and judged is on
-[the technical design](../technical-design/README.md#the-eval-of-fast).
+[the technical design](../agents/technical-design/README.md#the-eval-of-fast).
 
 The evals need the key: `DEVPAGE_OPENAI_API_KEY` in the environment, or
 [the two Azure variables](../README.md#on-azure). The judge is Claude, on the machine's Claude Code

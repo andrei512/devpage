@@ -20,12 +20,12 @@ cargo run -- docs           # build if needed, then serve these docs
 ```
 
 Building devpage builds no WebAssembly: the
-[design engine](../../viewer/design-engine/README.md)'s module for the browser
+[design engine](../../viewer/on-the-page/designs/design-engine/README.md)'s module for the browser
 is [vendored](#the-vendored-design-engine) in `core/assets/vendor/`, and the binary
 embeds it.
 
 Run it from the repository root: the folder devpage starts from is the
-[served folder](../../viewer/writing-a-document/README.md#the-served-folder),
+[served folder](../../viewer/write/writing-a-document/README.md#the-served-folder),
 so the whole repository is served and the docs' links to `../LICENSE`
 work. `cargo run -- <args>` passes everything after `--` to
 devpage, so `cargo run -- check docs` and `cargo run -- pdf docs/talks/devpage`
@@ -67,12 +67,12 @@ What you edit decides what you have to do to see it:
 
 | You change | What it takes |
 | --- | --- |
-| A Markdown page under `docs/` | Save. Pages are read on every request and the open page [updates itself](../../viewer/live-updates/README.md). |
+| A Markdown page under `docs/` | Save. Pages are read on every request and the open page [updates itself](../../viewer/write/writing-a-document/live-updates/README.md). |
 | A page's Topics list | Save. The sidebar is rebuilt on every request, on every open page. |
 | `docs/devpage.yml`, or any document file | Save. Document files are read on every request and the index of them is kept current by the watcher. |
 | Rust code in `src/` or `core/src/` | Stop devpage (Ctrl-C) and `cargo run` again, then reload the browser tab. A page reconnects to its event stream by itself, but doesn't fetch itself again on reconnecting. |
 | `core/assets/style.css`, `core/assets/devpage.js`, the design script's modules (`core/assets/design*.js`), `core/assets/vendor/pele.js` | Rebuild and restart — they are built into the binary (pele by `core/src/diagrams.rs`, the rest by `core/build.rs`) — then reload the tab. Live updates and in-place links swap only the page content and its navigation, never the stylesheet or the scripts — except that a page from a new build is loaded whole, so the next live update after the restart brings the new ones. |
-| A `.design` file, or an image a design uses | Save. The design store resolves again the designs made from that file and the open canvases redraw in place ([Designs](../../viewer/designs/README.md)). |
+| A `.design` file, or an image a design uses | Save. The design store resolves again the designs made from that file and the open canvases redraw in place ([Designs](../../viewer/on-the-page/designs/README.md)). |
 | The engine in `design/src/`, the module in `design/wasm/src/`, or `design/proto/design.proto` | Run `cargo run -p devpage-design-module` to rebuild the [vendored module](#the-vendored-design-engine), then rebuild and restart devpage, and do a full reload of the tab — the binary embeds the module. After changing what the engine draws, run `DEVPAGE_UPDATE_REFERENCES=1 cargo test -p devpage-design` to rewrite the reference PNGs in `design/testdata/`, and look at them before committing. |
 
 ## Tests
@@ -115,7 +115,7 @@ yours to run. See [CI](../sdlc/review-bars/README.md#ci).
 devpage is one binary, `src/`, built on its core, `core/` — the documents,
 rendering, checking, comments and designs, with the built-in assets and the
 system widgets, and no I/O runtime — and the
-[design engine](../../viewer/design-engine/README.md) in three more workspace
+[design engine](../../viewer/on-the-page/designs/design-engine/README.md) in three more workspace
 crates beside them, the extension ABI in `extension-api/`, and the server's
 benchmark in `bench/`. Which module does what, and how `main` wires them
 together, is on the [Code map](../code-map/README.md); what each crate does is
@@ -127,7 +127,7 @@ These docs are a devpage site: `docs/devpage.yml`, rooted at
 `docs/README.md`. Keep `cargo run -- docs` open, from the repository root,
 while you write, and run `cargo run -- check docs` before you push — it runs the tests too,
 because these docs hold the code to its
-[constraints](../../viewer/checking-requirements/README.md); `check docs
+[constraints](../../viewer/check/checking-requirements/README.md); `check docs
 --docs` checks the docs alone — `cargo
 test` checks the same internal links and diagrams.
 How to write and organize pages is in the
@@ -135,7 +135,7 @@ How to write and organize pages is in the
 this repository's docs follow are in [`docs/structure/`](../../../structure/landing.md),
 and `check` reports a page that breaks them. A diagram that doesn't parse is a
 problem `devpage check` reports, like a broken link
-([Diagrams](../../viewer/diagrams/README.md#checking-diagrams-before-committing)).
+([Diagrams](../../viewer/on-the-page/diagrams/README.md#checking-diagrams-before-committing)).
 
 ## Topics
 

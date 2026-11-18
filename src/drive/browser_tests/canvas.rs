@@ -818,11 +818,15 @@ async fn an_embedded_design_is_its_own_size_centred_and_only_ever_scaled_down() 
     assert!(h <= 240.0 && (h - w * 0.75).abs() <= 1.0, "{w} × {h}");
 
     // The real example: the 390-wide checkout screen stays 390 wide in a doc.
-    let address = serve(root, "docs/boxes/viewer/designs/writing-a-design/README.md").await;
+    let address = serve(
+        root,
+        "docs/boxes/viewer/on-the-page/designs/writing-a-design/README.md",
+    )
+    .await;
     let page = embedded(
         &mut browser,
         &address,
-        "/docs/boxes/viewer/designs/writing-a-design/README.md",
+        "/docs/boxes/viewer/on-the-page/designs/writing-a-design/README.md",
         1280,
         1000,
     )

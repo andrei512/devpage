@@ -115,8 +115,8 @@ flags, examples and exit codes; the exact rules are in the
 [configuration reference](boxes/viewer/configuration-reference/README.md#command-line).
 
 To serve the docs of another repository, give it a document file — see
-[Documenting another repository](boxes/viewer/writing-a-document/README.md#documenting-another-repository).
-To serve docs to a team, see [Deploying devpage](boxes/viewer/deploying/README.md).
+[Documenting another repository](boxes/viewer/write/writing-a-document/README.md#documenting-another-repository).
+To serve docs to a team, see [Deploying devpage](boxes/viewer/share/deploying/README.md).
 
 ## Staying up to date
 
@@ -136,11 +136,11 @@ CI (`CI` is set), or when `DEVPAGE_NO_UPDATE_CHECK` is set.
   machine: the first time it prints, it downloads chrome-headless-shell, at
   the version devpage pins, once into devpage's cache folder and uses that
   from then on, with no network
-  ([Printing to PDF](boxes/viewer/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)).
+  ([Printing to PDF](boxes/viewer/share/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)).
 - **A GPT-Live key for `devpage video`.** It narrates a deck with GPT-Live on
   OpenAI or Azure, chosen by `DEVPAGE_` environment variables, and the first
   time it records it downloads Chrome for Testing, at the same pinned
-  version, once into the same cache folder ([Making a video](boxes/viewer/making-a-video/README.md#before-you-run-it)).
+  version, once into the same cache folder ([Making a video](boxes/viewer/share/making-a-video/README.md#before-you-run-it)).
 
 ## The live session
 
@@ -167,7 +167,7 @@ devpage needs a C compiler because the JavaScript engine that draws diagrams
 is built from its C source
 ([Dependencies](boxes/engineering/dependencies/README.md#diagrams)), and so are
 SQLite, which server mode keeps its store in, and tree-sitter, which reads
-code for a [code reference](boxes/viewer/code-reference/README.md).
+code for a [code reference](boxes/viewer/write/code-reference/README.md).
 
 <Callout kind="note" title="Why 1.97">
 The locked `oxc 0.153.0`, which compiles widgets, declares
@@ -184,9 +184,9 @@ need neither.
 Nothing else is needed — no `wasm32-unknown-unknown` target, no `protoc`,
 no wasm-bindgen CLI. The stylesheet, the page script, the diagram renderer
 (pele, and the QuickJS engine that runs it) and
-the [design engine](boxes/viewer/design-engine/README.md)'s WebAssembly module
+the [design engine](boxes/viewer/on-the-page/designs/design-engine/README.md)'s WebAssembly module
 are compiled into the binary; the module is
-[vendored](boxes/viewer/design-engine/README.md#one-crate-two-targets), so
+[vendored](boxes/viewer/on-the-page/designs/design-engine/README.md#one-crate-two-targets), so
 installing devpage builds no WebAssembly. Diagrams are drawn by devpage
 itself, and designs by the module. The engine's protobuf file is compiled
 with a Rust library
@@ -204,5 +204,5 @@ itself sends it uncompressed).
 devpage is released under the [MIT licence](../LICENSE). Third-party code built
 into the binary keeps its own licence: the
 [crates devpage depends on](boxes/engineering/dependencies/README.md) and the
-[vendored pele bundle](boxes/viewer/vendored-pele/README.md), whose MIT licence
+[vendored pele bundle](boxes/viewer/on-the-page/diagrams/vendored-pele/README.md), whose MIT licence
 ships beside it.

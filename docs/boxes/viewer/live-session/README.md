@@ -8,7 +8,7 @@ aloud, and coding agents on your machine do the work it hands them, while the
 page shows what is said about and what changed. It is the
 [system extension](../glossary/README.md#system-extension) `live`: a program
 devpage installs beside itself and runs, and four
-[system widgets](../widgets/system-widgets/README.md#the-live-sessions-widgets)
+[system widgets](../on-the-page/widgets/system-widgets/README.md#the-live-sessions-widgets)
 devpage places on every page. It sits under the [viewer](../README.md).
 
 ```mermaid
@@ -82,7 +82,7 @@ One line each.
 | 3 | Stopping the session stops the voice. Running work finishes. |
 | 4 | The context is the page you are on. |
 | 5 | While the session is on, clicking a part or selecting text marks it as what you are talking about. No typing. |
-| 6 | A marked part is the context of a request, never a comment by itself. A devpage [comment](../comments/README.md) is saved on it only when you ask for one ("comment this", "leave a note here"), short and in your words. |
+| 6 | A marked part is the context of a request, never a comment by itself. A devpage [comment](../share/comments/README.md) is saved on it only when you ask for one ("comment this", "leave a note here"), short and in your words. |
 | 7 | Every request for work becomes a task. |
 | 8 | A button in the navbar opens a side panel on the right with every agent, its tasks and their state. |
 | 9 | Clicking a done task goes to the part of the page it changed. |
@@ -177,7 +177,7 @@ changes nothing.
 ## What a page shows
 
 devpage places the session's widgets itself, after the ones the document
-names in its own [places](../widgets/places/README.md):
+names in its own [places](../on-the-page/widgets/places/README.md):
 
 - **The orb**, floating in the bottom right corner. It starts and stops the
   session, and shows your voice, the assistant's, and whether work is running.
@@ -231,7 +231,7 @@ The key reaches the program through devpage's environment and never a page.
 
 The voice model and Fast's model run on an Azure OpenAI resource when devpage's
 environment names one, with the variables
-[the video narrator](../making-a-video/README.md#the-narrator) reads:
+[the video narrator](../share/making-a-video/README.md#the-narrator) reads:
 
 ```sh
 export DEVPAGE_AZURE_OPENAI_ENDPOINT=https://<resource>.openai.azure.com/
@@ -249,7 +249,7 @@ export DEVPAGE_AZURE_OPENAI_API_KEY=…
 ## Settings
 
 `~/.devpage/config.yml`, the file that holds the
-[server contexts](../server/reference/README.md#cli), may hold a `live`
+[server contexts](../share/server/reference/README.md#cli), may hold a `live`
 mapping: the session's settings for every project.
 
 ```yaml

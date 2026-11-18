@@ -154,7 +154,7 @@ A GET of `pages/<page>` under the extension's address asks the process for `/pag
 
 - In the frame of the document that binds the extension — the entry document when it does, else the first that does. A site draws it as one of its pages, with its navbar and sidebar; any other document as a doc of that one chapter, as a Markdown file served alone is drawn.
 - Its widgets and diagrams are drawn as in any page. A relative link in it is resolved against the page's own address.
-- Its content is named `<page>`: that is the `data-source` of its `<article>` or its chapter's `<section>`, so [a part](../../widgets/page-module/README.md#a-part-of-a-page) of it names its page as the extension does.
+- Its content is named `<page>`: that is the `data-source` of its `<article>` or its chapter's `<section>`, so [a part](../../on-the-page/widgets/page-module/README.md#a-part-of-a-page) of it names its page as the extension does.
 - It shows no comments and lists no problems, and `devpage check` does not read it: it is no file.
 
 | The process answers | devpage answers |
@@ -167,4 +167,4 @@ The refusals of a request under `live/` hold here too: no process on a non-loopb
 
 ## Browser modules
 
-Modules are compiled by the same TSX compiler as [project widgets](../../widgets/project-widgets/README.md) and use devpage's React. A relative import must resolve, with an optional `.tsx`, `.ts` or `.js` suffix, to another declared module; module and style paths must be canonical and stay inside the package. A widget name starts with an uppercase letter, uses letters, digits and `_`, and cannot be a system widget's; a name another widget already uses is reported as a problem. Declared widgets are added to the document's widgets, and every declared stylesheet is linked on every page of the document. Devpage does not scope package CSS.
+Modules are compiled by the same TSX compiler as [project widgets](../../on-the-page/widgets/project-widgets/README.md) and use devpage's React. A relative import must resolve, with an optional `.tsx`, `.ts` or `.js` suffix, to another declared module; module and style paths must be canonical and stay inside the package. A widget name starts with an uppercase letter, uses letters, digits and `_`, and cannot be a system widget's; a name another widget already uses is reported as a problem. Declared widgets are added to the document's widgets, and every declared stylesheet is linked on every page of the document. Devpage does not scope package CSS.

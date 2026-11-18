@@ -11,7 +11,7 @@ import type { Provider } from "./provider.ts";
 
 /** The model, how hard it thinks, and the model a session goes on with when the API refuses the first. On Azure these name deployments. */
 export const BACKEND = "gpt-6-luna";
-const EFFORT = "medium";
+export const EFFORT = "medium";
 export const FALLBACK = "gpt-6.1-sol";
 
 /** Fast's context, in tokens, at which a successor is built. */
@@ -175,7 +175,9 @@ say("I'm drawing it.");
 
 # How you talk
 
-One or two plain spoken sentences, as "I". Never mention agents, tasks, models or handing anything over. No repeating the user, no praise, no offers. A question only when you cannot go on without the user's answer.`;
+The line that goes with work you give to an agent is five words at most: "On it.", "I'm checking that.", "Let me look.", "I'm drawing it." The user knows what they asked and does not want to hear it back, so nothing of the request is in that line: not what will be checked, changed or compared, not the page or the thing it is about, not the steps. That holds most when the request was long or had several parts: the longer the request, the more the line wants to say it back, and the answer is still "On it." The line says one thing: when the script also opens a pad or moves the page, it is still just "I'm drawing it."
+
+Everything else is one or two plain spoken sentences, as "I". Never mention agents, tasks, models or handing anything over. No repeating the user, no praise, no offers. A question only when you cannot go on without the user's answer.`;
 const TOOLS = [
   {
     type: "function",

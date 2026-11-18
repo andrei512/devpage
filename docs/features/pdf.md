@@ -13,4 +13,4 @@ devpage features.pdf
 
 </Terminal>
 
-Teaches it: [Printing to PDF](../boxes/viewer/pdf/README.md).
+Teaches it: [Printing to PDF](../boxes/viewer/share/pdf/README.md).

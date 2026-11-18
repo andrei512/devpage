@@ -26,7 +26,7 @@ flowchart LR
 ```
 
 Three things make it: the pad files, the canvas widget, and the canvas in
-[the world](../world/README.md).
+[the world](../agents/world/README.md).
 
 ## A pad is a file
 
@@ -93,7 +93,7 @@ plans. Then it puts the real part in the place of each, from the top.
 
 ## Showing it: the canvas
 
-A [system widget](../../widgets/system-widgets/README.md), `DevpageLiveCanvas`,
+A [system widget](../../on-the-page/widgets/system-widgets/README.md), `DevpageLiveCanvas`,
 which devpage places beside the orb. It is mounted once and stays while you
 move between pages.
 

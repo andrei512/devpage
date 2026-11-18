@@ -14,7 +14,7 @@ another, set by the auth proxy in front of it, trimmed; a request that writes a
 comment without that header, or with it blank, is refused with `401`. Reading needs no header: whoever the
 proxy lets through may read.
 
-In [server mode](../server/README.md) the header is optional: with
+In [server mode](../share/server/README.md) the header is optional: with
 `DEVPAGE_USER_HEADER` set it names the author of every publish and comment and
 a write without it, or with it blank, gets `401`; without it, writes are `anonymous`. The CLI may
 send a bearer token from its context's token command; devpage never reads it —

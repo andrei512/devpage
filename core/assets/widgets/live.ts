@@ -666,6 +666,9 @@ registerProcessor("capture", class extends AudioWorkletProcessor {
   }
 });`;
 
+/** How long the last opening took, for the session's log: the microphone alone, then all of it. `kept` when they were still open. */
+let opened = { microphone_ms: 0, audio_ms: 0, kept: true };
+
 /** The opening under way, so that two starts at once open one microphone. */
 let opening: Promise<void> | null = null;
 
@@ -678,11 +681,14 @@ function openAudio() {
 async function open() {
   const hearing = (kept.microphone?.getAudioTracks() ?? []).some((track) => track.readyState === "live");
   if (kept.audio && kept.audio.state !== "closed" && kept.capture && kept.voiceMeter && hearing) {
+    opened = { microphone_ms: 0, audio_ms: 0, kept: true };
     attendAudio();
     return;
   }
   closeAudio();
+  const from = performance.now();
   const microphone = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: false, autoGainControl: false } });
+  const microphone_ms = Math.round(performance.now() - from);
   // Made after the microphone opened: a page that is capturing may be allowed sound where another is not.
   const audio = new AudioContext({ sampleRate: RATE, latencyHint: "interactive" });
   kept.microphone = microphone;
@@ -697,6 +703,7 @@ async function open() {
   kept.capture = capture;
   kept.voiceMeter = meter;
   kept.speechEnds = 0;
+  opened = { microphone_ms, audio_ms: Math.round(performance.now() - from), kept: false };
   attendAudio();
 }
 
@@ -780,14 +787,17 @@ function failed(problem: string) {
 /** Opens the microphone, then asks the service for the voice. `again` when the page does it by itself, after the voice was on. */
 async function begin(again: boolean) {
   kept.wanted = true;
-  kept.asked = Date.now();
+  // When the user pressed, or the page started by itself: the session's log measures the start from here.
+  const pressed = (kept.asked = Date.now());
   set({ voice: "starting", problem: null });
   try {
     await openAudio();
   } catch (error) {
     // Stopped while it opened: nothing failed.
     if (!kept.wanted) return closeAudio();
-    return failed(`The microphone did not open: ${error instanceof Error ? error.message : error}`);
+    const problem = `The microphone did not open: ${error instanceof Error ? error.message : error}`;
+    send({ type: "start_failed", text: problem, ms: Date.now() - pressed });
+    return failed(problem);
   }
   if (!kept.wanted) return closeAudio();
   if (kept.socket?.readyState !== WebSocket.OPEN) {
@@ -797,8 +807,12 @@ async function begin(again: boolean) {
     return;
   }
   const asked = (kept.asked = Date.now());
-  send({ type: "start", resumed: again });
-  setTimeout(() => kept.asked === asked && failed("The voice did not start: the service did not answer."), ANSWER);
+  send({ type: "start", resumed: again, timing: { pressed, ...opened } });
+  setTimeout(() => {
+    if (kept.asked !== asked) return;
+    send({ type: "start_failed", text: "The service did not answer the request to start.", ms: Date.now() - pressed });
+    failed("The voice did not start: the service did not answer.");
+  }, ANSWER);
 }
 
 /** Starts the session: the microphone opens, then the voice. */

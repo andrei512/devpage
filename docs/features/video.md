@@ -15,4 +15,4 @@ Launch.mp4
 
 </Terminal>
 
-Teaches it: [Making a video](../boxes/viewer/making-a-video/README.md).
+Teaches it: [Making a video](../boxes/viewer/share/making-a-video/README.md).

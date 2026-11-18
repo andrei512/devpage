@@ -14,7 +14,7 @@ what changed. The one
 step that stays linear is reading the file that was saved: parsing it and
 matching its elements against the last parse. Nothing that paints a frame, a tile or a PNG band, applies
 a patch or answers a click walks every node or every command; it asks the
-[display index](../design-engine/README.md#the-display-index) what touches the area. A pan or
+[display index](../on-the-page/designs/design-engine/README.md#the-display-index) what touches the area. A pan or
 a zoom repaints nothing: it moves and scales tiles already painted.
 
 </Callout>

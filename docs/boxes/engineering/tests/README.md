@@ -67,7 +67,7 @@ Google's server for the pinned Chrome's zips, all at once, so it needs the
 network.
 All but the three `video` tests drive chrome-headless-shell through
 chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
-[`devpage pdf` downloads](../../viewer/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)
+[`devpage pdf` downloads](../../viewer/share/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)
 into devpage's cache folder, fetched by the first test that needs it — never
 a Chrome installed on the machine, so a run puts nothing in the macOS Dock.
 Every test that draws on the GPU has `gpu` in its name, so
@@ -79,7 +79,7 @@ them with
 `--ignored` after changing the page
 script, the design script, the module, the stylesheet, a widget, print mode,
 `devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
-Testing instead — the copy [`devpage video` downloads](../../viewer/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives),
+Testing instead — the copy [`devpage video` downloads](../../viewer/share/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives),
 fetched the same way; run them after changing `devpage video` or its
 recorder, `assets/video.js`. The live one records
 `tests/fixtures/narrated-talk` with GPT-Live, which bills per minute, and
@@ -144,7 +144,7 @@ the suite green.
 test passing at once without a key — on an Apple M5 Max with 18 cores, the
 binary already built: before the suites shared one Chrome and waited on
 conditions, after, and since the `video` tests record with a short
-[pacing](../../viewer/making-a-video/how-a-video-is-recorded/README.md#how-it-is-recorded). One at a
+[pacing](../../viewer/share/making-a-video/how-a-video-is-recorded/README.md#how-it-is-recorded). One at a
 time, the same 102 tests; the runs after hold more — five canvas tests that
 landed meanwhile, the shared Chrome's own, and by the last column 110 in all.
 
@@ -290,6 +290,7 @@ On the network:
 - A preview of files that never change checking each page once, the same problems on every later view; one of files that change checking on every view.
 - A design checked and its files followed through the design store the check is given, resolved there once; a page's problems naming an embedded design as the server's store holds it, a save the store is told of clearing them.
 - The fixture doc, the devpage talk and devpage's own docs free of broken internal links.
+- No page folder of devpage's own docs holding more than ten page subfolders; an eleventh found, and a `requirements` folder and a deck's slides not counted.
 - What a deck is drawn from: its file, its slides, what they embed — a design's PNG by its design, an image not there yet, a path from the top, another deck's slide PNG and that deck in turn, once however they embed each other — and never a page a slide only links to or an address on the web.
 - A link into the code reference checked against the code: no such item or member, with the nearest offered, and no such section.
 - A prose file naming no code, and a second prose file adding to an item one already adds to, as problems.
@@ -655,15 +656,15 @@ each brings up a server from `deploy/server/compose.yaml` — building the image
 from the checkout, with RustFS for S3 and Azurite for Azure Blob — publishes
 two versions and starts a thread, deletes the server's volume, starts it on
 an empty one, and finds both versions, the thread, the latest at the link and
-version 1 unchanged: [nothing published is ever lost](../../viewer/server/requirements/nothing-published-is-lost.md),
+version 1 unchanged: [nothing published is ever lost](../../viewer/share/server/requirements/nothing-published-is-lost.md),
 on the example deploy. Without Litestream's restore it fails.
 
 ### The server's benchmark
 
 Not a test `cargo test` runs: `.github/workflows/bench.yml`, started by hand,
-loads a server to the [envelope](../../viewer/server/measuring-a-server/README.md#the-envelope)
+loads a server to the [envelope](../../viewer/share/server/measuring-a-server/README.md#the-envelope)
 and past it, and reports each target met or missed
-([one server holds the envelope](../../viewer/server/requirements/one-server-holds-the-envelope.md)).
+([one server holds the envelope](../../viewer/share/server/requirements/one-server-holds-the-envelope.md)).
 The code is `bench/` (`devpage-bench`), a workspace crate never published; the
 repository holds no corpus and no results.
 

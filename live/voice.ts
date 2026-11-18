@@ -91,10 +91,14 @@ export class Voice {
   constructor(provider: Provider, events: VoiceEvents) {
     this.events = events;
     // Bun's WebSocket takes headers; the browser's does not, and the key never goes there.
+    const asked = Date.now();
+    let connected = asked;
     this.socket = new WebSocket(provider.live, { headers: provider.headers } as any);
     this.started = new Promise((started, failed) => {
       let open = false;
       this.socket.onopen = () => {
+        connected = Date.now();
+        this.events.log("service", "voice_connected", { connect_ms: connected - asked });
         this.send({
           type: "session.start",
           session: {
@@ -110,7 +114,7 @@ export class Voice {
         const event = JSON.parse(String(message.data));
         if (event.type === "session.started") {
           open = true;
-          this.events.log("service", "voice_session_started", { model: MODEL, event: shape(event) });
+          this.events.log("service", "voice_session_started", { model: MODEL, connect_ms: connected - asked, session_ms: Date.now() - connected, event: shape(event) });
           started();
         } else if (event.type === "error" && !open) {
           failed(new Error(event.error?.message ?? JSON.stringify(event.error)));

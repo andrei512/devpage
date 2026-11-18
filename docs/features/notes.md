@@ -21,4 +21,4 @@ $ curl -o slide-3.png localhost:3030/talks/launch/devpage.yml/3.png
 
 </Terminal>
 
-Teaches it: [Making slides](../boxes/viewer/making-slides/README.md#speaker-notes).
+Teaches it: [Making slides](../boxes/viewer/write/making-slides/README.md#speaker-notes).

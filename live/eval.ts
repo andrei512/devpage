@@ -17,7 +17,7 @@
 //   bun eval.ts freeze <session>          a recorded voice session, from the log, as a file cases can use
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { BACKEND, instructions, moved, request, roster, script, wakeText, type Seen } from "./fast.ts";
+import { BACKEND, EFFORT, instructions, moved, request, roster, script, wakeText, type Seen } from "./fast.ts";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { price } from "./cost.ts";
 import { NEEDS, provider } from "./provider.ts";
@@ -55,6 +55,8 @@ export interface Want {
   open?: boolean;
   /** Words the call's text must have: a prompt's, a line's, or the quote of a part of the page. */
   has?: string[];
+  /** The most words the call's text may have: a line that only says the work is taken on. Counted, not judged. */
+  words?: number;
 }
 
 export interface Expect {
@@ -391,7 +393,7 @@ interface Setup {
 }
 
 function setup(text: string): Setup {
-  const [model, effort = "low", tier = "priority"] = text.split(":");
+  const [model, effort = EFFORT, tier = "priority"] = text.split(":");
   return { name: `${model} ${effort} ${tier}`, model, effort, tier };
 }
 
@@ -444,10 +446,11 @@ function fits(intent: Intent, want: Want) {
   if (want.not !== undefined && String(call.address).split("#")[0] === want.not) return false;
   if (want.where !== undefined && call.where !== want.where) return false;
   if (want.open !== undefined && call.open !== want.open) return false;
+  if (want.words !== undefined && words(intent).trim().split(/\s+/).filter(Boolean).length > want.words) return false;
   return (want.has ?? []).every((part) => words(intent).toLowerCase().includes(part.toLowerCase()));
 }
 
-const named = (want: Want) => `${[want.do].flat().join(" or ")}${want.agent !== undefined ? ` for a${want.agent}` : ""}${want.address ? ` to ${want.address}` : ""}${want.where ? ` ${want.where}` : ""}${want.open !== undefined ? ` ${want.open}` : ""}${want.has ? ` with ${want.has.map((part) => JSON.stringify(part)).join(", ")}` : ""}`;
+const named = (want: Want) => `${[want.do].flat().join(" or ")}${want.agent !== undefined ? ` for a${want.agent}` : ""}${want.address ? ` to ${want.address}` : ""}${want.where ? ` ${want.where}` : ""}${want.open !== undefined ? ` ${want.open}` : ""}${want.has ? ` with ${want.has.map((part) => JSON.stringify(part)).join(", ")}` : ""}${want.words !== undefined ? ` of at most ${want.words} words` : ""}`;
 
 /** What is wrong with a script's calls. */
 function checked(expect: Expect, intents: Intent[]) {

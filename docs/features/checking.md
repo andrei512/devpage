@@ -14,4 +14,4 @@ docs/README.md:9: broken diagram — No diagram type detected for the given text
 
 </Terminal>
 
-Teaches it: [Checking links](../boxes/viewer/checking-links/README.md).
+Teaches it: [Checking links](../boxes/viewer/check/checking-links/README.md).

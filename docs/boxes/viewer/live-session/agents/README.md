@@ -17,7 +17,7 @@ You say what you want done or what you want answered, and you point at what
 you mean. You never name a task or an agent.
 
 The code, the files and the log are on the
-[technical design](../technical-design/README.md) page.
+[technical design](technical-design/README.md) page.
 
 ## How it works
 
@@ -29,10 +29,10 @@ flowchart LR
   fast <-->|"reads and changes"| world["The world"]
   slow["Slow agents<br/>several"] <-->|"tasks in, updates out"| world
   world -->|"an update wakes Fast"| fast
-  click voice href "../voice-to-fast/README.md" "Voice to Fast"
-  click fast href "../fast/README.md" "Fast, the hub"
-  click world href "../world/README.md" "The world"
-  click slow href "../slow-agents/README.md" "Slow agents"
+  click voice href "voice-to-fast/README.md" "Voice to Fast"
+  click fast href "fast/README.md" "Fast, the hub"
+  click world href "world/README.md" "The world"
+  click slow href "slow-agents/README.md" "Slow agents"
 ```
 
 - **Voice** hears you, speaks, and hands over what you said. It decides
@@ -86,18 +86,18 @@ rest are in each agent's own brief.
 
 ## Topics
 
-- [The world](../world/README.md) — the three parts Fast sees, and what its
+- [The world](world/README.md) — the three parts Fast sees, and what its
   scripts can use.
-- [Voice to Fast](../voice-to-fast/README.md) — what the voice model sends at
+- [Voice to Fast](voice-to-fast/README.md) — what the voice model sends at
   a hand-over, and how messages get ids.
-- [Fast, the hub](../fast/README.md) — what wakes Fast, how it routes in both
+- [Fast, the hub](fast/README.md) — what wakes Fast, how it routes in both
   directions, how it picks a slow agent, and how it is replaced before its
   context fills.
-- [Slow agents](../slow-agents/README.md) — what an agent is, how it gets
+- [Slow agents](slow-agents/README.md) — what an agent is, how it gets
   work, what it publishes.
-- [The harness](../harness/README.md) — what an agent's session is made of,
+- [The harness](harness/README.md) — what an agent's session is made of,
   the same for every coding agent, and what a coding agent must do to be used.
-- [Routing](../routing/README.md) — which harness and model an agent runs on:
+- [Routing](routing/README.md) — which harness and model an agent runs on:
   the settings, your rules, and what you say.
-- [Technical design](../technical-design/README.md) — the program's files, one
+- [Technical design](technical-design/README.md) — the program's files, one
   request through them, a restart, the log and the cost.

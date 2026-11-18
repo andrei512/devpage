@@ -10,7 +10,7 @@ embeds. It sits under [Engineering](../README.md), for someone reading or changi
 
 devpage is a Cargo workspace of seven crates: `devpage`, the binary, at the
 top; `devpage-core`, its [core](../code-map/README.md), in `core/`, which
-depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/design-engine/README.md),
+depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/on-the-page/designs/design-engine/README.md),
 in `design/`; `devpage-extension-api`, the ABI a native
 [extension](../../viewer/extensions/README.md) library exports, in
 `extension-api/`; `devpage-design-wasm`, the engine built for the browser, in
@@ -43,7 +43,7 @@ except where a code comment says so, and this page doesn't guess.
 | `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/page/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
-| `tree-sitter` | 0.27.1 | MIT | The [code reference](../../viewer/code-reference/README.md)'s reading: parsing a code file and running a query (`rust.scm`, or the site's own) over it to capture its declarations; a query that doesn't compile is a problem at its line. Its runtime is C, built from source by its build script. | `core/src/code/extract.rs` |
+| `tree-sitter` | 0.27.1 | MIT | The [code reference](../../viewer/write/code-reference/README.md)'s reading: parsing a code file and running a query (`rust.scm`, or the site's own) over it to capture its declarations; a query that doesn't compile is a problem at its line. Its runtime is C, built from source by its build script. | `core/src/code/extract.rs` |
 | `tree-sitter-rust` | 0.24.2 | MIT | The Rust grammar the code reference parses with, built from its C source. | `core/src/code/` |
 | `streaming-iterator` | 0.1.9 | MIT or Apache-2.0 | The `StreamingIterator` trait tree-sitter's query matches are walked with. | `core/src/code/extract.rs` |
 
@@ -57,7 +57,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `core/src/diagrams.rs` |
+| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/on-the-page/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `core/src/diagrams.rs` |
 
 ## Files, watching and search
 
@@ -72,7 +72,7 @@ except where a code comment says so, and this page doesn't guess.
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/folder/index.rs`, `core/src/search/gather.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
 | `regex` | 1.13.1 | MIT or Apache-2.0 | A requirements suite's `pattern`: finding where a test file names a constraint; and reading the tests out of the JUnit report its `run` prints. | `core/src/requirements.rs` |
-| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
+| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/write/making-a-site/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
 | `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/http.rs` |
 
 ## Documents, comments and data
@@ -118,7 +118,7 @@ except where a code comment says so, and this page doesn't guess.
 | `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/http.rs` (tests) |
 
 The core's build script, `core/build.rs`, makes the asset manifest: each
-[built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
+[built-in asset](../../viewer/write/writing-a-document/serving-pages/README.md#built-in-assets), its
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
 content's hash, so it is made again only when the asset changes, and the
@@ -238,13 +238,13 @@ Licences are as each crate's own `Cargo.toml` declares them. devpage itself
 is MIT — see [Installing devpage](../../../installing.md#licence).
 
 Four more pieces of third-party work are built into the binary but aren't
-crates: the [vendored pele bundle](../../viewer/vendored-pele/README.md), the
-JavaScript that draws diagrams; the [vendored React bundle](../../viewer/vendored-react/README.md),
-which widgets run with; the [vendored icons](../../viewer/vendored-icons/README.md),
+crates: the [vendored pele bundle](../../viewer/on-the-page/diagrams/vendored-pele/README.md), the
+JavaScript that draws diagrams; the [vendored React bundle](../../viewer/on-the-page/widgets/how-widgets-run/vendored-react/README.md),
+which widgets run with; the [vendored icons](../../viewer/write/organizing-navigation/vendored-icons/README.md),
 Lucide's icon set (ISC) and GitHub's mark (CC0); and the Inter typeface —
 regular, medium, semibold and bold, in `design/fonts/` — which the design
 engine embeds with `include_bytes!` and sets a design's text in unless the
-design names a [font file](../../viewer/designs/writing-a-design/README.md#fonts). Inter is
+design names a [font file](../../viewer/on-the-page/designs/writing-a-design/README.md#fonts). Inter is
 under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
 

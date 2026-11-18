@@ -1715,6 +1715,7 @@ mod documents {
     use super::tests::{designs_of, opened};
     use super::*;
     use crate::folder::ServedFolder;
+    use codespec_rust_macro::spec;
 
     /// The top of the repository the core crate sits in.
     fn repository() -> PathBuf {
@@ -1761,6 +1762,68 @@ mod documents {
         .map(ToString::to_string)
         .collect();
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// The page folders under `docs` that hold more subfolders than `limit`,
+    /// each with its count. A page folder is one with a `README.md`; the
+    /// subfolders counted are the page folders in it, which is what a reader
+    /// sees as its subcategories — so a `requirements` folder, a deck's
+    /// slides, a doc's chapters, widgets and designs are not counted.
+    fn crowded(docs: &Path, limit: usize) -> Vec<String> {
+        let mut found = Vec::new();
+        let mut folders = vec![docs.to_path_buf()];
+        while let Some(folder) = folders.pop() {
+            let subfolders: Vec<PathBuf> = std::fs::read_dir(&folder)
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .filter(|path| path.is_dir())
+                .collect();
+            let pages = subfolders
+                .iter()
+                .filter(|path| path.file_name().is_some_and(|name| name != "requirements"))
+                .filter(|path| path.join("README.md").is_file())
+                .count();
+            if pages > limit && folder.join("README.md").is_file() {
+                let name = folder.strip_prefix(docs).unwrap().display().to_string();
+                found.push(format!("{name}: {pages} subfolders"));
+            }
+            folders.extend(subfolders);
+        }
+        found.sort();
+        found
+    }
+
+    /// No folder of devpage's own docs holds more than ten subfolders: a
+    /// folder past that is regrouped, not grown.
+    #[test]
+    #[spec("a-docs-folder-holds-at-most-ten-subfolders")]
+    fn no_folder_of_devpage_docs_holds_more_than_ten_subfolders() {
+        let found = crowded(&repository().join("docs"), 10);
+        assert!(found.is_empty(), "regroup these folders: {found:#?}");
+    }
+
+    #[test]
+    #[spec("a-docs-folder-holds-at-most-ten-subfolders")]
+    fn an_eleventh_subfolder_is_found_and_what_is_no_page_is_not_counted() {
+        let dir = std::env::temp_dir().join(format!("devpage-crowded-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let page = |folder: &str| {
+            std::fs::create_dir_all(dir.join(folder)).unwrap();
+            std::fs::write(dir.join(folder).join("README.md"), "# A page\n").unwrap();
+        };
+        page("box");
+        for n in 0..10 {
+            page(&format!("box/part-{n}"));
+        }
+        // Rule files and a deck's slides are not subcategories.
+        page("box/requirements");
+        std::fs::create_dir_all(dir.join("box/talk")).unwrap();
+        std::fs::write(dir.join("box/talk/one.md"), "# A slide\n").unwrap();
+        assert!(crowded(&dir, 10).is_empty(), "{:#?}", crowded(&dir, 10));
+
+        page("box/part-10");
+        assert_eq!(crowded(&dir, 10), ["box: 11 subfolders"]);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
