@@ -75,7 +75,7 @@ enum Config {
 
 /// The widgets a document shows outside its pages' text, by place: each a
 /// list of widget names, shown in order on every page.
-#[derive(Debug, Clone, Default, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Places {
     /// Beside the theme selector: at the end of a site's navbar, or in the
@@ -91,15 +91,13 @@ pub struct Places {
 }
 
 impl Places {
-    /// These places with the live session's widgets after the document's
-    /// own, when the session is among `extensions`: its button in the
-    /// navbar, its tasks in the panel, its canvas and its orb floating.
-    fn with_session(mut self, extensions: &[crate::extensions::Binding]) -> Self {
-        use crate::widgets::{LIVE_CANVAS, LIVE_ORB, LIVE_TASKS, LIVE_TASKS_BUTTON};
-        if extensions.iter().any(|binding| binding.is_session()) {
-            self.navbar.push(LIVE_TASKS_BUTTON.to_string());
-            self.panel.push(LIVE_TASKS.to_string());
-            self.float.extend([LIVE_CANVAS, LIVE_ORB].map(String::from));
+    /// Each package places its widgets after the document's own.
+    fn with_packages(mut self, extensions: &[crate::extensions::Binding]) -> Self {
+        for binding in extensions {
+            let places = binding.places();
+            self.navbar.extend(places.navbar);
+            self.panel.extend(places.panel);
+            self.float.extend(places.float);
         }
         self
     }
@@ -434,13 +432,17 @@ impl Document {
             });
         }
         if file.extension().is_some_and(|ext| ext == "md") {
-            // A lone Markdown file configures nothing: the live session is
-            // all it can have.
+            // A standalone page inherits the local package defaults.
             let path = base.join(&file_name);
-            crate::extensions::configure(&path, &base, served, Default::default())?;
+            crate::extensions::configure(
+                &path,
+                &base,
+                served,
+                crate::extensions::configured(served, Default::default()),
+            )?;
             let extensions = crate::extensions::for_document(&path);
             return Ok(Self {
-                places: Places::default().with_session(&extensions),
+                places: Places::default().with_packages(&extensions),
                 extensions,
                 served: served.clone(),
                 title: crate::markup::title(&text, &file),
@@ -601,11 +603,11 @@ impl Document {
             },
             None => None,
         };
-        let mut extension_configs = extension_configs;
+        let mut extension_configs = crate::extensions::configured(&served, extension_configs);
         // `code` with no package is the system extension: the code reference,
         // which only a site has pages for.
         let code = match extension_configs.get("code") {
-            Some(config) if config.package.is_none() => {
+            Some(config) if config.package.is_none() && config.enabled != Some(false) => {
                 if !matches!(kind, Kind::Site { .. }) {
                     bail!("extensions: code: only a site has a code reference");
                 }
@@ -616,7 +618,7 @@ impl Document {
         // `requirements` with no package is the system extension that holds a
         // site's constraints to its tests.
         let requirements = match extension_configs.get("requirements") {
-            Some(config) if config.package.is_none() => {
+            Some(config) if config.package.is_none() && config.enabled != Some(false) => {
                 if !matches!(kind, Kind::Site { .. }) {
                     bail!("extensions: requirements: only a site has requirements");
                 }
@@ -635,7 +637,7 @@ impl Document {
         crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
         let extensions = crate::extensions::for_document(&base.join(&file_name));
-        let places = places.with_session(&extensions);
+        let places = places.with_packages(&extensions);
         Ok(Self {
             extensions,
             title,

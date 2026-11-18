@@ -30,6 +30,8 @@ Each name is a widget of the document: a [system widget](../system-widgets/READM
 
 ## Widgets devpage places
 
+An enabled package can list widgets under `places` in its [manifest](../../../extensions/reference/README.md#bundle). The page appends those widgets to the document’s own lists. Each widget in `panel` occupies a section in their shared panel.
+
 Where [the live session](../../../live-session/README.md) is on, devpage adds
 its widgets to a document's places, after the document's own: the tasks
 button to `navbar`, the task panel to `panel`, the canvas and the orb to

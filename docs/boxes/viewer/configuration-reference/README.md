@@ -225,11 +225,11 @@ nothing.
 ### Settings for every project
 
 `~/.devpage/config.yml` holds the [server contexts](../share/server/reference/README.md#cli)
-and, under `live`, the live session's settings for every project. devpage
-reads one of them:
+and local settings for every project:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
+| `extensions` | map | Package defaults for loopback serving. Paths are relative to this configuration file. A project entry for the same id replaces the global entry and `enabled: false` turns it off. |
 | `live.program` | path | A folder holding the session's program, run in place of the installed one. Absolute, or from `~`. |
 
 Every other key under `live` belongs to
