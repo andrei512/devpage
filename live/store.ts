@@ -9,12 +9,14 @@ import type { Entry as LogEntry } from "./log.ts";
 export class SessionStore {
   readonly db: Database;
   readonly events: Events;
+  private lease?: Database;
 
   constructor(folder: string, mode: "service" | "read" = "service") {
     const file = join(folder, "world.sqlite");
     if (mode === "read") {
       if (existsSync(file)) {
         const existing = new Database(file, { readonly: true });
+        existing.run("pragma busy_timeout = 5000");
         if (existing.query("select 1 from sqlite_master where name = 'session_state'").get()) {
           this.db = existing;
           this.events = new Events(existing);
@@ -29,6 +31,21 @@ export class SessionStore {
       this.db = new Database(file);
     }
     this.events = new Events(this.db);
+    try {
+      if (mode === "service") this.lease = writer(folder);
+      this.migrate(folder, mode);
+    } catch (error) {
+      this.close();
+      throw error;
+    }
+  }
+
+  close() {
+    this.db.close();
+    this.lease?.close();
+  }
+
+  private migrate(folder: string, mode: "service" | "read") {
     this.db.run("pragma busy_timeout = 5000");
     this.db.transaction(() => {
       this.db.run("create table if not exists session_state (name text primary key, value text not null)");
@@ -108,5 +125,23 @@ export class SessionStore {
 
   logs(days = -1): LogEntry[] {
     return this.db.query("select value from session_log where day in (select distinct day from session_log order by day desc limit ?) order by id").values(days).map(([value]) => JSON.parse(String(value)));
+  }
+}
+
+
+// A service owns in-memory tasks and agents as well as SQLite state. Reserve
+// one writer for the service's lifetime. The OS releases this advisory lock
+// on exit, including a crash. The lock file contains no session data.
+function writer(folder: string) {
+  const lease = new Database(join(folder, ".writer.lock"));
+  try {
+    lease.run("begin exclusive");
+    return lease;
+  } catch (error) {
+    lease.close();
+    if (error instanceof Error && "code" in error && error.code === "SQLITE_BUSY") {
+      throw new Error(`Another devpage live session is already serving this project (${folder}).`);
+    }
+    throw error;
   }
 }

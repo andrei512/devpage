@@ -202,5 +202,5 @@ test("a saved base is rebuilt when the tools visible to its harness change", asy
   make("Run tests and record results");
   expect(claude.turns).toHaveLength(2);
   await Bun.sleep(10);
-  store.db.close();
+  store.close();
 });
