@@ -15,6 +15,7 @@ export class SessionStore {
     if (mode === "read") {
       if (existsSync(file)) {
         const existing = new Database(file, { readonly: true });
+        existing.run("pragma busy_timeout = 5000");
         if (existing.query("select 1 from sqlite_master where name = 'session_state'").get()) {
           this.db = existing;
           this.events = new Events(existing);

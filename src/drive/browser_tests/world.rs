@@ -25,7 +25,7 @@ Bun.serve({
   websocket: {
     open(socket) {
       sockets.add(socket);
-      socket.send(JSON.stringify({ type: "state", voice: "off", problem: null, tasks: [], agents: [], subject: null, canvas: null }));
+      socket.send(JSON.stringify({ type: "state", part: "session", state: { voice: "off", problem: null } }));
       socket.send(part());
     },
     message(_socket, message) {

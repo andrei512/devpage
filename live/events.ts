@@ -16,6 +16,7 @@ export class Events {
 
   install() {
     this.db.run("create table if not exists entries (n integer primary key autoincrement, at text not null, part text not null, kind text not null, fields text not null)");
+    this.db.run("create table if not exists entry_images (n integer primary key, field text, image text)");
     // Two historical streams could each have an entry numbered one. Keep the
     // former extension number when joining them requires moving its cursor.
     this.db.run("create table if not exists original_entry_numbers (n integer primary key, original integer not null)");
@@ -37,6 +38,24 @@ export class Events {
   append(part: string, kind: string, fields: Record<string, unknown>, at = new Date().toISOString(), number?: number): Entry {
     const result = this.db.run("insert into entries (n, at, part, kind, fields) values (?, ?, ?, ?, ?)", [number ?? null, at, part, kind, JSON.stringify(fields)]);
     return { n: Number(result.lastInsertRowid), at, part, kind, fields };
+  }
+
+  /** Preserve the image Fast sees for offline replay, referring to an entry field
+   * when possible so a screenshot only occupies the database once. */
+  keepImage(entry: Entry, image: string) {
+    const field = Object.keys(entry.fields).find(key => entry.fields[key] === image);
+    this.db.run("insert into entry_images values (?, ?, ?)", [entry.n, field ?? null, field === undefined ? image : null]);
+  }
+
+  images(numbers: number[]): Map<number, string> {
+    // Reporting can open a file from before image recording, read-only.
+    if (!numbers.length || !this.db.query("select 1 from sqlite_master where name='entry_images'").get()) return new Map();
+    const rows = this.db.query<{ n: number; image: string }, [string]>(`
+      select i.n, coalesce(i.image, (select value from json_each(e.fields) where key=i.field)) as image
+      from entry_images i join entries e on i.n=e.n
+      where i.n in (select value from json_each(?)) order by i.n
+    `).all(JSON.stringify(numbers));
+    return new Map(rows.map(row => [row.n, row.image]));
   }
 
   appendCore(entry: Omit<CoreEntry, "n">, number?: number) {

@@ -472,20 +472,6 @@ function giveWork(intent: Extract<Intent, { do: "spawn" | "send" | "fork" }>, ca
   });
 }
 
-const commandPart = {
-  say: "session", restart: "session",
-  spawn: "work", send: "work", fork: "work",
-  show: "canvas", close: "canvas",
-  go: "page", scroll: "page", panel: "page", point: "page", select: "page",
-} as const;
-
-function carry(intent: Intent, carried: Carried) {
-  const caller = { who: "fast" as const, ...carried };
-  if (intent.do === "world") return registry.call(intent.name, intent.input, caller);
-  const { do: command, ...input } = intent;
-  return registry.call(`${commandPart[command]}.${command}`, input, caller);
-}
-
 publish("work", "page", "canvas", "session");
 const fast: Fast | null = PROVIDER
   ? new Fast(PROVIDER, FAST_MODEL, {
@@ -496,7 +482,10 @@ const fast: Fast | null = PROVIDER
       // The project's own replace the ones for every project.
       routes: () => told(routes, rules(ROOT, HOME)),
       work: () => registry.state("work") as unknown as import("./fast.ts").WorkState,
-      carry,
+      carry: (intent, carried) => {
+        const { name, input } = registry.requested(intent);
+        return registry.call(name, input, { who: "fast", ...carried });
+      },
       forget: (keep) => void agents.forget(keep),
       quiet: () => Date.now() - spoke > 1500,
       log: (kind, fields) => log.write("fast", kind, fields),

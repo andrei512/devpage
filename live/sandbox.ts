@@ -179,9 +179,11 @@ export async function run(script: string, scope: Scope, registry?: Registry): Pr
       const done = vm.evalCode("__done()", "<end>").consume((handle) => handle.toString());
       const result = JSON.parse(done) as Ran;
       for (const intent of result.intents) {
-        if (intent.do === "world") {
-          if (!registry) throw new Error("No registered world functions");
-          registry.checked(intent.name, intent.input, "fast");
+        if (registry) {
+          const call = registry.requested(intent);
+          registry.checked(call.name, call.input, "fast");
+        } else if (intent.do === "world") {
+          throw new Error("No registered world functions");
         }
       }
       return { ...result, ms: Math.round(performance.now() - began) };
