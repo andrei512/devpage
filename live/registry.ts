@@ -31,11 +31,20 @@ export interface Kind {
 }
 
 /** What a function is run with: its caller, its part's state, and a way to add entries. Writes are kept until the function ended. */
-export interface Running {
-  caller: Caller;
+export interface Writes {
   get: (key: string) => unknown;
   set: (key: string, value: unknown) => void;
   add: (kind: string, fields: Record<string, unknown>) => void;
+}
+
+/** Each external result is published as one committed change to its originating part. */
+type Publish = (change: (writes: Writes) => void) => Promise<void>;
+type Follow = (publish: Publish) => Promise<void>;
+
+export interface Running extends Writes {
+  caller: Caller;
+  /** Start following external work once the action has committed. */
+  follow: (producer: Follow) => void;
 }
 
 export interface Fn {
@@ -208,31 +217,43 @@ export class Registry {
    */
   async call(name: string, input: unknown, caller: Caller) {
     const { fn, given } = this.checked(name, input, caller.who);
-    // A function may await external work. Serialize calls per part across that
-    // await while letting unrelated parts commit on the same SQLite connection.
-    const previous = this.pending.get(fn.part);
-    const run = (previous ?? Promise.resolve()).catch(() => {}).then(() => this.execute(fn, given, caller));
-    this.pending.set(fn.part, run);
+    return this.enqueue(fn.part, async () => {
+      const producers: Follow[] = [];
+      const result = await this.change(fn.part, caller, writes => fn.run(given, {
+        ...writes, caller, follow: producer => producers.push(producer),
+      }));
+      for (const produce of producers) {
+        const publish: Publish = update => this.enqueue(fn.part, () => this.change(fn.part, caller, update));
+        void Promise.resolve().then(() => produce(publish)).catch(error => console.error(`Following ${name}:`, error));
+      }
+      return result;
+    });
+  }
+
+  /** Calls and subsequent results use the same per-part queue, including across awaits. */
+  private async enqueue<T>(part: string, change: () => Promise<T>): Promise<T> {
+    const previous = this.pending.get(part) ?? Promise.resolve();
+    const run = previous.catch(() => {}).then(change);
+    this.pending.set(part, run);
     try {
       return await run;
     } finally {
-      if (this.pending.get(fn.part) === run) this.pending.delete(fn.part);
+      if (this.pending.get(part) === run) this.pending.delete(part);
     }
   }
 
-  private async execute(fn: Fn, given: unknown, caller: Caller) {
+  private async change<T>(part: string, caller: Caller, run: (writes: Writes) => T | Promise<T>) {
     const sets = new Map<string, unknown>();
     const adds: { kind: string; fields: Record<string, unknown> }[] = [];
-    const result = await fn.run(given, {
-      caller,
-      get: (key) => (sets.has(key) ? sets.get(key) : this.state(fn.part)[key]),
+    const result = await run({
+      get: (key) => (sets.has(key) ? sets.get(key) : this.state(part)[key]),
       set: (key, value) => void sets.set(key, value),
       add: (kind, fields) => {
-        if (!this.kinds.has(`${fn.part}.${kind}`)) throw new Error(`${fn.part} has no entry kind ${kind}`);
+        if (!this.kinds.has(`${part}.${kind}`)) throw new Error(`${part} has no entry kind ${kind}`);
         adds.push({ kind, fields });
       },
     });
-    this.commit(fn.part, Object.fromEntries(sets), adds, caller);
+    this.commit(part, Object.fromEntries(sets), adds, caller);
     return result;
   }
 
@@ -308,6 +329,10 @@ export class Registry {
           try {
             if (agent === null && fn.does !== "get") throw new Error("A base agent has no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
+            if (result && typeof result === "object" && "image" in result && typeof result.image === "string" && "text" in result && typeof result.text === "string") {
+              const image = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(result.image);
+              if (image) return { text: result.text, image: { mimeType: image[1], data: image[2] } };
+            }
             return { text: typeof result === "string" ? result : JSON.stringify(result ?? "Done.") };
           } catch (error) {
             return { text: error instanceof Error ? error.message : String(error), error: true };

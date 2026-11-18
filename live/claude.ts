@@ -4,6 +4,7 @@
 import { relative, resolve, sep } from "node:path";
 import { createSdkMcpServer, getSessionMessages, query, tool, type Options, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Harness, HarnessTool, Item, ItemKind, Model, PastTurn, Turn, TurnEnd, TurnEvent, TurnInput } from "./harness.ts";
+import { toolReply } from "./harness.ts";
 import { shape } from "./log.ts";
 
 /** The name the live session's tools are served under: Claude Code calls them `mcp__live__<name>`. */
@@ -219,10 +220,7 @@ export class ClaudeCode implements Harness {
         given.name,
         given.description,
         given.input,
-        async (args: any) => {
-          const { text, error } = await given.run(args);
-          return { content: [{ type: "text" as const, text }], ...(error ? { isError: true } : {}) };
-        },
+        async (args: any) => toolReply(await given.run(args)),
         given.always ? { alwaysLoad: true } : undefined,
       ),
     );

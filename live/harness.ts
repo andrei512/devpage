@@ -54,11 +54,24 @@ export interface HarnessTool {
   description: string;
   /** Its input, as a zod shape. */
   input: Record<string, z.ZodType>;
-  run: (input: any) => Promise<{ text: string; error?: boolean }>;
+  run: (input: any) => Promise<ToolResult>;
   /** The agent always has it at hand, also where a harness loads tools only when asked. */
   always?: boolean;
   /** How a call of it reads in a session, in place of a tool item: an update is what the agent says to the user. Nothing: the call is left out. */
   reads?: (input: any) => Pick<Item, "kind" | "line"> & Partial<Pick<Item, "state">> | null;
+}
+
+/** A registered function can return text together with an inline image. */
+export interface ToolResult {
+  text: string;
+  image?: { mimeType: string; data: string };
+  error?: boolean;
+}
+
+/** Both agent harnesses carry the same text and image blocks over MCP. */
+export function toolReply({ text, image, error }: ToolResult) {
+  const content = [{ type: "text" as const, text }, ...(image ? [{ type: "image" as const, ...image }] : [])];
+  return { content, ...(error ? { isError: true } : {}) };
 }
 
 /** What a turn starts with. */

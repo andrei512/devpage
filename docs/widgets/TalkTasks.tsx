@@ -1,6 +1,5 @@
 // The live session at work: the page with the tasks panel open beside it.
-// The last words heard are on top; under them the tasks, one done and two
-// running, while the reader goes on.
+// The test extension adds results below the running task.
 import { Window, framesCss } from "./frames";
 import { Orb, talkCss } from "./TalkPoint";
 
@@ -28,10 +27,11 @@ export default function TalkTasks() {
           <div className="tt-foot"><Orb /></div>
         </div>
         <div className="tt-panel">
-          <p className="tt-heard">And say what happens to the outbox at sign-out.</p>
-          <div className="tt-task"><i className="runs" />Say what sign-out does</div>
-          <div className="tt-task"><i className="runs" />Add a diagram of the outbox</div>
-          <div className="tt-task"><i className="done">✓</i>Retry for two days</div>
+          <p className="tt-heard">Run the outbox tests.</p>
+          <div className="tt-task"><i className="runs" />Run the outbox tests</div>
+          <h3>Tests</h3>
+          <div className="tt-task"><i className="done">✓</i>Keeps a failed write</div>
+          <div className="tt-task"><i className="done">✓</i>Stops on sign-out</div>
         </div>
       </Window>
     </div>

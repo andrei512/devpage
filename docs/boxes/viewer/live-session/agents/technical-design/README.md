@@ -207,6 +207,11 @@ In [the session's folder](../../README.md#where-a-session-is-kept),
 - **The database** (`world.sqlite`) holds world entries, tasks, agents and their harness conversation ids, and the session log.
 - **The scratch pads** live in `pads/`.
 
+One live service owns a project at a time. A second service reports that the
+project is already served. The operating system releases the project’s writer
+lock when its service exits, including after a crash. Log, cost and eval
+readers can open the database while the service runs.
+
 On first startup with the SQLite-backed service, devpage imports the legacy
 session files in one transaction and keeps the originals with a `.migrated`
 suffix. A restart resumes an interrupted archive without importing twice.

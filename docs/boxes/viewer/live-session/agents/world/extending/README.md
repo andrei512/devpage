@@ -247,6 +247,53 @@ result, a function for slow agents that runs them, an entry for each result
 that wakes nobody and one for the end of a run that wakes Fast, and a section
 in the panel that updates test by test.
 
+### Run the examples
+
+From a devpage checkout, copy the example packages to your devpage folder:
+
+```sh
+mkdir -p ~/.devpage/extensions
+cp -R examples/world/mac examples/world/tests ~/.devpage/extensions/
+```
+
+To enable Mac controls for local projects, add this entry to the top-level
+`extensions` mapping in `~/.devpage/config.yml`:
+
+```yaml
+extensions:
+  mac:
+    package: ./extensions/mac
+```
+
+The Mac package opens HTTP(S) addresses and applications, captures a screenshot
+with macOS screen-recording permission, and runs AppleScripts installed under
+its own `scripts/` directory. The included `version.applescript` returns the OS
+version. Ask the assistant for the Mac version to try it. A slow agent receives
+the answer directly. A call from Fast publishes a result that wakes Fast.
+
+For a project with Node tests, add the installed package to its document's
+`devpage.yml`, using the actual absolute path to the installed folder:
+
+```yaml
+extensions:
+  tests:
+    package: /Users/you/.devpage/extensions/tests
+```
+
+Use a Node version with the built-in test runner and make `node` available on
+the devpage server's PATH. Restart devpage, start the live session and ask a
+coding agent to run the tests. The agent calls `tests_run`. The extension
+runs `node --test` in the project, publishes each completed test with its
+state, then publishes one completion event. The panel shows the last run
+after a reload. See [extension configuration](../../../../extensions/reference/README.md#configuration)
+for project overrides and disabling a global package.
+
+An action that starts external work can use `running.follow(async publish => …)`.
+The producer starts after the action commits. Each awaited
+`publish(write => …)` can read and set that part’s state and add its entries
+in a separate transaction. The original caller determines the wake rule
+for those entries.
+
 ## What changes
 
 1. Entry kinds are registered. The five built-in kinds each bring their line

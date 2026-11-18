@@ -80,13 +80,18 @@ pub const LIVE: &str = "live";
 /// The package defaults for a local serving process and its shared session.
 #[derive(Clone, Default)]
 struct Local {
+    /// The session package when this local server enables it.
     session: Option<Arc<dyn Package>>,
+    /// Extension defaults resolved relative to the global configuration.
     packages: BTreeMap<String, Config>,
+    /// The entry document that configures this project’s shared session.
     entry: Option<PathBuf>,
 }
 
+/// Local configuration by served folder and mount.
 static LOCAL: OnceLock<Mutex<BTreeMap<ServedFolder, Local>>> = OnceLock::new();
 
+/// Local serving configuration, initially empty for offline commands.
 fn local() -> &'static Mutex<BTreeMap<ServedFolder, Local>> {
     LOCAL.get_or_init(Default::default)
 }
