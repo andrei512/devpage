@@ -1,5 +1,6 @@
 // Registered parts share an event stream, with state and events committed together.
-import { Events } from "./events.ts";
+import { line as coreLine } from "./world.ts";
+import { coreEntry, Events } from "./events.ts";
 import { Database } from "bun:sqlite";
 import { run as runScript } from "./sandbox.ts";
 import { z } from "zod";
@@ -144,7 +145,10 @@ export class Registry {
 
   /** An entry as the line Fast reads. */
   line(entry: Entry) {
-    return this.kinds.get(`${entry.part}.${entry.kind}`)?.line(entry.fields) ?? `${entry.part}.${entry.kind}`;
+    const kind = this.kinds.get(`${entry.part}.${entry.kind}`);
+    if (kind) return kind.line(entry.fields);
+    const core = coreEntry(entry);
+    return core ? coreLine(core) : `${entry.part}.${entry.kind}`;
   }
 
   /** The image an entry carries, when it has one. */
