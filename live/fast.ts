@@ -6,6 +6,8 @@
 import { run as execute, type Intent, type Ran, type Scope } from "./sandbox.ts";
 import { line, type Entry, type Message, type Update, type World } from "./world.ts";
 import type { Task } from "./tasks.ts";
+import type { Registry } from "./registry.ts";
+import { coreEntry } from "./events.ts";
 import { price } from "./cost.ts";
 import type { Provider } from "./provider.ts";
 
@@ -54,6 +56,7 @@ export interface Carried {
 
 export interface FastDeps {
   world: World;
+  registry: Registry;
   /** The page the user is on; null when no page is open or it does not answer. */
   page: () => Promise<Seen | null>;
   /** Every page's address and title. */
@@ -189,8 +192,8 @@ const TOOLS = [
 ];
 
 /** What the model is told first: the brief, and every page's address with its title. */
-export function instructions(pages: { address: string; title: string }[], routes = "") {
-  return `${FAST_BRIEF}${routes ? `\n\n${routes}` : ""}\n\n# The pages\n\nEach as its address and its title:\n${pages.map(({ address, title }) => `${address} — ${title}`).join("\n")}`;
+export function instructions(pages: { address: string; title: string }[], routes = "", functions = "") {
+  return `${FAST_BRIEF}${functions ? `\n\n# Registered world functions\n\n${functions}` : ""}${routes ? `\n\n${routes}` : ""}\n\n# The pages\n\nEach as its address and its title:\n${pages.map(({ address, title }) => `${address} — ${title}`).join("\n")}`;
 }
 
 const short = (text: string, most: number) => { const flat = text.replace(/\s+/g, " ").trim(); return flat.length > most ? `${flat.slice(0, most)}…` : flat; };
@@ -223,8 +226,11 @@ export function roster(entries: Entry[]) {
 }
 
 /** What Fast is told at a wake-up: what woke it, the entries, the page, with its text when Fast has not seen it, and the agents. */
-export function wakeText(run: number, before: Entry[], fresh: Entry[], said: Message[], page: Seen | null, unseen: boolean, agents: string) {
+type ShownEntry = (Entry | { n: number; kind: "registered" }) & { rendered?: string };
+
+export function wakeText(run: number, before: ShownEntry[], fresh: ShownEntry[], said: Message[], page: Seen | null, unseen: boolean, agents: string) {
   const lines: string[] = [];
+  const shownLine = (entry: ShownEntry) => entry.rendered ?? (entry.kind === "registered" ? "" : line(entry));
   const updates = fresh.filter((entry) => entry.kind === "update");
   const problems = fresh.filter((entry) => entry.kind === "problem");
   const woke = [
@@ -233,8 +239,8 @@ export function wakeText(run: number, before: Entry[], fresh: Entry[], said: Mes
     problems.length > 0 ? "Something could not be done." : "",
   ].filter(Boolean);
   lines.push(`Wake-up ${run}. ${woke.join(" ") || "Nothing new was said."}`);
-  if (before.length > 0) lines.push("", "Already handled, before your context was built:", ...before.map(line));
-  if (fresh.length > 0) lines.push("", ...fresh.map(line));
+  if (before.length > 0) lines.push("", "Already handled, before your context was built:", ...before.map(shownLine));
+  if (fresh.length > 0) lines.push("", ...fresh.map(shownLine));
   lines.push("");
   if (!page) {
     lines.push("No page of the user's is open, or it does not answer.");
@@ -281,7 +287,7 @@ export interface Written {
  * A wake-up's script: the model is asked for one and it runs in the sandbox. When it threw, the model gets the error
  * and is asked once more. The model's answers and what became of them are added to `input`. Null when no script ran.
  */
-export async function script(input: any[], scope: Scope, ask: (attempt: number) => Promise<any | null>, note: (kind: string, fields: Record<string, unknown>) => void): Promise<Written | null> {
+export async function script(input: any[], scope: Scope, ask: (attempt: number) => Promise<any | null>, note: (kind: string, fields: Record<string, unknown>) => void, registry?: Registry): Promise<Written | null> {
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const response = await ask(attempt);
     if (!response) return null;
@@ -294,7 +300,7 @@ export async function script(input: any[], scope: Scope, ask: (attempt: number) 
     let code = "";
     try {
       code = String(JSON.parse(call.arguments).code ?? "");
-      const ran = await execute(code, scope);
+      const ran = await execute(code, scope, registry);
       input.push({ type: "function_call_output", call_id: call.call_id, output: "ok" });
       return { code, ran, attempt };
     } catch (error) {
@@ -356,6 +362,7 @@ export class Fast {
   /** The hand-overs that wait for a run. */
   private handovers: { id: string; messages: Message[] }[] = [];
   private reasons: string[] = [];
+  private wakeCursor = 0;
   /** Whether a voice session is on: Fast runs only then, because only then can the user hear it. */
   private listening = false;
 
@@ -371,6 +378,12 @@ export class Fast {
     if (!on) return;
     void this.warm(this.context, "voice on");
     this.wake("voice on");
+  }
+
+  /** The newest committed entry whose kind asked for a run. */
+  entry(why: string, n: number) {
+    this.wakeCursor = Math.max(this.wakeCursor, n);
+    this.wake(why);
   }
 
   /** Wakes Fast: for a hand-over, with the user's messages it came with, or because the world has something new. */
@@ -396,7 +409,7 @@ export class Fast {
 
   /** Whether there is something to wake Fast for: a hand-over, an update or a problem it has not seen. */
   private due() {
-    return this.handovers.length > 0 || this.deps.world.since(this.context.cursor).some((entry) => entry.kind === "update" || entry.kind === "problem");
+    return this.handovers.length > 0 || this.wakeCursor > Math.max(this.context.cursor, this.context.handled);
   }
 
   /** One wake-up: the new entries in, one script out, its calls carried out. */
@@ -406,12 +419,18 @@ export class Fast {
     const context = this.context;
     const handovers = this.handovers.splice(0);
     const reasons = this.reasons.splice(0);
-    const entries = this.deps.world.since(context.cursor);
+    const registry = this.deps.registry;
+    const events = registry.since(context.cursor);
+    const entries: ShownEntry[] = events.map(event => ({
+      ...(coreEntry(event) ?? { kind: "registered" as const, n: event.n }), rendered: registry.line(event),
+    }));
+    const images = events.map(event => registry.image(event)).filter(image => image !== null);
     const page = await this.deps.page();
     const said = handovers.flatMap((handover) => handover.messages);
     const text = this.render(context, run, entries, said, page);
     if (entries.length > 0) context.cursor = entries.at(-1)!.n;
-    context.input.push({ role: "user", content: text });
+    const content = images.length ? [{ type: "input_text", text }, ...images.map(image_url => ({ type: "input_image", image_url }))] : text;
+    context.input.push({ role: "user", content });
     this.deps.log("wake", { run, text, why: reasons, handovers: handovers.map((handover) => handover.id), entries: entries.map((entry) => entry.n), page: page?.address ?? null, page_ms: Date.now() - began });
 
     const carried: Carried = { run, handover: handovers.at(-1)?.id ?? null, said, used: [] };
@@ -429,6 +448,7 @@ export class Fast {
       scope,
       (attempt) => this.call(context, { run, attempt, what: "script" }, { tool_choice: { type: "function", name: "exec" } }),
       (kind, fields) => this.deps.log(kind, { run, ...fields }),
+      registry,
     );
     if (written) {
       const { code, ran, attempt } = written;
@@ -459,8 +479,8 @@ export class Fast {
   }
 
   /** Takes a wake-up's entries into the context, so that everything shown is a variable, and returns what Fast is told. */
-  private render(context: Context, run: number, entries: Entry[], said: Message[], page: Seen | null) {
-    for (const entry of entries) this.hold(context, entry);
+  private render(context: Context, run: number, entries: ShownEntry[], said: Message[], page: Seen | null) {
+    for (const entry of entries) if (entry.kind !== "registered") this.hold(context, entry);
     const before = entries.filter((entry) => entry.n <= context.handled);
     const fresh = entries.filter((entry) => entry.n > context.handled);
     context.handled = 0;
@@ -482,9 +502,9 @@ export class Fast {
   /** A new context from the world as it is: the recent messages, the recent tasks with their agents, and a summary of what was before when there is one. */
   private build(summary: string | null): Context {
     const world = this.deps.world;
-    const context: Context = { instructions: "", input: [], cursor: world.now, messages: new Map(), updates: new Map(), agents: new Set(), page: null, touched: 0, tokens: 0, handled: 0 };
+    const context: Context = { instructions: "", input: [], cursor: this.deps.registry.events.now, messages: new Map(), updates: new Map(), agents: new Set(), page: null, touched: 0, tokens: 0, handled: 0 };
     const pages = this.deps.pages();
-    context.instructions = instructions(pages, this.deps.routes?.() ?? "");
+    context.instructions = instructions(pages, this.deps.routes?.() ?? "", this.deps.registry.brief());
     const lines = ["This is the start of your context. The session may have been running before it."];
     if (summary) lines.push("", "A summary of the conversation before:", summary);
     const messages = world.recent("message", RECENT_MESSAGES);
@@ -633,6 +653,8 @@ function written(output: any[]) {
 /** A call, in words, for a problem Fast is told about. */
 function describe(intent: Intent) {
   switch (intent.do) {
+    case "world":
+      return intent.name;
     case "say":
       return "Saying a line";
     case "spawn":

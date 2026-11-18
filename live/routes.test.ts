@@ -187,3 +187,20 @@ test("the project's rules replace the ones for every project whole, and without 
   expect(rules(project(), everywhere)).toBe("- Anything: codex/astra.");
   expect(rules(project(), project())).toBeNull();
 });
+
+test("a saved base is rebuilt when the tools visible to its harness change", async () => {
+  const { routes, claude, harnesses, folder } = await setup();
+  const store = new SessionStore(folder);
+  const make = (description: string) => new Agents(folder, join(folder, "pads"), harnesses, routes, store, {
+    ...hooks(), worldTools: () => [{ name: "tests_run", description, input: {}, run: async () => ({ text: "done" }) }],
+  });
+  make("Run tests");
+  await Bun.sleep(10);
+  expect(claude.turns).toHaveLength(1);
+  make("Run tests");
+  expect(claude.turns).toHaveLength(1);
+  make("Run tests and record results");
+  expect(claude.turns).toHaveLength(2);
+  await Bun.sleep(10);
+  store.db.close();
+});

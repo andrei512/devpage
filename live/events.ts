@@ -5,6 +5,12 @@ import type { Entry as CoreEntry } from "./world.ts";
 
 const coreParts = { message: "session", problem: "session", page: "page", task: "work", update: "work" } as const;
 
+/** The built-in view used by the transcript, tasks and sandbox variables. */
+export function coreEntry(entry: Entry): CoreEntry | null {
+  if (coreParts[entry.kind as keyof typeof coreParts] !== entry.part) return null;
+  return { ...entry.fields, n: entry.n, at: entry.at, kind: entry.kind } as CoreEntry;
+}
+
 export class Events {
   constructor(private readonly db: Database) {}
 
@@ -39,8 +45,7 @@ export class Events {
   }
 
   core(): CoreEntry[] {
-    return this.since(0).filter(e => coreParts[e.kind as keyof typeof coreParts] === e.part)
-      .map(({ n, at, kind, fields }) => ({ ...fields, n, at, kind }) as CoreEntry);
+    return this.since(0).map(coreEntry).filter(entry => entry !== null);
   }
 
   /** Called inside the import transaction. Core numbers are referenced by old

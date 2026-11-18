@@ -31,7 +31,7 @@ flowchart LR
 
 ## What exists today
 
-- **Entries.** One log, only added to, in `world.sqlite`. Five fixed kinds:
+- **Entries.** One log, only added to, in `world.sqlite`. Five built-in kinds alongside each extension’s registered kinds:
   `message`, `page`, `task`, `update`, `problem`
   ([One numbered log](../README.md#one-numbered-log)). The program holds the
   newest 2,000.
@@ -43,20 +43,23 @@ flowchart LR
   `restart`, written by hand twice: in the script sandbox
   (`live/sandbox.ts`), where each is checked while the script can still fail,
   and in `carry` (`live/service.ts`), where each is carried out. A call
-  returns nothing to the script.
+  returns nothing to the script. Registered functions for Fast join those calls
+  in its brief and sandbox. Each script’s inputs are checked before its first
+  action runs.
 - **The slow agents' tools.** `update`, `write_comment` and `read_log`, one
   list in `live/agents.ts`: a name, an input, what it runs. Each
   [harness](../../harness/README.md) hands the list to its agent, today over
-  MCP.
+  MCP. The same harness receives an extension’s slow and shared functions as
+  tools. Their schemas and descriptions contribute to the base-agent fingerprint.
 - **What wakes Fast.** A hand-over, an `update` and a `problem`
   ([What wakes Fast](../../fast/README.md#what-wakes-fast)). The rule is
-  written into the program.
+  written into the program for these built-ins. An extension’s entry kind decides
+  whether a call wakes Fast and can include an image in its next wake-up.
 - **The pages.** One WebSocket from each page to the program. On every change
   the program sends the whole state. The session's four widgets are compiled
   into devpage and placed by name in `core/src/document.rs`.
-- **Nothing outside the program can add to the world.** An
-  [extension](../../../../extensions/README.md) can add to pages and run a
-  program of its own; the session's program is told only its own settings.
+- **Registered parts.** A world module can define state, entries, Fast calls,
+  slow-agent tools and page functions in the running service.
 
 ## A world part
 
