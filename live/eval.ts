@@ -1,3 +1,4 @@
+import { SessionStore } from "./store.ts";
 // The evals of Fast. A case is one moment of a session: what Fast had been shown until then, the wake-up, and what a
 // right script does there. The moment is put to the model through the same code the service runs (the brief, the
 // request, the sandbox, the second try), several times, and each script is checked: its calls in code, and the words
@@ -144,13 +145,13 @@ function recorded(name: string): Recorded {
 
 /** Makes a session file from the log and the world of the project it is run in: `bun eval.ts freeze <start of the session's id>`. */
 function freeze(session: string) {
-  const logs = join(stateOf(ROOT), "log");
-  const log = readdirSync(logs).filter((name) => name.endsWith(".jsonl")).sort().flatMap((name) => readFileSync(join(logs, name), "utf8").split("\n").filter(Boolean).map((text) => JSON.parse(text)));
+  const store = new SessionStore(stateOf(ROOT), "read");
+  const log: any[] = store.logs();
   const mine = log.filter((entry) => typeof entry.session === "string" && entry.session.startsWith(session));
   const wakes = mine.filter((entry) => entry.who === "fast" && entry.kind === "wake");
   if (wakes.length === 0) throw new Error(`The log has no wake-up of a session ${session}.`);
   const start: string = log.filter((entry) => entry.kind === "context_built" && entry.ts < wakes[0].ts).at(-1)?.text ?? "";
-  const world: Entry[] = readFileSync(join(stateOf(ROOT), "world.jsonl"), "utf8").split("\n").filter(Boolean).map((text) => JSON.parse(text));
+  const world = store.world();
   const ended = mine.at(-1).ts;
   const texts: Record<string, string> = {};
   // What a wake-up's text says of the page is read back from it: the log has the text Fast was told and no more.

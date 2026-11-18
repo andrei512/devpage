@@ -1,7 +1,4 @@
-// The live session's log: who said what, exactly. One file per day, one JSON entry per line, only ever added to.
-// It holds words, never audio and never a key.
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { SessionStore } from "./store.ts";
 import { stateOf } from "./home.ts";
 
 /**
@@ -63,21 +60,17 @@ export function shape(value: unknown, depth = 0): unknown {
 }
 
 export class Log {
-  private readonly folder: string;
   /** The voice session that is on now. */
   session: string | null = null;
 
-  constructor(folder: string) {
-    this.folder = folder;
-    mkdirSync(folder, { recursive: true });
-  }
+  constructor(private readonly store: SessionStore) {}
 
   /** Adds an entry. It never throws: a log that cannot be written must not stop the session. */
   write(who: Who, kind: string, fields: { text?: string; [more: string]: unknown } = {}) {
     const now = new Date();
     const entry: Entry = { ts: now.toISOString(), session: this.session, who, kind, ...fields };
     try {
-      appendFileSync(join(this.folder, `${day(now)}.jsonl`), JSON.stringify(entry) + "\n");
+      this.store.addLog(day(now), entry);
     } catch (error) {
       console.error("log:", error);
     }
@@ -89,28 +82,14 @@ export class Log {
     const from = since ? new Date(since) : null;
     if (from && Number.isNaN(from.getTime())) throw new Error(`"${since}" is not a time: use an ISO timestamp`);
     const words = text?.toLowerCase();
-    const files = existsSync(this.folder) ? readdirSync(this.folder).filter((name) => /^\d{4}-\d{2}-\d{2}\.jsonl$/.test(name)).sort().reverse() : [];
     const found: Entry[] = [];
-    for (const file of files) {
-      const lines = readFileSync(join(this.folder, file), "utf8").split("\n");
-      let older = false;
-      for (let at = lines.length - 1; at >= 0 && found.length < most; at -= 1) {
-        if (!lines[at]) continue;
-        let entry: Entry;
-        try {
-          entry = JSON.parse(lines[at]);
-        } catch {
-          continue;
-        }
-        if (from && new Date(entry.ts) < from) {
-          older = true;
-          break;
-        }
-        if (who && entry.who !== who) continue;
-        if (words && !(typeof entry.text === "string" && entry.text.toLowerCase().includes(words))) continue;
-        found.push(entry);
-      }
-      if (older || found.length >= most) break;
+    for (const row of this.store.db.query<{value: string}, []>("select value from session_log order by id desc").iterate()) {
+      const entry: Entry = JSON.parse(String(row.value));
+      if (from && new Date(entry.ts) < from) continue;
+      if (who && entry.who !== who) continue;
+      if (words && !(typeof entry.text === "string" && entry.text.toLowerCase().includes(words))) continue;
+      found.push(entry);
+      if (found.length >= most) break;
     }
     return found.reverse();
   }
@@ -123,7 +102,7 @@ if (import.meta.main) {
   const rest = given.filter((value) => value !== "-v");
   const limit = Number(rest.find((value) => /^\d+$/.test(value)) ?? 80);
   const words = rest.find((value) => !/^\d+$/.test(value));
-  const entries = new Log(join(stateOf(process.cwd()), "log")).read({ limit: 500, text: words }).filter((entry) => detail || entry.level !== "debug");
+  const entries = new Log(new SessionStore(stateOf(process.cwd()), "read")).read({ limit: 500, text: words }).filter((entry) => detail || entry.level !== "debug");
   for (const entry of entries.slice(-limit)) {
     const { ts, session: _, who, kind, text, level: __, ...more } = entry;
     const about = [more.run !== undefined && `run ${more.run}`, more.agent !== undefined && (typeof more.agent === "number" ? `a${more.agent}` : String(more.agent)), more.task !== undefined && `t${more.task}`, more.ms !== undefined && `${more.ms} ms`].filter(Boolean).join(" ");

@@ -84,8 +84,8 @@ export class Registry {
   /** Called with a part's whole state when it changed: what a page is sent. */
   onState: (part: string, state: Record<string, unknown>) => void = () => {};
 
-  constructor(file: string) {
-    this.db = new Database(file);
+  constructor(file: string | Database) {
+    this.db = typeof file === "string" ? new Database(file) : file;
     this.db.run("create table if not exists entries (n integer primary key autoincrement, at text not null, part text not null, kind text not null, fields text not null)");
     this.db.run("create table if not exists state (part text not null, key text not null, value text not null, primary key (part, key))");
   }

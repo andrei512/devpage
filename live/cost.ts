@@ -1,10 +1,8 @@
+import { SessionStore } from "./store.ts";
 // What the live session costs. The prices are here, the numbers are in the log: every model call of Fast with its
 // tokens, the seconds each voice session ran, and what each turn of a slow agent would cost at API prices.
 // `bun cost.ts`, run in the project's folder, prints the sum per day.
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { stateOf } from "./home.ts";
-import type { Entry } from "./log.ts";
 
 /** Dollars per million tokens on the standard tier (developers.openai.com/api/docs/pricing). */
 const PRICES: Record<string, { input: number; cached: number; output: number }> = {
@@ -38,10 +36,7 @@ export function price(model: string, tier: string | null, tokens: Tokens) {
 
 if (import.meta.main) {
   const days = Number(process.argv[2] ?? 7);
-  const folder = join(stateOf(process.cwd()), "log");
-  // The last days' files, whole: a day is a few thousand lines.
-  const files = existsSync(folder) ? readdirSync(folder).filter((name) => name.endsWith(".jsonl")).sort().slice(-days) : [];
-  const entries = files.flatMap((name) => readFileSync(join(folder, name), "utf8").split("\n").filter(Boolean).map((text) => JSON.parse(text) as Entry));
+  const entries = new SessionStore(stateOf(process.cwd()), "read").logs(days);
   interface Day {
     voice: Map<string, number>;
     calls: number;

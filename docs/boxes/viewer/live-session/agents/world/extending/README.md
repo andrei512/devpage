@@ -31,11 +31,11 @@ flowchart LR
 
 ## What exists today
 
-- **Entries.** One log, only added to, in `world.jsonl`. Five fixed kinds:
+- **Entries.** One log, only added to, in `world.sqlite`. Five fixed kinds:
   `message`, `page`, `task`, `update`, `problem`
   ([One numbered log](../README.md#one-numbered-log)). The program holds the
   newest 2,000.
-- **State.** The tasks in `tasks.json` and the agents in `agents.json`, each
+- **State.** Tasks and agents occupy separate rows in the session database, each
   written whole on every change. The pages show the state and never read
   entries; Fast reads entries and never the state. The code that handles an
   update writes both, separately.
@@ -169,7 +169,8 @@ flowchart LR
 ### Moving a session into the store
 
 Sessions kept in today's files are moved, not left behind. The move runs when
-the program starts and finds no store. It keeps every entry's number and every
+the program starts and finds no completed import, including when a registry
+already uses the database. It keeps every entry's number and every
 id of a message, an update, a task and an agent, with each agent's
 conversation in its harness. The old files are kept, renamed.
 

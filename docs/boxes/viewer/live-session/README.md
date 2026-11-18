@@ -294,7 +294,8 @@ replaces it whole for that project.
 Nothing of a session is written into the project. Each project's session has
 a folder of its own, `~/.devpage/live/projects/<the project's path>/`, the
 path written with a `-` for every character that is not a letter or a digit:
-its log, its tasks, its agents and its scratch pads. The log holds words:
+its SQLite database (`world.sqlite`) holds the world history, log, tasks and
+agents. Scratch pads stay in `pads/`. The log holds words:
 what was said and done. No sound is kept unless you turn
 [recording](#recording) on.
 

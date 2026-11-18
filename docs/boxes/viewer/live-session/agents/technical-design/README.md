@@ -29,7 +29,7 @@ Each part is one file in `live/`:
 - **`voice.ts`** is the GPT-Live session in client mode. It turns transcript
   fragments into messages and pairs each hand-over with its words: see
   [Voice to Fast](../voice-to-fast/README.md).
-- **`world.ts`** is the world as one numbered log, kept in `world.jsonl`: see
+- **`world.ts`** is the world as one numbered log, kept in `world.sqlite`: see
   [the world](../world/README.md).
 - **`fast.ts`** is Fast's loop: the wake-ups, the model call, the context
   swap. See [Fast, the hub](../fast/README.md).
@@ -44,7 +44,7 @@ Each part is one file in `live/`:
   [routing](../routing/README.md).
 - **`brief.ts`** is what all three are told in the same words. Each one's own
   brief is in its file.
-- **`tasks.ts`** is the list of tasks, kept in `tasks.json`. The side panel
+- **`tasks.ts`** is the list of tasks, kept in `world.sqlite`. The side panel
   shows them under their agents: the program sends every open page the tasks
   and the agents, each agent with its number, its name and whether it works,
   is idle or has a question.
@@ -204,19 +204,18 @@ What each case comes to:
 In [the session's folder](../../README.md#where-a-session-is-kept),
 `~/.devpage/live/projects/<the project's path>/`:
 
-- **The world:** `world.jsonl`.
-- **The tasks:** `tasks.json`.
-- **The agents:** `agents.json`, with each agent's conversation id at its
-  harness, and each base agent's.
-- **The scratch pads:** `pads/`.
-- **The log:** `log/`, one file per day.
+- **The database** (`world.sqlite`) holds world entries, tasks, agents and their harness conversation ids, and the session log.
+- **The scratch pads** live in `pads/`.
+
+On first startup with the SQLite-backed service, devpage imports the legacy
+session files in one transaction and keeps the originals with a `.migrated`
+suffix. A restart resumes an interrupted archive without importing twice.
 
 Nothing of it is in the project.
 
 ## The log
 
-The program writes what every part said and did to `log/YYYY-MM-DD.jsonl` in
-the session's folder, one JSON entry per line, only ever added to. It holds
+The program writes what every part said and did to the session database, one row per event. It holds
 words only: no audio and no key.
 
 `log.ts` prints the last 80 entries so that they can be read. It is run in

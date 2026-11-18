@@ -9,7 +9,7 @@
 // Two things are kept apart. A task is the live session's: the work the user asked for, with its updates. A turn is the
 // harness's: one message in, and what the agent did until it stopped. The harness keeps it, and it is read from there: nothing of a session is kept here. Today a task is
 // done in one turn, and nothing in a session points at a task.
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { SessionStore } from "./store.ts";
 import { z } from "zod";
 import { SHARED_BRIEF } from "./brief.ts";
 import type { Harness, HarnessTool, Item, Turn, TurnEnd } from "./harness.ts";
@@ -177,22 +177,18 @@ export class Agents {
 
   /** `root` is the project's folder and `pads` the folder of the scratch pads. `harnesses` are the ones that are enabled, by the name the settings give each. `routes` are the enabled routes, in
       their order: the first is the one an agent runs on when nothing else is said. */
-  constructor(private readonly root: string, private readonly pads: string, private readonly harnesses: Map<string, Harness>, private readonly routes: On[], private readonly file: string, private readonly hooks: AgentHooks, first = 1) {
+  constructor(private readonly root: string, private readonly pads: string, private readonly harnesses: Map<string, Harness>, private readonly routes: On[], private readonly store: SessionStore, private readonly hooks: AgentHooks, first = 1) {
     // A number is never given twice: tasks are kept by their agent's number.
     this.next = first;
-    if (existsSync(file)) {
-      try {
-        const saved = JSON.parse(readFileSync(file, "utf8")) as Saved;
-        this.next = Math.max(first, saved.next);
-        for (const [harness, base] of Object.entries(saved.bases ?? (saved.base ? { [FIRST]: saved.base } : {}))) this.bases.set(harness, base);
-        for (const agent of saved.agents) {
-          const harness = agent.harness ?? FIRST;
-          // An agent of a harness that is no longer enabled cannot work: it is closed.
-          if (!harnesses.has(harness)) continue;
-          this.agents.set(agent.id, { ...agent, harness, model: agent.model ?? null, name: agent.name ?? null, queue: [], doing: null, asked: false, running: null });
-        }
-      } catch (error) {
-        hooks.log("agents_file_unreadable", { text: String(error) });
+    const saved = store.get<Saved>("agents");
+    if (saved) {
+      this.next = Math.max(first, saved.next);
+      for (const [harness, base] of Object.entries(saved.bases ?? (saved.base ? { [FIRST]: saved.base } : {}))) this.bases.set(harness, base);
+      for (const agent of saved.agents) {
+        const harness = agent.harness ?? FIRST;
+        // An agent of a harness that is no longer enabled cannot work: it is closed.
+        if (!harnesses.has(harness)) continue;
+        this.agents.set(agent.id, { ...agent, harness, model: agent.model ?? null, name: agent.name ?? null, queue: [], doing: null, asked: false, running: null });
       }
     }
     // The base agent of the default route's harness is built now. Another harness's is built when it is first used.
@@ -216,7 +212,7 @@ export class Agents {
 
   private save() {
     const saved: Saved = { next: this.next, bases: Object.fromEntries(this.bases), agents: [...this.agents.values()].map(({ id, name, harness, model, session, of, from }) => ({ id, name, harness, model, session, of, from })) };
-    writeFileSync(this.file, JSON.stringify(saved, null, 2));
+    this.store.set("agents", saved);
   }
 
   /** The agents that exist, with what each is doing. A closed agent is not among them. */

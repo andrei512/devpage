@@ -1,3 +1,4 @@
+import { SessionStore } from "./store.ts";
 // The live session's service. devpage starts it and passes it every request and WebSocket under the extension's
 // `live/` address. It holds the voice session, Fast, the slow agents, the world and the tasks, and keeps the keys:
 // none reaches the browser. Voice hands everything the user says to Fast; Fast answers with a script, and this file carries
@@ -32,8 +33,9 @@ const ROOT = process.env.DEVPAGE_ROOT!;
 /** Where the session keeps its own files: the log, the world, the tasks, the agents, the scratch pads. Outside the project. */
 const STATE = stateOf(ROOT);
 mkdirSync(STATE, { recursive: true });
-/** Who said and did what, exactly: one file per day. */
-const log = new Log(join(STATE, "log"));
+/** The session history shares its database with registered world parts. */
+const store = new SessionStore(STATE);
+const log = new Log(store);
 log.write("service", "service_started", { text: "The service started." });
 
 const complain = (text: string) => log.write("service", "settings_problem", { text });
@@ -178,10 +180,10 @@ function settle() {
   }
 }
 
-const tasks = new Tasks(join(STATE, "tasks.json"), () => tell());
+const tasks = new Tasks(store, () => tell());
 
 /** The world's registered parts, with their state and entries in one store. A page is sent a part's state when it changes. */
-const registry = new Registry(join(STATE, "world.sqlite"));
+const registry = new Registry(store.db);
 registry.onState = (part, state) => tell({ type: "state", part, state });
 // The `world` setting names parts and the module that registers each: a file in the project, or anywhere by its full path.
 for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.world === "object" ? SETTINGS.world : {})) {
@@ -196,7 +198,7 @@ for (const [part, file] of Object.entries(SETTINGS.world && typeof SETTINGS.worl
 }
 
 /** The world. Every entry also goes into the log, as the line Fast reads; an update or a problem wakes Fast. */
-const world: World = new World(join(STATE, "world.jsonl"), (entry) => {
+const world: World = new World(store, (entry) => {
   log.write("world", entry.kind, { text: line(entry), n: entry.n, ...(entry.kind === "update" || entry.kind === "task" ? { agent: entry.agent, task: entry.kind === "task" ? entry.id : entry.task } : {}) });
   if (entry.kind === "update" || entry.kind === "problem") fast?.wake(entry.kind);
 });
@@ -227,7 +229,7 @@ void checked(routes, enabled, complain).then((sure) => {
   log.write("service", "routes_checked", { text: routes.map((route) => route.name).join(", ") });
 });
 
-const agents = new Agents(ROOT, PADS, enabled, routes, join(STATE, "agents.json"), {
+const agents = new Agents(ROOT, PADS, enabled, routes, store, {
   owns: (agent, id) => tasks.get(id)?.agent === agent,
   session: (agent, line) => {
     const text = JSON.stringify({ type: "session_line", agent, line });

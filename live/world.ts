@@ -1,10 +1,4 @@
-// The world, as one numbered log: every message, every change of the user's page, every task given to an agent and every
-// update an agent published is one entry with a number and a time. "Everything since entry 412" is then exact: it is
-// what Fast gets when it is woken, and what its successor gets at a swap. The log is a file, so the world is still
-// there after a restart.
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname } from "node:path";
-
+import { SessionStore } from "./store.ts";
 interface Base {
   /** The entry's number: one more than the entry before it. */
   n: number;
@@ -71,7 +65,7 @@ export type Entry = Message | PageChange | TaskGiven | Update | Problem;
 /** An entry before it has its number and time. */
 type Fresh<T extends Entry = Entry> = T extends Entry ? Omit<T, "n" | "at"> : never;
 
-/** How many entries are kept in memory. Older ones stay in the file. */
+/** How many entries are kept in memory. Older ones stay in SQLite. */
 const KEPT = 2000;
 
 export class World {
@@ -80,16 +74,11 @@ export class World {
   private ids = { message: 0, update: 0 };
 
   /** `added` is called with every new entry. */
-  constructor(private readonly file: string, private readonly added: (entry: Entry) => void) {
-    if (!existsSync(file)) return;
-    for (const line of readFileSync(file, "utf8").split("\n")) {
-      if (!line) continue;
-      try {
-        const entry = JSON.parse(line) as Entry;
-        this.entries.push(entry);
-        this.last = Math.max(this.last, entry.n);
-        if (entry.kind === "message" || entry.kind === "update") this.ids[entry.kind] = Math.max(this.ids[entry.kind], entry.id);
-      } catch {}
+  constructor(private readonly store: SessionStore, private readonly added: (entry: Entry) => void) {
+    for (const entry of store.world()) {
+      this.entries.push(entry);
+      this.last = Math.max(this.last, entry.n);
+      if (entry.kind === "message" || entry.kind === "update") this.ids[entry.kind] = Math.max(this.ids[entry.kind], entry.id);
     }
     this.entries = this.entries.slice(-KEPT);
   }
@@ -105,15 +94,11 @@ export class World {
   }
 
   add<T extends Entry>(entry: Fresh<T>): T {
-    const full = { n: (this.last += 1), at: new Date().toISOString(), ...entry } as unknown as T;
+    const full = { n: this.last + 1, at: new Date().toISOString(), ...entry } as unknown as T;
+    this.store.addWorld(full);
+    this.last = full.n;
     this.entries.push(full);
     if (this.entries.length > KEPT) this.entries.shift();
-    try {
-      mkdirSync(dirname(this.file), { recursive: true });
-      appendFileSync(this.file, JSON.stringify(full) + "\n");
-    } catch (error) {
-      console.error("world:", error);
-    }
     this.added(full);
     return full;
   }

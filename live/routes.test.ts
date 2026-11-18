@@ -1,3 +1,4 @@
+import { SessionStore } from "./store.ts";
 // The routing path, without any model. The decision is Fast's: it is told the routes and the user's rules in its instructions,
 // and it names the route in the script it writes. Everything after that only checks and carries out: a name is an
 // enabled route or it is refused, and the new agent runs on the harness and model of that route. The harnesses here
@@ -117,7 +118,7 @@ test("a script's spawn carries the route it names, and none when it names none",
 
 test("a new agent runs on the route that was picked: its harness and its model", async () => {
   const { routes, claude, codex, harnesses, folder } = await setup();
-  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, join(folder, "agents.json"), hooks());
+  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, new SessionStore(folder), hooks());
   // What the service does with what a script named: that route when it is one, the default when the script named none,
   // and a refusal, which Fast is told, when the name is no route.
   const dispatch = (name?: string) => {
@@ -147,7 +148,7 @@ test("a new agent runs on the route that was picked: its harness and its model",
 
 test("a follow-up and a fork stay on their agent's route", async () => {
   const { routes, claude, codex, harnesses, folder } = await setup();
-  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, join(folder, "agents.json"), hooks());
+  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, new SessionStore(folder), hooks());
   const first = agents.spawn({ task: 1, prompt: "start" }, find(routes, "codex/astra"));
   await Bun.sleep(50);
   agents.send(first, { task: 2, prompt: "more" });
@@ -166,7 +167,7 @@ test("a follow-up and a fork stay on their agent's route", async () => {
 
 test("each harness has its own base agent, on its first enabled model", async () => {
   const { routes, claude, codex, harnesses, folder } = await setup();
-  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, join(folder, "agents.json"), hooks());
+  const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, new SessionStore(folder), hooks());
   await Bun.sleep(50);
   // The default route's harness builds its base when the session starts; the other one not until it is used.
   expect(claude.turns.filter((turn) => !turn.message.startsWith("Task ")).map((turn) => turn.model)).toEqual(["fable"]);

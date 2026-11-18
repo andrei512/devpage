@@ -1,3 +1,4 @@
+import { SessionStore } from "./store.ts";
 // A check of a harness with the real thing, in a throwaway folder, through the same `Agents` the service uses: the base
 // agent is built, an agent is forked from it for a small task, a second agent is forked from the first, and the first
 // gets a follow-up. It prints what the agents published and their sessions as the harness gives them back, and fails when they lack
@@ -6,7 +7,7 @@
 //   bun smoke.ts          Claude Code
 //   bun smoke.ts codex    Codex, on the machine's Codex login
 //   bun smoke.ts routes   both at once: one agent on a route of each, on a small model, and the models each harness reports
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agents, type Published } from "./agents.ts";
@@ -31,7 +32,7 @@ const routes = both
   ? await checked(enabledRoutes([["claude-code", ["haiku", "no-such-model"]], ["codex", ["gpt-6-luna"]], ["no-such-harness", []]], (name) => harnesses.has(name), (text) => complaints.push(text)), harnesses, (text) => complaints.push(text))
   : [{ name: key, harness: key, model: null, about: "" }];
 console.log(`harness: ${both ? "both" : harness.name}; routes: ${routes.map((route) => route.name).join(", ")}`);
-const file = join(folder, "agents.json");
+const store = new SessionStore(folder);
 
 const running = new Set<number>();
 const published: Published[] = [];
@@ -42,7 +43,7 @@ const settled = () => new Promise<void>((ok) => (done = ok));
 const given = new Map<number, number>();
 /** How many things were told about sessions as they happened. */
 let lines = 0;
-const agents: Agents = new Agents(project, join(folder, "pads"), harnesses, routes, file, {
+const agents: Agents = new Agents(project, join(folder, "pads"), harnesses, routes, store, {
   owns: (agent, task) => given.get(task) === agent,
   session: () => void lines++,
   published: (update) => {
@@ -94,8 +95,8 @@ if (both) {
 
 // The base agent is built when `Agents` is made: wait for it, so that the first agent is a fork of it.
 if (harness.can.fork) {
-  for (let waited = 0; waited < 180 && !existsSync(file); waited++) await Bun.sleep(1000);
-  for (let waited = 0; waited < 180 && !JSON.parse(readFileSync(file, "utf8")).bases?.[key]; waited++) await Bun.sleep(1000);
+  for (let waited = 0; waited < 180 && !store.get("agents"); waited++) await Bun.sleep(1000);
+  for (let waited = 0; waited < 180 && !store.get<any>("agents").bases?.[key]; waited++) await Bun.sleep(1000);
 }
 
 running.add(1);
@@ -125,7 +126,7 @@ const items = turns[0]?.items ?? [];
 const kinds = new Set(items.map((item) => item.kind));
 const answer = (task: number) => published.findLast((update) => update.task === task);
 const problems = [
-  harness.can.fork && JSON.parse(readFileSync(file, "utf8")).agents[0]?.from !== "base" && "the first agent is not a fork of the base agent",
+  harness.can.fork && store.get<any>("agents").agents[0]?.from !== "base" && "the first agent is not a fork of the base agent",
   turns.length !== 2 && `expected two turns of the first agent, got ${turns.length}`,
   turns.some((turn) => turn.state !== "done") && `a turn of the first agent ended as ${turns.map((turn) => turn.state).join(", ")}`,
   (await agents.session(second)).length !== 1 && "the fork's session does not begin at its own first turn",

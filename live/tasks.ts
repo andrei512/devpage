@@ -1,8 +1,4 @@
-// The tasks of the live session: every command the user gave, its state, and what it changed. Kept in a file, so they
-// survive a restart.
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-
+import { SessionStore } from "./store.ts";
 /** A part of a page, as devpage names it: a source's address, words in it, and the text around them. */
 export interface Part {
   page: string;
@@ -34,14 +30,8 @@ export interface Task {
 
 export class Tasks {
   private list: Task[] = [];
-  private readonly file: string;
-  private readonly changed: () => void;
-
-  /** `changed` is called after every change, to tell the open pages. */
-  constructor(file: string, changed: () => void) {
-    this.file = file;
-    this.changed = changed;
-    if (existsSync(file)) this.list = JSON.parse(readFileSync(file, "utf8"));
+  constructor(private readonly store: SessionStore, private readonly changed: () => void) {
+    this.list = store.get<Task[]>("tasks") ?? [];
     // Work that was running when the service stopped did not report; it is shown as failed, not as running forever.
     for (const task of this.list) {
       if (task.state === "running") Object.assign(task, { state: "failed", summary: "The session restarted before it reported.", ended: Date.now() });
@@ -87,8 +77,7 @@ export class Tasks {
   }
 
   private save() {
-    mkdirSync(dirname(this.file), { recursive: true });
-    writeFileSync(this.file, JSON.stringify(this.list, null, 2));
+    this.store.set("tasks", this.list);
     this.changed();
   }
 }
