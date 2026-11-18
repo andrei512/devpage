@@ -187,9 +187,7 @@ their relative order.
 
 - **A package says where its widgets go.** Its `extension.yml` declares its
   widgets, their modules and their
-  [places](../../../../on-the-page/widgets/places/README.md). Today only a
-  package with a native library can bring widgets, and only a document can
-  place one.
+  [places](../../../../on-the-page/widgets/places/README.md).
 - **The panel is a stack of sections.** Each widget placed in `panel` is one
   section. The agents and their tasks are the live session's section.
 - **The session's own widgets are placed the same way,** through its
