@@ -196,3 +196,16 @@ test("overlapping calls to a part see the previous committed update", async () =
   await Promise.all(["first", "second"].map(script => registry.call("mac.run", { script }, FAST)));
   expect(registry.state("mac")).toEqual({ ran: 2 });
 });
+
+test("Fast checks every registered input and collects mixed calls in script order", async () => {
+  const registry = new Registry(":memory:");
+  registry.part("counter", ({ z, set }) => set("add", { for: "both", description: "Adds a count", input: { n: z.number().int().positive() } }, ({ n }, ctx) => ctx.set("n", n)));
+  const { run } = await import("./sandbox.ts");
+  const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
+  const result = await run('say("hello"); counter.add(2); say("done")', scope, registry);
+  expect(result.intents.map(i => i.do)).toEqual(["say", "world", "say"]);
+  await expect(run('say("hello"); counter.add(-1)', scope, registry)).rejects.toThrow();
+  await expect(run('counter.add(2); page.go("/missing")', scope, registry)).rejects.toThrow("no page");
+  await expect(run('counter.add(2); throw Error("cancel")', scope, registry)).rejects.toThrow("cancel");
+  expect(registry.state("counter")).toEqual({});
+});

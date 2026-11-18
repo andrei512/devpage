@@ -1,8 +1,7 @@
 // Registered parts share an event stream, with state and events committed together.
 import { Events } from "./events.ts";
 import { Database } from "bun:sqlite";
-import { readFileSync } from "node:fs";
-import { QuickJS } from "quickjs-wasi";
+import { run as runScript } from "./sandbox.ts";
 import { z } from "zod";
 import type { HarnessTool } from "./harness.ts";
 
@@ -68,9 +67,6 @@ export interface Asked {
   do: string;
   input: Record<string, unknown>;
 }
-
-let compiled: Promise<WebAssembly.Module> | null = null;
-const binary = () => (compiled ??= WebAssembly.compile(readFileSync(new URL(import.meta.resolve("quickjs-wasi/quickjs.wasm")))));
 
 export class Registry {
   private readonly db: Database;
@@ -161,10 +157,7 @@ export class Registry {
    * transaction once it ended: a function that throws has written nothing.
    */
   async call(name: string, input: unknown, caller: Caller) {
-    const fn = this.fns.get(name);
-    if (!fn) throw new Error(`there is no function ${name}`);
-    if (fn.for !== caller.who && !(fn.for === "both" && caller.who !== "page")) throw new Error(`${name} is for ${fn.for}, not for ${caller.who}`);
-    const given = z.object(fn.input).parse(input);
+    const { fn, given } = this.checked(name, input, caller.who);
     // A function may await external work. Serialize calls per part across that
     // await while letting unrelated parts commit on the same SQLite connection.
     const previous = this.pending.get(fn.part);
@@ -204,8 +197,16 @@ export class Registry {
     return result;
   }
 
+  /** Check the whole script before carrying any of its intents out. */
+  checked(name: string, input: unknown, who: Caller["who"]) {
+    const fn = this.fns.get(name);
+    if (!fn) throw new Error(`there is no function ${name}`);
+    if (fn.for !== who && !(fn.for === "both" && who !== "page")) throw new Error(`${name} is for ${fn.for}, not for ${who}`);
+    return { fn, given: z.object(fn.input).parse(input) };
+  }
+
   /** The functions a slow agent has, as the tools every harness hands over: the same list the session's own three are in today. */
-  tools(agent: number): HarnessTool[] {
+  tools(agent: number | null): HarnessTool[] {
     return [...this.fns.entries()]
       .filter(([, fn]) => fn.for === "slow" || fn.for === "both")
       .map(([name, fn]) => ({
@@ -214,6 +215,7 @@ export class Registry {
         input: fn.input,
         run: async (input: any) => {
           try {
+            if (agent === null) throw new Error("A base agent has no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             return { text: typeof result === "string" ? result : JSON.stringify(result ?? "Done.") };
           } catch (error) {
@@ -233,7 +235,7 @@ export class Registry {
    * call that takes its input in the order it was registered, checks each value's type against the input's schema,
    * and records what was asked. Nothing is carried out while the script runs.
    */
-  private prelude() {
+  prelude() {
     const fns = [...this.fns.entries()]
       .filter(([, fn]) => fn.for === "fast" || fn.for === "both")
       .map(([name, fn]) => {
@@ -241,7 +243,7 @@ export class Registry {
         return { name, keys: Object.keys(fn.input), types: Object.fromEntries(Object.entries(schema.properties ?? {}).map(([key, value]) => [key, value.type ?? null])), required: schema.required ?? [] };
       });
     return `(() => {
-      const asked = [];
+
       for (const fn of ${JSON.stringify(fns)}) {
         const [part, name] = fn.name.split(".");
         globalThis[part] ??= {};
@@ -253,24 +255,21 @@ export class Registry {
             const type = fn.types[key];
             if (type && type !== "array" && type !== "object" && typeof input[key] !== (type === "integer" ? "number" : type)) throw new TypeError(fn.name + ": " + key + " is not a " + type);
           }
-          asked.push({ do: fn.name, input });
+          __worldCall(fn.name, input);
         };
       }
-      globalThis.__done = () => JSON.stringify(asked);
+
     })()`;
   }
 
   /** Runs a script of Fast's in the sandbox and returns what it asked for. A script that throws asked for nothing. */
   async script(code: string): Promise<Asked[]> {
-    const until = performance.now() + 300;
-    const vm = await QuickJS.create({ wasm: await binary(), memoryLimit: 32 * 1024 * 1024, interruptHandler: () => performance.now() > until });
-    try {
-      vm.evalCode(this.prelude(), "<world>").dispose();
-      vm.evalCode(code, "<script>").dispose();
-      return JSON.parse(vm.evalCode("__done()", "<end>").consume((handle) => handle.toString()));
-    } finally {
-      vm.dispose();
-    }
+    const scope = { messages: [], updates: [], agents: [], pages: [], page: null, handover: [] };
+    const ran = await runScript(code, scope, this);
+    return ran.intents.map(intent => {
+      if (intent.do !== "world") throw new Error("Expected a registered world call");
+      return { do: intent.name, input: intent.input };
+    });
   }
 
   /** One run of Fast: the script in the sandbox, then each call carried out, in order. */
