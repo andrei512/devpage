@@ -9,6 +9,7 @@
 // Two things are kept apart. A task is the live session's: the work the user asked for, with its updates. A turn is the
 // harness's: one message in, and what the agent did until it stopped. The harness keeps it, and it is read from there: nothing of a session is kept here. Today a task is
 // done in one turn, and nothing in a session points at a task.
+import { Registry, type Registering } from "./registry.ts";
 import { SessionStore } from "./store.ts";
 import { z } from "zod";
 import { SHARED_BRIEF } from "./brief.ts";
@@ -56,6 +57,7 @@ function shown(message: string) {
 }
 
 export interface AgentHooks {
+  atomic?: (write: () => void) => void;
   worldTools?: (agent: number | null) => HarnessTool[];
   /** An agent published an update on a task. */
   published: (update: Published) => void;
@@ -96,6 +98,7 @@ interface Agent {
   /** Its last turn ended with a question for the user, and no work has come for it since. */
   asked: boolean;
   running: Turn | null;
+  report?: "asked" | "ended";
 }
 
 /** A harness's base agent: the conversation every new agent of that harness starts as a copy of. */
@@ -171,6 +174,7 @@ const aboutPad = (prompt: string) => /(^|[^\w/.-])pads\/[a-z0-9][a-z0-9-]*\.md\b
 const BASE_PROMPT = `You are the base of the live session's agents: every new agent starts as a copy of you, so what you read now none of them has to find again. Get to know this project, and change nothing: read its instructions for agents (CLAUDE.md or AGENTS.md, and what they point to), the layout of the folders, its main READMEs, the writing rules, and how a page becomes what the user sees in devpage. Then reply with a short map of the project: where things are, and the rules that apply to every change.`;
 
 export class Agents {
+  private readonly tools: (agent: number | null) => HarnessTool[];
   private readonly agents = new Map<number, Agent>();
   private next = 1;
   private readonly bases = new Map<string, Base>();
@@ -182,6 +186,14 @@ export class Agents {
   constructor(private readonly root: string, private readonly pads: string, private readonly harnesses: Map<string, Harness>, private readonly routes: On[], private readonly store: SessionStore, private readonly hooks: AgentHooks, first = 1) {
     // A number is never given twice: tasks are kept by their agent's number.
     this.next = first;
+    if (hooks.worldTools) {
+      this.tools = hooks.worldTools;
+    } else {
+      // A standalone harness uses the same registered functions as the service.
+      const registry = new Registry(store.db);
+      registry.part("work", part => registerAgentFunctions(part, () => this));
+      this.tools = agent => registry.tools(agent);
+    }
     const saved = store.get<Saved>("agents");
     if (saved) {
       this.next = Math.max(first, saved.next);
@@ -341,7 +353,7 @@ export class Agents {
   private async turn(agent: Agent, job: Job, again = false): Promise<void> {
     const began = Date.now();
     /** How the task stands after the agent's own updates in this turn. */
-    let state: "open" | "asked" | "ended" = "open";
+    delete agent.report;
     const forking = !agent.session && Boolean(agent.of);
     const tell = (line: SessionLine) => this.hooks.session(agent.id, line);
     tell({ started: began, message: { id: `sent-${began}`, kind: "user_message", state: "done", at: began, line: shown(job.prompt) } });
@@ -353,13 +365,7 @@ export class Agents {
       brief: brief(this.pads),
       root: this.root,
       also: [this.pads],
-      tools: this.tools(agent, (update) => {
-        if (update.type === "question") {
-          state = "asked";
-          agent.asked = true;
-        }
-        if (update.type === "finished" || update.type === "failed") state = "ended";
-      }),
+      tools: this.tools(agent.id),
     });
     agent.running = running;
     let end: TurnEnd | null = null;
@@ -378,9 +384,9 @@ export class Agents {
           else if (event.item.state === "running") this.hooks.log("agent_tool", { level: "debug", agent: agent.id, task: job.task, name: event.item.tool, text: event.item.line, input: event.item.detail });
         } else {
           end = event.state;
-          this.hooks.log("agent_turn_ended", { agent: agent.id, task: job.task, text: event.text, end: event.state, state, ms: Date.now() - began, ...event.detail });
+          this.hooks.log("agent_turn_ended", { agent: agent.id, task: job.task, text: event.text, end: event.state, state: agent.report ?? "open", ms: Date.now() - began, ...event.detail });
           // A turn that ended without saying how the task ended: its last words are the task's end.
-          if (state === "open" && this.hooks.holds(agent.id, job.task)) {
+          if (!agent.report && this.hooks.holds(agent.id, job.task)) {
             const failed = event.state !== "done";
             this.hooks.log("agent_ended_without_update", { agent: agent.id, task: job.task });
             this.hooks.published({ agent: agent.id, task: job.task, type: failed ? "failed" : "finished", text: event.text.trim() || (failed ? "It stopped without saying why." : "Done."), changes: [] });
@@ -390,7 +396,7 @@ export class Agents {
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);
       // A conversation that cannot be copied or picked up any more: the agent starts empty, once.
-      if (!again && state === "open" && (agent.session || agent.of)) {
+      if (!again && !agent.report && (agent.session || agent.of)) {
         this.hooks.log("agent_session_lost", { agent: agent.id, task: job.task, text: why, harness_session: agent.session, of: agent.of });
         tell({ ended: Date.now(), state: "failed" });
         if (forking && agent.from === "base") {
@@ -410,10 +416,11 @@ export class Agents {
     tell({ ended: Date.now(), state: end ?? "failed" });
   }
 
-  /** The tools every agent has, whatever its harness: how it reports back. `agent` is null for the base agent, which has no task to report on. */
-  private tools(agent: Agent | null, published: (update: Published) => void = () => {}): HarnessTool[] {
-    const update: HarnessTool = {
-      name: "update",
+  /** Register the work part before creating agents, so new base conversations have the full tool list. */
+  static registerFunctions(as: Registering, agents: () => Agents) {
+    as.set("update", {
+      for: "slow",
+      tool: { name: "update", always: true, reads: ({ type, text }) => ({ kind: type === "question" ? "question" : "agent_message", line: String(text ?? ""), ...(type === "failed" ? { state: "failed" as const } : {}) }) },
       description: "Publishes an update on a task: it is what the user hears, through Fast. Every task ends with one `finished` or one `failed`.",
       input: {
         task: z.number().describe("The task's number"),
@@ -423,40 +430,43 @@ export class Agents {
         name: z.string().optional().describe("Two to four words naming you by what you work on, across your tasks: with your very first update, and again only when your scope has changed"),
         changes: z.array(z.object({ page: z.string(), quote: z.string() })).optional().describe("With `finished`: the places to look at"),
       },
-      run: async ({ task, type, text, title, name, changes }) => {
-        if (!agent || !this.hooks.holds(agent.id, task)) return { text: `Task ${task} is not a running task of yours.`, error: true };
+    }, ({ task, type, text, title, name, changes }, { caller }) => {
+      const live = agents();
+      const agent = caller.who === "slow" && caller.agent !== null ? live.agents.get(caller.agent) : null;
+      if (!agent || !live.hooks.holds(agent.id, task)) throw new Error(`Task ${task} is not a running task of yours.`);
+      const publish = () => {
         const named = name?.trim();
         if (named && named !== agent.name) {
-          this.hooks.log("agent_named", { agent: agent.id, task, text: named, was: agent.name });
+          live.hooks.log("agent_named", { agent: agent.id, task, text: named, was: agent.name });
           agent.name = named;
-          this.save();
-          this.hooks.changed();
+          live.save();
+          live.hooks.changed();
         }
-        const given: Published = { agent: agent.id, task, type, text, title, ...(named ? { name: named } : {}), changes: changes ?? [] };
-        published(given);
-        this.hooks.published(given);
-        return { text: "Published." };
-      },
-      always: true,
-      // In a session an update is what the agent says to the user, not a tool it used.
-      reads: ({ type, text }) => ({ kind: type === "question" ? "question" : "agent_message", line: String(text ?? ""), ...(type === "failed" ? { state: "failed" as const } : {}) }),
-    };
-    const comment: HarnessTool = {
-      name: "write_comment",
+        if (type === "question") {
+          agent.report = "asked";
+          agent.asked = true;
+        }
+        if (type === "finished" || type === "failed") agent.report = "ended";
+        live.hooks.published({ agent: agent.id, task, type, text, title, ...(named ? { name: named } : {}), changes: changes ?? [] });
+      };
+      if (live.hooks.atomic) live.hooks.atomic(publish);
+      else publish();
+      return "Published.";
+    });
+    as.action("write_comment", {
+      for: "slow",
+      tool: { name: "write_comment", always: true },
       description: "Saves a comment on the part that was marked when the task was given. Only when the user explicitly asked to leave a comment or a note there.",
       input: { task: z.number().describe("The task's number"), text: z.string().describe("The note, short and in the user's words") },
-      run: async ({ task, text }) => {
-        try {
-          await this.hooks.comment(task, text);
-          return { text: "Saved." };
-        } catch (error) {
-          return { text: error instanceof Error ? error.message : String(error), error: true };
-        }
-      },
-      always: true,
-    };
-    const log: HarnessTool = {
-      name: "read_log",
+    }, async ({ task, text }, { caller }) => {
+      const live = agents();
+      if (caller.who !== "slow" || caller.agent === null || !live.hooks.owns(caller.agent, task)) throw new Error(`Task ${task} is not yours.`);
+      await live.hooks.comment(task, text);
+      return "Saved.";
+    });
+    as.get("read_log", {
+      for: "slow",
+      tool: { name: "read_log" },
       description:
         "Reads the session's log of who said and did what, exactly: the most recent entries, oldest first. Changes nothing. `who` is `user` (what the user said, as it was heard), `voice` (what was spoken aloud), `fast` (Fast's runs and scripts), `say` (what Fast gave the voice to say), `agent` (the slow agents: tasks, updates, tools), `world` (every entry of the world) or `service`.",
       input: {
@@ -465,9 +475,7 @@ export class Agents {
         who: z.enum(["user", "voice", "fast", "say", "agent", "world", "service"]).optional(),
         text: z.string().optional().describe("Only entries whose text has these words in it"),
       },
-      run: async (filter) => ({ text: JSON.stringify(this.hooks.readLog(filter)) }),
-    };
-    return [update, comment, log, ...(this.hooks.worldTools?.(agent?.id ?? null) ?? [])];
+    }, filter => agents().hooks.readLog(filter));
   }
 
   private toolFingerprint() {
@@ -506,3 +514,5 @@ export class Agents {
     }
   }
 }
+
+export const registerAgentFunctions = Agents.registerFunctions;

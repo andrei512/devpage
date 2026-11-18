@@ -1,4 +1,5 @@
-import { SessionStore } from "./store.ts";
+import { Registry } from "./registry.ts";
+import { coreEntry, coreParts } from "./events.ts";
 interface Base {
   /** The entry's number: one more than the entry before it. */
   n: number;
@@ -16,6 +17,7 @@ export interface Message extends Base {
   page: string | null;
   /** The text the user had marked when it was said; empty when nothing was marked. */
   marked: string;
+  part?: import("./tasks.ts").Part;
   /** Where it is on the voice session's own clock. */
   start_ms: number | null;
   end_ms: number | null;
@@ -72,9 +74,9 @@ export class World {
   private entries: Entry[] = [];
   private ids = { message: 0, update: 0 };
 
-  /** `added` is called with every new entry. */
-  constructor(private readonly store: SessionStore, private readonly added: (entry: Entry) => void) {
-    for (const entry of store.world()) {
+  /** Restore transcript ids and the recent entries used by the sandbox. */
+  constructor(private readonly registry: Registry) {
+    for (const entry of registry.events.core()) {
       this.entries.push(entry);
       if (entry.kind === "message" || entry.kind === "update") this.ids[entry.kind] = Math.max(this.ids[entry.kind], entry.id);
     }
@@ -83,7 +85,7 @@ export class World {
 
   /** The number of the newest entry. */
   get now() {
-    return this.store.events.now;
+    return this.registry.events.now;
   }
 
   /** The next id of a message or an update: they go on across restarts, so `m41` is one message for ever. */
@@ -92,11 +94,11 @@ export class World {
   }
 
   add<T extends Entry>(entry: Fresh<T>): T {
-    const timed = { ...entry, at: new Date().toISOString() };
-    const full = { ...timed, n: this.store.events.appendCore(timed) } as unknown as T;
+    const { kind, ...fields } = entry;
+    const [stored] = this.registry.commit(coreParts[kind], {}, [{ kind, fields }]);
+    const full = coreEntry(stored) as T;
     this.entries.push(full);
     if (this.entries.length > KEPT) this.entries.shift();
-    this.added(full);
     return full;
   }
 

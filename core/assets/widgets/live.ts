@@ -5,7 +5,7 @@
 // A restart of the service is not the user's to repair: the page connects again by itself, and a voice that was on starts
 // again by itself, with the microphone and the sound kept open in between.
 import { useSyncExternalStore } from "react";
-import { base, page, world as parts } from "devpage";
+import { base, page, useWorld, world as parts } from "devpage";
 
 export interface Part {
   page: string;
@@ -307,13 +307,18 @@ function letGo(lock: WakeLockSentinel) {
 
 /** The session's state, in a widget. */
 export function useLive() {
-  return useSyncExternalStore(
+  const local = useSyncExternalStore(
     (watcher) => {
       kept.watchers.add(watcher);
       return () => kept.watchers.delete(watcher);
     },
     () => kept.live,
   );
+  const work = useWorld("work");
+  const selection = useWorld("page");
+  const canvas = useWorld("canvas");
+  return { ...local, ...(work && { tasks: work.tasks, agents: work.agents, chats: work.chats }),
+    ...(selection && { subject: selection.subject, by: selection.by }), ...(canvas && { canvas: canvas.canvas }) } as Live;
 }
 
 /** How loud each voice is right now, 0 to 1. Read every frame by the orb. */
@@ -393,9 +398,13 @@ function attend(socket: WebSocket) {
     const event = JSON.parse(message.data);
     if (event.type === "state" && typeof event.part === "string") {
       // One part of the world: any widget reads it with `useWorld`.
-      parts.put(event.part, event.state);
+      receivedPart(event.part, event.state);
     } else if (event.type === "state") {
-      stated(event);
+      // An older service can still be serving an open page during an upgrade.
+      receivedPart("work", { tasks: event.tasks, agents: event.agents, chats: event.chats });
+      receivedPart("page", { subject: event.subject, by: event.by });
+      receivedPart("canvas", { canvas: event.canvas });
+      receivedPart("session", { voice: event.voice, problem: event.problem });
     } else if (event.type === "heard") {
       set({ heard: { who: event.who, text: event.text } });
     } else if (event.type === "session") {
@@ -450,11 +459,20 @@ function closed(socket: WebSocket) {
  */
 let swapped = first && performance.now() > 10_000;
 
-/** The service's state arrived. */
-function stated(event: { voice: Live["voice"]; problem: string | null; tasks: Task[]; agents?: Agent[]; chats?: boolean; subject: Part | null; by?: "user" | "assistant" | null; canvas?: Live["canvas"] }) {
-  const { tasks, subject } = event;
-  // A service from before it said who marked the part: taken as the user's.
-  const by = subject ? (event.by ?? "user") : null;
+/** Keep the browser's imperative mark and microphone controls in step with the
+ * same part snapshots read by widgets. Only a voice update reconciles audio. */
+function receivedPart(name: string, state: any) {
+  parts.put(name, state);
+  if (name === "session") return stated(state);
+  if (name === "page") {
+    set({ subject: state.subject, by: state.subject ? state.by ?? "user" : null });
+    drawSubject();
+  } else if (name === "canvas") {
+    set({ canvas: state.canvas });
+  }
+}
+
+function stated(event: Pick<Live, "voice" | "problem">) {
   let { voice, problem } = event;
   if (kept.resume) {
     if (Date.now() - kept.resume >= PATIENCE) {
@@ -490,7 +508,7 @@ function stated(event: { voice: Live["voice"]; problem: string | null; tasks: Ta
     kept.wanted = true;
   }
   swapped = false;
-  set({ voice, problem, tasks, agents: event.agents ?? null, chats: event.chats === true, subject, by, canvas: event.canvas ?? null });
+  set({ voice, problem });
   page.pick(voice === "on");
   pad()?.pick(voice === "on");
   drawSubject();
