@@ -3,8 +3,9 @@ page-type: concept
 ---
 # The world
 
-What Fast sees and acts on. It has three parts. The session's program owns
-all of it (`live/world.ts`); it belongs to [the agents](../README.md).
+Fast sees the world's numbered entries and acts through its registered functions.
+The live session registers four core parts. An [extension](extending/README.md)
+can register another part with its own state, functions and entry kinds.
 
 ```mermaid
 flowchart LR
@@ -14,21 +15,21 @@ flowchart LR
   world["The world<br/>one numbered log"] <--> fast["Fast<br/>exec"]
 ```
 
-## The three parts
+## The core parts
 
-1. **The transcript.** What you said and what Voice said, as messages with
+1. **The session.** The voice status and transcript. What you said and what Voice said, as messages with
    ids. Fast reads it and cannot change it.
 2. **The page.** The address, the text, the marked part, the side panel. Fast
    reads it and moves it: go to, scroll, point, select, open or close the
-   panel. While [the canvas](../../scratch-pad/README.md) is open, the scratch
-   pad on it is the page.
-3. **The work.** The tasks, their updates, and the agents that hold them. Fast
+   panel.
+3. **The canvas.** Its open [scratch pad](../../scratch-pad/README.md) becomes the page Fast reads.
+4. **The work.** The tasks, their updates, and the agents that hold them. Fast
    reads it and gives work to an agent.
 
 ## One numbered log
 
 Every change to the world is one entry with a number and a time. There are
-five kinds:
+five built-in kinds. Packages can add their own:
 
 | Kind | What it is | The line Fast reads |
 |---|---|---|
@@ -46,8 +47,7 @@ five kinds:
 - Routing can be tuned later, because every decision is in the log with what
   Fast saw.
 
-The log is one file, only ever added to; the program holds its newest 2,000
-entries, and the ids of messages and updates go on across a restart.
+SQLite holds the full stream for the project. The session keeps the newest 2,000 core entries in memory. Message and update ids continue across restarts.
 
 ## What Fast holds
 

@@ -21,13 +21,14 @@ flowchart LR
 
 ## What wakes Fast
 
-Two things, and nothing else:
+Fast wakes for a hand-over or a registered entry kind:
 
 - **A hand-over from Voice.** Fast gets the new messages, with ids. It is
   woken at once.
 - **Updates from slow agents,** and problems: calls a script asked for that
   could not be carried out. They are collected for 400 ms, so several that
-  arrive together are one wake-up.
+  arrive together are one wake-up. An extension can also register a kind
+  that wakes Fast, including a rule that depends on the caller.
 
 Either way it also gets the world changes since its last run. Fast runs one
 wake-up at a time. What arrives while it runs is delivered together in the
@@ -38,7 +39,7 @@ off, it gets when the voice starts.
 
 ### What a wake-up shows
 
-One text, added to Fast's conversation:
+A wake adds the following text to Fast’s conversation, followed by any images its entries carry:
 
 - **What woke it:** `Wake-up 14. The user just said m41.`, `New updates: u12.`,
   or `Something could not be done.`

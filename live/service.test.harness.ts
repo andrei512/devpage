@@ -25,7 +25,7 @@ mock.module("./claude.ts", () => ({
     turn({ tools, message }: TurnInput) {
       async function* events(): AsyncGenerator<TurnEvent> {
         yield { type: "started", session: "test-agent" };
-        const tool = tools.find(t => t.name === "counter_change");
+        const tool = tools.find(t => t.name === "unit-tests_change");
         const result = tool && await tool.run({ n: 3 });
         const report = JSON.stringify({ result, tools: tools.map(t => t.name).sort() });
         const update = tools.find(t => t.name === "update")!;

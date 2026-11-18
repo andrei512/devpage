@@ -18,6 +18,8 @@ test("the live service exposes one registered function to Fast and the slow harn
       return "counted " + n;
     });
   }`);
+  writeFileSync(join(root, "Home.md"), "# Home");
+  let navigate = false;
   const requests: any[] = [];
   let handed = false;
   const model = Bun.serve({
@@ -28,7 +30,8 @@ test("the live service exposes one registered function to Fast and the slow harn
       requests.push(body);
       const marked = !handed && JSON.stringify(body.input.at(-1)).includes("Review this mark");
       if (marked) handed = true;
-      const code = marked ? 'spawn(`Review: ${m1}`)' : requests.length === 1 ? 'counter.change(2); spawn("Count three more")' : "// done";
+      const code = navigate ? 'canvas.show(canvas.pad("My idea")); page.go("/Home.md")' : marked ? 'spawn(`Review: ${m1}`)' : requests.length === 1 ? 'worldParts["unit-tests"].change(2); spawn("Count three more")' : "// done";
+      navigate = false;
       return Response.json({ output: [{ type: "function_call", name: "exec", arguments: JSON.stringify({ code }), call_id: "call" + requests.length }] });
     },
   });
@@ -38,7 +41,7 @@ test("the live service exposes one registered function to Fast and the slow harn
   await reservation.stop(true);
   const service = Bun.spawn([process.execPath, "--preload", join(import.meta.dir, "service.test.harness.ts"), join(import.meta.dir, "service.ts")], {
     env: { HOME: root, PATH: process.env.PATH, DEVPAGE_ROOT: root, DEVPAGE_URL: base, DEVPAGE_PORT: port, DEVPAGE_TOKEN: "test",
-      DEVPAGE_CONFIG: JSON.stringify({ world: { counter: "./counter.ts" } }), TEST_RESPONSES: model.url.href },
+      DEVPAGE_CONFIG: JSON.stringify({ world: { "unit-tests": "./counter.ts" } }), TEST_RESPONSES: model.url.href },
     stderr: "pipe", stdout: "ignore",
   });
   let socket: WebSocket | undefined;
@@ -56,15 +59,15 @@ test("the live service exposes one registered function to Fast and the slow harn
     ws.onopen = () => ws.send(JSON.stringify({ type: "start" }));
     ws.onmessage = event => {
       const message = JSON.parse(event.data);
-      if (message.type === "action") ws.send(JSON.stringify({ type: "result", id: message.id, value: { address: "/home", text: "The marked line." } }));
+      if (message.type === "action") ws.send(JSON.stringify({ type: "result", id: message.id, value: message.name === "go" ? { error: "page was removed" } : { address: "/home", text: "The marked line." } }));
       if (!started && (message.voice === "on" || message.part === "session" && message.state.voice === "on")) {
         started = true;
-        ws.send(JSON.stringify({ type: "call", name: "counter.start", input: {} }));
+        ws.send(JSON.stringify({ type: "call", name: "unit-tests.start", input: {} }));
       }
     };
     for (let i = 0; i < 150 && !requests.some(r => JSON.stringify(r.input).includes("counted 3")); i++) await Bun.sleep(25);
-    expect(requests[0]?.instructions).toContain("counter.change(n)");
-    expect(requests[0]?.instructions).not.toContain("counter.start(");
+    expect(requests[0]?.instructions).toContain('worldParts["unit-tests"].change(n)');
+    expect(requests[0]?.instructions).not.toContain("unit-tests.start(");
     const seen = requests.flatMap(r => r.input.filter((m: any) => m.role === "user").map((m: any) => m.content)).flat();
     expect(seen).toContainEqual({ type: "input_image", image_url: image });
     expect(JSON.stringify(seen)).toContain("slow counted 3");
@@ -74,7 +77,7 @@ test("the live service exposes one registered function to Fast and the slow harn
       const [update] = db.query("select fields from entries where part='work' and kind='update' order by n desc limit 1").values();
       const report = JSON.parse(JSON.parse(String(update[0])).text);
       expect(report.result).toEqual({ text: "counted 3" });
-      expect(report.tools).toEqual(["counter_change", "read_log", "update", "write_comment"]);
+      expect(report.tools).toEqual(["read_log", "unit-tests_change", "update", "write_comment"]);
       // A real hand-over through the sandbox carries the marked part to work.
       const part = { page: "/home", quote: "marked line", prefix: "The ", suffix: "." };
       ws.send(JSON.stringify({ type: "page", page: { address: "/home", fragment: "", sources: ["/home"] }, focused: true }));
@@ -89,6 +92,15 @@ test("the live service exposes one registered function to Fast and the slow harn
       const transcript = db.query("select fields from entries where kind='message' order by n desc limit 1").values();
       expect(JSON.parse(String(transcript[0][0])).part).toEqual(part);
 
+      navigate = true;
+      ws.send(JSON.stringify({ type: "call", name: "unit-tests.start", input: {} }));
+      const problems = db.query("select fields from entries where kind='problem' and fields like '%page was removed%'");
+      for (let i = 0; i < 150 && !problems.get(); i++) await Bun.sleep(25);
+      expect(problems.get()).toBeTruthy();
+      const canvas = db.query("select value from state where part='canvas' and key='canvas'").values();
+      expect(JSON.parse(String(canvas[0][0])).pad).toBe("pads/my-idea.md");
+      expect(db.query("select n from entries where fields like '%Fast closed the canvas%'").get()).toBeNull();
+
       // Freeze in the isolated project after its module has gone. Replay must
       // see the same extension functions and image without loading a package.
       rmSync(join(root, "counter.ts"));
@@ -98,12 +110,12 @@ test("the live service exposes one registered function to Fast and the slow harn
         const session = freeze("", process.env.HOME, process.env.HOME);
         const index = session.runs.findIndex(r => r.images?.length);
         const at = await moment({ name: "counter", why: "", session: "", run: index + 1, expect: { does: [] } }, session);
-        const ran = await run("counter.change(4)", at.scope, at.registry);
+        const ran = await run('worldParts["unit-tests"].change(4)', at.scope, at.registry);
         console.log(JSON.stringify({ intent: ran.intents[0], content: at.input.at(-1).content }));
       `], { cwd: import.meta.dir, env: { HOME: root, PATH: process.env.PATH } });
       expect(replay.exitCode, replay.stderr.toString()).toBe(0);
       const frozen = JSON.parse(replay.stdout.toString().trim().split("\n").at(-1)!);
-      expect(frozen.intent).toEqual({ do: "world", name: "counter.change", input: { n: 4 } });
+      expect(frozen.intent).toEqual({ do: "world", name: "unit-tests.change", input: { n: 4 } });
       expect(frozen.content).toContainEqual({ type: "input_image", image_url: image });
       expect(frozen.content[0].text).toContain("fast counted 2");
     } finally { db.close(); }

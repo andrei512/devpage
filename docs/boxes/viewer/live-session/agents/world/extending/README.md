@@ -3,17 +3,13 @@ page-type: mechanism
 ---
 # The extendable world
 
-The design that lets the core of the live session and any extension add to
-[the world](../README.md) through the same contracts: what a world part
-registers, who may call its functions, where its state and its entries are
-kept, how its widgets get on the page, and where an extension is enabled. It
-is a design, not what runs: [what exists today](#what-exists-today) is the
-starting point, and [what changes](#what-changes) lists the difference. It
-sits under [the world](../README.md), for someone about to build it.
+The live session and installed extensions register named parts of
+[the world](../README.md). Each part defines the functions its callers can
+use, the events Fast can see and the state its widgets display.
 
 ```mermaid
 flowchart LR
-  core["The core<br/>transcript, page, work"] -->|"registers"| parts
+  core["The core<br/>session, page, canvas, work"] -->|"registers"| parts
   ext["An extension<br/>for one project or for all"] -->|"registers, the same way"| parts
   parts["World parts<br/>state, entry kinds,<br/>functions, widgets"]
   parts -->|"functions for Fast"| fast["Fast<br/>calls in its script"]
@@ -90,16 +86,16 @@ flowchart LR
   def -->|"for both"| tool
 ```
 
-A sketch of the wording, not an interface that is settled:
+A module registers functions by their local names. For example:
 
 ```js
 action("say",      { for: "fast" })
 set("update",      { for: "slow" })
 get("read_log",    { for: "slow" })
-action("mac.run",  { for: "both" })
+action("run",      { for: "both" })
 ```
 
-- A `set` or an `action` can be for Fast, for slow agents, or for both.
+- A `set` or an `action` can be for Fast, slow agents, both, or a widget on the page.
 - A `get` is for slow agents only. Fast's script gets no answer from a call;
   what Fast knows is the entries it was shown. Data meant for Fast is an
   entry kind.
@@ -155,11 +151,11 @@ flowchart LR
 - Fast and the side panel read tasks and agents from the work part.
 - [The eval of Fast](../../technical-design/README.md#the-eval-of-fast) and
   [the cost](../../technical-design/README.md#the-cost) read the store, where
-  they read the files today.
+  the live service records usage and the inputs to Fast.
 
 ### Moving a session into the store
 
-Sessions kept in today's files are moved, not left behind. The move runs when
+Existing file-backed sessions import into SQLite automatically. The move runs when
 the program starts and finds no completed import, including when a registry
 already uses the database. It keeps every entry's number and every
 id of a message, an update, a task and an agent, with each agent's
@@ -191,7 +187,7 @@ their relative order.
   part's state. After that, a change to a part sends that part's state, whole.
   Not a diff: a widget that reads the whole part cannot be wrong after a
   missed message.
-- **The core's state becomes four parts:** `work` for tasks and agents,
+- **The core publishes four parts:** `work` for tasks and agents,
   `canvas` for the open pad, `page` for where you are and what is marked,
   `session` for the voice and its problem.
 - **Widgets only.** Pages from a world extension are out of scope.
@@ -236,7 +232,7 @@ project and not bundled with devpage.
   Fast gets it from the entry, one wake-up later, so the entry of a call Fast
   made wakes Fast.
 - An entry can carry an image, and a wake-up sends it to Fast with the
-  entry's line. Today a wake-up is one text.
+  entry's line.
 - It has no state and no widget.
 - A slow agent on Claude Code can already run AppleScript through its shell;
   Codex is sandboxed. What the part adds is the same ability for Fast, and
@@ -293,25 +289,3 @@ The producer starts after the action commits. Each awaited
 `publish(write => …)` can read and set that part’s state and add its entries
 in a separate transaction. The original caller determines the wake rule
 for those entries.
-
-## What changes
-
-1. Entry kinds are registered. The five built-in kinds each bring their line
-   and say whether they wake Fast.
-2. Fast's calls are registered functions, made from the same kind of list the
-   slow agents' tools already are.
-3. Every function says who it is for.
-4. State and entries are written in one step, in one store.
-5. The pages get a part's state, and widgets read it with `useWorld`.
-6. A package's manifest declares widgets, places and a world module.
-7. Extensions can be enabled for every project.
-
-What does not change: what wakes Fast, a script being all or nothing, Voice
-speaking only what `say` gives it, and the slow agents' three tools.
-
-## Not verified
-
-Read from the code, not run: that the built-in SQLite of the bun devpage pins
-does what the store needs, and that Fast's model takes an image in a wake-up.
-The prototype settles both, with one function called both ways and a widget
-from a package with no library reading a part.
