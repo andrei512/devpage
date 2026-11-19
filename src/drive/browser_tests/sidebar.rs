@@ -80,7 +80,7 @@ async fn reload_watching_takeover(page: &Page) {
     until(page, "document.documentElement.dataset.ready === 'true'").await;
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn the_sidebar_is_taken_over_without_a_change_and_its_chevrons_open_and_close() {
@@ -173,7 +173,7 @@ fn drag_handle_to(x: u32) -> String {
     )
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn the_sidebar_is_resized_by_its_handle_and_keeps_its_width() {
@@ -229,7 +229,7 @@ const CURRENT_IN_SIGHT: &str = "(() => { const nav = document.getElementById('de
         const at = document.querySelector('#devpage-nav ul a.current').getBoundingClientRect();
         return document.querySelector('#devpage-nav ul a.current').textContent + ' ' + (at.top >= nav.top && at.bottom <= nav.bottom); })()";
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn a_page_far_down_a_long_sidebar_is_in_sight() {
@@ -277,7 +277,7 @@ async fn a_page_far_down_a_long_sidebar_is_in_sight() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn the_sidebar_stays_mounted_across_swaps_and_opens_the_branch_navigated_to() {
@@ -484,7 +484,7 @@ async fn search_outbox(page: &Page) -> chromiumoxide::Element {
     input
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn search_results_are_grouped_by_page_with_their_sections_under_them() {
@@ -603,7 +603,7 @@ fn landed_on_word(heading: &str) -> String {
         )
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn a_section_result_lands_on_its_first_word_marked_until_escape() {
@@ -696,7 +696,7 @@ async fn a_section_result_lands_on_its_first_word_marked_until_escape() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn a_title_result_opens_its_page_at_the_top_with_nothing_marked() {
@@ -739,7 +739,7 @@ async fn a_title_result_opens_its_page_at_the_top_with_nothing_marked() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn slash_and_command_k_focus_the_sidebar_search() {
@@ -779,7 +779,7 @@ async fn slash_and_command_k_focus_the_sidebar_search() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
 #[tokio::test]
 #[ignore]
 async fn a_slow_earlier_search_never_replaces_a_later_ones_results() {

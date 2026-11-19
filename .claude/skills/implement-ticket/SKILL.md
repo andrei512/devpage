@@ -36,10 +36,9 @@ test. Then write only enough code to make it pass.
 
 ## Keep the loop tight
 
-While working, run only what tells you something: one module's build, one test
-file. Save the full gates in AGENTS.md — every target's build and the whole
-suite — for the end. A ninety-second loop gets skipped; a two-second one
-doesn't.
+Use `npm run check` for the current edit and run the specific acceptance case for
+the ticket. Before handoff, run `npm run check -- --base <target-ref>` against
+the branch receiving the ticket so committed changes are covered too.
 
 ## Stay inside the ticket
 

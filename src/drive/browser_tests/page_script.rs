@@ -16,7 +16,7 @@ use crate::drive::http;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 #[spec("hot-reload-works-for-every-page")]
@@ -75,7 +75,7 @@ async fn widgets_mount_on_load_and_after_a_live_update() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
@@ -131,7 +131,7 @@ async fn a_deck_shows_one_slide_and_moves_with_the_arrow_keys() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
@@ -190,7 +190,7 @@ async fn a_deck_served_with_comments_off_shows_no_comment_ui() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text() {
@@ -250,7 +250,7 @@ async fn on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_its_sidebar_only() {
@@ -402,7 +402,7 @@ fn navbar_folder(name: &str) -> PathBuf {
     )
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
@@ -428,7 +428,7 @@ async fn the_logo_shows_before_the_title_and_is_the_tab_icon() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
@@ -504,7 +504,7 @@ async fn the_navbar_opens_its_dropdown_and_follows_the_page_shown() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
@@ -574,7 +574,7 @@ async fn the_theme_toggle_switches_every_token_and_remembers_the_choice() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_diagram_comes_drawn_follows_the_theme_and_its_nodes_are_links() {
@@ -611,7 +611,7 @@ async fn a_diagram_comes_drawn_follows_the_theme_and_its_nodes_are_links() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn on_a_narrow_screen_the_navbar_folds_into_the_one_menu() {
@@ -636,7 +636,7 @@ async fn on_a_narrow_screen_the_navbar_folds_into_the_one_menu() {
     browser.close().await.ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn every_system_widget_renders() {
@@ -738,7 +738,7 @@ async fn every_system_widget_renders() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
@@ -804,7 +804,7 @@ async fn widgets_work_in_a_doc_and_a_deck_and_a_page_loads_only_what_it_uses() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn an_edited_helper_reaches_open_pages() {
@@ -837,7 +837,7 @@ async fn an_edited_helper_reaches_open_pages() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn an_edited_widget_rendered_by_name_reaches_open_pages() {
@@ -874,7 +874,7 @@ async fn an_edited_widget_rendered_by_name_reaches_open_pages() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_reload_downloads_nothing_again() {
@@ -959,7 +959,7 @@ async fn settled(page: &Page, answered: &Answered, from: usize) -> Vec<(String, 
         .collect()
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_change_fetches_nothing_and_every_frame_shows_a_slide() {
@@ -1011,7 +1011,7 @@ async fn a_slide_change_fetches_nothing_and_every_frame_shows_a_slide() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn an_outline_click_scrolls_without_a_fetch() {
@@ -1047,7 +1047,7 @@ async fn an_outline_click_scrolls_without_a_fetch() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_live_update_keeps_unchanged_widgets_their_state_and_the_scroll() {
@@ -1111,7 +1111,7 @@ async fn a_live_update_keeps_unchanged_widgets_their_state_and_the_scroll() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn live_updates_during_a_load_make_one_more_load() {
@@ -1144,7 +1144,7 @@ async fn live_updates_during_a_load_make_one_more_load() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_link_swaps_in_a_whole_page_and_back_restores_the_scroll() {
@@ -1198,7 +1198,7 @@ async fn a_link_swaps_in_a_whole_page_and_back_restores_the_scroll() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn comments_are_asked_for_each_page_source_at_once() {
@@ -1240,7 +1240,7 @@ async fn comments_are_asked_for_each_page_source_at_once() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
@@ -1276,7 +1276,7 @@ async fn a_change_that_leaves_the_page_as_it_was_leaves_the_dom_untouched() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 #[spec("widget-names-are-unique")]
@@ -1330,7 +1330,7 @@ async fn failing_widgets_show_why_and_a_clash_keeps_the_system_widget() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::page_script::`.
 #[tokio::test]
 #[ignore]
 async fn a_comment_anchors_on_text_inside_a_widget() {

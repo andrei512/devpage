@@ -48,7 +48,7 @@ export default function Counter() {
 "#;
 
 /// Drives chrome-headless-shell and runs the stand-in with devpage's own
-/// bun; run with `cargo test -- --ignored`. Where `devpage setup` has not
+/// bun; run with `cargo test --bin devpage -- --ignored browser_tests::world::`. Where `devpage setup` has not
 /// installed bun there is nothing to run it with, and the test says so.
 #[tokio::test]
 #[ignore]

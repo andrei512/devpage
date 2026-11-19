@@ -140,7 +140,7 @@ fn tracks(mp4: &[u8]) -> Vec<(String, u32, u32)> {
 }
 
 /// Drives Chrome for Testing, no GPT-Live; run with
-/// `cargo test -- --ignored`.
+/// `cargo test --bin devpage -- --ignored browser_tests::video::`.
 #[tokio::test]
 #[ignore]
 async fn a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice() {
@@ -175,7 +175,7 @@ async fn a_deck_is_recorded_to_a_1920_by_1080_mp4_with_its_voice() {
 /// A slide showing a slide's PNG while it is recorded: the recording
 /// tab isn't one devpage shoots, so the PNG is drawn for it, never
 /// refused as if asked for inside a shot. Drives Chrome for Testing and
-/// chrome-headless-shell, no GPT-Live; run with `cargo test -- --ignored`.
+/// chrome-headless-shell, no GPT-Live; run with `cargo test --bin devpage -- --ignored browser_tests::video::`.
 #[tokio::test]
 #[ignore]
 async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
@@ -219,7 +219,7 @@ async fn a_recorded_slide_showing_a_slides_png_gets_it_drawn() {
 }
 
 /// Calls GPT-Live, which bills per minute; run with
-/// `cargo test -- --ignored` and `DEVPAGE_OPENAI_API_KEY` set.
+/// `cargo test --bin devpage -- --ignored browser_tests::video::` and `DEVPAGE_OPENAI_API_KEY` set.
 #[tokio::test]
 #[ignore]
 async fn a_deck_is_narrated_by_gpt_live() {

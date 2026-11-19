@@ -38,7 +38,7 @@ async fn deck(name: &str, files: &[(&str, &str)]) -> (String, PathBuf, Shots) {
     (testing::serve(http::router(app)).await, dir, shots)
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_is_shot_without_its_comments() {
@@ -70,7 +70,7 @@ async fn a_slide_is_shot_without_its_comments() {
     assert!(after == before, "the comment shows in the slide's PNG");
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_is_shot_without_the_widgets_in_its_decks_places() {
@@ -112,7 +112,7 @@ async fn a_slide_is_shot_without_the_widgets_in_its_decks_places() {
     );
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_is_shot_without_its_problems() {
@@ -142,7 +142,7 @@ async fn a_slide_is_shot_without_its_problems() {
     assert!(broken == fixed, "the problem shows in the slide's PNG");
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_beside_a_design_is_drawn_without_waiting_for_it() {
@@ -179,7 +179,7 @@ async fn a_slide_beside_a_design_is_drawn_without_waiting_for_it() {
     assert!(second.headers().get("x-devpage-ready").is_none());
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_showing_its_own_png_returns_promptly() {
@@ -203,7 +203,7 @@ async fn a_slide_showing_its_own_png_returns_promptly() {
     );
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
@@ -256,7 +256,7 @@ async fn a_repeat_request_comes_from_the_cache_until_a_file_changes() {
     assert_ne!(changed.bytes().await.unwrap(), first);
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
@@ -295,7 +295,7 @@ async fn chrome_closes_when_told_and_starts_again_for_the_next_shot() {
     shots.close().await;
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn a_slide_is_served_as_a_1920_by_1080_png() {
@@ -343,7 +343,7 @@ async fn a_slide_is_served_as_a_1920_by_1080_png() {
 
 /// `devpage png --slide`: the slide drawn with no server running, as the
 /// deck's own route draws it. Drives chrome-headless-shell; run with
-/// `cargo test -- --ignored`.
+/// `cargo test --bin devpage -- --ignored browser_tests::slide_png::`.
 #[tokio::test]
 #[ignore]
 async fn png_draws_a_slide_without_a_server() {

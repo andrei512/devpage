@@ -28,7 +28,7 @@ both suites. The deploy-server PDF target selects a separate Docker check.
 
 When adding a browser behavior or moving a fixture, update its target inputs
 and add a representative change to the selection tests. Fixtures include real
-project documents and their assets. Each ignored Rust test must match a suite
+project documents and their assets. Each ignored test in the devpage binary must match a suite
 filter. Run `node tools/browser-tests/inventory.mjs` to compare the filters
 with the compiled test inventory without starting Chrome. The project-wide
 [check command](../developing-devpage/README.md#the-gates) includes these suites
@@ -54,12 +54,7 @@ execution steps separately when measuring CI savings.
 
 ## How they are written
 
-`cargo test` runs every default member of the workspace: 190 in `devpage`, six of
-them in `tests/`, 271 in its
-core `devpage-core`, 154 in the engine `devpage-design`, 10 in
-`devpage-design-wasm`, whose tests run natively, 2 in
-`devpage-design-module`, 16 in `devpage-bench` and 1 in
-`devpage-extension-api`. Tests are written as `#[cfg(test)]` modules beside
+`cargo test` runs the default tests across all seven workspace crates. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
 `canvas`, `comments`, `pdf`, `places`, `sidebar`, `slide_png`, `video`, `world`,
@@ -79,7 +74,7 @@ test is kept for what only a browser does: layout, the page script, painting,
 input and live updates.
 Below, each suite's tests are listed under the module whose behaviour they
 pin. The `tests/`
-folder holds three, [the search's quality](#the-searchs-quality),
+folder covers CLI exit codes, [the search's quality](#the-searchs-quality),
 [a server's threads](#a-servers-threads) and
 [the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
