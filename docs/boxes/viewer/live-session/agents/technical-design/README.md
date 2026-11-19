@@ -247,7 +247,7 @@ and `task`.
   sent with and whether the connection took it.
 - **`agent`:** an agent created and what it was forked from, each task given,
   each turn's start and end with its time, turns and cost, the agent's own
-  text and each tool it used, and the base agent being built.
+  text and each tool it used.
 - **`world`:** every entry of the world, as the line Fast reads.
 - **`service`:** a voice session starting, failing or ending, a hand-over's
   words being cut (`handover_cut`) or missing (`handover_without_words`), the

@@ -1,9 +1,9 @@
 // The slow agents: each one is a conversation with an agent harness, with its own context. Which harness is not known
 // here: it is behind `Harness`, and Claude Code is the one there is. Fast gives an agent a piece of work as one prompt;
 // the agent does it in one turn and publishes updates on that task, the last of which says it is finished or failed.
-// An agent runs one task at a time, and a follow-up waits its turn. A new agent is a fork of the base agent, which has
-// read the project and takes no tasks, or a fork of another agent, which then starts with what that one knows; where
-// the harness cannot fork, it starts empty. Between tasks an agent is only a saved conversation: it is picked up again
+// An agent runs one task at a time, and a follow-up waits its turn. A new agent starts empty and reads what its
+// task needs, or is a fork of another agent, which then starts with what that one knows; where the harness cannot
+// fork, a fork starts empty too. Between tasks an agent is only a saved conversation: it is picked up again
 // when work arrives for it.
 //
 // Two things are kept apart. A task is the live session's: the work the user asked for, with its updates. A turn is the
@@ -74,7 +74,7 @@ export interface AgentHooks {
   /** An agent appeared, was named, started or stopped working, or was closed: the open pages are told. */
   changed: () => void;
   /** Something for the session's log. */
-  log: (kind: string, fields: { agent?: number | "base"; task?: number; text?: string; [more: string]: unknown }) => void;
+  log: (kind: string, fields: { agent?: number; task?: number; text?: string; [more: string]: unknown }) => void;
 }
 
 interface Agent {
@@ -90,8 +90,8 @@ interface Agent {
   session: string | null;
   /** The conversation it starts as a copy of, until it has its own. */
   of: string | null;
-  /** Where it came from: the base agent, another agent, or nothing (when the base agent was not ready). */
-  from: "base" | "fresh" | number;
+  /** Where it came from: nothing, or the agent it is a fork of. */
+  from: "fresh" | number;
   queue: Job[];
   /** The task it is doing now. */
   doing: number | null;
@@ -101,21 +101,11 @@ interface Agent {
   report?: "asked" | "ended";
 }
 
-/** A harness's base agent: the conversation every new agent of that harness starts as a copy of. */
-interface Base {
-  session: string;
-  built: string;
-  tools?: string;
-}
-
 interface Saved {
   next: number;
-  /** Each harness's base agent. */
-  bases?: Record<string, Base>;
-  /** From before there were several harnesses: the base agent of the one harness there was. */
-  base?: Base | null;
   /** `harness` and `model` are left out by a file from before there were routes: such an agent is of the first harness there was, Claude Code. */
-  agents: (Pick<Agent, "id" | "session" | "of" | "from"> & { name?: string | null; harness?: string; model?: string | null })[];
+  /** `from` is "base" in a file from when new agents were copies of an agent that had read the project. */
+  agents: (Pick<Agent, "id" | "session" | "of"> & { from: Agent["from"] | "base"; name?: string | null; harness?: string; model?: string | null })[];
 }
 
 /** Where an agent runs: a harness, as the settings name it, and one of its models. */
@@ -127,11 +117,8 @@ export interface On {
 /** The harness of the agents from before there were several. */
 const FIRST = "claude-code";
 
-/** How long a base agent is used before it is built again: the project changes under it. */
-const BASE_AGE = 12 * 60 * 60 * 1000;
-
 /** What every slow agent is told about its role. `pads` is the folder the scratch pads are in. */
-const brief = (pads: string) => `${SHARED_BRIEF}
+const brief = (pads: string, fullFilesystemAccess: boolean) => `${SHARED_BRIEF}
 
 You are one of the slow agents: you do the work. Fast gives you a piece of work as a message "Task <number>", with what the user said and, when it matters, the page the user was on and the part of it the user had marked: words such as "this" and "here" mean that part. A page's address is its file's path from the project root. Several agents work in this project at the same time: change only what your task needs.
 
@@ -148,7 +135,7 @@ Every task ends with \`finished\` or \`failed\`, and then you end your turn.
 
 An update is spoken to the user as it is written. So write it to be heard: one to four plain sentences, in the first person, the answer or the result first, then what you did not verify, then what the user has to decide. No Markdown, no lists, no file paths read out unless the user needs them, no praise, no account of how you worked. Never ask a question back when the user wanted an answer: say what you assumed.
 
-How to use the scratch pad. A scratch pad is a page that is not in the project: a Markdown file in the session's own folder, shown to the user on a canvas over their page while you two work out an idea. When a task names a scratch pad, or the page the user is on is one, the answer is drawn there: write that file, and nothing in the project unless the user asks for it. A pad's address is \`pads/\` and its file's name, and its file is in \`${pads}\`: the pad \`pads/how-it-works.md\` is the file \`${pads}/how-it-works.md\`. That folder is the only place outside the project where you may write. The user looks at a pad while talking, so make it something to look at and point at, not prose and not a document: a Mermaid diagram for parts and how they connect, a table for options compared on several points, a numbered list for a plan, exact names, numbers and wording where they matter. Keep it high level and small enough to take in at a glance: as a rule one picture, three or four short lines, at most one small table, and the two or three things the user has to decide. No sections of explanation, no reasons, no build steps, no list of limits: those you say, or the user asks for.
+How to use the scratch pad. A scratch pad is a page that is not in the project: a Markdown file in the session's own folder, shown to the user on a canvas over their page while you two work out an idea. When a task names a scratch pad, or the page the user is on is one, the answer is drawn there: write that file, and nothing in the project unless the user asks for it. A pad's address is \`pads/\` and its file's name, and its file is in \`${pads}\`: the pad \`pads/how-it-works.md\` is the file \`${pads}/how-it-works.md\`. ${fullFilesystemAccess ? "This session allows reading and writing outside the project when the task requires it." : "Limit file reads and writes to the project and its scratch pads."} The user looks at a pad while talking, so make it something to look at and point at, not prose and not a document: a Mermaid diagram for parts and how they connect, a table for options compared on several points, a numbered list for a plan, exact names, numbers and wording where they matter. Keep it high level and small enough to take in at a glance: as a rule one picture, three or four short lines, at most one small table, and the two or three things the user has to decide. No sections of explanation, no reasons, no build steps, no list of limits: those you say, or the user asks for.
 
 A pad is drawn in the open, part by part, and never in one save. The user watches the canvas from the moment the task is given: an empty canvas, and then a whole pad appearing at once, is the failure to avoid, even when the pad is small and you already know all of it. The order is fixed, for every new pad:
 1. Your first update.
@@ -171,19 +158,14 @@ const PAD_ORDER = `When this task has you draw a scratch pad or a new part of on
 /** A task about a scratch pad: Fast names the pad's address, or it is the page the user is on. */
 const aboutPad = (prompt: string) => /(^|[^\w/.-])pads\/[a-z0-9][a-z0-9-]*\.md\b/.test(prompt);
 
-const BASE_PROMPT = `You are the base of the live session's agents: every new agent starts as a copy of you, so what you read now none of them has to find again. Get to know this project, and change nothing: read its instructions for agents (CLAUDE.md or AGENTS.md, and what they point to), the layout of the folders, its main READMEs, the writing rules, and how a page becomes what the user sees in devpage. Then reply with a short map of the project: where things are, and the rules that apply to every change.`;
-
 export class Agents {
   private readonly tools: (agent: number | null) => HarnessTool[];
   private readonly agents = new Map<number, Agent>();
   private next = 1;
-  private readonly bases = new Map<string, Base>();
-  /** The harnesses whose base agent is being built. */
-  private readonly building = new Set<string>();
 
   /** `root` is the project's folder and `pads` the folder of the scratch pads. `harnesses` are the ones that are enabled, by the name the settings give each. `routes` are the enabled routes, in
       their order: the first is the one an agent runs on when nothing else is said. */
-  constructor(private readonly root: string, private readonly pads: string, private readonly harnesses: Map<string, Harness>, private readonly routes: On[], private readonly store: SessionStore, private readonly hooks: AgentHooks, first = 1) {
+  constructor(private readonly root: string, private readonly pads: string, private readonly harnesses: Map<string, Harness>, private readonly routes: On[], private readonly store: SessionStore, private readonly hooks: AgentHooks, first = 1, private readonly fullFilesystemAccess = false) {
     // A number is never given twice: tasks are kept by their agent's number.
     this.next = first;
     if (hooks.worldTools) {
@@ -197,27 +179,15 @@ export class Agents {
     const saved = store.get<Saved>("agents");
     if (saved) {
       this.next = Math.max(first, saved.next);
-      for (const [harness, base] of Object.entries(saved.bases ?? (saved.base ? { [FIRST]: saved.base } : {}))) this.bases.set(harness, base);
       for (const agent of saved.agents) {
         const harness = agent.harness ?? FIRST;
         // An agent of a harness that is no longer enabled cannot work: it is closed.
         if (!harnesses.has(harness)) continue;
-        this.agents.set(agent.id, { ...agent, harness, model: agent.model ?? null, name: agent.name ?? null, queue: [], doing: null, asked: false, running: null });
+        // Such an agent that never ran has only the copy to start from, which is no longer kept up: it starts empty.
+        const based = agent.from === "base";
+        this.agents.set(agent.id, { ...agent, from: agent.from === "base" ? "fresh" : agent.from, of: based ? null : agent.of, harness, model: agent.model ?? null, name: agent.name ?? null, queue: [], doing: null, asked: false, running: null });
       }
     }
-    // The base agent of the default route's harness is built now. Another harness's is built when it is first used.
-    this.based(this.routes[0].harness);
-  }
-
-  /** A harness's base agent, when it has one that is not too old. Without one, it is built for the next agent. */
-  private based(harness: string): Base | null {
-    // A base agent is only of use where a new agent can start as a copy of it.
-    if (!this.harnesses.get(harness)?.can.fork) return null;
-    const base = this.bases.get(harness);
-    const matching = base?.tools === this.toolFingerprint();
-    if (base && matching && Date.now() - new Date(base.built).getTime() <= BASE_AGE) return base;
-    void this.build(harness);
-    return matching ? base ?? null : null;
   }
 
   /** The harness an agent runs on. */
@@ -226,7 +196,7 @@ export class Agents {
   }
 
   private save() {
-    const saved: Saved = { next: this.next, bases: Object.fromEntries(this.bases), agents: [...this.agents.values()].map(({ id, name, harness, model, session, of, from }) => ({ id, name, harness, model, session, of, from })) };
+    const saved: Saved = { next: this.next, agents: [...this.agents.values()].map(({ id, name, harness, model, session, of, from }) => ({ id, name, harness, model, session, of, from })) };
     this.store.set("agents", saved);
   }
 
@@ -274,12 +244,10 @@ export class Agents {
     });
   }
 
-  /** A new agent for a piece of work, on a route, or on the default one: a fork of its harness's base agent, or one that
-      starts empty while that base is not ready. */
+  /** A new agent for a piece of work, on a route, or on the default one. It starts empty. */
   spawn(job: Job, on: On = this.routes[0]) {
     if (!this.harnesses.has(on.harness)) throw new Error(`no harness ${on.harness} is enabled`);
-    const base = this.based(on.harness);
-    return this.create(base ? "base" : "fresh", base?.session ?? null, job, on);
+    return this.create("fresh", null, job, on);
   }
 
   /** A new agent that starts with what another one knows, on that one's route. Where the harness cannot fork, it starts empty. */
@@ -362,9 +330,7 @@ export class Agents {
       session: agent.session ?? agent.of,
       fork: forking,
       message: `Task ${job.task}\n${job.prompt}${aboutPad(job.prompt) ? `\n\n${PAD_ORDER}` : ""}`,
-      brief: brief(this.pads),
-      root: this.root,
-      also: [this.pads],
+      ...this.workspace(),
       tools: this.tools(agent.id),
     });
     agent.running = running;
@@ -399,10 +365,6 @@ export class Agents {
       if (!again && !agent.report && (agent.session || agent.of)) {
         this.hooks.log("agent_session_lost", { agent: agent.id, task: job.task, text: why, harness_session: agent.session, of: agent.of });
         tell({ ended: Date.now(), state: "failed" });
-        if (forking && agent.from === "base") {
-          this.bases.delete(agent.harness);
-          void this.build(agent.harness);
-        }
         agent.session = null;
         agent.of = null;
         this.save();
@@ -416,7 +378,7 @@ export class Agents {
     tell({ ended: Date.now(), state: end ?? "failed" });
   }
 
-  /** Register the work part before creating agents, so new base conversations have the full tool list. */
+  /** Register the work part before creating agents, so every agent has the full tool list. */
   static registerFunctions(as: Registering, agents: () => Agents) {
     as.set("update", {
       for: "slow",
@@ -478,41 +440,15 @@ export class Agents {
     }, filter => agents().hooks.readLog(filter));
   }
 
-  private toolFingerprint() {
-    const descriptions = this.tools(null).map(tool => [tool.name, tool.description, z.toJSONSchema(z.object(tool.input))]);
-    return new Bun.CryptoHasher("sha256").update(JSON.stringify(descriptions)).digest("hex");
+  private workspace() {
+    return {
+      root: this.root,
+      also: [this.pads],
+      fullFilesystemAccess: this.fullFilesystemAccess,
+      brief: brief(this.pads, this.fullFilesystemAccess),
+    };
   }
 
-  /** Builds a harness's base agent: a conversation that reads the project once. Until it is ready, new agents of that harness start empty. */
-  private async build(harness: string) {
-    if (this.building.has(harness)) return;
-    this.building.add(harness);
-    const began = Date.now();
-    this.hooks.log("base_building", { agent: "base", harness });
-    try {
-      let session: string | null = null;
-      // On the first model that is enabled for the harness. It has the agents' tools, so that a fork of it starts with
-      // the same ones it was built with.
-      const model = this.routes.find((route) => route.harness === harness)?.model ?? null;
-      const tools = this.toolFingerprint();
-      const running = this.harnesses.get(harness)!.turn({ session: null, fork: false, model, message: BASE_PROMPT, brief: brief(this.pads), root: this.root, also: [this.pads], tools: this.tools(null) });
-      for await (const event of running.events) {
-        if (event.type === "started") session = event.session;
-        if (event.type !== "ended") continue;
-        if (event.state === "done" && session) {
-          this.bases.set(harness, { session, tools, built: new Date().toISOString() });
-          this.save();
-          this.hooks.log("base_ready", { agent: "base", harness, harness_session: session, text: event.text, ms: Date.now() - began, turns: event.detail?.turns, cost_usd: event.detail?.cost_usd });
-        } else {
-          this.hooks.log("base_failed", { agent: "base", harness, text: event.text, ms: Date.now() - began });
-        }
-      }
-    } catch (error) {
-      this.hooks.log("base_failed", { agent: "base", harness, text: error instanceof Error ? error.message : String(error), ms: Date.now() - began });
-    } finally {
-      this.building.delete(harness);
-    }
-  }
 }
 
 export const registerAgentFunctions = Agents.registerFunctions;

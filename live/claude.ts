@@ -1,7 +1,7 @@
 // Claude Code, as a harness: each agent is a Claude Code session on the user's own Claude login, run with the Claude Agent
 // SDK. Everything that knows Claude Code is in this file: how a session is continued or forked, how the live session's
 // tools are handed to it, and how its messages become items.
-import { relative, resolve, sep } from "node:path";
+import { relative, sep } from "node:path";
 import { createSdkMcpServer, getSessionMessages, query, tool, type Options, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { Harness, HarnessTool, Item, ItemKind, Model, PastTurn, Turn, TurnEnd, TurnEvent, TurnInput } from "./harness.ts";
 import { toolReply } from "./harness.ts";
@@ -229,20 +229,23 @@ export class ClaudeCode implements Harness {
       ...(input.model ? { model: input.model } : {}),
       ...(input.session ? { resume: input.session, forkSession: input.fork } : {}),
       env: this.env(),
-      settingSources: ["project"],
+      // Project Claude settings may add working directories or unsandboxed hooks.
+      settingSources: input.fullFilesystemAccess ? ["project"] : [],
       systemPrompt: { type: "preset", preset: "claude_code", append: input.brief },
       mcpServers: { [SERVER]: createSdkMcpServer({ name: SERVER, tools: served }) },
-      // Nobody is there to approve prompts while the user talks, so everything is allowed except changing files outside
-      // the project and the folders given with it.
+      additionalDirectories: input.also,
+      ...(!input.fullFilesystemAccess && {
+        settings: {
+          permissions: {
+            blockReadsOutsideWorkingDirectories: true,
+            blockWritesOutsideWorkingDirectories: true,
+            workingDirectoriesAsGiven: [root, ...(input.also ?? [])],
+          },
+        },
+        sandbox: { enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false },
+      }),
       permissionMode: "default",
-      canUseTool: async (name, args) => {
-        const path = args.file_path ?? args.notebook_path;
-        const edits = ["Edit", "Write", "MultiEdit", "NotebookEdit"].includes(name);
-        if (edits && typeof path === "string" && ![root, ...(input.also ?? [])].some((folder) => resolve(root, path).startsWith(folder + sep))) {
-          return { behavior: "deny", message: "Only files inside the project folder may be changed." };
-        }
-        return { behavior: "allow", updatedInput: args };
-      },
+      canUseTool: async (_name, args) => ({ behavior: "allow", updatedInput: args }),
     };
   }
 }

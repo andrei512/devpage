@@ -17,8 +17,6 @@ export interface Scope {
   pages: string[];
   /** Enabled routes at the start of this run. */
   routes?: string[];
-  /** The user's messages of the hand-over that woke Fast: a script that gives work to an agent must use one of them. */
-  handover: number[];
   /** The scratch pads there are, as addresses. Left out where there are none to know of. */
   pads?: string[];
 }
@@ -150,11 +148,6 @@ const PRELUDE = `(() => {
 
   globalThis.__worldCall = (name, input) => intents.push({ do: "world", name, input });
   globalThis.__done = () => {
-    const gives = intents.some((intent) => intent.do === "spawn" || intent.do === "send" || intent.do === "fork");
-    const mine = scope.handover.map((id) => "m" + id);
-    if (gives && mine.length > 0 && !mine.some((name) => used.includes(name))) {
-      throw new Error("The prompt for the agent does not have what the user just said. The user said " + mine.join(", ") + ": put it in the prompt as " + mine.map((name) => "\${" + name + "}").join(" ") + ".");
-    }
     return JSON.stringify({ intents, used: [...new Set(used)], printed });
   };
 })()`;

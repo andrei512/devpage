@@ -136,7 +136,7 @@ spawn(`The user asked: "${m41}"`);
 say("I'm checking what marks that step.");
 ```
 
-What a script can use is on [the world page](../world/README.md#what-a-script-can-use).
+What a script can use is on [Fast's scripts](../world/scripts/README.md#what-a-script-can-use).
 
 How the reply returns:
 

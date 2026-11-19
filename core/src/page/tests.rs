@@ -784,6 +784,11 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
         nav.find("class=\"document-title").unwrap() < search && search < nav.find("<ul>").unwrap(),
         "{nav}"
     );
+    // The resize handle closes the sidebar, after the tree.
+    assert!(
+        nav.contains("</ul><div class=\"resize\" role=\"separator\""),
+        "{nav}"
+    );
     // The tree, as JSON, for DevpageSidebar to take the sidebar over from.
     let data = html
         .split("<script type=\"application/json\" id=\"devpage-sidebar\">")

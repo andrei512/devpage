@@ -327,7 +327,7 @@ export class Registry {
         input: fn.input,
         run: async (input: any) => {
           try {
-            if (agent === null && fn.does !== "get") throw new Error("A base agent has no active task.");
+            if (agent === null && fn.does !== "get") throw new Error("There is no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             if (result && typeof result === "object" && "image" in result && typeof result.image === "string" && "text" in result && typeof result.text === "string") {
               const image = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(result.image);

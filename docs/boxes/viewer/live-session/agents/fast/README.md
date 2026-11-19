@@ -43,7 +43,7 @@ A wake adds the following text to Fast’s conversation, followed by any images 
 
 - **What woke it:** `Wake-up 14. The user just said m41.`, `New updates: u12.`,
   or `Something could not be done.`
-- **The world's new entries,** each as [its line](../world/README.md#one-numbered-log).
+- **The world's new entries,** each as [its line](../world/log/README.md).
 - **The page:** its address, what is marked on it, whether the side panel is
   open, and, while the canvas is open, that the page is the scratch pad on it.
 - **The page's text,** its first 14,000 characters, only when Fast has not
@@ -66,8 +66,8 @@ A wake adds the following text to Fast’s conversation, followed by any images 
 - You ask again for work that is running: Fast says it is still being done.
 - Half a sentence, or thinking aloud with nothing to do: nothing.
 
-How it writes the task: your exact words as a value (`${m41}`), what your
-words leave out, and nothing you did not ask for. The page and the marked
+Fast writes the request and the context the agent needs. It can quote a message
+using its reference (`${m41}`). The page and the marked
 part are added by the program.
 
 ## Picking a slow agent
@@ -78,7 +78,7 @@ Fast's brief, not code.
 ```mermaid
 flowchart TD
   work["A piece of work"] --> q1{"Does an agent already<br/>know this?"}
-  q1 -->|"no, or not sure"| fresh["A fork of the base agent"]
+  q1 -->|"no, or not sure"| fresh["A new agent"]
   q1 -->|"yes"| q2{"Is that agent busy?"}
   q2 -->|"free, or waiting for an answer"| send["That agent"]
   q2 -->|"busy, and this changes<br/>the running work"| send
@@ -92,9 +92,9 @@ flowchart TD
 - **A fork of an agent: `a2.fork`.** When that agent knows the area but is
   busy with something else. It costs a new conversation that starts with the
   other's context.
-- **A fork of the base agent: `spawn`.** When nothing in the window fits, or
-  Fast is not sure. It costs a new conversation with only the project
-  knowledge.
+- **A new agent: `spawn`.** When nothing in the window fits, or Fast is not
+  sure. It costs a new conversation that starts empty and reads what its
+  task needs.
 
 **When unsure, a new agent.** A wrong new agent costs some context. A wrong
 guess at an old one costs you a confused answer.
@@ -157,7 +157,7 @@ voice hand-over and on task updates. It does six things:
 1. Wakes Fast, on a hand-over and on updates.
 2. Builds the input: the world changes since the last run, appended to Fast's
    conversation.
-3. Runs `exec` in QuickJS, with [what a script can use](../world/README.md#what-a-script-can-use).
+3. Runs `exec` in QuickJS, with [what a script can use](../world/scripts/README.md#what-a-script-can-use).
 4. Carries out the script's calls: to Voice, to the page, to the slow agents.
 5. Logs each run: what woke it, what Fast saw, the script, what it did.
 6. Swaps Fast before its context fills: see [the swap](#swapping-fast-before-its-context-fills).
@@ -212,7 +212,7 @@ place what you say, it starts a new agent.
 6. **Drop.** The old Fast is dropped. Idle agents that no task in the
    successor's window refers to are closed.
 
-Step 5 is exact because the world is [one numbered log](../world/README.md#one-numbered-log):
+Step 5 is exact because the world is [one numbered log](../world/log/README.md):
 "since step 3" is "after entry N".
 
 ### What can go wrong

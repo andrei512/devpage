@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 // A site's sidebar: devpage's own chrome, not a widget for pages. The server
 // renders the same markup (core/src/page/sidebar.rs) and the tree as JSON; the
@@ -9,6 +9,12 @@ import { useEffect, useId, useRef, useState } from "react";
 // included; a chevron opens or closes any entry with children. What the
 // reader opens is remembered per document in localStorage — the page's
 // inline script opens those entries before the first paint, as this does.
+// The page shown is scrolled into sight when it is not, there and here.
+//
+// The handle on its right edge sets its width: dragged, or moved with the
+// arrow keys, and back to devpage's own on a double click. The width is
+// remembered for every document, in localStorage, and the inline script
+// gives it to the sidebar before the first paint.
 //
 // The search box at its top asks /__devpage/search as the reader types;
 // while it holds text, the results take the tree's place, grouped by page:
@@ -76,6 +82,69 @@ function branch(groups: Group[], current: string): string[] {
   return groups.flatMap((g) => g.entries)
     .filter((e) => e.children.length && leadsTo(e, current))
     .flatMap((e) => [e.href, ...branch(e.children, current)]);
+}
+
+// Scrolls the sidebar so the page shown is in sight: to the middle when it
+// was out of sight, and not at all when the reader can already see it. The
+// page's inline script does the same before the first paint.
+function showCurrent() {
+  const nav = document.getElementById("devpage-nav");
+  const link = nav?.querySelector("ul a.current");
+  if (!nav || !link) return;
+  const around = nav.getBoundingClientRect();
+  const at = link.getBoundingClientRect();
+  if (at.top < around.top || at.bottom > around.bottom) nav.scrollTop += at.top - around.top - (around.height - at.height) / 2;
+}
+
+const WIDTH_KEY = "devpage-sidebar-width";
+// The widths a drag can reach; the stylesheet also keeps the sidebar under
+// half the window.
+const NARROWEST = 200;
+const WIDEST = 640;
+
+// Gives the sidebar a width, or devpage's own for `null`. `keep` remembers it.
+function setWidth(width: number | null, keep: boolean) {
+  const style = document.documentElement.style;
+  if (width === null) style.removeProperty("--sidebar-width");
+  else style.setProperty("--sidebar-width", `${Math.round(Math.min(WIDEST, Math.max(NARROWEST, width)))}px`);
+  if (!keep) return;
+  try {
+    if (width === null) localStorage.removeItem(WIDTH_KEY);
+    else localStorage.setItem(WIDTH_KEY, String(parseInt(style.getPropertyValue("--sidebar-width"))));
+  } catch {
+    // Storage may be blocked; the width holds for this visit.
+  }
+}
+
+// The handle on the sidebar's right edge. The sidebar stands at the window's
+// left, so the pointer's x is the width asked for.
+function Resize() {
+  const drag = (down: React.PointerEvent) => {
+    if (down.button !== 0) return;
+    down.preventDefault();
+    const root = document.documentElement;
+    root.classList.add("resizing-sidebar");
+    const move = (event: PointerEvent) => setWidth(event.clientX, false);
+    const up = (event: PointerEvent) => {
+      setWidth(event.clientX, true);
+      root.classList.remove("resizing-sidebar");
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+  };
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    const now = document.getElementById("devpage-nav")?.getBoundingClientRect().width ?? 0;
+    setWidth(now + (event.key === "ArrowRight" ? 16 : -16), true);
+  };
+  return (
+    <div className="resize" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" tabIndex={0} onPointerDown={drag} onDoubleClick={() => setWidth(null, true)} onKeyDown={onKeyDown} />
+  );
 }
 
 function Tree({ groups, current, open, toggle, hidden = false }: { groups: Group[]; current: string; open: Set<string>; toggle: (href: string) => void; hidden?: boolean }) {
@@ -286,6 +355,8 @@ export default function DevpageSidebar({ document = "", document_path = "", curr
     setOpen(opened);
     setShown({ document, current });
   }
+  // A page far down a long tree is brought into sight when it is shown.
+  useLayoutEffect(showCurrent, [document, current]);
   // From the state as it is when React applies the click, so clicks that
   // come before a render each count. Remembering is idempotent.
   const toggle = (href: string) =>
@@ -363,6 +434,7 @@ export default function DevpageSidebar({ document = "", document_path = "", curr
         </div>
       ) : null}
       <Tree groups={groups} current={current} open={opened} toggle={toggle} hidden={search.pages !== null} />
+      <Resize />
     </>
   );
 }

@@ -262,7 +262,7 @@ const agents = new Agents(ROOT, PADS, enabled, routes, store, {
     else tasks.change(task, { summary: text });
     world.add<Update>({ kind: "update", id, task, agent, type, text });
   }),
-}, Math.max(0, ...tasks.all().map((task) => task.agent ?? 0)) + 1);
+}, Math.max(0, ...tasks.all().map((task) => task.agent ?? 0)) + 1, SETTINGS.fullFilesystemAccess === true);
 
 /** The pages, read from the folders at most every few seconds. */
 let mapped: { at: number; pages: ReturnType<typeof map> } | null = null;

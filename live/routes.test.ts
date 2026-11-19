@@ -60,10 +60,10 @@ async function setup() {
 
 const hooks = (): AgentHooks => ({ published: () => {}, holds: () => false, comment: async () => {}, readLog: () => [], owns: () => true, session: () => {}, changed: () => {}, log: () => {} });
 
-/** The last turn a fake was asked for that was a task, not the building of its base agent. */
+/** The last turn a fake was asked for. */
 const task = (turns: TurnInput[]) => turns.filter((turn) => turn.message.startsWith("Task ")).at(-1);
 
-const SCOPE: Scope = { messages: [{ id: 1, text: "Rename the heading", page: "/docs/README.md", marked: "" }], updates: [], agents: [], page: null, pages: [], handover: [1] };
+const SCOPE: Scope = { messages: [{ id: 1, text: "Rename the heading", page: "/docs/README.md", marked: "" }], updates: [], agents: [], page: null, pages: [] };
 
 test("no settings: nothing is enabled by them, and Fast is told nothing about routes", () => {
   expect(settings(undefined, () => {})).toBeNull();
@@ -165,20 +165,38 @@ test("a follow-up and a fork stay on their agent's route", async () => {
   expect(claude.turns.filter((turn) => turn.message.startsWith("Task "))).toEqual([]);
 });
 
-test("each harness has its own base agent, on its first enabled model", async () => {
+for (const fullFilesystemAccess of [false, true]) {
+  test(`new, resumed and forked turns inherit fullFilesystemAccess=${fullFilesystemAccess}`, async () => {
+    const { routes, claude, harnesses, folder } = await setup();
+    const pads = join(folder, "pads");
+    const agents = new Agents(folder, pads, harnesses, routes, new SessionStore(folder), hooks(), 1, fullFilesystemAccess);
+    await Bun.sleep(50);
+    const first = agents.spawn({ task: 1, prompt: "start" });
+    await Bun.sleep(50);
+    agents.send(first, { task: 2, prompt: "continue" });
+    agents.fork(first, { task: 3, prompt: "branch" });
+    await Bun.sleep(50);
+    expect(claude.turns).toHaveLength(3);
+    for (const turn of claude.turns) {
+      expect(turn).toMatchObject({ root: folder, also: [pads], fullFilesystemAccess });
+      expect(turn.brief).toContain(fullFilesystemAccess ? "allows reading and writing outside" : "Limit file reads and writes");
+    }
+  });
+}
+
+test("a new agent starts empty, and nothing runs before the first task", async () => {
   const { routes, claude, codex, harnesses, folder } = await setup();
   const agents = new Agents(folder, join(folder, "pads"), harnesses, routes, new SessionStore(folder), hooks());
   await Bun.sleep(50);
-  // The default route's harness builds its base when the session starts; the other one not until it is used.
-  expect(claude.turns.filter((turn) => !turn.message.startsWith("Task ")).map((turn) => turn.model)).toEqual(["fable"]);
+  expect(claude.turns).toEqual([]);
   expect(codex.turns).toEqual([]);
   agents.spawn({ task: 1, prompt: "first on codex" }, find(routes, "codex/astra"));
-  await Bun.sleep(50);
-  expect(codex.turns.filter((turn) => !turn.message.startsWith("Task ")).map((turn) => turn.model)).toEqual(["astra"]);
-  // The next agent of that harness is a copy of its base.
   agents.spawn({ task: 2, prompt: "second on codex" }, find(routes, "codex/astra"));
   await Bun.sleep(50);
-  expect(task(codex.turns)).toMatchObject({ fork: true, model: "astra" });
+  expect(codex.turns.map(({ session, fork, model }) => ({ session, fork, model }))).toEqual([
+    { session: null, fork: false, model: "astra" },
+    { session: null, fork: false, model: "astra" },
+  ]);
 });
 
 test("the project's rules replace the ones for every project whole, and without its own those hold", () => {
@@ -186,21 +204,4 @@ test("the project's rules replace the ones for every project whole, and without 
   expect(rules(project("- Small edits: claude-code/haiku."), everywhere)).toBe("- Small edits: claude-code/haiku.");
   expect(rules(project(), everywhere)).toBe("- Anything: codex/astra.");
   expect(rules(project(), project())).toBeNull();
-});
-
-test("a saved base is rebuilt when the tools visible to its harness change", async () => {
-  const { routes, claude, harnesses, folder } = await setup();
-  const store = new SessionStore(folder);
-  const make = (description: string) => new Agents(folder, join(folder, "pads"), harnesses, routes, store, {
-    ...hooks(), worldTools: () => [{ name: "tests_run", description, input: {}, run: async () => ({ text: "done" }) }],
-  });
-  make("Run tests");
-  await Bun.sleep(10);
-  expect(claude.turns).toHaveLength(1);
-  make("Run tests");
-  expect(claude.turns).toHaveLength(1);
-  make("Run tests and record results");
-  expect(claude.turns).toHaveLength(2);
-  await Bun.sleep(10);
-  store.close();
 });

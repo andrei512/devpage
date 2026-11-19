@@ -49,8 +49,8 @@ Three things make it: the pad files, the canvas widget, and the canvas in
 ## Who writes a pad
 
 A slow agent, with the tools it already has: it writes the file as it writes
-any page. The folder of pads is the only place outside the project an agent
-may write.
+any page. The session grants access to the pads folder even when agents are
+confined to the project.
 
 - **Fast names the pad and shows it at once.** When you ask to be shown
   something, or an idea needs a picture, Fast makes a pad from the idea's

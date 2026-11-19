@@ -287,16 +287,15 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     input.push({ role: "user", content });
     shown.push(text);
   };
-  const scope = (page: Seen | null, said: number[]): Scope => ({
+  const scope = (page: Seen | null): Scope => ({
     messages: [...messages.values()].map(({ id, text, page, marked }) => ({ id, text, page, marked })),
     updates: [...updates.values()].map(({ id, text }) => ({ id, text })),
     agents: [...agents],
     page: page && { address: page.address, text: page.text },
     pages: session.pages.map(({ address }) => address),
-    handover: said,
     pads: page?.pads?.map(({ address }) => address) ?? [],
   });
-  const done = (page: Seen | null, said: number[]): Moment => ({ instructions: instructions(session.pages, test.routes ?? "", registry?.brief()), registry, input, scope: scope(page, said), shown: shown.join("\n\n") });
+  const done = (page: Seen | null): Moment => ({ instructions: instructions(session.pages, test.routes ?? "", registry?.brief()), registry, input, scope: scope(page), shown: shown.join("\n\n") });
 
   for (const run of session.runs.slice(0, before)) {
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
@@ -309,7 +308,7 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     if (!run) throw new Error(`${test.name}: the session ${test.session} has no wake-up ${test.run}.`);
     for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
     wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
-    return done(seen(session, run.page), run.said);
+    return done(seen(session, run.page));
   }
 
   // A written moment. What the world had between the last recorded wake-up and the thing that woke the next one is
@@ -375,12 +374,11 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     if (unseen) told_text = page.address;
     wake(wakeText(before + index + 1, [], waiting, said, page, unseen, roster(all)));
     waiting = [];
-    const ids = said.map(({ id }) => id);
-    if (index === steps.length - 1) return done(page, ids);
+    if (index === steps.length - 1) return done(page);
     if (step.script === undefined) throw new Error(`${test.name}: step ${index + 1} needs the script Fast answered it with.`);
     // The script does to the world what the service would have done with it.
     const code = bare(step.script);
-    const ran = await execute(code, scope(page, ids), registry).catch((error) => {
+    const ran = await execute(code, scope(page), registry).catch((error) => {
       throw new Error(`${test.name}: the script of step ${index + 1} does not run: ${error.message}`);
     });
     answered(code, "ok");

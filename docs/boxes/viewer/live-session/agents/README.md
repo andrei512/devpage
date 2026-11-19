@@ -86,8 +86,8 @@ rest are in each agent's own brief.
 
 ## Topics
 
-- [The world](world/README.md) — the three parts Fast sees, and what its
-  scripts can use.
+- [The world](world/README.md) — the four parts Fast sees, each on its
+  own page, the numbered log, and what its scripts can use.
 - [Voice to Fast](voice-to-fast/README.md) — what the voice model sends at
   a hand-over, and how messages get ids.
 - [Fast, the hub](fast/README.md) — what wakes Fast, how it routes in both

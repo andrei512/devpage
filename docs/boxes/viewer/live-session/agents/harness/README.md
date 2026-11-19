@@ -169,17 +169,19 @@ What the Claude Agent SDK gives, and what it becomes.
 - **A fork's file starts with its parent's conversation.** The agent's own
   session begins at the first task that was given to it.
 - **It runs on the machine's Claude Code login.** A conversation is picked up
-  again by its id, also after a restart, and can be picked up as a fork. The
-  project's own settings for Claude Code apply. The agent's tools are served
+  again by its id, also after a restart, and can be picked up as a fork. With full
+  filesystem access the project's own Claude Code settings also apply. The agent's tools are served
   to it from the program itself.
-- **It asks nobody,** and one thing is refused: a change to a file outside the
-  project's folder and the folder of scratch pads.
+- **File tools and shell commands** are confined by default. The SDK blocks
+  file operations outside the working directories and requires a shell sandbox.
+  The [filesystem setting](../../README.md#settings) controls this scope.
 
 ### Codex
 
 - **A turn is one run of `codex exec`,** on the machine's Codex login, in a
-  sandbox that may write only the project's folder and the folder of scratch
-  pads. The message goes in on its standard input.
+  filesystem permission profile. The default grants the minimal runtime its
+  reads and grants read/write access to the project and scratch pads.
+  Full filesystem access grants read/write access at the filesystem root. The message goes in on its standard input.
 - **The agents' tools are served to it** by a small tool server on the
   loopback address, at a secret address, for the length of the turn, since
   Codex takes tools that way.
@@ -216,8 +218,8 @@ In `live/`. A change takes effect when the session is restarted.
   Nothing keeps a session here: it asks the harness for an agent's history,
   and passes on what happens in the turn that runs.
 - **`smoke.ts`** checks a harness with the real thing, in a throwaway folder:
-  the base agent, an agent forked from it for a small task, a fork of that
-  agent, a follow-up, and their sessions read back. `bun smoke.ts` for Claude
+  a new agent with a small task, a fork of that agent, a follow-up, and
+  their sessions read back. `bun smoke.ts` for Claude
   Code, `bun smoke.ts codex` for Codex.
 - **To look at a session:** the program answers `/session/<agent's number>`
   with its turns and items.

@@ -140,6 +140,14 @@ function rollout(session: string) {
   return null;
 }
 
+/** The same network policy in both filesystem profiles. Paths are TOML quoted keys. */
+export function filesystemArgs(input: Pick<TurnInput, "fullFilesystemAccess" | "also">): string[] {
+  const entries = input.fullFilesystemAccess
+    ? ['":root"="write"']
+    : ['":minimal"="read"', '":workspace_roots"="write"', ...(input.also ?? []).map(path => `${JSON.stringify(path)}="write"`)];
+  return ["-c", 'default_permissions="devpage"', "-c", `permissions.devpage={filesystem={${entries.join(",")}},network={enabled=false}}`];
+}
+
 export class Codex implements Harness {
   readonly name = "Codex";
   // Steer: Codex can queue a message for a thread, but nothing here uses it yet.
@@ -166,11 +174,7 @@ export class Codex implements Harness {
       "exec",
       "--json",
       "--skip-git-repo-check",
-      // It may change files in the project and in the folders given with it, and nowhere else. Nobody is there to
-      // approve anything while the user talks.
-      "--sandbox",
-      "workspace-write",
-      ...(input.also?.length ? ["-c", `sandbox_workspace_write.writable_roots=${JSON.stringify(input.also)}`] : []),
+      ...filesystemArgs(input),
       "--cd",
       input.root,
       ...(input.model ? ["--model", input.model] : []),

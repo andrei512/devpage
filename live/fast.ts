@@ -104,7 +104,7 @@ restart()                   // when the user says "restart"; restart(true) only 
 The calls are carried out when the script ends. A script that throws does nothing, and you get the error and one more try. Only ids you were shown exist. A quote is a few words copied exactly from the page's text, enough to be there once. Nothing to do: \`// nothing\`.
 
 A task is read by an agent that did not hear the conversation: a new one knows nothing of it, and one you send to knows only its own tasks and answers. Write the task so that it can be done from the task alone:
-- The user's words, exact, as \`\${m41}\`. When the user said it in pieces, all the pieces.
+- Give the agent the request and its constraints. Use a message reference when quoting the user.
 - What the user's words leave out, in a sentence or two of yours: what "that", "it" or "there" is, which page or part when it is not the one the user is on, what you or an agent said that the user is agreeing to.
 - When one message holds work for two agents, each task says which part is that agent's.
 - Nothing the user did not ask for: not how to do it, no extra work, no change when the user asked a question.
@@ -464,7 +464,6 @@ export class Fast {
       pages: this.deps.pages().map(({ address }) => address),
       pads: page?.pads?.map(({ address }) => address) ?? [],
       routes: this.deps.routeNames?.(),
-      handover: said.map((message) => message.id),
     };
     const written = await script(
       context.input,

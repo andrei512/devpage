@@ -85,10 +85,12 @@ export interface TurnInput {
   /** What every agent of the live session is told about its role, on top of the harness's own instructions. */
   brief: string;
   tools: HarnessTool[];
-  /** The project folder: the agent works in it and changes nothing outside it, but for `also`. */
+  /** The project folder where the agent starts. */
   root: string;
   /** Folders outside the project whose files the agent may change too: where the scratch pads are. */
   also?: string[];
+  /** Grant access to files outside root and also, within the account's permissions. */
+  fullFilesystemAccess?: boolean;
   /** The model the turn runs on, as `models` names it. None: the harness's own default. */
   model?: string | null;
 }

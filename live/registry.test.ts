@@ -13,7 +13,7 @@ import { Registry, type Caller, type Entry } from "./registry.ts";
 const FAST: Extract<Caller, { who: "fast" }> = { who: "fast", run: 1, handover: "h1", used: [] };
 
 async function runRegistered(registry: Registry, code: string) {
-  const ran = await run(code, { page: null, pages: [], agents: [], messages: [], updates: [], handover: [] }, registry);
+  const ran = await run(code, { page: null, pages: [], agents: [], messages: [], updates: [] }, registry);
   const calls = ran.intents.map(intent => registry.requested(intent));
   for (const { name, input } of calls) await registry.call(name, input, FAST);
   return calls;
@@ -210,7 +210,7 @@ test("Fast checks every registered input and collects mixed calls in script orde
   registry.part("session", ({ z, action }) => action("say", { for: "fast", syntax: "say(text)", description: "Speak", input: { text: z.string() } }, () => {}));
   registry.part("counter", ({ z, set }) => set("add", { for: "both", description: "Adds a count", input: { n: z.number().int().positive() } }, ({ n }, ctx) => ctx.set("n", n)));
   const { run } = await import("./sandbox.ts");
-  const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
+  const scope = { messages: [], updates: [], agents: [], page: null, pages: [] };
   const result = await run('say("hello"); counter.add(2); say("done")', scope, registry);
   expect(result.intents.map(i => i.do)).toEqual(["say", "world", "say"]);
   await expect(run('say("hello"); counter.add(-1)', scope, registry)).rejects.toThrow();
@@ -236,7 +236,7 @@ test("Fast checks the registered schema of each built-in before any earlier call
     action("say", { for: "fast", syntax: "say(text)", input: { text: z.literal("allowed") }, description: "Speak" }, () => {});
   });
   const { run } = await import("./sandbox.ts");
-  const scope = { messages: [], updates: [], agents: [], page: null, pages: [], handover: [] };
+  const scope = { messages: [], updates: [], agents: [], page: null, pages: [] };
   await expect(run('say("allowed"); say("wrong")', scope, registry)).rejects.toThrow();
 });
 

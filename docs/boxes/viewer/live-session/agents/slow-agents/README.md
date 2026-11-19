@@ -13,14 +13,13 @@ It does the work: it answers questions and changes files. The code is
 - **A task** is one piece of work given to an agent, with its updates.
 - **An agent** is a conversation with its own context. It can hold several
   tasks, when they are related.
-- **The base agent** knows the project and takes no tasks. New agents are
-  forked from it.
+- **A new agent** starts empty and reads what its task needs. A fork starts
+  with what the agent it is forked from knows.
 
 ```mermaid
 flowchart LR
-  base["Base agent<br/>knows the project"] -->|"fork"| a["Agent A"]
-  base -->|"fork"| b["Agent B"]
-  a -->|"fork"| c["Agent C"]
+  a["Agent A"] -->|"fork"| c["Agent C"]
+  b["Agent B"]
   a --- t1["Task 1"]
   a --- t2["Task 2, a follow-up"]
   b --- t3["Task 3"]
@@ -76,7 +75,7 @@ when you ask who said what, or what exactly was done.
 
 ## The life of an agent
 
-1. **Created:** forked from the base agent or from another agent, for a task.
+1. **Created:** new, or forked from another agent, for a task.
 2. **Working:** one task at a time. A follow-up waits its turn.
 3. **Idle,** or waiting for your answer to its question: kept while its tasks
    are in Fast's window.
@@ -87,24 +86,11 @@ when you ask who said what, or what exactly was done.
 An agent whose conversation the coding agent has lost starts empty once, and
 goes on.
 
-## The base agent
-
-It holds the project: the project's own instructions for agents (`CLAUDE.md`
-or `AGENTS.md`), how its folders are laid out, its main READMEs and its
-writing rules. It replies with a short map of them. A fork starts with that
-knowledge and does not rediscover it.
-
-It takes no tasks, so it never fills up. Each harness has its own. The one of
-the default route's harness is built when the program starts and none is
-younger than 12 hours, and again when a fork of it fails; another harness's
-is built the first time that harness is used. Until a base agent is ready, a
-new agent starts empty.
-
 ## What an agent may change
 
-- **The project's folder,** and nothing outside it but the session's folder
-  of scratch pads. A scratch pad is the only thing an agent writes outside
-  the project: see [The scratch pad](../../scratch-pad/README.md#who-writes-a-pad).
+- **The project's folder and its [scratch pads](../../scratch-pad/README.md#who-writes-a-pad)**
+  are the default scope for reads and writes. The
+  [fullFilesystemAccess setting](../../README.md#settings) can expand it.
 - **It asks nobody** before it uses a tool. Several agents work in the project
   at the same time, so each is told to change only what its task needs.
 - **The session restarted while a task ran:** the task is marked failed, with

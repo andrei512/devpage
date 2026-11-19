@@ -1420,6 +1420,125 @@ async fn the_sidebar_is_taken_over_without_a_change_and_its_chevrons_open_and_cl
     std::fs::remove_dir_all(&dir).ok();
 }
 
+/// The sidebar's width and what the browser keeps of it.
+const WIDTH: &str = "document.getElementById('devpage-nav').getBoundingClientRect().width + ' ' + localStorage.getItem('devpage-sidebar-width')";
+
+/// Drags the sidebar's handle to `x`, as a pointer does.
+fn drag_handle_to(x: u32) -> String {
+    format!(
+        "(() => {{ const at = (type, clientX) => new PointerEvent(type, {{ clientX, button: 0, bubbles: true }});
+           document.querySelector('#devpage-nav .resize').dispatchEvent(at('pointerdown', 280));
+           window.dispatchEvent(at('pointermove', {x}));
+           const during = document.documentElement.classList.contains('resizing-sidebar');
+           window.dispatchEvent(at('pointerup', {x}));
+           return String(during && !document.documentElement.classList.contains('resizing-sidebar')); }})()"
+    )
+}
+
+/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+#[tokio::test]
+#[ignore]
+async fn the_sidebar_is_resized_by_its_handle_and_keeps_its_width() {
+    let dir = sidebar_folder("sidebar-resize");
+    let (mut browser, page) = open(&dir, "/docs/guide/deep.md").await;
+    desktop(&page).await;
+    page.evaluate_on_new_document(BEFORE_TAKEOVER)
+        .await
+        .unwrap();
+    reload_watching_takeover(&page).await;
+    assert_eq!(text(&page, WIDTH).await, "280 null");
+    // The handle stands over the sidebar's right edge, the sidebar's height.
+    assert_eq!(
+        text(&page, "(() => { const h = document.querySelector('#devpage-nav .resize').getBoundingClientRect(); return [h.left, h.right, h.height].join(' '); })()").await,
+        "276 284 900"
+    );
+
+    // A drag sets the width, and it is kept.
+    assert_eq!(text(&page, &drag_handle_to(400)).await, "true");
+    assert_eq!(text(&page, WIDTH).await, "400 400");
+    // Never narrower than a sidebar can be read at, nor wider than half
+    // the window.
+    page.evaluate(drag_handle_to(40)).await.unwrap();
+    assert_eq!(text(&page, WIDTH).await, "200 200");
+    page.evaluate(drag_handle_to(1200)).await.unwrap();
+    assert_eq!(text(&page, WIDTH).await, "640 640");
+    page.evaluate(drag_handle_to(400)).await.unwrap();
+
+    // A reload draws the sidebar at that width from the first frame, and
+    // React takes it over without a change.
+    reload_watching_takeover(&page).await;
+    assert_eq!(
+        text(&page, "JSON.parse(window.before.boxes[0]).width + ' ' + document.querySelector('#devpage-page').getBoundingClientRect().left").await,
+        "400 400"
+    );
+    assert_eq!(text(&page, SAME_AS_BEFORE).await, "true true true");
+
+    // The arrow keys move it, and a double click gives devpage's width back.
+    page.evaluate("document.querySelector('#devpage-nav .resize').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); 0")
+        .await
+        .unwrap();
+    assert_eq!(text(&page, WIDTH).await, "416 416");
+    page.evaluate("document.querySelector('#devpage-nav .resize').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); 0")
+        .await
+        .unwrap();
+    assert_eq!(text(&page, WIDTH).await, "280 null");
+    browser.close().await.ok();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// Whether the sidebar shows the current page's entry, whole.
+const CURRENT_IN_SIGHT: &str = "(() => { const nav = document.getElementById('devpage-nav').getBoundingClientRect();
+        const at = document.querySelector('#devpage-nav ul a.current').getBoundingClientRect();
+        return document.querySelector('#devpage-nav ul a.current').textContent + ' ' + (at.top >= nav.top && at.bottom <= nav.bottom); })()";
+
+/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+#[tokio::test]
+#[ignore]
+async fn a_page_far_down_a_long_sidebar_is_in_sight() {
+    let topics: String = (1..=80).map(|n| format!("- [P{n}](p{n}.md)\n")).collect();
+    let pages: Vec<(String, String)> = (1..=80)
+        .map(|n| (format!("docs/p{n}.md"), format!("# P{n}\n")))
+        .collect();
+    let files: Vec<(&str, &str)> = pages.iter().map(|(f, t)| (&f[..], &t[..])).collect();
+    let dir = widget_folder(
+        "sidebar-in-sight",
+        &format!("# Home\n\n## Topics\n\n{topics}"),
+        &files,
+    );
+    let (mut browser, page) = open(&dir, "/docs/p80.md").await;
+    desktop(&page).await;
+    page.evaluate_on_new_document(
+        "document.addEventListener('readystatechange', () => {
+           if (document.readyState === 'interactive') window.scrolledAtFirst = document.getElementById('devpage-nav').scrollTop;
+         });",
+    )
+    .await
+    .unwrap();
+    reload_watching_takeover(&page).await;
+    // Scrolled there before the page script ran, and still.
+    assert_eq!(
+        text(&page, "String(window.scrolledAtFirst > 0 && window.scrolledAtFirst === document.getElementById('devpage-nav').scrollTop)").await,
+        "true"
+    );
+    assert_eq!(text(&page, CURRENT_IN_SIGHT).await, "P80 true");
+    // A page moved to that is out of sight is brought in; one in sight
+    // leaves the sidebar where it is scrolled.
+    assert_eq!(
+        text(
+            &page,
+            &format!("load('/docs/p1.md', 'push').then(() => {CURRENT_IN_SIGHT})")
+        )
+        .await,
+        "P1 true"
+    );
+    assert_eq!(
+        text(&page, &format!("(() => {{ const before = document.getElementById('devpage-nav').scrollTop; return load('/docs/p3.md', 'push').then(() => {CURRENT_IN_SIGHT} + ' ' + (document.getElementById('devpage-nav').scrollTop === before)); }})()")).await,
+        "P3 true true"
+    );
+    browser.close().await.ok();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
 #[tokio::test]
 #[ignore]

@@ -265,7 +265,7 @@ program's own, and devpage keeps it when it writes the file. A document's
 `extensions.live.config` holds the same settings for one project; a setting
 given there replaces the one for every project.
 
-The program reads three settings:
+The program reads these settings:
 
 ```yaml
 live:
@@ -274,8 +274,16 @@ live:
     codex: []
   fast: gpt-6-luna
   record: true
+  fullFilesystemAccess: false
 ```
 
+- `fullFilesystemAccess` defaults to `false`. Agents may read and write
+  project files and the session’s scratch pads. Set it to `true` to allow
+  reading and writing files anywhere your account and host permissions allow.
+  Use `live.fullFilesystemAccess` in `~/.devpage/config.yml` for every project,
+  or `extensions.live.config.fullFilesystemAccess` in the project’s
+  `devpage.yml` to override either global value. Restart the live session
+  to apply a change to new agents and subsequent turns of existing agents.
 - `harnesses` names the coding agents the session may use, each with the
   models of it that may be used; an empty list is the agent's own default
   model. The first is the default. Without the setting it is Claude Code on

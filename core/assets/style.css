@@ -83,11 +83,14 @@ body {
   position: sticky;
   top: 0;
   align-self: flex-start;
-  width: 280px;
+  /* The width the reader dragged it to, kept between a narrow sidebar and
+     half the window; 280px until they do. */
+  --shown-width: clamp(200px, var(--sidebar-width, 280px), 50vw);
+  width: var(--shown-width);
   height: 100vh;
   overflow-y: auto;
   flex-shrink: 0;
-  padding: 28px 16px 40px 24px;
+  padding: 16px 8px 40px 12px;
   border-right: 1px solid var(--border);
   background: var(--surface);
   font-size: 14px;
@@ -104,9 +107,11 @@ body {
 }
 
 #devpage-nav ul { list-style: none; margin: 0; padding: 0; }
-#devpage-nav ul ul { padding-left: 14px; border-left: 1px solid var(--border); margin: 2px 0 6px 6px; }
+/* A level costs 10px of the sidebar's width, so a page six levels down still
+   has room for its title; the guide line stands under its parent's label. */
+#devpage-nav ul ul { padding-left: 3px; border-left: 1px solid var(--border); margin: 0 0 2px 6px; }
 #devpage-nav li { margin: 0; }
-#devpage-nav a { display: block; padding: 4px 8px; border-radius: 6px; color: var(--text); text-decoration: none; }
+#devpage-nav a { display: block; padding: 3px 6px; border-radius: 6px; color: var(--text); text-decoration: none; }
 #devpage-nav a:hover { background: var(--border); }
 #devpage-nav a.current { background: var(--accent); color: var(--on-accent); }
 
@@ -139,9 +144,38 @@ body {
 #devpage-nav li.open > .entry > .chevron::before { transform: translateY(-1px) rotate(45deg); }
 #devpage-nav li.branch:not(.open) > ul { display: none; }
 
+/* The sidebar's resize handle: a strip over its right edge, the height of
+   the sidebar whatever it is scrolled to, dragged to set its width. */
+#devpage-nav .resize {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--shown-width) - 4px);
+  z-index: 5;
+  width: 8px;
+  cursor: col-resize;
+  touch-action: none;
+}
+#devpage-nav .resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 3px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+#devpage-nav .resize:hover::after,
+#devpage-nav .resize:focus-visible::after,
+:root.resizing-sidebar #devpage-nav .resize::after { opacity: 1; }
+#devpage-nav .resize:focus { outline: none; }
+:root.resizing-sidebar { cursor: col-resize; user-select: none; -webkit-user-select: none; }
+
 /* The sidebar's search box, between the title and the tree, and its hits,
    which take the tree's place while the box holds text. */
-#devpage-nav .search { position: relative; margin: 0 0 16px; }
+#devpage-nav .search { position: relative; margin: 0 0 12px; }
 #devpage-nav .search::before {
   content: "";
   position: absolute;
@@ -328,8 +362,10 @@ th { font-weight: 600; }
 
 
 /* Sidebar groups: the ### headings of a Topics section. */
-#devpage-nav li.group { margin: 14px 0 4px; padding: 0 8px; }
+#devpage-nav li.group { margin: 12px 0 2px; padding: 0 6px; }
 #devpage-nav li.group:first-child { margin-top: 0; }
+#devpage-nav ul ul li.group { margin: 8px 0 0; }
+#devpage-nav ul ul li.group:first-child { margin-top: 4px; }
 #devpage-nav li.group span { font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 
 /* Syntax highlighting: classes name syntax scopes (see src/highlight.rs); colors
@@ -587,6 +623,7 @@ body.with-navbar { flex-wrap: wrap; align-content: flex-start; }
 .navbar-end { display: flex; align-items: center; gap: 8px; padding-left: 12px; margin-left: 4px; border-left: 1px solid var(--border); height: 24px; }
 
 body.with-navbar #devpage-nav { top: 52px; height: calc(100vh - 52px); }
+body.with-navbar #devpage-nav .resize { top: 52px; }
 
 /* The theme selector: one quiet icon button, the size of the navbar's icons,
    showing the theme a click switches to — a moon in light, a sun in dark. In
@@ -764,6 +801,7 @@ body.devpage-workspace #devpage-page > [data-widget] {width:100%;height:100%;min
   }
   body.nav-open { overflow: hidden; }
   body.nav-open::before { content: ""; position: fixed; inset: 0; z-index: 39; background: color-mix(in srgb, #000 30%, transparent); }
+  #devpage-nav .resize { display: none; }
   #devpage-nav a { padding: 7px 10px; }
   #devpage-nav .chevron { width: 36px; height: 36px; }
   #devpage-nav .search input { height: 40px; font-size: 16px; }

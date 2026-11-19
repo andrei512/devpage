@@ -128,10 +128,6 @@ After an agent is made, nothing asks which harness it is on. The side panel,
 the agent's chat, its updates and what you hear are the same. That is
 [the harness](../harness/README.md).
 
-- **One base agent per harness.** A new agent is a copy of its harness's base
-  agent, which has read the project. The base of the default route's harness
-  is built when the session starts; another harness's is built the first time
-  it is used, and that first agent starts empty.
 
 ## Where it is
 
@@ -143,7 +139,7 @@ In `live/`. A change takes effect when the session is restarted.
 - **`harness.ts`** takes a model for a turn, and a harness says which models
   it has. **`claude.ts`** and **`codex.ts`** do both.
 - **`agents.ts`** holds every enabled harness. Each agent remembers its
-  harness and its model, and each harness has its own base agent.
+  harness and its model.
 - **`sandbox.ts`** and **`fast.ts`**: `spawn` takes a route, and the routes
   with your rules are added to Fast's instructions.
 - **`service.ts`** puts them together and checks the route Fast names.
@@ -160,8 +156,8 @@ In `live/`. A change takes effect when the session is restarted.
   name is a route only when it is enabled and nothing is picked in its place,
   the routes and your rules are inside Fast's own instructions, a script's
   `spawn` carries its route, a new agent runs on the harness and model Fast
-  named, a follow-up and a fork stay on their agent's route, each harness has
-  its own base agent, and a project's rules replace the ones for every project
+  named, a follow-up and a fork stay on their agent's route, a new agent starts
+  empty, and a project's rules replace the ones for every project
   whole.
 - **Fast picking a route from your words, with its real model:**
   `bun eval.ts --set routing` in `live/`. Six cases: a rule for a small edit,

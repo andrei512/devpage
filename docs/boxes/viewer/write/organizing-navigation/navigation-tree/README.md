@@ -145,6 +145,10 @@ then the tree. `tree` renders the groups as nested `<ul>` lists:
 - labels and group titles are HTML-escaped, and no text sits between the
   elements, since React renders none.
 
+Last in the `<nav>` comes `RESIZE_HANDLE`, a `<div class="resize">` with the
+role of a separator: the strip over the sidebar's right edge that is dragged
+to [set its width](../README.md#its-width).
+
 For a root page listing *Getting started* and, under a *Guide* group, a page
 with children of its own, the sidebar on *Getting started* reads:
 
@@ -162,6 +166,7 @@ with children of its own, the sidebar on *Getting started* reads:
       </ul>
     </li>
   </ul>
+  <div class="resize" role="separator" aria-orientation="vertical" aria-label="Resize the sidebar" tabindex="0"></div>
 </nav>
 ```
 
@@ -193,6 +198,20 @@ document's address. A small script after the JSON opens those branches before
 the page paints — exactly as the widget's first render will — so a reload
 shows them from the first frame, and React still takes over the same DOM.
 Without storage, nothing is remembered and the sidebar works the same.
+
+**Its width.** The handle sets `--sidebar-width` on the page's `<html>`, and
+the stylesheet gives the sidebar that width, kept between 200px and half the
+window; without it the sidebar is 280px. A drag follows the pointer's x, since
+the sidebar stands at the window's left, and its end writes the width to
+`localStorage` under `devpage-sidebar-width`. The same small script sets the
+property from there before the page paints, so the page never draws at one
+width and jumps to another. The handle is `position: fixed`, so it spans the
+sidebar's height wherever the tree is scrolled.
+
+**The page shown, in sight.** That script then scrolls the sidebar when the
+current entry is outside what it shows, putting it in the middle; the widget
+does the same after a page swap (`showCurrent`). An entry in sight moves
+nothing.
 
 **Across page swaps.** The page script mounts the widget on the sidebar once
 and keeps it: each page swapped in — a link, back and forward, a

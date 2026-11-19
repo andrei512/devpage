@@ -499,10 +499,6 @@ The hub of a live session: a quick model woken by a hand-over or by updates, whi
 
 One conversation with a coding agent on the machine, which does the work of a live session: it answers questions and changes files ([Slow agents](../live-session/agents/slow-agents/README.md)). Called an agent where no other is meant.
 
-## base agent
-
-The agent of a harness that has read the project and takes no tasks. A new slow agent starts as a fork of it ([Slow agents](../live-session/agents/slow-agents/README.md#the-base-agent)).
-
 ## world
 
 Everything Fast can read in a live session: the messages, the page, the tasks and their updates, as one numbered log ([The world](../live-session/agents/world/README.md)).

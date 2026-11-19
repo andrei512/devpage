@@ -215,9 +215,10 @@ side.
 A site's sidebar: devpage's own chrome, not a widget for pages. devpage
 mounts it on every site page with a sidebar — a search box at its top,
 then the tree, collapsed, the branch to the page shown open, a chevron on
-every entry with children — and keeps it mounted as the reader moves between
-pages
+every entry with children, and an edge that is dragged to set its width —
+and keeps it mounted as the reader moves between pages
 ([Organizing navigation](../../../write/organizing-navigation/README.md#opening-and-closing),
+[its width](../../../write/organizing-navigation/README.md#its-width),
 [the search box](../../../write/making-a-site/search/README.md#the-search-box),
 [how it is rendered](../../../write/organizing-navigation/navigation-tree/README.md#rendering-the-sidebar)).
 

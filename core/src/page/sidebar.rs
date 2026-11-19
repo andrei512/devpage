@@ -46,6 +46,7 @@ pub(super) fn sidebar(document: &Document, groups: &[nav::Group], current: &str)
         .map(|g| SidebarGroup::of(document, g))
         .collect();
     tree(&groups, current, &mut html);
+    html.push_str(RESIZE_HANDLE);
     html.push_str("</nav>");
     let data = SidebarData {
         document: document.entry(),
@@ -68,11 +69,19 @@ pub(super) fn sidebar(document: &Document, groups: &[nav::Group], current: &str)
 /// before anything is typed: the field, and the `/` that focuses it.
 const SEARCH_BOX: &str = "<div class=\"search\"><input type=\"search\" placeholder=\"Search\" aria-label=\"Search the documents\" autocomplete=\"off\" spellcheck=\"false\" role=\"combobox\" aria-expanded=\"false\" aria-autocomplete=\"list\" value=\"\"><kbd>/</kbd></div>";
 
-/// Opens, before the page paints, the entries the reader opened on another
-/// visit to the document, which `DevpageSidebar` keeps in `localStorage`
-/// under `devpage-sidebar:` and the document's address. It changes only what
-/// the widget's first render will, so React takes over the same DOM.
-const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage-nav\");let opened;try{opened=JSON.parse(localStorage.getItem(\"devpage-sidebar:\"+nav.dataset.sidebar))}catch{}if(!Array.isArray(opened))return;for(const li of nav.querySelectorAll(\"li.branch:not(.open)\"))if(opened.includes(li.dataset.href)){li.classList.add(\"open\");li.querySelector(\".chevron\").setAttribute(\"aria-expanded\",\"true\")}})()";
+/// The handle on the sidebar's edge, as `DevpageSidebar` renders it: dragged,
+/// it sets the sidebar's width.
+const RESIZE_HANDLE: &str = "<div class=\"resize\" role=\"separator\" aria-orientation=\"vertical\" aria-label=\"Resize the sidebar\" tabindex=\"0\"></div>";
+
+/// Runs before the page paints. It gives the sidebar the width the reader
+/// dragged it to, which `DevpageSidebar` keeps in `localStorage` under
+/// `devpage-sidebar-width`. It opens the entries the reader opened on
+/// another visit to the document, which `DevpageSidebar` keeps in
+/// `localStorage` under `devpage-sidebar:` and the document's address: only
+/// what the widget's first render will, so React takes over the same DOM.
+/// Then it scrolls the sidebar so the page shown is in sight, in the middle
+/// when it was not, as `DevpageSidebar` does after a page swap.
+const OPEN_REMEMBERED: &str = "(()=>{const nav=document.getElementById(\"devpage-nav\");let opened;try{const w=parseInt(localStorage.getItem(\"devpage-sidebar-width\"));if(w)document.documentElement.style.setProperty(\"--sidebar-width\",w+\"px\")}catch{}try{opened=JSON.parse(localStorage.getItem(\"devpage-sidebar:\"+nav.dataset.sidebar))}catch{}if(Array.isArray(opened))for(const li of nav.querySelectorAll(\"li.branch:not(.open)\"))if(opened.includes(li.dataset.href)){li.classList.add(\"open\");li.querySelector(\".chevron\").setAttribute(\"aria-expanded\",\"true\")}const a=nav.querySelector(\"ul a.current\");if(!a)return;const n=nav.getBoundingClientRect(),r=a.getBoundingClientRect();if(r.top<n.top||r.bottom>n.bottom)nav.scrollTop+=r.top-n.top-(n.height-r.height)/2})()";
 
 /// What `DevpageSidebar` renders: the document it belongs to (its address,
 /// which keys what the reader opened, and its document file's, which a

@@ -81,7 +81,29 @@ closes it; its link still opens the page.
   opens and closes branches; it only forgets them.
 - **Moving to another page** keeps the sidebar as it is — what is open, where
   it is scrolled — and only moves the highlight, opening the new page's branch.
+- **The page shown is always in sight.** When its entry is outside what the
+  sidebar shows — on opening a page far down a long tree, or after moving to
+  one — the sidebar scrolls to put it in the middle. An entry already in
+  sight moves nothing.
 - **Group headings** stay where they are in the tree, open or closed.
+
+## Its width
+
+The sidebar is 280px wide until you change it. Drag its right edge — a line
+shows there under the pointer — to make it wider for a deep tree or narrower
+for a small one.
+
+- **The width is remembered** in the browser, for every document devpage
+  serves at that address, and the sidebar has it from the first frame.
+- **It stays usable:** never narrower than 200px, and never wider than 640px
+  or half the window.
+- **A double click on the edge** gives it devpage's own width back.
+- **From the keyboard,** the edge takes the focus, and the left and right
+  arrows move it 16px.
+- **Each level of the tree is indented 10px,** so a page six levels down
+  still has most of the width for its title.
+
+On a narrow screen the sidebar is in the navigator, which has its own width.
 
 For example, take three pages whose Topics sections list:
 
