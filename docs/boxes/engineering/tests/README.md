@@ -10,8 +10,9 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 644 tests in seven crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 119 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                   # fast Rust suite across workspace crates
+$ npm run browser-tests        # affected Rust browser checks
+$ npm run browser-tests -- --full  # full ignored devpage binary tests
 ```
 
 </Terminal>
@@ -87,16 +88,10 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 119 tests marked `#[ignore]`, 110 drive Chrome, and one of them also
-calls GPT-Live; two run the server deploy example in Docker, one at a time,
-since they share its compose project; six time the engine in a release build —
-a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
-edit to one row of a column costs a drawing at those lengths, an edit in every
-kind of frame at those lengths, how an edit's update grows to 200,000
-siblings, one update and its undo over and over for a profiler, and matching
-rewritten lists; the last asks
-Google's server for the pinned Chrome's zips, all at once, so it needs the
-network.
+The ignored tests in the devpage binary include the browser suites and
+Chrome adapter checks. Separate workspace targets also contain ignored tests
+for Docker deployments and release benchmarks. The browser selector passes
+all selected Rust filters to that binary in one invocation.
 All but the three `video` tests drive chrome-headless-shell through
 chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/share/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)
@@ -106,11 +101,8 @@ Every test that draws on the GPU has `gpu` in its name, so
 `--skip gpu` runs the rest on a machine without one, as CI does on Windows.
 They run in parallel, so the longest bounds the run: the `video` tests,
 which record a deck as long as its slides play, and start last in the
-run's order — [how long they take](#how-long-the-chrome-suites-take). Run
-them with
-`--ignored` after changing the page
-script, the design script, the module, the stylesheet, a widget, print mode,
-`devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
+run's order — [how long they take](#how-long-the-chrome-suites-take). Run the [affected browser checks](../developing-devpage/README.md#select-browser-checks-locally)
+after a change. The three `video` tests drive Chrome for
 Testing instead — the copy [`devpage video` downloads](../../viewer/share/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives),
 fetched the same way; run them after changing `devpage video` or its
 recorder, `assets/video.js`. The live one records
