@@ -17,9 +17,6 @@ permissions:
   contents: read
   actions: read
 
-env:
-  DEVPAGE_CHECKS_MODE: ${{ vars.DEVPAGE_CHECKS_MODE || vars.DEVPAGE_BROWSER_MODE || 'affected' }}
-
 jobs:
   server:
     runs-on: ubuntu-latest
@@ -31,6 +28,8 @@ jobs:
       - name: Select browser checks
         id: browser
         uses: ./.github/actions/browser-selection
+        env:
+          DEVPAGE_CHECKS_MODE: ${{ vars.DEVPAGE_CHECKS_MODE || vars.DEVPAGE_BROWSER_MODE || 'affected' }}
         with:
           workflow: deploy-server.yml
           full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
