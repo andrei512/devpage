@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { selectFiles } from './run.mjs';
 
 const selections = [
+  [['bench/src/main.rs', '.github/workflows/bench.yml', 'tools/checks/run.test.mjs'], [], false],
   [['eval_discussion_breif.md', 'dist-workspace.toml'], [], false],
   [['docs/boxes/engineering/code-map/README.md'], [], false],
   [['live/registry.test.ts', 'live/service.test.harness.ts', 'live/eval.ts', 'live/smoke.ts', 'live/evals/cases.ts', 'live/evals/sessions/sample.json'], [], false],

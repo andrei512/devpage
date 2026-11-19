@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { changedFiles, selectFiles } from './run.mjs';
 
 const project = JSON.parse(readFileSync(new URL('../../project.json', import.meta.url)));
-const all = Object.keys(project.targets).filter(name => project.targets[name].metadata.browserFilters).sort();
+const all = Object.keys(project.targets).filter(name => project.targets[name].metadata?.browserFilters).sort();
 const examples = [
   ['221fdfa92b5781498a0b581a587a08903718ff21', 'release archive format', [], false],
   ['06994906e1ec6cb4f01bcaddd5bd62451f23e243', 'deployed PDF rendering and server config', [

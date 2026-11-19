@@ -1,5 +1,5 @@
-name: Select affected browser checks
-description: Resolve the comparison range for this workflow and report affected browser checks.
+name: Select affected checks
+description: Resolve the workflow’s comparison range and report the required checks.
 inputs:
   workflow:
     description: Filename of the workflow whose successful pushes are the baseline
@@ -8,24 +8,30 @@ inputs:
     description: Request a full run regardless of the diff
     default: 'false'
 outputs:
-  full:
-    description: Whether broad coverage was requested
-    value: ${{ steps.select.outputs.full }}
-  verify:
-    description: Whether to run selector regression checks
-    value: ${{ steps.select.outputs.verify }}
-  rust:
-    description: Whether any Rust browser checks were selected
-    value: ${{ steps.select.outputs.rust }}
+  matrix:
+    description: Active operating systems and toolchain requirements
+    value: ${{ steps.select.outputs.matrix }}
+  linux:
+    description: Whether to run checks on Linux
+    value: ${{ steps.select.outputs.linux }}
+  windows:
+    description: Whether to run checks on Windows
+    value: ${{ steps.select.outputs.windows }}
+  live:
+    description: Whether Linux needs Bun
+    value: ${{ steps.select.outputs.live }}
+  install:
+    description: Whether to verify a clean Cargo install
+    value: ${{ steps.select.outputs.install }}
+  browser:
+    description: Whether Windows runs Rust browser tests
+    value: ${{ steps.select.outputs.browser }}
+  inventory:
+    description: Whether to compare the compiled and registered browser test inventories
+    value: ${{ steps.select.outputs.inventory }}
   smoke:
     description: Whether the deploy-server PDF smoke was selected
     value: ${{ steps.select.outputs.smoke }}
-  base:
-    description: Comparison base SHA if available
-    value: ${{ steps.select.outputs.base }}
-  head:
-    description: Comparison head SHA if available
-    value: ${{ steps.select.outputs.head }}
 runs:
   using: composite
   steps:
@@ -37,7 +43,7 @@ runs:
     - name: Install pinned selector dependencies
       shell: bash
       run: npm ci --no-audit --no-fund
-    - name: Explain the selected browser checks
+    - name: Explain the selected checks
       id: select
       shell: bash
       env:

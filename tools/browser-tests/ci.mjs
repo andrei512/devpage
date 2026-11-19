@@ -57,45 +57,67 @@ function escapeHtml(text) {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
-// Mapping edits can select every named suite without setting the fallback flag.
-export function verifySelector(plan) {
-  const inputs = [
-    '.node-version', 'package.json', 'package-lock.json', 'nx.json', 'project.json',
-    '.github/workflows/gates.yml', '.github/workflows/deploy-server.yml',
-  ];
-  return plan.full || plan.files.some(file => inputs.includes(file) ||
-    file.startsWith('tools/browser-tests/') || file.startsWith('.github/actions/browser-selection/'));
+// Both matrix runners consume this same plan. Tool setup follows the work on
+// each platform; the clean install job gets just its boolean decision.
+export function workloads(checks) {
+  const rust = checks.rust.workspace || checks.rust.format || checks.rust.packages.length > 0;
+  const docs = checks.docs.check || checks.docs.requirements || checks.docs.filters.length > 0;
+  const live = checks.live.typecheck || Array.isArray(checks.live.tests);
+  const browser = checks.browser.full || checks.browser.filters.length > 0;
+  return {
+    linux: Boolean(rust || docs || live || checks.tooling),
+    windows: Boolean(rust || browser),
+    // The Linux tooling tests compare Nx discovery with real Cargo metadata.
+    linuxRust: Boolean(rust || docs || checks.tooling), windowsRust: Boolean(rust || browser),
+    live, install: checks.install, browser,
+    inventory: browser && (checks.browser.full || checks.tooling || checks.browser.files.some(file =>
+      file.startsWith('src/drive/browser_tests/') || file === 'src/adapters/chrome.rs')),
+  };
 }
 
 async function report(env) {
   const started = performance.now();
   const payload = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
-  const range = env.BROWSER_FORCE_FULL === 'true' ? broad('Full verification explicitly requested.')
+  const mode = env.DEVPAGE_CHECKS_MODE || 'affected';
+  if (!['affected', 'full', 'shadow'].includes(mode)) throw new Error('Unknown DEVPAGE_CHECKS_MODE: ' + mode);
+  const range = env.BROWSER_FORCE_FULL === 'true' || mode !== 'affected' ? broad('Full verification explicitly requested.')
     : await comparison(env.GITHUB_EVENT_NAME, payload, env, env.BROWSER_WORKFLOW);
   const args = range.full ? ['--full'] : ['--base', range.base, '--head', range.head];
+  const project = env.BROWSER_WORKFLOW === 'gates.yml';
+  const cli = project ? ['tools/checks/run.mjs', '--ci', '--platform', 'linux'] : ['tools/browser-tests/run.mjs'];
   const childEnv = { ...env };
   delete childEnv.GITHUB_TOKEN;
-  const child = spawnSync(process.execPath, ['tools/browser-tests/run.mjs', '--json', ...args],
+  const child = spawnSync(process.execPath, [...cli, '--json', ...args],
     { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, env: childEnv });
   if (child.error) throw child.error;
-  if (child.status !== 0) throw new Error(`Browser selector failed: ${child.stderr}`);
-  const plan = JSON.parse(child.stdout);
-  const full = plan.full, rust = full || plan.filters.length > 0;
+  if (child.status !== 0) throw new Error(`Check selector failed: ${child.stderr}`);
+  const selected = JSON.parse(child.stdout);
+  const plan = project ? selected.browser : selected;
   const elapsed = Math.round(performance.now() - started);
-  const result = { range, plan, selectionMs: elapsed };
-  writeFileSync(join(env.RUNNER_TEMP, 'devpage-browser-selection.json'), JSON.stringify(result, null, 2));
-  appendFileSync(env.GITHUB_OUTPUT, Object.entries({
-    full, rust, verify: verifySelector(plan), smoke: plan.smoke, base: range.base ?? '', head: range.head ?? '',
-  }).map(([key, value]) => `${key}=${value}\n`).join(''));
+  const flags = project ? workloads(selected) : {};
+  if (project) writeFileSync(join(env.RUNNER_TEMP, 'devpage-check-plan.json'), JSON.stringify(selected));
+  const outputs = { ...flags, smoke: plan.smoke };
+  if (project) outputs.matrix = JSON.stringify({ include: [
+    ...(flags.linux ? [{ os: 'ubuntu-latest', rust: flags.linuxRust }] : []),
+    ...(flags.windows ? [{ os: 'windows-latest', rust: flags.windowsRust }] : []),
+  ] });
+  appendFileSync(env.GITHUB_OUTPUT, Object.entries(outputs)
+    .map(([key, value]) => `${key}=${value}\n`).join(''));
   const detail = [
     range.reason ?? `Comparing ${range.base} to ${range.head}`,
-    `Rust browser suites: ${full ? 'full' : plan.suites.join(', ') || 'none'}`,
+    ...(project ? [
+      ...(selected.reason ? [selected.reason] : []),
+      `Changed paths (${selected.files.length}): ${selected.files.slice(0, 30).join(', ') || 'none supplied'}`,
+      `Rust: ${selected.rust.workspace ? 'workspace' : selected.rust.packages.join(', ') || 'none'}; format: ${selected.rust.format}`,
+      `Live: ${flags.live ? 'selected' : 'none'}; docs: ${selected.docs.check || selected.docs.requirements || selected.docs.filters.length ? 'selected' : 'none'}`,
+      `Selector tests: ${selected.tooling}; clean install: ${flags.install}`,
+    ] : []),
+    `Rust browser suites: ${plan.full ? 'full' : plan.suites.join(', ') || 'none'}`,
     `Deploy-server PDF smoke: ${plan.smoke ? 'selected' : 'unaffected'}`,
     `Selection including baseline lookup: ${elapsed} ms`,
     ...plan.reasons.slice(0, 80),
   ];
-  if (plan.reasons.length > 80) detail.push(`… ${plan.reasons.length - 80} more reasons`);
-  appendFileSync(env.GITHUB_STEP_SUMMARY, `### Browser check selection\n\n<pre>${escapeHtml(detail.join('\n').slice(0, 40000))}</pre>\n`);
+  appendFileSync(env.GITHUB_STEP_SUMMARY, `### Affected checks\n\n<pre>${escapeHtml(detail.join('\n').slice(0, 40000))}</pre>\n`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

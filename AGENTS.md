@@ -32,21 +32,15 @@ Two things that hold in every stage:
 
 ## The gates
 
-Green before any pull request opens:
+Use the Node version in `.node-version` and run `npm ci` at the repository root.
+During an edit, `npm run check -- --explain` shows which checks the changed
+files require. Run them with `npm run check`. Use `npm run build` for the
+affected Rust build targets.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-For browser coverage, use `npm ci` on the Node version in `.node-version`,
-then `npm run browser-tests` for the current edit. Before a PR,
-compare with the target branch using `--base origin/<target>`. Add
-`--explain` to see which changes selected each suite, or `-- --full` for
-a full browser run. When adding a browser behavior or fixture, update its
-target inputs and selection tests. See the
-[browser-test guide](docs/boxes/engineering/developing-devpage/README.md#select-browser-checks-locally).
+Before a pull request, include committed and working-tree changes with
+`npm run check -- --base origin/<target-branch>`. Use `-- --full` for full
+coverage. A change to test ownership updates the selection rules and their
+tests. See [development checks](docs/boxes/engineering/developing-devpage/README.md#the-gates).
 
 Run the docs while you work on them, from the repository root:
 `cargo run -- docs`.

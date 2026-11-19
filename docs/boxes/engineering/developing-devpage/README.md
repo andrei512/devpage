@@ -3,7 +3,7 @@ page-type: task
 ---
 # Developing devpage
 
-How to work on devpage itself: build it, run its tests and the three gates,
+How to work on devpage itself: build it, run its affected checks,
 run the documentation while you edit it, and know what needs a rebuild. The
 [code map](../code-map/README.md) and the [tests](../tests/README.md) go one
 level deeper. It sits under [Engineering](../README.md); how a change travels from idea to `main` is
@@ -109,19 +109,34 @@ with the platform’s compiled tests after moving or renaming tests.
 
 ## The gates
 
-Green before any pull request opens (from `AGENTS.md`):
+With the repository’s pinned Node and `npm ci` at the root, use the same
+affected-check entry point for a local edit and for a branch review.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
+| Command | Effect |
+| --- | --- |
+| `npm run check -- --explain` | Show what the current edit selects and why. |
+| `npm run check` | Execute the selected development checks. |
+| `npm run build` | Build the selected Rust targets through Cargo. |
+| `npm run check -- --scope live` | Run only the affected live-session checks during a focused edit. |
+| `npm exec -- nx graph` | Inspect the Nx project graph, including Cargo workspace members and their local dependencies. |
+| `npm run check -- --base origin/main` | Check the branch and local edits against their merge base with main. Use the actual target for other branches. |
+| `npm run check -- --full` | Request full local coverage. |
 
-Formatting follows `rustfmt` defaults. Clippy checks every target, warnings
-are errors, and the Rust tests must pass. CI runs these checks on Linux and
-Windows. Linux also checks the docs. For browser selection, push and pull
-request comparisons and the full-run controls, see
-[CI](../sdlc/review-bars/README.md#ci).
+Each Cargo member has Nx build, test, Clippy and formatting targets. For
+example, `npm exec -- nx run devpage-bench:build` builds that member directly.
+The project check plan covers Rust formatting, Clippy and tests, docs checks, the live
+session’s Bun checks, selector tests and the browser suites. An affected live
+check needs the pinned Bun and `bun install --frozen-lockfile` from `live/`.
+A live test edit selects TypeScript checking and that Bun test. A live eval
+data edit checks that the cases can be reconstructed offline. Documentation
+changes can select link checking, the requirements-to-test map, and the Rust
+tests that read the edited documents. The separate Docker smoke and clean
+Cargo install run in CI. Use
+`-- --json` to inspect the plan or `-- --base BASE --head HEAD` to replay a
+committed range. The explicit base must be an ancestor of the head.
+
+See [CI](../sdlc/review-bars/README.md#ci) for how the platform runners use
+the same selection and when the workflow requests a full run.
 
 ## The code
 

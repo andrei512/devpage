@@ -83,6 +83,9 @@ enum Command {
         /// Check the docs only: leave a site's requirements and its tests out.
         #[arg(long)]
         docs: bool,
+        /// Check the mapping between requirements and tests without executing suites.
+        #[arg(long, conflicts_with = "docs")]
+        requirements_map: bool,
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -274,6 +277,7 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         path,
         json,
         docs,
+        requirements_map,
         root,
     }) = &cli.command
     {
@@ -281,6 +285,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &root.served()?,
         )?);
+        if *requirements_map {
+            return Ok(reported(&requirements::problems(&document), *json));
+        }
         let designs = designs::Designs::new(&document.served);
         let folder = Folder::new(document.clone());
         let update = (!json).then(updates);

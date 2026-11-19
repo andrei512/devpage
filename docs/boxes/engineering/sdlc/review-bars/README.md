@@ -22,48 +22,33 @@ is public and never uses a self-hosted runner.
 
 **`.github/workflows/gates.yml`** runs on every pull request and every push to
 `main`, `design/**` and `prototype/**` — tickets merge into a design branch
-without a pull request, so a push there is what gates them. Its jobs run
-side by side:
+without a pull request, so a push there is what gates them. A manual dispatch
+or the weekly schedule requests full coverage.
 
-- **`gates`** runs the gates in `AGENTS.md` — `cargo fmt --check`,
-  `cargo clippy --all-targets -- -D warnings` and `cargo test`, with
-  `--locked`. It runs twice, on Linux and on Windows: devpage runs on both
-  and on macOS, where it is developed. On Linux it then runs
-  `devpage check docs`, external links included, on the change's own docs.
-  On Windows it reuses the compiled test binary for the browser checks.
-  The selected filters run together and skip GPU tests on the hosted runner.
-- **`install`** runs `cargo install --path . --locked` in a bare
-  `rust:1.97-slim-bookworm` container, with nothing added, and runs
-  `devpage --version`, keeping the [install page](../../../../installing.md)
-  true.
+- **`select`** computes the [affected checks](../../developing-devpage/README.md#the-gates)
+  and publishes the decision in the workflow summary. It shares the exact plan
+  with the platform jobs. A pull request compares with the merge base of its
+  head and target branch. A push compares with a previous successful push of
+  this workflow on the same branch. An unavailable baseline widens coverage.
+- **`gates`** executes the selected Rust checks on Linux and Windows. Linux
+  handles docs, selector tests and live-session Bun checks. Windows reuses
+  the compiled test binary for the selected browser checks, running the union
+  of their filters in a single Cargo process and skipping GPU tests. An empty
+  selection succeeds before the platform jobs need toolchains.
+- **`install`** runs `cargo install --path . --locked` and `devpage --version`
+  in the bare Rust container for selected packaging changes, keeping the
+  [install page](../../../../installing.md) accurate.
 
-The Windows browser step and the deploy-server smoke use the same affected
-selector as the [local browser command](../../developing-devpage/README.md#select-browser-checks-locally).
-Each publishes its comparison range, selection and reasons in the workflow
-summary. A pull request compares against its target branch. A push compares
-against the latest available successful baseline on its branch. Missing
-history widens the run to full coverage. Selection errors fail the job.
+Affected checks are the default. To force full coverage temporarily, set the
+repository Actions variable `DEVPAGE_CHECKS_MODE` to `full`. The older
+`DEVPAGE_BROWSER_MODE` is consulted when the new variable is unset. Its
+`shadow` value requests broad coverage. Manual and scheduled full runs work
+independently of the variable. Both selector configuration errors and failed
+checks fail their workflow.
 
-The repository Actions variable `DEVPAGE_BROWSER_MODE` controls cutover.
-An unset value or `shadow` runs the previous coverage alongside the selection
-report. Inspect unrelated, focused and broad diffs on hosted runners, including
-both the proposed Windows suites and the Docker PDF decision. Compare setup,
-selection, browser execution, and total job duration before setting the
-variable to `affected`. In affected mode an empty selection succeeds in the
-existing job and reports zero checks. Return to `shadow` to investigate a
-missed input. Both workflows also have a manual full run and a weekly full
-check.
-
-Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
-pinned to a commit and keyed on `Cargo.lock` and the toolchain; devpage's own
-crates are built afresh every run. Only a run on `main` saves the cache, a
-red one too, and a pull request reads main's: GitHub keeps 10 GB of caches
-for the repository and evicts the oldest past that, so caches saved by every
-pull request — and by the release builds, which save none — would evict
-main's and leave each run building every dependency again. A change to `Cargo.lock` or the toolchain
-misses the cache, so `install` builds every dependency again — their build
-scripts and C sources too — with nothing added. `install` caches no installed
-binary: one would make the install a no-op.
+Cargo jobs reuse `Swatinem/rust-cache`, pinned by commit, for dependencies
+matching the lockfile and toolchain. Only main saves the cache. The clean
+install job excludes installed binaries so that its install always executes.
 
 **`.github/workflows/deploy-example.yml`** keeps the
 [example deployment](../../../viewer/share/deploying/README.md) true. Its one job,
@@ -72,8 +57,8 @@ with Docker Compose, then checks that the docs load, that a design's PNG is
 served as `image/png`, that a comment is accepted, and that
 `devpage check docs` passes inside the container. The image installs the
 released crate from crates.io, so a change outside `deploy/` can't change
-what it tests: it runs on a pull request that touches `deploy/` or the
-workflow, on every push to `main`, and every Monday at 06:00 UTC. A release
+what it tests: it runs when a pull request or push to `main` changes `deploy/bundled/`
+or its workflow, on a manual dispatch, and every Monday at 06:00 UTC. A release
 pull request, which moves the image to a version not yet published, fails it
 until the version is.
 

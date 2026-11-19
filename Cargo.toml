@@ -11,7 +11,7 @@ homepage = "https://devpage.ai"
 readme = "README.md"
 keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["/node_modules/", "/.nx/", "/tools/browser-tests/", "/nx.json", "/project.json", "/package.json", "/package-lock.json", "/.node-version", "deploy/", "install.sh", "install.ps1", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md", "live/evals/", "live/smoke.ts", "live/*.test.ts"]
+exclude = ["/node_modules/", "/.nx/", "/tools/browser-tests/", "/tools/checks/", "/nx.json", "/project.json", "/package.json", "/package-lock.json", "/.node-version", "deploy/", "install.sh", "install.ps1", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md", "live/evals/", "live/smoke.ts", "live/*.test.ts"]
 
 [dependencies]
 devpage-extension-api = { path = "extension-api", version = "0.3.3" }

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { comparison, verifySelector } from './ci.mjs';
+import { comparison, workloads } from './ci.mjs';
 
 const before = '1'.repeat(40);
 const head = '2'.repeat(40);
@@ -71,10 +71,25 @@ test('manual and scheduled runs always request full coverage', async () => {
   }
 });
 
-test('selector configuration and code edits exercise selector regressions even in a focused plan', () => {
-  for (const file of ['nx.json', 'project.json', 'tools/browser-tests/ci.mjs', '.github/actions/browser-selection/action.yml']) {
-    assert.equal(verifySelector({full:false, files:[file]}), true, file);
-  }
-  assert.equal(verifySelector({full:false, files:['core/assets/widgets/DevpageSidebar.tsx']}), false);
-  assert.equal(verifySelector({full:true, files:[]}), true);
+test('only the required platform tools are installed for each part of a project plan', () => {
+  const empty = { rust: { workspace: false, format: false, packages: [] }, docs: { check: false, filters: [] },
+    live: { typecheck: false, tests: null }, browser: { files: [], filters: [], full: false }, install: false, tooling: false };
+  const none = workloads(empty);
+  assert.deepEqual(Object.values(none), Array(Object.keys(none).length).fill(false));
+  const bun = workloads({ ...empty, live: { typecheck: false, tests: ['service.test.ts'] } });
+  assert.ok(bun.linux && bun.live);
+  assert.ok(!bun.linuxRust && !bun.windows && !bun.install);
+  const tooling = workloads({ ...empty, tooling: true });
+  assert.ok(tooling.linux && tooling.linuxRust && !tooling.windows && !tooling.live);
+  const docs = workloads({ ...empty, docs: { check: true, filters: [] } });
+  assert.ok(docs.linux && docs.linuxRust);
+  assert.ok(!docs.windows);
+  const chrome = workloads({ ...empty, browser: { files: [], filters: ['browser_tests::video::'], full: false } });
+  assert.ok(chrome.windows && chrome.windowsRust && chrome.browser);
+  assert.ok(!chrome.linux && !chrome.inventory);
+  const moved = workloads({ ...empty, browser: { files: ['src/drive/browser_tests/sidebar.rs'],
+    filters: ['browser_tests::sidebar::'], full: false } });
+  assert.ok(moved.inventory);
+  const cargo = workloads({ ...empty, rust: { workspace: false, format: true, packages: ['devpage-core'] } });
+  assert.ok(cargo.windowsRust && cargo.linuxRust);
 });

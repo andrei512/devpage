@@ -1,7 +1,7 @@
 # Keeps the bundled example true: the image in deploy/bundled/ builds and serves.
 # It installs the released crate from crates.io, so a change outside deploy/
 # can't change it: it runs on a pull request that touches deploy/bundled/ or this
-# file, on every push to main, and every Monday for what moves under it.
+# file, for the same changes pushed to main, and every Monday for upstream changes.
 # GitHub-hosted runners only: this repository is public and never uses a
 # self-hosted runner.
 name: deploy example
@@ -11,8 +11,12 @@ on:
     paths:
       - deploy/bundled/**
       - .github/workflows/deploy-example.yml
+  workflow_dispatch:
   push:
     branches: [main]
+    paths:
+      - deploy/bundled/**
+      - .github/workflows/deploy-example.yml
   schedule:
     - cron: "0 6 * * 1"
 

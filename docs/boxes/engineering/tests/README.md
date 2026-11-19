@@ -11,7 +11,8 @@ change a module or wondering whether a behaviour is pinned.
 
 ```text
 $ cargo test                   # fast Rust suite across workspace crates
-$ npm run browser-tests        # affected Rust browser checks
+$ npm run check                # affected development checks
+$ npm run browser-tests        # affected Rust browser checks only
 $ npm run browser-tests -- --full  # full ignored devpage binary tests
 ```
 
@@ -29,7 +30,9 @@ When adding a browser behavior or moving a fixture, update its target inputs
 and add a representative change to the selection tests. Fixtures include real
 project documents and their assets. Each ignored Rust test must match a suite
 filter. Run `node tools/browser-tests/inventory.mjs` to compare the filters
-with the compiled test inventory without starting Chrome.
+with the compiled test inventory without starting Chrome. The project-wide
+[check command](../developing-devpage/README.md#the-gates) includes these suites
+alongside affected Rust, docs, live-session and tooling checks.
 
 ### Checking selections against previous changes
 
@@ -45,7 +48,7 @@ check three historical changes against the current suite definitions.
 PRs use the merge base of the PR head and its actual target branch. Pushes use
 a previous successful push of the same workflow and branch, covering intervening
 failed runs. A new branch, force push or unavailable baseline requests full
-coverage. The Windows gate and Docker smoke each report their own range and
+coverage. The gates workflow and Docker smoke each report their own range and
 decision in the Actions job summary. Compare the selector setup, selection and
 execution steps separately when measuring CI savings.
 

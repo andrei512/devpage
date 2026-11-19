@@ -12,7 +12,7 @@ commands and flags, and the errors devpage stops with. It sits under the [viewer
 ```sh
 devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
-devpage check [path] [--root <folder>] [--json] [--docs]
+devpage check [path] [--root <folder>] [--json] [--docs | --requirements-map]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
@@ -29,7 +29,7 @@ devpage --version
 | Command | Does |
 | --- | --- |
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
-| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../check/checking-links/README.md)). `--json` prints them as JSON. A site with [requirements](../check/checking-requirements/README.md) has its tests run too; `--docs` leaves them out. |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../check/checking-links/README.md)). `--json` prints them as JSON. A site with [requirements](../check/checking-requirements/README.md) has its tests run too; `--docs` leaves them out. `--requirements-map` checks only the links between requirement IDs and test files. |
 | `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../share/pdf/README.md)). |
 | `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../on-the-page/designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../write/making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
 | `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../share/making-a-video/README.md)). |

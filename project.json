@@ -261,11 +261,84 @@
         "{workspaceRoot}/live/*.test.*",
         "{workspaceRoot}/live/eval.ts",
         "{workspaceRoot}/live/smoke.ts",
-        "{workspaceRoot}/live/evals/**/*"
+        "{workspaceRoot}/live/evals/**/*",
+        "{workspaceRoot}/bench/**/*",
+        "{workspaceRoot}/tests/exit_codes.rs",
+        "{workspaceRoot}/tests/search_quality.rs",
+        "{workspaceRoot}/tests/server_threads.rs",
+        "{workspaceRoot}/tests/deploy_restore.rs",
+        "{workspaceRoot}/tests/fixtures/search-docs/**/*",
+        "{workspaceRoot}/src/adapters/terminal.rs",
+        "{workspaceRoot}/src/drive/client/**/*",
+        "{workspaceRoot}/.claude/**/*",
+        "{workspaceRoot}/install.sh",
+        "{workspaceRoot}/install.ps1",
+        "{workspaceRoot}/deploy/bundled/**/*",
+        "{workspaceRoot}/.github/workflows/bench.yml",
+        "{workspaceRoot}/.github/workflows/deploy-example.yml",
+        "{workspaceRoot}/.github/workflows/release.yml",
+        "{workspaceRoot}/tools/checks/*.test.mjs",
+        "{workspaceRoot}/tools/browser-tests/*.test.mjs",
+        "{workspaceRoot}/tools/browser-tests/replay.mjs"
       ],
       "metadata": {
         "noBrowser": true
       }
+    },
+    "check": {
+      "command": "node tools/checks/run.mjs",
+      "cache": false
+    },
+    "build-changed": {
+      "command": "node tools/checks/run.mjs --build-only",
+      "cache": false
+    },
+    "live-test": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/live/**/*",
+        "{workspaceRoot}/examples/world/**/*",
+        "{workspaceRoot}/tests/fixtures/world-service/**/*"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test",
+        "cwd": "live"
+      }
+    },
+    "live-typecheck": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/live/**/*"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tsc --noEmit",
+        "cwd": "live"
+      }
+    },
+    "docs-check": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/docs/**/*",
+        "{workspaceRoot}/src/**/*",
+        "{workspaceRoot}/core/**/*",
+        "{workspaceRoot}/design/**/*",
+        "{workspaceRoot}/Cargo.toml",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/assets/**/*",
+        "{workspaceRoot}/rust-toolchain.toml"
+      ],
+      "command": "cargo run --locked -- check docs --docs"
+    },
+    "requirements-map": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/docs/devpage.yml",
+        "{workspaceRoot}/docs/**/*.md",
+        "{workspaceRoot}/**/*.rs"
+      ],
+      "command": "cargo run --locked -- check docs --requirements-map"
     }
   }
 }

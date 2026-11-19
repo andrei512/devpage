@@ -2,9 +2,17 @@
   "name": "devpage-development",
   "private": true,
   "scripts": {
+    "check": "node tools/checks/run.mjs",
+    "build": "node tools/checks/run.mjs --build-only",
     "browser-tests": "node tools/browser-tests/run.mjs"
   },
   "devDependencies": {
-    "nx": "24.0.6"
+    "nx": "24.0.6",
+    "smol-toml": "1.9.0"
+  },
+  "nx": {
+    "includedScripts": [
+      "browser-tests"
+    ]
   }
 }

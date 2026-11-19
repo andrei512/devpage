@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const project = JSON.parse(readFileSync(new URL('../../project.json', import.meta.url)));
-const filters = Object.values(project.targets).flatMap(target => target.metadata.browserFilters ?? []);
+const filters = Object.values(project.targets).flatMap(target => target.metadata?.browserFilters ?? []);
 const listing = execFileSync('cargo', ['test', '--locked', '--bin', 'devpage', '--', '--list', '--ignored'], {
   cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'],
 });

@@ -18,7 +18,7 @@ permissions:
   actions: read
 
 env:
-  DEVPAGE_BROWSER_MODE: ${{ vars.DEVPAGE_BROWSER_MODE }}
+  DEVPAGE_CHECKS_MODE: ${{ vars.DEVPAGE_CHECKS_MODE || vars.DEVPAGE_BROWSER_MODE || 'affected' }}
 
 jobs:
   server:
@@ -34,21 +34,18 @@ jobs:
         with:
           workflow: deploy-server.yml
           full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
-      - name: Decide whether to run the deployed PDF smoke
-        id: smoke
-        run: node tools/browser-tests/execute-ci.mjs smoke
       - name: Build the image and start it against both buckets
-        if: steps.smoke.outputs.run == 'true'
+        if: steps.browser.outputs.smoke == 'true'
         run: docker compose -f deploy/server/compose.yaml up --build --detach --wait
       - name: A document to publish
-        if: steps.smoke.outputs.run == 'true'
+        if: steps.browser.outputs.smoke == 'true'
         run: |
           mkdir -p /tmp/doc
           printf 'kind: doc\ntitle: CI\nchapters:\n  - intro.md\n' > /tmp/doc/devpage.yml
           printf '# CI\n\nPublished by CI.\n' > /tmp/doc/intro.md
           (cd /tmp/doc && zip -qr /tmp/doc.zip .)
       - name: Each server publishes it and serves its PDF
-        if: steps.smoke.outputs.run == 'true'
+        if: steps.browser.outputs.smoke == 'true'
         run: |
           for port in 3031 3032; do
             id=$(curl -fsS --data-binary @/tmp/doc.zip "http://localhost:$port/api/documents" | jq -r .id)
@@ -57,10 +54,10 @@ jobs:
             head -c 4 /tmp/doc.pdf | grep -q '%PDF'
           done
       - name: The tab icon is devpage's
-        if: steps.smoke.outputs.run == 'true'
+        if: steps.browser.outputs.smoke == 'true'
         run: >
           test "$(curl -fsS -o /dev/null -w '%{content_type}'
           http://localhost:3031/favicon.ico)" = image/x-icon
       - name: Logs
-        if: failure() && steps.smoke.outputs.run == 'true'
+        if: failure() && steps.browser.outputs.smoke == 'true'
         run: docker compose -f deploy/server/compose.yaml logs

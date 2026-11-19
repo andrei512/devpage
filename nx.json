@@ -59,5 +59,8 @@
       "{workspaceRoot}/docs/designs/checkout/**/*",
       "{workspaceRoot}/docs/devpage.yml"
     ]
-  }
+  },
+  "plugins": [
+    "./tools/checks/cargo-nx.cjs"
+  ]
 }

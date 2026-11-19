@@ -47,11 +47,11 @@ export function changedFiles(base = nxConfig.defaultBase, head, cwd = root) {
     files.push(...gitPaths([...diff, '--'], cwd));
     files.push(...gitPaths(['ls-files', '--others', '--exclude-standard', '-z'], cwd));
   }
-  return {files: [...new Set(files)].sort()};
+  return {files: [...new Set(files)].sort(), base: merge.stdout.trim(), head: to};
 }
 
 const targets = project.targets;
-const names = Object.keys(targets);
+const names = Object.keys(targets).filter(name => name.startsWith('browser-') || name === 'deploy-server-pdf');
 for (const name of names) {
   const {inputs, metadata = {}} = targets[name];
   const { browserFilters, noBrowser, deploySmoke } = metadata;
@@ -69,7 +69,7 @@ function plan(files, suites = [], smoke = false, reasons = [], full = false) {
   return {files, suites, filters, smoke, full, reasons};
 }
 
-function fullPlan(files, reason) {
+export function fullPlan(files, reason) {
   return plan(files, rustSuites, true, [reason], true);
 }
 
