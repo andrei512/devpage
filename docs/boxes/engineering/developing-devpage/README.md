@@ -94,6 +94,21 @@ never a Chrome installed on the machine. What each module's tests pin, the watch
 that need file-system events, and what has no test, is on
 [Tests](../tests/README.md).
 
+### Select browser checks locally
+
+Install the Node version in `.node-version` and run `npm ci` at the repository
+root. Use `npm run browser-tests -- --explain` to inspect which suites your
+branch and working-tree changes affect. Run `npm run browser-tests` to execute
+them with Cargo, or add `--full` to run the entire ignored browser binary.
+Windows skips the GPU tests. A standalone review brief selects zero suites.
+The command reports broad coverage when a changed file has no classification.
+
+The default comparison starts at the merge base with `origin/main`. Use
+`--base REF` to choose another base, or `--base BASE --head HEAD` to inspect
+an explicit committed range. The latter requires BASE to be an ancestor of
+HEAD. Add `--json` for a machine-readable plan. The selector also reports
+whether CI should exercise the deploy-server PDF smoke.
+
 ## The gates
 
 Green before any pull request opens (from `AGENTS.md`):

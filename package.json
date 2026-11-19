@@ -1,0 +1,10 @@
+{
+  "name": "devpage-development",
+  "private": true,
+  "scripts": {
+    "browser-tests": "node tools/browser-tests/run.mjs"
+  },
+  "devDependencies": {
+    "nx": "24.0.6"
+  }
+}
