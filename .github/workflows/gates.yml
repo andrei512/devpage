@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   gates:
@@ -27,6 +28,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: ${{ runner.os == 'Windows' && '0' || '1' }}
+          persist-credentials: false
       - name: The toolchain rust-toolchain.toml names, with rustfmt and clippy
         run: |
           rustup toolchain install
@@ -42,6 +46,13 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked
+      - name: Compare affected browser checks
+        if: runner.os == 'Windows'
+        id: browser
+        continue-on-error: true # advisory until selections are verified
+        uses: ./.github/actions/browser-selection
+        with:
+          workflow: gates.yml
       # On Windows, the Chrome tests too — pages, PDFs, slide PNGs, designs,
       # videos — on the pinned Chrome, with the test build just made. All
       # but the GPU's — each has `gpu` in its name: the runner has no GPU.
