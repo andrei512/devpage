@@ -22,12 +22,22 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   server:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compare affected deploy-server smoke
+        id: browser
+        continue-on-error: true # advisory until selections are verified
+        uses: ./.github/actions/browser-selection
+        with:
+          workflow: deploy-server.yml
       - name: Build the image and start it against both buckets
         run: docker compose -f deploy/server/compose.yaml up --build --detach --wait
       - name: A document to publish

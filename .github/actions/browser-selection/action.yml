@@ -1,0 +1,44 @@
+name: Select affected browser checks
+description: Resolve the comparison range for this workflow and report affected browser checks.
+inputs:
+  workflow:
+    description: Filename of the workflow whose successful pushes are the baseline
+    required: true
+  full:
+    description: Request a full run regardless of the diff
+    default: 'false'
+outputs:
+  full:
+    description: Whether broad coverage was requested
+    value: ${{ steps.select.outputs.full }}
+  rust:
+    description: Whether any Rust browser checks were selected
+    value: ${{ steps.select.outputs.rust }}
+  smoke:
+    description: Whether the deploy-server PDF smoke was selected
+    value: ${{ steps.select.outputs.smoke }}
+  base:
+    description: Comparison base SHA if available
+    value: ${{ steps.select.outputs.base }}
+  head:
+    description: Comparison head SHA if available
+    value: ${{ steps.select.outputs.head }}
+runs:
+  using: composite
+  steps:
+    - name: Set up the pinned Node runtime
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+    - name: Install pinned selector dependencies
+      shell: bash
+      run: npm ci --no-audit --no-fund
+    - name: Explain the selected browser checks
+      id: select
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        BROWSER_WORKFLOW: ${{ inputs.workflow }}
+        BROWSER_FORCE_FULL: ${{ inputs.full }}
+      run: node tools/browser-tests/ci.mjs

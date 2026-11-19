@@ -30,6 +30,24 @@ project documents and their assets. Each ignored Rust test must match a suite
 filter. Run `node tools/browser-tests/inventory.mjs` to compare the filters
 with the compiled test inventory without starting Chrome.
 
+### Checking selections against previous changes
+
+Run `node tools/browser-tests/replay.mjs` in a checkout with Git history to
+check three historical changes against the current suite definitions.
+
+| Change | Rust browser suites | Deploy-server PDF |
+| --- | --- | --- |
+| Release archive format, `221fdfa9` | None | Skip |
+| Server PDF rendering and image config, `06994906` | Canvas, PDF and the three server suites | Run |
+| Shared Chrome adapter, `8dbc1655` | All registered suites | Run |
+
+PRs use the merge base of the PR head and its actual target branch. Pushes use
+a previous successful push of the same workflow and branch, covering intervening
+failed runs. A new branch, force push or unavailable baseline requests full
+coverage. The Windows gate and Docker smoke each report their own range and
+decision in the Actions job summary. Compare the selector setup, selection and
+execution steps separately when measuring CI savings.
+
 ## How they are written
 
 `cargo test` runs every default member of the workspace: 190 in `devpage`, six of
