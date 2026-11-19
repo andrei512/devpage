@@ -1,0 +1,85 @@
+{
+  "name": "devpage",
+  "targets": {
+    "browser-video": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-video",
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/core/assets/style.css",
+        "{workspaceRoot}/src/adapters/chrome.rs",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/rust-toolchain.toml",
+        "{workspaceRoot}/src/drive/slide_png.rs",
+        "{workspaceRoot}/assets/video.js",
+        "{workspaceRoot}/src/drive/video.rs",
+        "{workspaceRoot}/src/drive/video/**/*",
+        "{workspaceRoot}/src/drive/browser_tests/video.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::video::"
+        ]
+      }
+    },
+    "browser-slide-png": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-slide-png",
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/core/assets/style.css",
+        "{workspaceRoot}/src/adapters/chrome.rs",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/rust-toolchain.toml",
+        "{workspaceRoot}/src/drive/slide_png.rs",
+        "{workspaceRoot}/src/drive/browser_tests/slide_png.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::slide_png::"
+        ]
+      }
+    },
+    "browser-rest": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-rest",
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/core/assets/style.css",
+        "{workspaceRoot}/src/adapters/chrome.rs",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/rust-toolchain.toml",
+        "{workspaceRoot}/src/drive/browser_tests/canvas.rs",
+        "{workspaceRoot}/src/drive/browser_tests/comments.rs",
+        "{workspaceRoot}/src/drive/browser_tests/page_script.rs",
+        "{workspaceRoot}/src/drive/browser_tests/pdf.rs",
+        "{workspaceRoot}/src/drive/browser_tests/places.rs",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode.rs",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode_comments.rs",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode_pages.rs",
+        "{workspaceRoot}/src/drive/browser_tests/world.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::canvas::",
+          "browser_tests::comments::",
+          "browser_tests::page_script::",
+          "browser_tests::pdf::",
+          "browser_tests::places::",
+          "browser_tests::server_mode::",
+          "browser_tests::server_mode_comments::",
+          "browser_tests::server_mode_pages::",
+          "browser_tests::world::",
+          "adapters::chrome::"
+        ]
+      }
+    },
+    "browser-none": {
+      "executor": "nx:noop",
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/*.md"
+      ],
+      "metadata": {
+        "noBrowser": true
+      }
+    }
+  }
+}
