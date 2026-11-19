@@ -16,6 +16,20 @@ $ cargo test -- --ignored     # the 119 tests that drive Chrome or Docker, call 
 
 </Terminal>
 
+## Browser suite ownership
+
+The root `project.json` declares each browser target's Nx inputs and Cargo test
+filters. Shared inputs in `nx.json` cover the renderer, test support, toolchain
+and fixtures. A source file can affect several targets. For example, the video
+tests record a slide showing another slide's PNG, so the slide renderer selects
+both suites. The deploy-server PDF target selects a separate Docker check.
+
+When adding a browser behavior or moving a fixture, update its target inputs
+and add a representative change to the selection tests. Fixtures include real
+project documents and their assets. Each ignored Rust test must match a suite
+filter. Run `node tools/browser-tests/inventory.mjs` to compare the filters
+with the compiled test inventory without starting Chrome.
+
 ## How they are written
 
 `cargo test` runs every default member of the workspace: 190 in `devpage`, six of
