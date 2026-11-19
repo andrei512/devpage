@@ -210,7 +210,10 @@
         "{workspaceRoot}/tests/fixtures/world-service/**/*",
         "{workspaceRoot}/src/drive/http/live.rs",
         "{workspaceRoot}/src/adapters/live.rs",
-        "{workspaceRoot}/build.rs"
+        "{workspaceRoot}/build.rs",
+        "!{workspaceRoot}/live/*.test.*",
+        "!{workspaceRoot}/live/eval.ts",
+        "!{workspaceRoot}/live/smoke.ts"
       ],
       "metadata": {
         "browserFilters": [
@@ -254,7 +257,11 @@
         "{workspaceRoot}/*.md",
         "{workspaceRoot}/docs/**/*.md",
         "{workspaceRoot}/dist-workspace.toml",
-        "{workspaceRoot}/LICENSE"
+        "{workspaceRoot}/LICENSE",
+        "{workspaceRoot}/live/*.test.*",
+        "{workspaceRoot}/live/eval.ts",
+        "{workspaceRoot}/live/smoke.ts",
+        "{workspaceRoot}/live/evals/**/*"
       ],
       "metadata": {
         "noBrowser": true

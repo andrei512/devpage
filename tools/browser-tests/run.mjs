@@ -31,7 +31,7 @@ function commit(ref, cwd) {
 
 // --no-renames reports both the removed and added path. -z keeps whitespace and
 // newlines intact until the Nx protocol boundary.
-export function changedFiles(base, head, cwd = root) {
+export function changedFiles(base = nxConfig.defaultBase, head, cwd = root) {
   const from = commit(base, cwd);
   const to = commit(head ?? 'HEAD', cwd);
   if (!from || !to) return {files: [], fallback: `Comparison history unavailable: ${base} to ${head ?? 'HEAD'}`};
@@ -129,7 +129,7 @@ function main() {
     if (!rustSuites.includes(values.suite)) throw new Error(`Unknown Rust suite: ${values.suite}`);
     selection = plan([], [values.suite], false, ['Suite explicitly requested.']);
   } else {
-    const diff = changedFiles(values.base ?? nxConfig.defaultBase, values.head);
+    const diff = changedFiles(values.base, values.head);
     selection = diff.fallback ? fullPlan(diff.files, diff.fallback) : selectFiles(diff.files);
   }
 

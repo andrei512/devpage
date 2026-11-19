@@ -77,37 +77,35 @@ What you edit decides what you have to do to see it:
 
 ## Tests
 
-<Terminal>
-
-```text
-$ cargo test                  # every crate; needs no network and no Chrome
-$ cargo test -- --ignored     # the tests that drive Chrome
-```
-
-</Terminal>
-
-Run the Chrome tests after changing the page script, the design script, the
-module, the stylesheet, a widget, print mode, `devpage pdf`, a slide's PNG, or
-`devpage video` and its recorder (`assets/video.js`).
-They drive chrome-headless-shell — `devpage video`'s, Chrome for Testing —
-never a Chrome installed on the machine. What each module's tests pin, the watcher tests
-that need file-system events, and what has no test, is on
-[Tests](../tests/README.md).
+The default Rust suite runs with `cargo test`. Browser tests use the pinned
+Chrome. Video uses Chrome for Testing. The
+[test inventory](../tests/README.md) describes the behaviors exercised by
+each suite.
 
 ### Select browser checks locally
 
 Install the Node version in `.node-version` and run `npm ci` at the repository
-root. Use `npm run browser-tests -- --explain` to inspect which suites your
-branch and working-tree changes affect. Run `npm run browser-tests` to execute
-them with Cargo, or add `--full` to run the entire ignored browser binary.
-Windows skips the GPU tests. A standalone review brief selects zero suites.
-The command reports broad coverage when a changed file has no classification.
+root. Run `npm run browser-tests` during an edit. The default comparison with
+`HEAD` includes staged, unstaged and untracked files. Add `-- --explain` to
+see why each suite was selected. A standalone review brief selects zero
+suites. An unclassified change requests broad coverage. Use `-- --full` to
+run the entire ignored devpage binary. Windows skips GPU tests.
 
-The default comparison starts at the merge base with `origin/main`. Use
-`--base REF` to choose another base, or `--base BASE --head HEAD` to inspect
+Before a PR to main, `npm run browser-tests -- --base origin/main` includes
+committed branch changes since the merge base, plus working-tree changes.
+Use the PR’s target branch for other branches, or `--base BASE --head HEAD` for
 an explicit committed range. The latter requires BASE to be an ancestor of
 HEAD. Add `--json` for a machine-readable plan. The selector also reports
-whether CI should exercise the deploy-server PDF smoke.
+whether CI should exercise the deploy-server PDF smoke. The local command
+runs the Rust browser tests; the Docker smoke has its own CI runner.
+
+When a feature starts reading a shared module, style or fixture, add it to
+the relevant targets’ `inputs` in the root `project.json` or their shared
+named inputs in `nx.json`. For a new Rust suite, register its libtest filters
+in `metadata.browserFilters`. Exercise the selector with an edit to the new
+input and assert the expected selection in the browser-tooling tests. Run
+`node tools/browser-tests/inventory.mjs` to reconcile the registered filters
+with the platform’s compiled tests after moving or renaming tests.
 
 ## The gates
 
@@ -119,11 +117,11 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-Formatting must match `rustfmt`'s defaults, clippy's warnings — on tests too —
-are errors, and the suite passes. Run them before you push. CI runs the same
-three, and `devpage check docs`, on every pull request and every push to
-`main`, a design branch or a prototype — but not the Chrome tests, which stay
-yours to run. See [CI](../sdlc/review-bars/README.md#ci).
+Formatting follows `rustfmt` defaults. Clippy checks every target, warnings
+are errors, and the Rust tests must pass. CI runs these checks on Linux and
+Windows. Linux also checks the docs. For browser selection, push and pull
+request comparisons and the full-run controls, see
+[CI](../sdlc/review-bars/README.md#ci).
 
 ## The code
 

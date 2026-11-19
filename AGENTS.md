@@ -40,11 +40,13 @@ cargo clippy --all-targets -- -D warnings
 cargo test
 ```
 
-`cargo test` checks devpage's own docs for broken internal links too. After
-changing the page script, the design script (`core/assets/design.js`), the design
-engine's module, the stylesheet, a widget, print mode, `devpage pdf`, a
-slide's PNG, or `devpage video` and its recorder (`assets/video.js`), also run
-the tests that drive Chrome: `cargo test -- --ignored`.
+For browser coverage, use `npm ci` on the Node version in `.node-version`,
+then `npm run browser-tests` for the current edit. Before a PR,
+compare with the target branch using `--base origin/<target>`. Add
+`--explain` to see which changes selected each suite, or `-- --full` for
+a full browser run. When adding a browser behavior or fixture, update its
+target inputs and selection tests. See the
+[browser-test guide](docs/boxes/engineering/developing-devpage/README.md#select-browser-checks-locally).
 
 Run the docs while you work on them, from the repository root:
 `cargo run -- docs`.

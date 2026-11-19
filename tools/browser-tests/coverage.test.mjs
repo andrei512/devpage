@@ -5,6 +5,8 @@ import { selectFiles } from './run.mjs';
 const selections = [
   [['eval_discussion_breif.md', 'dist-workspace.toml'], [], false],
   [['docs/boxes/engineering/code-map/README.md'], [], false],
+  [['live/registry.test.ts', 'live/service.test.harness.ts', 'live/eval.ts', 'live/smoke.ts', 'live/evals/cases.ts', 'live/evals/sessions/sample.json'], [], false],
+  [['live/service.ts', 'live/registry.test.ts'], ['world'], false],
   [['assets/video.js'], ['video'], false],
   [['src/drive/slide_png.rs'], ['slide-png', 'video'], false],
   [['core/assets/widgets/DevpageSidebar.tsx'], ['sidebar'], false],

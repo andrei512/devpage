@@ -17,7 +17,7 @@ review runs is the [Review stage](../stages/README.md#review).
 
 ## CI
 
-Four workflows run on GitHub, on GitHub-hosted runners only — the repository
+The workflows run on GitHub, on GitHub-hosted runners only — the repository
 is public and never uses a self-hosted runner.
 
 **`.github/workflows/gates.yml`** runs on every pull request and every push to
@@ -30,14 +30,29 @@ side by side:
   `--locked`. It runs twice, on Linux and on Windows: devpage runs on both
   and on macOS, where it is developed. On Linux it then runs
   `devpage check docs`, external links included, on the change's own docs.
-  On Windows it then runs the Chrome tests but the GPU's,
-  `cargo test --bin devpage -- --ignored --skip gpu`, with the test build
-  it just made: every test that draws on the GPU has `gpu` in its name, and
-  the runner has no GPU.
+  On Windows it reuses the compiled test binary for the browser checks.
+  The selected filters run together and skip GPU tests on the hosted runner.
 - **`install`** runs `cargo install --path . --locked` in a bare
   `rust:1.97-slim-bookworm` container, with nothing added, and runs
   `devpage --version`, keeping the [install page](../../../../installing.md)
   true.
+
+The Windows browser step and the deploy-server smoke use the same affected
+selector as the [local browser command](../../developing-devpage/README.md#select-browser-checks-locally).
+Each publishes its comparison range, selection and reasons in the workflow
+summary. A pull request compares against its target branch. A push compares
+against the latest available successful baseline on its branch. Missing
+history widens the run to full coverage. Selection errors fail the job.
+
+The repository Actions variable `DEVPAGE_BROWSER_MODE` controls cutover.
+An unset value or `shadow` runs the previous coverage alongside the selection
+report. Inspect unrelated, focused and broad diffs on hosted runners, including
+both the proposed Windows suites and the Docker PDF decision. Compare setup,
+selection, browser execution, and total job duration before setting the
+variable to `affected`. In affected mode an empty selection succeeds in the
+existing job and reports zero checks. Return to `shadow` to investigate a
+missed input. Both workflows also have a manual full run and a weekly full
+check.
 
 Every job keeps the built dependencies between runs with `Swatinem/rust-cache`,
 pinned to a commit and keyed on `Cargo.lock` and the toolchain; devpage's own
@@ -65,8 +80,9 @@ until the version is.
 **`.github/workflows/deploy-server.yml`** keeps the
 [server example](../../../viewer/share/server/running-a-server/README.md) true: it
 builds the image in `deploy/server/` from the checkout on x86-64, publishes
-into both emulated buckets and downloads a version's PDF, on a pull request
-that touches the code or `deploy/server/`, and on every push to `main`.
+into both emulated buckets and downloads a version's PDF, when the selector chooses the smoke on a pull request or push to `main`.
+The job starts on every PR, so its successful zero-check result is visible
+for unrelated changes.
 
 **`.github/workflows/release.yml`** builds a release's
 [prebuilt binaries](../stages/README.md#release) when a version tag is pushed.
