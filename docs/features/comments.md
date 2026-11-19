@@ -14,4 +14,4 @@ deleting the file. Serve a public site with `--no-comments` to turn them off.
 
 </FileTree>
 
-Teaches it: [Comments](../boxes/viewer/comments/README.md).
+Teaches it: [Comments](../boxes/viewer/share/comments/README.md).

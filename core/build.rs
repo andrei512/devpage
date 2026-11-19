@@ -52,6 +52,7 @@ const ASSETS: &[(&str, &str, &str)] = &[
     ("react.js", "assets/vendor/react.js", "text/javascript"),
     ("style.css", "assets/style.css", "text/css"),
     ("devpage.js", "assets/devpage.js", "text/javascript"),
+    ("page.js", "assets/page.js", "text/javascript"),
 ];
 
 /// What devpage's build is made from: a change to any of it is a new build id.

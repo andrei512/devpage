@@ -15,4 +15,4 @@ word it matched, every one of them marked in it until Escape.
 | Enter | open the row: a page at its top, a section at its first matched word |
 | Escape | clear the box and bring the tree back; on the page, take the marks out |
 
-Teaches it: [Search](../boxes/viewer/search/README.md#the-search-box).
+Teaches it: [Search](../boxes/viewer/write/making-a-site/search/README.md#the-search-box).

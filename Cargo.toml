@@ -11,7 +11,7 @@ homepage = "https://devpage.ai"
 readme = "README.md"
 keywords = ["markdown", "documentation", "slides", "mermaid", "live-reload"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["deploy/", "install.sh", "install.ps1", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md"]
+exclude = ["/node_modules/", "/.nx/", "/tools/browser-tests/", "/tools/checks/", "/nx.json", "/project.json", "/package.json", "/package-lock.json", "/.node-version", "deploy/", "install.sh", "install.ps1", ".github/", ".claude/", ".agents/", "docs/plan/", "AGENTS.md", "CLAUDE.md", "live/evals/", "live/smoke.ts", "live/*.test.ts"]
 
 [dependencies]
 devpage-extension-api = { path = "extension-api", version = "0.3.3" }
@@ -23,6 +23,8 @@ axum = "0.8.9"
 chromiumoxide = { version = "0.9.1", features = ["fetcher", "rustls", "zip8"] }
 clap = { version = "4.6.7", features = ["derive"] }
 futures = "0.3.34"
+hyper = { version = "1.12.0", features = ["client", "http1"] }
+hyper-util = { version = "0.1.21", features = ["tokio"] }
 mime_guess = "2.0.5"
 notify = "8.2.1"
 reqwest = "0.13"
@@ -69,6 +71,7 @@ windows-sys = { version = "0.61.2", features = [
 ] }
 
 [dev-dependencies]
+codespec-rust-macro = "0.1.2"
 devpage-core = { path = "core", version = "0.3.3", features = ["testing"] }
 prost = "0.14.4"
 brotli = "9.1.0"

@@ -1,8 +1,10 @@
+---
+page-type: concept
+---
 # Branches
 
 Which branches carry a change from idea to `main` — design, prototype, ticket
-and direct branches — how they merge, and when each is deleted. It is a
-concept page under the [SDLC](../README.md).
+and direct branches — how they merge, and when each is deleted. It sits under the [SDLC](../README.md).
 
 
 ```mermaid
@@ -15,7 +17,7 @@ flowchart LR
   designb -->|"the one pull request, drift bar"| main
   main -->|"no design change"| direct["direct branch"]
   direct -->|"pull request, task bar"| main
-  click main href "../constraints/docs-are-true-on-main.md" "On main the docs are true"
+  click main href "../requirements/docs-are-true-on-main.md" "On main the docs are true"
   click designb href "#design-branches" "Design branches"
   click proto href "#prototype-branches" "Prototype branches"
   click ticket href "../stages/README.md#build" "Lanes and tickets"
@@ -23,7 +25,7 @@ flowchart LR
 ```
 
 On `main`, the box docs describe the system as it actually is — see
-[docs-are-true-on-main](../constraints/docs-are-true-on-main.md). That is the
+[docs-are-true-on-main](../requirements/docs-are-true-on-main.md). That is the
 invariant everything else protects.
 
 A design update describes a system that doesn't exist yet, so it can't live on

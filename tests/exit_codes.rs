@@ -61,6 +61,39 @@ fn a_clean_document_exits_0_and_a_broken_one_1() {
 }
 
 #[test]
+fn the_requirements_map_checks_pointers_without_running_suites_or_following_links() {
+    let dir = folder(
+        "requirements-map",
+        &[
+            (
+                "devpage.yml",
+                "kind: site\ntitle: Rules\nroot: README.md\nextensions:\n  requirements:\n    config:\n      tests:\n        - name: sample\n          glob: '*.txt'\n          pattern: 'rule ([a-z-]+)'\n          run: 'echo ran > marker'\n",
+            ),
+            ("README.md", "# Rules\n\n[Missing](missing.md)\n"),
+            ("example.txt", "rule missing-rule\n"),
+        ],
+    );
+    let result = devpage(&dir, &["check", ".", "--requirements-map", "--json"]);
+    assert_eq!(result.status.code(), Some(1));
+    let problems = json(&result.stdout);
+    let problems = problems["problems"].as_array().unwrap();
+    assert_eq!(problems.len(), 1);
+    assert!(
+        problems[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("missing-rule")
+    );
+    assert!(!dir.join("marker").exists());
+    std::fs::write(dir.join("example.txt"), "").unwrap();
+    assert!(
+        devpage(&dir, &["check", ".", "--requirements-map", "--json"])
+            .status
+            .success()
+    );
+}
+
+#[test]
 fn a_design_names_its_line_and_column() {
     let dir = folder(
         "design",

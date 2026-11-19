@@ -1,8 +1,11 @@
+---
+page-type: concept
+---
 # Stages
 
 What each stage of the flow does, what it produces and the skill that runs it —
 from the design conversation to the retro, and the inverted path a small
-change can take. It is a concept page under the [SDLC](../README.md); who may
+change can take. It sits under the [SDLC](../README.md); who may
 start each skill is on the [Skills reference](../../skills-reference/README.md).
 
 ## Design
@@ -85,7 +88,7 @@ runners, and publishes a GitHub Release holding them, their checksums and the
 two install scripts that fetch them. The tag must name the version in
 `Cargo.toml`, or the release fails. After a change to `dist-workspace.toml`,
 `dist generate` rewrites the workflow. The
-[example image](../../../viewer/deploying/README.md#the-image) installs the
+[example image](../../../viewer/share/deploying/README.md#the-image) installs the
 released version, so it follows each release.
 
 ## Retro

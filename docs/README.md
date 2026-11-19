@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # devpage
 
 devpage renders the documents a software project lives by — a site of system
@@ -20,17 +23,17 @@ started](getting-started.md) goes from there.
 
 <Cards>
 
-- (file-code) [Extended Markdown](boxes/viewer/writing-a-document/markdown-that-works/README.md) — GitHub-flavoured Markdown with raw HTML allowed, highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to other pages.
-- (palette) [Light and dark](boxes/viewer/themes/README.md) — A light and a dark theme the reader can switch between.
-- (puzzle) [Widgets](boxes/viewer/widgets/README.md) — React components used as HTML tags in Markdown: callouts, tabs, file trees, examples, terminals, keycaps, steps and cards ship with devpage; a project adds its own as `.tsx` files.
-- (frame) [Designs](boxes/viewer/designs/README.md) — A UI an agent writes as code, a `.design` file in JSX syntax over Figma's node model: drawn on a canvas, clicked through as a prototype, embedded in any page, and fetched as a PNG so the agent can see its work.
-- (braces) [Code reference](boxes/viewer/code-reference/README.md) — A page for every module, type and function of a site's Rust code, read from the code as it is now: live as you save, searched, and checked when prose links to it.
-- (refresh-cw) [Live updates](boxes/viewer/live-updates/README.md) — A file's change refreshes every open page in place, without a reload.
-- (message-square) [Comments](boxes/viewer/comments/README.md) — Turn on comment mode, then select text or hover a paragraph; threads are files in a `.devpage/` folder git ignores, so an agent can read and resolve them.
-- (link) [Checked links](boxes/viewer/checking-links/README.md) — Broken links show on the page while you write, and `devpage check` fails a test on them.
-- (printer) [PDF](boxes/viewer/pdf/README.md) — `devpage pdf` prints a doc or a deck exactly as the browser shows it.
-- (video) [Video](boxes/viewer/making-a-video/README.md) — `devpage video` records a deck to mp4, each slide's notes read aloud by GPT-Live.
-- (server) [Local or deployed](boxes/viewer/deploying/README.md) — On your machine, or for a team behind the auth proxy you already have.
+- (file-code) [Extended Markdown](boxes/viewer/write/writing-a-document/markdown-that-works/README.md) — GitHub-flavoured Markdown with raw HTML allowed, highlighted code, and `mermaid` fences drawn as diagrams whose nodes link to other pages.
+- (palette) [Light and dark](boxes/viewer/on-the-page/themes/README.md) — A light and a dark theme the reader can switch between.
+- (puzzle) [Widgets](boxes/viewer/on-the-page/widgets/README.md) — React components used as HTML tags in Markdown: callouts, tabs, file trees, examples, terminals, keycaps, steps and cards ship with devpage; a project adds its own as `.tsx` files.
+- (frame) [Designs](boxes/viewer/on-the-page/designs/README.md) — A UI an agent writes as code, a `.design` file in JSX syntax over Figma's node model: drawn on a canvas, clicked through as a prototype, embedded in any page, and fetched as a PNG so the agent can see its work.
+- (braces) [Code reference](boxes/viewer/write/code-reference/README.md) — A page for every module, type and function of a site's Rust code, read from the code as it is now: live as you save, searched, and checked when prose links to it.
+- (refresh-cw) [Live updates](boxes/viewer/write/writing-a-document/live-updates/README.md) — A file's change refreshes every open page in place, without a reload.
+- (message-square) [Comments](boxes/viewer/share/comments/README.md) — Turn on comment mode, then select text or hover a paragraph; threads are files in a `.devpage/` folder git ignores, so an agent can read and resolve them.
+- (link) [Checked links](boxes/viewer/check/checking-links/README.md) — Broken links show on the page while you write, and `devpage check` fails a test on them.
+- (printer) [PDF](boxes/viewer/share/pdf/README.md) — `devpage pdf` prints a doc or a deck exactly as the browser shows it.
+- (video) [Video](boxes/viewer/share/making-a-video/README.md) — `devpage video` records a deck to mp4, each slide's notes read aloud by GPT-Live.
+- (server) [Local or deployed](boxes/viewer/share/deploying/README.md) — On your machine, or for a team behind the auth proxy you already have.
 
 </Cards>
 
@@ -42,11 +45,11 @@ flowchart LR
   md -. "a save" .-> browser
   browser <-->|"comments"| store[".devpage/"]
   devpage --> pdf["PDF"]
-  click md href "./boxes/viewer/writing-a-document/README.md" "Writing a document"
-  click designs href "./boxes/viewer/designs/README.md" "Designs"
+  click md href "./boxes/viewer/write/writing-a-document/README.md" "Writing a document"
+  click designs href "./boxes/viewer/on-the-page/designs/README.md" "Designs"
   click devpage href "./boxes/viewer/README.md" "The viewer"
-  click store href "./boxes/viewer/comments/README.md" "Comments"
-  click pdf href "./boxes/viewer/pdf/README.md" "Printing to PDF"
+  click store href "./boxes/viewer/share/comments/README.md" "Comments"
+  click pdf href "./boxes/viewer/share/pdf/README.md" "Printing to PDF"
 ```
 
 What devpage may become beyond this is on the [vision](vision.md): ideas, not
@@ -76,6 +79,4 @@ commitments. How these docs are laid out is on the
 
 - [System catalog](boxes/README.md) — how devpage works, one subject per
   folder.
-- [General constraints](constraints/README.md) — the rules every change is
-  reviewed against.
 - [Rust reference](reference/rust) — devpage's crates, modules and types.

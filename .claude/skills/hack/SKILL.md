@@ -62,7 +62,7 @@ The debt is paid, in one pass, before anything merges:
    restore`** — the session's work is uncommitted while the debt is being
    paid, and git-restoring a file you just mutated wipes the session's
    edits with it, leaving them to be rebuilt from the conversation.
-3. **Gates** — the full set, same as any branch.
+3. **Gates** — run `npm run check -- --base <target-ref>` against the branch receiving the change.
 4. **Self-review at the task bar**, then the normal flow: PR, CI, merge on
    green.
 

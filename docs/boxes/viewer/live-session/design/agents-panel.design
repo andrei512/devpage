@@ -1,0 +1,63 @@
+// The side panel: a list of agents, each with its tasks. Two agents are working: each is open, with its task rows
+// under it. Two were active a while ago: each is one row, with its last task. A closed agent is not here.
+// Every agent has its orb and a name taken from what it works on.
+<Frame name="agents-panel" width={280} height={372} fill={theme.surface} stroke={theme.border} layout="column" padding={[8, 8]} gap={2} clip>
+  <Frame width={264} padding={[4, 8, 0, 8]}><Text size={11} weight={600} color={theme.muted}>Working</Text></Frame>
+  <Frame layout="row" width={264} padding={[10, 8, 4, 8]} gap={10} align="center" justify="space-between">
+    <Frame layout="row" gap={10} align="center">
+    <Frame width={20} height={20}>
+      <Ellipse x={0} y={0} width={20} height={20} fill="#e6923c1f" stroke="#e6923c" strokeWidth={1.5} />
+      <Ellipse x={4} y={6} width={11} height={9} fill="linear-gradient(135deg, #e6923c 0%, #e64c8a 100%)" opacity={0.95} />
+    </Frame>
+    <Text size={13} weight={700} color={theme.text} width={200} lineHeight={1.4}>Sign-in page</Text>
+    </Frame>
+  </Frame>
+  <Frame layout="row" width={264} padding={[7, 8, 7, 38]} radius={6} gap={10} align="center">
+    <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2.5} d="M4 12.5l5 5L20 6.5" />
+    <Text size={13} weight={500} color={theme.muted} width={186} lineHeight={1.4}>Add a password reset link</Text>
+  </Frame>
+  <Frame layout="row" width={264} padding={[7, 8, 7, 38]} radius={6} gap={10} align="center">
+    <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2.5} d="M12 3a9 9 0 1 0 9 9" />
+    <Text size={13} weight={600} color={theme.text} width={186} lineHeight={1.4}>Clearer error messages</Text>
+  </Frame>
+  <Frame height={8} />
+  <Frame layout="row" width={264} padding={[10, 8, 4, 8]} gap={10} align="center" justify="space-between">
+    <Frame layout="row" gap={10} align="center">
+    <Frame width={20} height={20}>
+      <Ellipse x={0} y={0} width={20} height={20} fill="#2fb9a31f" stroke="#2fb9a3" strokeWidth={1.5} />
+      <Ellipse x={6} y={4} width={9} height={12} fill="linear-gradient(200deg, #2fb9a3 0%, #2f6fe6 100%)" opacity={0.95} />
+    </Frame>
+    <Text size={13} weight={700} color={theme.text} width={200} lineHeight={1.4}>Search</Text>
+    </Frame>
+  </Frame>
+  <Frame layout="row" width={264} padding={[7, 8, 7, 38]} radius={6} gap={10} align="center">
+    <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2.5} d="M12 3a9 9 0 1 0 9 9" />
+    <Text size={13} weight={600} color={theme.text} width={186} lineHeight={1.4}>Faster first search</Text>
+  </Frame>
+  <Frame height={10} />
+  <Frame width={264} padding={[4, 8, 0, 8]}><Text size={11} weight={600} color={theme.muted}>Earlier</Text></Frame>
+  <Frame layout="row" width={264} padding={[8, 8]} gap={10} align="center" justify="space-between">
+    <Frame layout="row" gap={10} align="center">
+    <Frame width={20} height={20}>
+      <Ellipse x={0} y={0} width={20} height={20} fill="#8a5ce614" stroke="#8a5ce6" strokeWidth={1.5} opacity={0.55} />
+      <Ellipse x={7} y={8} width={6} height={5} fill="#8a5ce6" opacity={0.45} />
+    </Frame>
+    <Frame layout="column" width={200} gap={1}>
+      <Text size={13} weight={500} color={theme.muted} width={200} lineHeight={1.4}>Onboarding guide</Text>
+      <Text size={11} color={theme.muted} width={200} lineHeight={1.4}>✓ Shorten the first page</Text>
+    </Frame>
+    </Frame>
+  </Frame>
+  <Frame layout="row" width={264} padding={[8, 8]} gap={10} align="center" justify="space-between">
+    <Frame layout="row" gap={10} align="center">
+    <Frame width={20} height={20}>
+      <Ellipse x={0} y={0} width={20} height={20} fill="#c9a52c14" stroke="#c9a52c" strokeWidth={1.5} opacity={0.55} />
+      <Ellipse x={6} y={7} width={7} height={6} fill="#c9a52c" opacity={0.45} />
+    </Frame>
+    <Frame layout="column" width={200} gap={1}>
+      <Text size={13} weight={500} color={theme.muted} width={200} lineHeight={1.4}>Release notes</Text>
+      <Text size={11} color={theme.muted} width={200} lineHeight={1.4}>✓ List this week's changes</Text>
+    </Frame>
+    </Frame>
+  </Frame>
+</Frame>

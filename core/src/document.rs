@@ -27,6 +27,7 @@ enum Config {
         root: String,
         watch: Option<Vec<String>>,
         widgets: Option<String>,
+        structure: Option<String>,
         navbar: Option<serde_yaml::Mapping>,
         sidebar: Option<bool>,
         #[serde(rename = "theme-selector")]
@@ -34,6 +35,8 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
     /// A doc: its `chapters` in order, and its settings on paper.
     Doc {
@@ -47,6 +50,8 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
     /// A deck: its `slides` in order, and what its narrator is told about the
     /// talk.
@@ -63,7 +68,51 @@ enum Config {
         logo: Option<String>,
         #[serde(default)]
         extensions: std::collections::BTreeMap<String, crate::extensions::Config>,
+        #[serde(default)]
+        places: Places,
     },
+}
+
+/// The widgets a document shows outside its pages' text, by place: each a
+/// list of widget names, shown in order on every page.
+#[derive(Debug, Clone, Default, Deserialize, serde::Serialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct Places {
+    /// Beside the theme selector: at the end of a site's navbar, or in the
+    /// top-right corner of a page with none.
+    #[serde(default)]
+    pub navbar: Vec<String>,
+    /// The panel at the right edge of the window.
+    #[serde(default)]
+    pub panel: Vec<String>,
+    /// Floating over the page, at the middle of the window's bottom edge.
+    #[serde(default)]
+    pub float: Vec<String>,
+}
+
+impl Places {
+    /// Each package places its widgets after the document's own.
+    fn with_packages(mut self, extensions: &[crate::extensions::Binding]) -> Self {
+        for binding in extensions {
+            let places = binding.places();
+            self.navbar.extend(places.navbar);
+            self.panel.extend(places.panel);
+            self.float.extend(places.float);
+        }
+        self
+    }
+
+    /// Each place that names a widget, by its name in the document file.
+    pub fn named(&self) -> Vec<(&'static str, &[String])> {
+        [
+            ("navbar", self.navbar.as_slice()),
+            ("panel", self.panel.as_slice()),
+            ("float", self.float.as_slice()),
+        ]
+        .into_iter()
+        .filter(|(_, widgets)| !widgets.is_empty())
+        .collect()
+    }
 }
 
 /// One link of a site's navbar, as written: a label, an icon or both, and its
@@ -282,7 +331,8 @@ pub enum KindName {
 /// A loaded document: its title, its folder, what it is, and where it is served.
 #[derive(Debug)]
 pub struct Document {
-    /// The extensions the document file configures, bound to it.
+    /// The extensions the document file configures, bound to it, and the
+    /// live session where it is on.
     pub extensions: Vec<crate::extensions::Binding>,
     /// The title it shows: as written, or a Markdown file's first heading —
     /// its file name when it has none — or a design's file name.
@@ -304,6 +354,13 @@ pub struct Document {
     watch_roots: Vec<PathBuf>,
     /// The folder of the document's project widgets, if it has one.
     pub widgets: Option<PathBuf>,
+    /// The widgets it shows outside its pages' text: its own and, after
+    /// them, the live session's where that is bound to it.
+    pub places: Places,
+    /// A site's structure folder — its type files — if it names one.
+    pub structure: Option<PathBuf>,
+    /// A site's requirements — its test suites — if it configures them.
+    pub requirements: Option<crate::requirements::Requirements>,
     /// A site's navbar, in order; empty when it has none.
     pub navbar: Vec<NavItem>,
     /// Whether a site shows its Topics sidebar.
@@ -365,6 +422,9 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                places: Places::default(),
+                structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -372,8 +432,18 @@ impl Document {
             });
         }
         if file.extension().is_some_and(|ext| ext == "md") {
+            // A standalone page inherits the local package defaults.
+            let path = base.join(&file_name);
+            crate::extensions::configure(
+                &path,
+                &base,
+                served,
+                crate::extensions::configured(served, Default::default()),
+            )?;
+            let extensions = crate::extensions::for_document(&path);
             return Ok(Self {
-                extensions: Vec::new(),
+                places: Places::default().with_packages(&extensions),
+                extensions,
                 served: served.clone(),
                 title: crate::markup::title(&text, &file),
                 kind: Kind::Doc {
@@ -385,6 +455,8 @@ impl Document {
                 watch: None,
                 watch_roots: Vec::new(),
                 widgets: None,
+                structure: None,
+                requirements: None,
                 navbar: Vec::new(),
                 sidebar: true,
                 theme_selector: true,
@@ -411,26 +483,32 @@ impl Document {
         let mut watch = None;
         let mut watch_roots = Vec::new();
         let widget_folder;
+        let mut structure_folder = None;
         let mut nav_items = Vec::new();
         let mut show_sidebar = true;
         let show_selector;
         let logo_path;
         let extension_configs;
+        let places;
         let (title, kind) = match serde_yaml::from_str(text)? {
             Config::Site {
                 title,
                 root,
                 watch: patterns,
                 widgets,
+                structure,
                 navbar: nav,
                 sidebar,
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
+                structure_folder = structure;
                 show_selector = theme_selector.unwrap_or(true);
                 show_sidebar = sidebar.unwrap_or(true);
                 if let Some(nav) = nav {
@@ -461,8 +539,10 @@ impl Document {
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -486,8 +566,10 @@ impl Document {
                 theme_selector,
                 logo,
                 extensions,
+                places: placed,
             } => {
                 extension_configs = extensions;
+                places = placed;
                 logo_path = logo;
                 widget_folder = widgets;
                 show_selector = theme_selector.unwrap_or(true);
@@ -514,11 +596,18 @@ impl Document {
             },
             None => None,
         };
-        let mut extension_configs = extension_configs;
+        let structure = match structure_folder {
+            Some(folder) => match served.folder(&base.join(&folder)) {
+                Some(dir) => Some(dir),
+                None => bail!("structure {folder} is not a folder"),
+            },
+            None => None,
+        };
+        let mut extension_configs = crate::extensions::configured(&served, extension_configs);
         // `code` with no package is the system extension: the code reference,
         // which only a site has pages for.
         let code = match extension_configs.get("code") {
-            Some(config) if config.package.is_none() => {
+            Some(config) if config.package.is_none() && config.enabled != Some(false) => {
                 if !matches!(kind, Kind::Site { .. }) {
                     bail!("extensions: code: only a site has a code reference");
                 }
@@ -526,10 +615,31 @@ impl Document {
             }
             _ => None,
         };
+        // `requirements` with no package is the system extension that holds a
+        // site's constraints to its tests.
+        let requirements = match extension_configs.get("requirements") {
+            Some(config) if config.package.is_none() && config.enabled != Some(false) => {
+                if !matches!(kind, Kind::Site { .. }) {
+                    bail!("extensions: requirements: only a site has requirements");
+                }
+                let config = extension_configs.remove("requirements").map(|c| c.config);
+                Some(
+                    crate::requirements::Requirements::read(
+                        &config.unwrap_or_default(),
+                        &base,
+                        &served,
+                    )
+                    .map_err(|e| anyhow::anyhow!("extensions: requirements: {e:#}"))?,
+                )
+            }
+            _ => None,
+        };
         crate::code::configure(&base.join(&file_name), &base, &served, code.as_ref())?;
         crate::extensions::configure(&base.join(&file_name), &base, &served, extension_configs)?;
+        let extensions = crate::extensions::for_document(&base.join(&file_name));
+        let places = places.with_packages(&extensions);
         Ok(Self {
-            extensions: crate::extensions::for_document(&base.join(&file_name)),
+            extensions,
             title,
             base,
             kind,
@@ -538,6 +648,9 @@ impl Document {
             watch,
             watch_roots,
             widgets,
+            places,
+            structure,
+            requirements,
             navbar: nav_items,
             sidebar: show_sidebar,
             theme_selector: show_selector,

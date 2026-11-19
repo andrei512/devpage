@@ -2,11 +2,12 @@
 //! its header and footer, a deck one 16:9 page per slide, never held up by a
 //! broken design, and each widget's first render on paper.
 
+use codespec_rust_macro::spec;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::page_script::{open, text, widget_folder};
+use super::support::{open, text, widget_folder};
 use crate::drive::pdf::print;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
@@ -28,7 +29,7 @@ fn pages(pdf: &[u8]) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 async fn a_design_with_problems_does_not_delay_a_pdf() {
@@ -50,9 +51,10 @@ async fn a_design_with_problems_does_not_delay_a_pdf() {
     assert!(!pages(&pdf).is_empty());
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
+#[spec("a-pdf-looks-like-the-page")]
 async fn the_fixture_doc_prints_on_a4() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(
@@ -75,9 +77,10 @@ async fn the_fixture_doc_prints_on_a4() {
     }
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
+#[spec("a-pdf-looks-like-the-page")]
 async fn the_talk_prints_one_16_by_9_page_per_slide() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let document = Arc::new(
@@ -101,7 +104,7 @@ async fn the_talk_prints_one_16_by_9_page_per_slide() {
     }
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 async fn a_printed_doc_shows_each_widgets_first_render() {

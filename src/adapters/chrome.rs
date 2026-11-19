@@ -1075,7 +1075,7 @@ mod tests {
     }
 
     /// Both browsers' zips exist at [`CHROME_VERSION`] for every platform.
-    /// Needs the network; run with `cargo test -- --ignored`.
+    /// Needs the network; run with `cargo test --bin devpage -- --ignored adapters::chrome::tests::`.
     #[tokio::test]
     #[ignore]
     async fn the_pinned_chrome_can_be_downloaded_for_every_platform() {
@@ -1100,7 +1100,7 @@ mod tests {
 
     /// Two tests' browsers are one Chrome — the second launches nothing —
     /// each with storage of its own. Drives chrome-headless-shell; run with
-    /// `cargo test -- --ignored`.
+    /// `cargo test --bin devpage -- --ignored adapters::chrome::tests::`.
     #[tokio::test]
     #[ignore]
     async fn every_tests_browser_is_one_chrome_with_storage_of_its_own() {
@@ -1140,7 +1140,7 @@ mod tests {
 
     /// A session's tab opens its page once it is ready, carries the shot
     /// header only when opened to be shot, and is evaluated in.
-    /// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+    /// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored adapters::chrome::tests::`.
     #[tokio::test]
     #[ignore]
     async fn a_tab_sends_the_shot_header_only_when_opened_to_be_shot() {

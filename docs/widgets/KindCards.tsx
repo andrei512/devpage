@@ -7,7 +7,7 @@ const kinds = [
     like: "Like a docs website",
     madeOf: "A root page and the pages its Topics sections reach",
     readAs: "Many pages, with a sidebar",
-    href: "/docs/boxes/viewer/making-a-site/README.md",
+    href: "/docs/boxes/viewer/write/making-a-site/README.md",
   },
   {
     name: "Doc",
@@ -15,7 +15,7 @@ const kinds = [
     like: "Like a Word document",
     madeOf: "One or more chapter files, in order",
     readAs: "One long page, with an outline that follows you",
-    href: "/docs/boxes/viewer/writing-a-doc/README.md",
+    href: "/docs/boxes/viewer/write/writing-a-doc/README.md",
   },
   {
     name: "Slides",
@@ -23,7 +23,7 @@ const kinds = [
     like: "Like a PowerPoint deck",
     madeOf: "One Markdown file per slide, in order",
     readAs: "One slide at a time, 16:9",
-    href: "/docs/boxes/viewer/making-slides/README.md",
+    href: "/docs/boxes/viewer/write/making-slides/README.md",
   },
   {
     name: "Design",
@@ -31,7 +31,7 @@ const kinds = [
     like: "Like a Figma frame and its prototype",
     madeOf: "One .design file, using other designs",
     readAs: "A canvas you can click through",
-    href: "/docs/boxes/viewer/designs/README.md",
+    href: "/docs/boxes/viewer/on-the-page/designs/README.md",
     // A design has no document file: the .design file is the whole document.
     field: "checkout.design",
   },

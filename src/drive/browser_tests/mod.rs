@@ -3,19 +3,20 @@
 //! run, launched as devpage launches it, a browser of its own inside it for
 //! each test, a router served on loopback for it to load, and the waits a test
 //! needs on a page — each on the condition it is after, never a fixed time.
-//! They run side by side, and are `#[ignore]`d; run them with
-//! `cargo test -- --ignored`.
+//! They run side by side and are marked `#[ignore]`. Use `npm run browser-tests`
+//! for the current edit and add `-- --full` for the full browser gate.
 
 /// The canvas: painting on the GPU and the CPU against the server's PNG,
 /// interactions, embedding and printing.
 mod canvas;
 /// The page script's side of comments.
 mod comments;
-/// The page script: widgets, live updates, navigation, the navbar, the
-/// sidebar and its search, decks and themes.
+/// The page script: widgets, live updates, navigation, the navbar, decks and themes.
 mod page_script;
 /// `devpage pdf`: what a doc and a deck print to.
 mod pdf;
+/// A document's places, and the page module a widget imports.
+mod places;
 /// A published document: every request its pages make stays under their
 /// mount.
 mod server_mode;
@@ -24,11 +25,17 @@ mod server_mode_comments;
 /// A published document's pages: versions, the banner, the menu and the
 /// download button.
 mod server_mode_pages;
+/// Sidebar navigation, sizing and search.
+mod sidebar;
 /// A slide's PNG.
 mod slide_png;
+mod support;
 /// `devpage video`: a deck recorded, with a stand-in voice and with
 /// GPT-Live.
 mod video;
+/// The live session's world on a page: a widget reading a part's state and
+/// changing it.
+mod world;
 
 use axum::Router;
 

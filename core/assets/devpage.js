@@ -248,6 +248,98 @@ const sidebarMounted = print ? Promise.resolve() : mountSidebar().catch((error) 
   console.error("devpage: the sidebar stays as the server drew it", error);
 });
 
+// ---- Places ---------------------------------------------------------------
+// A document's `places` name widgets shown outside its pages' text, on every
+// page: beside the theme selector (`navbar`), in the panel at the window's
+// right edge (`panel`), and floating at the middle of its bottom edge
+// (`float`). Each is mounted once and stays mounted while the tab shows the
+// document — a page swapped in leaves it be — and is mounted again when its
+// module, or one it renders by name, changed. Never in print, nor on a
+// design's own page.
+
+const PLACES = ["navbar", "panel", "float"];
+
+// Each place's element, once it has held a widget.
+const placeHosts = {};
+
+// Puts a place's element where it shows: the navbar's at the start of the
+// navbar's end — or of the corner, on a page with no navbar — and the others
+// in the body.
+function seatPlace(place) {
+  const host = placeHosts[place];
+  if (!host) return;
+  if (place !== "navbar") {
+    if (!host.isConnected) document.body.append(host);
+    return;
+  }
+  let end = document.querySelector("#devpage-navbar .navbar-end") ?? document.getElementById("devpage-corner");
+  if (!end) {
+    end = document.createElement("div");
+    end.id = "devpage-corner";
+    document.body.prepend(end);
+  }
+  if (host.parentElement !== end) end.prepend(host);
+}
+
+// Whether a widget opened or closed the panel (`page.panel`); until one
+// does, it is open where there is room for it beside the page.
+let panelOpen = null;
+
+// The panel is beside the page on a wide window, and over its right edge on
+// a narrow one and on a deck.
+function layoutPanel() {
+  const wide = !document.body.classList.contains("slides") && matchMedia("(min-width: 1100px)").matches;
+  const open = !!placeHosts.panel?.isConnected && (panelOpen ?? wide);
+  document.body.classList.toggle("with-panel", open);
+  document.body.classList.toggle("panel-beside", open && wide);
+  layoutComments();
+}
+window.addEventListener("resize", layoutPanel);
+
+async function place() {
+  const places = window.devpagePlaces || {};
+  const fresh = [];
+  for (const name of PLACES) {
+    const widgets = places[name] ?? [];
+    if (!widgets.length) {
+      placeHosts[name]?.remove();
+      delete placeHosts[name];
+      continue;
+    }
+    if (!placeHosts[name]) {
+      placeHosts[name] = document.createElement(name === "panel" ? "aside" : "div");
+      placeHosts[name].id = `devpage-place-${name}`;
+    }
+    const host = placeHosts[name];
+    seatPlace(name);
+    widgets.forEach((widget, i) => {
+      const item = document.createElement("div");
+      item.className = "placed";
+      const placeholder = document.createElement("div");
+      placeholder.dataset.widget = widget;
+      placeholder.dataset.props = "{}";
+      item.append(placeholder);
+      const had = host.children[i];
+      if (had && keys.get(had.firstElementChild) === keyOf(placeholder)) return;
+      if (had) had.replaceWith(item);
+      else host.append(item);
+      fresh.push(item);
+    });
+    while (host.children.length > widgets.length) host.lastElementChild.remove();
+  }
+  unmountGone();
+  layoutPanel();
+  await Promise.all(fresh.map((item) => mountWidgets(item)));
+}
+
+// Shows the places the page names now, one pass after another.
+let placing = Promise.resolve();
+function showPlaces() {
+  if (print || document.body.classList.contains("design-page")) return placing;
+  placing = placing.then(place).catch((error) => console.error("devpage: a place couldn't be shown", error));
+  return placing;
+}
+
 // Marks every link and image the page's problems name, where it stands — in
 // the text and in diagrams. The problems bar lists their targets as written.
 function markBroken(root) {
@@ -360,7 +452,7 @@ function keepUnchanged(page, staging) {
 // and the devpage build that rendered it, so a page from a new build — a new
 // page script, a new stylesheet — is loaded whole.
 // The body's classes this script adds itself, which no served page carries.
-const OWN_CLASSES = new Set(["show-comments", "with-versions", "with-version-banner"]);
+const OWN_CLASSES = new Set(["show-comments", "with-versions", "with-version-banner", "with-panel", "panel-beside", "picking"]);
 
 function frameOf(body) {
   const classes = [...body.classList].filter((name) => !OWN_CLASSES.has(name)).sort();
@@ -479,8 +571,13 @@ async function swap(url, how, generation, signal) {
   }
   adoptPreloads(next);
   // The fresh page names its widgets' current versions.
+  // It names its places and its extensions too, when it has any.
   const list = [...next.scripts].find((script) => script.textContent.startsWith("window.devpageWidgets"));
-  if (list) new Function(list.textContent)();
+  if (list) {
+    window.devpagePlaces = {};
+    window.devpageExtensions = {};
+    new Function(list.textContent)();
+  }
 
   // Stage: the fresh content in a hidden copy of the page's frame.
   const page = document.getElementById("devpage-page");
@@ -527,6 +624,8 @@ async function swap(url, how, generation, signal) {
     const part = next.getElementById(id);
     if (part) document.getElementById(id)?.replaceChildren(...part.childNodes);
   }
+  // The navbar's place goes back into the fresh navbar, still mounted.
+  seatPlace("navbar");
   shown = { url: pageKey(url), etag };
   if (how === "push") history.pushState(null, "", url);
   shownPath = pathOf(url);
@@ -547,6 +646,9 @@ async function swap(url, how, generation, signal) {
   unmountGone();
   drawDesigns();
   loadComments();
+  showPlaces();
+  showMarks();
+  emit("change", shownPage.current());
   return true;
 }
 
@@ -803,8 +905,10 @@ function find(model, anchor) {
 }
 
 // Wraps the text between two model indexes in marks, one per text node, so
-// the page's structure is never moved.
-function highlight(model, [start, end], id) {
+// the page's structure is never moved; `dress` gives each its class and data.
+// A diagram's text is SVG, where an HTML element isn't drawn: its mark is a
+// `tspan`.
+function highlight(model, [start, end], dress) {
   const marks = [];
   let i = start;
   while (i < end) {
@@ -814,9 +918,10 @@ function highlight(model, [start, end], id) {
     const range = document.createRange();
     range.setStart(node, offset);
     range.setEnd(node, model.chars[last].offset + 1);
-    const mark = document.createElement("mark");
-    mark.className = "comment";
-    mark.dataset.thread = id;
+    const mark = node.parentElement instanceof SVGElement
+      ? document.createElementNS("http://www.w3.org/2000/svg", "tspan")
+      : document.createElement("mark");
+    dress(mark);
     range.surroundContents(mark);
     marks.push(mark);
     i = last + 1;
@@ -848,7 +953,7 @@ async function loadComments() {
     return { section, page, threads: response.ok ? await response.json() : [] };
   }));
   if (generation !== commentsGeneration) return;
-  document.querySelectorAll("mark.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
+  document.querySelectorAll("mark.comment, tspan.comment").forEach((mark) => mark.replaceWith(...mark.childNodes));
   sources().forEach((section) => section.normalize());
   const aside = panel();
   aside.querySelectorAll(".thread:not(.composer), .detached-heading").forEach((card) => card.remove());
@@ -866,7 +971,10 @@ async function loadComments() {
         detached.push(card);
         continue;
       }
-      const marks = highlight(model, at, thread.id);
+      const marks = highlight(model, at, (mark) => {
+        mark.classList.add("comment");
+        mark.dataset.thread = thread.id;
+      });
       for (const mark of marks) mark.addEventListener("click", () => focusThread(thread.id));
       card.anchorMark = marks[0];
       placed.push(card);
@@ -900,7 +1008,8 @@ function toggleButton() {
 function layoutComments() {
   const aside = document.getElementById("devpage-comments");
   if (!aside) return;
-  const beside = !document.body.classList.contains("slides") && matchMedia("(min-width: 1100px)").matches;
+  // The panel, where it is beside the page, has the threads' column.
+  const beside = !document.body.classList.contains("slides") && !document.body.classList.contains("panel-beside") && matchMedia("(min-width: 1100px)").matches;
   aside.classList.toggle("beside", beside);
   let floor = 0;
   for (const card of aside.children) {
@@ -1085,7 +1194,7 @@ const blocks = "p, li, pre, table, .diagram, blockquote, h1, h2, h3, h4";
 let hovered = null;
 applyCommentMode();
 document.addEventListener("mouseover", (event) => {
-  if (!comments || !commentMode() || !getSelection().isCollapsed) return;
+  if (!comments || !commentMode() || picking || !getSelection().isCollapsed) return;
   const block = event.target.closest?.(blocks);
   const section = block?.closest("[data-source]");
   if (!block || block === hovered || !section || block.closest(".comment-ui")) return;
@@ -1105,24 +1214,32 @@ document.addEventListener("mouseover", (event) => {
 
 // Selecting text inside one source offers a comment on it.
 document.addEventListener("mouseup", (event) => {
-  if (!comments || !commentMode() || event.target.closest?.(".comment-ui")) return;
+  if (!comments || !commentMode() || picking || event.target.closest?.(".comment-ui")) return;
   setTimeout(() => {
-    const selection = getSelection();
-    if (selection.isCollapsed) return;
-    const range = selection.getRangeAt(0);
-    const common = range.commonAncestorContainer;
-    const section = (common.nodeType === Node.ELEMENT_NODE ? common : common.parentElement)?.closest("[data-source]");
-    if (!section) return;
-    const model = textModel(section);
-    const anchor = anchorFor(model, indexOf(model, range.startContainer, range.startOffset), indexOf(model, range.endContainer, range.endOffset));
-    if (!anchor.quote) return;
+    const selected = selectedText();
+    if (!selected) return;
+    const { section, anchor, range } = selected;
     const rect = range.getBoundingClientRect();
     commentButton("Comment", "Comment on the selection", scrollY + rect.bottom + 6, scrollX + rect.left, () => {
-      selection.removeAllRanges();
+      getSelection().removeAllRanges();
       compose(section, anchor, range.startContainer.parentElement);
     });
   });
 });
+
+// The text selected, when it is inside one source: the source's section, the
+// selection's anchor in it, and its range.
+function selectedText() {
+  const selection = getSelection();
+  if (selection.isCollapsed || !selection.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  const common = range.commonAncestorContainer;
+  const section = (common.nodeType === Node.ELEMENT_NODE ? common : common.parentElement)?.closest("#devpage-page [data-source]");
+  if (!section) return null;
+  const model = textModel(section);
+  const anchor = anchorFor(model, indexOf(model, range.startContainer, range.startOffset), indexOf(model, range.endContainer, range.endOffset));
+  return anchor.quote ? { section, anchor, range } : null;
+}
 // ---------------------------------------------------------------------------
 
 // The live-update stream, open only while the tab is visible.
@@ -1206,7 +1323,7 @@ document.addEventListener("touchstart", (event) => {
 document.addEventListener("touchend", (event) => {
   const start = touchStart;
   touchStart = null;
-  if (!start || event.target.closest?.("a, button, input, textarea, select, summary, canvas, .design-embed, mark.comment, .comment-button, #devpage-comments, #devpage-corner")) return;
+  if (!start || event.target.closest?.("a, button, input, textarea, select, summary, canvas, .design-embed, mark.comment, tspan.comment, .comment-button, #devpage-comments, #devpage-corner, #devpage-place-panel, #devpage-place-float")) return;
   const selection = document.getSelection();
   if (selection && !selection.isCollapsed) return;
   const state = showSlide();
@@ -1241,6 +1358,202 @@ function followOutline() {
   mark();
 }
 
+// ---- The page module ------------------------------------------------------
+// What a widget imports as `devpage`: `page`, which reads and steers the page
+// shown, and `base`, the address an extension of the document answers under.
+// A part of a page is `{ page, quote, prefix, suffix }` — a source's address,
+// as the server names it, and words in it with the text around them: what a
+// comment is anchored by.
+
+const listeners = { change: new Set(), select: new Set(), pick: new Set() };
+
+function emit(event, value) {
+  for (const listener of [...listeners[event]]) {
+    try {
+      listener(value);
+    } catch (error) {
+      console.error(error);
+    }
+  }
+}
+
+const partOf = (section, anchor) => ({ page: unmounted(section.dataset.source), ...anchor });
+const sectionOf = (address) => sources().find((section) => unmounted(section.dataset.source) === address);
+
+// Where a part is on the page shown: its source's section and text model,
+// and the part's place in the model; null when the page has no such source
+// or the words are gone.
+function locate(part) {
+  const section = sectionOf(part.page);
+  if (!section) return null;
+  const model = textModel(section);
+  const at = find(model, { prefix: "", suffix: "", ...part });
+  return at ? { section, model, at } : null;
+}
+
+// The parts marked, by the name they were marked under. They are marked
+// again on every page swapped in, wherever that page has them.
+const marked = new Map();
+
+function showMarks() {
+  const old = [...document.querySelectorAll("mark.devpage-mark, tspan.devpage-mark")];
+  for (const mark of old) mark.replaceWith(...mark.childNodes);
+  if (old.length) sources().forEach((section) => section.normalize());
+  for (const [name, parts] of marked) {
+    for (const part of parts) {
+      const found = locate(part);
+      if (!found) continue;
+      highlight(found.model, found.at, (mark) => {
+        mark.classList.add("devpage-mark");
+        mark.dataset.mark = name;
+      });
+    }
+  }
+  if (old.length || marked.size) layoutComments();
+}
+
+// Picking: while it is on, the block under the pointer is outlined and a
+// click on its text is a pick — no comment starts. A click on a link or a
+// control does what it always does, and a click beside the text picks
+// nothing, which the listeners are told as `null`.
+let picking = false;
+// What a click is meant for itself, and what is not the page.
+const CONTROLS = "a, button, input, textarea, select, summary, label, video, audio, canvas, .design-embed";
+const FRAME = "#devpage-navbar, #devpage-nav, #devpage-sidebar, #devpage-corner, #devpage-comments, #devpage-place-panel, #devpage-place-float, .comment-ui";
+let pickHover = null;
+
+function pickBlock(target) {
+  const block = target.closest?.(blocks);
+  return block?.closest("#devpage-page [data-source]") ? block : null;
+}
+
+function setPickHover(block) {
+  if (block === pickHover) return;
+  pickHover?.classList.remove("devpage-pick");
+  pickHover = block;
+  pickHover?.classList.add("devpage-pick");
+}
+
+document.addEventListener("mouseover", (event) => {
+  if (picking) setPickHover(pickBlock(event.target));
+});
+document.addEventListener("click", (event) => {
+  if (!picking || event.target.closest?.(`${CONTROLS}, ${FRAME}`)) return;
+  const block = pickBlock(event.target);
+  if (!block) return emit("pick", null);
+  event.preventDefault();
+  event.stopPropagation();
+  const section = block.closest("[data-source]");
+  const model = textModel(section);
+  const anchor = anchorFor(model, indexOf(model, block, 0), indexOf(model, block, block.childNodes.length));
+  if (anchor.quote) emit("pick", partOf(section, anchor));
+}, true);
+
+// A selection is told once it rests, and once more when it is gone.
+let selectionTold = "null";
+let selectionTimer = 0;
+document.addEventListener("selectionchange", () => {
+  if (!listeners.select.size) return;
+  clearTimeout(selectionTimer);
+  selectionTimer = setTimeout(() => {
+    const part = shownPage.selection();
+    const told = JSON.stringify(part);
+    if (told === selectionTold) return;
+    selectionTold = told;
+    emit("select", part);
+  }, 150);
+});
+
+const shownPage = {
+  // The page shown: its address, its #fragment, and its sources' addresses —
+  // one for a page, one per chapter of a doc or slide of a deck.
+  current() {
+    return {
+      address: unmounted(location.pathname),
+      fragment: decodeURIComponent(location.hash.slice(1)),
+      sources: sources().map((section) => unmounted(section.dataset.source)),
+    };
+  },
+  // A source's text as the reader sees it, its white space collapsed; null
+  // when the page shown has no such source.
+  text(source = shownPage.current().sources[0]) {
+    const section = sectionOf(source);
+    return section ? textModel(section).text : null;
+  },
+  // The text selected, as a part; null when none is, or it isn't in one source.
+  selection() {
+    const selected = selectedText();
+    return selected ? partOf(selected.section, selected.anchor) : null;
+  },
+  // A part's DOM range on the page shown; null when it isn't there.
+  range(part) {
+    const found = locate(part);
+    if (!found) return null;
+    const { model, at: [start, end] } = found;
+    const range = document.createRange();
+    range.setStart(model.chars[start].node, model.chars[start].offset);
+    range.setEnd(model.chars[end - 1].node, model.chars[end - 1].offset + 1);
+    return range;
+  },
+  // Opens an address as a click on a link to it would: a page of the
+  // document in place, anything else whole. An address starting with `/` is
+  // the document's own, as `current` and a part name it.
+  async go(address) {
+    const url = new URL(address.startsWith("/") ? mount + address : address, location.href);
+    if (url.origin !== location.origin || !url.pathname.endsWith(".md")) {
+      location.assign(url);
+      return;
+    }
+    clearFound();
+    remember();
+    if (pathOf(url) === shownPath) {
+      if (url.hash && url.hash === location.hash) toFragment(url.hash);
+      else if (url.hash) location.hash = url.hash;
+      else scrollTo(0, 0);
+      return;
+    }
+    if ((await load(url, "push")) === false) location.assign(url);
+  },
+  // Marks parts under a name — `mark.devpage-mark[data-mark="<name>"]` —
+  // in place of what the name marked before; no parts takes its marks away.
+  mark(name, parts = []) {
+    if (parts.length) marked.set(name, parts);
+    else marked.delete(name);
+    showMarks();
+  },
+  // Turns picking on or off.
+  pick(on) {
+    picking = !!on;
+    document.body.classList.toggle("picking", picking);
+    if (!picking) setPickHover(null);
+    else document.querySelectorAll(".comment-button").forEach((button) => button.remove());
+  },
+  // Opens or closes the panel; `null` leaves it to the window's width.
+  panel(open) {
+    panelOpen = open;
+    layoutPanel();
+  },
+  // Calls `listener` on "change" (a page was shown: what `current` returns),
+  // "select" (the selection rests: a part, or null) and "pick" (a block was
+  // picked: its part). Returns what takes the listener off.
+  on(event, listener) {
+    if (!listeners[event]) throw new Error(`devpage: "${event}" is not a page event`);
+    listeners[event].add(listener);
+    return () => listeners[event].delete(listener);
+  },
+};
+
+window.devpagePage = {
+  page: shownPage,
+  // The address an extension of the document answers under, by its name
+  // under `extensions:`, ending in `/`.
+  base(id) {
+    const address = (window.devpageExtensions || {})[id];
+    if (!address) throw new Error(`devpage: the document has no extension named ${id}`);
+    return address;
+  },
+};
+
 drawDesigns();
 Promise.all([mountWidgets(document).catch((error) => console.error(error)), sidebarMounted]).finally(() => {
   // A widget's content mounts with it: designs it embeds exist only now.
@@ -1253,6 +1566,7 @@ Promise.all([mountWidgets(document).catch((error) => console.error(error)), side
   followOutline();
   loadComments();
   loadVersions();
+  showPlaces();
   // Print mode has no live connection; Chrome waits for this — every widget
   // mounted — before printing.
   document.documentElement.dataset.ready = "true";

@@ -32,19 +32,15 @@ Two things that hold in every stage:
 
 ## The gates
 
-Green before any pull request opens:
+Use the Node version in `.node-version` and run `npm ci` at the repository root.
+During an edit, `npm run check -- --explain` shows which checks the changed
+files require. Run them with `npm run check`. Use `npm run build` for the
+affected Rust build targets.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-`cargo test` checks devpage's own docs for broken internal links too. After
-changing the page script, the design script (`core/assets/design.js`), the design
-engine's module, the stylesheet, a widget, print mode, `devpage pdf`, a
-slide's PNG, or `devpage video` and its recorder (`assets/video.js`), also run
-the tests that drive Chrome: `cargo test -- --ignored`.
+Before a pull request, include committed and working-tree changes with
+`npm run check -- --base origin/<target-branch>`. Use `-- --full` for full
+coverage. A change to test ownership updates the selection rules and their
+tests. See [development checks](docs/boxes/engineering/developing-devpage/README.md#the-gates).
 
 Run the docs while you work on them, from the repository root:
 `cargo run -- docs`.
@@ -67,7 +63,7 @@ words.
 - `docs/vision.md` — ideas, not commitments. The map of where this is going.
 - `docs/boxes/` — the design of the system, one directory per box, nested to
   match containment. Format and rules: `docs/boxes/engineering/sdlc/`.
-- `docs/constraints/` — the rules that belong to no single box. Read on every
+- `docs/requirements/` — the rules that belong to no single box. Read on every
   review, whatever the diff touches.
 - There is no decision log and no ADR directory — see
-  [decisions-live-in-box-docs](docs/boxes/engineering/sdlc/constraints/decisions-live-in-box-docs.md).
+  [decisions-live-in-box-docs](docs/boxes/engineering/sdlc/requirements/decisions-live-in-box-docs.md).

@@ -1,8 +1,10 @@
+---
+page-type: mechanism
+---
 # Code map
 
 Which module of devpage does what, and how `main` wires them together when
-devpage starts. It is a mechanism page under
-[Developing devpage](../developing-devpage/README.md), for someone finding
+devpage starts. It sits under [Developing devpage](../developing-devpage/README.md), for someone finding
 their way into the source.
 
 
@@ -18,7 +20,7 @@ a core that reaches for one. What it needs from outside it asks for through a
 `src/adapters/`: the change bus, the network, the terminal, git, the file
 watcher, the Chrome devpage drives, and the native extension loader — and
 drives the core from `src/drive/`: the HTTP server, and the
-commands that print, shoot and record through Chrome. The [design engine](../../viewer/design-engine/README.md)
+commands that print, shoot and record through Chrome. The [design engine](../../viewer/on-the-page/designs/design-engine/README.md)
 is three more workspace crates beside them: `design/` (`devpage-design`),
 `design/wasm/` (`devpage-design-wasm`) and `design/module/`
 (`devpage-design-module`, which vendors the module). `extension-api/`
@@ -35,10 +37,10 @@ flowchart LR
   adapters -- "plugged into its ports" --> core
   core --> engine["The design engine<br/>design/"]
   click main href "#how-main-wires-it-together" "How main wires it together"
-  click drive href "../../viewer/serving-pages/README.md" "Serving pages"
-  click adapters href "../../viewer/live-updates/README.md" "Live updates"
-  click core href "../../viewer/rendering-a-page/README.md" "Rendering a page"
-  click engine href "../../viewer/design-engine/README.md" "The design engine"
+  click drive href "../../viewer/write/writing-a-document/serving-pages/README.md" "Serving pages"
+  click adapters href "../../viewer/write/writing-a-document/live-updates/README.md" "Live updates"
+  click core href "../../viewer/write/writing-a-document/serving-pages/rendering-a-page/README.md" "Rendering a page"
+  click engine href "../../viewer/on-the-page/designs/design-engine/README.md" "The design engine"
 ```
 
 | Module | Does |
@@ -83,11 +85,15 @@ flowchart LR
 | `core/src/comments/yaml.rs` | The comment store as files: one YAML file per thread under `.devpage/comments/<page>/`, found by its id through the served folder; the problems of a thread file that doesn't parse; and the bytes it last wrote, so what it heard is never the server's own write. |
 | `core/src/comments/memory.rs` | A comment store in memory, for tests. |
 | `core/src/comments/anchor.rs` | A thread carried onto a new version of its page: the page's text as the page script reads it, and where the thread's quote is in it now — with its context, with new context, or gone. Pure. |
-| `core/src/code/` | The [code reference](../../viewer/code-reference/README.md): `extract.rs` reads one file's declarations with tree-sitter and a query (`rust.scm`), `rust.rs` links every file's into targets — crates, modules, `impl`s, `pub use` — and `render.rs` makes a target's page as Markdown. `mod.rs` keeps each site's index in memory, parses again what a save changed, and answers whether an address is a page of it ([`Index`](../../../reference/rust/devpage_core/code/Index)). |
+| `core/src/code/` | The [code reference](../../viewer/write/code-reference/README.md): `extract.rs` reads one file's declarations with tree-sitter and a query (`rust.scm`), `rust.rs` links every file's into targets — crates, modules, `impl`s, `pub use` — and `render.rs` makes a target's page as Markdown. `mod.rs` keeps each site's index in memory, parses again what a save changed, and answers whether an address is a page of it ([`Index`](../../../reference/rust/devpage_core/code/Index)). |
 | `core/src/extensions.rs` | Extensions, unfinished ([Extensions](../../viewer/extensions/README.md)): a document's `extensions:` bound to it, each package loaded through the `Loader` port the binary installs and asked in JSON through `Package::invoke`; a `Binding` holds what its package last prepared from its input, which a save prepares again, and answers its views, embeds, ids, grammar and the transforms of a page; `route` answers an extension's addresses under `__devpage/extensions/`. `extensions/browser.rs`: a package's browser modules, widgets and styles, compiled by the widget compiler at an address that changes with their content. |
 | `src/adapters/extensions.rs` | The native loader: a package folder's `extension.yml` checked — its id, version, ABI and target, its library and assets inside it — its dynamic library opened with `libloading` and its `devpage_extension_v1` table taken. `build.rs` gives it the target the binary is built for. |
+| `live/` | [The live session's](../../viewer/live-session/README.md) program, in TypeScript, run by bun: the package of the system extension `live`. `build.rs` puts its source — not its packages, evals or tests — into the binary. |
+| `src/adapters/live.rs` | The live session as installed: `devpage setup` — the pinned bun downloaded and checked, the program unpacked into `~/.devpage/live/program/`, its packages installed, its stamp written — and `Installed::package`, the program a serving devpage binds, only when its stamp is this executable's or `live.program` names another folder. |
 | `extension-api/` | `devpage-extension-api`: the ABI — `API`, the `VTable` of `invoke` and `release`, the `Buffer` of JSON between them — and `export_extension!`, which a package's library is built with, catching panics as errors. |
 | `core/src/check.rs` | Link checking, for `devpage check` and for the preview (`Preview`, which the server holds and asks for each page's problems), including diagrams that don't parse. Both judge a page by its content phase's `Rendered` — for the preview, the very one its page then shows — and a link into another page by `page::ids`; neither renders a page itself. External addresses it hands to `core/src/external.rs`. Both start from a folder opened on the document, whose owners decide the site each page is checked as. Both take the served folder's design store, which answers a design's problems and its files. `files` lists every file the check follows from a document — what `devpage publish` zips; `drawn_from` every file a deck's slides are drawn from — what a slide's PNG is forgotten by. The preview reports each problem the first time it finds it through its `Report` port: `src/adapters/terminal.rs` in devpage, a recorder in tests. |
+| `core/src/requirements.rs` | A site's requirements: reads the `requirements` extension's suites, finds where test files name a constraint with each suite's pattern, and answers a constraint with no `id`, a constraint no test points at, a test pointing at none and an id two constraints share. `junit` reads a suite's JUnit report; the command is run by `tested` in `src/main.rs`, which the default `devpage check` calls when running suites ([Checking requirements](../../viewer/check/checking-requirements/README.md)). `results` and `save` keep a run's outcome for each constraint in `.devpage/`, and `listing` writes what the `Requirements` widget shows on a part's page. |
+| `core/src/structure.rs` | A site's page types: reads the type files of its structure folder and each page's `page-type`, and answers the problems of a type file or of a page — no type, an unknown one, a parent its type does not allow, a missing or out-of-order section. `check.rs` asks it for both the check and the preview ([Structuring a site](../../viewer/check/structuring-a-site/README.md)). |
 | `src/adapters/terminal.rs` | The terminal as the preview's reporter: each problem printed on standard error once. |
 | `core/src/external.rs` | Whether external addresses answer: asked once (twice if out of reach) for `devpage check`, in the background for the preview, which announces a refresh for every document on the change bus. How an address is asked is its `Ask` port, and where the preview's background asking runs its `Background` port: `src/adapters/external.rs` in devpage, a scripted table and the test's runtime in tests. |
 | `src/adapters/external.rs` | The external-link checker devpage uses, the adapter half of `core/src/external.rs`: `checker`, which puts together `Http`, asking an address over the network, and `Tokio`, running the preview's background asking on devpage's runtime; `offline`, the checker server mode's pages use, which asks none and runs nothing (`Nowhere`). Its tests run `devpage check` and the preview against a local web server. |
@@ -104,7 +110,7 @@ flowchart LR
 | `src/drive/slide_png.rs` | A slide as an image: one shot session per server, started on the first shot and closed once idle, screenshots slide `n` in a tab of its own on a 1920 × 1080 screen once the page is ready, devpage's controls hidden, from routes with comments and problems off; what it drew is kept, with the files its deck is drawn from (`check::drawn_from`), until the watcher says one of them changed — a shot being drawn meanwhile isn't kept — so another deck's files, a comment write and a broken link fixed forget nothing. |
 | `tests/exit_codes.rs` | The real binary's exit codes and its JSON, as an agent reads them. |
 | `src/drive/browser_tests/` | Every test suite that drives Chrome, one `#[cfg(test)]` module per suite, each on `chrome::testing`: `page_script` (widgets, live updates, decks, the navbar, the sidebar and its search, swaps), `canvas` (the canvas on the GPU and the CPU against the server's PNG, interactions, embedding, printing), `comments` (the page script's comments), `pdf` (what a doc and a deck print to), `slide_png` (a slide's PNG), `video` (a deck recorded, with a stand-in voice and with GPT-Live), and on a published document `server_mode` (every request stays under its mount), `server_mode_pages` (versions, the banner, the menu, the download button) and `server_mode_comments` (its threads across the page, the API and a publish). |
-| `design/src/` | The engine, a core with adapters ([How the engine is built](../../viewer/design-engine/README.md#how-the-engine-is-built)). The core, which links no rasterizer: `parse` (text → syntax tree), `ids` (element ids matched across saves; `Remembering`, files read with each design file's last parse kept), `tree` (node ids, order keys, children), `scene` (what a resolved design is — nodes, colours, image files, the id index, the `Files` port; `edit`, the edits from one scene to the next by id, with the files they bring, applied all or nothing), `resolve` (→ scene; `again`, a design kept resolved and a change resolved again only as far as it reaches, into edits), `fonts` (font files, checked), `render` (the renderer and its text; `layout` — with `run`, a run's children each laid out on their own: `fill`, its `"fill"` children's share from a flex tree of its own; `free`, a frame with no layout's children at their own places — `painter`, `drawing`, `update` — a kept drawing and its damage), `display` (the drawing commands, property trees, chunks, the list's index, a run's children as spaces placed by the prefix sums of their sizes, or by their own places in an R-tree, the one paint entry point and its port `Target`, hit testing), `prefix_sums` (a sequence with every prefix's summary in log time), `tiles` (tiles, levels, a view's tiles, the cache and damage), `design` (a design as held while shown — its scene and its drawing in each theme asked for, brought along by each edit, the damage to its tiles, what to paint for a tile or a strip, a view's tiles, a click — and the one rule for a scene that can't be drawn), `shadow`, `atlas`, `compare`, `wire` (scenes and edits as messages, and back; `patch`, edits as the patch the store logs and the watch stream sends), `proto` (the generated messages, and with the `server` feature the `Designs` service). The adapters: `cpu` (the `vello_cpu` paint backend, a tile's pixels) and `png` (the PNG written band by band). |
+| `design/src/` | The engine, a core with adapters ([How the engine is built](../../viewer/on-the-page/designs/design-engine/README.md#how-the-engine-is-built)). The core, which links no rasterizer: `parse` (text → syntax tree), `ids` (element ids matched across saves; `Remembering`, files read with each design file's last parse kept), `tree` (node ids, order keys, children), `scene` (what a resolved design is — nodes, colours, image files, the id index, the `Files` port; `edit`, the edits from one scene to the next by id, with the files they bring, applied all or nothing), `resolve` (→ scene; `again`, a design kept resolved and a change resolved again only as far as it reaches, into edits), `fonts` (font files, checked), `render` (the renderer and its text; `layout` — with `run`, a run's children each laid out on their own: `fill`, its `"fill"` children's share from a flex tree of its own; `free`, a frame with no layout's children at their own places — `painter`, `drawing`, `update` — a kept drawing and its damage), `display` (the drawing commands, property trees, chunks, the list's index, a run's children as spaces placed by the prefix sums of their sizes, or by their own places in an R-tree, the one paint entry point and its port `Target`, hit testing), `prefix_sums` (a sequence with every prefix's summary in log time), `tiles` (tiles, levels, a view's tiles, the cache and damage), `design` (a design as held while shown — its scene and its drawing in each theme asked for, brought along by each edit, the damage to its tiles, what to paint for a tile or a strip, a view's tiles, a click — and the one rule for a scene that can't be drawn), `shadow`, `atlas`, `compare`, `wire` (scenes and edits as messages, and back; `patch`, edits as the patch the store logs and the watch stream sends), `proto` (the generated messages, and with the `server` feature the `Designs` service). The adapters: `cpu` (the `vello_cpu` paint backend, a tile's pixels) and `png` (the PNG written band by band). |
 | `design/wasm/src/` | The module: `lib.rs`, one `Design` per canvas, bindings over the engine's `design` and the canvas's `tiles::Plan` — apply a stream message to it, its damage handed to the plan inside the module; a frame's work (`frame`) and a tile's arrival (`arrived`, `missed`) for the CPU's compositor; the tiles' `level`; a tile on the CPU for the worker, hit-test; `vello_backend.rs`, the `vello` paint backend; `compositor/`, the compositor on WebGPU carrying out the plan — `mod.rs` a frame, `paint.rs` a tile into its texture, `pass.rs` the composite pass. |
 | `core/assets/design.js` and its modules | The design script: `design.js` loads the engine and starts the page's canvases; `design-stream.js` the watch stream; `design-canvas.js` a canvas — view, pointer, interactions, overlays, an embed's backdrop; `design-tiles.js` the compositor on the CPU, carrying out the plan with the worker's paintings; `design-worker.js` the worker that paints them. |
 | `design/module/src/` | The module's builder: `main.rs` builds and vendors it, `lib.rs` computes and checks the fingerprint. |
@@ -114,7 +120,7 @@ What each crate does is in [Dependencies](../dependencies/README.md).
 ## How main wires it together
 
 `main` in `src/main.rs` installs the native extension loader, parses the
-command line and, whatever the command, starts the [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine)'s
+command line and, whatever the command, starts the [diagram engine](../../viewer/on-the-page/diagrams/README.md#the-diagram-engine)'s
 thread, which loads pele in the background while devpage gets on with the
 rest, so the first page with a diagram doesn't wait for it. `devpage check` loads the
 document, checks it and exits with `0` or `1`; `devpage pdf` loads it and
@@ -135,7 +141,7 @@ with an error before anything is served.
 2. Create the process-wide parts
    The bus carrying typed changes — a refresh, or a page's comments — to
    every open page of the served folder
-   ([the bus and the stream](../../viewer/live-updates/README.md#the-bus-and-the-stream));
+   ([the bus and the stream](../../viewer/write/writing-a-document/live-updates/README.md#the-bus-and-the-stream));
    the link checker, on the network and reporting to the terminal, which
    gets the bus through its `Publish` port and publishes a refresh when a
    background check of an external address changes what pages show; and
@@ -149,11 +155,11 @@ with an error before anything is served.
 3. Make the app
    `http::App::local` takes them and builds the rest. Opening the folder on
    the document indexes its document files and `.gitignore` files
-   ([the index](../../viewer/document-index/README.md#the-index)); beside it,
-   the search index of their sections ([search](../../viewer/search/README.md)),
+   ([the index](../../viewer/write/writing-a-document/serving-pages/document-index/README.md#the-index)); beside it,
+   the search index of their sections ([search](../../viewer/write/making-a-site/search/README.md)),
    an empty module cache, and the design store, empty: it resolves a design
    the first time one is asked for
-   ([in the server](../../viewer/design-engine/README.md#in-the-server)).
+   ([in the server](../../viewer/on-the-page/designs/design-engine/README.md#in-the-server)).
    The watcher and the server share all four.
 
 4. Start the watcher
@@ -162,16 +168,16 @@ with an error before anything is served.
    store, module cache, comments, bus and search index as the server, so a
    thread the
    server wrote is announced once
-   ([the watcher](../../viewer/live-updates/README.md#the-watcher)).
+   ([the watcher](../../viewer/write/writing-a-document/live-updates/README.md#the-watcher)).
    `main` keeps it for the whole run; dropping it would stop watching.
 
 5. Bind the address
    Exactly `--port`, or the first free port from 3030 up, on `--host` —
-   `127.0.0.1` by default ([the address](../../viewer/serving-pages/README.md#the-address)).
+   `127.0.0.1` by default ([the address](../../viewer/write/writing-a-document/serving-pages/README.md#the-address)).
 
 6. Print the address and serve
    `<title> → http://<host>:<port>` — `localhost` for a loopback address — then
    serve until devpage is stopped (`http::logged(http::router(app))`,
-   [routes](../../viewer/serving-pages/README.md#routes)).
+   [routes](../../viewer/write/writing-a-document/serving-pages/README.md#routes)).
 
 </Steps>

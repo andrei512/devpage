@@ -15,4 +15,4 @@ $ devpage docs --host 0.0.0.0 --port 3030
 To publish documents one at a time instead, each with its own link and every
 version kept, run [server mode](server.md).
 
-Teaches it: [Deploying devpage](../boxes/viewer/deploying/README.md).
+Teaches it: [Deploying devpage](../boxes/viewer/share/deploying/README.md).

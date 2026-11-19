@@ -1,14 +1,16 @@
+---
+page-type: reference
+---
 # Dependencies
 
 Every crate devpage depends on, with the version `Cargo.lock` resolves and
 what devpage uses it for, and the build scripts and builder that make what it
-embeds. It is a reference page under
-[Engineering](../README.md), for someone reading or changing the code; the
+embeds. It sits under [Engineering](../README.md), for someone reading or changing the code; the
 [code map](../code-map/README.md) maps the modules named here.
 
 devpage is a Cargo workspace of seven crates: `devpage`, the binary, at the
 top; `devpage-core`, its [core](../code-map/README.md), in `core/`, which
-depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/design-engine/README.md),
+depends on no I/O runtime; `devpage-design`, the [design engine](../../viewer/on-the-page/designs/design-engine/README.md),
 in `design/`; `devpage-extension-api`, the ABI a native
 [extension](../../viewer/extensions/README.md) library exports, in
 `extension-api/`; `devpage-design-wasm`, the engine built for the browser, in
@@ -41,7 +43,7 @@ except where a code comment says so, and this page doesn't guess.
 | `comrak` | 0.57.0 | BSD-2-Clause | Markdown: rendering pages to HTML with the GFM options, parsing a page to find its Topics section, and the code-fence plugin hook (`SyntaxHighlighterAdapter`) the highlighter implements. | `core/src/page/markdown.rs`, `core/src/search/gather.rs`, `core/src/nav.rs`, `core/src/highlight.rs` |
 | `syntect` | 5.3.0 | MIT | Syntax highlighting: finding a language by name or extension and emitting class-based HTML (`hl-` prefixed spans). | `core/src/highlight.rs` |
 | `two-face` | 0.5.2 (+bat-0.26.1) | MIT or Apache-2.0 | The syntax set syntect highlights with. The code comment gives the reason: it is the set `bat` ships, which includes Swift, TypeScript, TOML and YAML besides syntect's defaults. | `core/src/highlight.rs` |
-| `tree-sitter` | 0.27.1 | MIT | The [code reference](../../viewer/code-reference/README.md)'s reading: parsing a code file and running a query (`rust.scm`, or the site's own) over it to capture its declarations; a query that doesn't compile is a problem at its line. Its runtime is C, built from source by its build script. | `core/src/code/extract.rs` |
+| `tree-sitter` | 0.27.1 | MIT | The [code reference](../../viewer/write/code-reference/README.md)'s reading: parsing a code file and running a query (`rust.scm`, or the site's own) over it to capture its declarations; a query that doesn't compile is a problem at its line. Its runtime is C, built from source by its build script. | `core/src/code/extract.rs` |
 | `tree-sitter-rust` | 0.24.2 | MIT | The Rust grammar the code reference parses with, built from its C source. | `core/src/code/` |
 | `streaming-iterator` | 0.1.9 | MIT or Apache-2.0 | The `StreamingIterator` trait tree-sitter's query matches are walked with. | `core/src/code/extract.rs` |
 
@@ -55,7 +57,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `core/src/diagrams.rs` |
+| `rquickjs` | 0.14.0 | MIT | The [diagram engine](../../viewer/on-the-page/diagrams/README.md#the-diagram-engine): a QuickJS runtime and context running the vendored pele bundle, with a memory limit, a maximum stack size and an interrupt handler that stops a drawing past its time. Its `rquickjs-sys` builds QuickJS-NG 0.16.2 from the C source it ships, with bindings generated ahead for the common targets, so building devpage needs a C compiler and no system library; `Cargo.toml` builds it optimised in development builds too. | `core/src/diagrams.rs` |
 
 ## Files, watching and search
 
@@ -69,7 +71,8 @@ except where a code comment says so, and this page doesn't guess.
 | `windows-sys` (Windows only; features `Win32_Foundation`, `Win32_Storage_FileSystem`, `Win32_System_Diagnostics_ToolHelp`, `Win32_System_ProcessStatus`, `Win32_System_Threading`) | 0.61.2 | MIT or Apache-2.0 | `GetDiskFreeSpaceExW`: the size of the volume server mode's cache is on, as `statvfs` gives it on Unix; a thread snapshot and `GetProcessMemoryInfo`: the server's threads and resident bytes for its metrics, as `/proc` and `proc_pidinfo` give them. Already in the tree through `tokio` and others. | `src/drive/server_mode/config.rs`, `src/drive/server_mode/metrics.rs` |
 | `ignore` | 0.4.33 | Unlicense or MIT | Walking the served folder to build the index while honouring every `.gitignore` in it (`WalkBuilder`), and matching changed paths against them (`Gitignore`). | `core/src/folder/index.rs`, `core/src/search/gather.rs` |
 | `globset` | 0.4.20 | Unlicense or MIT | A site's `watch` patterns: compiled into one glob set and matched against each changed path. | `core/src/document.rs` |
-| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
+| `regex` | 1.13.1 | MIT or Apache-2.0 | A requirements suite's `pattern`: finding where a test file names a constraint; and reading the tests out of the JUnit report its `run` prints. | `core/src/requirements.rs` |
+| `tantivy` (default features off; `stemmer`) | 0.27.0 | MIT | The [search index](../../viewer/write/making-a-site/search/README.md): an index in memory, its schema, tokenizers (`en_stem`, `default`, `raw`, and `code` built from its whitespace tokenizer and lowercaser) and fast fields, the writer, BM25, term, phrase (`PhraseQuery`), near (`FuzzyTermQuery`), prefix, dis-max and constant-score queries, and the top sections with their scores tweaked by structure (`TopDocs::tweak_score`). The code comment gives the reason: a full-text engine as a library in pure Rust, with nothing to run beside devpage and nothing written to disk. | `core/src/search/` |
 | `mime_guess` | 2.0.5 | MIT | The `Content-Type` of a file that isn't Markdown or a document file, guessed from its extension, or `application/octet-stream`. | `src/drive/http.rs` |
 
 ## Documents, comments and data
@@ -84,7 +87,7 @@ except where a code comment says so, and this page doesn't guess.
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client. | `src/adapters/external.rs`, `src/drive/http.rs` (tests) |
+| `reqwest` | 0.13.5 | MIT or Apache-2.0 | Checking external links (one client per devpage, asking for HTML as a browser does, with a 10-second first wait and a 30-second retry); the route tests' HTTP client; `devpage setup` downloading bun. | `src/adapters/external.rs`, `src/adapters/live.rs`, `src/drive/http.rs` (tests) |
 | `futures` | 0.3.34 | MIT or Apache-2.0 | The boxed futures of the core's `Ask` and `Background` ports, running external-link checks at once (`join_all`), and driving chromiumoxide's event stream (`StreamExt`). | `core/src/external.rs`, `src/adapters/external.rs`, `src/adapters/chrome.rs`, `src/drive/browser_tests/` (tests) |
 | `chromiumoxide` (features `fetcher`, `rustls`, `zip8`) | 0.9.1 | MIT or Apache-2.0 | Driving Chrome over the DevTools protocol for `devpage pdf` (`Page.printToPDF`), a slide's PNG (`Page.captureScreenshot`), `devpage video` (evaluating its recorder, pressing →, sizing the window) and the Chrome tests; `fetcher` downloads chrome-headless-shell — and, for `devpage video` only, Chrome for Testing — at the pinned `CHROME_VERSION` into devpage's cache folder the first time one is needed. Whoever upgrades chromiumoxide bumps `CHROME_VERSION` in the same change, to a Chrome for Testing build that speaks its DevTools protocol, and runs the Chrome tests. | `src/adapters/chrome.rs`; the Chrome tests in `src/drive/browser_tests/` |
 
@@ -103,18 +106,19 @@ except where a code comment says so, and this page doesn't guess.
 | `tonic` (feature `codegen`) | 0.14.6 | MIT | The gRPC server side of the watch stream: the `Designs` service's request and response types and its streaming response. axum routes to the service itself, so tonic's own router is not used. | `src/drive/http/watch_stream.rs`, `src/drive/http.rs` |
 | `tonic-web` | 0.14.6 | MIT | `GrpcWebLayer`, which serves the gRPC service as gRPC-Web, so the browser can call it with `fetch` and no proxy. | `src/drive/http.rs` |
 | `tower` | 0.5.3 | MIT | `ServiceBuilder`, wrapping the gRPC service in the gRPC-Web layer before axum routes to it. | `src/drive/http.rs` |
+| `codespec-rust-macro` (dev; core and extension-api dev too) | 0.1.2 | MIT | The `#[spec("<id>")]` attribute a test names its [constraint](../../viewer/glossary/README.md#constraint) with; it does nothing when compiled. | every test that checks a constraint |
 | `prost` (dev) | 0.14.4 | Apache-2.0 | Decoding watch-stream messages in the route tests. | `src/drive/http/watch_stream.rs` (tests) |
 
 ## Caching
 
 | Crate | Locked version | Licence | What devpage uses it for | Where |
 | --- | --- | --- | --- | --- |
-| `sha2` (both; and the core's build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, an extension's instance id and the address of its browser files, and the ETag of a response or a design's scene; a published version's sha-256. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `core/src/extensions.rs`, `src/drive/validators.rs`, `src/drive/server_mode/published.rs` |
+| `sha2` (both; and the core's build) | 0.10.9 | MIT or Apache-2.0 | Content addresses and validators: the hash in a built-in asset's address and devpage's build id (build), a widget's version, an extension's instance id and the address of its browser files, and the ETag of a response or a design's scene; a published version's sha-256; the checksum of the bun `devpage setup` downloads, and the live session's program's stamp. | `core/build.rs`, `core/src/addresses.rs`, `core/src/widgets/`, `core/src/extensions.rs`, `src/adapters/live.rs`, `src/drive/validators.rs`, `src/drive/server_mode/published.rs` |
 | `brotli` (core build, dev) | 9.1.0 | BSD-3-Clause and MIT | Compressing each built-in asset as brotli when devpage is built; decoding it in the route tests. | `core/build.rs`, `src/drive/http.rs` (tests) |
 | `flate2` (core build, dev) | 1.1.10 | MIT or Apache-2.0 | The same, as gzip. | `core/build.rs`, `src/drive/http.rs` (tests) |
 
 The core's build script, `core/build.rs`, makes the asset manifest: each
-[built-in asset](../../viewer/serving-pages/README.md#built-in-assets), its
+[built-in asset](../../viewer/write/writing-a-document/serving-pages/README.md#built-in-assets), its
 references to other assets rewritten to their content addresses, hashed,
 and compressed once into `OUT_DIR` — a compressed file is named by its
 content's hash, so it is made again only when the asset changes, and the
@@ -136,7 +140,7 @@ and `design-engine.js`.
 | --- | --- | --- | --- | --- |
 | `rusqlite` (feature `bundled`) | 0.41.0 | MIT | The store: documents, versions and comment threads in one SQLite file. `bundled` builds SQLite from its C source, so no system SQLite is needed. | `src/adapters/sqlite.rs` |
 | `object_store` (features `aws`, `azure`) | 0.14.2 | MIT or Apache-2.0 | The bucket every version's zip is kept in: S3, Azure Blob or a local folder, with credentials read from the environment. | `src/adapters/bucket.rs` |
-| `zip` (default features off; `deflate`) | 8.6.0 | MIT | A publish's zip: packed by the client, unpacked by the server for its check and its cache. | `src/adapters/bundle.rs` |
+| `zip` (default features off; `deflate`) | 8.6.0 | MIT | A publish's zip: packed by the client, unpacked by the server for its check and its cache. bun's release zip, which `devpage setup` takes bun out of. | `src/adapters/bundle.rs`, `src/adapters/live.rs` |
 | `uuid` (feature `v4`) | 1.29.0 | Apache-2.0 or MIT | A new document's id, the names of the cache's temporary folders, and an id in an address read as one, so anything else names no document. | `src/drive/server_mode/published.rs`, `src/drive/server_mode/cache.rs`, `src/drive/server_mode/routes/mod.rs` |
 | `url` | 2.5.8 | MIT or Apache-2.0 | Parsing `DEVPAGE_BUCKET_URL`, and encoding the document file's name in a publish request. | `src/adapters/bucket.rs`, `src/drive/server_mode/config.rs`, `src/drive/client/api.rs` |
 | `tracing` (both) | 0.1.44 | MIT | The core's `check`, `nav` and `render` spans, and the listener server mode's metrics time them with. | `core/src/check.rs`, `core/src/nav.rs`, `core/src/page/`, `src/drive/server_mode/metrics.rs` |
@@ -234,13 +238,13 @@ Licences are as each crate's own `Cargo.toml` declares them. devpage itself
 is MIT — see [Installing devpage](../../../installing.md#licence).
 
 Four more pieces of third-party work are built into the binary but aren't
-crates: the [vendored pele bundle](../../viewer/vendored-pele/README.md), the
-JavaScript that draws diagrams; the [vendored React bundle](../../viewer/vendored-react/README.md),
-which widgets run with; the [vendored icons](../../viewer/vendored-icons/README.md),
+crates: the [vendored pele bundle](../../viewer/on-the-page/diagrams/vendored-pele/README.md), the
+JavaScript that draws diagrams; the [vendored React bundle](../../viewer/on-the-page/widgets/how-widgets-run/vendored-react/README.md),
+which widgets run with; the [vendored icons](../../viewer/write/organizing-navigation/vendored-icons/README.md),
 Lucide's icon set (ISC) and GitHub's mark (CC0); and the Inter typeface —
 regular, medium, semibold and bold, in `design/fonts/` — which the design
 engine embeds with `include_bytes!` and sets a design's text in unless the
-design names a [font file](../../viewer/designs/README.md#fonts). Inter is
+design names a [font file](../../viewer/on-the-page/designs/writing-a-design/README.md#fonts). Inter is
 under the SIL Open Font License 1.1, whose text ships beside the fonts as
 `design/fonts/LICENSE.txt`.
 

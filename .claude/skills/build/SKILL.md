@@ -89,7 +89,8 @@ everything else, and turns the next review into a review of its own work.
 ## Merges are serial even though the work isn't
 
 Two workers can finish at the same time; their merges still happen one at a time.
-Rebase onto the design branch as it now stands, confirm the gates are green, then
+Rebase onto the current design branch. Run `npm run check -- --base <design-ref>`
+from the ticket worktree to verify the whole ticket, then
 merge. The design branch is green at every point.
 
 ## When a worker hits something the design didn't anticipate

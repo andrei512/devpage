@@ -8,7 +8,7 @@ the slide — and every widget the change didn't touch keeps its state.
 flowchart LR
   save["Save"] --> devpage["devpage"]
   devpage -->|"change"| pages["Every open page"]
-  click devpage href "../boxes/viewer/live-updates/README.md" "Live updates"
+  click devpage href "../boxes/viewer/write/writing-a-document/live-updates/README.md" "Live updates"
 ```
 
-Teaches it: [Live updates](../boxes/viewer/live-updates/README.md).
+Teaches it: [Live updates](../boxes/viewer/write/writing-a-document/live-updates/README.md).

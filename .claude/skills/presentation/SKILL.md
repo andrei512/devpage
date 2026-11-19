@@ -75,7 +75,7 @@ In devpage, build the pictures as project widgets in the deck's `widgets`
 folder, one file per picture, with shared pieces (a window frame, a sample
 page) in a lowercase helper file. A `Slide` widget gives every slide the same
 layout: a big centered headline, an optional line under it, and the picture
-filling the rest. See [Making slides](../../../docs/boxes/viewer/making-slides/README.md).
+filling the rest. See [Making slides](../../../docs/boxes/viewer/write/making-slides/README.md).
 
 ## 4. Notes: the words the speaker says
 
@@ -93,7 +93,7 @@ Every slide gets `<Notes>` — the exact script, for a human presenter or for
 
 Put `audience`, `goal` and `tone` in the deck's yml, and `pronounce` lines for
 words a voice gets wrong. They brief the narrator of `devpage video`; see
-[what the narrator is told](../../../docs/boxes/viewer/making-a-video/README.md#what-the-narrator-is-told).
+[what the narrator is told](../../../docs/boxes/viewer/share/making-a-video/README.md#what-the-narrator-is-told).
 
 ## 5. Iterate by looking
 

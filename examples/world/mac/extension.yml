@@ -1,0 +1,4 @@
+id: mac
+version: "1"
+api: 1
+world: world.js

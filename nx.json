@@ -1,0 +1,66 @@
+{
+  "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "defaultBase": "HEAD",
+  "neverConnectToCloud": true,
+  "namedInputs": {
+    "chromeRuntime": [
+      "{workspaceRoot}/Cargo.lock",
+      "{workspaceRoot}/Cargo.toml",
+      "{workspaceRoot}/rust-toolchain.toml",
+      "{workspaceRoot}/src/adapters/chrome.rs"
+    ],
+    "viewerRuntime": [
+      "chromeRuntime",
+      "{workspaceRoot}/core/Cargo.toml",
+      "{workspaceRoot}/core/build.rs",
+      "{workspaceRoot}/core/assets/style.css",
+      "{workspaceRoot}/core/assets/page.js",
+      "{workspaceRoot}/core/assets/devpage.js",
+      "{workspaceRoot}/core/src/page/mod.rs",
+      "{workspaceRoot}/core/src/page/frame.rs",
+      "{workspaceRoot}/core/src/page/content.rs",
+      "{workspaceRoot}/core/src/page/markdown.rs",
+      "{workspaceRoot}/core/src/widgets/mod.rs",
+      "{workspaceRoot}/src/drive/http.rs"
+    ],
+    "browserHarness": [
+      "{workspaceRoot}/src/drive/browser_tests/mod.rs"
+    ],
+    "widgetTestSupport": [
+      "{workspaceRoot}/src/drive/browser_tests/support.rs"
+    ],
+    "slideRenderer": [
+      "{workspaceRoot}/src/drive/slide_png.rs"
+    ],
+    "designRenderer": [
+      "{workspaceRoot}/design/Cargo.toml",
+      "{workspaceRoot}/design/src/**/*",
+      "{workspaceRoot}/design/fonts/**/*",
+      "{workspaceRoot}/design/proto/**/*",
+      "{workspaceRoot}/design/wasm/**/*",
+      "{workspaceRoot}/design/module/**/*",
+      "{workspaceRoot}/core/assets/design*.js",
+      "{workspaceRoot}/core/assets/vendor/design*",
+      "{workspaceRoot}/core/src/designs.rs",
+      "{workspaceRoot}/core/src/page/canvas.rs"
+    ],
+    "printRenderer": [
+      "{workspaceRoot}/src/drive/pdf.rs"
+    ],
+    "serverRuntime": [
+      "{workspaceRoot}/src/drive/server_mode/**/*",
+      "{workspaceRoot}/src/adapters/bucket.rs",
+      "{workspaceRoot}/src/adapters/sqlite.rs"
+    ],
+    "deckFixtures": [
+      "{workspaceRoot}/docs/talks/devpage/**/*",
+      "{workspaceRoot}/docs/widgets/**/*",
+      "{workspaceRoot}/docs/logo.svg",
+      "{workspaceRoot}/docs/designs/checkout/**/*",
+      "{workspaceRoot}/docs/devpage.yml"
+    ]
+  },
+  "plugins": [
+    "./tools/checks/cargo-nx.cjs"
+  ]
+}

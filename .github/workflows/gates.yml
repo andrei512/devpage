@@ -1,68 +1,111 @@
-# The gates — formatting, clippy, the tests and devpage's own docs, on Linux
-# and Windows — on every
-# pull request and every push to main, a design branch or a prototype; and the
-# install page kept true: a checkout installs with only what
-# docs/installing.md lists. GitHub-hosted runners only: this repository is
-# public and never uses a self-hosted runner.
 name: gates
 
 on:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
   push:
-    # Tickets merge into a design branch without a pull request, so a push
-    # there is what gates them.
     branches: [main, "design/**", "prototype/**"]
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  DEVPAGE_CHECKS_MODE: ${{ vars.DEVPAGE_CHECKS_MODE || vars.DEVPAGE_BROWSER_MODE || 'affected' }}
 
 jobs:
+  select:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      linux: ${{ steps.plan.outputs.linux }}
+      windows: ${{ steps.plan.outputs.windows }}
+      live: ${{ steps.plan.outputs.live }}
+      browser: ${{ steps.plan.outputs.browser }}
+      inventory: ${{ steps.plan.outputs.inventory }}
+      install: ${{ steps.plan.outputs.install }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Select the affected checks
+        id: plan
+        uses: ./.github/actions/browser-selection
+        with:
+          workflow: gates.yml
+          full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      - name: Share the exact plan with the platform runners
+        if: steps.plan.outputs.linux == 'true' || steps.plan.outputs.windows == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: affected-check-plan
+          path: ${{ runner.temp }}/devpage-check-plan.json
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 30
+
   gates:
-    # devpage runs on Linux, macOS and Windows; macOS is where it is
-    # developed, so CI gates the other two.
+    needs: select
+    if: needs.select.outputs.linux == 'true' || needs.select.outputs.windows == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - name: The toolchain rust-toolchain.toml names, with rustfmt and clippy
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: affected-check-plan
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - if: matrix.rust
+        name: Set up the pinned Rust toolchain
         run: |
           rustup toolchain install
           rustup component add rustfmt clippy
-      # The dependencies, built, from main's last run with the same
-      # Cargo.lock and toolchain; devpage's own crates are always built
-      # afresh. Only main saves: the repository's 10 GB of caches would
-      # otherwise fill with each pull request's, evicting main's.
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - if: matrix.rust
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
-      # On Windows, the Chrome tests too — pages, PDFs, slide PNGs, designs,
-      # videos — on the pinned Chrome, with the test build just made. All
-      # but the GPU's — each has `gpu` in its name: the runner has no GPU.
-      - name: The Chrome tests, but the GPU's
-        if: runner.os == 'Windows'
-        run: cargo test --locked --bin devpage -- --ignored --skip gpu
-      - name: The docs pass devpage check, external links too
-        if: runner.os == 'Linux'
-        run: cargo run --locked -- check docs
+      - if: runner.os == 'Linux' && needs.select.outputs.live == 'true'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - if: runner.os == 'Linux' && needs.select.outputs.live == 'true'
+        name: Install the live session's pinned dependencies
+        working-directory: live
+        run: bun install --frozen-lockfile
+      - name: Run affected project checks
+        shell: bash
+        run: node tools/checks/run.mjs --ci --plan-file "$RUNNER_TEMP/devpage-check-plan.json" --non-browser
+      - if: runner.os == 'Windows' && needs.select.outputs.inventory == 'true'
+        name: Reconcile browser test inventory
+        run: node tools/browser-tests/inventory.mjs
+      - if: runner.os == 'Windows' && needs.select.outputs.browser == 'true'
+        name: Run selected browser tests in one Cargo process
+        run: node tools/browser-tests/execute-ci.mjs
 
   install:
+    needs: select
+    if: needs.select.outputs.install == 'true'
     runs-on: ubuntu-latest
     container: rust:1.97-slim-bookworm
     env:
-      # Inside the checkout, where the cache below keeps it.
       CARGO_TARGET_DIR: target
     steps:
       - uses: actions/checkout@v4
-      # Keyed on Cargo.lock and the toolchain, so a change to either builds
-      # every dependency again with nothing added. Not the installed binary:
-      # a cached one would make the install below a no-op.
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-bin: false
@@ -71,4 +114,3 @@ jobs:
       - name: Install from the checkout with nothing added
         run: cargo install --path . --locked
       - run: devpage --version
-

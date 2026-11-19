@@ -16,4 +16,4 @@ extensions:
           - "../src/**/*.rs"
 ```
 
-Teaches it: [Code reference](../boxes/viewer/code-reference/README.md).
+Teaches it: [Code reference](../boxes/viewer/write/code-reference/README.md).

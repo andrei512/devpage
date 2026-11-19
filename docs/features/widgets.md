@@ -13,4 +13,4 @@ Its content is **Markdown**.
 
 </Example>
 
-Teaches it: [Widgets](../boxes/viewer/widgets/README.md).
+Teaches it: [Widgets](../boxes/viewer/on-the-page/widgets/README.md).

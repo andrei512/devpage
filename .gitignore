@@ -2,3 +2,9 @@
 /target/
 # Claude Code writes per-user permissions here
 .claude/settings.local.json
+# The live session's packages, installed to work on its program
+/live/node_modules/
+
+# Local browser-test selection tooling
+/node_modules/
+/.nx/

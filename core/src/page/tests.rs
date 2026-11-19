@@ -8,6 +8,7 @@ use crate::document::Document;
 use crate::folder::ServedFolder;
 use crate::markup::title;
 use crate::widgets::Widgets;
+use codespec_rust_macro::spec;
 
 /// `document`'s widget set, read through a cache of its own.
 fn widgets_of(document: &Document) -> Widgets {
@@ -125,6 +126,7 @@ fn keeps_raw_html_and_draws_mermaid_fences() {
 }
 
 #[test]
+#[spec("a-broken-file-shows-its-error")]
 fn a_diagram_that_does_not_parse_shows_its_error_and_its_source() {
     let html = markdown("```mermaid\nsequenceDiagram\n  A->>B: one; two\n```\n");
     assert!(
@@ -602,7 +604,7 @@ fn a_diagram_page_comes_drawn_and_loads_nothing_for_it() {
         linked(&html, "modulepreload"),
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", "")
+            crate::widgets::system_address("DevpageSidebar.tsx", "")
         ],
         "{html}"
     );
@@ -617,7 +619,7 @@ fn a_plain_page_loads_only_react_and_its_sidebar() {
         linked(&html, "modulepreload"),
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", "")
+            crate::widgets::system_address("DevpageSidebar.tsx", "")
         ],
         "{html}"
     );
@@ -665,8 +667,8 @@ fn a_widget_page_preloads_its_widgets_what_they_render_and_their_helpers() {
         address(Owned::Asset("react.js")),
         module("widgets/Card.tsx"),
         frames,
-        crate::widgets::system_address("Callout", ""),
-        crate::widgets::system_address("DevpageSidebar", ""),
+        crate::widgets::system_address("Callout.tsx", ""),
+        crate::widgets::system_address("DevpageSidebar.tsx", ""),
     ] {
         assert!(modules.contains(&expected), "{expected} in {modules:?}");
     }
@@ -682,7 +684,7 @@ fn a_design_page_preloads_the_design_chain_and_its_wasm_last() {
         modules,
         [
             address(Owned::Asset("react.js")),
-            crate::widgets::system_address("DevpageSidebar", ""),
+            crate::widgets::system_address("DevpageSidebar.tsx", ""),
             address(Owned::Asset("design.js")),
             address(Owned::Asset("design-stream.js")),
             address(Owned::Asset("design-canvas.js")),
@@ -782,6 +784,11 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
         nav.find("class=\"document-title").unwrap() < search && search < nav.find("<ul>").unwrap(),
         "{nav}"
     );
+    // The resize handle closes the sidebar, after the tree.
+    assert!(
+        nav.contains("</ul><div class=\"resize\" role=\"separator\""),
+        "{nav}"
+    );
     // The tree, as JSON, for DevpageSidebar to take the sidebar over from.
     let data = html
         .split("<script type=\"application/json\" id=\"devpage-sidebar\">")
@@ -805,7 +812,7 @@ fn the_sidebar_is_collapsed_with_the_current_branch_open_and_carries_its_tree() 
     // no widget.
     let modules = linked(&html, "modulepreload");
     assert!(
-        modules.contains(&crate::widgets::system_address("DevpageSidebar", "")),
+        modules.contains(&crate::widgets::system_address("DevpageSidebar.tsx", "")),
         "{modules:?}"
     );
 }

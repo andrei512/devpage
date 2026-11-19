@@ -31,4 +31,4 @@ the checkout sets its headings in Lora and the rest in Figtree, where a `Text`
 with no `font` gets the Inter devpage carries. The same glyphs and line breaks
 on the canvas and in the PNG, whatever fonts the machine has.
 
-Teaches it: [Designs](../boxes/viewer/designs/README.md).
+Teaches it: [Designs](../boxes/viewer/on-the-page/designs/README.md).

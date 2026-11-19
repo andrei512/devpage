@@ -17,8 +17,8 @@ fences drawn as diagrams whose boxes are links.
 ```mermaid
 flowchart LR
   md["Markdown"] --> page["A page"]
-  click page href "../boxes/viewer/diagrams/README.md" "Diagrams"
+  click page href "../boxes/viewer/on-the-page/diagrams/README.md" "Diagrams"
 ```
 
-Teaches it: [Markdown that works](../boxes/viewer/writing-a-document/markdown-that-works/README.md),
-[Diagrams](../boxes/viewer/diagrams/README.md).
+Teaches it: [Markdown that works](../boxes/viewer/write/writing-a-document/markdown-that-works/README.md),
+[Diagrams](../boxes/viewer/on-the-page/diagrams/README.md).

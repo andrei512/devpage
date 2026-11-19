@@ -1,19 +1,22 @@
+---
+page-type: reference
+---
 # Configuration reference
 
 The exact contract of a devpage document file and of the `devpage` command
 line: every field of each kind with its type, default and validation, the
-commands and flags, and the errors devpage stops with. It is the reference page
-under the [viewer](../README.md).
+commands and flags, and the errors devpage stops with. It sits under the [viewer](../README.md).
 
 ## Command line
 
 ```sh
 devpage [path] [--root <folder>]
         [--host <address>] [--port <port>] [--user-header <name>] [--no-comments]
-devpage check [path] [--root <folder>] [--json]
+devpage check [path] [--root <folder>] [--json] [--docs | --requirements-map]
 devpage pdf <path> [--root <folder>] [-o <file>]
 devpage png <path> [--slide <n>] [--theme light|dark] [--root <folder>] [-o <file>] [--json]
 devpage video <path> [--root <folder>] [-o <file>]
+devpage setup
 devpage server
 devpage context add|use|list …
 devpage publish <path> [--root <folder>] [--id <uuid>] [--new]
@@ -26,12 +29,13 @@ devpage --version
 | Command | Does |
 | --- | --- |
 | `devpage [path]` | Serves the document at `path` and everything in the served folder, until stopped. |
-| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../checking-links/README.md)). `--json` prints them as JSON. |
-| `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../pdf/README.md)). |
-| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../designs/README.md#looking-at-a-design-as-a-png), [a slide as an image](../making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
-| `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../making-a-video/README.md)). |
-| `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../server/README.md)). |
-| `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../server/reference/README.md#cli). |
+| `devpage check [path]` | Checks the document at `path` and everything reachable from it by links; prints each problem and exits `1` if there was any, `0` if not ([Checking links](../check/checking-links/README.md)). `--json` prints them as JSON. A site with [requirements](../check/checking-requirements/README.md) has its tests run too; `--docs` leaves them out. `--requirements-map` checks only the links between requirement IDs and test files. |
+| `devpage pdf <path>` | Prints a doc or a deck to PDF ([Printing to PDF](../share/pdf/README.md)). |
+| `devpage png <path>` | Draws a design, or slide `--slide <n>` of a deck, to a PNG with no server running — the picture `<design>.png` or `<deck>/<n>.png` answers ([a design as a PNG](../on-the-page/designs/viewing-a-design/README.md#looking-at-a-design-as-a-png), [a slide as an image](../write/making-slides/README.md#a-slide-as-an-image)). A design with problems isn't drawn: its problems are printed and it exits `1`. A doc or a site is refused. |
+| `devpage video <path>` | Records a deck to mp4, each slide's notes read aloud by GPT-Live ([Making a video](../share/making-a-video/README.md)). |
+| `devpage setup` | Installs [the live session](../live-session/README.md): [below](#devpage-setup). |
+| `devpage server` | Serves published documents, configured only by `DEVPAGE_*` variables ([Server mode](../share/server/README.md)). |
+| `devpage context`, `publish`, `list`, `versions`, `comments`, `download`, `delete` | Talk to a devpage server; every one is in the [server reference](../share/server/reference/README.md#cli). |
 
 `path` is read the same way by every command:
 
@@ -39,19 +43,41 @@ devpage --version
 | --- | --- |
 | a folder | the document file `devpage.yml` inside it |
 | a `.md` file | that file, as a doc of one chapter with default settings |
-| a `.design` file | that [design](../designs/README.md), titled by its file name without `.design`: `/` leads to its canvas, and `devpage check` reports its problems |
+| a `.design` file | that [design](../on-the-page/designs/README.md), titled by its file name without `.design`: `/` leads to its canvas, and `devpage check` reports its problems |
 | any other file | a document file, whatever its name |
 | none | `.` — `devpage.yml` in the current folder |
+
+### `devpage setup`
+
+Installs what [the live session](../live-session/README.md) runs on, into
+`~/.devpage/live/`, and can be run again at any time: what is already there
+and right is left alone.
+
+1. **bun**, at the version devpage pins, for this system — macOS or Linux, on
+   x86-64 or ARM — downloaded from bun's GitHub release into
+   `~/.devpage/live/bun/<version>/`. The download is kept only when its
+   SHA-256 is the one devpage carries for that build. A bun installed on the
+   machine is neither used nor changed.
+2. **The session's program**, which the executable carries, unpacked into
+   `~/.devpage/live/program/` in place of whatever was there.
+3. **The program's packages**, installed by that bun exactly as the program's
+   lockfile lists them.
+
+The program is then stamped with the version of the executable that unpacked
+it, and a serving devpage runs only a program with its own stamp. The install
+script runs `devpage setup` after installing devpage; when it fails, devpage
+is installed all the same and the script says what to run. On Windows it
+stops with `` `devpage setup` does not support Windows yet ``.
 
 ### Flags
 
 | Flag | Command | Default | Meaning |
 | --- | --- | --- | --- |
-| `--root <folder>` | `devpage`, `check`, `pdf`, `png`, `video`, `publish` — the commands that read documents | the current folder | The [served folder](../writing-a-document/README.md#the-served-folder). The document must be inside it. |
-| `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../deploying/README.md). |
+| `--root <folder>` | `devpage`, `check`, `pdf`, `png`, `video`, `publish` — the commands that read documents | the current folder | The [served folder](../write/writing-a-document/README.md#the-served-folder). The document must be inside it. |
+| `--host <address>` | `devpage` | `127.0.0.1` | The address to listen on. Any non-loopback address makes devpage [deployed](../share/deploying/README.md). |
 | `--port <port>` | `devpage` | the first free port from 3030 up | Listen on exactly this port; fail if it is taken. |
 | `--user-header <name>` | `devpage` | `X-Forwarded-Email` | The request header naming a comment's author when deployed. Ignored locally. |
-| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../comments/README.md#turning-comments-off)). |
+| `--no-comments` | `devpage` | comments on | Turn comments off: the pages show none and every comment request answers `404` ([Turning comments off](../share/comments/commenting/README.md#turning-comments-off)). |
 | `-o, --output <file>` | `devpage pdf` | `<title>.pdf` in the current folder | Where to write the PDF. |
 | `-o, --output <file>` | `devpage video` | `<title>.mp4` in the current folder | Where to write the video. |
 | `-o, --output <file>` | `devpage png` | `<title>.png`, or `<title> <n>.png` for a slide, in the current folder | Where to write the PNG. |
@@ -73,9 +99,12 @@ a document's problems from a command that couldn't run:
 ### Environment variables
 
 `devpage video` reads the first four, and never `OPENAI_API_KEY`
-([the narrator](../making-a-video/README.md#the-narrator)). `devpage server`
+([the narrator](../share/making-a-video/README.md#the-narrator)). Serving on a
+loopback address reads the first three, which with its program
+installed turn [the live session](../live-session/README.md#when-it-is-on)
+on, and the session reads `DEVPAGE_LIVE_MODEL`. `devpage server`
 reads its own, listed in the
-[server reference](../server/reference/README.md#environment), and the
+[server reference](../share/server/reference/README.md#environment), and the
 server commands read `DEVPAGE_CONTEXT`, and serving, `check` and `pdf` read
 `DEVPAGE_NO_UPDATE_CHECK` ([Installing](../../../installing.md#staying-up-to-date)).
 A variable set to an empty string
@@ -83,15 +112,16 @@ counts as not set.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `DEVPAGE_OPENAI_API_KEY` | none | Narrate with GPT-Live on OpenAI, with this key. |
-| `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI. |
+| `DEVPAGE_OPENAI_API_KEY` | none | Narrate with GPT-Live on OpenAI, with this key. Serving on a loopback address: the live session's key, for its voice model and Fast's. |
+| `DEVPAGE_AZURE_OPENAI_ENDPOINT` | none | Narrate with GPT-Live on this Azure Foundry resource — `https://<resource>.openai.azure.com/` or its bare host. Set, it selects Azure over OpenAI, for the live session too. |
 | `DEVPAGE_AZURE_OPENAI_API_KEY` | none | The Azure resource's key; required with the endpoint. |
 | `DEVPAGE_VIDEO_MODEL` | `gpt-live-1` | The model; on Azure, the deployment's name. |
+| `DEVPAGE_LIVE_MODEL` | `gpt-live-1` | The live session's voice model; on Azure, the deployment's name. |
 | `DEVPAGE_NO_UPDATE_CHECK` | none | Set, devpage never asks GitHub whether a newer release is out. |
-| `DEVPAGE_CHROME_SANDBOX` | `on` | `off` runs Chrome — for `devpage pdf`, a slide's PNG, `devpage video` and the server's downloads — without its sandbox. Only for a container, which has no sandbox for Chrome to use and is the boundary itself; the [server image](../server/running-a-server/README.md) sets it. |
+| `DEVPAGE_CHROME_SANDBOX` | `on` | `off` runs Chrome — for `devpage pdf`, a slide's PNG, `devpage video` and the server's downloads — without its sandbox. Only for a container, which has no sandbox for Chrome to use and is the boundary itself; the [server image](../share/server/running-a-server/README.md) sets it. |
 
 On start, `devpage` checks the document is inside the
-[served folder](../writing-a-document/README.md#the-served-folder), watches it, binds its address and prints one line on standard output — the entry
+[served folder](../write/writing-a-document/README.md#the-served-folder), watches it, binds its address and prints one line on standard output — the entry
 document's title and its address:
 
 ```text
@@ -99,7 +129,7 @@ document's title and its address:
 ```
 
 It then logs every request on standard error (see
-[Serving pages](../serving-pages/README.md#request-logging)) and each link
+[Serving pages](../write/writing-a-document/serving-pages/README.md#request-logging)) and each link
 problem once, as it is found. It runs until stopped. Changes to document files
 and pages take effect on the next request; nothing needs a restart.
 
@@ -116,19 +146,21 @@ served folder. A field the kind doesn't have is an error, not ignored.
 | `kind` | `site` | yes | Makes this file a site. |
 | `title` | string | yes | The site's name: the sidebar heading and the second half of each tab title (`<page> · <title>`), or the whole tab title on a page titled like the site (trimmed, ignoring case). |
 | `root` | path | yes | The page the site opens on and the top of its sidebar tree. |
-| `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. A `.gitignore`d file never refreshes, and is watched — so the served folder and designs hear of it — only in an ignored folder a pattern explicitly reaches into: its part before the first glob character is in that folder or is it (`build/*.svg` reaches into an ignored `build/`; `**/*.md` reaches into none) ([the watch set](../live-updates/README.md#the-watch-set)). Default: every file that no `.gitignore` excludes. |
-| `widgets` | path | no | The folder of this document's [project widgets](../widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
-| `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../organizing-navigation/README.md#the-navbar)). Default: no navbar. |
+| `watch` | list of glob patterns | no | Narrows which files in the site's folder refresh open pages to those matching a pattern, relative to that folder. It applies to this site's folder only (a nested site's own list applies inside it), whichever document devpage was started with; document files always refresh. A `.gitignore`d file never refreshes, and is watched — so the served folder and designs hear of it — only in an ignored folder a pattern explicitly reaches into: its part before the first glob character is in that folder or is it (`build/*.svg` reaches into an ignored `build/`; `**/*.md` reaches into none) ([the watch set](../write/writing-a-document/live-updates/README.md#the-watch-set)). Default: every file that no `.gitignore` excludes. |
+| `widgets` | path | no | The folder of this document's [project widgets](../on-the-page/widgets/project-widgets/README.md), relative to this file: every `.tsx` in it whose name starts with a capital letter is a widget. Default: none — only the system widgets. |
+| `structure` | path | no | The folder of this site's [type files](../check/structuring-a-site/README.md#a-type-file), relative to this file: every `.md` in it is a page type, named after the file. With it, the site's pages are [checked against their types](../check/structuring-a-site/README.md#what-is-checked). Default: none — no page needs a type. |
+| `navbar` | map | no | The bar across the top: label → target links, dropdowns and icons ([the navbar](../write/organizing-navigation/README.md#the-navbar)). Default: no navbar. |
 | `sidebar` | boolean | no | Whether the Topics sidebar shows. Default: `true`. |
-| `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../themes/README.md#choosing-a-theme)). Default: `true`. |
+| `theme-selector` | boolean | no | Whether the button that switches between light and dark shows ([choosing a theme](../on-the-page/themes/README.md#choosing-a-theme)). Default: `true`. |
 | `logo` | path | no | An image — usually an SVG — shown before the title in the navbar (or the sidebar heading when there is no navbar) and used as the browser tab's icon. Default: none. |
-| `extensions` | map | no | [Extensions](#extensions) the site enables: native packages, and [`code`](#code), its code reference. Default: none. |
+| `extensions` | map | no | [Extensions](#extensions) the site enables: packages, and [`code`](#code), its code reference. Default: none. |
+| `places` | map | no | Widgets shown outside the text on every page: `navbar`, `panel` and `float`, each a list of widget names ([places](../on-the-page/widgets/places/README.md)). Default: none. |
 
 A site's pages are the Markdown files in its document file's folder and below
 it; a page there is shown in this site's frame. When sites are nested, a page
 belongs to the nearest one. A `404.md` beside the document file is shown, in
 the site's frame, at every address in its folder with nothing at it
-([a page for missing addresses](../making-a-site/README.md#a-page-for-missing-addresses)).
+([a page for missing addresses](../write/making-a-site/README.md#a-page-for-missing-addresses)).
 
 ### `doc`
 
@@ -140,10 +172,11 @@ the site's frame, at every address in its folder with nothing at it
 | `pdf.paper` | `A4` or `Letter` | no | `A4` | The paper size. |
 | `pdf.header` | string | no | none | Printed at the top of every page. |
 | `pdf.footer` | string | no | `"{page} / {pages}"` | Printed at the bottom of every page. |
-| `widgets` | path | no | none | The folder of this doc's [project widgets](../widgets/project-widgets/README.md). |
+| `widgets` | path | no | none | The folder of this doc's [project widgets](../on-the-page/widgets/project-widgets/README.md). |
 | `theme-selector` | boolean | no | `true` | Whether the light/dark switch shows. |
 | `logo` | path | no | none | The browser tab's icon, and an image before the title. |
-| `extensions` | map | no | none | Native [extension](#extensions) packages the doc enables. |
+| `extensions` | map | no | none | [Extension](#extensions) packages the doc enables. |
+| `places` | map | no | none | Widgets shown outside the text: [places](../on-the-page/widgets/places/README.md). |
 
 In `header` and `footer`, `{page}` is the page's number and `{pages}` the count.
 
@@ -158,14 +191,15 @@ default.
 | `kind` | `slides` | yes | Makes this file a deck. |
 | `title` | string | yes | The deck's name: in the tab, and the PDF's title and default file name. |
 | `slides` | list of paths | yes | The slide files, in order; at least one. |
-| `audience` | string | for `video` | Who watches the talk; [told to the narrator](../making-a-video/README.md#what-the-narrator-is-told). `devpage video` refuses a deck without it. |
+| `audience` | string | for `video` | Who watches the talk; [told to the narrator](../share/making-a-video/README.md#what-the-narrator-is-told). `devpage video` refuses a deck without it. |
 | `goal` | string | for `video` | What the talk should achieve; told to the narrator. `devpage video` refuses a deck without it. |
 | `tone` | string | no | The energy of the whole talk; default "Natural and upbeat, like a speaker who enjoys this talk. Engaged and warm, never flat and never salesy." |
 | `pronounce` | list of strings | no | One line per word a voice gets wrong, such as `Say "devpage" as "dev page".`; default none. |
-| `widgets` | path | no | The folder of this deck's [project widgets](../widgets/project-widgets/README.md); default none. |
+| `widgets` | path | no | The folder of this deck's [project widgets](../on-the-page/widgets/project-widgets/README.md); default none. |
 | `theme-selector` | boolean | no | Whether the light/dark switch shows; default `true`. Hidden in fullscreen. |
 | `logo` | path | no | The browser tab's icon; default none. |
-| `extensions` | map | no | Native [extension](#extensions) packages the deck enables; default none. |
+| `extensions` | map | no | [Extension](#extensions) packages the deck enables; default none. |
+| `places` | map | no | Widgets shown outside the text: [places](../on-the-page/widgets/places/README.md); default none. Hidden in fullscreen. |
 
 ### Extensions
 
@@ -173,11 +207,40 @@ A site, doc or deck accepts an optional `extensions` mapping. Each key is an ext
 
 Extensions belong to the document that enables them. A nested site's pages use that site's configuration; a project-root site does not silently inject its extensions into another document. Printing one Markdown page uses the packages of its owning document.
 
+### `live`
+
+Where [the live session](../live-session/README.md#when-it-is-on) is on, every
+document has the system extension `live` without an entry. An entry changes
+it for that document:
+
+| Entry | Does |
+| --- | --- |
+| `live: {config: {…}}` | Passes the session these settings for the project, over the ones under `live` in `~/.devpage/config.yml`. |
+| `live: {config: {enabled: false}}` | Turns the session off for the document. `enabled` is `true` or `false`. |
+| `live: {package: <path>}` | Binds that package in the built-in session's place. |
+
+Where the session is off, an entry with no `package` is accepted and changes
+nothing.
+
+### Settings for every project
+
+`~/.devpage/config.yml` holds the [server contexts](../share/server/reference/README.md#cli)
+and local settings for every project:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `extensions` | map | Package defaults for loopback serving. Paths are relative to this configuration file. A project entry for the same id replaces the global entry and `enabled: false` turns it off. |
+| `live.program` | path | A folder holding the session's program, run in place of the installed one. Absolute, or from `~`. |
+
+Every other key under `live` belongs to
+[the session's program](../live-session/README.md#settings), and is kept when
+a `devpage context` command writes the file.
+
 ### `code`
 
 A site's `extensions` may hold `code` with no `package`: the
 [system extension](../glossary/README.md#system-extension) that gives the site a
-[code reference](../code-reference/README.md). Its `config` maps each
+[code reference](../write/code-reference/README.md). Its `config` maps each
 [namespace](../glossary/README.md#namespace)'s name — the first part of its
 items' ids and addresses, `reference/<namespace>/` — to these fields:
 
@@ -185,8 +248,23 @@ items' ids and addresses, `reference/<namespace>/` — to these fields:
 | --- | --- | --- | --- |
 | `files` | list of glob patterns | yes | The namespace's files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
 | `language` | string | no | The language they are written in. devpage knows `rust`. Default: the namespace's name. |
-| `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
+| `query` | path | no | A tree-sitter query file read instead of the language's built-in one ([Reading one file](../write/code-reference/reading-the-code/README.md#reading-one-file)). Default: the built-in query. |
 | `private` | boolean | no | Whether items no `pub` path reaches get pages too. Default: `false`. |
+
+### `requirements`
+
+A site's `extensions` may hold `requirements` with no `package`: the
+[system extension](../glossary/README.md#system-extension) that holds the
+site's constraints to its tests
+([Checking requirements](../check/checking-requirements/README.md)). Its `config`
+has one field, `tests`, a list of suites, each with these fields:
+
+| Field | Type | Required | Meaning |
+| --- | --- | --- | --- |
+| `name` | string | yes | What the suite is called in problems. |
+| `glob` | glob pattern | yes | Its test files, relative to the document file and inside the served folder. `.gitignore`d and hidden files are left out. |
+| `pattern` | regular expression | yes | Where a test names a constraint; its first group is the constraint's id. |
+| `run` | command | yes | Runs the suite and prints JUnit XML on standard output, from the document file's folder. |
 
 ## Front matter
 
@@ -205,11 +283,24 @@ keywords: [retry, offline]
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `search` | boolean | `false` leaves the page out of [search](../search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
+| `search` | boolean | `false` leaves the page out of [search](../write/making-a-site/search/README.md#what-is-searched) though the served document reaches it; `true` puts it in though nothing reaches it. Default: searched when reached. |
 | `description` | string | Words search finds the page by, weighted like its title. |
 | `keywords` | string or list of strings | The same. |
+| `page-type` | string | The page's [type](../glossary/README.md#page-type): the name of a type file in its site's structure folder, without `.md`. Read only in a site with a [`structure`](#site). |
+| `id` | string | A [constraint](../glossary/README.md#constraint)'s id: the name tests point at it by. Read only on a page whose `page-type` is `constraint`, in a site with [requirements](#requirements). |
 
 Any other field is read by nothing and ignored.
+
+### A type file
+
+A [type file](../check/structuring-a-site/README.md#a-type-file)'s own front matter
+holds the rules of its type; both fields are optional, and any other field is
+a problem on the file.
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `parent` | string or list of strings | The types a page of this type may sit under. Default: any. |
+| `sections` | list of strings | The `##` headings a page of this type must have, in order. Default: none. |
 
 ## Errors
 
@@ -232,12 +323,17 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `root`, a chapter or a slide isn't an existing file in the served folder | `in <file>` — `<field> <path> does not exist` |
 | `chapters` or `slides` is an empty list | `in <file>` — `chapters lists no files` or `slides lists no files` |
 | `widgets` names no folder, or one outside the served folder | `in <file>` — `widgets <folder> is not a folder` |
+| `places` names a place other than `navbar`, `panel` and `float` | `in <file>` — ``places: unknown field `footer`, expected one of `navbar`, `panel`, `float` `` |
+| `structure` names no folder, or one outside the served folder | `in <file>` — `structure <folder> is not a folder` |
+| `requirements` on a doc or a deck | `in <file>` — `extensions: requirements: only a site has requirements` |
+| A suite's `pattern` is no regular expression, or has no group | `in <file>` — `extensions: requirements: tests <name>: pattern <pattern>`, then the error, or `… has no group — its first group is the constraint's id` |
+| A suite's `glob` is outside the served folder | `in <file>` — `extensions: requirements: tests <name>: glob <glob> is outside the served folder` |
 | A `navbar` dropdown holds another dropdown | `in <file>` — `navbar: <entry> under <dropdown> must be a link — dropdowns are one level deep` |
 | A `navbar` dropdown lists no links | `in <file>` — `navbar: <dropdown> lists no links` |
 | A `navbar` entry is neither a link nor a map of links — a number, or a list | `in <file>` — `navbar: <entry> must be a link or a map of links`, or the YAML error for a list |
 | A `navbar` key has neither a label nor an `(icon)` | `in <file>` — `navbar has an entry with neither a label nor an icon` |
 | `extensions: code` on a doc or slides | `in <file>` — `extensions: code: only a site has a code reference` |
-| An extension other than `code` without `package` | `in <file>` — `extensions: <id>: package is required — <id> is not a system extension` |
+| An extension that is no system extension without `package` | `in <file>` — `extensions: <id>: package is required — <id> is not a system extension` |
 | `extensions: code` with no namespace in its `config` | `in <file>` — `extensions: code: config lists no namespaces` |
 | A `code` namespace's field the namespace doesn't have | `in <file>` — `extensions: code`, then ``unknown field `bogus`, expected one of `language`, `files`, `query`, `private` `` |
 | A namespace's `files` is an empty list | `in <file>` — `extensions: code: <namespace>`, then `files lists no patterns` |
@@ -247,6 +343,23 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 | `query` names no file | `in <file>` — `extensions: code: <namespace>`, then `query <path> does not exist` |
 | `query` doesn't compile against the grammar | `in <file>` — `extensions: code: <namespace>`, then `query <file>` and `line <n>: <kind> error: <what>` |
 | The document isn't inside the served folder | `<path> is outside the served folder <folder>` |
+
+### The live session
+
+Said once as devpage starts, when `DEVPAGE_OPENAI_API_KEY` or Azure's two
+variables are set on a loopback address; devpage then serves without the session.
+
+| Problem | Message |
+| --- | --- |
+| No program is installed | ``No live session: its program is not installed: run `devpage setup` `` |
+| The installed program is another version's | ``No live session: the program in <folder> is another devpage's: run `devpage setup` `` |
+| `live.program` is no text | `No live session: live: program in ~/.devpage/config.yml is not a folder's path` |
+| `live.program` is neither absolute nor from `~` | `No live session: live: program in ~/.devpage/config.yml is not an absolute path: <path>` |
+| The program's folder has no valid `extension.yml`, or one for another extension | `No live session: loading its program in <folder>`, then the [bundle's](../extensions/reference/README.md#bundle) error, or `Package <id> is not the extension live` |
+| `~/.devpage/config.yml` does not read | `No live session:`, then the error |
+
+A document whose `live` entry has an `enabled` that is neither `true` nor
+`false` is invalid: `extensions: live: config: enabled is not true or false`.
 
 ### Binding the address
 
@@ -260,11 +373,11 @@ one line of JSON instead: `{"error": "reading <file>", "causes": ["No such file 
 Once devpage is serving, an edit that makes the entry's file invalid doesn't
 stop it either: `/` and the site's pages show the problem until the file is
 fixed, and the last valid version is kept meanwhile. The same problems in a
-document file reached by a link don't stop devpage: they are [problems](../checking-links/README.md), shown on the
+document file reached by a link don't stop devpage: they are [problems](../check/checking-links/README.md), shown on the
 pages that link to it and reported by `devpage check`. `devpage pdf` also stops
 with `pdf prints a doc or slides, not a site` when given a site, with the
 error `downloading chrome-headless-shell <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../pdf/README.md#the-chrome-it-drives) fails,
+when the first download of [its Chrome](../share/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives) fails,
 with `chrome-headless-shell <version> has no build for <os> on <arch>` on a
 platform that has none, and with `pdf prints a doc or slides, not a design` when given a design.
 
@@ -282,7 +395,7 @@ when no narrator is set, `DEVPAGE_AZURE_OPENAI_ENDPOINT is set but DEVPAGE_AZURE
 `video records slides, not a site` (or `a doc`, `a design`), and
 `every slide needs <Notes> to be narrated; these have none: <n> (<file>), …`.
 Once running it stops with `downloading chrome-for-testing <version> for <platform> from <address> into <cache folder>`
-when the first download of [its Chrome](../making-a-video/README.md#the-chrome-it-drives)
+when the first download of [its Chrome](../share/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives)
 fails, `chrome-for-testing <version> has no build for <os> on <arch>` on a
 platform that has none, `connecting to GPT-Live at <address>` when the session can't open (a
 wrong key is `HTTP error: 401 Unauthorized`), with the error GPT-Live sends as

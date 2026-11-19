@@ -1,3 +1,6 @@
+---
+page-type: landing
+---
 # Viewer
 
 The viewer is the `devpage` program. It serves **documents** from a folder
@@ -38,14 +41,14 @@ flowchart LR
   designfiles[".design files"] --> engine["Design engine"]
   engine -->|"changed nodes"| page
   engine --> png["PNG of a design"]
-  click files href "./writing-a-document/README.md" "Writing a document"
-  click serving href "./serving-pages/README.md" "Serving pages"
-  click page href "./widgets/README.md" "Widgets"
-  click live href "./live-updates/README.md" "Live updates"
-  click pdf href "./pdf/README.md" "Printing to PDF"
-  click designfiles href "./designs/README.md" "Designs"
-  click engine href "./design-engine/README.md" "The design engine"
-  click png href "./designs/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
+  click files href "./write/writing-a-document/README.md" "Writing a document"
+  click serving href "./write/writing-a-document/serving-pages/README.md" "Serving pages"
+  click page href "./on-the-page/widgets/README.md" "Widgets"
+  click live href "./write/writing-a-document/live-updates/README.md" "Live updates"
+  click pdf href "./share/pdf/README.md" "Printing to PDF"
+  click designfiles href "./on-the-page/designs/README.md" "Designs"
+  click engine href "./on-the-page/designs/design-engine/README.md" "The design engine"
+  click png href "on-the-page/designs/viewing-a-design/README.md#looking-at-a-design-as-a-png" "A design as a PNG"
 ```
 
 ## Its parts
@@ -54,52 +57,94 @@ Each card opens the page that explains it.
 
 ### Write
 
+The kinds of document, and how a site is laid out.
+
 <Cards>
 
-- (pen-line) [Writing a document](writing-a-document/README.md) — The four kinds, the document file and the served folder.
-- (layout-grid) [Making a site](making-a-site/README.md) — Root page, sidebar, navbar, logo, theme switch and 404 page.
-- (file-text) [Writing a doc](writing-a-doc/README.md) — Chapters, the outline, and the PDF's paper, header and footer.
-- (presentation) [Making slides](making-slides/README.md) — One file per slide on a 16:9 stage.
-- (puzzle) [Widgets](widgets/README.md) — React components as tags in Markdown, devpage's and your own.
-- (puzzle) [Extensions](extensions/README.md) — Local Rust packages adding watched knowledge, rendering and full document views.
-- (braces) [Code reference](code-reference/README.md) — A page for every module, type and function of the code, read with tree-sitter.
-- (workflow) [Diagrams](diagrams/README.md) — Mermaid fences drawn as SVG, with nodes that are links.
-- (frame) [Designs](designs/README.md) — A UI as a `.design` file: a canvas to click through, an embed in any page, a PNG for the agent.
+- (pen-line) [Writing a document](write/writing-a-document/README.md) — The four kinds, the document file and the served folder.
+- (layout-grid) [Making a site](write/making-a-site/README.md) — Root page, sidebar, navbar, logo, theme switch and 404 page.
+- (list-tree) [Organizing navigation](write/organizing-navigation/README.md) — How Topics sections build a site's sidebar.
+- (braces) [Code reference](write/code-reference/README.md) — A page for every module, type and function of the code, read with tree-sitter.
+- (file-text) [Writing a doc](write/writing-a-doc/README.md) — Chapters, the outline, and the PDF's paper, header and footer.
+- (presentation) [Making slides](write/making-slides/README.md) — One file per slide on a 16:9 stage.
 
 </Cards>
 
-### Read
+### On the page
+
+What a page holds beyond Markdown, and how it looks.
 
 <Cards>
 
-- (list-tree) [Organizing navigation](organizing-navigation/README.md) — How Topics sections build a site's sidebar.
-- (palette) [Themes](themes/README.md) — The light and dark tokens behind the page, its code and its diagrams.
-- (refresh-cw) [Live updates](live-updates/README.md) — From a saved file to a swapped page.
-- (search) [Search](search/README.md) — Every section of what the site publishes, ranked and grouped by page, in the sidebar as you type.
+- (puzzle) [Widgets](on-the-page/widgets/README.md) — React components as tags in Markdown, devpage's and your own.
+- (workflow) [Diagrams](on-the-page/diagrams/README.md) — Mermaid fences drawn as SVG, with nodes that are links.
+- (frame) [Designs](on-the-page/designs/README.md) — A UI as a `.design` file: a canvas to click through, an embed in any page, a PNG for the agent.
+- (palette) [Themes](on-the-page/themes/README.md) — The light and dark tokens behind the page, its code and its diagrams.
 
 </Cards>
 
 ### Share
 
+How a document reaches other people.
+
 <Cards>
 
-- (message-square) [Comments](comments/README.md) — Threads on text or a paragraph, kept as files git never sees.
-- (printer) [Printing to PDF](pdf/README.md) — `devpage pdf` has Chrome print a doc or a deck as it shows.
-- (video) [Making a video](making-a-video/README.md) — `devpage video` records a deck, each slide's notes read aloud by GPT-Live.
-- (server) [Deploying devpage](deploying/README.md) — For a team, behind the auth proxy you already run.
-- (cloud-upload) [Server mode](server/README.md) — `devpage server`: publish a document, keep every version, share one link.
+- (message-square) [Comments](share/comments/README.md) — Threads on text or a paragraph, kept as files git never sees.
+- (printer) [Printing to PDF](share/pdf/README.md) — `devpage pdf` has Chrome print a doc or a deck as it shows.
+- (video) [Making a video](share/making-a-video/README.md) — `devpage video` records a deck, each slide's notes read aloud by GPT-Live.
+- (server) [Deploying devpage](share/deploying/README.md) — For a team, behind the auth proxy you already run.
+- (cloud-upload) [Server mode](share/server/README.md) — `devpage server`: publish a document, keep every version, share one link.
 
 </Cards>
 
 ### Check
 
+What `devpage check` holds a document to.
+
 <Cards>
 
-- (link) [Checking links](checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
+- (link) [Checking links](check/checking-links/README.md) — Every link, image and diagram target, and every diagram, in the preview and in `devpage check`.
+- (network) [Structuring a site](check/structuring-a-site/README.md) — Page types a site defines, and which may sit under which, checked.
+- (list-checks) [Checking requirements](check/checking-requirements/README.md) — Constraints as pages, the tests that point at them, and their JUnit results.
+
+</Cards>
+
+### Beyond pages
+
+Devpage extended, and talked to.
+
+<Cards>
+
+- (puzzle) [Extensions](extensions/README.md) — Local Rust packages adding watched knowledge, rendering and full document views.
+- (mic) [The live session](live-session/README.md) — Talking over the pages: an orb, coding agents at work, and scratch pads on a canvas.
+
+</Cards>
+
+### Behind every page
+
+What keeps an open page current and findable.
+
+<Cards>
+
+- (refresh-cw) [Live updates](write/writing-a-document/live-updates/README.md) — From a saved file to a swapped page.
+- (search) [Search](write/making-a-site/search/README.md) — Every section of what the site publishes, ranked and grouped by page, in the sidebar as you type.
+
+</Cards>
+
+### Reference
+
+The exact contracts and the words.
+
+<Cards>
+
 - (book-open) [Configuration reference](configuration-reference/README.md) — Every field, flag and error.
 - (search-check) [Viewer glossary](glossary/README.md) — The words the viewer owns.
 
 </Cards>
+
+## Requirements
+
+<Requirements />
 
 ## Topics
 
@@ -108,71 +153,25 @@ Each card opens the page that explains it.
 - [Getting started](../../getting-started.md) — the mental model and a first
   site, doc and deck, run end to end.
 
-### Concepts and tasks
+### The parts
 
-- [Writing a document](writing-a-document/README.md) — the four kinds, the
-  document file, the served folder, links between pages and documents, and the
-  Markdown that works.
-- [Making a site](making-a-site/README.md) — a site's document file, root page,
-  sidebar, navbar, logo, theme switch and `404.md`.
-- [Organizing navigation](organizing-navigation/README.md) — how a site's
-  Topics sections build the sidebar, and how to lay out its reading order.
-- [Writing a doc](writing-a-doc/README.md) — chapters, the outline, and the
-  PDF's paper, header and footer.
-- [Making slides](making-slides/README.md) — one file per slide, the stage,
-  the keys, and printing a deck.
-- [Comments](comments/README.md) — commenting on text or a paragraph,
-  replying, resolving, and the files a thread is kept in.
-- [Checking links](checking-links/README.md) — what is checked, problems in
-  the preview, and `devpage check` in tests.
-- [Printing to PDF](pdf/README.md) — `devpage pdf`, the Chrome it drives, and
-  why the PDF matches the screen.
-- [Making a video](making-a-video/README.md) — `devpage video`, its narrator,
-  writing notes to be read aloud, how a deck is recorded, and its silence
-  rules.
-- [Deploying devpage](deploying/README.md) — the example image, the auth
-  proxy that names readers, and trying it with Docker Compose.
-- [Server mode](server/README.md) — `devpage server`: documents published as
-  zips, their versions, the CLI's contexts, the API, and storage in SQLite, a
-  bucket and a bounded cache.
-- [Diagrams](diagrams/README.md) — Mermaid diagrams: writing them, making
-  their nodes links, checking them, what errors look like, and how the server
-  draws them.
-- [Themes](themes/README.md) — the light and dark tokens that color the page,
-  its code and its diagrams, the theme switch, and per-page CSS.
-- [Widgets](widgets/README.md) — React components as tags in Markdown: using
-  them, the system widgets, and writing a project's own.
-- [Designs](designs/README.md) — writing a design as code, props and
-  instances, prototypes, embedding one in a page, and its PNG.
-- [Code reference](code-reference/README.md) — a page for every module, type
-  and function of a site's code, read with tree-sitter, live, and checked when
-  prose links to it.
-- [Extensions](extensions/README.md) — Enabling a local Rust package without assembling another executable.
+- [Write](write/README.md) — the four kinds of document, a site, a doc and a
+  deck, the sidebar a site's Topics build, and the code reference.
+- [On the page](on-the-page/README.md) — what a page holds beyond Markdown:
+  widgets, diagrams and designs, and the themes that color it.
+- [Share](share/README.md) — comments, PDF, video, deploying for a team, and
+  server mode.
+- [Check](check/README.md) — what `devpage check` holds a document to: its
+  links, its page types and its requirements.
 
-### Mechanisms
+### Beyond pages
 
-- [Serving pages](serving-pages/README.md) — from a request to a file to a
-  page: the served folder, the document a page belongs to, rendering, assets,
-  addresses and logging.
-- [Live updates](live-updates/README.md) — from a saved file to a swapped page:
-  the watcher, the event stream and the page script.
-- [Design engine](design-engine/README.md) — parsing, resolving, layout and
-  painting in one crate for two targets, and the gRPC-Web watch stream.
-- [Navigation tree](navigation-tree/README.md) — how a sidebar tree is read
-  from Topics sections, resolved, grouped and kept free of cycles.
-- [Search](search/README.md) — the full-text index of what the served
-  document publishes: what is searched and indexed, the query, how it ranks
-  and groups by page, how it stays current,
-  `/__devpage/search`, and the search box in the sidebar.
-- [The vendored pele bundle](vendored-pele/README.md) — the third-party
-  diagram renderer built into devpage: its source, version, licences and how
-  to upgrade it.
-- [The vendored React bundle](vendored-react/README.md) — the React that
-  widgets run with: its version, how it is built, its licence and how to
-  upgrade it.
-- [The vendored icons](vendored-icons/README.md) — the Lucide icons and
-  GitHub's mark devpage draws in navbars and the theme selector: versions,
-  licences and how to upgrade them.
+- [Extensions](extensions/README.md) — Enabling a local Rust package without
+  assembling another executable.
+- [The live session](live-session/README.md) — a voice session over the
+  pages: what it does and why, how to turn it on, the program `devpage setup`
+  installs and its settings; under it, how Voice, Fast and the slow agents
+  work, the scratch pad, the screens and the evals.
 
 ### Reference
 
@@ -181,21 +180,3 @@ Each card opens the page that explains it.
   errors devpage stops with.
 - [Viewer glossary](glossary/README.md) — the words the viewer owns, one
   anchor per term.
-
-### Constraints
-
-- [The served folder is the boundary](constraints/the-served-folder-is-the-boundary.md)
-  — what devpage may serve, read and link to.
-- [devpage never writes a document](constraints/devpage-never-writes-a-document.md)
-  — comments stay in `.devpage/`; a PDF or a video goes only where it was
-  asked for.
-- [A PDF is the page the browser shows](constraints/a-pdf-is-the-page.md)
-  — one renderer for screen and paper.
-- [devpage authenticates no one](constraints/devpage-authenticates-no-one.md)
-  — identity comes from the proxy in front of it.
-- [One name, one widget](constraints/one-name-one-widget.md)
-  — widgets compose by name, so no name is shadowed.
-- [A design has one renderer](constraints/a-design-has-one-renderer.md)
-  — the agent's PNG is the reader's canvas.
-- [A frame costs what it shows](constraints/a-frame-costs-what-it-shows.md)
-  — no size limit: a view costs what it shows, an edit what it changed.

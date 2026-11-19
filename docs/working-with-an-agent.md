@@ -1,8 +1,11 @@
+---
+page-type: task
+---
 # Working with an agent
 
 What to tell a coding agent so it works with devpage the way you do: it
 checks the links it wrote, looks at the designs and slides it drew, and deals
-with the comments you left. None of it needs a server running. It is a task page under the
+with the comments you left. None of it needs a server running. It sits under the
 [devpage landing page](README.md).
 
 devpage has nothing to install for an agent. It reads the same files you
@@ -38,13 +41,13 @@ The docs are served by devpage (https://devpage.ai/docs/README.md) from
 
 - **Checking links**: `devpage check` reads a document as it is shown and
   follows every link from it, external addresses too
-  ([Checking links](boxes/viewer/checking-links/README.md)).
+  ([Checking links](boxes/viewer/check/checking-links/README.md)).
 - **Exit codes and JSON**: the same three exit codes for every command, and
   one JSON shape for problems ([exit codes](boxes/viewer/configuration-reference/README.md#exit-codes)).
 - **Design PNGs**: `devpage png` draws the picture a running devpage
   answers `<path>.design.png` with
-  ([Designs](boxes/viewer/designs/README.md#looking-at-a-design-as-a-png)).
+  ([Designs](boxes/viewer/on-the-page/designs/viewing-a-design/README.md#looking-at-a-design-as-a-png)).
 - **Slide PNGs**: every slide of a deck is a PNG
-  ([Making slides](boxes/viewer/making-slides/README.md#a-slide-as-an-image)).
+  ([Making slides](boxes/viewer/write/making-slides/README.md#a-slide-as-an-image)).
 - **Comments**: one file per thread, and deleting it resolves the thread
-  ([The comment store](boxes/viewer/comments/the-comment-store/README.md)).
+  ([The comment store](boxes/viewer/share/comments/the-comment-store/README.md)).

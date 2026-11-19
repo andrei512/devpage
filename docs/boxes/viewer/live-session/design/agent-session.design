@@ -1,0 +1,160 @@
+// An agent was clicked in the side panel. The list of agents is gone: in its place, twice as wide, is that agent's
+// session. The page stays beside it, so it can still be seen and clicked. The session is one conversation, not a
+// list of tasks: what the agent was told, its work folded to one line, what it answered, and at the end the steps
+// it is taking now. At the bottom, a box to type a message to this agent. The arrow at the top left goes back to
+// the list of agents. The corner orb is the session's own, unchanged.
+<Frame name="agent-session" width={1440} height={864} fill={theme.background} clip>
+  <Frame x={0} y={0} width={1440} height={48} layout="row" align="center" justify="space-between" padding={[0, 20]} fill={theme.background}>
+    <Text size={15} weight={700} color={theme.text}>Project</Text>
+    <Frame layout="row" align="center" gap={18}>
+      <Text size={13} weight={600} color={theme.text}>Docs</Text>
+      <Text size={13} weight={500} color={theme.muted}>Guides</Text>
+      <Rect width={1} height={22} fill={theme.border} />
+      <Frame height={30} radius={6} layout="row" align="center" justify="center" gap={5} padding={[0, 7]} fill={theme.pressed}>
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2} d="M9 6h12M9 12h12M9 18h12M3.5 6h1M3.5 12h1M3.5 18h1" />
+        <Frame layout="row" align="center" justify="center" height={16} padding={[0, 5]} radius={8} fill={theme.user}><Text size={10} weight={700} color="#ffffff">2</Text></Frame>
+      </Frame>
+      <Frame width={30} height={30} radius={6} layout="row" align="center" justify="center">
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      </Frame>
+      <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.muted} strokeWidth={2} d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+    </Frame>
+  </Frame>
+  <Rect x={0} y={48} width={1440} height={1} fill={theme.border} />
+  <Frame x={0} y={49} width={240} height={815} fill={theme.surface} layout="column" padding={[24, 14, 0, 20]} gap={0}>
+    <Frame width={206} height={28} radius={7} fill={theme.background} stroke={theme.border} layout="row" align="center" padding={[0, 10]}>
+      <Text size={12} color={theme.muted}>Search</Text>
+    </Frame>
+    <Frame height={16} />
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Overview</Text>
+      </Frame>
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Getting started</Text>
+      </Frame>
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Concepts</Text>
+      </Frame>
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Guides</Text>
+      </Frame>
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Reference</Text>
+      </Frame>
+      <Frame width={206} height={24} radius={5} layout="row" align="center" padding={[0, 7]}>
+        <Text size={12} weight={500} color={theme.text}>Changelog</Text>
+      </Frame>
+  </Frame>
+  <Rect x={240} y={49} width={1} height={815} fill={theme.border} />
+
+  <Frame x={264} y={76} layout="column" width={580}>
+    <Text size={30} weight={700} color={theme.text}>Getting started</Text>
+    <Frame height={10} />
+    <Text size={14} color={theme.text} width={580} lineHeight={1.55}>How to run the project on your machine, and where to look first.</Text>
+    <Frame height={28} />
+    <Text size={22} weight={700} color={theme.text}>Run it</Text>
+    <Frame height={10} />
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>Install the dependencies.</Text>
+    </Frame>
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>Copy the example settings and fill in your own values.</Text>
+    </Frame>
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>Start the server and open the address it prints.</Text>
+    </Frame>
+    <Frame height={28} />
+    <Text size={22} weight={700} color={theme.text}>Signing in</Text>
+    <Frame height={10} />
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>The first account you make is the owner.</Text>
+    </Frame>
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>A forgotten password is reset from the sign-in page, by email.</Text>
+    </Frame>
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>The form works on a phone.</Text>
+    </Frame>
+    <Frame height={28} />
+    <Text size={22} weight={700} color={theme.text}>Where things are</Text>
+    <Frame height={10} />
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>Pages are in one folder, one file per page.</Text>
+    </Frame>
+    <Frame layout="row" gap={10} padding={[3, 6]}>
+      <Text size={14} color={theme.text} lineHeight={1.55}>•</Text>
+      <Text size={14} color={theme.text} width={540} lineHeight={1.55}>Each feature keeps its code and its tests together.</Text>
+    </Frame>
+  </Frame>
+
+  <Frame name="agent-chat" x={880} y={49} width={560} height={815} fill={theme.surface}>
+    <Frame x={0} y={0} width={560} height={64} layout="row" align="center" justify="space-between" padding={[0, 24, 0, 16]}>
+      <Frame layout="row" gap={12} align="center">
+        <Frame width={30} height={30} radius={6} layout="row" align="center" justify="center">
+          <Vector width={18} height={18} viewBox="0 0 24 24" stroke={theme.accent} strokeWidth={2.2} d="M15 5l-7 7 7 7" />
+        </Frame>
+        <Frame width={30} height={30}>
+          <Ellipse x={0} y={0} width={30} height={30} fill="#e6923c1f" stroke="#e6923c" strokeWidth={1.5} />
+          <Ellipse x={6} y={9} width={17} height={14} fill="linear-gradient(135deg, #e6923c 0%, #e64c8a 100%)" opacity={0.95} />
+        </Frame>
+        <Text size={17} weight={700} color={theme.text}>Sign-in page</Text>
+      </Frame>
+      <Frame layout="row" gap={7} align="center">
+        <Vector width={14} height={14} viewBox="0 0 24 24" stroke={theme.user} strokeWidth={2.5} d="M12 3a9 9 0 1 0 9 9" />
+        <Text size={12} color={theme.muted}>Working</Text>
+      </Frame>
+    </Frame>
+    <Rect x={0} y={64} width={560} height={1} fill={theme.border} />
+    <Frame x={24} y={84} width={512} layout="column">
+    <Frame layout="row" width={512} justify="end">
+      <Frame layout="column" padding={[9, 13]} radius={14} fill={theme.pressed}>
+        <Text size={14} color={theme.text} width={380} lineHeight={1.45}>People who forget their password are stuck. Add a link on the sign-in page that lets them reset it.</Text>
+      </Frame>
+    </Frame>
+    <Frame height={10} />
+    <Text size={13} color={theme.accent} lineHeight={1.5}>›  9 steps, 3 files changed</Text>
+    <Frame height={6} />
+    <Text size={14} color={theme.text} width={512} lineHeight={1.5}>The sign-in page now has a reset link under the password field. It sends an email with a link that works for one hour.</Text>
+    <Frame height={22} />
+    <Frame layout="row" width={512} justify="end">
+      <Frame layout="column" padding={[9, 13]} radius={14} fill={theme.pressed}>
+        <Text size={14} color={theme.text} width={380} lineHeight={1.45}>The error under the form only says that something went wrong. Say what is wrong.</Text>
+      </Frame>
+    </Frame>
+    <Frame height={10} />
+    <Text size={13} color={theme.accent} lineHeight={1.5}>›  14 steps, 2 files changed</Text>
+    <Frame height={6} />
+    <Text size={14} color={theme.text} width={512} lineHeight={1.5}>The form now says which field is wrong and why. I did not change the wording of the email errors.</Text>
+    <Frame height={22} />
+    <Frame layout="row" width={512} justify="end">
+      <Frame layout="column" padding={[9, 13]} radius={14} fill={theme.pressed}>
+        <Text size={14} color={theme.text} width={380} lineHeight={1.45}>On a phone the button is off the screen. Make the form fit.</Text>
+      </Frame>
+    </Frame>
+    <Frame height={10} />
+    <Frame layout="column" width={512} padding={[8, 12]} radius={8} fill={theme.background} stroke={theme.border}>
+        <Text size={12} color={theme.muted} lineHeight={1.7}>Read  src/sign-in/form.tsx</Text>
+        <Text size={12} color={theme.muted} lineHeight={1.7}>Read  src/sign-in/form.css</Text>
+        <Text size={12} color={theme.muted} lineHeight={1.7}>Changed  form.css</Text>
+        <Text size={12} color={theme.muted} lineHeight={1.7}>Opened the page at a phone width to look at it</Text>
+        <Text size={12} weight={600} color={theme.user} lineHeight={1.7}>Changing  form.tsx …</Text>
+    </Frame>
+    </Frame>
+    <Frame x={16} y={749} width={528} height={50} radius={12} fill={theme.background} stroke={theme.border} layout="row" align="center" justify="space-between" padding={[0, 8, 0, 16]}>
+      <Text size={14} color={theme.muted}>Message this agent</Text>
+      <Frame width={34} height={34} radius={17} fill={theme.accent} layout="row" align="center" justify="center">
+        <Vector width={16} height={16} viewBox="0 0 24 24" stroke={theme.onAccent} strokeWidth={2.5} d="M12 19V5M5 12l7-7 7 7" />
+      </Frame>
+    </Frame>
+  </Frame>
+  <Rect x={880} y={49} width={1} height={815} fill={theme.border} />
+  <Ellipse x={812} y={784} width={44} height={44} fill="#8a4cd61a" stroke="#8a4cd6" strokeWidth={2} />
+  <Ellipse x={822} y={797} width={24} height={19} fill="linear-gradient(135deg, #e64c3c 0%, #8a4cd6 50%, #2f8fe6 100%)" opacity={0.9} />
+</Frame>

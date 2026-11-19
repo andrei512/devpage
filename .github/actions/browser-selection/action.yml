@@ -1,0 +1,53 @@
+name: Select affected checks
+description: Resolve the workflow’s comparison range and report the required checks.
+inputs:
+  workflow:
+    description: Filename of the workflow whose successful pushes are the baseline
+    required: true
+  full:
+    description: Request a full run regardless of the diff
+    default: 'false'
+outputs:
+  matrix:
+    description: Active operating systems and toolchain requirements
+    value: ${{ steps.select.outputs.matrix }}
+  linux:
+    description: Whether to run checks on Linux
+    value: ${{ steps.select.outputs.linux }}
+  windows:
+    description: Whether to run checks on Windows
+    value: ${{ steps.select.outputs.windows }}
+  live:
+    description: Whether Linux needs Bun
+    value: ${{ steps.select.outputs.live }}
+  install:
+    description: Whether to verify a clean Cargo install
+    value: ${{ steps.select.outputs.install }}
+  browser:
+    description: Whether Windows runs Rust browser tests
+    value: ${{ steps.select.outputs.browser }}
+  inventory:
+    description: Whether to compare the compiled and registered browser test inventories
+    value: ${{ steps.select.outputs.inventory }}
+  smoke:
+    description: Whether the deploy-server PDF smoke was selected
+    value: ${{ steps.select.outputs.smoke }}
+runs:
+  using: composite
+  steps:
+    - name: Set up the pinned Node runtime
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+    - name: Install pinned selector dependencies
+      shell: bash
+      run: npm ci --no-audit --no-fund
+    - name: Explain the selected checks
+      id: select
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        BROWSER_WORKFLOW: ${{ inputs.workflow }}
+        BROWSER_FORCE_FULL: ${{ inputs.full }}
+      run: node tools/browser-tests/ci.mjs

@@ -13,4 +13,4 @@ title: devpage features
 chapters: [kinds.md, designs.md, markdown.md, widgets.md]
 ```
 
-Teaches it: [Writing a document](../boxes/viewer/writing-a-document/README.md).
+Teaches it: [Writing a document](../boxes/viewer/write/writing-a-document/README.md).

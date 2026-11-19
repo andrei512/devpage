@@ -1,0 +1,344 @@
+{
+  "name": "devpage",
+  "targets": {
+    "browser-canvas": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-canvas",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/canvas.rs",
+        "designRenderer",
+        "printRenderer",
+        "{workspaceRoot}/docs/designs/checkout/**/*",
+        "{workspaceRoot}/docs/devpage.yml",
+        "{workspaceRoot}/docs/boxes/viewer/on-the-page/designs/writing-a-design/README.md"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::canvas::"
+        ]
+      }
+    },
+    "browser-comments": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-comments",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/comments.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::comments::"
+        ]
+      }
+    },
+    "browser-page-script": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-page-script",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/page_script.rs",
+        "widgetTestSupport",
+        "deckFixtures",
+        "designRenderer",
+        "{workspaceRoot}/tests/fixtures/sync-design/**/*"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::page_script::"
+        ]
+      }
+    },
+    "browser-pdf": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-pdf",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/pdf.rs",
+        "widgetTestSupport",
+        "deckFixtures",
+        "designRenderer",
+        "printRenderer",
+        "{workspaceRoot}/tests/fixtures/sync-design/**/*"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::pdf::"
+        ]
+      }
+    },
+    "browser-places": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-places",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/places.rs",
+        "widgetTestSupport"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::places::"
+        ]
+      }
+    },
+    "browser-server-mode": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-server-mode",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode.rs",
+        "serverRuntime",
+        "designRenderer"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::server_mode::"
+        ]
+      }
+    },
+    "browser-server-mode-comments": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-server-mode-comments",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode_comments.rs",
+        "serverRuntime"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::server_mode_comments::"
+        ]
+      }
+    },
+    "browser-server-mode-pages": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-server-mode-pages",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/server_mode_pages.rs",
+        "serverRuntime",
+        "printRenderer",
+        "designRenderer"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::server_mode_pages::"
+        ]
+      }
+    },
+    "browser-sidebar": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-sidebar",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/sidebar.rs",
+        "widgetTestSupport",
+        "{workspaceRoot}/core/assets/widgets/DevpageSidebar.tsx",
+        "{workspaceRoot}/core/src/page/sidebar.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::sidebar::",
+          "page_script::a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_its_sidebar_only",
+          "page_script::widgets_mount_on_load_and_after_a_live_update",
+          "page_script::every_system_widget_renders",
+          "page_script::on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text",
+          "server_mode::a_published_document_asks_only_under_its_mount",
+          "server_mode_pages::the_banner_and_the_version_bar_cover_nothing"
+        ]
+      }
+    },
+    "browser-slide-png": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-slide-png",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/slide_png.rs",
+        "slideRenderer",
+        "designRenderer",
+        "{workspaceRoot}/src/drive/png.rs"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::slide_png::"
+        ]
+      }
+    },
+    "browser-video": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-video",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/video.rs",
+        "slideRenderer",
+        "designRenderer",
+        "{workspaceRoot}/assets/video.js",
+        "{workspaceRoot}/src/drive/video.rs",
+        "{workspaceRoot}/src/drive/video/**/*",
+        "{workspaceRoot}/tests/fixtures/narrated-talk/**/*"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::video::"
+        ]
+      }
+    },
+    "browser-world": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-world",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "browserHarness",
+        "{workspaceRoot}/src/drive/browser_tests/world.rs",
+        "widgetTestSupport",
+        "{workspaceRoot}/live/*.ts",
+        "{workspaceRoot}/live/package.json",
+        "{workspaceRoot}/live/bun.lock",
+        "{workspaceRoot}/live/extension.yml",
+        "{workspaceRoot}/examples/world/**/*",
+        "{workspaceRoot}/tests/fixtures/world-service/**/*",
+        "{workspaceRoot}/src/drive/http/live.rs",
+        "{workspaceRoot}/src/adapters/live.rs",
+        "{workspaceRoot}/build.rs",
+        "!{workspaceRoot}/live/*.test.*",
+        "!{workspaceRoot}/live/eval.ts",
+        "!{workspaceRoot}/live/smoke.ts"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "browser_tests::world::"
+        ]
+      }
+    },
+    "browser-chrome-adapter": {
+      "command": "node tools/browser-tests/run.mjs --suite browser-chrome-adapter",
+      "cache": false,
+      "inputs": [
+        "chromeRuntime"
+      ],
+      "metadata": {
+        "browserFilters": [
+          "adapters::chrome::tests::"
+        ]
+      }
+    },
+    "deploy-server-pdf": {
+      "executor": "nx:noop",
+      "cache": false,
+      "inputs": [
+        "viewerRuntime",
+        "printRenderer",
+        "designRenderer",
+        "serverRuntime",
+        "{workspaceRoot}/deploy/server/**/*",
+        "{workspaceRoot}/.dockerignore",
+        "{workspaceRoot}/.github/workflows/deploy-server.yml",
+        "{workspaceRoot}/build.rs"
+      ],
+      "metadata": {
+        "deploySmoke": true
+      }
+    },
+    "browser-none": {
+      "executor": "nx:noop",
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/*.md",
+        "{workspaceRoot}/docs/**/*.md",
+        "{workspaceRoot}/dist-workspace.toml",
+        "{workspaceRoot}/LICENSE",
+        "{workspaceRoot}/live/*.test.*",
+        "{workspaceRoot}/live/eval.ts",
+        "{workspaceRoot}/live/smoke.ts",
+        "{workspaceRoot}/live/evals/**/*",
+        "{workspaceRoot}/bench/**/*",
+        "{workspaceRoot}/tests/exit_codes.rs",
+        "{workspaceRoot}/tests/search_quality.rs",
+        "{workspaceRoot}/tests/server_threads.rs",
+        "{workspaceRoot}/tests/deploy_restore.rs",
+        "{workspaceRoot}/tests/fixtures/search-docs/**/*",
+        "{workspaceRoot}/src/adapters/terminal.rs",
+        "{workspaceRoot}/src/drive/client/**/*",
+        "{workspaceRoot}/.claude/**/*",
+        "{workspaceRoot}/install.sh",
+        "{workspaceRoot}/install.ps1",
+        "{workspaceRoot}/deploy/bundled/**/*",
+        "{workspaceRoot}/.github/workflows/bench.yml",
+        "{workspaceRoot}/.github/workflows/deploy-example.yml",
+        "{workspaceRoot}/.github/workflows/release.yml",
+        "{workspaceRoot}/tools/checks/*.test.mjs",
+        "{workspaceRoot}/tools/browser-tests/*.test.mjs",
+        "{workspaceRoot}/tools/browser-tests/replay.mjs"
+      ],
+      "metadata": {
+        "noBrowser": true
+      }
+    },
+    "check": {
+      "command": "node tools/checks/run.mjs",
+      "cache": false
+    },
+    "build-changed": {
+      "command": "node tools/checks/run.mjs --build-only",
+      "cache": false
+    },
+    "live-test": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/live/**/*",
+        "{workspaceRoot}/examples/world/**/*",
+        "{workspaceRoot}/tests/fixtures/world-service/**/*"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun test",
+        "cwd": "live"
+      }
+    },
+    "live-typecheck": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/live/**/*"
+      ],
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "bun run tsc --noEmit",
+        "cwd": "live"
+      }
+    },
+    "docs-check": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/docs/**/*",
+        "{workspaceRoot}/src/**/*",
+        "{workspaceRoot}/core/**/*",
+        "{workspaceRoot}/design/**/*",
+        "{workspaceRoot}/Cargo.toml",
+        "{workspaceRoot}/Cargo.lock",
+        "{workspaceRoot}/assets/**/*",
+        "{workspaceRoot}/rust-toolchain.toml"
+      ],
+      "command": "cargo run --locked -- check docs --docs"
+    },
+    "requirements-map": {
+      "cache": false,
+      "inputs": [
+        "{workspaceRoot}/docs/devpage.yml",
+        "{workspaceRoot}/docs/**/*.md",
+        "{workspaceRoot}/**/*.rs"
+      ],
+      "command": "cargo run --locked -- check docs --requirements-map"
+    }
+  }
+}

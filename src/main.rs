@@ -80,6 +80,12 @@ enum Command {
         /// Answer in JSON: `{"problems": [{"file", "line", "message"}]}`.
         #[arg(long)]
         json: bool,
+        /// Check the docs only: leave a site's requirements and its tests out.
+        #[arg(long)]
+        docs: bool,
+        /// Check the mapping between requirements and tests without executing suites.
+        #[arg(long, conflicts_with = "docs")]
+        requirements_map: bool,
         #[command(flatten)]
         root: drive::client::Root,
     },
@@ -121,11 +127,18 @@ enum Command {
     /// Serve published documents for a team, every version kept.
     ///
     /// Configured only by `DEVPAGE_*` variables, every one listed at
-    /// https://devpage.ai/docs/boxes/viewer/server/reference/README.md#environment
+    /// https://devpage.ai/docs/boxes/viewer/share/server/reference/README.md#environment
     Server,
     /// The commands that talk to a devpage server.
     #[command(flatten)]
     Remote(drive::client::Command),
+    /// Install the live session: its program, and the bun that runs it.
+    ///
+    /// Unpacks the program this devpage carries into ~/.devpage/live/program,
+    /// downloads devpage's own bun into ~/.devpage/live/bun and installs the
+    /// program's packages with it. Run again after updating devpage; when
+    /// everything is installed already it changes nothing.
+    Setup,
     /// Record a deck to mp4, each slide's notes read aloud by GPT-Live.
     ///
     /// Needs `DEVPAGE_OPENAI_API_KEY`, or `DEVPAGE_AZURE_OPENAI_ENDPOINT` and
@@ -147,7 +160,7 @@ impl Command {
         match self {
             Command::Check { json, .. } | Command::Png { json, .. } => *json,
             Command::Remote(command) => command.json(),
-            Command::Pdf { .. } | Command::Server | Command::Video { .. } => false,
+            Command::Pdf { .. } | Command::Server | Command::Setup | Command::Video { .. } => false,
         }
     }
 }
@@ -182,6 +195,56 @@ async fn main() -> ExitCode {
     }
 }
 
+/// Runs each test suite of a site's requirements, in the document file's
+/// folder, and answers what its JUnit report shows is wrong: each failed
+/// test, or a command that printed no report. What a command writes to
+/// standard error is shown as it comes.
+fn tested(document: &devpage_core::document::Document) -> Vec<devpage_core::problem::Problem> {
+    use devpage_core::requirements;
+    let Some(configured) = &document.requirements else {
+        return Vec::new();
+    };
+    let mut problems = Vec::new();
+    let mut cases = Vec::new();
+    for suite in &configured.suites {
+        let mut command = if cfg!(windows) {
+            let mut command = std::process::Command::new("cmd");
+            command.arg("/C");
+            command
+        } else {
+            let mut command = std::process::Command::new("sh");
+            command.arg("-c");
+            command
+        };
+        let output = command
+            .arg(&suite.run)
+            .current_dir(&document.base)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::inherit())
+            .output();
+        let (printed, exit) = match &output {
+            Ok(output) => (
+                String::from_utf8_lossy(&output.stdout).into_owned(),
+                output.status.code(),
+            ),
+            Err(_) => (String::new(), None),
+        };
+        problems.extend(requirements::run_problems(document, suite, &printed, exit));
+        cases.extend(requirements::junit(&printed));
+    }
+    // Kept for the `Requirements` widget, which shows each constraint as
+    // met or not by this run.
+    let checked = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    if let Err(error) =
+        requirements::save(document, &requirements::results(document, &cases, checked))
+    {
+        eprintln!("The run's results were not kept: {error:#}");
+    }
+    problems
+}
+
 /// The problems found, printed one a line or as JSON, and the code to exit
 /// with.
 fn reported(problems: &[devpage_core::problem::Problem], json: bool) -> ExitCode {
@@ -207,18 +270,32 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
     use adapters::{changes, external, git, terminal};
     use devpage_core::document::{Document, download_name};
     use devpage_core::folder::Folder;
-    use devpage_core::{check, comments, designs, diagrams};
+    use devpage_core::{check, comments, designs, diagrams, requirements};
     use drive::{http, pdf, png, video};
     diagrams::start();
-    if let Some(Command::Check { path, json, root }) = &cli.command {
-        let document = Document::load(
+    if let Some(Command::Check {
+        path,
+        json,
+        docs,
+        requirements_map,
+        root,
+    }) = &cli.command
+    {
+        let document = Arc::new(Document::load(
             path.as_deref().unwrap_or(std::path::Path::new(".")),
             &root.served()?,
-        )?;
+        )?);
+        if *requirements_map {
+            return Ok(reported(&requirements::problems(&document), *json));
+        }
         let designs = designs::Designs::new(&document.served);
-        let folder = Folder::new(Arc::new(document));
+        let folder = Folder::new(document.clone());
         let update = (!json).then(updates);
-        let problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
+        let mut problems = check::document(&folder, &designs, Some(&external::checker(None))).await;
+        if !docs {
+            problems.extend(requirements::problems(&document));
+            problems.extend(tested(&document));
+        }
         let code = reported(&problems, *json);
         if let Some(update) = update {
             told(update).await;
@@ -301,10 +378,38 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
             print!("{}", output.text);
             return Ok(ExitCode::from(output.code));
         }
+        Some(Command::Setup) => {
+            let home = drive::client::contexts::Home::from_env()?;
+            adapters::live::Installed::new(&home.0).setup().await?;
+            return Ok(ExitCode::SUCCESS);
+        }
         Some(Command::Check { .. }) | None => {}
     }
     let path = cli.path.unwrap_or_else(|| PathBuf::from("."));
-    let document = Arc::new(Document::load(&path, &cli.root.served()?)?);
+    let served = cli.root.served()?;
+    let home = drive::client::contexts::Home::from_env()?;
+    let installed = adapters::live::Installed::new(&home.0);
+    // The live session acts as whoever runs devpage, as every extension's
+    // process does: it is on only where devpage answers this machine alone,
+    // and only with the key its models need, OpenAI's or Azure's.
+    if cli.host.is_loopback() {
+        let config = home.config()?;
+        if adapters::live::has_provider() {
+            match config
+                .live_program()
+                .and_then(|program| installed.package(program.as_deref()))
+            {
+                Ok(package) => devpage_core::extensions::serve_live(&served, package),
+                Err(error) => eprintln!("No live session: {error:#}"),
+            }
+        }
+        devpage_core::extensions::serve_packages(&served, &home.0, config.extensions);
+    }
+    let document = Arc::new(Document::load(&path, &served)?);
+
+    if cli.host.is_loopback() {
+        devpage_core::extensions::serve_entry(&served, document.path());
+    }
 
     // The process-wide parts: the change bus, the link checker on the
     // network reporting to the terminal, and who writes a comment — the
@@ -349,6 +454,19 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         cli.host.to_string()
     };
     println!("{} → http://{shown}:{port}", document.title);
+    // An extension's process acts as whoever runs devpage, so one is started
+    // only where devpage answers this machine alone.
+    let processes = cli.host.is_loopback().then(|| {
+        adapters::processes::Processes::new(
+            format!("http://{shown}:{port}"),
+            git::user_name(document.served.path()),
+            installed.bun(),
+        )
+    });
+    let app = match &processes {
+        Some(processes) => app.with_processes(processes.clone()),
+        None => app,
+    };
     // Served on another address, devpage is deployed: no one there updates it.
     if cli.host.is_loopback() {
         let update = updates();
@@ -365,6 +483,9 @@ async fn run(mut cli: Cli) -> Result<ExitCode> {
         _ = interrupted() => {}
     }
     shots.close().await;
+    if let Some(processes) = processes {
+        processes.stop().await;
+    }
     Ok(ExitCode::SUCCESS)
 }
 

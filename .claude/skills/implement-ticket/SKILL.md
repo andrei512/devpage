@@ -36,10 +36,9 @@ test. Then write only enough code to make it pass.
 
 ## Keep the loop tight
 
-While working, run only what tells you something: one module's build, one test
-file. Save the full gates in AGENTS.md — every target's build and the whole
-suite — for the end. A ninety-second loop gets skipped; a two-second one
-doesn't.
+Use `npm run check` for the current edit and run the specific acceptance case for
+the ticket. Before handoff, run `npm run check -- --base <target-ref>` against
+the branch receiving the ticket so committed changes are covered too.
 
 ## Stay inside the ticket
 
@@ -63,13 +62,15 @@ with the operator. Keep that handoff; do not open a separate operator conversati
 ## Get it reviewed before you hand it back
 
 Run the mechanical half of `review` on yourself first: gates green, every
-acceptance criterion ticked, the constraints you touched walked. You can't judge
+acceptance criterion ticked, the constraints you touched walked — a test that
+checks a constraint carries `#[spec("<its id>")]`, and `devpage check docs`
+passes. You can't judge
 your own work — you know why every line is there — so that half is all you can
 honestly do.
 
 Then review the rest of it yourself, against the `review` skill at the task bar:
 the acceptance criteria run rather than assumed, the constraints of every box
-your diff touches, `docs/constraints/` whatever you touched, and the gates green
+your diff touches, `docs/requirements/` whatever you touched, and the gates green
 from your own run.
 
 You are the wrong person for this and it is still your job. You know why every

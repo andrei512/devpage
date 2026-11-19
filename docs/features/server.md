@@ -24,4 +24,4 @@ $ devpage comments 6f1c2a9e-…
 It runs as one container beside a bucket — S3 or Azure Blob holds every
 version, and the volume is only a cache — with your own proxy in front.
 
-Teaches it: [Server mode](../boxes/viewer/server/README.md).
+Teaches it: [Server mode](../boxes/viewer/share/server/README.md).

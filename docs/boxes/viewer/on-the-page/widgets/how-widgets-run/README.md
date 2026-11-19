@@ -1,0 +1,132 @@
+---
+page-type: mechanism
+---
+# How widgets run
+
+How a widget tag in Markdown becomes a mounted React component: the
+placeholder the server writes, how widgets are compiled and served, and how the
+page script mounts them. It sits under [Widgets](../README.md),
+for someone about to change `core/src/widgets/` or the widget code in
+`core/assets/devpage.js`.
+
+```mermaid
+flowchart LR
+  tag["Tag in Markdown"] --> placeholder["Placeholder<br/>on the server"]
+  placeholder --> fetch["Module fetched<br/>compiled by oxc"]
+  fetch --> mount["Mounted<br/>with React"]
+  click placeholder href "#on-the-server" "On the server"
+  click fetch href "#compiling" "Compiling"
+  click mount href "#in-the-browser" "In the browser"
+```
+
+## On the server
+
+In `core/src/widgets/tags.rs`, rendering a page finds the tags of known
+widgets in its Markdown — skipping fenced, indented and inline code and HTML
+comments — and turns each into
+a placeholder: a `div` for a block widget, a `span` for an inline one, so an
+inline widget never breaks its paragraph. The placeholder carries the widget's
+name (`data-widget`), its props as a JavaScript object literal (`data-props`:
+quoted values as strings, `{…}` as written, bare attributes as `true`) and its
+Markdown source (`data-widget-source`) — and, for `Example`, that source
+highlighted as Markdown by the same highlighter fenced code uses
+(`data-widget-source-html`), which reaches it as the `sourceHtml` prop. The
+`data-source` attribute is not a widget's: it names the Markdown file a page,
+chapter or slide comes from, whose comments the page asks for. Its content stays between
+the tags for comrak to render as Markdown. The page's `<head>` gets an import map
+naming React, the list of the document's widgets with the address of
+each, and a `modulepreload` for every module the page's widgets need — their
+own, those they render by name, their helpers and React
+([the load set](../../../write/writing-a-document/serving-pages/rendering-a-page/README.md#the-load-set)).
+
+## Compiling
+
+A widget or helper is compiled from TSX by `oxc` (`core/src/widgets/compile.rs`)
+when the browser asks for it, with React's automatic JSX runtime. Capitalized names a
+widget uses without declaring them are other widgets: the compiled module looks
+each up by name when it renders, and lists them in `__devpageUses`. A system
+widget composes only system widgets; a project widget composes the system
+widgets and those of the document whose widgets folder holds it. A system
+widget imports modules beside it in `core/assets/widgets/` — `./live`, shared
+by [the live session's widgets](../system-widgets/README.md#the-live-sessions-widgets)
+— as a project widget imports its helpers: each is compiled and addressed the
+same way, by its file's name.
+
+Every widget's address carries its **version**, `?v=<hash>`: a hash of its
+source, the source of every module its relative imports reach — directly or
+through other helpers — with each one's path, the widget names it can render,
+and devpage's build. That is everything its compiled module is made from, so
+the address changes exactly when the module's bytes would: an edited helper
+gives new addresses to the widgets that import it, and to no other. Each
+relative import inside a compiled module is rewritten to the imported
+module's own address — `./label` becomes
+`/__devpage/widgets/docs/widgets/label.ts?v=<its hash>` — so a widget and a
+page preloading its helper name the same address. A module asked for at its
+current version is served `immutable`, and the browser never asks for it
+again; at any other version, or none, it is served as it is now, with
+`no-cache` ([Caching](../../../write/writing-a-document/serving-pages/README.md#caching)). Every address
+comes from one function, `address` in `core/src/addresses.rs`, given the
+version the widgets compute: a system widget's from `system_hash`, a project
+module's from its `Snapshot`. A module's version
+and its compiled bytes come from one reading of the files they are made from
+(a `Snapshot`), so a save landing while a request is answered can't send the
+new bytes as `immutable` under the old version. The files a version
+is made from are read once and remembered until their change time or size
+moves, or the watcher reports them changed — or reports a file created,
+edited or removed where one of their relative imports could find it, so a
+helper created after the widget importing it was read gives that widget a
+new address. Compiled modules are remembered
+too, keyed by the file, its source, the names it can use and the addresses
+its imports are rewritten to, so a widget compiles once per change, not once
+per request. Both memories are one **module cache** (`Modules`, in
+`core/src/widgets/modules.rs`), one per served folder, held beside it by the
+server: every widget set, page and widget request the server makes reads and
+compiles through it, and it forgets a file when the watcher reports it
+(`Modules::forget`). `devpage check` reads through one of its own. A widget
+or helper that resolves outside the served folder — a symbolic link pointing
+out — is never read, as nothing outside it is
+([devpage must never serve or read a file outside the folder it was started on](../../../requirements/devpage-stays-inside-its-folder.md)). A file that doesn't compile is served as
+a module that throws the compiler's message, and so is a widget whose relative
+imports reach a helper that doesn't compile — with the helper's message — so
+the page shows why in the widget's place rather than only that its import
+failed. Which file a module address names, the document whose names it can
+render, whether it was asked for at its current version and why it can't be
+had are all decided in `core/src/widgets/request.rs`, the one place the
+extensions an import is tried with are written; the request's
+[answer](../../../glossary/README.md#answer) is a module or a module that
+throws, and the server only adds its headers.
+
+| Address | What it serves |
+| --- | --- |
+| `/__devpage/react.<hash>.js` | React and react-dom, [vendored](vendored-react/README.md), for the import map's `react`, `react/jsx-runtime` and `react-dom/client` |
+| `/__devpage/page.<hash>.js` | [The page module](../page-module/README.md), for the import map's `devpage` |
+| `/__devpage/system-widgets/<file>?v=<version>` | A system widget, `<Name>.tsx`, or a module one imports, by its file's name — compiled from `core/assets/widgets/`, built into the binary |
+| `/__devpage/widgets/<path>?v=<version>` | A project widget or helper at that path in the served folder, compiled; a path without an extension finds the `.tsx` or `.ts` |
+
+## In the browser
+
+In `core/assets/devpage.js`, the page script loads only the widgets the
+content names, nested ones included, and those each lists in `__devpageUses`
+and theirs in turn, importing them alongside React rather than after it — and
+importing again each one whose address changed, even when the widget
+rendering it by name kept its own;
+adds a widget's exported `css` to the page once; and mounts each outermost
+placeholder with React. Nested widgets become React elements their parent can
+read — a `Tabs` reads its `Tab`s' titles — and the outermost widget is wrapped
+in an error boundary that shows a failure in its place; a widget whose module
+didn't load shows the reason it didn't. Each widget gets its
+props, `children`, `source` and `html`. Mounting happens on page load and again
+whenever a changed page is swapped in, which takes the fresh page's widget
+list, so new versions are fetched; a widget whose placeholder and address are
+unchanged is kept mounted, with its state
+([Swapping a page in place](../../../write/writing-a-document/live-updates/page-script/README.md#swapping-a-page-in-place)). The page marks itself ready only once every widget has
+mounted, which is what `devpage pdf` waits for.
+
+Widget and helper files refresh open pages whatever a site's `watch` list says
+([Live updates](../../../write/writing-a-document/live-updates/README.md#the-watcher)).
+
+## Topics
+
+- [The vendored React bundle](vendored-react/README.md) — the React that
+  widgets run with: its version, how it is built, its licence and how to
+  upgrade it.

@@ -453,13 +453,13 @@ fn grammar(language: &str, query: Option<&Path>) -> Result<Grammar> {
 
 /// An absolute path as a glob pattern matches it: `/` between its parts on
 /// every platform.
-fn glob_path(path: &Path) -> String {
+pub(crate) fn glob_path(path: &Path) -> String {
     path.to_string_lossy().replace('\\', "/")
 }
 
 /// The part of an absolute pattern before its first glob character: the
 /// folder its files are under.
-fn literal_prefix(pattern: &Path) -> PathBuf {
+pub(crate) fn literal_prefix(pattern: &Path) -> PathBuf {
     let mut prefix = PathBuf::new();
     for part in pattern.components() {
         // A drive or a `\\?\` prefix is never part of the glob.
