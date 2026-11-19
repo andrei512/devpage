@@ -252,9 +252,11 @@ mod tests {
         };
         assert_eq!(program("live:\n").unwrap(), None);
         assert_eq!(program("live: {agents: {}}").unwrap(), None);
+        let absolute = std::env::temp_dir().join("live-program");
+        let quoted = serde_json::to_string(&absolute).unwrap();
         assert_eq!(
-            program("live: {program: /opt/live}").unwrap(),
-            Some(PathBuf::from("/opt/live"))
+            program(&format!("live: {{program: {quoted}}}")).unwrap(),
+            Some(absolute)
         );
         let error = program("live: {program: live}").unwrap_err().to_string();
         assert!(error.contains("not an absolute path: live"), "{error}");
