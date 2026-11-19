@@ -85,16 +85,15 @@ each suite.
 ### Select browser checks locally
 
 Install the Node version in `.node-version` and run `npm ci` at the repository
-root. Use `npm run browser-tests -- --explain` to inspect which suites your
-branch and working-tree changes affect. Run `npm run browser-tests` to execute
-them with Cargo, or add `--full` to run the entire ignored browser binary.
-Windows skips the GPU tests. A standalone review brief selects zero suites.
-The command reports broad coverage when a changed file has no classification.
+root. Run `npm run browser-tests` during an edit. The default comparison with
+`HEAD` includes staged, unstaged and untracked files. Add `-- --explain` to
+see why each suite was selected. A standalone review brief selects zero
+suites. An unclassified change requests broad coverage. Use `-- --full` to
+run the entire ignored devpage binary. Windows skips GPU tests.
 
-For the edit loop, `npm run browser-tests -- --base HEAD` selects only staged,
-unstaged and untracked changes since your last commit. The default comparison
-starts at the merge base with `origin/main`. Use
-`--base REF` to choose another base, or `--base BASE --head HEAD` to inspect
+Before a PR to main, `npm run browser-tests -- --base origin/main` includes
+committed branch changes since the merge base, plus working-tree changes.
+Use the PR’s target branch for other branches, or `--base BASE --head HEAD` for
 an explicit committed range. The latter requires BASE to be an ancestor of
 HEAD. Add `--json` for a machine-readable plan. The selector also reports
 whether CI should exercise the deploy-server PDF smoke. The local command

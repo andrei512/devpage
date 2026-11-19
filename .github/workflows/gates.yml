@@ -8,6 +8,9 @@ name: gates
 
 on:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 5 * * 1'
   push:
     # Tickets merge into a design branch without a pull request, so a push
     # there is what gates them.
@@ -17,6 +20,9 @@ permissions:
   contents: read
   actions: read
 
+env:
+  DEVPAGE_BROWSER_MODE: ${{ vars.DEVPAGE_BROWSER_MODE }}
+
 jobs:
   gates:
     # devpage runs on Linux, macOS and Windows; macOS is where it is
@@ -24,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["windows-latest"]' || '["ubuntu-latest","windows-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -43,27 +49,34 @@ jobs:
         with:
           cache-on-failure: true
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
-      - name: Compare affected browser checks
+      - if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: cargo fmt --check
+      - if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: cargo test --locked
+      - name: Select browser checks
         if: runner.os == 'Windows'
         id: browser
-        continue-on-error: true # advisory until selections are verified
         uses: ./.github/actions/browser-selection
         with:
           workflow: gates.yml
-      # On Windows, the Chrome tests too — pages, PDFs, slide PNGs, designs,
-      # videos — on the pinned Chrome, with the test build just made. All
-      # but the GPU's — each has `gpu` in its name: the runner has no GPU.
-      - name: The Chrome tests, but the GPU's
+          full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+      - name: Check selection rules
+        if: runner.os == 'Windows' && steps.browser.outputs.full == 'true'
+        run: node --test "tools/browser-tests/*.test.mjs"
+      - name: Reconcile browser test inventory
+        if: runner.os == 'Windows' && steps.browser.outputs.rust == 'true'
+        run: node tools/browser-tests/inventory.mjs
+      - name: Run browser checks
         if: runner.os == 'Windows'
-        run: cargo test --locked --bin devpage -- --ignored --skip gpu
+        run: node tools/browser-tests/execute-ci.mjs rust
       - name: The docs pass devpage check, external links too
         if: runner.os == 'Linux'
         run: cargo run --locked -- check docs
 
   install:
+    if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     container: rust:1.97-slim-bookworm
     env:

@@ -41,7 +41,7 @@ cargo test
 ```
 
 For browser coverage, use `npm ci` on the Node version in `.node-version`,
-then `npm run browser-tests -- --base HEAD` for the current edit. Before a PR,
+then `npm run browser-tests` for the current edit. Before a PR,
 compare with the target branch using `--base origin/<target>`. Add
 `--explain` to see which changes selected each suite, or `-- --full` for
 a full browser run. When adding a browser behavior or fixture, update its

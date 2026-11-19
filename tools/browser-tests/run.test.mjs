@@ -23,6 +23,7 @@ test('the committed range and local changes include both sides of renames and ev
   write('untracked', 'new');
   assert.deepEqual(changedFiles('HEAD~1', 'HEAD', cwd).files, ['new name', 'old name']);
   assert.deepEqual(changedFiles('HEAD~1', undefined, cwd).files, ['new name','old name','staged','untracked','working']);
+  assert.deepEqual(changedFiles(undefined, undefined, cwd).files, ['staged', 'untracked', 'working']);
   assert.ok(changedFiles('invalid-base', 'HEAD', cwd).fallback);
   assert.ok(changedFiles('HEAD', 'HEAD~1', cwd).fallback);
 });
