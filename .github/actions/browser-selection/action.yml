@@ -11,6 +11,9 @@ outputs:
   full:
     description: Whether broad coverage was requested
     value: ${{ steps.select.outputs.full }}
+  verify:
+    description: Whether to run selector regression checks
+    value: ${{ steps.select.outputs.verify }}
   rust:
     description: Whether any Rust browser checks were selected
     value: ${{ steps.select.outputs.rust }}

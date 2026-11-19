@@ -57,6 +57,16 @@ function escapeHtml(text) {
   return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
+// Mapping edits can select every named suite without setting the fallback flag.
+export function verifySelector(plan) {
+  const inputs = [
+    '.node-version', 'package.json', 'package-lock.json', 'nx.json', 'project.json',
+    '.github/workflows/gates.yml', '.github/workflows/deploy-server.yml',
+  ];
+  return plan.full || plan.files.some(file => inputs.includes(file) ||
+    file.startsWith('tools/browser-tests/') || file.startsWith('.github/actions/browser-selection/'));
+}
+
 async function report(env) {
   const started = performance.now();
   const payload = JSON.parse(readFileSync(env.GITHUB_EVENT_PATH, 'utf8'));
@@ -75,7 +85,7 @@ async function report(env) {
   const result = { range, plan, selectionMs: elapsed };
   writeFileSync(join(env.RUNNER_TEMP, 'devpage-browser-selection.json'), JSON.stringify(result, null, 2));
   appendFileSync(env.GITHUB_OUTPUT, Object.entries({
-    full, rust, smoke: plan.smoke, base: range.base ?? '', head: range.head ?? '',
+    full, rust, verify: verifySelector(plan), smoke: plan.smoke, base: range.base ?? '', head: range.head ?? '',
   }).map(([key, value]) => `${key}=${value}\n`).join(''));
   const detail = [
     range.reason ?? `Comparing ${range.base} to ${range.head}`,

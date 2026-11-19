@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { comparison } from './ci.mjs';
+import { comparison, verifySelector } from './ci.mjs';
 
 const before = '1'.repeat(40);
 const head = '2'.repeat(40);
@@ -69,4 +69,12 @@ test('manual and scheduled runs always request full coverage', async () => {
   for (const event of ['workflow_dispatch', 'schedule']) {
     assert.equal((await comparison(event, {}, env, 'gates.yml')).full, true);
   }
+});
+
+test('selector configuration and code edits exercise selector regressions even in a focused plan', () => {
+  for (const file of ['nx.json', 'project.json', 'tools/browser-tests/ci.mjs', '.github/actions/browser-selection/action.yml']) {
+    assert.equal(verifySelector({full:false, files:[file]}), true, file);
+  }
+  assert.equal(verifySelector({full:false, files:['core/assets/widgets/DevpageSidebar.tsx']}), false);
+  assert.equal(verifySelector({full:true, files:[]}), true);
 });

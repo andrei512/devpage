@@ -63,7 +63,7 @@ jobs:
           workflow: gates.yml
           full: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
       - name: Check selection rules
-        if: runner.os == 'Windows' && steps.browser.outputs.full == 'true'
+        if: runner.os == 'Windows' && steps.browser.outputs.verify == 'true'
         run: node --test "tools/browser-tests/*.test.mjs"
       - name: Reconcile browser test inventory
         if: runner.os == 'Windows' && steps.browser.outputs.rust == 'true'
