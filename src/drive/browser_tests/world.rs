@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use super::page_script::widget_folder;
+use super::support::widget_folder;
 use crate::adapters::chrome::testing::{self, eval, until_is};
 use crate::adapters::processes::Processes;
 use crate::drive::http;
@@ -132,7 +132,7 @@ async fn a_package_places_a_widget_and_serves_its_relative_imports() {
             ("docs/second/label.ts", "export const label = 'Second';"),
         ],
     );
-    let (_browser, page) = super::page_script::open(&dir, "/docs/README.md").await;
+    let (_browser, page) = super::support::open(&dir, "/docs/README.md").await;
     until_is(&page, "[...document.querySelectorAll('#devpage-place-panel section')].map(el => el.textContent).join(',')", "First,Second").await;
     std::fs::remove_dir_all(dir).unwrap();
 }

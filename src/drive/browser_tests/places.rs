@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use chromiumoxide::Page;
 
-use super::page_script::{rewrite, text, widget_folder};
+use super::support::{rewrite, text, widget_folder};
 use crate::adapters::chrome::testing::{self, eval, until, until_is};
 use crate::drive::http;
 use devpage_core::document::Document;

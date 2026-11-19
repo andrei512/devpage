@@ -26,8 +26,8 @@ core `devpage-core`, 154 in the engine `devpage-design`, 10 in
 `devpage-extension-api`. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
-`canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
-`server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
+`canvas`, `comments`, `pdf`, `places`, `sidebar`, `slide_png`, `video`, `world`,
+`server_mode`, `server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
 launches one Chrome for the whole run and gives each test a browser of its
 own inside it — a browser context, with its own storage, cache and
 connections — serves the test's router on loopback and waits on its pages.
@@ -558,6 +558,23 @@ In Chrome:
 - Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
 - A broken helper's message shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering; an unknown tag's error is the served HTML's, under [`widgets`](#widgets).
+
+### Sidebar navigation and search
+
+Run the dedicated group with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
+For a sidebar change, the following additional libtest filters cover its integration with
+page loading, widget mounting, narrow screens and published pages. Multiple filters
+after `--` select their union in one process.
+
+- `page_script::a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_its_sidebar_only`
+- `page_script::widgets_mount_on_load_and_after_a_live_update`
+- `page_script::every_system_widget_renders`
+- `page_script::on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text`
+- `server_mode::a_published_document_asks_only_under_its_mount`
+- `server_mode_pages::the_banner_and_the_version_bar_cover_nothing`
+
+The dedicated group checks these behaviors.
+
 - The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar's handle over its right edge, the sidebar's height: a drag setting the width and keeping it, never under 200px nor over 640px; the width drawn from the first frame after a reload, React taking the sidebar over without a change; the arrow keys moving it and a double click giving devpage's width back.
 - A page far down a long sidebar in sight from before the page script runs; a page moved to that is out of sight brought in, and one in sight leaving the sidebar where it is scrolled.

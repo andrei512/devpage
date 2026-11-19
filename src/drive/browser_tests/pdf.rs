@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::page_script::{open, text, widget_folder};
+use super::support::{open, text, widget_folder};
 use crate::drive::pdf::print;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
