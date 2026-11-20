@@ -60,6 +60,6 @@ While picking is on, the block under the pointer — a paragraph, list item, hea
 
 ## `useWorld` and `world`
 
-Where [the live session](../../../live-session/README.md) is on, a widget reads a part of [the world](../../../live-session/agents/world/extending/on-the-page/README.md#reading-a-part) with `useWorld(part)`: that part's state as the session last sent it, and the widget is drawn again when it changes. `world.call(name, input)` calls a function of the world, such as `world.call("counter.add", { by: 2 })`; what the function wrote comes back as its part's state.
+Where [the live session](../../../live-session/README.md) is on, a widget reads a part of [the world model](../../../live-session/extend/on-the-page/README.md#reading-a-part) with `useWorld(part)`: that part's state as the session last sent it, and the widget is drawn again when it changes. `world.call(name, input)` calls [a function declared for the page](../../../live-session/extend/on-the-page/README.md#changing-a-part), such as `world.call("counter.add", { by: 2 })`; what the function wrote comes back as its part's state.
 
 Both go over the connection the session's own widgets hold. Until a part's state arrives, and where no session is on, `useWorld` gives `undefined` and a call does nothing.

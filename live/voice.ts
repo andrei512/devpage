@@ -2,7 +2,7 @@
 // it says arrive as transcript fragments, and when it hands the user's words over the service gets only an event that says so, with a
 // time. This file turns the fragments into messages, pairs each hand-over with the words it is about, and gives Voice
 // the lines to say. Deciding what to do with a hand-over is Fast's part.
-import { SHARED_BRIEF } from "./brief.ts";
+import { prompt, type TextOf } from "./prompt.ts";
 import { shape } from "./log.ts";
 import type { Provider } from "./provider.ts";
 
@@ -37,6 +37,8 @@ export interface Said {
 export interface VoiceEvents {
   /** The voice model's speech: mono 16-bit PCM at 24 kHz. */
   audio: (pcm: Uint8Array) => void;
+  /** The parts that may have text for Voice. */
+  texts: () => TextOf[];
   /** A piece of what was heard or said, as it arrives: for the page. */
   heard: (who: "me" | "ai", text: string) => void;
   /** The user or Voice said something: a complete message. When it has a hand-over, Fast is to be woken for it. */
@@ -48,26 +50,6 @@ export interface VoiceEvents {
   /** Something for the session's log. */
   log: (who: "user" | "voice" | "say" | "service", kind: string, fields: { text?: string; [more: string]: unknown }) => void;
 }
-
-const VOICE_BRIEF = `${SHARED_BRIEF}
-
-You are Voice: the interface. You hear the user, and you speak to the user. You know nothing about the project, the page or the work, and you cannot see or change anything yourself. Everything the user says is answered, and everything is done, by the work you start when you generate <|SpawnThinking|>.
-
-Generate <|SpawnThinking|> every time the user stops speaking, at once, for everything the user said since the last time:
-- a question or a command;
-- a remark, an opinion, an explanation, or a description of something the user sees or of a problem;
-- a complaint, also one about you;
-- thinking aloud, half a sentence, or something the user adds to what was said before;
-- anything the user says while earlier work is still running.
-You never decide that something the user said is not worth it, is not meant for you, or needs no answer: that is not yours to judge. Do not wait for the user to finish a thought, to ask a question or to tell you to act, and do not ask what the user means.
-
-Do not generate <|SpawnThinking|> only when the user said no words: a sigh, a cough, a yawn, a laugh, a noise, or one filler word such as "um" by itself.
-
-What you say is only what you are given to say. Each line you are given, say naturally, as a person talking, and completely: every sentence of it, in its order, with its meaning unchanged. Do not shorten it, summarise it, add to it, comment on it or soften it.
-
-A line can arrive at any time, also long after the user spoke: it is news about work the user asked for earlier. Never talk over the user. When a line arrives while the user is speaking, wait until the user has stopped, and say it then.
-
-When nothing is given to you to say, say nothing: not every thing the user says gets a reply. Never answer from what you know yourself, never guess, never acknowledge with words of your own, never repeat or rephrase what the user said, and promise nothing.`;
 
 export class Voice {
   private readonly socket: WebSocket;
@@ -103,7 +85,7 @@ export class Voice {
           type: "session.start",
           session: {
             model: MODEL,
-            instructions: VOICE_BRIEF,
+            instructions: prompt("voice", events.texts()),
             // The automatic "one moment" is asked for only after this long, and every hand-over cancels it: what the user
             // hears is only what Fast gives. 800 is the most the API accepts.
             delegation: { type: "client", acknowledgement_delay_ms: 800 },

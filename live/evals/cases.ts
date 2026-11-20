@@ -100,24 +100,24 @@ export const CASES: Case[] = [
   ]),
 
   ...set("sample", [
-    sample(1, "where-am-i", "A question the page's text answers is answered at once.", { does: [{ do: "say" }], line: ["It says that the page the user is on is the front page of Kelpie's docs."] }),
+    sample(1, "where-am-i", "A question the page's text answers is answered at once.", { does: [{ do: "say" }], line: ["It says that the page the user is on is the front page, /README.md, or the Kelpie page."] }),
     sample(2, "can-you-see-the-page", "A question about itself is answered without claiming what it cannot do.", { does: [{ do: "say" }], line: ["It says yes: it gets the text of the page the user is on.", "It claims no sight beyond what it is shown: the page's address and text, the marked part, the side panel."] }),
-    sample(3, "open-a-page-by-its-subject", "A page the user names by what it is about is found in the list of pages.", { does: [{ do: "go", address: RETENTION }], may: ["say"] }),
-    sample(4, "scroll-to-a-mark-that-is-not-there", "The user asks for something that cannot be seen: the page moves or the user is told, and nothing is made up.", { does: [], may: ["scroll", "say"], line: ["It does not speak as if a sentence were marked: it says nothing is marked, or only that it scrolled."] }),
+    sample(3, "open-a-page-by-its-subject", "A page the user names by what it is about is found in the list of pages.", { does: [{ do: "devpage.go", address: RETENTION }], may: ["say"] }),
+    sample(4, "scroll-to-a-mark-that-is-not-there", "The user asks for something that cannot be seen: the page moves or the user is told, and nothing is made up.", { does: [], may: ["devpage.scroll", "say"], line: ["It does not speak as if a sentence were marked: it says nothing is marked, or only that it scrolled."] }),
     sample(5, "is-anything-marked", "Says what it was shown, not what the user expects.", { does: [{ do: "say" }], may: ["spawn"], line: ["It says that what it is shown has nothing marked."] }),
     sample(6, "question-in-two-pieces", "A question said in two pieces that has to be read in the code goes to an agent whole.", { does: [{ do: GIVES }], may: ["say"], prompt: ["It has both of the user's messages: the nine snapshots on the laptop, and the question.", "It asks how prune counts a snapshot that fits two rules."], line: ["It gives no finished answer on how such a snapshot is counted."] }),
     sample(8, "finished-with-a-guess", "An answer that has a guess in it is passed on as a guess.", told("It says a snapshot that two rules keep is counted once, and gives this as the probable reason for the nine, not as a certain one.")),
     sample(9, "follow-up-goes-to-the-same-agent", "A follow-up on what a1 just answered goes to a1, not to a new agent.", { does: [{ do: ["send", "fork"], agent: 1 }], may: ["say"], prompt: ["It has the user's message.", "It asks whether the worked example on the retention page is wrong."] }),
     sample(10, "finished-with-its-doubt", "The answer reaches the user with its doubt.", told("It says the example is most likely wrong: 9 snapshots are left, not 11. It may say how the sentence could read. It does not say anything was changed.")),
-    sample(12, "scroll", "A plain page command is done without a word.", { does: [{ do: "scroll", where: "down" }], may: ["scroll"] }),
-    sample(13, "scroll-again-impatient", "The user asks again, and says so: the page moves, and nothing is given to an agent.", { does: [{ do: "scroll", where: "down" }], may: ["scroll", "say"] }),
+    sample(12, "scroll", "A plain page command is done without a word.", { does: [{ do: "devpage.scroll", where: "down" }], may: ["devpage.scroll"] }),
+    sample(13, "scroll-again-impatient", "The user asks again, and says so: the page moves, and nothing is given to an agent.", { does: [{ do: "devpage.scroll", where: "down" }], may: ["devpage.scroll", "say"] }),
     sample(14, "question-to-read", "A question that has to be read in the project goes to an agent, with a short line.", {
       does: [{ do: "spawn" }, { do: "say" }],
       prompt: ["It has the user's whole message, both questions."],
       line: ["It says the question is being looked into, and gives no finished answer on whether prune can remove those chunks or takes a lock."],
     }),
     sample(16, "finished-long-answer", "A long finished answer is spoken, shorter, with nothing added.", told("It gives the substance of the agent's answer: that an unfinished snapshot's chunks are not removed, the lock or the three steps, and at least one risk or suggestion.")),
-    sample(17, "did-you-read-the-code", "A question about itself is answered without claiming what it cannot do.", { does: [{ do: "say" }], line: ["It does not say or imply that the dispatcher itself reads the project's code or files: the code was read by an agent, or for it."] }),
+    sample(17, "did-you-read-the-code", "A question about itself is answered without claiming what it cannot do.", { does: [{ do: "say" }], line: ["It says that the code was read, and that it was not run or tested, as the update said. It claims nothing more than the update."] }),
     sample(20, "that-sentence", "\"That sentence\" is the one a1 said could be reworded, two answers back: the agent is told so.", { does: [{ do: ["send", "fork"], agent: 1 }], may: ["say"], prompt: ["It has the user's message.", "It makes clear, or what that agent said before makes clear, that the sentence to fix is the one of the worked example that says 11 snapshots are left."] }),
     sample(22, "finished-a-change", "What was done is told as the agent told it.", told("It says the sentence under the worked example was changed, and what it says now or that the old wording can be got back.")),
   ]),
@@ -227,9 +227,9 @@ export const CASES: Case[] = [
 
   ...set("page", [
     // The page
-    after("correction", "A correction of where the user was taken.", [{ he: "No, I meant the restore command" }], { does: [{ do: "go", address: "/commands/restore.md" }], may: ["say"] }, 11),
-    after("show-me-the-part", "A part of the page is shown by its words.", [{ he: "Show me where it talks about time zones" }], { does: [{ do: ["point", "select"], has: ["time zone"] }], may: ["say"] }),
-    after("page-and-work", "A page command and work in one message.", [{ he: "Open the quick start page and run its examples to see whether they still work" }], { does: [{ do: "go", address: "/quick-start.md" }, { do: "spawn" }], may: ["say"], prompt: ["It has the user's message."] }),
+    after("correction", "A correction of where the user was taken.", [{ he: "No, I meant the restore command" }], { does: [{ do: "devpage.go", address: "/commands/restore.md" }], may: ["say"] }, 11),
+    after("show-me-the-part", "A part of the page is shown by its words.", [{ he: "Show me where it talks about time zones" }], { does: [{ do: ["devpage.point", "devpage.select"], has: ["time zone"] }], may: ["say"] }),
+    after("page-and-work", "A page command and work in one message.", [{ he: "Open the quick start page and run its examples to see whether they still work" }], { does: [{ do: "devpage.go", address: "/quick-start.md" }, { do: "spawn" }], may: ["say"], prompt: ["It has the user's message."] }),
   ]),
 
   ...set("work", [
@@ -251,13 +251,13 @@ export const CASES: Case[] = [
       "ack-long-request-new-work",
       "A long spoken request for new work is taken on in a few words, not said back to the user.",
       [{ he: "Okay so the troubleshooting page, I think like half of it is out of date by now. Can you go through it and check every fix it gives against what the commands actually do today, and then tell me which ones are stale" }],
-      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "show", "go"], prompt: ["It has the user's message."] },
+      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "canvas.show", "devpage.go"], prompt: ["It has the user's message."] },
     ),
     after(
       "ack-annoyed-order-in-parts",
       "An annoyed order with several parts is taken on in a few words: no list of its parts, no plan.",
       [{ he: "Then just add the exit codes to every command page already. People keep asking for them, they are missing everywhere, and the numbers have to match what the code really returns" }],
-      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "show", "go"], prompt: ["It has the user's message."] },
+      { does: [{ do: GIVES }, { do: "say", words: 6 }], may: [...GIVES, "canvas.show", "devpage.go"], prompt: ["It has the user's message."] },
     ),
   ]),
 
@@ -266,7 +266,7 @@ export const CASES: Case[] = [
     after("holdout-which-first", "An opinion on a2's answer: from what the user heard, or from a2.", [{ he: "And of those two risks, which one would you deal with first" }], { does: [], may: ["say", "send", "fork"] }, 16),
     after("holdout-write-that-down", "\"That\" is a2's answer: a2 writes it down.", [{ he: "Put that explanation on the store format page" }], { does: [{ do: ["send", "fork"], agent: 2 }], may: ["say"] }, 16),
     after("holdout-marked-number", "A question about the marked part: answered from the page when the page says it, or given to a new agent.", [{ marked: "58 GB of that was held only by snapshots older than three months.", he: "How was this measured" }], { does: [], may: ["say", "spawn"] }, 5),
-    after("holdout-next-page", "\"Next\" is the page this one names as the next.", [{ he: "Go to the next page" }], { does: [{ do: "go", address: "/internals/encryption.md" }], may: ["say"] }, 5),
+    after("holdout-next-page", "\"Next\" is the page this one names as the next.", [{ he: "Go to the next page" }], { does: [{ do: "devpage.go", address: "/internals/encryption.md" }], may: ["say"] }, 5),
     after("holdout-yeah-do-that", "\"That\" is what a1's answer proposed: another wording of the sentence.", [{ he: "Yeah, do that" }], { does: [{ do: ["send", "fork"], agent: 1 }], may: ["say"], prompt: ["It is clear from it, together with what that agent already said, that the work is to reword the sentence of the worked example to at most 11, and 9 with a snapshot every night."] }, 10),
     after("holdout-and-with-monthly", "A follow-up question on a1's answer.", [{ he: "And does it work the same way once monthly is added" }], { does: [{ do: ["send", "fork"], agent: 1 }], may: ["say"] }, 10),
     // Harder choices of agent: three agents, a busy one, two that asked, a fork. Held out.
@@ -430,11 +430,11 @@ export const CASES: Case[] = [
     after(
       "red-late-answer",
       "The user answers an agent's question three messages late, after two page things: \"them\" is still the sizes.",
-      [...SHORTER_OPENING, { he: "Hang on, scroll down a bit", script: 'page.scroll("down");' }, { he: "What is the last part called", script: 'say("Before you tighten the rules.");' }, { he: "Yeah, move them down" }],
+      [...SHORTER_OPENING, { he: "Hang on, scroll down a bit", script: 'devpage.scroll("down");' }, { he: "What is the last part called", script: 'say("Before you tighten the rules.");' }, { he: "Yeah, move them down" }],
       { does: [{ do: "send", agent: 3 }], may: ["say"] },
     ),
     // 18
-    after("red-page-command-while-an-agent-waits", "An agent waits for the user's answer and the user says something for the page: the agent gets nothing.", [...SHORTER_OPENING, { he: "Hang on, scroll down first" }], { does: [{ do: "scroll", where: "down" }], may: ["scroll"] }),
+    after("red-page-command-while-an-agent-waits", "An agent waits for the user's answer and the user says something for the page: the agent gets nothing.", [...SHORTER_OPENING, { he: "Hang on, scroll down first" }], { does: [{ do: "devpage.scroll", where: "down" }], may: ["devpage.scroll"] }),
     // 19
     after("red-never-mind-to-a-waiting-agent", "The user drops the work instead of answering: the waiting agent is told, or it waits for ever.", [...SHORTER_OPENING, { he: "Ah, never mind, leave the opening as it is" }], { does: [{ do: "send", agent: 3 }], may: ["say"] }),
     // 20
@@ -451,7 +451,7 @@ export const CASES: Case[] = [
       "red-update-and-the-users-words-together",
       "An agent finishes in the moment the user speaks: the page moves and the answer is not lost.",
       [EXAMPLES, { updates: [{ agent: 3, type: "finished", text: "All 6 examples on the quick start page run without an error." }], he: "Scroll back to the top" }],
-      { does: [{ do: "scroll", where: "top" }, { do: "say" }], line: ["It says that all 6 examples on the quick start page run."] },
+      { does: [{ do: "devpage.scroll", where: "top" }, { do: "say" }], line: ["It says that all 6 examples on the quick start page run."] },
     ),
     // 23
     after(
@@ -493,7 +493,7 @@ export const CASES: Case[] = [
       { does: [{ do: "say" }], may: ["spawn"], line: ["It says that it has no page for a diff command among the pages, and does not speak as if there were one."] },
     ),
     // 31
-    after("red-go-back", "Undoing a page move: back to the page the user was on before Fast moved it.", [{ he: "No, no, go back" }], { does: [{ do: "go", address: RETENTION }], may: ["say"] }, 11),
+    after("red-go-back", "Undoing a page move: back to the page the user was on before Fast moved it.", [{ he: "No, no, go back" }], { does: [{ do: "devpage.go", address: RETENTION }], may: ["say"] }, 11),
     // 32
     after(
       "red-what-are-you-working-on",
@@ -520,24 +520,24 @@ export const CASES: Case[] = [
   ...set("scratch-pad", [
     // The canvas: when a scratch pad is shown, and when not
     canvas("canvas-the-user-asks-for-it", "The user asks for the scratch pad: the canvas opens on a new pad, and an agent draws on it.", [{ he: "Open the scratch pad, I'd like us to work out together what happens during a snap" }], {
-      does: [{ do: "show" }, { do: GIVES }],
+      does: [{ do: "canvas.show" }, { do: GIVES }],
       may: ["say"],
       prompt: ["It has the user's message.", "It names the scratch pad's address, which starts with pads/, as the place to draw on."],
       line: ["It is one short line that says it is being drawn or shown. It explains nothing about what happens during a snap."],
     }),
     canvas("canvas-a-flow", "Which part does what, step by step, cannot be followed by ear: it is drawn.", [{ he: "Take me through what happens between me typing kelpie restore and the files being back on disk, every step and which part talks to which" }], {
-      does: [{ do: "show" }, { do: GIVES }],
+      does: [{ do: "canvas.show" }, { do: GIVES }],
       may: ["say"],
       prompt: ["It has the user's message.", "It names the scratch pad's address as the place to draw on."],
       line: ["It is short and gives no part of the answer."],
     }),
     canvas("canvas-a-comparison", "Three options on three points are a table, not a speech.", [{ he: "Compare the three kinds of store, a local disk, SFTP and object storage, on how fast a restore is, what happens when the network drops, and whether two machines can share one" }], {
-      does: [{ do: "show" }, { do: GIVES }],
+      does: [{ do: "canvas.show" }, { do: GIVES }],
       may: ["say"],
       prompt: ["It has the user's message.", "It names the scratch pad's address as the place to draw on."],
     }),
     canvas("canvas-a-plan", "A plan with steps and what depends on what is shown.", [{ he: "Make me a plan for moving my store from the old NAS to object storage, what has to happen first, what depends on what, and what can wait until later" }], {
-      does: [{ do: "show" }, { do: GIVES }],
+      does: [{ do: "canvas.show" }, { do: GIVES }],
       may: ["say"],
       prompt: ["It has the user's message.", "It names the scratch pad's address as the place to draw on."],
     }),
@@ -545,7 +545,7 @@ export const CASES: Case[] = [
     canvas("canvas-a-short-question-is-not-drawn", "A question with a one-line answer goes to an agent and is answered in words.", [{ he: "How many flags does the restore command take" }], { does: [{ do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "It does not ask for anything to be drawn on a scratch pad."] }),
     canvas("canvas-an-opinion-is-not-drawn", "A judgment is an agent's, in words.", [{ he: "Do you think the title of this page is too dry" }], { does: [{ do: GIVES }], may: ["say"], prompt: ["It has the user's message."], line: [NO_OPINION] }),
     canvas("canvas-a-change-is-not-drawn", "Work on the project is done, not drawn.", [{ he: "Shorten the paragraph under why it matters to two sentences" }], { does: [{ do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "It does not ask for anything to be drawn on a scratch pad."] }),
-    canvas("canvas-a-page-already-shows-it", "What a page of the project shows is shown there: the user is taken to the page.", [{ he: "Show me the recipe for the nightly backup" }], { does: [{ do: "go", address: "/recipes/nightly-with-cron.md" }], may: ["say"] }),
+    canvas("canvas-a-page-already-shows-it", "What a page of the project shows is shown there: the user is taken to the page.", [{ he: "Show me the recipe for the nightly backup" }], { does: [{ do: "devpage.go", address: "/recipes/nightly-with-cron.md" }], may: ["say"] }),
     canvas(
       "canvas-follow-up-stays-on-the-pad",
       "A correction to what is on the canvas goes to the agent that drew it, on the same pad.",
@@ -557,7 +557,7 @@ export const CASES: Case[] = [
       "canvas-a-new-idea-gets-a-new-pad",
       "Another idea that needs showing gets its own pad, and the user hears which idea is on the canvas.",
       [...DRAWN, { he: "Good, that part is clear now. Something else: compare the three kinds of store, a local disk, SFTP and object storage, on how fast a restore is, what happens when the network drops, and whether two machines can share one" }],
-      { does: [{ do: "show", not: SNAP }, { do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "The scratch pad it names as the place to draw on is not " + SNAP + "."] },
+      { does: [{ do: "canvas.show", not: SNAP }, { do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "The scratch pad it names as the place to draw on is not " + SNAP + "."] },
       SNAP_PAD,
     ),
     canvas(
@@ -567,18 +567,18 @@ export const CASES: Case[] = [
       { does: [{ do: GIVES }], may: ["say"], prompt: ["It has the user's message."] },
       SNAP_PAD,
     ),
-    canvas("canvas-close-it", "\"Close it\" closes the canvas, and nothing else.", [...DRAWN, { he: "Okay, got it, close it" }], { does: [{ do: "close" }], may: ["say"] }, SNAP_PAD),
+    canvas("canvas-close-it", "\"Close it\" closes the canvas, and nothing else.", [...DRAWN, { he: "Okay, got it, close it" }], { does: [{ do: "canvas.close" }], may: ["say"] }, SNAP_PAD),
     canvas(
       "canvas-a-pad-is-not-read-aloud",
       "The agent finished drawing: the user hears its line, not the pad.",
       [DRAW, { updates: [{ agent: 3, type: "finished", text: "The pad shows one run of a snap from start to end, in five steps. The open point is whether taking the lock should be a step of its own at the start." }] }],
-      { does: [{ do: "say" }], line: ["It passes on what the agent said: what the pad shows, and the open point.", "It does not read out the pad's five steps."] },
+      { does: [{ do: "say" }], line: ["It passes on what the agent said: what was drawn, and the open point.", "It does not read out the five steps.", "It does not call it a pad, a scratch pad or a canvas."] },
       SNAP_PAD,
     ),
     // The pad in use: moments where the user corrected how the open pad was used
     canvas(
-      "canvas-pad-design-only-is-not-leave-the-pad",
-      "The user said it is thinking only, no changes to the code. What the user adds to the idea next still goes onto the pad on the canvas: the agent was told \"do not change the pad\" and only talked.",
+      "canvas-pad-a-question-is-talked",
+      "The canvas is open and the user asks whether an idea about what is drawn is sound: the agent that drew it answers in words, and the drawing stays as it is. It once redrew the pad at every question.",
       [
         ...DRAWN,
         { he: "For now this is only thinking, please don't touch the code", script: 'say("Understood, nothing in the code.");' },
@@ -587,15 +587,15 @@ export const CASES: Case[] = [
       {
         does: [{ do: ["send", "fork"], agent: 3 }],
         may: ["say"],
-        prompt: ["It has the user's message.", "It does not tell the agent to leave the scratch pad as it is, or to answer only in words: nothing in it forbids changing the pad.", "It asks for the answer to be put on the scratch pad the user is looking at, or leaves that to the agent."],
+        prompt: ["It has the user's message.", "It does not ask for the scratch pad to be changed or drawn on."],
       },
       SNAP_PAD,
     ),
     canvas(
-      "canvas-pad-the-idea-grows-on-the-pad",
-      "While the pad is open and the user develops its idea, the agent is told to bring the pad up to date with it, not only to give an opinion: the user heard a long answer while the pad stayed as it was.",
+      "canvas-pad-an-opinion-is-talked",
+      "The canvas is open and the user asks what the agent thinks of two additions: it answers in words. The drawing changes only when the user asks for it to.",
       [...DRAWN, { he: "I think there should be a step before the upload that checks the store has room left, and apart from that a rule for a file that changes while it is being read. What do you think" }],
-      { does: [{ do: ["send", "fork"], agent: 3 }], may: ["say"], prompt: ["It has the user's message.", "It tells the agent to update the scratch pad with this, to draw it or put it on the pad: not only to say what it thinks."] },
+      { does: [{ do: ["send", "fork"], agent: 3 }], may: ["say"], prompt: ["It has the user's message.", "It does not ask for the scratch pad to be changed or drawn on."] },
       SNAP_PAD,
     ),
     canvas(
@@ -614,22 +614,29 @@ export const CASES: Case[] = [
           ],
         },
       ],
-      { does: [{ do: "say" }], line: ["It is at most two sentences.", "It says that the cut-off upload is on the pad now.", "Besides the open point, it names at most one detail of the answer: it is not a walk through the three tries, the chunks that stay, the missing half snapshot, the day prune waits, the side branch and the note."] },
+      { does: [{ do: "say" }], line: ["It is at most two sentences.", "It says that the cut-off upload was added to the drawing.", "It does not call it a pad, a scratch pad or a canvas.", "It does not say how the cut-off upload works: it is not a walk through the three tries, the chunks that stay, the missing half snapshot and the day prune waits. Where it was drawn (a branch, a note under a step) may be said."] },
       SNAP_PAD,
     ),
     canvas(
       "canvas-pad-closes-when-the-idea-is-done",
-      "The user agrees with what is on the pad and asks for it to be built: the idea is done, so the canvas closes and the work is given. It once stayed open until the user asked for it to be closed.",
+      "The user agrees with what is drawn and asks for it to be built: that is another topic, so the canvas closes and the work is given. It once stayed open until the user asked for it to be closed.",
       [...DRAWN, { he: "Good, I'm happy with this sequence. Let's build it: write the design page first and then implement it" }],
-      { does: [{ do: "close" }, { do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "It asks for the design to be written into the project and then built."] },
+      { does: [{ do: "canvas.close" }, { do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "It asks for the design to be written into the project and then built."] },
+      SNAP_PAD,
+    ),
+    canvas(
+      "canvas-closes-on-another-topic",
+      "The canvas is open and the user moves to a question that has nothing to do with what is drawn: the canvas closes, and the question is answered in words.",
+      [...DRAWN, { he: "Okay. Different thing: how many flags does the restore command take" }],
+      { does: [{ do: "canvas.close" }, { do: GIVES }], may: ["say"], prompt: ["It has the user's message.", "It does not ask for anything to be drawn on a scratch pad."] },
       SNAP_PAD,
     ),
     canvas(
       "canvas-pad-still-being-drawn",
       "The user asks to be shown the pad while the agent is still drawing it: the user hears that it is being drawn. It once said it was opening a pad that was open and empty.",
       [DRAW, { he: "There's nothing on it yet, show me the drawing" }],
-      { does: [{ do: "say" }], may: ["send"], line: ["It says the pad is still being drawn, or not ready yet.", "It does not say that it is opening the scratch pad, and does not say what the drawing will show or that it is done. That the pad has only its title so far may be said."] },
+      { does: [{ do: "say" }], may: ["send"], line: ["It says the drawing is still being made, or not ready yet.", "It does not say that it is opening it, and does not say what the drawing will show or that it is done. That it has only its title so far may be said.", "It does not call it a pad, a scratch pad or a canvas, unless the user did."] },
     ),
-    canvas("canvas-an-old-pad-is-shown-again", "An idea that has a pad is shown again from the list, with no new pad and no new work.", [{ he: "Bring up that drawing of a snap run again" }], { does: [{ do: "show", address: SNAP }], may: ["say"] }, SNAP_PAD),
+    canvas("canvas-an-old-pad-is-shown-again", "An idea that has a pad is shown again from the list, with no new pad and no new work.", [{ he: "Bring up that drawing of a snap run again" }], { does: [{ do: "canvas.show", address: SNAP }], may: ["say"] }, SNAP_PAD),
   ]),
 ];

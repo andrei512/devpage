@@ -9,10 +9,10 @@
 // Two things are kept apart. A task is the live session's: the work the user asked for, with its updates. A turn is the
 // harness's: one message in, and what the agent did until it stopped. The harness keeps it, and it is read from there: nothing of a session is kept here. Today a task is
 // done in one turn, and nothing in a session points at a task.
-import { Registry, type Registering } from "./registry.ts";
+import { Registry, type PartFunction } from "./registry.ts";
 import { SessionStore } from "./store.ts";
 import { z } from "zod";
-import { SHARED_BRIEF } from "./brief.ts";
+import { assemble, type TextOf } from "./prompt.ts";
 import type { Harness, HarnessTool, Item, Turn, TurnEnd } from "./harness.ts";
 import type { Part } from "./tasks.ts";
 
@@ -59,12 +59,12 @@ function shown(message: string) {
 export interface AgentHooks {
   atomic?: (write: () => void) => void;
   worldTools?: (agent: number | null) => HarnessTool[];
+  /** The parts that may have text for a slow agent. */
+  texts?: () => TextOf[];
   /** An agent published an update on a task. */
   published: (update: Published) => void;
   /** Whether a task is this agent's and still running. */
   holds: (agent: number, task: number) => boolean;
-  /** Saves a comment on the part that was marked when the task was given. Throws when there was none. */
-  comment: (task: number, text: string) => Promise<void>;
   /** The session's log, for an agent that is asked who said what. */
   readLog: (filter: any) => unknown;
   /** Whether a task was given to this agent, running or over. */
@@ -117,46 +117,11 @@ export interface On {
 /** The harness of the agents from before there were several. */
 const FIRST = "claude-code";
 
-/** What every slow agent is told about its role. `pads` is the folder the scratch pads are in. */
-const brief = (pads: string, fullFilesystemAccess: boolean) => `${SHARED_BRIEF}
-
-You are one of the slow agents: you do the work. Fast gives you a piece of work as a message "Task <number>", with what the user said and, when it matters, the page the user was on and the part of it the user had marked: words such as "this" and "here" mean that part. A page's address is its file's path from the project root. Several agents work in this project at the same time: change only what your task needs.
-
-Decide from the user's words what the task is. A question: find the answer, in the code, the files or another source, and change nothing. A command to change, write, fix, research or build something: do it, without asking the user to confirm. When the user was only thinking aloud or asked what you think, change nothing and give your opinion.
-
-Nobody reads your replies. Only the \`update\` tool reaches the user, through Fast, which decides what the user hears. Publish on the task you were given:
-- your first update names the task: set \`title\` to three to six words. Publish it at once, as a \`progress\` update that says what you are starting, before you do anything else;
-- you have a name too, shown beside your tasks: two to four words for what you work on, wider than one task ("Sign-in page", not "Fix the reset link"). Set \`name\` with your very first update. Set it again only when a later task has changed what you work on;
-- \`progress\`, only when there is something worth knowing while the user waits;
-- \`question\`, only when you truly cannot go on without the user: exactly one question, then end your turn. The user's answer arrives as a new task: do the work then, and finish both tasks;
-- \`finished\`, once: the answer, or what you changed and where. Its \`changes\` are the places the user should look at: for each, the file's path from the project root, or a scratch pad's address, and a short quote, a few words copied exactly from the new text as a reader sees it, not from its markup;
-- \`failed\`, once: what went wrong.
-Every task ends with \`finished\` or \`failed\`, and then you end your turn.
-
-An update is spoken to the user as it is written. So write it to be heard: one to four plain sentences, in the first person, the answer or the result first, then what you did not verify, then what the user has to decide. No Markdown, no lists, no file paths read out unless the user needs them, no praise, no account of how you worked. Never ask a question back when the user wanted an answer: say what you assumed.
-
-How to use the scratch pad. A scratch pad is a page that is not in the project: a Markdown file in the session's own folder, shown to the user on a canvas over their page while you two work out an idea. When a task names a scratch pad, or the page the user is on is one, the answer is drawn there: write that file, and nothing in the project unless the user asks for it. A pad's address is \`pads/\` and its file's name, and its file is in \`${pads}\`: the pad \`pads/how-it-works.md\` is the file \`${pads}/how-it-works.md\`. ${fullFilesystemAccess ? "This session allows reading and writing outside the project when the task requires it." : "Limit file reads and writes to the project and its scratch pads."} The user looks at a pad while talking, so make it something to look at and point at, not prose and not a document: a Mermaid diagram for parts and how they connect, a table for options compared on several points, a numbered list for a plan, exact names, numbers and wording where they matter. Keep it high level and small enough to take in at a glance: as a rule one picture, three or four short lines, at most one small table, and the two or three things the user has to decide. No sections of explanation, no reasons, no build steps, no list of limits: those you say, or the user asks for.
-
-A pad is drawn in the open, part by part, and never in one save. The user watches the canvas from the moment the task is given: an empty canvas, and then a whole pad appearing at once, is the failure to avoid, even when the pad is small and you already know all of it. The order is fixed, for every new pad:
-1. Your first update.
-2. At once, your first save, before you read a file, search or think the idea through: \`# \` and the idea's title, and under it one placeholder for each part you plan, in the order they will stand. Nothing else. You do not need to know the content yet, only its shape: a picture, a few lines, a table, the things to decide.
-3. Then the work: read what you need, and put the real part in the place of each placeholder, one at a time from the top, with one save for each part. Never two parts in one save.
-4. A finished pad has no placeholder left. Then your \`finished\` update.
-The plan may change while you work: add, drop or change a placeholder. A follow-up changes the pad that is there and keeps what the user did not ask to change; a part that is new or drawn again gets its placeholder first, and only a small correction is saved directly.
-
-A placeholder is the \`Soon\` widget, alone on its line with an empty line above and below, and it is the only way to show on a pad that something is coming: never the word "Soon", an empty heading or a line of text in its place. It has no text: its shape says what is coming, and it moves while the user waits. A pad is drawn as any page is, so the site's widgets and diagrams work, and the canvas shows every save. The kinds: \`<Soon kind="flow" />\` for a diagram, \`<Soon kind="cards" count={2} />\` for options side by side, \`<Soon kind="list" />\`, \`<Soon kind="table" columns={3} />\`, \`<Soon kind="picture" />\` for a design or an image, and \`<Soon kind="text" />\`. Give each about the size of what will take its place, so the pad does not jump: \`height\` is \`"s"\`, \`"m"\`, \`"l"\`, \`"xl"\` or a number of pixels, and \`width\` is \`"quarter"\`, \`"third"\`, \`"half"\`, \`"two-thirds"\` or \`"three-quarters"\`, full when left out.
-
-While a pad is open, every answer about its idea goes onto the pad first: when the user adds something, corrects you or asks what you think of a change, bring the pad up to date with it, and never answer at length while the pad stays as it was. "Design only" and "no changes" are about the project, not about the pad. Your update is then one or two sentences on what is on the pad and what the user should decide, never the pad read aloud, and its \`changes\` name the pad.
-
-A comment is written only when the user asks for one ("comment this", "leave a note here that..."): then call \`write_comment\`, with a short text in the user's words. Nothing else is ever saved as a comment.
-
-A question about who said something, or what exactly was said or done in this session: call \`read_log\` and answer only from its entries.`;
-
-/** Added to a task that names a scratch pad, so the order of drawing is in front of the agent when it starts, whatever its conversation holds. */
-const PAD_ORDER = `When this task has you draw a scratch pad or a new part of one, the order is not optional: right after your first update and before you read anything, save the pad as its title and one \`Soon\` widget for each part you plan, written as a tag such as \`<Soon kind="list" height="m" />\`, alone on its line. These widgets are the only way progress is shown on a pad: never the word "Soon", a heading for a part that is not drawn yet, or any other text that says something is coming. Then put the real part in the place of each, one at a time from the top, with one save for each. Never write a pad in one save.`;
-
-/** A task about a scratch pad: Fast names the pad's address, or it is the page the user is on. */
-const aboutPad = (prompt: string) => /(^|[^\w/.-])pads\/[a-z0-9][a-z0-9-]*\.md\b/.test(prompt);
+/** What every slow agent is told about its role, as its pieces. `parts` are the parts that may have text for it, and `pads` the folder the scratch pads are in. */
+export const pieces = (parts: TextOf[], pads: string, fullFilesystemAccess: boolean) => assemble("slow", parts, {
+  pads,
+  filesystem: fullFilesystemAccess ? "This session allows reading and writing outside the project when the task requires it." : "Limit file reads and writes to the project and its scratch pads.",
+});
 
 export class Agents {
   private readonly tools: (agent: number | null) => HarnessTool[];
@@ -173,7 +138,7 @@ export class Agents {
     } else {
       // A standalone harness uses the same registered functions as the service.
       const registry = new Registry(store.db);
-      registry.part("work", part => registerAgentFunctions(part, () => this));
+      void registry.part("work", { functions: agentFunctions(() => this) });
       this.tools = agent => registry.tools(agent);
     }
     const saved = store.get<Saved>("agents");
@@ -329,7 +294,7 @@ export class Agents {
       model: agent.model,
       session: agent.session ?? agent.of,
       fork: forking,
-      message: `Task ${job.task}\n${job.prompt}${aboutPad(job.prompt) ? `\n\n${PAD_ORDER}` : ""}`,
+      message: `Task ${job.task}\n${job.prompt}`,
       ...this.workspace(),
       tools: this.tools(agent.id),
     });
@@ -378,12 +343,13 @@ export class Agents {
     tell({ ended: Date.now(), state: end ?? "failed" });
   }
 
-  /** Register the work part before creating agents, so every agent has the full tool list. */
-  static registerFunctions(as: Registering, agents: () => Agents) {
-    as.set("update", {
+  /** The functions a slow agent has from the core. They are registered before any agent is created, so every agent has the full tool list. */
+  static functions(agents: () => Agents): Record<string, PartFunction> {
+    return {
+    update: {
       for: "slow",
       tool: { name: "update", always: true, reads: ({ type, text }) => ({ kind: type === "question" ? "question" : "agent_message", line: String(text ?? ""), ...(type === "failed" ? { state: "failed" as const } : {}) }) },
-      description: "Publishes an update on a task: it is what the user hears, through Fast. Every task ends with one `finished` or one `failed`.",
+      description: "Publishes an update on a task: it is what the user is told. Every task ends with one `finished` or one `failed`.",
       input: {
         task: z.number().describe("The task's number"),
         type: z.enum(["progress", "question", "finished", "failed"]),
@@ -392,7 +358,7 @@ export class Agents {
         name: z.string().optional().describe("Two to four words naming you by what you work on, across your tasks: with your very first update, and again only when your scope has changed"),
         changes: z.array(z.object({ page: z.string(), quote: z.string() })).optional().describe("With `finished`: the places to look at"),
       },
-    }, ({ task, type, text, title, name, changes }, { caller }) => {
+      run: ({ task, type, text, title, name, changes }, { caller }) => {
       const live = agents();
       const agent = caller.who === "slow" && caller.agent !== null ? live.agents.get(caller.agent) : null;
       if (!agent || !live.hooks.holds(agent.id, task)) throw new Error(`Task ${task} is not a running task of yours.`);
@@ -414,30 +380,21 @@ export class Agents {
       if (live.hooks.atomic) live.hooks.atomic(publish);
       else publish();
       return "Published.";
-    });
-    as.action("write_comment", {
-      for: "slow",
-      tool: { name: "write_comment", always: true },
-      description: "Saves a comment on the part that was marked when the task was given. Only when the user explicitly asked to leave a comment or a note there.",
-      input: { task: z.number().describe("The task's number"), text: z.string().describe("The note, short and in the user's words") },
-    }, async ({ task, text }, { caller }) => {
-      const live = agents();
-      if (caller.who !== "slow" || caller.agent === null || !live.hooks.owns(caller.agent, task)) throw new Error(`Task ${task} is not yours.`);
-      await live.hooks.comment(task, text);
-      return "Saved.";
-    });
-    as.get("read_log", {
+    } },
+    read_log: {
       for: "slow",
       tool: { name: "read_log" },
       description:
-        "Reads the session's log of who said and did what, exactly: the most recent entries, oldest first. Changes nothing. `who` is `user` (what the user said, as it was heard), `voice` (what was spoken aloud), `fast` (Fast's runs and scripts), `say` (what Fast gave the voice to say), `agent` (the slow agents: tasks, updates, tools), `world` (every entry of the world) or `service`.",
+        "Reads the session's log of who said and did what, exactly: the most recent entries, oldest first. Changes nothing. `who` is `user` (what the user said, as it was heard), `voice` (what was spoken aloud), `say` (what was given to be spoken), `agent` (the agents' tasks, updates and tools) or `world` (every entry of the world model).",
       input: {
         limit: z.number().optional().describe("How many entries at most; 50 when left out, 500 at most"),
         since: z.string().optional().describe("Only entries at or after this ISO time"),
-        who: z.enum(["user", "voice", "fast", "say", "agent", "world", "service"]).optional(),
+        who: z.enum(["user", "voice", "say", "agent", "world"]).optional(),
         text: z.string().optional().describe("Only entries whose text has these words in it"),
       },
-    }, filter => agents().hooks.readLog(filter));
+      run: filter => agents().hooks.readLog({ ...filter, among: ["user", "voice", "say", "agent", "world"] }),
+    },
+    };
   }
 
   private workspace() {
@@ -445,10 +402,10 @@ export class Agents {
       root: this.root,
       also: [this.pads],
       fullFilesystemAccess: this.fullFilesystemAccess,
-      brief: brief(this.pads, this.fullFilesystemAccess),
+      brief: pieces(this.hooks.texts?.() ?? [], this.pads, this.fullFilesystemAccess).map((piece) => piece.text).join(""),
     };
   }
 
 }
 
-export const registerAgentFunctions = Agents.registerFunctions;
+export const agentFunctions = Agents.functions;

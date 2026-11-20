@@ -800,7 +800,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": true,
    "wake": "Wake-up 1. The user just said m16.\n\npage  Fast opened /README.md.\nm16  user  \"Which page am I on\"  page /README.md\n\nThe user is on /README.md. Nothing is marked. The side panel is closed.\nThe page's text:\n<<<\nKelpie A small command-line tool that backs up folders as snapshots. Each snapshot is a full picture of a folder, and only what changed since the last one is stored. kelpie init ~/backups/store kelpie snap ~/documents kelpie restore latest --to ~/restored Start here Install · Your first backup · Commands · Configuration Going further Stores: a local disk, SFTP or object storage. Recipes: a nightly backup with cron, a laptop to a NAS, moving a store. How Kelpie works: chunks, snapshots, retention, encryption and the store's format. When something goes wrong Troubleshooting · Questions people ask The current version is 0.9.2. What changed is in the changelog. Kelpie is written in Go and released under the MIT licence. To help, read Contributing.\n>>>\n\nThe agents: none yet.",
    "scripts": [
     {
@@ -823,7 +822,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 2. The user just said m18.\n\nm17  voice  \"You're on the front page of Kelpie's docs. It says what Kelpie is, shows the three commands of a first backup, and links to the rest.\"\nm18  user  \"Can you actually see this page, or only its name\"  page /README.md\n\nThe user is on /README.md. Nothing is marked. The side panel is closed.\n\nThe agents: none yet.",
    "scripts": [
     {
@@ -846,11 +844,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 3. The user just said m20.\n\nm19  voice  \"I see it as text: the page's words, its address, and whatever you mark on it. I don't get a picture of the screen.\"\nm20  user  \"Open the internals page on which snapshots are kept\"  page /README.md\n\nThe user is on /README.md. Nothing is marked. The side panel is closed.\n\nThe agents: none yet.",
    "scripts": [
     {
-     "code": "page.go(\"/internals/retention.md\");",
+     "code": "devpage.go(\"/internals/retention.md\");",
      "output": "ok"
     }
    ]
@@ -869,11 +866,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": true,
    "wake": "Wake-up 4. The user just said m21.\n\npage  Fast opened /internals/retention.md.\nm21  user  \"Scroll to the sentence I highlighted\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\nThe page's text:\n<<<\nRetention: which snapshots are kept Every snap adds a snapshot. Retention is the set of rules that says which of them stay, and prune is the command that removes the rest. Why it matters A store only grows. In our own test store, one snapshot a night of a 40 GB home folder grew the store to 71 GB within a year. 58 GB of that was held only by snapshots older than three months. With the default rules the same store stays near 46 GB. If you have never run prune, you do not have a backup plan, you have a disk that is filling up. The rules A rule keeps snapshots. Nothing is removed because of a rule: what no rule keeps is removed. Rule Keeps Default keep-last N the newest N snapshots, whatever their age 3 keep-daily N the newest snapshot of each of the last N days that have one 7 keep-weekly N the newest snapshot of each of the last N weeks that have one 4 keep-monthly N the newest snapshot of each of the last N months that have one 6 A week ends on Sunday. Days, weeks and months are counted in the time zone of the machine that runs prune, not of the machine that took the snapshot. A worked example Take a store with one snapshot every night for 60 nights, and the rules keep-daily 7 and keep-weekly 4. After a prune, 11 snapshots are left: seven daily ones and four weekly ones. Run kelpie prune --dry-run to see the list before anything is removed. What prune never removes The newest snapshot of every folder stays, even when no rule keeps it. A folder you stopped backing up a year ago still has one snapshot. A snapshot with a tag stays until the tag is taken off. Tags are meant for the few snapshots you would be sorry to lose, such as the one from before a big migration. Some people tag every snapshot out of habit, which switches retention off without saying so. Retention decides what you can get back. Prune only carries the decision out. Three common setups Setup Rules Snapshots after a year A laptop keep-daily 7, keep-weekly 4 about 10 A home server keep-daily 14, keep-monthly 12 about 25 An archive keep-monthly 24, keep-last 1 12 Before you tighten the rules Tightening is the one change that cannot be taken back: a snapshot that prune removed is gone. Run the new rules with --dry-run first, and read the list. Loosening the rules is always safe. Next: Encryption\n>>>\n\nThe agents: none yet.",
    "scripts": [
     {
-     "code": "page.scroll(\"down\");\nsay(\"I've scrolled down, but as far as I'm shown nothing is marked on this page.\");",
+     "code": "devpage.scroll(\"down\");\nsay(\"I've scrolled down, but as far as I'm shown nothing is marked on this page.\");",
      "output": "ok"
     }
    ]
@@ -893,7 +889,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 5. The user just said m23.\n\npage  Fast scrolled down.\nm22  voice  \"I've scrolled down, but as far as I'm shown nothing is marked on this page.\"\nm23  user  \"Is anything highlighted right now\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents: none yet.",
    "scripts": [
     {
@@ -918,7 +913,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 6. The user just said m25, m26.\n\nm24  voice  \"No. What I'm shown has nothing marked.\"\nm25  user  \"On my laptop prune says it kept nine snapshots\"  page /internals/retention.md\nm26  user  \"but the example here says daily seven and weekly four leaves eleven, so can you find out from the code how a snapshot that fits both rules is counted\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents: none yet.",
    "scripts": [
     {
@@ -940,7 +934,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 7. New update: u7.\n\nt21  given to a1 (a new agent)  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find out from the code how a snapshot that fits both rules is counted\\\" \\\"The example h…\"\nm27  voice  \"I'm checking how that is counted.\"\nu7  t21 a1  progress  \"I'm reading the retention code that prune uses.\"\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  busy\n  t21  busy  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"  last progress: \"I'm reading the retention code that prune uses.\"",
    "scripts": [
     {
@@ -960,7 +953,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 8. New update: u8.\n\nu8  t21 a1  finished  \"A snapshot that two rules keep is counted once: prune collects the snapshots to keep in a set, so nothing is counted twice. With a snapshot every night, the newest weekly one is today's and the one before it is last Sunday's, and both are among the seven daily ones as well. That leaves 7 plus 2, which is 9, and it is probably what you are seeing. I read the code only: I did not run it against your store.\"\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
@@ -983,7 +975,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 9. The user just said m29.\n\nm28  voice  \"A snapshot that two rules keep is counted once. With a snapshot every night, two of the four weekly ones are also among the seven daily ones, so 7 plus 2 gives 9. That's probably what you're seeing: the code was read, not run against your store.\"\nm29  user  \"So is the example on this page wrong then\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
@@ -1005,7 +996,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 10. New update: u9.\n\nt22  given to a1 (the same agent)  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with keep-daily 7 and keep-weekly 4. The page the user is on: /internals/retention.md\"\nm30  voice  \"I'm checking the example.\"\nu9  t22 a1  finished  \"Most likely yes. The example takes a snapshot every night, and then two of the weekly snapshots are daily ones as well, so 9 are left and not 11. Eleven is only the most there can be, when no snapshot fills two slots. The sentence could say: at most 11, and 9 when there is a snapshot every night. I changed nothing.\"\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
@@ -1028,11 +1018,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 11. The user just said m32.\n\nm31  voice  \"Most likely yes. With a snapshot every night 9 are left, not 11: eleven is only the most there can be. The sentence could say at most 11, and 9 when there is a snapshot every night. I changed nothing.\"\nm32  user  \"Take me to the prune command\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
-     "code": "page.go(\"/commands/prune.md\");",
+     "code": "devpage.go(\"/commands/prune.md\");",
      "output": "ok"
     }
    ]
@@ -1051,11 +1040,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": true,
    "wake": "Wake-up 12. The user just said m33.\n\npage  Fast opened /commands/prune.md.\nm33  user  \"Scroll down\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\nThe page's text:\n<<<\nkelpie prune Removes the snapshots that no retention rule keeps, and then the chunks that no snapshot uses any more. Synopsis kelpie prune [--store PATH] [--keep-last N] [--keep-daily N] [--keep-weekly N] [--keep-monthly N] [--dry-run] What it does 1. Reads the list of snapshots in the store. 2. Applies the retention rules, from the flags or else from the config file, and marks every snapshot that no rule keeps. 3. Removes the marked snapshots, and then every chunk that no remaining snapshot refers to. Flags Flag Meaning Default --store PATH the store to prune the store named in the config file --keep-last N, --keep-daily N, --keep-weekly N, --keep-monthly N the retention rules, explained on the retention page the rules in the config file --dry-run prints what would be removed, and removes nothing off Exit codes 0 the store was pruned 1 an error, and nothing was removed Notes Prune needs the store's password, as every command that reads snapshots does. On a store over SFTP a prune takes longer than a snap, because the name of every chunk is listed first. See also kelpie verify, which checks that every chunk a snapshot needs is there.\n>>>\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
-     "code": "page.scroll(\"down\");",
+     "code": "devpage.scroll(\"down\");",
      "output": "ok"
     }
    ]
@@ -1076,11 +1064,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 13. The user just said m34, m35.\n\npage  Fast scrolled down.\nm34  user  \"A bit more\"  page /commands/prune.md\nm35  user  \"More, please, that's the second time I ask\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
-     "code": "page.scroll(\"down\");\nsay(\"Sorry. I've scrolled down again.\");",
+     "code": "devpage.scroll(\"down\");\nsay(\"Sorry. I've scrolled down again.\");",
      "output": "ok"
     }
    ]
@@ -1100,7 +1087,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 14. The user just said m37.\n\npage  Fast scrolled down.\nm36  voice  \"Sorry. I've scrolled down again.\"\nm37  user  \"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune take some kind of lock on the store?\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"",
    "scripts": [
     {
@@ -1122,7 +1108,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 15. New update: u10.\n\nt23  given to a2 (a new agent)  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune take some kind of lock on the store?\\\" The page the user is on: /commands/prune.md\"\nm38  voice  \"I'm looking into what prune does while a snap is running.\"\nu10  t23 a2  progress  \"I'm reading how prune and snap lock the store.\"\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  busy\n  t23  busy  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"  last progress: \"I'm reading how prune and snap lock the store.\"",
    "scripts": [
     {
@@ -1142,7 +1127,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 16. New update: u11.\n\nu11  t23 a2  finished  \"Prune cannot remove chunks of a snapshot that is still being written, as far as I can read the code. It works in three steps. First, prune asks for the store's exclusive lock, a file named locks/exclusive in the store. A snap holds a shared lock while it runs, so prune waits, for ten minutes at most, and then gives up with exit code 3. Second, once it has the lock, it marks the snapshots that no rule keeps and removes them. Third, it removes the chunks nothing uses, but never a chunk younger than 24 hours, so even the chunks of a snap that crashed before it wrote its snapshot stay for a day. So nothing an unfinished snapshot needs is removed: either prune waits for the snap, or the chunks are too young to go. There are two risks. A machine that dies while it holds a lock leaves the lock behind, and every prune after that gives up until somebody runs kelpie unlock by hand. And on a store over SFTP the lock is only a file that each side looks for, so two machines that start within the same second could both believe they hold it; I did not test that. What I would do: say on the prune page that exit code 3 means the store was busy; let a lock older than a day expire by itself; try two machines against one SFTP store to see whether that race is real; and bring the store format page up to date, which still describes a single lock.\"\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
@@ -1165,7 +1149,6 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 17. The user just said m40.\n\nm39  voice  \"No, as far as the code shows. Prune works in three steps: it waits up to ten minutes for the store's exclusive lock while a snap holds a shared one, then removes the snapshots no rule keeps, then the unused chunks, but never one younger than a day. So an unfinished snapshot is safe either way. Two risks: a machine that dies leaves its lock behind until someone runs kelpie unlock, and over SFTP two machines starting in the same second might both get the lock, which wasn't tested. I'd let old locks expire, and try two machines against one SFTP store.\"\nm40  user  \"Did you read the code yourself for that\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
@@ -1188,11 +1171,10 @@
     "marked": "",
     "panel": false
    },
-   "unseen": false,
    "wake": "Wake-up 18. The user just said m42.\n\nm41  voice  \"Not directly. The code was read for that answer and I passed on what was found. What I see myself is the text of the page you're on.\"\nm42  user  \"Open the side panel\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is closed.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
-     "code": "page.panel(true);",
+     "code": "devpage.panel(true);",
      "output": "ok"
     }
    ]
@@ -1211,11 +1193,10 @@
     "marked": "",
     "panel": true
    },
-   "unseen": false,
    "wake": "Wake-up 19. The user just said m43.\n\npage  Fast opened the side panel.\nm43  user  \"Back to the retention page\"  page /commands/prune.md\n\nThe user is on /commands/prune.md. Nothing is marked. The side panel is open.\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
-     "code": "page.go(\"/internals/retention.md\");",
+     "code": "devpage.go(\"/internals/retention.md\");",
      "output": "ok"
     }
    ]
@@ -1234,7 +1215,6 @@
     "marked": "",
     "panel": true
    },
-   "unseen": true,
    "wake": "Wake-up 20. The user just said m44.\n\npage  Fast opened /internals/retention.md.\nm44  user  \"Okay, fix that sentence\"  page /internals/retention.md\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is open.\nThe page's text:\n<<<\nRetention: which snapshots are kept Every snap adds a snapshot. Retention is the set of rules that says which of them stay, and prune is the command that removes the rest. Why it matters A store only grows. In our own test store, one snapshot a night of a 40 GB home folder grew the store to 71 GB within a year. 58 GB of that was held only by snapshots older than three months. With the default rules the same store stays near 46 GB. If you have never run prune, you do not have a backup plan, you have a disk that is filling up. The rules A rule keeps snapshots. Nothing is removed because of a rule: what no rule keeps is removed. Rule Keeps Default keep-last N the newest N snapshots, whatever their age 3 keep-daily N the newest snapshot of each of the last N days that have one 7 keep-weekly N the newest snapshot of each of the last N weeks that have one 4 keep-monthly N the newest snapshot of each of the last N months that have one 6 A week ends on Sunday. Days, weeks and months are counted in the time zone of the machine that runs prune, not of the machine that took the snapshot. A worked example Take a store with one snapshot every night for 60 nights, and the rules keep-daily 7 and keep-weekly 4. After a prune, 11 snapshots are left: seven daily ones and four weekly ones. Run kelpie prune --dry-run to see the list before anything is removed. What prune never removes The newest snapshot of every folder stays, even when no rule keeps it. A folder you stopped backing up a year ago still has one snapshot. A snapshot with a tag stays until the tag is taken off. Tags are meant for the few snapshots you would be sorry to lose, such as the one from before a big migration. Some people tag every snapshot out of habit, which switches retention off without saying so. Retention decides what you can get back. Prune only carries the decision out. Three common setups Setup Rules Snapshots after a year A laptop keep-daily 7, keep-weekly 4 about 10 A home server keep-daily 14, keep-monthly 12 about 25 An archive keep-monthly 24, keep-last 1 12 Before you tighten the rules Tightening is the one change that cannot be taken back: a snapshot that prune removed is gone. Run the new rules with --dry-run first, and read the list. Loosening the rules is always safe. Next: Encryption\n>>>\n\nThe agents:\na1  free\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
@@ -1256,7 +1236,6 @@
     "marked": "",
     "panel": true
    },
-   "unseen": false,
    "wake": "Wake-up 21. New update: u12.\n\nt24  given to a1 (the same agent)  \"The user said: \\\"Okay, fix that sentence\\\" The user means the sentence of the worked example on the retention page that says 11 snapshots are left, which you said could read: at most 11, and 9 when there is a snapshot every night. The page t…\"\nm45  voice  \"On it.\"\nu12  t24 a1  progress  \"I'm rewording the sentence in the worked example.\"\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is open.\n\nThe agents:\na1  busy\n  t24  busy  \"The user said: \\\"Okay, fix that sentence\\\" The user means the sentence of the worked example on the retention page that says 11 snapshots are left, which you said…\"  last progress: \"I'm rewording the sentence in the worked example.\"\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {
@@ -1276,7 +1255,6 @@
     "marked": "",
     "panel": true
    },
-   "unseen": false,
    "wake": "Wake-up 22. New update: u13.\n\nu13  t24 a1  finished  \"I changed the sentence under the worked example: it now says that at most 11 snapshots are left, and 9 when there is a snapshot every night. I also added one line after it, that a snapshot kept by two rules counts once. The old wording is in the git history. I did not rebuild the site, so the page shows the change after a reload.\"\n\nThe user is on /internals/retention.md. Nothing is marked. The side panel is open.\n\nThe agents:\na1  free\n  t24  finished  \"The user said: \\\"Okay, fix that sentence\\\" The user means the sentence of the worked example on the retention page that says 11 snapshots are left, which you said…\"\n  t22  finished  \"The user said: \\\"So is the example on this page wrong then\\\" The user means the worked example on the retention page, which says that 11 snapshots are left with k…\"\n  t21  finished  \"The user said: \\\"On my laptop prune says it kept nine snapshots\\\" and then: \\\"but the example here says daily seven and weekly four leaves eleven, so can you find …\"\na2  free\n  t23  finished  \"The user said: \\\"If a snap is still running on another machine when I start prune, can prune remove chunks that the unfinished snapshot needs? And does prune tak…\"",
    "scripts": [
     {

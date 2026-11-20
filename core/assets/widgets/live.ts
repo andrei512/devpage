@@ -315,7 +315,7 @@ export function useLive() {
     () => kept.live,
   );
   const work = useWorld("work");
-  const selection = useWorld("page");
+  const selection = useWorld("devpage");
   const canvas = useWorld("canvas");
   return { ...local, ...(work && { tasks: work.tasks, agents: work.agents, chats: work.chats }),
     ...(selection && { subject: selection.subject, by: selection.by }), ...(canvas && { canvas: canvas.canvas }) } as Live;
@@ -458,7 +458,7 @@ let swapped = first && performance.now() > 10_000;
 function receivedPart(name: string, state: any) {
   parts.put(name, state);
   if (name === "session") return stated(state);
-  if (name === "page") {
+  if (name === "devpage") {
     set({ subject: state.subject, by: state.subject ? state.by ?? "user" : null });
     drawSubject();
   } else if (name === "canvas") {

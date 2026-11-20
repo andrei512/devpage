@@ -3,7 +3,7 @@ import type { Database } from "bun:sqlite";
 import type { Entry } from "./registry.ts";
 import type { Entry as CoreEntry } from "./world.ts";
 
-export const coreParts = { message: "session", problem: "session", page: "page", task: "work", update: "work" } as const;
+export const coreParts = { message: "session", problem: "session", task: "work", update: "work" } as const;
 
 /** The built-in view used by the transcript, tasks and sandbox variables. */
 export function coreEntry(entry: Entry): CoreEntry | null {
@@ -60,7 +60,9 @@ export class Events {
 
   appendCore(entry: Omit<CoreEntry, "n">, number?: number) {
     const { kind, at, ...fields } = entry;
-    return this.append(coreParts[kind], kind, fields, at, number).n;
+    // A history from before the `devpage` part has that part's `page` entries among the core's.
+    const part = (kind as string) === "page" ? "devpage" : coreParts[kind as keyof typeof coreParts];
+    return this.append(part, kind, fields, at, number).n;
   }
 
   core(): CoreEntry[] {

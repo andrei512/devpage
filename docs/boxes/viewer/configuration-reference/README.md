@@ -101,7 +101,7 @@ a document's problems from a command that couldn't run:
 `devpage video` reads the first four, and never `OPENAI_API_KEY`
 ([the narrator](../share/making-a-video/README.md#the-narrator)). Serving on a
 loopback address reads the first three, which with its program
-installed turn [the live session](../live-session/README.md#when-it-is-on)
+installed turn [the live session](../live-session/use/turn-it-on/README.md#when-it-is-on)
 on, and the session reads `DEVPAGE_LIVE_MODEL`. `devpage server`
 reads its own, listed in the
 [server reference](../share/server/reference/README.md#environment), and the
@@ -209,7 +209,7 @@ Extensions belong to the document that enables them. A nested site's pages use t
 
 ### `live`
 
-Where [the live session](../live-session/README.md#when-it-is-on) is on, every
+Where [the live session](../live-session/use/turn-it-on/README.md#when-it-is-on) is on, every
 document has the system extension `live` without an entry. An entry changes
 it for that document:
 
@@ -233,7 +233,7 @@ and local settings for every project:
 | `live.program` | path | A folder holding the session's program, run in place of the installed one. Absolute, or from `~`. |
 
 Every other key under `live` belongs to
-[the session's program](../live-session/README.md#settings), and is kept when
+[the session's program](../live-session/use/settings/README.md), and is kept when
 a `devpage context` command writes the file.
 
 ### `code`

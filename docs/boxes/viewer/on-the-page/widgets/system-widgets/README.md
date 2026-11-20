@@ -230,7 +230,7 @@ project may have its own `Sidebar`.
 ## The live session's widgets
 
 `DevpageLiveOrb`, `DevpageLiveTasksButton`, `DevpageLiveTasks` and
-`DevpageLiveCanvas` are [the live session](../../../live-session/README.md#what-a-page-shows)
+`DevpageLiveCanvas` are [the live session](../../../live-session/how-it-works/README.md#what-a-page-shows)
 on a page: the orb that starts and stops it, the button and the panel of its
 tasks, and the canvas its scratch pads are shown on. They are chrome too, not
 widgets for pages: devpage [places them itself](../places/README.md#widgets-devpage-places)

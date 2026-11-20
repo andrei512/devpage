@@ -27,14 +27,6 @@ export interface Message extends Base {
   about?: number[];
 }
 
-/** Something that happened on the user's page: the user opened one, marked a part, or Fast moved it. */
-export interface PageChange extends Base {
-  kind: "page";
-  by: "me" | "fast";
-  /** What happened, as a sentence. */
-  text: string;
-}
-
 /** Work Fast gave to an agent. */
 export interface TaskGiven extends Base {
   kind: "task";
@@ -44,6 +36,7 @@ export interface TaskGiven extends Base {
   how: "spawn" | "send" | "fork";
   /** The agent it was forked from, for a fork. */
   from: number | null;
+  /** The task as it was written: by Fast, or by the user in the agent's chat. */
   prompt: string;
 }
 
@@ -63,7 +56,7 @@ export interface Problem extends Base {
   text: string;
 }
 
-export type Entry = Message | PageChange | TaskGiven | Update | Problem;
+export type Entry = Message | TaskGiven | Update | Problem;
 /** An entry before it has its number and time. */
 type Fresh<T extends Entry = Entry> = T extends Entry ? Omit<T, "n" | "at"> : never;
 
@@ -116,8 +109,6 @@ export function line(entry: Entry): string {
   switch (entry.kind) {
     case "message":
       return `m${entry.id}  ${entry.who === "me" ? "user" : `voice${entry.about?.length ? ` (${entry.about.map((agent) => `a${agent}'s`).join(" and ")} answer)` : ""}`}  ${quoted(entry.text)}${entry.who === "me" && entry.page ? `  page ${entry.page}` : ""}${entry.marked ? `  marked ${quoted(entry.marked)}` : ""}`;
-    case "page":
-      return `page  ${entry.text}`;
     case "task":
       return `t${entry.id}  given to a${entry.agent} (${entry.how === "spawn" ? "a new agent" : entry.how === "fork" ? `a new agent, forked from a${entry.from}` : "the same agent"})  ${quoted(entry.prompt.length > 240 ? `${entry.prompt.slice(0, 240)}…` : entry.prompt)}`;
     case "update":

@@ -51,7 +51,6 @@ const agents: Agents = new Agents(project, join(folder, "pads"), harnesses, rout
     if (update.type === "finished" || update.type === "failed") running.delete(update.task);
   },
   holds: (_agent, task) => running.has(task),
-  comment: async () => {},
   readLog: () => [],
   changed: () => {
     if (running.size === 0 && agents.all().every((agent) => agent.state !== "working")) done();

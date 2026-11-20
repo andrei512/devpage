@@ -19,6 +19,13 @@ watch:
   - "**/*.yml"
   - "**/*.design"
 extensions:
+  # This project's live session uses Codex alone: it replaces the harnesses in
+  # ~/.devpage/config.yml whole.
+  live:
+    config:
+      fullFilesystemAccess: true
+      harnesses:
+        codex: [gpt-6.2-sol, gpt-6.2-astra, gpt-6-luna]
   requirements:
     config:
       tests:

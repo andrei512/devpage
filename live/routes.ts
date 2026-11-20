@@ -105,7 +105,7 @@ export function told(routes: Route[], written: string | null): string {
 A new agent runs on a route: a harness and one of its models. \`spawn(task, route)\` names the route, as a string; without it the agent runs on the default route. These are all the routes there are:
 ${list}
 
-- Pick the route by the user's rules below. No rule fits: no route, which is the default.
+- Pick the route by the user's rules below, by the kind of work asked for: a rename or a small edit is small on any page. No rule fits: no route, which is the default.
 - The user names a harness or a model for a piece of work ("do this with Codex", "use the strongest one for this"): that wins over the rules, for that work. It still has to be one of the routes above.
 - The user names one that is not among the routes ("do it with Gemini"): the script is one \`say\` that it is not enabled, and nothing else. No \`spawn\`, not on another route either and not to tell an agent so: the user decides what happens with the work.
 - A route is written as it is above, whole. A name that is not one of them is an error, and nothing starts.

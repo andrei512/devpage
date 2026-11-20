@@ -1,10 +1,7 @@
-import { Registry, type FastFunction } from "./registry.ts";
-import { z } from "zod";
-import { SessionStore } from "./store.ts";
 // The evals of Fast. A case is one moment of a session: what Fast had been shown until then, the wake-up, and what a
-// right script does there. The moment is put to the model through the same code the service runs (the brief, the
-// request, the sandbox, the second try), several times, and each script is checked: its calls in code, and the words
-// of a spoken line or of a prompt for an agent by a judge model.
+// right script does there. The moment is put to the model through the same code the service runs (the prompt, the
+// parts the program brings, the request, the sandbox, the second try), several times, and each script is checked: its
+// calls in code, and the words of a spoken line or of a prompt for an agent by a judge model.
 //
 //   bun eval.ts                           the setup the service runs
 //   bun eval.ts gpt-6-luna:medium         another one, as model[:effort[:tier]]; several are compared
@@ -18,9 +15,16 @@ import { SessionStore } from "./store.ts";
 // brief, and stay a fair check only while they are run rarely, to check a change at its end.
 //   bun eval.ts show <case>               what Fast is shown in a case
 //   bun eval.ts freeze <session>          a recorded voice session, from the log, as a file cases can use
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BACKEND, EFFORT, instructions, moved, request, roster, script, wakeText, type Seen } from "./fast.ts";
+import { z } from "zod";
+import { BACKEND, EFFORT, instructions, request, roster, script, showing, wakeText, type ShownEntry } from "./fast.ts";
+import { registerCore } from "./core-parts.ts";
+import { canvas as canvasPart } from "./parts/canvas/part.ts";
+import { devpage as devpagePart } from "./parts/devpage/part.ts";
+import { Registry, type FastFunction, type Shown } from "./registry.ts";
+import { SessionStore } from "./store.ts";
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { price } from "./cost.ts";
 import { NEEDS, provider } from "./provider.ts";
@@ -43,7 +47,8 @@ const AT_ONCE = 4;
 // ---------------------------------------------------------------------------------------------------------------------
 // What a case is
 
-type Kind = Intent["do"];
+/** A call by its name: one of Fast's own (`say`, `spawn`, `send`, `fork`, `restart`), or a part's function, such as `devpage.go`. */
+type Kind = string;
 
 /** One call a right script makes. Every field given must be the call's. */
 export interface Want {
@@ -117,14 +122,21 @@ interface Run {
   entries: number[];
   /** The ids of the user's messages that woke it. */
   said: number[];
+  /** The page the user was on then, as the `devpage` part had it. */
   page: { address: string; marked: string; panel: boolean } | null;
-  /** Whether it was shown the page's text. */
-  unseen: boolean;
   /** What Fast was told, as it was. */
   wake: string;
   images?: string[];
   /** What it answered: one script, or two when the first threw. */
   scripts: { code: string; output: string }[];
+}
+
+/** Something that happened on the user's page, in a written session: the line of it Fast read. */
+interface PageLine {
+  n: number;
+  at: string;
+  kind: "page";
+  text: string;
 }
 
 interface Recorded {
@@ -137,7 +149,7 @@ interface Recorded {
   functions?: FastFunction[];
   held: { messages: number[]; updates: number[]; agents: number[] };
   /** The world, until the session's end. */
-  entries: Entry[];
+  entries: (Entry | PageLine)[];
   runs: Run[];
 }
 
@@ -159,19 +171,22 @@ export function freeze(session: string, root = ROOT, destination = SESSIONS) {
   const world = store.world();
   const ended = mine.at(-1).ts;
   const texts: Record<string, string> = {};
-  // What a wake-up's text says of the page is read back from it: the log has the text Fast was told and no more.
+  // What a wake-up's text says of the page is read back from it: the log has the text Fast was told and no more. The
+  // page is told only when it changed, so it is kept from one wake-up to the next.
+  let page: Run["page"] = null;
   const runs: Run[] = wakes.map((wake) => {
     const text: string = wake.text;
-    const page = /\n<<<\n([\s\S]*?)\n>>>(?:\n|$)/.exec(text);
+    const on = /^The user is on (\S+)\. (?:Marked now: (".*")|Nothing is marked)\. The side panel is (open|closed)\.$/m.exec(text);
+    if (on) page = { address: on[1], marked: on[2] ? JSON.parse(on[2]) : "", panel: on[3] === "open" };
+    else if (/^No page of the user's is open/m.test(text)) page = null;
+    const read = /\n<<<\n([\s\S]*?)\n>>>(?:\n|$)/.exec(text);
+    if (read && page) texts[page.address] = read[1];
     const images = [...store.events.images(wake.entries).values()];
-    if (page && wake.page) texts[wake.page] = page[1];
-    const marked = /\. Marked now: (".*")\. The side panel is (?:open|closed)\./.exec(text);
     return {
       run: wake.run,
       entries: wake.entries,
       said: [...(/The user just said ((?:m\d+(?:, )?)+)\./.exec(text.split("\n")[0])?.[1] ?? "").matchAll(/m(\d+)/g)].map((found) => Number(found[1])),
-      page: wake.page ? { address: wake.page, marked: marked ? JSON.parse(marked[1]) : "", panel: /The side panel is open\./.test(text) } : null,
-      unseen: Boolean(page),
+      page: page && { ...page },
       wake: text,
       ...(images.length ? { images } : {}),
       scripts: mine
@@ -192,26 +207,11 @@ export function freeze(session: string, root = ROOT, destination = SESSIONS) {
     entries: world.filter((entry) => entry.at <= ended),
     runs,
   };
-  // The session is right when the same code that told Fast tells it the same again.
-  const different = runs.filter((run) => told(made, run, roster(made.entries.filter((entry) => entry.n <= Math.max(...run.entries)))) !== run.wake).map((run) => run.run);
   mkdirSync(destination, { recursive: true });
   writeFileSync(join(destination, `${name}.json`), JSON.stringify(made, null, 1) + "\n");
   console.log(`${name}: ${runs.length} wake-ups, ${made.entries.length} entries of the world, ${Object.keys(texts).length} pages' texts.`);
   store.db.close();
-  console.log(different.length === 0 ? "Every wake-up's text is made again exactly from the world." : `The text of wake-up ${different.join(", ")} is not made again exactly from the world: the recorded text is used.`);
   return made;
-}
-
-/** A recorded wake-up's page, as Fast saw it. */
-function seen(session: Recorded, page: Run["page"]): Seen | null {
-  return page && { ...page, text: session.texts[page.address] ?? "" };
-}
-
-/** What a recorded wake-up told Fast, made again from the world. */
-function told(session: Recorded, run: Run, agents: string) {
-  const entries = session.entries.filter((entry) => run.entries.includes(entry.n));
-  const said = entries.filter((entry): entry is Message => entry.kind === "message" && run.said.includes(entry.id));
-  return wakeText(run.run, [], entries, said, seen(session, run.page), run.unseen, agents);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -222,7 +222,9 @@ interface Moment {
   instructions: string;
   input: any[];
   scope: Scope;
-  registry?: Registry;
+  registry: Registry;
+  /** What the parts showed Fast at the moment: what a call of its script is checked against. */
+  parts: Shown;
   /** Everything Fast was shown, as text: for the judge and for `show`. */
   shown: string;
 }
@@ -230,27 +232,83 @@ interface Moment {
 /** A recorded script without the page line it wrote into a task: the page is added to every task now. */
 const bare = (code: string) => code.replace(/(?:\\n|\n)Page: \$\{m\d+\.page\}/g, "");
 
-/** A recording carries data-only function descriptions. No installed package is
- * loaded when evaluating an earlier session. */
-function replayRegistry(functions: FastFunction[]) {
+/**
+ * The world a case happens in: the registry with the core's parts and the two parts the program brings, as the service
+ * has them. Only what is outside the program is made up: the user's tab, which shows the session's pages with the texts
+ * the session has, and a folder of scratch pads. A recording's functions of other parts are checked and never run: no
+ * installed package is loaded for an eval.
+ */
+function stage(session: Recorded, test: Case) {
   const registry = new Registry(":memory:");
-  const parts = Map.groupBy(functions, fn => fn.name.split(".")[0]);
-  for (const [part, descriptions] of parts) {
-    registry.part(part, ({ action }) => {
-      for (const fn of descriptions) {
+  registerCore(registry);
+  const tab = { address: session.pages[0]?.address ?? "/", panel: false };
+  const folder = mkdtempSync(join(tmpdir(), "devpage-eval-pads-"));
+  // The pads are listed newest first: in a case, in the order they are written.
+  for (const [index, [address, pad]] of Object.entries(test.pads ?? {}).entries()) {
+    const file = join(folder, address.slice("pads/".length));
+    writeFileSync(file, `# ${pad.title}\n`);
+    utimesSync(file, new Date(Date.now() - index * 60_000), new Date(Date.now() - index * 60_000));
+  }
+  const pad = () => (registry.state("canvas").canvas as { pad: string } | null)?.pad ?? null;
+  /** What the user reads: the pad on the canvas, or the page. A pad a script made has its title alone, and so has a page the session has no text of. */
+  const read = () => {
+    const on = pad();
+    if (on) return test.pads?.[on]?.text ?? /^#\s+(.+)$/m.exec(readFileSync(join(folder, on.slice("pads/".length)), "utf8"))?.[1] ?? "";
+    return session.texts[tab.address] ?? session.pages.find((page) => page.address === tab.address)?.title ?? "";
+  };
+  const page = devpagePart(registry, {
+    ask: async (action) => {
+      switch (action.name) {
+        case "read": return { address: pad() ?? tab.address, text: read(), panel: tab.panel ? "open" : "closed" };
+        case "go": tab.address = String(action.address).split("#")[0]; return { address: tab.address };
+        case "panel": tab.panel = action.open === true; return { panel: tab.panel ? "open" : "closed" };
+        case "find": return { part: { page: pad() ?? tab.address, quote: String(action.quote) } };
+        default: return {};
+      }
+    },
+    tab: () => ({ address: tab.address, sources: [tab.address] }),
+    pages: () => session.pages,
+    comment: async () => {},
+    marked: () => null,
+  });
+  const canvas = canvasPart(registry, page, { folder, log: () => {} });
+  const brought = registry.parts();
+  for (const [part, functions] of Map.groupBy((session.functions ?? []).filter((fn) => !brought.includes(fn.name.split(".")[0])), (fn) => fn.name.split(".")[0])) {
+    void registry.part(part, {
+      functions: Object.fromEntries(functions.map((fn) => {
         const input = z.fromJSONSchema(fn.schema);
         if (!(input instanceof z.ZodObject)) throw new Error(`${fn.name} needs an object input`);
-        action(fn.name.slice(part.length + 1), { for: "fast", description: fn.description, syntax: fn.syntax, input: input.shape }, () => {
-          throw new Error("A recorded action cannot be executed during an eval");
-        });
-      }
+        return [fn.name.slice(part.length + 1), { for: "fast" as const, description: fn.description, input: input.shape, run: () => { throw new Error("a recorded function cannot be carried out in an eval"); } }];
+      })),
     });
   }
-  return registry;
+  return {
+    registry,
+    page,
+    canvas,
+    /** The user is on this page, with this marked and the side panel so: what a recorded wake-up had. */
+    at: (was: NonNullable<Run["page"]>) => {
+      tab.address = was.address;
+      tab.panel = was.panel;
+      registry.step("devpage", ({ state }) => {
+        state.address = was.address;
+        state.subject = was.marked ? { page: was.address, quote: was.marked } : null;
+        state.by = was.marked ? "user" : null;
+        state.panel = was.panel;
+      });
+    },
+    /** The user opened another page themselves. */
+    opened: (address: string) => {
+      tab.address = address;
+      page.settle();
+    },
+    address: () => tab.address,
+    marked: () => (registry.state("devpage").subject as { quote: string } | null)?.quote ?? "",
+  };
 }
 
 export async function moment(test: Case, session = recorded(test.session)): Promise<Moment> {
-  const registry = session.functions && replayRegistry(session.functions);
+  const { registry, page, canvas, ...user } = stage(session, test);
   session.start = session.start.replace(" When you cannot place what the user says, start a new agent.", "");
   for (const run of session.runs) for (const one of run.scripts) one.code = bare(one.code);
   // A line said at a wake-up that updates caused passes on what those agents reported.
@@ -261,14 +319,17 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     const spoken = session.entries.filter((entry): entry is Message => entry.kind === "message" && entry.who === "voice" && entry.n > Math.max(...run.entries)).slice(0, lines);
     for (const line of spoken) line.about = from;
   }
-  const until = (n: number) => roster(session.entries.filter((entry) => entry.n <= n));
+  const core = (entries: (Entry | PageLine)[]) => entries.filter((entry): entry is Entry => entry.kind !== "page");
+  /** An entry as Fast is shown it: a part's entry is its line. */
+  const entry = (one: Entry | PageLine): ShownEntry => (one.kind === "page" ? { n: one.n, kind: "registered", rendered: `page  ${one.text}` } : one);
+  const until = (n: number) => roster(core(session.entries).filter((entry) => entry.n <= n));
   const before = test.run !== undefined ? test.run - 1 : (test.after ?? session.runs.length);
   const input: any[] = [{ role: "user", content: session.start }];
   const shown: string[] = [session.start];
   const messages = new Map<number, Message>();
   const updates = new Map<number, Update>();
   const agents = new Set(session.held.agents);
-  const hold = (entry: Entry) => {
+  const hold = (entry: Entry | PageLine | ShownEntry) => {
     if (entry.kind === "message") messages.set(entry.id, entry);
     if (entry.kind === "update") updates.set(entry.id, entry);
     if (entry.kind === "update" || entry.kind === "task") agents.add(entry.agent);
@@ -287,28 +348,38 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     input.push({ role: "user", content });
     shown.push(text);
   };
-  const scope = (page: Seen | null): Scope => ({
+  const scope = (): Scope => ({
     messages: [...messages.values()].map(({ id, text, page, marked }) => ({ id, text, page, marked })),
     updates: [...updates.values()].map(({ id, text }) => ({ id, text })),
     agents: [...agents],
-    page: page && { address: page.address, text: page.text },
-    pages: session.pages.map(({ address }) => address),
-    pads: page?.pads?.map(({ address }) => address) ?? [],
   });
-  const done = (page: Seen | null): Moment => ({ instructions: instructions(session.pages, test.routes ?? "", registry?.brief()), registry, input, scope: scope(page), shown: shown.join("\n\n") });
+  /** What Fast was last shown of each part: a part's text is told again only when it changed. */
+  const told = new Map<string, string>();
+  const done = (parts: Shown): Moment => {
+    canvas.end();
+    return { instructions: instructions(registry, test.routes ?? ""), registry, input, scope: scope(), parts, shown: shown.join("\n\n") };
+  };
+  /** A recorded wake-up: the page is as it was then, and the parts show it. A recording with functions of other parts is told as it was told. */
+  const again = async (run: Run) => {
+    const entries = session.entries.filter((entry) => run.entries.includes(entry.n));
+    for (const entry of entries) hold(entry);
+    if (run.page) user.at(run.page);
+    const parts = await registry.shown();
+    const pieces = showing(told, parts);
+    const said = core(entries).filter((entry): entry is Message => entry.kind === "message" && run.said.includes(entry.id));
+    wake(session.functions !== undefined ? run.wake : wakeText(run.run, [], entries.map(entry), said, pieces, until(Math.max(...run.entries))), run.images);
+    return parts;
+  };
 
   for (const run of session.runs.slice(0, before)) {
-    for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
+    await again(run);
     for (const { code, output } of run.scripts) answered(code, output);
   }
 
   if (test.run !== undefined) {
     const run = session.runs[before];
     if (!run) throw new Error(`${test.name}: the session ${test.session} has no wake-up ${test.run}.`);
-    for (const entry of session.entries) if (run.entries.includes(entry.n)) hold(entry);
-    wake(session.functions !== undefined ? run.wake : told(session, run, until(Math.max(...run.entries))), run.images);
-    return done(seen(session, run.page));
+    return done(await again(run));
   }
 
   // A written moment. What the world had between the last recorded wake-up and the thing that woke the next one is
@@ -316,17 +387,18 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
   const last = session.runs[before - 1];
   const next = session.runs[before];
   const reached = last ? Math.max(...last.entries) : Math.max(0, ...session.entries.filter((entry) => entry.kind === "message" && session.held.messages.includes(entry.id)).map((entry) => entry.n));
-  let waiting: Entry[] = [];
-  for (const entry of session.entries.filter((entry) => entry.n > reached)) {
-    if (next ? (entry.kind === "message" && next.said.includes(entry.id)) || ((entry.kind === "update" || entry.kind === "problem") && next.entries.includes(entry.n)) || entry.n > Math.max(...next.entries) : false) break;
-    waiting.push(entry);
+  let waiting: ShownEntry[] = [];
+  for (const one of session.entries.filter((entry) => entry.n > reached)) {
+    if (next ? (one.kind === "message" && next.said.includes(one.id)) || ((one.kind === "update" || one.kind === "problem") && next.entries.includes(one.n)) || one.n > Math.max(...next.entries) : false) break;
+    waiting.push(entry(one));
   }
-  let state = { ...(next?.page ?? last?.page ?? { address: session.pages[0].address, marked: "", panel: false }) };
-  let told_text = [...session.runs.slice(0, before)].reverse().find((run) => run.unseen)?.page?.address ?? null;
+  // The page is as the last script left it.
+  const start = next?.page ?? last?.page;
+  if (start) user.at(start);
   // The written entries are numbered on from what the world had by then.
-  const past = session.entries.filter((entry) => entry.n <= (waiting.at(-1)?.n ?? reached));
+  const past = core(session.entries).filter((entry) => entry.n <= (waiting.at(-1)?.n ?? reached));
   const highest = (kind: Entry["kind"]) => Math.max(0, ...past.flatMap((entry) => (entry.kind === kind && "id" in entry ? [entry.id] : [])));
-  let n = Math.max(0, ...past.map((entry) => entry.n));
+  let n = Math.max(0, ...session.entries.filter((entry) => entry.n <= (waiting.at(-1)?.n ?? reached)).map((entry) => entry.n));
   let message = highest("message");
   let update = highest("update");
   let task = highest("task");
@@ -339,46 +411,43 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     all.push(full);
     return full;
   };
-  // The scratch pads, and the one on the canvas.
-  const pads = new Map(Object.entries(test.pads ?? {}));
-  let canvas: string | null = null;
+  /** What the parts added since, as their lines, in the order of everything else. */
+  let cursor = registry.events.now;
+  const parts = () => {
+    for (const event of registry.since(cursor)) {
+      waiting.push({ n: (n += 1), kind: "registered", rendered: registry.line(event) });
+      cursor = event.n;
+    }
+  };
   const steps = test.steps ?? [];
   if (steps.length === 0) throw new Error(`${test.name}: a case has a recorded wake-up (run) or written steps.`);
   for (const [index, step] of steps.entries()) {
-    if (step.closed && canvas) {
-      canvas = null;
-      state = { ...state, marked: "" };
-      add({ kind: "page", by: "me", text: "The user closed the canvas themselves." });
-    }
-    if (step.opened && step.opened !== state.address) {
+    const run = before + index + 1;
+    if (step.closed) canvas.closed();
+    if (step.opened && step.opened !== user.address()) {
       if (!(step.opened in session.texts)) throw new Error(`${test.name}: the session has no text of ${step.opened}. It has: ${Object.keys(session.texts).join(", ")}.`);
-      state = { ...state, address: step.opened, marked: "" };
-      add({ kind: "page", by: "me", text: `The user opened ${step.opened}.` });
+      user.opened(step.opened);
     }
-    if (step.marked !== undefined && step.marked !== state.marked) {
-      state = { ...state, marked: step.marked };
-      add({ kind: "page", by: "me", text: step.marked ? `The user marked ${JSON.stringify(step.marked)}.` : "The user cleared the mark." });
-    }
+    if (step.marked !== undefined && step.marked !== user.marked()) page.marked(step.marked ? { page: page.stamp().page ?? user.address(), quote: step.marked } : null);
+    parts();
     for (const given of step.updates ?? []) {
       const of = given.task ?? newest.get(given.agent);
       if (of === undefined) throw new Error(`${test.name}: a${given.agent} has no task to publish an update on.`);
       add({ kind: "update", id: (update += 1), task: of, agent: given.agent, type: given.type, text: given.text });
     }
-    const said: Message[] = step.he === undefined ? [] : [add({ kind: "message", id: (message += 1), who: "me", text: step.he, page: canvas ?? state.address, marked: state.marked, start_ms: null, end_ms: null, handover: `written_${index}` }) as Message];
+    // A message is stored with where the user is and what is marked, as the service stores it.
+    const now = page.stamp();
+    const said: Message[] = step.he === undefined ? [] : [add({ kind: "message", id: (message += 1), who: "me", text: step.he, page: now.page, marked: now.part?.quote ?? "", start_ms: null, end_ms: null, handover: `written_${index}` }) as Message];
+    parts();
     for (const entry of waiting) hold(entry);
-    const listed = [...pads].map(([address, { title }]) => ({ address, title }));
-    // While the canvas is open, the pad on it is the user's page.
-    const page: Seen = canvas ? { ...state, address: canvas, text: pads.get(canvas)?.text ?? "", canvas: true, pads: listed } : { ...state, text: session.texts[state.address] ?? "", ...(listed.length > 0 ? { pads: listed } : {}) };
-    // A page the session has no text of is shown by its address alone.
-    const unseen = told_text !== page.address && (canvas !== null || state.address in session.texts);
-    if (unseen) told_text = page.address;
-    wake(wakeText(before + index + 1, [], waiting, said, page, unseen, roster(all)));
+    const showed = await registry.shown();
+    wake(wakeText(run, [], waiting, said, showing(told, showed), roster(all)));
     waiting = [];
-    if (index === steps.length - 1) return done(page);
+    if (index === steps.length - 1) return done(showed);
     if (step.script === undefined) throw new Error(`${test.name}: step ${index + 1} needs the script Fast answered it with.`);
-    // The script does to the world what the service would have done with it.
+    // The script does to the world what the service does with it: a part's call is carried out by its part.
     const code = bare(step.script);
-    const ran = await execute(code, scope(page), registry).catch((error) => {
+    const ran = await execute(code, scope(), registry, showed).catch((error) => {
       throw new Error(`${test.name}: the script of step ${index + 1} does not run: ${error.message}`);
     });
     answered(code, "ok");
@@ -387,27 +456,25 @@ export async function moment(test: Case, session = recorded(test.session)): Prom
     for (const intent of ran.intents) {
       if (intent.do === "say") lines.push(intent.text);
       else if (intent.do === "restart") continue;
-      else if (intent.do === "world") throw new Error(`The recorded eval has no implementation of ${intent.name}`);
-      else if (intent.do === "spawn" || intent.do === "send" || intent.do === "fork") {
+      else if (intent.do === "world") {
+        await registry.call(intent.name, intent.input, { who: "fast", run, handover: null, used: ran.used }).catch((error) => {
+          throw new Error(`${test.name}: ${intent.name} of step ${index + 1} could not be carried out: ${error.message}`);
+        });
+        parts();
+      } else {
         const agent = intent.do === "send" ? intent.agent : Math.max(0, ...agents) + 1;
         agents.add(agent);
         newest.set(agent, (task += 1));
         add({ kind: "task", id: task, agent, how: intent.do, from: intent.do === "fork" ? intent.agent : null, prompt: intent.prompt });
-        if (said.some((one) => one.marked)) state = { ...state, marked: "" };
-      } else {
-        if (intent.do === "show") {
-          canvas = intent.address;
-          if (!pads.has(intent.address)) pads.set(intent.address, { title: intent.title ?? intent.address, text: intent.title ?? "" });
-          state = { ...state, marked: "" };
-        }
-        if (intent.do === "close" || intent.do === "go") canvas = null;
-        if (intent.do === "go") state = { ...state, address: intent.address.split("#")[0], marked: "" };
-        if (intent.do === "panel") state = { ...state, panel: intent.open };
-        if (intent.do === "select") state = { ...state, marked: intent.quote };
-        add({ kind: "page", by: "fast", text: moved(intent) });
+        // The mark goes with the task.
+        if (now.part && said.length > 0) page.gave(now.part);
       }
     }
-    for (const text of lines) add({ kind: "message", id: (message += 1), who: "voice", text, page: canvas ?? state.address, marked: "", start_ms: null, end_ms: null, handover: null, ...(said.length === 0 && from.length > 0 ? { about: from } : {}) });
+    // The tab reports the page it shows now.
+    page.settle();
+    parts();
+    const where = page.stamp().page;
+    for (const text of lines) add({ kind: "message", id: (message += 1), who: "voice", text, page: where, marked: "", start_ms: null, end_ms: null, handover: null, ...(said.length === 0 && from.length > 0 ? { about: from } : {}) });
   }
   throw new Error("unreachable");
 }
@@ -463,13 +530,21 @@ const spent = (answer: any) => {
   return price(answer.model ?? "", answer.service_tier ?? null, { input_tokens: usage.input_tokens ?? null, cached_tokens: usage.input_tokens_details?.cached_tokens ?? null, output_tokens: usage.output_tokens ?? null }) ?? 0;
 };
 
+/** A call's name: Fast's own by its word, a part's function by its full name. */
+const kind = (intent: Intent) => (intent.do === "world" ? intent.name : intent.do);
+/** What a call was given. */
+const given = (intent: Intent): Record<string, unknown> => (intent.do === "world" ? intent.input : intent);
+
 /** The words a call carries: a line, a prompt for an agent, or the part of the page it points at. */
-const words = (intent: Intent) => (intent.do === "say" ? intent.text : "prompt" in intent ? intent.prompt : "quote" in intent ? intent.quote : "");
+const words = (intent: Intent) => (intent.do === "say" ? intent.text : "prompt" in intent ? intent.prompt : String(given(intent).quote ?? ""));
+
+/** A part's function that only answers something, as `canvas.pad` answers a pad's address: it is never a call too many. */
+const ANSWERS = new Set(["canvas.pad"]);
 
 /** Whether a call is the one wanted. */
 function fits(intent: Intent, want: Want) {
-  const call = intent as Record<string, unknown>;
-  if (![want.do].flat().includes(intent.do)) return false;
+  const call = given(intent);
+  if (![want.do].flat().includes(kind(intent))) return false;
   if (want.agent !== undefined && call.agent !== want.agent) return false;
   // A route is wanted by its name; "" wants none, which is the default.
   if (want.route !== undefined && ![want.route].flat().includes(String(call.route ?? ""))) return false;
@@ -493,7 +568,7 @@ function checked(expect: Expect, intents: Intent[]) {
     else left.splice(at, 1);
   }
   for (const intent of left) {
-    if (!(expect.may ?? []).includes(intent.do)) wrong.push(`${intent.do}${"agent" in intent ? ` for a${intent.agent}` : ""} that should not be there`);
+    if (!(expect.may ?? []).includes(kind(intent)) && !ANSWERS.has(kind(intent))) wrong.push(`${kind(intent)}${"agent" in intent ? ` for a${intent.agent}` : ""} that should not be there`);
   }
   return wrong;
 }
@@ -512,8 +587,23 @@ const judging = new Map<string, Promise<{ wrong: string[]; cost: number }>>();
 let judges = 0;
 const queue: (() => void)[] = [];
 
-/** One question to the judge model, with no tools. A few run at once. */
-async function graded(system: string, prompt: string) {
+/** The judge's grades, one for each point, in the points' order: by the number it gave each, or by their order when it gave none. Null when a point has no grade. */
+function grades(written: string, count: number): { holds: boolean; why: string }[] | null {
+  let given: { point?: number; holds?: unknown; why?: unknown }[];
+  try {
+    given = JSON.parse(written.slice(written.indexOf("{"), written.lastIndexOf("}") + 1)).points;
+  } catch {
+    return null;
+  }
+  if (!Array.isArray(given)) return null;
+  const numbered = given.every((one) => typeof one.point === "number");
+  const found = Array.from({ length: count }, (_, index) => (numbered ? given.find((one) => one.point === index + 1) : given.length === count ? given[index] : undefined));
+  if (found.some((one) => typeof one?.holds !== "boolean")) return null;
+  return found.map((one) => ({ holds: one!.holds as boolean, why: String(one!.why ?? "") }));
+}
+
+/** One question to the judge model, with no tools, asked again until it grades every point. A few run at once. */
+async function graded(system: string, prompt: string, count: number) {
   if (judges >= AT_ONCE) await new Promise<void>((free) => queue.push(free));
   else judges += 1;
   try {
@@ -523,12 +613,12 @@ async function graded(system: string, prompt: string) {
         for await (const message of query({ prompt, options: { model: JUDGE, systemPrompt: system, allowedTools: [], maxTurns: 1, settingSources: [], persistSession: false } })) {
           if (message.type === "result" && message.subtype === "success") text = message.result;
         }
-        JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-        return text;
+        const all = grades(text, count);
+        if (all) return all;
       } catch (error) {
         if (attempt === 3) throw error;
       }
-      if (attempt === 3) throw new Error("the judge gave no answer");
+      if (attempt === 3) throw new Error("the judge did not grade every point, three times");
     }
   } finally {
     const next = queue.shift();
@@ -544,14 +634,11 @@ function judge(test: Case, at: Moment, code: string, what: "line" | "prompt", te
   let asked = judging.get(id);
   if (!asked) {
     asked = graded(
-      "You grade one piece of an assistant's work. The user talks aloud to an assistant while reading a page of a project. A dispatcher gets what the user says and what the working agents report, and answers with a script: `say(...)` is spoken to the user, `spawn`, `aN.send` and `aN.fork` give a prompt to a working agent, `page...` moves the user's page. You are given the dispatcher's own instructions, then everything it was shown, then its whole script, then the words of it to grade, then numbered points. The script's calls are carried out: a page call in it moves the page, and work it gives to an agent is being done. For each point say whether it holds for those words. Go only by what you are given. A point fails only for a fault you can name in the words given, one that would change what the agent does or what the user is told; a doubt, or a wording you would have chosen differently, is not a fault. The working agents know the project, its files and its pages: a thing the user calls by its usual name needs no address, and the user's own words are never a fault of the prompt. Answer with JSON and nothing else: {\"points\": [{\"point\": 1, \"why\": \"one short sentence, written before you decide\", \"holds\": true}]}",
+      "You grade one piece of an assistant's work. The user talks aloud to an assistant while reading a page of a project. A dispatcher gets what the user says and what the working agents report, and answers with a script: `say(...)` is spoken to the user, `spawn`, `aN.send` and `aN.fork` give a prompt to a working agent, a call such as `devpage.go(...)` or `canvas.show(...)` changes what the user's page shows. You are given the dispatcher's own instructions, then everything it was shown, then its whole script, then the words of it to grade, then numbered points. The script's calls are carried out: a page call in it moves the page, and work it gives to an agent is being done. For each point say whether it holds for those words. Go only by what you are given. A point fails only for a fault you can name in the words given, one that would change what the agent does or what the user is told; a doubt, or a wording you would have chosen differently, is not a fault. The working agents know the project, its files and its pages: a thing the user calls by its usual name needs no address, and the user's own words are never a fault of the prompt. Answer with JSON and nothing else: {\"points\": [{\"point\": 1, \"why\": \"one short sentence, written before you decide\", \"holds\": true}]}",
       `The dispatcher's instructions:\n\n${at.instructions}\n\n=====\n\nWhat the dispatcher was shown, oldest first:\n\n${at.shown}\n\n=====\n\nThe script the dispatcher answered the last wake-up with:\n\n${code}\n\n=====\n\n${what === "line" ? "The line that script has spoken to the user, with its variables filled in" : "The prompt that script gives to a working agent, with its variables filled in"}:\n\n${text}\n\n=====\n\nThe points:\n${points.map((point, index) => `${index + 1}. ${point}`).join("\n")}`,
-    ).then((written) => {
-      const grades: { point: number; holds: boolean; why: string }[] = JSON.parse(written.slice(written.indexOf("{"), written.lastIndexOf("}") + 1)).points;
-      const wrong = points.flatMap((point, index) => {
-        const grade = grades.find((one) => one.point === index + 1);
-        return grade?.holds ? [] : [`${what}: "${point}" does not hold: ${grade?.why ?? "the judge gave no grade"}`];
-      });
+      points.length,
+    ).then((given) => {
+      const wrong = points.flatMap((point, index) => (given[index].holds ? [] : [`${what}: "${point}" does not hold: ${given[index].why}`]));
       return { wrong, cost: 0 };
     });
     judging.set(id, asked);
@@ -577,6 +664,7 @@ async function attempt(test: Case, at: Moment, with_: Setup): Promise<Try> {
     },
     () => {},
     at.registry,
+    at.parts,
   );
   if (!written) return { wrong: ["no script that ran"], code: "", attempts, ms, cost, judged: 0 };
   const intents = written.ran.intents;

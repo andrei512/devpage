@@ -5,6 +5,7 @@ import { Database } from "bun:sqlite";
 import type { Intent } from "./sandbox.ts";
 import { z } from "zod";
 import type { HarnessTool } from "./harness.ts";
+import { dirname } from "node:path";
 
 /** Who may call a function: Fast, slow agents, both of them, or a widget on the user's page. */
 export type For = "fast" | "slow" | "both" | "page";
@@ -22,58 +23,90 @@ export interface Entry {
   fields: Record<string, unknown>;
 }
 
-/** A kind of entry: the line Fast reads, an image when it has one, and whether it wakes Fast. */
+/** A kind of entry: its fields, the line Fast reads, an image when it has one, and whether it wakes Fast. */
 export interface Kind {
+  fields?: Record<string, z.ZodType>;
   line: (fields: any) => string;
   /** A data URL or an address of an image the entry carries. */
   image?: (fields: any) => string | null;
   wakes?: boolean | ((fields: any, by: Caller) => boolean);
 }
 
-/** What a function is run with: its caller, its part's state, and a way to add entries. Writes are kept until the function ended. */
-export interface Writes {
-  get: (key: string) => unknown;
-  set: (key: string, value: unknown) => void;
+/** What a step of a part's work has: the part's state, to change, and a way to add entries. Both are saved together when the step ended. */
+export interface Later {
+  state: Record<string, any>;
   add: (kind: string, fields: Record<string, unknown>) => void;
 }
 
-/** Each external result is published as one committed change to its originating part. */
-type Publish = (change: (writes: Writes) => void) => Promise<void>;
+/** Each result of work that outlasts a call is saved as one step of its part. */
+type Publish = (change: (later: Later) => void) => Promise<void>;
 type Follow = (publish: Publish) => Promise<void>;
 
-export interface Running extends Writes {
+/** What a function is run with, beside its input. */
+export interface Now extends Later {
   caller: Caller;
-  /** Start following external work once the action has committed. */
+  /** The `config` given where the part is enabled. */
+  config: unknown;
+  /** Starts work that outlasts the call, once what the call wrote is saved. */
   follow: (producer: Follow) => void;
 }
 
-export interface Fn {
-  part: string;
+/** A call of a script: the function's full name and its input. */
+export interface Call {
   name: string;
-  does: "get" | "set" | "action";
-  for: For;
-  description: string;
-  /** Its line of Fast's brief, for a function Fast may call. */
-  brief?: string;
-  /** This function already has the session sandbox’s context-sensitive checks. */
-  syntax?: string;
-  input: Record<string, z.ZodType>;
-  /** Stable harness spelling and transcript rendering for a tool with an existing interface. */
-  tool?: Pick<HarnessTool, "name" | "always" | "reads">;
-  run: (input: any, running: Running) => unknown | Promise<unknown>;
+  input: Record<string, unknown>;
 }
 
-type Options = Pick<Fn, "for" | "description" | "brief" | "syntax" | "input" | "tool">;
+/** A function of a part. */
+export interface PartFunction {
+  for: For;
+  /** One line: the function's line in Fast's list of calls, and a slow agent's description of the tool. */
+  description: string;
+  input?: Record<string, z.ZodType>;
+  /** For a function Fast may call: runs inside Fast's script, while it can still fail, with what the part last showed Fast and the script's earlier calls. Throws to refuse the call. What it returns is what the call answers in the script. */
+  check?: (input: any, shown: Record<string, string>, earlier: Call[]) => unknown;
+  run: (input: any, now: Now) => unknown | Promise<unknown>;
+  /** The core's own only: the call as Fast's script writes it, for a call the sandbox itself provides. */
+  syntax?: string;
+  /** The program's own only: how a slow agent's harness is handed the tool, and the name a tool had before functions were registered. */
+  tool?: Pick<HarnessTool, "always" | "reads"> & { name?: string };
+}
 
-/** What a part registers with. An extension's module gets this, with the schema builder: it cannot import the program's packages itself. */
-export interface Registering {
-  z: typeof z;
-  kind: (name: string, kind: Kind) => void;
-  get: (name: string, options: Options, run: Fn["run"]) => void;
-  set: (name: string, options: Options, run: Fn["run"]) => void;
-  action: (name: string, options: Options, run: Fn["run"]) => void;
-  /** A widget the part brings, and its place. Recorded only: placing is devpage's. */
-  widget: (name: string, place: "navbar" | "panel" | "float") => void;
+export type Place = "navbar" | "panel" | "float";
+
+/** A task as a part is shown it when it is given. */
+export interface Given {
+  /** What Fast wrote. */
+  prompt: string;
+  /** The page the message it was made from was said on, and what was marked then. */
+  page: string | null;
+  marked: string;
+}
+
+/** What the parts show Fast: by part, each title with its text. */
+export type Shown = Record<string, Record<string, string>>;
+
+/** A world model part: everything it declares, in one object. No field is required. */
+export interface Part {
+  /** Each field of its state, with the schema every write is checked against. A field's default is its value in a new session. */
+  state?: Record<string, z.ZodType>;
+  entries?: Record<string, Kind>;
+  functions?: Record<string, PartFunction>;
+  /** Its widgets, each with its place. Recorded only: placing is devpage's. */
+  widgets?: Record<string, Place>;
+  /** The lines the part adds to a task as it is given. */
+  addToTask?: (state: Record<string, any>, task: Given) => string[] | void;
+  /** What the part shows Fast at a wake-up, as titles with their text. */
+  showFast?: (state: Record<string, any>) => Record<string, string> | Promise<Record<string, string>>;
+}
+
+/** What declares a part: the object, or a function that is given the schema builder and returns it. An extension's module cannot import the program's packages itself. */
+export type Declare = Part | ((given: { z: typeof z }) => Part | Promise<Part>);
+
+interface Fn extends PartFunction {
+  part: string;
+  name: string;
+  input: Record<string, z.ZodType>;
 }
 
 /** Data needed to replay a script without installing or executing its packages. */
@@ -86,7 +119,7 @@ export interface FastFunction {
 
 // A package id can be a digit, a keyword, a sandbox binding or a hyphenated name.
 const identifier = /^[A-Za-z_$][\w$]*$/;
-const reserved = new Set("await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield arguments eval spawn say restart worldParts page canvas".split(" "));
+const reserved = new Set("await break case catch class const continue debugger default delete do else enum export extends false finally for function if implements import in instanceof interface let new null package private protected public return static super switch this throw true try typeof var void while with yield arguments eval spawn say restart worldParts".split(" "));
 
 function binding(full: string) {
   const dot = full.indexOf(".");
@@ -106,7 +139,10 @@ export class Registry {
   private readonly fns = new Map<string, Fn>();
   private readonly commands = new Map<string, string>();
   private readonly named = new Set<string>();
-  readonly widgets: { part: string; name: string; place: string }[] = [];
+  readonly widgets: { part: string; name: string; place: Place }[] = [];
+  private readonly declared = new Map<string, Part & { config: unknown }>();
+  /** The folder each part's text for the agents is in, in the order the parts were registered. */
+  private readonly folders = new Map<string, string>();
   /** Called with each new entry and whether it wakes Fast. */
   onEntry: (entry: Entry, wakes: boolean) => void = () => {};
   /** Called with a part's whole state when it changed: what a page is sent. */
@@ -117,16 +153,20 @@ export class Registry {
     this.events = new Events(this.db);
     this.events.install();
     this.db.run("create table if not exists state (part text not null, key text not null, value text not null, primary key (part, key))");
+    // The part that holds the user's page was named `page` before it was the `devpage` part.
+    this.db.run("update entries set part = 'devpage' where part = 'page'");
+    this.db.run("update or ignore state set part = 'devpage' where part = 'page'");
+    this.db.run("delete from state where part = 'page'");
   }
 
-  /** Registers a part: the core's or an extension's, the same way. */
-  part(part: string, register: (as: Registering) => void) {
+  /** Registers a part: the core's or an extension's, the same way. Nothing of a part that fails to declare itself is kept.
+      `folder` is where its `voice.md`, `fast.md` and `slow.md` are, when it has text for the agents. */
+  part(part: string, declare: Declare, config: unknown = undefined, folder?: string): void | Promise<void> {
     if (this.named.has(part)) throw new Error(`${part} is registered already`);
-    const kinds = new Map<string, Kind & { part: string }>();
-    const functions = new Map<string, Fn>();
-    const widgets: typeof this.widgets = [];
-    const publish = () => {
+    const publish = (declared: Part) => {
       if (this.named.has(part)) throw new Error(`${part} is registered already`);
+      const functions = new Map<string, Fn>();
+      for (const [name, fn] of Object.entries(declared.functions ?? {})) functions.set(`${part}.${name}`, { ...fn, input: fn.input ?? {}, part, name });
       const commands = new Map(this.commands);
       for (const [name, fn] of functions) {
         if (!fn.syntax) continue;
@@ -140,35 +180,29 @@ export class Registry {
         if (tools.has(tool)) throw new Error(`The slow-agent tool ${tool} is registered twice`);
         tools.add(tool);
       }
-      for (const [name, kind] of kinds) this.kinds.set(name, kind);
+      for (const [name, kind] of Object.entries(declared.entries ?? {})) this.kinds.set(`${part}.${name}`, { ...kind, part });
       for (const [name, fn] of functions) this.fns.set(name, fn);
       for (const [command, name] of commands) this.commands.set(command, name);
-      this.widgets.push(...widgets);
+      for (const [name, place] of Object.entries(declared.widgets ?? {})) this.widgets.push({ part, name, place });
+      this.declared.set(part, { ...declared, config });
       this.named.add(part);
+      if (folder) this.folders.set(part, folder);
     };
-    const fn = (does: Fn["does"]) => (name: string, options: Options, run: Fn["run"]) => {
-      if (does === "get" && options.for !== "slow") throw new Error(`${part}.${name}: a get is for slow agents only: Fast's script gets no answer from a call`);
-      const full = `${part}.${name}`;
-      if (functions.has(full) || this.fns.has(full)) throw new Error(`${full} is registered already`);
-      functions.set(full, { part, name, does, run, ...options });
-    };
-    const registered: unknown = register({
-      z,
-      kind: (name, kind) => void kinds.set(`${part}.${name}`, { ...kind, part }),
-      get: fn("get"),
-      set: fn("set"),
-      action: fn("action"),
-      widget: (name, place) => void widgets.push({ part, name, place }),
-    });
-    if (registered instanceof Promise) return registered.then(publish);
-    publish();
+    const declared = typeof declare === "function" ? declare({ z }) : declare;
+    if (declared instanceof Promise) return declared.then(publish);
+    publish(declared);
   }
 
-  /** Loads an extension's world module: a file whose default export registers its part. */
-  async load(part: string, file: string) {
+  /** Loads an extension's world module: a file whose default export declares its part. */
+  async load(part: string, file: string, config: unknown = undefined) {
     const module = await import(file);
-    if (typeof module.default !== "function") throw new Error(`${file} has no default export that registers a part`);
-    await this.part(part, module.default);
+    if (typeof module.default !== "function" && (typeof module.default !== "object" || module.default === null)) throw new Error(`${file} has no default export that declares a part`);
+    await this.part(part, module.default, config, dirname(file));
+  }
+
+  /** The parts that may have text for the agents, each with the folder it is in. */
+  texts() {
+    return [...this.folders].map(([part, folder]) => ({ part, folder }));
   }
 
   /** The parts that are registered, by name. */
@@ -176,10 +210,16 @@ export class Registry {
     return [...this.named];
   }
 
-  /** A part's state, whole. */
+  /** A part's state, whole: what was saved, and its default for a declared field nothing was saved for. */
   state(part: string): Record<string, unknown> {
     const rows = this.db.query("select key, value from state where part = ?").all(part) as { key: string; value: string }[];
-    return Object.fromEntries(rows.map(({ key, value }) => [key, JSON.parse(value)]));
+    const state = Object.fromEntries(rows.map(({ key, value }) => [key, JSON.parse(value)]));
+    for (const [key, schema] of Object.entries(this.declared.get(part)?.state ?? {})) {
+      if (key in state) continue;
+      const initial = schema.safeParse(undefined);
+      if (initial.success && initial.data !== undefined) state[key] = initial.data;
+    }
+    return state;
   }
 
   /** Every entry after the one with this number, oldest first. */
@@ -219,8 +259,9 @@ export class Registry {
     const { fn, given } = this.checked(name, input, caller.who);
     return this.enqueue(fn.part, async () => {
       const producers: Follow[] = [];
-      const result = await this.change(fn.part, caller, writes => fn.run(given, {
-        ...writes, caller, follow: producer => producers.push(producer),
+      const config = this.declared.get(fn.part)?.config;
+      const result = await this.change(fn.part, caller, later => fn.run(given, {
+        ...later, caller, config, follow: producer => producers.push(producer),
       }));
       for (const produce of producers) {
         const publish: Publish = update => this.enqueue(fn.part, () => this.change(fn.part, caller, update));
@@ -242,19 +283,46 @@ export class Registry {
     }
   }
 
-  private async change<T>(part: string, caller: Caller, run: (writes: Writes) => T | Promise<T>) {
-    const sets = new Map<string, unknown>();
-    const adds: { kind: string; fields: Record<string, unknown> }[] = [];
-    const result = await run({
-      get: (key) => (sets.has(key) ? sets.get(key) : this.state(part)[key]),
-      set: (key, value) => void sets.set(key, value),
-      add: (kind, fields) => {
-        if (!this.kinds.has(`${part}.${kind}`)) throw new Error(`${part} has no entry kind ${kind}`);
-        adds.push({ kind, fields });
-      },
-    });
-    this.commit(part, Object.fromEntries(sets), adds, caller);
+  /** One step of a part: what it changed of its state, each field checked against its schema, and the entries it added, saved together. */
+  private async change<T>(part: string, caller: Caller, run: (later: Later) => T | Promise<T>) {
+    const step = this.begin(part);
+    const result = await run(step.later);
+    step.end(caller);
     return result;
+  }
+
+  /** A step that does not wait for anything: for what a part does when nobody called one of its functions. */
+  step<T>(part: string, run: (later: Later) => T, caller: Caller = { who: "page" }) {
+    const step = this.begin(part);
+    const result = run(step.later);
+    step.end(caller);
+    return result;
+  }
+
+  private begin(part: string) {
+    if (!this.named.has(part)) throw new Error(`Unknown world part ${part}`);
+    const schemas = this.declared.get(part)?.state ?? {};
+    const before = this.state(part);
+    const state = structuredClone(before);
+    const adds: { kind: string; fields: Record<string, unknown> }[] = [];
+    const later: Later = {
+      state,
+      add: (kind, fields) => {
+        const declared = this.kinds.get(`${part}.${kind}`);
+        if (!declared) throw new Error(`${part} has no entry kind ${kind}`);
+        adds.push({ kind, fields: declared.fields ? z.object(declared.fields).parse(fields) : fields });
+      },
+    };
+    const end = (caller: Caller) => {
+      const sets: Record<string, unknown> = {};
+      for (const key of new Set([...Object.keys(before), ...Object.keys(state)])) {
+        if (JSON.stringify(state[key]) === JSON.stringify(before[key])) continue;
+        if (!schemas[key]) throw new Error(`${part} has no state field ${key}`);
+        sets[key] = schemas[key].parse(state[key]);
+      }
+      this.commit(part, sets, adds, caller);
+    };
+    return { later, end };
   }
 
   /** A synchronous change can include several parts. Publish their final
@@ -313,7 +381,41 @@ export class Registry {
     const fn = this.fns.get(name);
     if (!fn) throw new Error(`there is no function ${name}`);
     if (fn.for !== who && !(fn.for === "both" && who !== "page")) throw new Error(`${name} is for ${fn.for}, not for ${who}`);
-    return { fn, given: z.object(fn.input).parse(input) };
+    const parsed = z.object(fn.input).safeParse(input);
+    if (!parsed.success) throw new Error(parsed.error.issues.map(issue => (issue.path.length ? `${issue.path.join(".")}: ${issue.message}` : issue.message)).join("; "));
+    return { fn, given: parsed.data as Record<string, unknown> };
+  }
+
+  /** One call of Fast's script, checked while the script can still fail: its input, and then the function's own check with what its part showed Fast and the script's earlier calls. */
+  check(name: string, input: unknown, shown: Shown, earlier: Call[]) {
+    const { fn, given } = this.checked(name, input, "fast");
+    const value = fn.check?.(given, shown[fn.part] ?? {}, earlier);
+    earlier.push({ name, input: given });
+    return { input: given, value };
+  }
+
+  /** What every part shows Fast now. A part that cannot say shows nothing. */
+  async shown(): Promise<Shown> {
+    const all: Shown = {};
+    for (const [part, declared] of this.declared) {
+      if (!declared.showFast) continue;
+      try {
+        all[part] = await declared.showFast(this.state(part));
+      } catch (error) {
+        console.error(`${part} could not show Fast its part:`, error);
+      }
+    }
+    return all;
+  }
+
+  /** What the parts add to a task as it is given: each part's lines as one paragraph, in the order the parts were registered. */
+  added(task: Given): string[] {
+    const paragraphs: string[] = [];
+    for (const [part, declared] of this.declared) {
+      const lines = declared.addToTask?.(this.state(part), task);
+      if (lines?.length) paragraphs.push(lines.join("\n"));
+    }
+    return paragraphs;
   }
 
   /** The functions a slow agent has, as the tools every harness hands over: the same list the session's own three are in today. */
@@ -327,7 +429,6 @@ export class Registry {
         input: fn.input,
         run: async (input: any) => {
           try {
-            if (agent === null && fn.does !== "get") throw new Error("There is no active task.");
             const result = await this.call(name, input, { who: "slow", agent });
             if (result && typeof result === "object" && "image" in result && typeof result.image === "string" && "text" in result && typeof result.text === "string") {
               const image = /^data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=]+)$/.exec(result.image);
@@ -344,22 +445,18 @@ export class Registry {
   /** This description is given to the sandbox and kept for replay in the eval. */
   fastFunctions(): FastFunction[] {
     return [...this.fns].filter(([, fn]) => fn.for === "fast" || fn.for === "both")
-      .map(([name, fn]) => ({ name, description: fn.brief ?? fn.description, syntax: fn.syntax, schema: z.toJSONSchema(z.object(fn.input)) }));
+      .map(([name, fn]) => ({ name, description: fn.description, syntax: fn.syntax, schema: z.toJSONSchema(z.object(fn.input), { io: "input" }) }));
   }
 
+  /** The parts' functions as the lines of Fast's list of calls. The core's own calls are written in its prompt. */
   brief() {
-    return this.fastFunctions().map(({ name, syntax, description, schema }) =>
-      `${syntax ?? `${binding(name).expression}(${Object.keys(schema.properties ?? {}).join(", ")})`}  // ${description}`).join("\n");
+    return this.fastFunctions().filter(fn => !fn.syntax).map(({ name, description, schema }) =>
+      `${`${binding(name).expression}(${Object.keys(schema.properties ?? {}).join(", ")})`.padEnd(27)} // ${description}`).join("\n");
   }
 
+  /** The parts' functions as the script calls them. Each call is checked by the program as it is made, and is carried out only when the script ended. */
   prelude() {
-    const functions = this.fastFunctions().filter(fn => !fn.syntax).map(fn => ({
-      ...binding(fn.name), full: fn.name, keys: Object.keys(fn.schema.properties ?? {}), required: fn.schema.required ?? [],
-      types: Object.fromEntries(Object.entries(fn.schema.properties ?? {}).map(([key, property]) =>
-        [key, typeof property === "object" ? property.type : undefined])),
-    }));
-    // Zod checks every collected input before the service carries out the first
-    // intent. Preserve the order of these calls among the built-ins.
+    const functions = this.fastFunctions().filter(fn => !fn.syntax).map(fn => ({ ...binding(fn.name), full: fn.name, keys: Object.keys(fn.schema.properties ?? {}) }));
     return `(() => {
       const parts = globalThis.worldParts = Object.create(null);
       for (const fn of ${JSON.stringify(functions)}) {
@@ -368,18 +465,7 @@ export class Registry {
         part[fn.name] = (...values) => {
           const input = {};
           fn.keys.forEach((key, at) => { if (values[at] !== undefined) input[key] = values[at]; });
-          for (const key of fn.required) if (!(key in input)) throw new TypeError(fn.name + " needs " + key);
-          for (const key of Object.keys(input)) {
-            const type = fn.types[key];
-            if (!type) continue;
-            const value = input[key];
-            const actual = value === null ? "null" : Array.isArray(value) ? "array" : typeof value;
-            const allowed = Array.isArray(type) ? type : [type];
-            if (!allowed.includes(actual) && !(allowed.includes("integer") && Number.isInteger(value))) {
-              throw new TypeError(fn.name + ": " + key + " needs " + allowed.join(" or "));
-            }
-          }
-          __worldCall(fn.full, input);
+          return __worldCall(fn.full, input);
         };
       }
     })()`;
