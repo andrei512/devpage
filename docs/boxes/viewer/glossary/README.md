@@ -489,52 +489,72 @@ Talking with an assistant over the pages of a project while coding agents on the
 
 ## Voice
 
-The part of a live session that hears the user and speaks: a voice model that hands over everything the user says and says only the lines it is given ([The agents](../live-session/agents/README.md)).
+The agent of a live session that hears the user and speaks: a voice model that hands over everything the user says and says only the lines it is given ([Voice](../live-session/core/voice/README.md)). It runs in realtime mode only.
 
 ## Fast
 
-The hub of a live session: a quick model woken by a hand-over or by updates, which answers each wake-up with one script and does no work itself ([Fast, the hub](../live-session/agents/fast/README.md)).
+The hub of a live session: a quick model woken by a hand-over or by updates, which answers each wake-up with one script and does no work itself ([Fast](../live-session/core/fast/README.md)).
 
 ## slow agent
 
-One conversation with a coding agent on the machine, which does the work of a live session: it answers questions and changes files ([Slow agents](../live-session/agents/slow-agents/README.md)). Called an agent where no other is meant.
+One conversation with a coding agent on the machine, which does the work of a live session: it answers questions and changes files ([Slow agents](../live-session/core/slow-agents/README.md)). Called an agent where no other is meant.
 
-## world
+## world model
 
-Everything Fast can read in a live session: the messages, the page, the tasks and their updates, as one numbered log ([The world](../live-session/agents/world/README.md)).
+The one record the agents of a live session share: what is true now, as state, and what happened, as one numbered log ([The world model](../live-session/world-model/README.md)). A kept record, not a model trained to predict. Never shortened to "the world".
+
+## world model part
+
+One thing added to the world model for the agents to see and act on, with what it declares: state, entries, functions, widgets, text for each agent's prompt, lines added to a task, and what Fast is shown ([A world model part](../live-session/extend/README.md#a-world-model-part)). Called a part for short. `devpage` and `canvas` come with the session; an extension package brings another.
+
+## core
+
+What every live session has and no part replaces: Voice, Fast, the slow agents, delegation and the prompts' templates ([The core](../live-session/core/README.md)).
+
+## mode
+
+How the user reaches a live session: realtime, by talking, with Voice on; or chat, by typing or dictating, with Voice off and answers shown as text ([Two modes](../live-session/core/README.md#two-modes)).
+
+## delegation
+
+Fast giving a piece of work to a slow agent as a task, and the agent's updates coming back through the world model ([Delegation](../live-session/core/delegation/README.md)).
+
+## prompt
+
+What an agent of a live session is told before it starts, put together from the core's template for that agent and the text the enabled parts declare ([The prompts](../live-session/core/prompts/README.md)).
 
 ## task
 
-In a live session, one piece of work given to a slow agent, with its title, its state and its updates ([Slow agents](../live-session/agents/slow-agents/README.md#an-agent-and-its-tasks)). Not the page type `task`.
+In a live session, one piece of work given to a slow agent, with its title, its state and its updates ([Slow agents](../live-session/core/slow-agents/README.md#an-agent-and-its-tasks)). Not the page type `task`.
 
 ## update
 
-What a slow agent publishes on its task: progress, a question, finished or failed, written to be spoken ([Slow agents](../live-session/agents/slow-agents/README.md#what-an-agent-publishes)). Not a live update, which is a saved file reaching an open page.
+What a slow agent publishes on its task: progress, a question, finished or failed, written to be spoken ([Slow agents](../live-session/core/slow-agents/README.md#what-an-agent-publishes)). Not a live update, which is a saved file reaching an open page.
 
 ## hand-over
 
-The event by which Voice gives what the user just said to the session's program. It carries an id and a time and no words ([Voice to Fast](../live-session/agents/voice-to-fast/README.md)).
+The event by which Voice gives what the user just said to the session's program. It carries an id and a time and no words ([Voice](../live-session/core/voice/README.md)).
 
 ## wake-up
 
-One run of Fast: the world's new entries in, one script out ([Fast, the hub](../live-session/agents/fast/README.md#what-wakes-fast)).
+One run of Fast: the world model's new entries in, one script out ([Fast](../live-session/core/fast/README.md#what-wakes-fast)).
 
 ## scratch pad
 
-A Markdown file a live session keeps outside the project, one per idea, which a slow agent writes and devpage draws as a page ([The scratch pad](../live-session/scratch-pad/README.md)). Called a pad for short.
+A Markdown file a live session keeps outside the project, one per idea, which a slow agent writes and devpage draws as a page ([The canvas part](../live-session/world-model/canvas/README.md#a-pad-is-a-file)). Called a pad for short.
 
 ## canvas
 
-The full-screen layer of a live session that shows one scratch pad over the page ([The scratch pad](../live-session/scratch-pad/README.md#showing-it-the-canvas)). Not a canvas page, which is a design drawn on a page of its own.
+The full-screen layer of a live session that shows one scratch pad over the page, and the world model part that adds it ([The canvas part](../live-session/world-model/canvas/README.md)). Not a canvas page, which is a design drawn on a page of its own.
 
 ## harness
 
-A coding agent as a live session uses it, Claude Code or Codex, behind one contract for giving an agent work and reading what happens inside it ([The harness](../live-session/agents/harness/README.md)).
+A coding agent as a live session uses it, Claude Code or Codex, behind one contract for giving an agent work and reading what happens inside it ([The harness](../live-session/core/harness/README.md)).
 
 ## turn
 
-One message to a slow agent and all it did until it stopped, as a list of items of a closed set of kinds: a message, a read, a change, a command ([The harness](../live-session/agents/harness/README.md#the-primitives)). These items are not the items of a code reference.
+One message to a slow agent and all it did until it stopped, as a list of items of a closed set of kinds: a message, a read, a change, a command ([The harness](../live-session/core/harness/README.md#the-primitives)). These items are not the items of a code reference.
 
 ## route
 
-A harness and one of its models, named `harness/model`: what a slow agent is made on and stays on ([Routing](../live-session/agents/routing/README.md)).
+A harness and one of its models, named `harness/model`: what a slow agent is made on and stays on ([Routing](../live-session/use/routing/README.md)).

@@ -36,7 +36,7 @@ Where [the live session](../../../live-session/README.md) is on, devpage adds
 its widgets to a document's places, after the document's own: the tasks
 button to `navbar`, the task panel to `panel`, the canvas and the orb to
 `float`. The document names none of them, and a document that
-[turns the session off](../../../live-session/README.md#when-it-is-on) gets
+[turns the session off](../../../live-session/use/turn-it-on/README.md#when-it-is-on) gets
 none. The orb moves its place to the window's bottom right corner.
 
 ## How long a placed widget lives

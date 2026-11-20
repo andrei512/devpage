@@ -1,8 +1,0 @@
-id: tests
-version: "1"
-api: 1
-world: world.js
-widgets:
-  TestResults: TestResults.tsx
-places:
-  panel: [TestResults]

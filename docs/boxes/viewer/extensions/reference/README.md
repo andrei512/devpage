@@ -42,7 +42,7 @@ library: libtoy.dylib
 | `assets` | Optional folder inside the bundle. Checked to stay inside, but nothing is served from it. |
 | `widgets` | Widget name → module path inside the bundle. Relative imports and re-exports are included recursively. |
 | `places` | Lists of widget names for `navbar`, `panel` and `float`. Each list follows the document's own widgets. |
-| `world` | Path to a JavaScript or TypeScript module in the bundle. Its default export registers a part named for the package id with the local live session. |
+| `world` | Path to a JavaScript or TypeScript module in the bundle: a [world model part](../../live-session/extend/part-reference/README.md) of the live session, named for the package id. |
 
 Unknown fields are errors. A manifest needs a library, program, world module or widget. A loading failure is reported as `Extension <id>: <reason>`; a manifest ID that differs from the key fails the first `create`.
 

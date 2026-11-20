@@ -35,6 +35,8 @@ export interface LogFilter {
   /** Only entries at or after this ISO time. */
   since?: string;
   who?: Who;
+  /** Only entries of these. */
+  among?: Who[];
   /** Only entries whose text has these words in it, in any case. */
   text?: string;
 }
@@ -77,7 +79,7 @@ export class Log {
   }
 
   /** The most recent entries that pass the filter, oldest first. */
-  read({ limit = 50, since, who, text }: LogFilter = {}): Entry[] {
+  read({ limit = 50, since, who, among, text }: LogFilter = {}): Entry[] {
     const most = Math.max(1, Math.min(500, Math.floor(limit)));
     const from = since ? new Date(since) : null;
     if (from && Number.isNaN(from.getTime())) throw new Error(`"${since}" is not a time: use an ISO timestamp`);
@@ -87,6 +89,7 @@ export class Log {
       const entry: Entry = JSON.parse(String(row.value));
       if (from && new Date(entry.ts) < from) continue;
       if (who && entry.who !== who) continue;
+      if (among && !among.includes(entry.who)) continue;
       if (words && !(typeof entry.text === "string" && entry.text.toLowerCase().includes(words))) continue;
       found.push(entry);
       if (found.length >= most) break;

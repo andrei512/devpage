@@ -7,17 +7,22 @@ import { Database } from "bun:sqlite";
 test("the live service exposes one registered function to Fast and the slow harness and delivers its image", async () => {
   const root = mkdtempSync(join(tmpdir(), "devpage-agent-calls-"));
   const image = "data:image/png;base64,iVBORw0KGgo=";
-  writeFileSync(join(root, "counter.ts"), `export default ({ kind, action, z }) => {
-    kind("ready", { line: () => "The counter is ready", wakes: true });
-    kind("counted", { line: f => f.who + " counted " + f.n, image: f => f.who === "fast" ? ${JSON.stringify(image)} : null,
-      wakes: (_, caller) => caller.who === "fast" });
-    action("start", { for: "page", input: {}, description: "Start counting" }, (_, ctx) => ctx.add("ready", {}));
-    action("change", { for: "both", input: { n: z.number() }, description: "Count this many" }, ({ n }, ctx) => {
-      ctx.set("total", (ctx.get("total") ?? 0) + n);
-      ctx.add("counted", { n, who: ctx.caller.who });
-      return "counted " + n;
-    });
-  }`);
+  writeFileSync(join(root, "counter.ts"), `export default ({ z }) => ({
+    state: { total: z.number().default(0) },
+    entries: {
+      ready: { line: () => "The counter is ready", wakes: true },
+      counted: { line: f => f.who + " counted " + f.n, image: f => f.who === "fast" ? ${JSON.stringify(image)} : null,
+        wakes: (_, caller) => caller.who === "fast" },
+    },
+    functions: {
+      start: { for: "page", description: "Start counting", run: (_, now) => now.add("ready", {}) },
+      change: { for: "both", input: { n: z.number() }, description: "Count this many", run: ({ n }, now) => {
+        now.state.total += n;
+        now.add("counted", { n, who: now.caller.who });
+        return "counted " + n;
+      } },
+    },
+  })`);
   writeFileSync(join(root, "Home.md"), "# Home");
   let navigate = false;
   const requests: any[] = [];
@@ -30,7 +35,7 @@ test("the live service exposes one registered function to Fast and the slow harn
       requests.push(body);
       const marked = !handed && JSON.stringify(body.input.at(-1)).includes("Review this mark");
       if (marked) handed = true;
-      const code = navigate ? 'canvas.show(canvas.pad("My idea")); page.go("/Home.md")' : marked ? 'spawn(`Review: ${m1}`)' : requests.length === 1 ? 'worldParts["unit-tests"].change(2); spawn("Count three more")' : "// done";
+      const code = navigate ? 'canvas.show(canvas.pad("My idea")); devpage.go("/Home.md")' : marked ? 'spawn(`Review: ${m1}`)' : requests.length === 1 ? 'worldParts["unit-tests"].change(2); spawn("Count three more")' : "// done";
       navigate = false;
       return Response.json({ output: [{ type: "function_call", name: "exec", arguments: JSON.stringify({ code }), call_id: "call" + requests.length }] });
     },
@@ -77,7 +82,7 @@ test("the live service exposes one registered function to Fast and the slow harn
       const [update] = db.query("select fields from entries where part='work' and kind='update' order by n desc limit 1").values();
       const report = JSON.parse(JSON.parse(String(update[0])).text);
       expect(report.result).toEqual({ text: "counted 3" });
-      expect(report.tools).toEqual(["read_log", "unit-tests_change", "update", "write_comment"]);
+      expect(report.tools).toEqual(["devpage_write_comment", "read_log", "unit-tests_change", "update"]);
       // A real hand-over through the sandbox carries the marked part to work.
       const part = { page: "/home", quote: "marked line", prefix: "The ", suffix: "." };
       ws.send(JSON.stringify({ type: "page", page: { address: "/home", fragment: "", sources: ["/home"] }, focused: true }));
@@ -128,7 +133,7 @@ test("the live service exposes one registered function to Fast and the slow harn
   }
 }, 15000);
 
-test("the real service restores the work, page and canvas snapshots after a restart", async () => {
+test("the real service restores the state of work, devpage and canvas after a restart", async () => {
   const root = mkdtempSync(join(tmpdir(), "devpage-core-parts-"));
   const state = join(root, ".devpage/live/projects", root.replace(/[^a-zA-Z0-9]/g, "-"));
   mkdirSync(join(state, "pads"), { recursive: true });
@@ -179,18 +184,18 @@ test("the real service restores the work, page and canvas snapshots after a rest
     const initial = await serve();
     try {
       const parts = Object.fromEntries((await initial.received(4)).map(e => [e.part, e.state]));
-      expect(Object.keys(parts).sort()).toEqual(["canvas", "page", "session", "work"]);
+      expect(Object.keys(parts).sort()).toEqual(["canvas", "devpage", "session", "work"]);
       expect(parts.work.tasks).toEqual([task]);
       initial.send({ type: "canvas", open: true, address: "pads/idea.md" });
-      expect((await initial.received(2)).map(e => e.part).sort()).toEqual(["canvas", "page"]);
+      expect((await initial.received(2)).map(e => e.part).sort()).toEqual(["canvas", "devpage"]);
       initial.send({ type: "subject", part: mark });
-      expect(await initial.received(1)).toMatchObject([{ part: "page", state: { subject: mark } }]);
+      expect(await initial.received(1)).toMatchObject([{ part: "devpage", state: { subject: mark } }]);
     } finally { await initial.close(); }
 
     const next = await serve();
     try {
       const parts = Object.fromEntries((await next.received(4)).map(e => [e.part, e.state]));
-      expect(parts.page).toMatchObject({ address: "pads/idea.md", subject: mark, by: "user" });
+      expect(parts.devpage).toMatchObject({ address: "pads/idea.md", subject: mark, by: "user" });
       expect(parts.canvas.canvas.pad).toBe("pads/idea.md");
       expect(parts.work.tasks).toEqual([task]);
     } finally { await next.close(); }

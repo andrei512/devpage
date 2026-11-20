@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { Agents, type AgentHooks } from "./agents.ts";
 import type { Harness, TurnEvent, TurnInput } from "./harness.ts";
 import { instructions } from "./fast.ts";
+import { Registry } from "./registry.ts";
 import { checked, enabledRoutes, find, rules, settings, told, type Route } from "./routes.ts";
 import { run, type Scope } from "./sandbox.ts";
 
@@ -58,12 +59,12 @@ async function setup() {
   return { folder, said, claude, codex, harnesses, routes };
 }
 
-const hooks = (): AgentHooks => ({ published: () => {}, holds: () => false, comment: async () => {}, readLog: () => [], owns: () => true, session: () => {}, changed: () => {}, log: () => {} });
+const hooks = (): AgentHooks => ({ published: () => {}, holds: () => false, readLog: () => [], owns: () => true, session: () => {}, changed: () => {}, log: () => {} });
 
 /** The last turn a fake was asked for. */
 const task = (turns: TurnInput[]) => turns.filter((turn) => turn.message.startsWith("Task ")).at(-1);
 
-const SCOPE: Scope = { messages: [{ id: 1, text: "Rename the heading", page: "/docs/README.md", marked: "" }], updates: [], agents: [], page: null, pages: [] };
+const SCOPE: Scope = { messages: [{ id: 1, text: "Rename the heading", page: "/docs/README.md", marked: "" }], updates: [], agents: [] };
 
 test("no settings: nothing is enabled by them, and Fast is told nothing about routes", () => {
   expect(settings(undefined, () => {})).toBeNull();
@@ -96,11 +97,10 @@ test("the decision is in Fast's own instructions: every route, which is the defa
   const { routes, folder } = await setup();
   const text = told(routes, rules(folder));
   // It is part of the one prompt Fast gets, beside everything else it decides by.
-  const prompt = instructions([{ address: "/docs/README.md", title: "Plan" }], text);
+  const prompt = instructions(new Registry(":memory:"), text);
   expect(prompt).toContain(text);
   expect(prompt).toContain("spawn(task, route)");
-  expect(prompt.indexOf("# Routes")).toBeLessThan(prompt.indexOf("# The pages"));
-  expect(instructions([{ address: "/docs/README.md", title: "Plan" }])).not.toContain("# Routes");
+  expect(instructions(new Registry(":memory:"))).not.toContain("# Routes");
   expect(text).toContain("claude-code/fable (the default) — fable of claude-code");
   expect(text).toContain("codex/astra — astra of codex");
   expect(text).toContain("- Small edits: claude-code/haiku.");

@@ -11,9 +11,9 @@ test("an interrupted import keeps its sources and retries alongside existing ext
   const dir = mkdtempSync(join(tmpdir(), "session-import-"));
   try {
     const registry = new Registry(join(dir, "world.sqlite"));
-    registry.part("counter", p => {
-      p.kind("count", { line: () => "count" });
-      p.set("count", { for: "page", input: {}, description: "Count" }, (_, ctx) => ctx.add("count", {}));
+    void registry.part("counter", {
+      entries: { count: { line: () => "count" } },
+      functions: { count: { for: "page", description: "Count", run: (_, now) => now.add("count", {}) } },
     });
     await registry.call("counter.count", {}, { who: "page" });
     const file = join(dir, "world.jsonl");
@@ -28,7 +28,7 @@ test("an interrupted import keeps its sources and retries alongside existing ext
     expect(store.world()).toEqual([message]);
     expect(readFileSync(file + ".migrated", "utf8")).toBe(source);
     expect(registry.since(0).map(e => [e.n, e.kind, e.originalNumber])).toEqual([[1, "message", undefined], [2, "count", 1]]);
-    registerCore(registry, {});
+    registerCore(registry);
     const world = new World(registry);
     expect(world.next("message")).toBe(11);
     expect(world.add({ kind: "problem", text: "test" }).n).toBe(3);
