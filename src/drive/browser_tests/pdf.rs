@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::page_script::{open, text, widget_folder};
+use super::support::{open, text, widget_folder};
 use crate::drive::pdf::print;
 use devpage_core::document::{Document, Kind};
 use devpage_core::folder::ServedFolder;
@@ -29,7 +29,7 @@ fn pages(pdf: &[u8]) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 async fn a_design_with_problems_does_not_delay_a_pdf() {
@@ -51,7 +51,7 @@ async fn a_design_with_problems_does_not_delay_a_pdf() {
     assert!(!pages(&pdf).is_empty());
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 #[spec("a-pdf-looks-like-the-page")]
@@ -77,7 +77,7 @@ async fn the_fixture_doc_prints_on_a4() {
     }
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 #[spec("a-pdf-looks-like-the-page")]
@@ -104,7 +104,7 @@ async fn the_talk_prints_one_16_by_9_page_per_slide() {
     }
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::pdf::`.
 #[tokio::test]
 #[ignore]
 async fn a_printed_doc_shows_each_widgets_first_render() {

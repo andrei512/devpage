@@ -3,7 +3,7 @@ page-type: task
 ---
 # Developing devpage
 
-How to work on devpage itself: build it, run its tests and the three gates,
+How to work on devpage itself: build it, run its affected checks,
 run the documentation while you edit it, and know what needs a rebuild. The
 [code map](../code-map/README.md) and the [tests](../tests/README.md) go one
 level deeper. It sits under [Engineering](../README.md); how a change travels from idea to `main` is
@@ -77,38 +77,66 @@ What you edit decides what you have to do to see it:
 
 ## Tests
 
-<Terminal>
+The default Rust suite runs with `cargo test`. Browser tests use the pinned
+Chrome. Video uses Chrome for Testing. The
+[test inventory](../tests/README.md) describes the behaviors exercised by
+each suite.
 
-```text
-$ cargo test                  # every crate; needs no network and no Chrome
-$ cargo test -- --ignored     # the tests that drive Chrome
-```
+### Select browser checks locally
 
-</Terminal>
+Install the Node version in `.node-version` and run `npm ci` at the repository
+root. Run `npm run browser-tests` during an edit. The default comparison with
+`HEAD` includes staged, unstaged and untracked files. Add `-- --explain` to
+see why each suite was selected. A standalone review brief selects zero
+suites. An unclassified change requests broad coverage. Use `-- --full` to
+run the entire ignored devpage binary. Windows skips GPU tests.
 
-Run the Chrome tests after changing the page script, the design script, the
-module, the stylesheet, a widget, print mode, `devpage pdf`, a slide's PNG, or
-`devpage video` and its recorder (`assets/video.js`).
-They drive chrome-headless-shell — `devpage video`'s, Chrome for Testing —
-never a Chrome installed on the machine. What each module's tests pin, the watcher tests
-that need file-system events, and what has no test, is on
-[Tests](../tests/README.md).
+Before a PR to main, `npm run browser-tests -- --base origin/main` includes
+committed branch changes since the merge base, plus working-tree changes.
+Use the PR’s target branch for other branches, or `--base BASE --head HEAD` for
+an explicit committed range. The latter requires BASE to be an ancestor of
+HEAD. Add `--json` for a machine-readable plan. The selector also reports
+whether CI should exercise the deploy-server PDF smoke. The local command
+runs the Rust browser tests; the Docker smoke has its own CI runner.
+
+When a feature starts reading a shared module, style or fixture, add it to
+the relevant targets’ `inputs` in the root `project.json` or their shared
+named inputs in `nx.json`. For a new Rust suite, register its libtest filters
+in `metadata.browserFilters`. Exercise the selector with an edit to the new
+input and assert the expected selection in the browser-tooling tests. Run
+`node tools/browser-tests/inventory.mjs` to reconcile the registered filters
+with the platform’s compiled tests after moving or renaming tests.
 
 ## The gates
 
-Green before any pull request opens (from `AGENTS.md`):
+With the repository’s pinned Node and `npm ci` at the root, use the same
+affected-check entry point for a local edit and for a branch review.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
+| Command | Effect |
+| --- | --- |
+| `npm run check -- --explain` | Show what the current edit selects and why. |
+| `npm run check` | Execute the selected development checks. |
+| `npm run build` | Build the selected Rust targets through Cargo. |
+| `npm run check -- --scope live` | Run only the affected live-session checks during a focused edit. |
+| `npm exec -- nx graph` | Inspect the Nx project graph, including Cargo workspace members and their local dependencies. |
+| `npm run check -- --base origin/main` | Check the branch and local edits against their merge base with main. Use the actual target for other branches. |
+| `npm run check -- --full` | Request full local coverage. |
 
-Formatting must match `rustfmt`'s defaults, clippy's warnings — on tests too —
-are errors, and the suite passes. Run them before you push. CI runs the same
-three, and `devpage check docs`, on every pull request and every push to
-`main`, a design branch or a prototype — but not the Chrome tests, which stay
-yours to run. See [CI](../sdlc/review-bars/README.md#ci).
+Each Cargo member has Nx build, test, Clippy and formatting targets. For
+example, `npm exec -- nx run devpage-bench:build` builds that member directly.
+The project check plan covers Rust formatting, Clippy and tests, docs checks, the live
+session’s Bun checks, selector tests and the browser suites. An affected live
+check needs the pinned Bun and `bun install --frozen-lockfile` from `live/`.
+A live test edit selects TypeScript checking and that Bun test. A live eval
+data edit checks that the cases can be reconstructed offline. Documentation
+changes can select link checking, the requirements-to-test map, and the Rust
+tests that read the edited documents. The separate Docker smoke and clean
+Cargo install run in CI. Use
+`-- --json` to inspect the plan or `-- --base BASE --head HEAD` to replay a
+committed range. The explicit base must be an ancestor of the head.
+
+See [CI](../sdlc/review-bars/README.md#ci) for how the platform runners use
+the same selection and when the workflow requests a full run.
 
 ## The code
 

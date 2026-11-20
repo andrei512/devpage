@@ -70,3 +70,7 @@ its links, looks at its designs and slides, and resolves your comments.
 ## Licence
 
 MIT. See [LICENSE](LICENSE) and the [changelog](CHANGELOG.md).
+
+## Developing devpage
+
+For local setup, affected builds and checks, and the commands CI runs, see the [developer guide](docs/boxes/engineering/developing-devpage/README.md#the-gates).

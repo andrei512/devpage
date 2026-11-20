@@ -10,24 +10,55 @@ change a module or wondering whether a behaviour is pinned.
 <Terminal>
 
 ```text
-$ cargo test                  # 644 tests in seven crates; needs no network and no Chrome
-$ cargo test -- --ignored     # the 119 tests that drive Chrome or Docker, call GPT-Live, or time the engine
+$ cargo test                   # fast Rust suite across workspace crates
+$ npm run check                # affected development checks
+$ npm run browser-tests        # affected Rust browser checks only
+$ npm run browser-tests -- --full  # full ignored devpage binary tests
 ```
 
 </Terminal>
 
+## Browser suite ownership
+
+The root `project.json` declares each browser target's Nx inputs and Cargo test
+filters. Shared inputs in `nx.json` cover the renderer, test support, toolchain
+and fixtures. A source file can affect several targets. For example, the video
+tests record a slide showing another slide's PNG, so the slide renderer selects
+both suites. The deploy-server PDF target selects a separate Docker check.
+
+When adding a browser behavior or moving a fixture, update its target inputs
+and add a representative change to the selection tests. Fixtures include real
+project documents and their assets. Each ignored test in the devpage binary must match a suite
+filter. Run `node tools/browser-tests/inventory.mjs` to compare the filters
+with the compiled test inventory without starting Chrome. The project-wide
+[check command](../developing-devpage/README.md#the-gates) includes these suites
+alongside affected Rust, docs, live-session and tooling checks.
+
+### Checking selections against previous changes
+
+Run `node tools/browser-tests/replay.mjs` in a checkout with Git history to
+check three historical changes against the current suite definitions.
+
+| Change | Rust browser suites | Deploy-server PDF |
+| --- | --- | --- |
+| Release archive format, `221fdfa9` | None | Skip |
+| Server PDF rendering and image config, `06994906` | Canvas, PDF and the three server suites | Run |
+| Shared Chrome adapter, `8dbc1655` | All registered suites | Run |
+
+PRs use the merge base of the PR head and its actual target branch. Pushes use
+a previous successful push of the same workflow and branch, covering intervening
+failed runs. A new branch, force push or unavailable baseline requests full
+coverage. The gates workflow and Docker smoke each report their own range and
+decision in the Actions job summary. Compare the selector setup, selection and
+execution steps separately when measuring CI savings.
+
 ## How they are written
 
-`cargo test` runs every default member of the workspace: 190 in `devpage`, six of
-them in `tests/`, 271 in its
-core `devpage-core`, 154 in the engine `devpage-design`, 10 in
-`devpage-design-wasm`, whose tests run natively, 2 in
-`devpage-design-module`, 16 in `devpage-bench` and 1 in
-`devpage-extension-api`. Tests are written as `#[cfg(test)]` modules beside
+`cargo test` runs the default tests across all seven workspace crates. Tests are written as `#[cfg(test)]` modules beside
 the code they test, except the tests that drive Chrome: each Chrome suite is
 a `#[cfg(test)]` module of `src/drive/browser_tests/` — `page_script`,
-`canvas`, `comments`, `pdf`, `slide_png`, `video`, `server_mode`,
-`server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
+`canvas`, `comments`, `pdf`, `places`, `sidebar`, `slide_png`, `video`, `world`,
+`server_mode`, `server_mode_pages` and `server_mode_comments` — on `chrome::testing`, which
 launches one Chrome for the whole run and gives each test a browser of its
 own inside it — a browser context, with its own storage, cache and
 connections — serves the test's router on loopback and waits on its pages.
@@ -43,7 +74,7 @@ test is kept for what only a browser does: layout, the page script, painting,
 input and live updates.
 Below, each suite's tests are listed under the module whose behaviour they
 pin. The `tests/`
-folder holds three, [the search's quality](#the-searchs-quality),
+folder covers CLI exit codes, [the search's quality](#the-searchs-quality),
 [a server's threads](#a-servers-threads) and
 [the restore of a deploy](#the-restore-of-a-deploy), and fixtures — `tests/fixtures/sync-design`, a doc of three
 chapters that the doc and PDF tests load, `tests/fixtures/narrated-talk`,
@@ -55,16 +86,10 @@ external-link tests ask a scripted table through the checker's `Ask` port,
 and `adapters::external`'s point it at a local web server, so the suite needs no
 network.
 
-Of the 119 tests marked `#[ignore]`, 110 drive Chrome, and one of them also
-calls GPT-Live; two run the server deploy example in Docker, one at a time,
-since they share its compose project; six time the engine in a release build —
-a save to its patch in the store at 1,000, 10,000 and 100,000 rows, what an
-edit to one row of a column costs a drawing at those lengths, an edit in every
-kind of frame at those lengths, how an edit's update grows to 200,000
-siblings, one update and its undo over and over for a profiler, and matching
-rewritten lists; the last asks
-Google's server for the pinned Chrome's zips, all at once, so it needs the
-network.
+The ignored tests in the devpage binary include the browser suites and
+Chrome adapter checks. Separate workspace targets also contain ignored tests
+for Docker deployments and release benchmarks. The browser selector passes
+all selected Rust filters to that binary in one invocation.
 All but the three `video` tests drive chrome-headless-shell through
 chromiumoxide, launched by `chrome::testing` in the shot profile — the copy
 [`devpage pdf` downloads](../../viewer/share/pdf/how-a-pdf-is-printed/README.md#the-chrome-it-drives)
@@ -74,11 +99,8 @@ Every test that draws on the GPU has `gpu` in its name, so
 `--skip gpu` runs the rest on a machine without one, as CI does on Windows.
 They run in parallel, so the longest bounds the run: the `video` tests,
 which record a deck as long as its slides play, and start last in the
-run's order — [how long they take](#how-long-the-chrome-suites-take). Run
-them with
-`--ignored` after changing the page
-script, the design script, the module, the stylesheet, a widget, print mode,
-`devpage pdf` or a slide's PNG. The three `video` tests drive Chrome for
+run's order — [how long they take](#how-long-the-chrome-suites-take). Run the [affected browser checks](../developing-devpage/README.md#select-browser-checks-locally)
+after a change. The three `video` tests drive Chrome for
 Testing instead — the copy [`devpage video` downloads](../../viewer/share/making-a-video/how-a-video-is-recorded/README.md#the-chrome-it-drives),
 fetched the same way; run them after changing `devpage video` or its
 recorder, `assets/video.js`. The live one records
@@ -558,6 +580,23 @@ In Chrome:
 - Comments asked for each page source only — never a widget — all at once.
 - A comment anchored inside a widget.
 - A broken helper's message shown in place, and a project `Callout.tsx` leaving the system `Callout` rendering; an unknown tag's error is the served HTML's, under [`widgets`](#widgets).
+
+### Sidebar navigation and search
+
+Run the dedicated group with `cargo test --bin devpage -- --ignored browser_tests::sidebar::`.
+For a sidebar change, the following additional libtest filters cover its integration with
+page loading, widget mounting, narrow screens and published pages. Multiple filters
+after `--` select their union in one process.
+
+- `page_script::a_cold_load_asks_for_every_module_from_the_head_and_a_plain_page_for_its_sidebar_only`
+- `page_script::widgets_mount_on_load_and_after_a_live_update`
+- `page_script::every_system_widget_renders`
+- `page_script::on_a_narrow_screen_a_docs_outline_is_a_navigator_over_the_text`
+- `server_mode::a_published_document_asks_only_under_its_mount`
+- `server_mode_pages::the_banner_and_the_version_bar_cover_nothing`
+
+The dedicated group checks these behaviors.
+
 - The sidebar at first paint collapsed with the branch to the page open, its search box drawn, and React taking it over without changing a node, its markup or any box — after a reload too, with the branches the reader opened open from the first frame; React rendering the server's markup; a chevron opening and closing its entry.
 - The sidebar's handle over its right edge, the sidebar's height: a drag setting the width and keeping it, never under 200px nor over 640px; the width drawn from the first frame after a reload, React taking the sidebar over without a change; the arrow keys moving it and a double click giving devpage's width back.
 - A page far down a long sidebar in sight from before the page script runs; a page moved to that is out of sight brought in, and one in sight leaving the sidebar where it is scrolled.

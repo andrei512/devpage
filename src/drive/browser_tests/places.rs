@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use chromiumoxide::Page;
 
-use super::page_script::{rewrite, text, widget_folder};
+use super::support::{rewrite, text, widget_folder};
 use crate::adapters::chrome::testing::{self, eval, until, until_is};
 use crate::drive::http;
 use devpage_core::document::Document;
@@ -56,7 +56,7 @@ fn placed_folder(name: &str) -> std::path::PathBuf {
     )
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::places::`.
 #[tokio::test]
 #[ignore]
 async fn a_places_widgets_show_on_every_page_and_stay_mounted() {
@@ -125,7 +125,7 @@ async fn a_places_widgets_show_on_every_page_and_stay_mounted() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::places::`.
 #[tokio::test]
 #[ignore]
 async fn on_a_narrow_window_the_panel_opens_only_when_a_widget_opens_it() {
@@ -148,7 +148,7 @@ async fn on_a_narrow_window_the_panel_opens_only_when_a_widget_opens_it() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-/// Drives chrome-headless-shell; run with `cargo test -- --ignored`.
+/// Drives chrome-headless-shell; run with `cargo test --bin devpage -- --ignored browser_tests::places::`.
 #[tokio::test]
 #[ignore]
 async fn a_widget_reads_and_steers_the_page_through_the_page_module() {

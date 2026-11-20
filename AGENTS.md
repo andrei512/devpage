@@ -32,19 +32,15 @@ Two things that hold in every stage:
 
 ## The gates
 
-Green before any pull request opens:
+Use the Node version in `.node-version` and run `npm ci` at the repository root.
+During an edit, `npm run check -- --explain` shows which checks the changed
+files require. Run them with `npm run check`. Use `npm run build` for the
+affected Rust build targets.
 
-```sh
-cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test
-```
-
-`cargo test` checks devpage's own docs for broken internal links too. After
-changing the page script, the design script (`core/assets/design.js`), the design
-engine's module, the stylesheet, a widget, print mode, `devpage pdf`, a
-slide's PNG, or `devpage video` and its recorder (`assets/video.js`), also run
-the tests that drive Chrome: `cargo test -- --ignored`.
+Before a pull request, include committed and working-tree changes with
+`npm run check -- --base origin/<target-branch>`. Use `-- --full` for full
+coverage. A change to test ownership updates the selection rules and their
+tests. See [development checks](docs/boxes/engineering/developing-devpage/README.md#the-gates).
 
 Run the docs while you work on them, from the repository root:
 `cargo run -- docs`.

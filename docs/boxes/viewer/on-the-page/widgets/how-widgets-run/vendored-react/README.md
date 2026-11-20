@@ -62,8 +62,8 @@ a site's sidebar is one — loads it, preloaded from that page's head
 3. Rebuild devpage and run the widget tests
    Including the ones that drive Chrome.
 
-   $ cargo test
-   $ cargo test -- --ignored
+   $ npm run check -- --explain
+   $ npm run check
 
 4. Update this page's version and size
 

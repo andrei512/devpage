@@ -146,3 +146,5 @@ These docs do this: [`docs/devpage.yml`](../../../../devpage.yml) reads every
 `devpage check` runs every suite, which takes as long as the tests do.
 `devpage check --docs` checks the docs alone — links, diagrams, page types —
 and leaves requirements and tests out.
+
+Use `devpage check --requirements-map` to validate the requirement IDs and the test files that refer to them. This reads the configured files and reports missing or duplicate IDs. The last recorded suite results stay available.

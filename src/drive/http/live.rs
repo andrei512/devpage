@@ -213,6 +213,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     use super::*;
+    use crate::adapters::processes::Processes;
     use crate::adapters::processes::tests::{keeping, serving};
     use crate::drive::http::{App, router};
 
@@ -240,28 +241,29 @@ mod tests {
     }
 
     /// Serves the site in `dir`, starting processes or not, and returns the
-    /// server's address and the address of the extension's `live/`.
-    async fn serve(dir: &std::path::Path, processes: bool) -> (String, String) {
+    /// server's address, the extension's `live/` address and its process manager.
+    async fn serve(dir: &std::path::Path, enabled: bool) -> (String, String, Processes) {
         let document = Arc::new(
             Document::load(&dir.join("devpage.yml"), &ServedFolder::new(dir).unwrap()).unwrap(),
         );
         let (_, base) = document.extensions[0].address();
         let app = App::testing(document, Default::default());
-        let app = if processes {
-            app.with_processes(keeping())
+        let processes = keeping();
+        let app = if enabled {
+            app.with_processes(processes.clone())
         } else {
             app
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap().to_string();
         tokio::spawn(async move { axum::serve(listener, router(app)).await.ok() });
-        (address, format!("{base}live/"))
+        (address, format!("{base}live/"), processes)
     }
 
     #[tokio::test]
     async fn a_request_under_live_reaches_the_process_with_the_token_and_the_user() {
         let dir = site("request");
-        let (address, live) = serve(&dir, true).await;
+        let (address, live, processes) = serve(&dir, true).await;
         let client = reqwest::Client::new();
         let got = client
             .get(format!("http://{address}{live}hello/there?x=1"))
@@ -319,13 +321,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(nowhere.status(), 404);
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
     async fn an_upgraded_connection_is_joined_to_the_process() {
         let dir = site("upgrade");
-        let (address, live) = serve(&dir, true).await;
+        let (address, live, processes) = serve(&dir, true).await;
         let mut stream = TcpStream::connect(&address).await.unwrap();
         stream
             .write_all(
@@ -349,13 +352,14 @@ mod tests {
             stream.read_exact(&mut heard).await.unwrap();
             assert_eq!(heard, said.as_bytes());
         }
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
     async fn an_extensions_page_is_what_its_process_wrote_drawn_in_the_sites_frame() {
         let dir = site("page");
-        let (address, live) = serve(&dir, true).await;
+        let (address, live, processes) = serve(&dir, true).await;
         let pages = format!(
             "http://{address}{}pages/",
             live.strip_suffix("live/").unwrap()
@@ -401,6 +405,7 @@ mod tests {
         assert_eq!(refused.send().await.unwrap().status(), 403);
         let nowhere = format!("http://{address}/__devpage/extensions/0000/toy/pages/how.md");
         assert_eq!(reqwest::get(nowhere).await.unwrap().status(), 404);
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -412,7 +417,7 @@ mod tests {
             "kind: doc\ntitle: T\nchapters: [README.md]\nextensions:\n  toy:\n    package: ./toy\n",
         )
         .unwrap();
-        let (address, live) = serve(&dir, true).await;
+        let (address, live, processes) = serve(&dir, true).await;
         let page = format!(
             "http://{address}{}pages/pads/how.md",
             live.strip_suffix("live/").unwrap()
@@ -424,6 +429,7 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("<h1 id=\"written\">Written"), "{html}");
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -528,7 +534,7 @@ mod tests {
 
         let program = crate::adapters::extensions::load(&dir.join("program"), "live").unwrap();
         devpage_core::extensions::serve_live(&scope, program);
-        let (address, live) = serve(&dir, true).await;
+        let (address, live, processes) = serve(&dir, true).await;
         let html = reqwest::get(format!("http://{address}/"))
             .await
             .unwrap()
@@ -564,13 +570,14 @@ mod tests {
             html.contains("<article data-source=\"pads/how.md\">"),
             "{html}"
         );
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[tokio::test]
     async fn where_no_process_is_started_live_is_not_found() {
         let dir = site("off");
-        let (address, live) = serve(&dir, false).await;
+        let (address, live, processes) = serve(&dir, false).await;
         let got = reqwest::get(format!("http://{address}{live}hello"))
             .await
             .unwrap();
@@ -582,6 +589,7 @@ mod tests {
             .unwrap();
         assert_eq!(got.status(), 404);
         assert!(got.text().await.unwrap().contains("loopback"));
+        processes.stop().await;
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

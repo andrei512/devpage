@@ -19,6 +19,7 @@ use tokio::process::{Child, Command};
 /// How long a started process has to accept connections on its port.
 const STARTING: Duration = Duration::from_secs(20);
 /// How long a process told to stop has before it is killed.
+#[cfg(unix)]
 const STOPPING: Duration = Duration::from_secs(3);
 /// A process that ran this long before dying is started again at once.
 const SETTLED: Duration = Duration::from_secs(10);
@@ -58,7 +59,7 @@ struct Shared {
 /// One extension's process, as last seen.
 enum Slot {
     /// Started, and accepting connections when last asked.
-    Running(Running),
+    Running(Box<Running>),
     /// Dead: not started again before `until`, and `why` until then.
     Failed {
         until: Instant,
@@ -129,7 +130,7 @@ impl Processes {
         match self.start(live, process, failures).await {
             Ok(running) => {
                 let endpoint = running.endpoint.clone();
-                slots.insert(live.key.clone(), Slot::Running(running));
+                slots.insert(live.key.clone(), Slot::Running(Box::new(running)));
                 Ok(endpoint)
             }
             Err(why) => {
@@ -297,7 +298,7 @@ fn tail(output: &Output) -> String {
 }
 
 /// Stops `child` and what it started: asked to end, then killed if it hasn't
-/// within [`STOPPING`].
+/// within the Unix grace period.
 async fn stop(mut child: Child) {
     #[cfg(unix)]
     if let Some(id) = child.id() {

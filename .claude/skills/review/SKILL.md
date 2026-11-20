@@ -49,8 +49,8 @@ the system. Review is what stops them being broken quietly; nothing else does.
 
 ## Verify, don't read
 
-Check the head out in a worktree and run things — the gates, the acceptance
-criteria, the case you think is broken. A review that only reads the diff is
+In the review worktree, run `npm run check -- --base <target-ref>` against the
+receiving branch. Exercise the acceptance criteria and reproduce any suspected failure. A review that only reads the diff is
 guessing.
 
 When a change has nothing to run — docs, a plan, a skill — verifying means
